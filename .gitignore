@@ -1,0 +1,30 @@
+# =====================
+# Flutter
+# =====================
+client/.dart_tool/
+client/build/
+client/.flutter-plugins
+client/.flutter-plugins-dependencies
+
+# =====================
+# Django / Python
+# =====================
+server/venv/
+server/__pycache__/
+server/**/*.pyc
+server/db.sqlite3
+server/.env
+
+# Ignore migration cache only
+server/**/migrations/__pycache__/
+
+# =====================
+# IDE
+# =====================
+.vscode/
+.idea/
+
+# =====================
+# macOS
+# =====================
+.DS_Store
