@@ -1,3 +1,7 @@
+# ============================================================
+# FLUTTER / DART
+# ============================================================
+
 # Miscellaneous
 *.class
 *.log
@@ -18,20 +22,19 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# VS Code
+.vscode/
 
 # Flutter/Dart/Pub related
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
+.flutter-plugins
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-/build/
-/coverage/
+build/
+coverage/
 
 # Symbolication related
 app.*.symbols
@@ -39,7 +42,105 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
-# Android Studio will place build artifacts here
+# Android Studio build artifacts
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+
+# ============================================================
+# PYTHON / DJANGO
+# ============================================================
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python virtual environments
+django/venv/
+django/.venv/
+venv/
+.venv/
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# Django database
+*.sqlite3
+db.sqlite3
+
+# Django generated files
+media/
+staticfiles/
+
+# Python testing / coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Python packaging
+*.egg
+*.egg-info/
+dist/
+build/
+wheels/
+
+# ============================================================
+# DATABASE / LOCAL DEVELOPMENT
+# ============================================================
+
+# PostgreSQL local files
+*.dump
+*.sql.gz
+
+# Local database files
+*.sqlite
+*.sqlite3
+
+
+# ============================================================
+# OS / EDITOR
+# ============================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# Vim
+*.swp
+*.swo
+
+# VS Code workspace settings
+.vscode/
+
+
+# ============================================================
+# LOGS / TEMPORARY FILES
+# ============================================================
+
+*.log
+*.tmp
+*.temp
+*.bak
+
+
+# ============================================================
+# GENERATED / LOCAL CONFIGURATION
+# ============================================================
+
+# Local environment configuration
+*.local
