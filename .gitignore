@@ -28,5 +28,3 @@ server/**/migrations/__pycache__/
 # macOS
 # =====================
 .DS_Store
-
-django/venv/
