@@ -37,6 +37,14 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
+    # BuildPro Modules
+    'apps.users',
+    'apps.inventory',
+    'apps.pos',
+    'apps.collectibles',
+    'apps.requisitions',
+
 ]
 
 MIDDLEWARE = [
