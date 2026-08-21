@@ -28,3 +28,10 @@ server/**/migrations/__pycache__/
 # macOS
 # =====================
 .DS_Store
+
+
+# =====================
+# Agent Skills (local AI tooling — do not commit)
+# =====================
+.agents/
+skills-lock.json

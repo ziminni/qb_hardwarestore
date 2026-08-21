@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/core/constants/app_assets.dart';
+import 'package:client/data/services/health_service.dart';
 
 class LoginPage extends StatefulWidget {
 
@@ -22,6 +23,21 @@ class _LoginPageState extends State<LoginPage> {
     emailController.dispose();
     passwordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pingServer() async {
+    try {
+      final data = await HealthService().ping();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Connected: ${data['status']} · ${data['service']}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ping failed: $e')),
+      );
+    }
   }
 
   @override
@@ -139,6 +155,12 @@ class _LoginPageState extends State<LoginPage> {
                                   child: const Text('Login'),
                                 );
                               },
+                            ),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: _pingServer,
+                              icon: const Icon(Icons.wifi_tethering),
+                              label: const Text('Test API Connection'),
                             ),
 
                             Consumer<AuthViewmodel>(

@@ -6,6 +6,7 @@ import 'app.dart';
 import 'features/auth/viewmodels/auth_viewmodel.dart';
 import 'data/repositories/auth_repository.dart';
 import 'data/services/auth_service.dart';
+import 'core/network/api_client.dart';
 
 Future<void> main(List<String> args) async {
 
@@ -16,6 +17,9 @@ Future<void> main(List<String> args) async {
   );
 
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialise the shared HTTP client before the UI starts.
+  ApiClient.instance.init();
 
   await windowManager.ensureInitialized();
   await windowManager.setMinimumSize(const Size(1000, 600));

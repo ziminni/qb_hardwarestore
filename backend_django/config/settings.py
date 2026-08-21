@@ -25,7 +25,9 @@ SECRET_KEY = 'django-insecure-1y$rst#jhihg+_x%)jt_%-n4&xi_paerb$le)!b5^wg=!rr)$f
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+# Dev only: accept any Host header (web/desktop = 127.0.0.1, emulator = 10.0.2.2, physical device = LAN IP).
+# Restrict this to explicit hosts for production.
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -37,6 +39,10 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
+    # Third-party
+    'rest_framework',
+    'corsheaders',
 
     # BuildPro Modules
     'apps.users',
@@ -50,6 +56,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -138,3 +145,11 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# =============================================
+# CORS (Cross-Origin Resource Sharing)
+# Allows Flutter Web and other dev origins to call the API.
+# Dev-only convenience; switch to CORS_ALLOWED_ORIGINS in production.
+# =============================================
+CORS_ALLOW_ALL_ORIGINS = True
