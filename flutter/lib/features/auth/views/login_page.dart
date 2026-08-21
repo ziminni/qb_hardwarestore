@@ -65,12 +65,11 @@ class _LoginPageState extends State<LoginPage> {
                 margin: const EdgeInsets.symmetric(horizontal: 40),
                 child: SizedBox(
                   width: 480,
-                  height: 400,
-                  child: Padding(
+                  child: SingleChildScrollView(
                     padding: const EdgeInsets.all(24),
                     child: Form(
                       child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                             const Text(
