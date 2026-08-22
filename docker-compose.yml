@@ -15,8 +15,7 @@ services:
     build: ./backend_django
     container_name: config
     command: >
-      sh -c "python manage.py makemigrations &&
-             python manage.py migrate &&
+      sh -c "python manage.py migrate &&
              python manage.py runserver 0.0.0.0:8000"
     volumes:
       - ./backend_django:/app
