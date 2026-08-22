@@ -5,6 +5,10 @@ client/.dart_tool/
 client/build/
 client/.flutter-plugins
 client/.flutter-plugins-dependencies
+flutter/.dart_tool/
+flutter/build/
+flutter/.flutter-plugins
+flutter/.flutter-plugins-dependencies
 
 # =====================
 # Django / Python
@@ -14,9 +18,10 @@ server/__pycache__/
 server/**/*.pyc
 server/db.sqlite3
 server/.env
-
-# Ignore migration cache only
-server/**/migrations/__pycache__/
+backend_django/**/__pycache__/
+backend_django/**/*.pyc
+backend_django/db.sqlite3
+backend_django/.env
 
 # =====================
 # IDE
@@ -28,6 +33,12 @@ server/**/migrations/__pycache__/
 # macOS
 # =====================
 .DS_Store
+
+
+# =====================
+# Capstone personal notes — do not commit
+# =====================
+.capstone_files/
 
 
 # =====================
