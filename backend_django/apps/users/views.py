@@ -47,7 +47,7 @@ def login_view(request):
     log_audit(
         user=user,
         action_type=AuditLog.ActionType.LOGIN,
-        description=f'{user.full_name} logged in.',
+        description=f'{user.username} logged in.',
         ip_address=request.META.get('REMOTE_ADDR', ''),
     )
 
@@ -97,7 +97,7 @@ class UserViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
         user.groups.add(group)
-        return Response({'detail': f'{user.email} assigned to {group_name}.'})
+        return Response({'detail': f'{user.username} assigned to {group_name}.'})
 
     @action(detail=True, methods=['post'])
     def remove_role(self, request, pk=None):
@@ -117,7 +117,7 @@ class UserViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
         user.groups.remove(group)
-        return Response({'detail': f'{group_name} removed from {user.email}.'})
+        return Response({'detail': f'{group_name} removed from {user.username}.'})
 
 
 # ---------------------------------------------------------------------------

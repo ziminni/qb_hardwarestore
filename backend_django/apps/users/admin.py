@@ -9,14 +9,14 @@ from .models import AuditLog, User
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-    list_display = ('email', 'full_name', 'is_active', 'is_staff', 'created_at')
+    list_display = ('username', 'email', 'full_name', 'is_active', 'is_staff', 'created_at')
     list_filter = ('is_active', 'is_staff', 'groups')
-    search_fields = ('email', 'full_name')
-    ordering = ('email',)
+    search_fields = ('username', 'email', 'full_name')
+    ordering = ('username',)
     readonly_fields = ('last_login', 'created_at', 'updated_at')
 
     fieldsets = (
-        (None, {'fields': ('email', 'password')}),
+        (None, {'fields': ('username', 'email', 'password')}),
         ('Personal info', {'fields': ('full_name',)}),
         ('Permissions', {
             'fields': (
@@ -34,7 +34,7 @@ class UserAdmin(BaseUserAdmin):
         (None, {
             'classes': ('wide',),
             'fields': (
-                'email', 'full_name', 'password1', 'password2',
+                'username', 'email', 'full_name', 'password1', 'password2',
                 'is_active', 'is_staff', 'groups',
             ),
         }),

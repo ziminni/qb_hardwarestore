@@ -1,6 +1,7 @@
 """
-BuildPro User model — custom AbstractBaseUser using email as the unique
-identifier. Integrates with Django's built-in Group / Permission RBAC.
+BuildPro User model — custom AbstractBaseUser using username as the
+primary login identifier (familiar to store staff). Integrates with
+Django's built-in Group / Permission RBAC.
 
 ERD mapping:
     USER        → apps_users.User
@@ -19,43 +20,53 @@ from django.utils import timezone
 
 
 class UserManager(BaseUserManager):
-    """Custom manager: email is the unique identifier, not username."""
+    """Custom manager: username is the unique login identifier."""
 
-    def _create_user(self, email, password, **extra_fields):
+    def _create_user(self, username, email, password, **extra_fields):
+        if not username:
+            raise ValueError('Username is required')
         if not email:
             raise ValueError('Email is required')
         email = self.normalize_email(email)
-        user = self.model(email=email, **extra_fields)
+        user = self.model(username=username, email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
         return user
 
-    def create_user(self, email, password=None, **extra_fields):
+    def create_user(self, username, email=None, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', False)
         extra_fields.setdefault('is_superuser', False)
-        return self._create_user(email, password, **extra_fields)
+        return self._create_user(username, email, password, **extra_fields)
 
-    def create_superuser(self, email, password=None, **extra_fields):
+    def create_superuser(self, username, email=None, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
         if not extra_fields.get('is_staff'):
             raise ValueError('Superuser must have is_staff=True.')
         if not extra_fields.get('is_superuser'):
             raise ValueError('Superuser must have is_superuser=True.')
-        return self._create_user(email, password, **extra_fields)
+        return self._create_user(username, email, password, **extra_fields)
 
 
 class User(AbstractBaseUser, PermissionsMixin):
-    """Custom User with email-based authentication.
+    """Custom User with username-based authentication.
+
+    username is the primary login field (short, familiar to store staff).
+    email is still required and unique for password resets / notifications.
 
     Roles are managed via Django's built-in Group (auth_group)
-    and Permission (auth_permission). Use `user.groups` and
-    `user.user_permissions` to manage RBAC.
+    and Permission (auth_permission).
     """
+    username = models.CharField(
+        max_length=80,
+        unique=True,
+        db_index=True,
+        help_text='Short login name (e.g. staff ID, first name).',
+    )
     email = models.EmailField(
         unique=True,
         db_index=True,
-        help_text='Used as the login identifier.',
+        help_text='Used for notifications and password resets.',
     )
     full_name = models.CharField(max_length=255)
     is_active = models.BooleanField(default=True)
@@ -69,8 +80,8 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     objects = UserManager()
 
-    USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = ['full_name']
+    USERNAME_FIELD = 'username'
+    REQUIRED_FIELDS = ['email', 'full_name']
 
     class Meta:
         db_table = 'apps_users'
@@ -78,13 +89,14 @@ class User(AbstractBaseUser, PermissionsMixin):
         verbose_name_plural = 'users'
         ordering = ['-created_at']
         indexes = [
+            models.Index(fields=['username']),
             models.Index(fields=['email']),
             models.Index(fields=['is_active']),
             models.Index(fields=['-created_at']),
         ]
 
     def __str__(self):
-        return f'{self.full_name} <{self.email}>'
+        return f'{self.username} ({self.full_name})'
 
     @property
     def role_names(self):

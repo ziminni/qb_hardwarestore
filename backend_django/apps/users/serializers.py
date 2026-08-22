@@ -18,7 +18,7 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'id', 'email', 'full_name', 'is_active', 'is_staff',
+            'id', 'username', 'email', 'full_name', 'is_active', 'is_staff',
             'role_names', 'last_login', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'last_login', 'created_at', 'updated_at']
@@ -36,7 +36,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['email', 'full_name', 'password', 'group_name']
+        fields = ['username', 'email', 'full_name', 'password', 'group_name']
 
     def validate_group_name(self, value):
         if value and not Group.objects.filter(name=value).exists():
@@ -53,22 +53,22 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 
 class LoginSerializer(serializers.Serializer):
-    """Accepts email + password, validates, returns the User object."""
+    """Accepts username + password, validates, returns the User object."""
 
-    email = serializers.EmailField()
+    username = serializers.CharField()
     password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
-        email = attrs.get('email')
+        username = attrs.get('username')
         password = attrs.get('password')
 
         user = authenticate(
             request=self.context.get('request'),
-            email=email,
+            username=username,
             password=password,
         )
         if not user:
-            raise serializers.ValidationError('Invalid email or password.')
+            raise serializers.ValidationError('Invalid username or password.')
         if not user.is_active:
             raise serializers.ValidationError('This account is disabled.')
 
