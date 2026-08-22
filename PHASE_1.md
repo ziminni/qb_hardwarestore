@@ -92,7 +92,7 @@ docker compose exec backend python manage.py shell -c "
 from django.contrib.auth.models import Group
 for name in ['Admin','Cashier','Stock Manager','Store Manager','Site Foreman','System Administrator']:
     Group.objects.get_or_create(name=name)
-print('Done')
+print('Done')"
 "
 
 # 4. Test login (uses username, not email)
