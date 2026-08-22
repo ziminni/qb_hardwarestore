@@ -9,6 +9,13 @@ from .models import (
     ProductVariant,
     UnitOfMeasure,
     VariantUOM,
+    Supplier,
+    PurchaseOrder,
+    POItem,
+    GoodsReceipt,
+    InventoryBatch,
+    StockAdjustment,
+    SystemAlert,
 )
 
 
@@ -55,3 +62,52 @@ class ProductVariantAdmin(admin.ModelAdmin):
 class VariantUOMAdmin(admin.ModelAdmin):
     list_display = ('variant', 'uom', 'conversion_factor', 'barcode_qr')
     search_fields = ('variant__variant_name', 'barcode_qr')
+
+
+# =========================================================================
+# Phase 2 Admin registrations
+# =========================================================================
+
+@admin.register(Supplier)
+class SupplierAdmin(admin.ModelAdmin):
+    list_display = ('company_name', 'contact_person', 'phone', 'is_active')
+    search_fields = ('company_name',)
+    list_filter = ('is_active',)
+
+
+class POItemInline(admin.TabularInline):
+    model = POItem
+    extra = 0
+
+
+@admin.register(PurchaseOrder)
+class PurchaseOrderAdmin(admin.ModelAdmin):
+    list_display = ('id', 'supplier', 'status', 'order_date', 'expected_delivery')
+    list_filter = ('status',)
+    search_fields = ('supplier__company_name',)
+    inlines = [POItemInline]
+
+
+@admin.register(GoodsReceipt)
+class GoodsReceiptAdmin(admin.ModelAdmin):
+    list_display = ('id', 'po', 'receive_date', 'delivery_receipt_no')
+    search_fields = ('po__supplier__company_name',)
+
+
+@admin.register(InventoryBatch)
+class InventoryBatchAdmin(admin.ModelAdmin):
+    list_display = ('id', 'variant', 'current_qty', 'batch_selling_price', 'expiration_date')
+    search_fields = ('variant__variant_name',)
+    list_filter = ('expiration_date',)
+
+
+@admin.register(StockAdjustment)
+class StockAdjustmentAdmin(admin.ModelAdmin):
+    list_display = ('variant', 'adjustment_type', 'qty_adjusted', 'user', 'timestamp')
+    list_filter = ('adjustment_type',)
+
+
+@admin.register(SystemAlert)
+class SystemAlertAdmin(admin.ModelAdmin):
+    list_display = ('alert_type', 'variant', 'is_resolved', 'created_at')
+    list_filter = ('alert_type', 'is_resolved')

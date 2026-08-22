@@ -39,4 +39,6 @@ urlpatterns = [
     # App routes  (v1 namespace for future versioning)
     path('api/v1/', include('apps.users.urls')),
     path('api/v1/', include('apps.inventory.urls')),
+    path('api/v1/', include('apps.pos.urls')),
+    path('api/v1/', include('apps.collectibles.urls')),
 ]
