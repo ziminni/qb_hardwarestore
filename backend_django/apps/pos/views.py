@@ -1,3 +1,4 @@
+from django.db.models import Sum
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -41,7 +42,7 @@ class SalesTransactionViewSet(BaseViewSet):
         from datetime import timedelta
         today = timezone.localdate()
         qs = self.get_queryset().filter(trans_date__date=today)
-        total = qs.aggregate(total=models.Sum('grand_total'))['total'] or 0
+        total = qs.aggregate(total=Sum('grand_total'))['total'] or 0
         return Response({'date': str(today), 'count': qs.count(), 'total_sales': total})
 
 
