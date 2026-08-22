@@ -1,4 +1,4 @@
-# Sprint 1 — Foundation: Authentication & Product Catalog
+# Phase 1 — Foundation: Authentication & Product Catalog
 
 **Date:** August 2026  
 **Status:** ✅ Complete  
@@ -8,9 +8,10 @@
 
 ## What was built
 
-### 1. Custom User Model (email-based auth)
+### 1. Custom User Model (username-based auth)
 - **`apps/users/models.py`** — `User` extends `AbstractBaseUser` + `PermissionsMixin`.
-  `USERNAME_FIELD = 'email'` (no username). `AuditLog` with action-type choices.
+  `USERNAME_FIELD = 'username'` (short, familiar to store staff). `email` is still
+  required and unique. `AuditLog` with action-type choices.
 - RBAC uses Django's **built-in `Group`** and **`Permission`** (auth_group / auth_permission),
   avoiding custom tables while still satisfying the ERD's intent.
 
@@ -55,7 +56,7 @@
 
 ---
 
-## API Endpoints (Sprint 1)
+## API Endpoints (Phase 1)
 
 | Method | URL | Auth | Description |
 |--------|-----|------|-------------|
@@ -82,9 +83,9 @@
 # 1. Rebuild (simplejwt is a new dependency)
 docker compose up -d --build
 
-# 2. Create superuser
+# 2. Create superuser (enter username, email, password when prompted)
 docker compose exec backend python manage.py createsuperuser
-# email: admin@buildpro.com  password: admin123
+# Example: username: admin  email: admin@buildpro.com  password: admin123
 
 # 3. Create roles
 docker compose exec backend python manage.py shell -c "
@@ -94,10 +95,10 @@ for name in ['Admin','Cashier','Stock Manager','Store Manager','Site Foreman','S
 print('Done')
 "
 
-# 4. Test login
+# 4. Test login (uses username, not email)
 curl -X POST http://127.0.0.1:8000/api/v1/auth/login/ \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@buildpro.com","password":"admin123"}'
+  -d '{"username":"admin","password":"admin123"}'
 
 # 5. Use the access token from step 4 to hit a protected endpoint
 curl http://127.0.0.1:8000/api/v1/products/ \
@@ -106,8 +107,8 @@ curl http://127.0.0.1:8000/api/v1/products/ \
 
 ---
 
-## Next: Sprint 2 (Supplier, Purchasing, POS)
-See the plan document for the full roadmap. Sprint 2 adds:
+## Next: Phase 2 (Supplier, Purchasing, POS)
+See the plan document for the full roadmap. Phase 2 adds:
 - `Supplier`, `PurchaseOrder`, `POItem`, `GoodsReceipt`, `InventoryBatch`,
   `StockAdjustment`, `SystemAlert`
 - POS: `Customer`, `SalesTransaction`, `SalesItem`, `Payment`, `OfficialReceipt`

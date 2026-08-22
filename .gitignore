@@ -36,6 +36,12 @@ backend_django/.env
 
 
 # =====================
+# Capstone personal notes — do not commit
+# =====================
+.capstone_files/
+
+
+# =====================
 # Agent Skills (local AI tooling — do not commit)
 # =====================
 .agents/
