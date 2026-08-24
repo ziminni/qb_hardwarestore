@@ -41,4 +41,5 @@ urlpatterns = [
     path('api/v1/', include('apps.inventory.urls')),
     path('api/v1/', include('apps.pos.urls')),
     path('api/v1/', include('apps.collectibles.urls')),
+    path('api/v1/', include('apps.requisitions.urls')),
 ]
