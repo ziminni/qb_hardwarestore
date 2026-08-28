@@ -10,12 +10,6 @@ class SalesDashboard extends StatefulWidget {
 class _SalesDashboardState extends State<SalesDashboard> {
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Row(
-        children: [
-          Text("Sales Dashboard - Welcome")
-        ],
-      ),
-    );
+    return Scaffold(body: Row(children: [Text("Sales Dashboard - Welcome")]));
   }
 }

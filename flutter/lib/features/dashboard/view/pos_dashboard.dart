@@ -10,12 +10,6 @@ class POSDashboard extends StatefulWidget {
 class _POSDashboardState extends State<POSDashboard> {
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Row(
-        children: [
-          Text("POS Dashboard - Welcome")
-        ],
-      ),
-    );
+    return Scaffold(body: Row(children: [Text("POS Dashboard - Welcome")]));
   }
 }

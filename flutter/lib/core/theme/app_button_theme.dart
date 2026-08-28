@@ -18,9 +18,7 @@ class AppButtonTheme {
 
   static TextButtonThemeData textButton() {
     return TextButtonThemeData(
-      style: TextButton.styleFrom(
-        foregroundColor: AppColors.primary,
-      ),
+      style: TextButton.styleFrom(foregroundColor: AppColors.primary),
     );
   }
 }

@@ -1,40 +1,59 @@
-import 'package:flutter/widgets.dart';
+import 'package:client/data/models/user.dart';
+import 'package:client/data/repositories/auth_repository.dart';
+import 'package:client/data/services/auth_service.dart';
+import 'package:flutter/foundation.dart';
 
-import '../../../data/repositories/auth_repository.dart';
-import '../../../data/models/user.dart';
+class AuthViewmodel extends ChangeNotifier {
+  AuthViewmodel(this.repository);
 
-class AuthViewmodel extends ChangeNotifier{
   final AuthRepository repository;
 
-  AuthViewmodel (
-    this.repository
-  );
-
+  bool isInitializing = true;
   bool isLoading = false;
   User? user;
   String? error;
 
+  bool get isAuthenticated => user != null;
+  String? get roleName => user?.role.name;
 
+  Future<void> initialize() async {
+    user = await repository.restoreSession();
+    isInitializing = false;
+    notifyListeners();
+  }
 
-  Future<void> login(String email, String password) async{
+  Future<bool> login(String identifier, String password) async {
     isLoading = true;
     error = null;
-
     notifyListeners();
 
-    final result = await repository.login(email, password);
-
-    if (result == null) {
+    try {
+      user = await repository.login(identifier, password);
+      return true;
+    } on AuthException catch (exception) {
       user = null;
-      error = "Invalid email or password";
-    } 
-    else {
-      user = result;
-      error = null;
+      error = exception.message;
+      return false;
+    } catch (_) {
+      user = null;
+      error = 'Something went wrong. Please try again.';
+      return false;
+    } finally {
+      isLoading = false;
+      notifyListeners();
     }
+  }
 
-    isLoading = false;
-
+  Future<void> logout() async {
+    isLoading = true;
     notifyListeners();
+    try {
+      await repository.logout();
+    } finally {
+      user = null;
+      error = null;
+      isLoading = false;
+      notifyListeners();
+    }
   }
 }

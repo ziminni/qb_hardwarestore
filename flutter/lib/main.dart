@@ -1,25 +1,20 @@
+import 'package:client/app.dart';
+import 'package:client/core/network/api_client.dart';
+import 'package:client/data/repositories/auth_repository.dart';
+import 'package:client/data/services/auth_service.dart';
+import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'app.dart';
-import 'features/auth/viewmodels/auth_viewmodel.dart';
-import 'data/repositories/auth_repository.dart';
-import 'data/services/auth_service.dart';
-import 'core/network/api_client.dart';
-
-Future<void> main(List<String> args) async {
-
-  final authService = AuthService();
-
-  final authRepository = AuthRepository(
-    authService,
-  );
-
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialise the shared HTTP client before the UI starts.
   ApiClient.instance.init();
+  final authService = AuthService();
+  final authRepository = AuthRepository(authService);
+  final authViewmodel = AuthViewmodel(authRepository);
+  await authViewmodel.initialize();
 
   await windowManager.ensureInitialized();
   await windowManager.setMinimumSize(const Size(1000, 600));
@@ -27,13 +22,10 @@ Future<void> main(List<String> args) async {
   await windowManager.center();
   await windowManager.setResizable(true);
 
-
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => AuthViewmodel(
-        authRepository,
-      ),
-      child: const MyApp(),
+    ChangeNotifierProvider.value(
+      value: authViewmodel,
+      child: MyApp(auth: authViewmodel),
     ),
   );
 }

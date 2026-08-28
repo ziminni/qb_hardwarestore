@@ -10,6 +10,11 @@ services:
       - "5433:5432" # Maps Docker's 5432 to your PC's 5433 to avoid conflicts!
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d buildpro_pos"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
 
   backend:
     build: ./backend_django
@@ -19,10 +24,14 @@ services:
              python manage.py runserver 0.0.0.0:8000"
     volumes:
       - ./backend_django:/app
+    env_file:
+      - path: ./backend_django/.env
+        required: false
     ports:
       - "8000:8000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
 volumes:
   postgres_data:

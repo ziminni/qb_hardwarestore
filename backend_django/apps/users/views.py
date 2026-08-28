@@ -23,13 +23,31 @@ from .services import log_audit, update_last_login
 # ---------------------------------------------------------------------------
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAdminUser])
 def register_view(request):
-    """Register a new user account."""
+    """Create an account; public registration is intentionally disabled."""
     serializer = RegisterSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     user = serializer.save()
     return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def me_view(request):
+    return Response(UserSerializer(request.user).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def logout_view(request):
+    log_audit(
+        user=request.user,
+        action_type=AuditLog.ActionType.LOGOUT,
+        description=f'{request.user.username} logged out.',
+        ip_address=request.META.get('REMOTE_ADDR', ''),
+    )
+    return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @api_view(['POST'])
@@ -96,7 +114,7 @@ class UserViewSet(viewsets.ModelViewSet):
                 {'detail': f'Group "{group_name}" does not exist.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        user.groups.add(group)
+        user.groups.set([group])
         return Response({'detail': f'{user.username} assigned to {group_name}.'})
 
     @action(detail=True, methods=['post'])

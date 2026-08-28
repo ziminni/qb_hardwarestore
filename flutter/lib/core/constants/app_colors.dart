@@ -9,7 +9,7 @@ class AppColors {
   static const textDark = Colors.black;
   static const textLight = Colors.white;
 
-    // Primary Brand Colors
+  // Primary Brand Colors
   static const Color richGold = Color(0xFFC5A46D);
   static const Color deepBlack = Color(0xFF0F0F0F);
   static const Color softWhite = Color(0xFFF5F5F5);

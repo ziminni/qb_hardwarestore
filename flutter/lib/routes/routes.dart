@@ -1,36 +1,61 @@
-import 'package:go_router/go_router.dart';
-
-// auth
+import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/auth/views/login_page.dart';
-
-// dashboards
 import 'package:client/features/dashboard/view/admin_dashboard.dart';
 import 'package:client/features/dashboard/view/inventory_dashboard.dart';
 import 'package:client/features/dashboard/view/pos_dashboard.dart';
 import 'package:client/features/dashboard/view/sales_dashboard.dart';
+import 'package:go_router/go_router.dart';
 
 class AppRoutes {
-  // Authentication
-  static const String login = "/login";
+  AppRoutes._();
 
-  // Dashboards
-  static const String adminDashboard = "/admin/dashboard";
-  static const String inventoryDashboard = "/inventory/dashboard";
-  static const String posDashboard = "/pos/dashboard";
-  static const String salesDashboard = "/sales/dashboard";
+  static const String login = '/login';
+  static const String adminDashboard = '/admin/dashboard';
+  static const String inventoryDashboard = '/inventory/dashboard';
+  static const String posDashboard = '/pos/dashboard';
+  static const String salesDashboard = '/sales/dashboard';
 
-  static GoRouter createRouter() {
+  static String? dashboardForRole(String? role) {
+    return switch (role) {
+      'admin' => adminDashboard,
+      'inventory' => inventoryDashboard,
+      'pos' => posDashboard,
+      'sales' => salesDashboard,
+      _ => null,
+    };
+  }
+
+  static GoRouter createRouter(AuthViewmodel auth) {
     return GoRouter(
       initialLocation: login,
+      refreshListenable: auth,
+      redirect: (context, state) {
+        final location = state.matchedLocation;
+        final isLogin = location == login;
 
+        if (!auth.isAuthenticated) return isLogin ? null : login;
+
+        final dashboard = dashboardForRole(auth.roleName);
+        if (dashboard == null) return isLogin ? null : login;
+        if (isLogin) return dashboard;
+
+        const protectedDashboards = {
+          adminDashboard,
+          inventoryDashboard,
+          posDashboard,
+          salesDashboard,
+        };
+        if (protectedDashboards.contains(location) && location != dashboard) {
+          return dashboard;
+        }
+        return null;
+      },
       routes: [
         GoRoute(
           path: login,
           name: 'login',
           builder: (context, state) => const LoginPage(),
         ),
-
-        // DASHBOARD
         GoRoute(
           path: adminDashboard,
           name: 'admin_dashboard',
@@ -51,7 +76,6 @@ class AppRoutes {
           name: 'sales_dashboard',
           builder: (context, state) => const SalesDashboard(),
         ),
-        
       ],
     );
   }

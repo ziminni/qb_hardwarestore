@@ -17,11 +17,7 @@ class MainLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        leading: leading,
-        title: Text(title),
-        actions: actions,
-      ),
+      appBar: AppBar(leading: leading, title: Text(title), actions: actions),
       body: Row(
         children: [
           NavigationRail(

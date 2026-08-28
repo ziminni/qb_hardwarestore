@@ -1,7 +1,7 @@
 """Users app — serializers for registration, login, profile."""
 
-from django.contrib.auth import authenticate
 from django.contrib.auth.models import Group
+from django.db.models import Q
 from rest_framework import serializers
 
 from .models import AuditLog, User
@@ -14,18 +14,38 @@ from .models import AuditLog, User
 class UserSerializer(serializers.ModelSerializer):
     """Read / list representation."""
     role_names = serializers.SerializerMethodField()
+    role = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             'id', 'username', 'email', 'full_name', 'is_active', 'is_staff',
-            'role_names', 'last_login', 'created_at', 'updated_at',
+            'role', 'role_names', 'last_login', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'last_login', 'created_at', 'updated_at']
 
     @staticmethod
     def get_role_names(obj):
         return obj.role_names
+
+    @staticmethod
+    def get_role(obj):
+        group = obj.groups.order_by('id').first()
+        if obj.is_superuser:
+            return {'id': 0, 'name': 'admin', 'display_name': 'Administrator', 'permissions': []}
+        if group is None:
+            return None
+        names = {
+            'Admin': 'admin', 'System Administrator': 'admin',
+            'Stock Manager': 'inventory', 'Cashier': 'pos',
+            'Store Manager': 'sales', 'Sales': 'sales',
+        }
+        return {
+            'id': group.id,
+            'name': names.get(group.name, group.name.lower().replace(' ', '_')),
+            'display_name': group.name,
+            'permissions': [],
+        }
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -53,21 +73,21 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 
 class LoginSerializer(serializers.Serializer):
-    """Accepts username + password, validates, returns the User object."""
+    """Accepts username or email plus password."""
 
-    username = serializers.CharField()
+    identifier = serializers.CharField(required=False)
+    username = serializers.CharField(required=False)
     password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
-        username = attrs.get('username')
+        identifier = attrs.get('identifier') or attrs.get('username')
         password = attrs.get('password')
-
-        user = authenticate(
-            request=self.context.get('request'),
-            username=username,
-            password=password,
-        )
-        if not user:
+        if not identifier:
+            raise serializers.ValidationError('Username or email is required.')
+        user = User.objects.filter(
+            Q(username__iexact=identifier) | Q(email__iexact=identifier),
+        ).first()
+        if user is None or not user.check_password(password):
             raise serializers.ValidationError('Invalid username or password.')
         if not user.is_active:
             raise serializers.ValidationError('This account is disabled.')
