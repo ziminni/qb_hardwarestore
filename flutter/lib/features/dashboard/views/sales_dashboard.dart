@@ -2,6 +2,7 @@ import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/dashboard/widget/sales_dashboard_content.dart';
 import 'package:flutter/material.dart';
 
+/// The sales team's dashboard page.
 class SalesDashboard extends StatelessWidget {
   const SalesDashboard({super.key});
 

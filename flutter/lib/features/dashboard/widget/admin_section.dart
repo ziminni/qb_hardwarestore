@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
 
-class MockSection extends StatelessWidget {
-  const MockSection({
+class AdminSection extends StatelessWidget {
+  const AdminSection({
     super.key,
     required this.title,
     required this.child,
     this.actionLabel,
+    this.onAction,
   });
 
   final String title;
   final Widget child;
   final String? actionLabel;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +35,10 @@ class MockSection extends StatelessWidget {
                 ),
               ),
               if (actionLabel != null)
-                TextButton(onPressed: () {}, child: Text(actionLabel!)),
+                TextButton(
+                  onPressed: onAction ?? () {},
+                  child: Text(actionLabel!),
+                ),
             ],
           ),
           const Divider(),

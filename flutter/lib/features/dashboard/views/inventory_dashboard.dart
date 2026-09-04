@@ -2,6 +2,7 @@ import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/dashboard/widget/inventory_dashboard_content.dart';
 import 'package:flutter/material.dart';
 
+/// The inventory team's dashboard page.
 class InventoryDashboard extends StatelessWidget {
   const InventoryDashboard({super.key});
 

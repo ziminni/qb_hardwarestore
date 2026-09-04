@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-class MockTable extends StatelessWidget {
-  const MockTable({super.key, required this.columns, required this.rows});
+class SalesDataTable extends StatelessWidget {
+  const SalesDataTable({super.key, required this.columns, required this.rows});
 
   final List<String> columns;
   final List<List<String>> rows;

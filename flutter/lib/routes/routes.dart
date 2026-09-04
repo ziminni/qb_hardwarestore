@@ -1,9 +1,9 @@
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/auth/views/login_page.dart';
-import 'package:client/features/dashboard/view/admin_dashboard.dart';
-import 'package:client/features/dashboard/view/inventory_dashboard.dart';
-import 'package:client/features/dashboard/view/pos_dashboard.dart';
-import 'package:client/features/dashboard/view/sales_dashboard.dart';
+import 'package:client/features/dashboard/views/admin_dashboard.dart';
+import 'package:client/features/dashboard/views/inventory_dashboard.dart';
+import 'package:client/features/dashboard/views/pos_dashboard.dart';
+import 'package:client/features/dashboard/views/sales_dashboard.dart';
 import 'package:go_router/go_router.dart';
 
 class AppRoutes {

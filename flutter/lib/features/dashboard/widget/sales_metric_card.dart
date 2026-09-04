@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-class MockMetric extends StatelessWidget {
-  const MockMetric({super.key, required this.label, required this.value});
+class SalesMetricCard extends StatelessWidget {
+  const SalesMetricCard({super.key, required this.label, required this.value});
 
   final String label;
   final String value;

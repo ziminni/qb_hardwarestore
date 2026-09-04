@@ -1,5 +1,6 @@
-import 'package:client/features/dashboard/widget/mock_section.dart';
+import 'package:client/features/dashboard/viewmodels/dashboard_mock_data.dart';
 import 'package:client/features/dashboard/widget/pos_total_row.dart';
+import 'package:client/features/dashboard/widget/pos_section.dart';
 import 'package:flutter/material.dart';
 
 class PosCartPanel extends StatelessWidget {
@@ -7,39 +8,37 @@ class PosCartPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MockSection(
+    return const PosSection(
       title: 'Current transaction',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const TextField(
+          TextField(
             decoration: InputDecoration(
               labelText: 'Customer (optional)',
-              hintText: '[ Select customer ]',
+              hintText: 'Select customer',
               border: OutlineInputBorder(),
             ),
           ),
-          const SizedBox(height: 12),
-          const SizedBox(
+          SizedBox(height: 12),
+          SizedBox(
             height: 220,
-            child: Center(child: Text('[ CART ITEMS ]')),
+            child: Center(child: Text(DashboardMockData.posCartSummary)),
           ),
-          const Divider(),
-          const PosTotalRow(label: 'Subtotal', value: '₱ 0.00'),
-          const PosTotalRow(label: 'Discount', value: '₱ 0.00'),
-          const PosTotalRow(label: 'Tax', value: '₱ 0.00'),
-          const Divider(),
-          const PosTotalRow(label: 'TOTAL', value: '₱ 0.00', emphasized: true),
-          const SizedBox(height: 14),
-          const ElevatedButton(
-            onPressed: null,
-            child: Text('Proceed to payment'),
+          Divider(),
+          PosTotalRow(label: 'Subtotal', value: DashboardMockData.posSubtotal),
+          PosTotalRow(label: 'Discount', value: DashboardMockData.posDiscount),
+          PosTotalRow(label: 'Tax', value: DashboardMockData.posTax),
+          Divider(),
+          PosTotalRow(
+            label: 'TOTAL',
+            value: DashboardMockData.posTotal,
+            emphasized: true,
           ),
-          const SizedBox(height: 8),
-          const OutlinedButton(
-            onPressed: null,
-            child: Text('Clear transaction'),
-          ),
+          SizedBox(height: 14),
+          ElevatedButton(onPressed: null, child: Text('Proceed to payment')),
+          SizedBox(height: 8),
+          OutlinedButton(onPressed: null, child: Text('Clear transaction')),
         ],
       ),
     );

@@ -2,6 +2,7 @@ import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/dashboard/widget/pos_dashboard_content.dart';
 import 'package:flutter/material.dart';
 
+/// The point-of-sale dashboard page.
 class POSDashboard extends StatelessWidget {
   const POSDashboard({super.key});
 

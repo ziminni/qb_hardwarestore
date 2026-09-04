@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-class MockListRow extends StatelessWidget {
-  const MockListRow({
+class InventoryListItem extends StatelessWidget {
+  const InventoryListItem({
     super.key,
     required this.title,
     required this.subtitle,

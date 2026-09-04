@@ -1,8 +1,9 @@
-import 'package:client/features/dashboard/widget/mock_action.dart';
-import 'package:client/features/dashboard/widget/mock_list_row.dart';
-import 'package:client/features/dashboard/widget/mock_metric.dart';
-import 'package:client/features/dashboard/widget/mock_section.dart';
-import 'package:client/features/dashboard/widget/mock_table.dart';
+import 'package:client/features/dashboard/viewmodels/dashboard_mock_data.dart';
+import 'package:client/features/dashboard/widget/inventory_action_button.dart';
+import 'package:client/features/dashboard/widget/inventory_data_table.dart';
+import 'package:client/features/dashboard/widget/inventory_list_item.dart';
+import 'package:client/features/dashboard/widget/inventory_metric_card.dart';
+import 'package:client/features/dashboard/widget/inventory_section.dart';
 import 'package:flutter/material.dart';
 
 class InventoryDashboardContent extends StatelessWidget {
@@ -10,10 +11,10 @@ class InventoryDashboardContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
+        const Row(
           children: [
             Expanded(
               child: Text(
@@ -21,51 +22,34 @@ class InventoryDashboardContent extends StatelessWidget {
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
             ),
-            MockAction(label: 'Export', icon: Icons.download),
+            InventoryActionButton(label: 'Export', icon: Icons.download),
             SizedBox(width: 8),
-            MockAction(label: 'Add product'),
+            InventoryActionButton(label: 'Add product'),
           ],
         ),
         SizedBox(height: 16),
         Wrap(
           spacing: 12,
           runSpacing: 12,
-          children: [
-            SizedBox(
-              width: 190,
-              child: MockMetric(label: 'Total products', value: '0'),
-            ),
-            SizedBox(
-              width: 190,
-              child: MockMetric(label: 'Inventory value', value: '₱ 0.00'),
-            ),
-            SizedBox(
-              width: 190,
-              child: MockMetric(label: 'Low stock', value: '0'),
-            ),
-            SizedBox(
-              width: 190,
-              child: MockMetric(label: 'Out of stock', value: '0'),
-            ),
-          ],
+          children: DashboardMockData.inventoryMetrics
+              .map(
+                (metric) => SizedBox(
+                  width: 190,
+                  child: InventoryMetricCard(
+                    label: metric.label,
+                    value: metric.value,
+                  ),
+                ),
+              )
+              .toList(),
         ),
         SizedBox(height: 16),
-        MockSection(
+        InventorySection(
           title: 'Inventory table',
           actionLabel: 'Search / Filter',
-          child: MockTable(
-            columns: [
-              'Product',
-              'Category',
-              'On hand',
-              'Reorder level',
-              'Status',
-            ],
-            rows: [
-              ['[ Product ]', '[ Category ]', '0', '0', '[ Status ]'],
-              ['[ Product ]', '[ Category ]', '0', '0', '[ Status ]'],
-              ['[ Product ]', '[ Category ]', '0', '0', '[ Status ]'],
-            ],
+          child: InventoryDataTable(
+            columns: DashboardMockData.inventoryTable.columns,
+            rows: DashboardMockData.inventoryTable.rows,
           ),
         ),
         SizedBox(height: 16),
@@ -73,43 +57,35 @@ class InventoryDashboardContent extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: MockSection(
+              child: InventorySection(
                 title: 'Recent stock movements',
                 child: Column(
-                  children: [
-                    MockListRow(
-                      title: '[ Product ]',
-                      subtitle: '[ Reference ] · [ Time ]',
-                      trailing: '+/- 0',
-                    ),
-                    Divider(),
-                    MockListRow(
-                      title: '[ Product ]',
-                      subtitle: '[ Reference ] · [ Time ]',
-                      trailing: '+/- 0',
-                    ),
-                  ],
+                  children: DashboardMockData.stockMovements
+                      .map(
+                        (item) => InventoryListItem(
+                          title: item.title,
+                          subtitle: item.subtitle,
+                          trailing: item.trailing,
+                        ),
+                      )
+                      .toList(),
                 ),
               ),
             ),
             SizedBox(width: 16),
             Expanded(
-              child: MockSection(
+              child: InventorySection(
                 title: 'Restock queue',
                 child: Column(
-                  children: [
-                    MockListRow(
-                      title: '[ Product ]',
-                      subtitle: '[ Suggested quantity ]',
-                      trailing: '[ Priority ]',
-                    ),
-                    Divider(),
-                    MockListRow(
-                      title: '[ Product ]',
-                      subtitle: '[ Suggested quantity ]',
-                      trailing: '[ Priority ]',
-                    ),
-                  ],
+                  children: DashboardMockData.restockQueue
+                      .map(
+                        (item) => InventoryListItem(
+                          title: item.title,
+                          subtitle: item.subtitle,
+                          trailing: item.trailing,
+                        ),
+                      )
+                      .toList(),
                 ),
               ),
             ),
