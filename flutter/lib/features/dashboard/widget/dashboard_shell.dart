@@ -1,5 +1,6 @@
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 class DashboardShell extends StatelessWidget {
@@ -56,7 +57,9 @@ class DashboardShell extends StatelessWidget {
                             : Colors.transparent,
                         child: ListTile(
                           dense: true,
-                          onTap: () {},
+                          onTap: item.route == null
+                              ? null
+                              : () => context.go(item.route!),
                           leading: Icon(item.icon, size: 19),
                           title: Text(item.label),
                         ),
@@ -135,8 +138,9 @@ class DashboardShell extends StatelessWidget {
 }
 
 class DashboardNavigationItem {
-  const DashboardNavigationItem(this.label, this.icon);
+  const DashboardNavigationItem(this.label, this.icon, {this.route});
 
   final String label;
   final IconData icon;
+  final String? route;
 }

@@ -1,6 +1,7 @@
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/auth/views/login_page.dart';
 import 'package:client/features/dashboard/view/admin_dashboard.dart';
+import 'package:client/features/admin/views/admin_user_management_page.dart';
 import 'package:client/features/dashboard/view/inventory_dashboard.dart';
 import 'package:client/features/dashboard/view/pos_dashboard.dart';
 import 'package:client/features/dashboard/view/sales_dashboard.dart';
@@ -11,6 +12,7 @@ class AppRoutes {
 
   static const String login = '/login';
   static const String adminDashboard = '/admin/dashboard';
+  static const String adminUserManagement = '/admin/users';
   static const String inventoryDashboard = '/inventory/dashboard';
   static const String posDashboard = '/pos/dashboard';
   static const String salesDashboard = '/sales/dashboard';
@@ -38,6 +40,9 @@ class AppRoutes {
         final dashboard = dashboardForRole(auth.roleName);
         if (dashboard == null) return isLogin ? null : login;
         if (isLogin) return dashboard;
+        if (location == adminUserManagement && auth.roleName != 'admin') {
+          return dashboard;
+        }
 
         const protectedDashboards = {
           adminDashboard,
@@ -60,6 +65,11 @@ class AppRoutes {
           path: adminDashboard,
           name: 'admin_dashboard',
           builder: (context, state) => const AdminDashboard(),
+        ),
+        GoRoute(
+          path: adminUserManagement,
+          name: 'admin_user_management',
+          builder: (context, state) => const AdminUserManagementPage(),
         ),
         GoRoute(
           path: inventoryDashboard,
