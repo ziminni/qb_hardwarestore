@@ -1,6 +1,12 @@
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/auth/views/login_page.dart';
 import 'package:client/features/admin/views/admin_user_management_page.dart';
+import 'package:client/features/admin/views/audit_logs_page.dart';
+import 'package:client/features/admin/views/inventory_monitoring_page.dart';
+import 'package:client/features/admin/views/reports_page.dart';
+import 'package:client/features/admin/views/requisitions_page.dart';
+import 'package:client/features/admin/views/sales_monitoring_page.dart';
+import 'package:client/features/admin/views/settings_page.dart';
 import 'package:client/features/dashboard/views/admin_dashboard.dart';
 import 'package:client/features/dashboard/views/inventory_dashboard.dart';
 import 'package:client/features/dashboard/views/pos_dashboard.dart';
@@ -13,6 +19,12 @@ class AppRoutes {
   static const String login = '/login';
   static const String adminDashboard = '/admin/dashboard';
   static const String adminUserManagement = '/admin/users';
+  static const String adminInventory = '/admin/inventory';
+  static const String adminSales = '/admin/sales';
+  static const String adminRequisitions = '/admin/requisitions';
+  static const String adminReports = '/admin/reports';
+  static const String adminAuditLogs = '/admin/audit-logs';
+  static const String adminSettings = '/admin/settings';
   static const String inventoryDashboard = '/inventory/dashboard';
   static const String posDashboard = '/pos/dashboard';
   static const String salesDashboard = '/sales/dashboard';
@@ -40,7 +52,7 @@ class AppRoutes {
         final dashboard = dashboardForRole(auth.roleName);
         if (dashboard == null) return isLogin ? null : login;
         if (isLogin) return dashboard;
-        if (location == adminUserManagement && auth.roleName != 'admin') {
+        if (location.startsWith('/admin/') && auth.roleName != 'admin') {
           return dashboard;
         }
 
@@ -70,6 +82,36 @@ class AppRoutes {
           path: adminUserManagement,
           name: 'admin_user_management',
           builder: (context, state) => const AdminUserManagementPage(),
+        ),
+        GoRoute(
+          path: adminInventory,
+          name: 'admin_inventory',
+          builder: (context, state) => const InventoryMonitoringPage(),
+        ),
+        GoRoute(
+          path: adminSales,
+          name: 'admin_sales',
+          builder: (context, state) => const SalesMonitoringPage(),
+        ),
+        GoRoute(
+          path: adminRequisitions,
+          name: 'admin_requisitions',
+          builder: (context, state) => const RequisitionsPage(),
+        ),
+        GoRoute(
+          path: adminReports,
+          name: 'admin_reports',
+          builder: (context, state) => const ReportsPage(),
+        ),
+        GoRoute(
+          path: adminAuditLogs,
+          name: 'admin_audit_logs',
+          builder: (context, state) => const AuditLogsPage(),
+        ),
+        GoRoute(
+          path: adminSettings,
+          name: 'admin_settings',
+          builder: (context, state) => const SettingsPage(),
         ),
         GoRoute(
           path: inventoryDashboard,

@@ -22,12 +22,12 @@ class AdminSkeletonLayout extends StatelessWidget {
   static const _navigationItems = [
     ('Overview', Icons.dashboard_outlined, '/admin/dashboard'),
     ('User management', Icons.manage_accounts_outlined, '/admin/users'),
-    ('Inventory', Icons.inventory_2_outlined, null),
-    ('Sales & POS', Icons.point_of_sale_outlined, null),
-    ('Requisitions', Icons.receipt_long_outlined, null),
-    ('Reports', Icons.bar_chart_rounded, null),
-    ('Audit logs', Icons.history_rounded, null),
-    ('Settings', Icons.settings_outlined, null),
+    ('Inventory', Icons.inventory_2_outlined, '/admin/inventory'),
+    ('Sales & POS', Icons.point_of_sale_outlined, '/admin/sales'),
+    ('Requisitions', Icons.receipt_long_outlined, '/admin/requisitions'),
+    ('Reports', Icons.bar_chart_rounded, '/admin/reports'),
+    ('Audit logs', Icons.history_rounded, '/admin/audit-logs'),
+    ('Settings', Icons.settings_outlined, '/admin/settings'),
   ];
 
   @override
@@ -74,9 +74,7 @@ class AdminSkeletonLayout extends StatelessWidget {
                           selected: selected,
                           onTap: onNavigationSelected != null
                               ? () => onNavigationSelected!(index)
-                              : item.$3 == null
-                              ? null
-                              : () => context.go(item.$3!),
+                              : () => context.go(item.$3),
                           leading: Icon(item.$2, size: 19),
                           title: Text(item.$1),
                         ),
