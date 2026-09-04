@@ -1,5 +1,6 @@
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 class AdminSkeletonLayout extends StatelessWidget {
@@ -19,14 +20,14 @@ class AdminSkeletonLayout extends StatelessWidget {
   final ValueChanged<int>? onNavigationSelected;
 
   static const _navigationItems = [
-    ('Overview', Icons.dashboard_outlined),
-    ('User management', Icons.manage_accounts_outlined),
-    ('Inventory', Icons.inventory_2_outlined),
-    ('Sales & POS', Icons.point_of_sale_outlined),
-    ('Requisitions', Icons.receipt_long_outlined),
-    ('Reports', Icons.bar_chart_rounded),
-    ('Audit logs', Icons.history_rounded),
-    ('Settings', Icons.settings_outlined),
+    ('Overview', Icons.dashboard_outlined, '/admin/dashboard'),
+    ('User management', Icons.manage_accounts_outlined, '/admin/users'),
+    ('Inventory', Icons.inventory_2_outlined, null),
+    ('Sales & POS', Icons.point_of_sale_outlined, null),
+    ('Requisitions', Icons.receipt_long_outlined, null),
+    ('Reports', Icons.bar_chart_rounded, null),
+    ('Audit logs', Icons.history_rounded, null),
+    ('Settings', Icons.settings_outlined, null),
   ];
 
   @override
@@ -71,9 +72,11 @@ class AdminSkeletonLayout extends StatelessWidget {
                         child: ListTile(
                           dense: true,
                           selected: selected,
-                          onTap: onNavigationSelected == null
+                          onTap: onNavigationSelected != null
+                              ? () => onNavigationSelected!(index)
+                              : item.$3 == null
                               ? null
-                              : () => onNavigationSelected!(index),
+                              : () => context.go(item.$3!),
                           leading: Icon(item.$2, size: 19),
                           title: Text(item.$1),
                         ),
