@@ -1,22 +1,13 @@
+import 'package:client/data/models/user.dart';
 import 'package:flutter/material.dart';
 
 class AdminUserTable extends StatelessWidget {
-  const AdminUserTable({super.key});
+  const AdminUserTable({super.key, required this.users});
+
+  final List<User> users;
 
   @override
   Widget build(BuildContext context) {
-    const rows = [
-      ('[ Full name ]', '[ username ]', '[ email ]', '[ Admin ]', '[ Active ]'),
-      (
-        '[ Full name ]',
-        '[ username ]',
-        '[ email ]',
-        '[ Inventory ]',
-        '[ Active ]',
-      ),
-      ('[ Full name ]', '[ username ]', '[ email ]', '[ POS ]', '[ Inactive ]'),
-    ];
-
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
@@ -29,14 +20,14 @@ class AdminUserTable extends StatelessWidget {
           DataColumn(label: Text('ACTIONS')),
         ],
         rows: [
-          for (final row in rows)
+          for (final user in users)
             DataRow(
               cells: [
-                DataCell(Text(row.$1)),
-                DataCell(Text(row.$2)),
-                DataCell(Text(row.$3)),
-                DataCell(Text(row.$4)),
-                DataCell(Text(row.$5)),
+                DataCell(Text(user.fullName)),
+                DataCell(Text(user.username)),
+                DataCell(Text(user.email)),
+                DataCell(Text(user.role.displayName)),
+                DataCell(Text(user.isActive ? 'Active' : 'Inactive')),
                 DataCell(
                   Row(
                     children: [

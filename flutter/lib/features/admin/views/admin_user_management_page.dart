@@ -1,4 +1,5 @@
 import 'package:client/core/layout/admin_skeleton_layout.dart';
+import 'package:client/features/admin/viewmodels/admin_mock_data.dart';
 import 'package:client/features/admin/widgets/admin_user_action_button.dart';
 import 'package:client/features/admin/widgets/admin_user_filters.dart';
 import 'package:client/features/admin/widgets/admin_user_metric_card.dart';
@@ -73,7 +74,7 @@ class AdminUserManagementPage extends StatelessWidget {
           AdminUserSection(
             title: 'User accounts',
             actionLabel: 'Export',
-            child: AdminUserTable(),
+            child: AdminUserTable(users: AdminMockData.users),
           ),
         ],
       ),

@@ -7,6 +7,7 @@ class User {
     required this.email,
     required this.fullName,
     required this.role,
+    this.isActive = true,
   });
 
   final int id;
@@ -14,6 +15,7 @@ class User {
   final String email;
   final String fullName;
   final Role role;
+  final bool isActive;
 
   factory User.fromJson(Map<String, dynamic> json) {
     return User(
@@ -22,6 +24,7 @@ class User {
       email: json['email'] as String,
       fullName: json['full_name'] as String,
       role: Role.fromJson(json['role'] as Map<String, dynamic>),
+      isActive: json['is_active'] as bool? ?? true,
     );
   }
 }
