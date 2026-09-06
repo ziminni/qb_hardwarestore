@@ -7,7 +7,7 @@ from .views import CollectibleLedgerViewSet, CollectiblePaymentViewSet
 
 router = DefaultRouter()
 router.register(r'ledgers', CollectibleLedgerViewSet, basename='collectible-ledger')
-router.register(r'payments', CollectiblePaymentViewSet, basename='collectible-payment')
+router.register(r'ledger-payments', CollectiblePaymentViewSet, basename='collectible-payment')
 
 urlpatterns = [
     path('', include(router.urls)),

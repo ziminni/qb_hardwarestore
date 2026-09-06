@@ -52,7 +52,14 @@ class RegisterSerializer(serializers.ModelSerializer):
     """Create a new user account.  Optionally assign a Group."""
 
     password = serializers.CharField(write_only=True, min_length=8)
-    group_name = serializers.CharField(write_only=True, required=False)
+    # A role is mandatory: the frontend (`User.fromJson`) expects a non-null
+    # `role` object, so accounts must always be created with a Group.
+    group_name = serializers.CharField(
+        write_only=True,
+        required=True,
+        error_messages={'required': 'A role is required: pass `group_name` '
+                                    '(Admin, Stock Manager, Cashier, Store Manager).'},
+    )
 
     class Meta:
         model = User
