@@ -139,7 +139,17 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 | POS checkout | `GET /products/` → `POST /transactions/` (one call does stock deduction + payments + OR) |
 | Utang monitoring | `GET /ledgers/` → `GET /ledgers/aging/` → `POST /ledger-payments/` |
 | Foreman requisition | `POST /requisitions/` → `POST /requisitions/{id}/submit/` → approver: `POST /requisitions/{id}/approve/` → POS: `POST /tokens/verify/` → `POST /tokens/release/` |
-| Daily dashboard/report | `GET /transactions/daily_report/` + `GET /ledgers/aging/` + `GET /alerts/` |
+| Daily dashboard/report | `GET /transactions/daily_report/` (optional `?date=YYYY-MM-DD`) + `GET /ledgers/aging/` + `GET /alerts/` |
+
+## 4b. Reports Endpoints (`/api/v1/reports/` — Store Manager / Admin only)
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/api/v1/reports/sales-summary/?from=YYYY-MM-DD&to=YYYY-MM-DD` | Daily sales totals (count, gross, VAT, discounts) + range totals. Defaults to last 30 days. |
+| GET | `/api/v1/reports/inventory-valuation/` | Stock value at cost & retail, grouped by category + grand totals. |
+| GET | `/api/v1/reports/stock-movements/?from=&to=` | Stock IN (goods receipts/day) vs OUT (adjustments by type). |
+| GET | `/api/v1/reports/requisition-history/?status=&from=&to=` | Counts per status + filtered requisition list (max 200). `status` must be a valid Requisition status (DRAFT, SUBMITTED, APPROVED, REJECTED, PARTIAL, RELEASED, CANCELLED). |
+
 
 ## 5. Gaps / TODOs observed while writing this doc (backend)
 
@@ -164,5 +174,5 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 
    Superusers bypass all role checks. Frontend role route guards (`/admin/*` etc.) are now backed by matching API enforcement.
 3. **`tests.py` are still empty stubs** across all apps.
-4. No dedicated `reports` aggregation endpoints yet (dashboards must compose `daily_report` + `aging` + `alerts`).
+4. ~~No dedicated `reports` aggregation endpoints yet~~ — **FIXED**: new read-only `apps/reports` (§4b) with `sales-summary`, `inventory-valuation`, `stock-movements`, `requisition-history`; `daily_report` now accepts `?date=`.
 

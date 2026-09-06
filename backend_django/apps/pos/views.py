@@ -38,12 +38,32 @@ class SalesTransactionViewSet(BaseViewSet):
 
     @action(detail=False, methods=['get'])
     def daily_report(self, request):
-        from django.utils import timezone
         from datetime import timedelta
-        today = timezone.localdate()
-        qs = self.get_queryset().filter(trans_date__date=today)
+
+        from django.utils import timezone
+        from django.utils.dateparse import parse_date
+
+        date_param = request.query_params.get('date')
+        if date_param:
+            parsed = parse_date(date_param)
+            if not parsed:
+                return Response(
+                    {'detail': 'Invalid date. Use YYYY-MM-DD.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            report_date = parsed
+        else:
+            report_date = timezone.localdate()
+        qs = self.get_queryset().filter(
+            trans_date__date=report_date,
+            status=SalesTransaction.Status.COMPLETED,
+        )
         total = qs.aggregate(total=Sum('grand_total'))['total'] or 0
-        return Response({'date': str(today), 'count': qs.count(), 'total_sales': total})
+        return Response({
+            'date': str(report_date),
+            'count': qs.count(),
+            'total_sales': total,
+        })
 
 
 class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
