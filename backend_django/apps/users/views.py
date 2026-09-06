@@ -93,9 +93,28 @@ class UserViewSet(viewsets.ModelViewSet):
         if search:
             qs = qs.filter(
                 Q(email__icontains=search)
-                | Q(full_name__icontains=search),
+                | Q(full_name__icontains=search)
+                | Q(username__icontains=search),
             )
         return qs
+
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """Account summary for the admin User Management dashboard cards."""
+        total = User.objects.count()
+        active = User.objects.filter(is_active=True).count()
+        roles_assigned = (
+            User.objects.exclude(groups=None)
+            .values('groups')
+            .distinct()
+            .count()
+        )
+        return Response({
+            'total': total,
+            'active': active,
+            'inactive': total - active,
+            'roles_assigned': roles_assigned,
+        })
 
     @action(detail=True, methods=['post'])
     def assign_role(self, request, pk=None):
