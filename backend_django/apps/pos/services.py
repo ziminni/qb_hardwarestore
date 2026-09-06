@@ -47,24 +47,29 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
         )
 
         for item in items_data:
-            variant_id = item['variant_id']
+            item_id = item['variant_id']
             qty = Decimal(str(item.get('qty', 0)))
             unit_price = Decimal(str(item.get('unit_price', 0)))
             subtotal = qty * unit_price
 
             SalesItem.objects.create(
                 transaction=txn,
-                variant_uom_id=variant_id,
+                variant_uom_id=item_id,
                 qty=qty,
                 unit_price=unit_price,
                 subtotal=subtotal,
             )
 
-            # FIFO allocation (deduct stock)
-            try:
-                allocate_fifo(variant_id=variant_id, qty_needed=qty)
-            except Exception:
-                pass
+            # FIFO allocation (deduct stock). item_id may be a VariantUOM id
+            # (POS payload) or a ProductVariant id; resolve to the variant.
+            from apps.inventory.models import VariantUOM
+            variant_id = item_id
+            vuom = VariantUOM.objects.filter(
+                pk=item_id).select_related('variant').first()
+            if vuom is not None:
+                variant_id = vuom.variant_id
+            # Raises ValueError on insufficient stock → whole sale rolls back.
+            allocate_fifo(variant_id=variant_id, qty_needed=qty)
 
             vatable_sales += subtotal
 
