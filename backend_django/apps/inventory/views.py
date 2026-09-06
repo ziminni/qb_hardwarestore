@@ -5,6 +5,10 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
+from apps.users.permissions import (
+    IsAdminRole,
+    IsInventoryRole,
+)
 from .models import (
     Brand, Category, Product, ProductVariant, UnitOfMeasure, VariantUOM,
     Supplier, PurchaseOrder, POItem, GoodsReceipt,
@@ -21,12 +25,12 @@ from .services import process_goods_receipt, apply_stock_adjustment
 
 
 class _CatalogBaseViewSet(viewsets.ModelViewSet):
-    """Base: write requires admin, read requires auth."""
+    """Base: read requires auth; write requires inventory role."""
 
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):
             return [IsAuthenticated()]
-        return [IsAdminUser()]
+        return [IsInventoryRole()]
 
 
 class CategoryViewSet(_CatalogBaseViewSet):
@@ -120,10 +124,11 @@ class SystemAlertViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):
             return [IsAuthenticated()]
-        return [IsAdminUser()]
+        return [IsAdminRole()]
 
     @action(detail=True, methods=['post'])
     def resolve(self, request, pk=None):
+        """Resolve an alert (Admin only — enforced via get_permissions)."""
         alert = self.get_object()
         alert.is_resolved = True
         alert.save(update_fields=['is_resolved'])

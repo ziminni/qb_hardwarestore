@@ -5,6 +5,13 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from apps.users.permissions import (
+    IsForemanOrManager,
+    IsForemanOrManagerOrReadOnly,
+    IsManagerRole,
+    IsPOSRole,
+)
+
 from .models import (
     MaterialToken,
     Project,
@@ -35,11 +42,7 @@ from .services import (
 class ProjectViewSet(viewsets.ModelViewSet):
     queryset = Project.objects.select_related('customer').all()
     serializer_class = ProjectSerializer
-
-    def get_permissions(self):
-        if self.action in ('list', 'retrieve'):
-            return [IsAuthenticated()]
-        return [IsAuthenticated()]
+    permission_classes = [IsForemanOrManagerOrReadOnly]
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +61,9 @@ class RequisitionViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):
             return [IsAuthenticated()]
-        return [IsAuthenticated()]
+        if self.action in ('approve', 'reject'):
+            return [IsManagerRole()]
+        return [IsForemanOrManager()]
 
     def perform_create(self, serializer):
         serializer.save(
@@ -121,7 +126,7 @@ def token_verify_view(request):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsPOSRole])
 def material_release_view(request):
     """Release materials at POS (UC-21 + UC-22).
 
@@ -159,8 +164,4 @@ class RequisitionItemViewSet(viewsets.ModelViewSet):
     queryset = RequisitionItem.objects.select_related(
         'requisition', 'variant').all()
     serializer_class = RequisitionItemSerializer
-
-    def get_permissions(self):
-        if self.action in ('list', 'retrieve'):
-            return [IsAuthenticated()]
-        return [IsAuthenticated()]
+    permission_classes = [IsForemanOrManagerOrReadOnly]

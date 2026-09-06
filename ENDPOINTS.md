@@ -125,7 +125,7 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 | GET | `/api/v1/req-items/` | Requisition line items | Authenticated |
 | GET | `/api/v1/tokens/` | Material tokens (read-only) | Authenticated |
 | POST | `/api/v1/tokens/verify/` | Verify token — body: `{"token": "<uuid>"}` (UC-20) | Authenticated |
-| POST | `/api/v1/tokens/release/` | **Material release at POS** — body: `{"token": "<uuid>"}`; FIFO-deducts stock, creates `SalesTransaction`, posts to `CollectibleLedger` (UC-21/22) | Authenticated |
+| POST | `/api/v1/tokens/release/` | **Material release at POS** — body: `{"token": "<uuid>"}`; FIFO-deducts stock, creates `SalesTransaction`, posts to `CollectibleLedger` (UC-21/22) | Cashier / Store Manager / Admin |
 
 ---
 
@@ -144,7 +144,25 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 ## 5. Gaps / TODOs observed while writing this doc (backend)
 
 1. ~~**Route collision** on `/api/v1/payments/`~~ — **FIXED**: collectible payments moved to `/api/v1/ledger-payments/`.
-2. **Role-level permissions not yet enforced per endpoint** — most ViewSets only check `IsAuthenticated` (e.g., requisition `approve` should be restricted to approver roles; `alerts` resolve is already admin-only).
+2. ~~**Role-level permissions not yet enforced per endpoint**~~ — **FIXED**: role permissions enforced via `apps/users/permissions.py`. Matrix:
+
+   | Endpoint group | Write access | Read access |
+   |---|---|---|
+   | Auth (`login/`, `verify/`, `refresh/`) | Public / Authenticated | — |
+   | Users CRUD, roles, audit logs, register | Django staff (`IsAdminUser`) | Django staff |
+   | Inventory catalog & stock (products, categories, brands, UOMs, suppliers, POs, goods receipts + `process`, stock adjustments) | Stock Manager / Store Manager / Admin | Any authenticated |
+   | System alerts (incl. `resolve`) | Admin | Any authenticated |
+   | POS (transactions, customers) | Cashier / Store Manager / Admin | Any authenticated |
+   | Payments & official receipts | read-only | Any authenticated |
+   | Collectible ledgers | Admin | Any authenticated |
+   | Collectible payments (`/ledger-payments/`) | Cashier / Store Manager / Admin | Any authenticated |
+   | Projects, requisitions, requisition items | Site Foreman / Store Manager / Admin | Any authenticated |
+   | Requisition `submit` | Site Foreman / Store Manager / Admin | — |
+   | Requisition `approve` / `reject` | Store Manager / Admin | — |
+   | Token `verify` | Any authenticated | — |
+   | Token `release` | Cashier / Store Manager / Admin | — |
+
+   Superusers bypass all role checks. Frontend role route guards (`/admin/*` etc.) are now backed by matching API enforcement.
 3. **`tests.py` are still empty stubs** across all apps.
 4. No dedicated `reports` aggregation endpoints yet (dashboards must compose `daily_report` + `aging` + `alerts`).
 

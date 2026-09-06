@@ -5,6 +5,7 @@ from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from apps.users.permissions import IsPOSOrReadOnly
 from .models import CollectibleLedger, CollectiblePayment
 from .serializers import CollectibleLedgerSerializer, CollectiblePaymentSerializer
 
@@ -90,7 +91,7 @@ class CollectiblePaymentViewSet(viewsets.ModelViewSet):
         'collectible', 'processed_by',
     ).order_by('-payment_date')
     serializer_class = CollectiblePaymentSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsPOSOrReadOnly]
 
     def perform_create(self, serializer):
         """Auto-assign the logged-in user as processed_by."""
