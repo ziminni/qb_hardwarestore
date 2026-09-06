@@ -3,16 +3,16 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from apps.users.permissions import IsPOSOrReadOnly
 from .models import Customer, SalesTransaction, Payment, OfficialReceipt
 from .serializers import CustomerSerializer, SalesTransactionSerializer, PaymentSerializer, OfficialReceiptSerializer
 from .services import process_sale
 
 
 class BaseViewSet(viewsets.ModelViewSet):
-    def get_permissions(self):
-        if self.action in ('list','retrieve'):
-            return [IsAuthenticated()]
-        return [IsAuthenticated()]
+    """Read requires auth; write requires POS role (Cashier+)."""
+
+    permission_classes = [IsPOSOrReadOnly]
 
 
 class CustomerViewSet(BaseViewSet):
@@ -49,8 +49,10 @@ class SalesTransactionViewSet(BaseViewSet):
 class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Payment.objects.select_related('transaction').all()
     serializer_class = PaymentSerializer
+    permission_classes = [IsAuthenticated]
 
 
 class OfficialReceiptViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = OfficialReceipt.objects.select_related('transaction').all()
     serializer_class = OfficialReceiptSerializer
+    permission_classes = [IsAuthenticated]
