@@ -1,7 +1,8 @@
 """POS services — checkout, FIFO allocation, receipt generation."""
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from django.db import transaction
+from apps.collectibles.models import CollectibleLedger
 from apps.inventory.services import allocate_fifo
 from .models import Customer, SalesTransaction, SalesItem, Payment, OfficialReceipt
 
@@ -90,5 +91,17 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
             or_number=generate_or_number(),
             terminal_no='POS-01',
         )
+
+        # Underpaid sale -> post the shortfall to Collectibles (utang).
+        shortfall = grand_total - total_paid
+        if shortfall > 0 and customer_id:
+            CollectibleLedger.objects.create(
+                customer_id=customer_id,
+                transaction=txn,
+                original_amount=shortfall,
+                balance_due=shortfall,
+                due_date=date.today() + timedelta(days=30),
+                status=CollectibleLedger.Status.OPEN,
+            )
 
     return txn
