@@ -46,24 +46,29 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
         )
 
         for item in items_data:
-            variant_id = item['variant_id']
+            item_id = item['variant_id']
             qty = Decimal(str(item.get('qty', 0)))
             unit_price = Decimal(str(item.get('unit_price', 0)))
             subtotal = qty * unit_price
 
             SalesItem.objects.create(
                 transaction=txn,
-                variant_uom_id=variant_id,
+                variant_uom_id=item_id,
                 qty=qty,
                 unit_price=unit_price,
                 subtotal=subtotal,
             )
 
-            # FIFO allocation (deduct stock)
-            try:
-                allocate_fifo(variant_id=variant_id, qty_needed=qty)
-            except Exception:
-                pass
+            # FIFO allocation (deduct stock). item_id may be a VariantUOM id
+            # (POS payload) or a ProductVariant id; resolve to the variant.
+            from apps.inventory.models import VariantUOM
+            variant_id = item_id
+            vuom = VariantUOM.objects.filter(
+                pk=item_id).select_related('variant').first()
+            if vuom is not None:
+                variant_id = vuom.variant_id
+            # Raises ValueError on insufficient stock → whole sale rolls back.
+            allocate_fifo(variant_id=variant_id, qty_needed=qty)
 
             vatable_sales += subtotal
 
@@ -90,5 +95,21 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
             or_number=generate_or_number(),
             terminal_no='POS-01',
         )
+
+        # Underpaid → post outstanding balance to Collectibles (utang).
+        balance = grand_total - total_paid
+        ledger = None
+        if balance > 0:
+            from apps.collectibles.models import CollectibleLedger
+            from datetime import timedelta
+            from django.utils import timezone
+            ledger = CollectibleLedger.objects.create(
+                customer_id=customer_id,
+                transaction=txn,
+                original_amount=grand_total,
+                balance_due=balance,
+                due_date=timezone.localdate() + timedelta(days=30),
+                status=CollectibleLedger.Status.OPEN,
+            )
 
     return txn
