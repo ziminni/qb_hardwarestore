@@ -1,4 +1,5 @@
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
+import 'package:client/shared/widgets/system_brand.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -49,9 +50,10 @@ class AdminSkeletonLayout extends StatelessWidget {
                 const SizedBox(
                   height: 72,
                   child: Center(
-                    child: Text(
-                      'Queen Builders',
-                      style: TextStyle(fontWeight: FontWeight.bold),
+                    child: SystemBrand(
+                      logoSize: 42,
+                      fontSize: 14,
+                      subtitle: '& CONSTRUCTION SUPPLIES',
                     ),
                   ),
                 ),
