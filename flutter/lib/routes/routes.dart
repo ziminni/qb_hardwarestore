@@ -1,5 +1,4 @@
-import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
-import 'package:client/features/auth/views/login_page.dart';
+import 'package:client/core/constants/app_durations.dart';
 import 'package:client/features/admin/views/admin_user_management_page.dart';
 import 'package:client/features/admin/views/audit_logs_page.dart';
 import 'package:client/features/admin/views/inventory_monitoring_page.dart';
@@ -7,10 +6,13 @@ import 'package:client/features/admin/views/reports_page.dart';
 import 'package:client/features/admin/views/requisitions_page.dart';
 import 'package:client/features/admin/views/sales_monitoring_page.dart';
 import 'package:client/features/admin/views/settings_page.dart';
+import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
+import 'package:client/features/auth/views/login_page.dart';
 import 'package:client/features/dashboard/views/admin_dashboard.dart';
 import 'package:client/features/dashboard/views/inventory_dashboard.dart';
 import 'package:client/features/dashboard/views/pos_dashboard.dart';
 import 'package:client/features/dashboard/views/sales_dashboard.dart';
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 class AppRoutes {
@@ -37,6 +39,38 @@ class AppRoutes {
       'sales' => salesDashboard,
       _ => null,
     };
+  }
+
+  static CustomTransitionPage<void> _transitionPage(
+    GoRouterState state,
+    Widget child,
+  ) {
+    return CustomTransitionPage<void>(
+      key: state.pageKey,
+      child: child,
+      transitionDuration: AppDurations.normal,
+      reverseTransitionDuration: AppDurations.normal,
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        if (MediaQuery.disableAnimationsOf(context)) return child;
+
+        final curvedAnimation = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+
+        return FadeTransition(
+          opacity: curvedAnimation,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0.015, 0),
+              end: Offset.zero,
+            ).animate(curvedAnimation),
+            child: child,
+          ),
+        );
+      },
+    );
   }
 
   static GoRouter createRouter(AuthViewmodel auth) {
@@ -71,62 +105,74 @@ class AppRoutes {
         GoRoute(
           path: login,
           name: 'login',
-          builder: (context, state) => const LoginPage(),
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const LoginPage()),
         ),
         GoRoute(
           path: adminDashboard,
           name: 'admin_dashboard',
-          builder: (context, state) => const AdminDashboard(),
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const AdminDashboard()),
         ),
         GoRoute(
           path: adminUserManagement,
           name: 'admin_user_management',
-          builder: (context, state) => const AdminUserManagementPage(),
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const AdminUserManagementPage()),
         ),
         GoRoute(
           path: adminInventory,
           name: 'admin_inventory',
-          builder: (context, state) => const InventoryMonitoringPage(),
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const InventoryMonitoringPage()),
         ),
         GoRoute(
           path: adminSales,
           name: 'admin_sales',
-          builder: (context, state) => const SalesMonitoringPage(),
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const SalesMonitoringPage()),
         ),
         GoRoute(
           path: adminRequisitions,
           name: 'admin_requisitions',
-          builder: (context, state) => const RequisitionsPage(),
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const RequisitionsPage()),
         ),
         GoRoute(
           path: adminReports,
           name: 'admin_reports',
-          builder: (context, state) => const ReportsPage(),
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const ReportsPage()),
         ),
         GoRoute(
           path: adminAuditLogs,
           name: 'admin_audit_logs',
-          builder: (context, state) => const AuditLogsPage(),
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const AuditLogsPage()),
         ),
         GoRoute(
           path: adminSettings,
           name: 'admin_settings',
-          builder: (context, state) => const SettingsPage(),
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const SettingsPage()),
         ),
         GoRoute(
           path: inventoryDashboard,
           name: 'inventory_dashboard',
-          builder: (context, state) => const InventoryDashboard(),
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const InventoryDashboard()),
         ),
         GoRoute(
           path: posDashboard,
           name: 'pos_dashboard',
-          builder: (context, state) => const POSDashboard(),
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const POSDashboard()),
         ),
         GoRoute(
           path: salesDashboard,
           name: 'sales_dashboard',
-          builder: (context, state) => const SalesDashboard(),
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const SalesDashboard()),
         ),
       ],
     );
