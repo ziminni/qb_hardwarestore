@@ -8,7 +8,7 @@ class AppButtonTheme {
     return ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
         backgroundColor: AppColors.primary,
-        foregroundColor: AppColors.textLight,
+        foregroundColor: AppColors.brandBlack,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadii.medium),
         ),
@@ -18,7 +18,34 @@ class AppButtonTheme {
 
   static TextButtonThemeData textButton() {
     return TextButtonThemeData(
-      style: TextButton.styleFrom(foregroundColor: AppColors.primary),
+      style: TextButton.styleFrom(
+        foregroundColor: AppColors.brandBlack,
+        textStyle: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+
+  static FilledButtonThemeData filledButton() {
+    return FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: AppColors.primary,
+        foregroundColor: AppColors.brandBlack,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadii.medium),
+        ),
+      ),
+    );
+  }
+
+  static OutlinedButtonThemeData outlinedButton() {
+    return OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppColors.brandBlack,
+        side: const BorderSide(color: AppColors.brandGold),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadii.medium),
+        ),
+      ),
     );
   }
 }

@@ -11,6 +11,7 @@ class AppCardTheme {
       elevation: 2,
       margin: EdgeInsets.all(AppSpacing.md),
       shape: RoundedRectangleBorder(
+        side: const BorderSide(color: AppColors.border),
         borderRadius: BorderRadius.circular(AppRadii.medium),
       ),
     );

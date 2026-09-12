@@ -7,8 +7,8 @@ class AppTextStyles {
   // Cinzel Font - For Headlines
   static const String cinzelFont = 'Cinzel';
 
-  // Outfit Font - For Body Text
-  static const String outfitFont = 'Outfit';
+  // Open Sans - For body text and controls.
+  static const String outfitFont = 'OpenSans';
 
   // Headline Styles (Cinzel)
   static const TextStyle h1 = TextStyle(
@@ -98,7 +98,7 @@ class AppTextStyles {
     fontFamily: outfitFont,
     fontSize: 14,
     fontWeight: FontWeight.w600,
-    color: Colors.white,
+    color: AppColors.brandBlack,
     height: 1.2,
   );
 }

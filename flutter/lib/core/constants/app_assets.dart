@@ -5,5 +5,5 @@ class AppAssets {
   static const String logo = 'assets/images/logo.jpeg';
 
   // Images - Backgrounds
-  static const String bgLogin = 'assets/images/bg_login.jpg';
+  static const String bgLogin = 'assets/images/login-bg.jpg';
 }
