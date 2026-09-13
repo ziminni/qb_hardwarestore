@@ -1,7 +1,6 @@
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
 import 'package:client/data/models/product.dart';
-import 'package:client/features/products/viewmodels/products_mock_data.dart';
 import 'package:client/features/products/viewmodels/products_viewmodel.dart';
 import 'package:client/features/products/widgets/products_bulk_actions.dart';
 import 'package:client/features/products/widgets/products_details_dialog.dart';
@@ -9,9 +8,9 @@ import 'package:client/features/products/widgets/products_form_dialog.dart';
 import 'package:client/features/products/widgets/products_summary_card.dart';
 import 'package:client/features/products/widgets/products_table.dart';
 import 'package:client/features/products/widgets/products_toolbar.dart';
-import 'package:client/routes/routes.dart';
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
+import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 class ProductsPage extends StatelessWidget {
@@ -37,34 +36,55 @@ class ProductsPage extends StatelessWidget {
         brands: brands,
       ),
     );
-    if (result == null) return;
+    if (result == null || !context.mounted) return;
 
-    product == null
-        ? viewModel.addProduct(result)
-        : viewModel.updateProduct(result);
+    final inventory = context.read<InventoryViewmodel>();
+    if (product == null) {
+      viewModel.addProduct(result);
+      inventory.addProduct(result);
+    } else {
+      viewModel.updateProduct(result);
+      inventory.updateProduct(result);
+    }
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            product == null
+                ? 'Product added to mock inventory.'
+                : 'Product updated in mock inventory.',
+          ),
+        ),
+      );
+    }
   }
 
   void _showProductDetails(BuildContext context, Product product) {
     showDialog<void>(
       context: context,
-      builder: (context) => ProductsDetailsDialog(product: product),
+      builder: (context) => ProductsDetailsDialog(
+        product: product,
+        movements: context
+            .read<InventoryViewmodel>()
+            .movements
+            .where((item) => item.productId == product.id)
+            .toList(),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => ProductsViewmodel(ProductsMockData.products),
+      create: (context) =>
+          ProductsViewmodel(context.read<InventoryViewmodel>().products),
       child: Consumer<ProductsViewmodel>(
         builder: (context, viewModel, child) {
           return InventorySkeletonLayout(
             title: 'Products',
             subtitle: 'View and organize the hardware product catalog.',
             selectedNavigationIndex: 1,
-            onNavigationSelected: (index) {
-              if (index == 0) context.go(AppRoutes.inventoryDashboard);
-              if (index == 1) context.go(AppRoutes.inventoryProducts);
-            },
+            onNavigationSelected: (index) => navigateInventory(context, index),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [

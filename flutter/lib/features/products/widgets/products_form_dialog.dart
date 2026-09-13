@@ -26,6 +26,11 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
+  late final TextEditingController _variantController;
+  late final TextEditingController _skuController;
+  late final TextEditingController _initialStockController;
+  late final TextEditingController _reorderController;
+  late final TextEditingController _locationController;
   late int _categoryId;
   late int _brandId;
   late bool _isActive;
@@ -41,6 +46,24 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     _descriptionController = TextEditingController(
       text: product?.description ?? '',
     );
+    final firstVariant = product?.variants.firstOrNull;
+    _variantController = TextEditingController(
+      text: firstVariant?.variantName ?? 'Standard',
+    );
+    _skuController = TextEditingController(text: firstVariant?.sku ?? '');
+    _initialStockController = TextEditingController(
+      text: firstVariant == null
+          ? '0'
+          : firstVariant.currentStock.toStringAsFixed(0),
+    );
+    _reorderController = TextEditingController(
+      text: firstVariant == null
+          ? '10'
+          : firstVariant.reorderLevel.toStringAsFixed(0),
+    );
+    _locationController = TextEditingController(
+      text: firstVariant?.storageLocation ?? '',
+    );
     _categoryId = product?.categoryId ?? widget.categories.first.categoryId;
     _brandId = product?.brandId ?? widget.brands.first.brandId;
     _isActive = product?.isActive ?? true;
@@ -51,6 +74,11 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
+    _variantController.dispose();
+    _skuController.dispose();
+    _initialStockController.dispose();
+    _reorderController.dispose();
+    _locationController.dispose();
     super.dispose();
   }
 
@@ -82,7 +110,23 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
         description: _descriptionController.text.trim(),
         imageUrl: _imagePath,
         isActive: _isActive,
-        variants: existing?.variants ?? const [],
+        variants:
+            existing?.variants ??
+            [
+              ProductVariant(
+                id: DateTime.now().microsecondsSinceEpoch,
+                variantName: _variantController.text.trim(),
+                baseUomCode: 'Piece',
+                isActive: true,
+                sku: _skuController.text.trim(),
+                qrIdentifier:
+                    'MAT-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
+                currentStock:
+                    double.tryParse(_initialStockController.text) ?? 0,
+                reorderLevel: double.tryParse(_reorderController.text) ?? 0,
+                storageLocation: _locationController.text.trim(),
+              ),
+            ],
       ),
     );
   }
@@ -110,6 +154,62 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                       ? 'Enter a product name.'
                       : null,
                 ),
+                if (widget.product == null) ...[
+                  const SizedBox(height: AppSpacing.xl),
+                  Text(
+                    'First variant',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  TextFormField(
+                    controller: _variantController,
+                    decoration: const InputDecoration(
+                      labelText: 'Variant name',
+                    ),
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'Enter a variant name.'
+                        : null,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  TextFormField(
+                    controller: _skuController,
+                    decoration: const InputDecoration(labelText: 'SKU'),
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'Enter an SKU.'
+                        : null,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _initialStockController,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Initial Stock (optional)',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        child: TextFormField(
+                          controller: _reorderController,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Reorder Level',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  TextFormField(
+                    controller: _locationController,
+                    decoration: const InputDecoration(
+                      labelText: 'Storage Location',
+                    ),
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.lg),
                 DropdownButtonFormField<int>(
                   initialValue: _categoryId,
