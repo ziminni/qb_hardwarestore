@@ -6,12 +6,16 @@ import 'package:client/features/admin/views/reports_page.dart';
 import 'package:client/features/admin/views/requisitions_page.dart';
 import 'package:client/features/admin/views/sales_monitoring_page.dart';
 import 'package:client/features/admin/views/settings_page.dart';
+import 'package:client/features/categories/views/categories_page.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/auth/views/login_page.dart';
 import 'package:client/features/dashboard/views/admin_dashboard.dart';
 import 'package:client/features/dashboard/views/inventory_dashboard.dart';
 import 'package:client/features/dashboard/views/pos_dashboard.dart';
 import 'package:client/features/dashboard/views/sales_dashboard.dart';
+import 'package:client/features/inventory/views/inventory_stock_movements_page.dart';
+import 'package:client/features/inventory/views/inventory_low_stock_page.dart';
+import 'package:client/features/inventory/views/inventory_stock_page.dart';
 import 'package:client/features/products/views/products_page.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -30,6 +34,10 @@ class AppRoutes {
   static const String adminSettings = '/admin/settings';
   static const String inventoryDashboard = '/inventory/dashboard';
   static const String inventoryProducts = '/inventory/products';
+  static const String inventoryCategories = '/inventory/categories';
+  static const String inventoryStock = '/inventory/stock';
+  static const String inventoryStockMovements = '/inventory/stock-movements';
+  static const String inventoryLowStock = '/inventory/low-stock';
   static const String posDashboard = '/pos/dashboard';
   static const String salesDashboard = '/sales/dashboard';
 
@@ -173,6 +181,30 @@ class AppRoutes {
           name: 'inventory_products',
           pageBuilder: (context, state) =>
               _transitionPage(state, const ProductsPage()),
+        ),
+        GoRoute(
+          path: inventoryCategories,
+          name: 'inventory_categories',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const CategoriesPage()),
+        ),
+        GoRoute(
+          path: inventoryStock,
+          name: 'inventory_stock',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const InventoryStockPage()),
+        ),
+        GoRoute(
+          path: inventoryStockMovements,
+          name: 'inventory_stock_movements',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const InventoryStockMovementsPage()),
+        ),
+        GoRoute(
+          path: inventoryLowStock,
+          name: 'inventory_low_stock',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const InventoryLowStockPage()),
         ),
         GoRoute(
           path: posDashboard,

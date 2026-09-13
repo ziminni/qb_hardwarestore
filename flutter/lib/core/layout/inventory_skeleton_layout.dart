@@ -44,6 +44,10 @@ class InventorySkeletonLayout extends StatelessWidget {
           icon: Icons.category_outlined,
         ),
         SharedSidebarDestination(
+          label: 'Stock',
+          icon: Icons.warehouse_outlined,
+        ),
+        SharedSidebarDestination(
           label: 'Stock movements',
           icon: Icons.swap_vert_rounded,
         ),
