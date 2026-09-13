@@ -4,12 +4,47 @@ class ProductVariant {
     required this.variantName,
     required this.baseUomCode,
     required this.isActive,
+    this.sku = '',
+    this.qrIdentifier = '',
+    this.costPrice = 0,
+    this.sellingPrice = 0,
+    this.currentStock = 0,
+    this.reorderLevel = 0,
+    this.storageLocation = '',
   });
 
   final int id;
   final String variantName;
   final String baseUomCode;
   final bool isActive;
+  final String sku;
+  final String qrIdentifier;
+  final double costPrice;
+  final double sellingPrice;
+  final double currentStock;
+  final double reorderLevel;
+  final String storageLocation;
+
+  ProductVariant copyWith({
+    bool? isActive,
+    double? currentStock,
+    double? reorderLevel,
+    String? storageLocation,
+  }) {
+    return ProductVariant(
+      id: id,
+      variantName: variantName,
+      baseUomCode: baseUomCode,
+      isActive: isActive ?? this.isActive,
+      sku: sku,
+      qrIdentifier: qrIdentifier,
+      costPrice: costPrice,
+      sellingPrice: sellingPrice,
+      currentStock: currentStock ?? this.currentStock,
+      reorderLevel: reorderLevel ?? this.reorderLevel,
+      storageLocation: storageLocation ?? this.storageLocation,
+    );
+  }
 
   factory ProductVariant.fromJson(Map<String, dynamic> json) {
     return ProductVariant(
@@ -17,6 +52,13 @@ class ProductVariant {
       variantName: json['variant_name'] as String,
       baseUomCode: json['base_uom_code'] as String? ?? '',
       isActive: json['is_active'] as bool? ?? true,
+      sku: json['sku'] as String? ?? '',
+      qrIdentifier: json['qr_identifier'] as String? ?? '',
+      costPrice: double.tryParse('${json['cost_price'] ?? 0}') ?? 0,
+      sellingPrice: double.tryParse('${json['selling_price'] ?? 0}') ?? 0,
+      currentStock: double.tryParse('${json['current_stock'] ?? 0}') ?? 0,
+      reorderLevel: double.tryParse('${json['reorder_level'] ?? 0}') ?? 0,
+      storageLocation: json['storage_location'] as String? ?? '',
     );
   }
 }
