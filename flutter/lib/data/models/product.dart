@@ -46,6 +46,32 @@ class Product {
   final bool isActive;
   final List<ProductVariant> variants;
 
+  Product copyWith({
+    int? id,
+    int? categoryId,
+    String? categoryName,
+    int? brandId,
+    String? brandName,
+    String? baseName,
+    String? description,
+    String? imageUrl,
+    bool? isActive,
+    List<ProductVariant>? variants,
+  }) {
+    return Product(
+      id: id ?? this.id,
+      categoryId: categoryId ?? this.categoryId,
+      categoryName: categoryName ?? this.categoryName,
+      brandId: brandId ?? this.brandId,
+      brandName: brandName ?? this.brandName,
+      baseName: baseName ?? this.baseName,
+      description: description ?? this.description,
+      imageUrl: imageUrl ?? this.imageUrl,
+      isActive: isActive ?? this.isActive,
+      variants: variants ?? this.variants,
+    );
+  }
+
   factory Product.fromJson(Map<String, dynamic> json) {
     return Product(
       id: json['id'] as int,
