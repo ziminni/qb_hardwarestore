@@ -3,7 +3,7 @@ import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/services/health_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
-import 'package:client/features/auth/widget/login_glass_card.dart';
+import 'package:client/features/auth/widgets/login_glass_card.dart';
 import 'package:client/shared/widgets/system_brand.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
