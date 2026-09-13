@@ -12,6 +12,7 @@ import 'package:client/features/dashboard/views/admin_dashboard.dart';
 import 'package:client/features/dashboard/views/inventory_dashboard.dart';
 import 'package:client/features/dashboard/views/pos_dashboard.dart';
 import 'package:client/features/dashboard/views/sales_dashboard.dart';
+import 'package:client/features/products/views/products_page.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -28,6 +29,7 @@ class AppRoutes {
   static const String adminAuditLogs = '/admin/audit-logs';
   static const String adminSettings = '/admin/settings';
   static const String inventoryDashboard = '/inventory/dashboard';
+  static const String inventoryProducts = '/inventory/products';
   static const String posDashboard = '/pos/dashboard';
   static const String salesDashboard = '/sales/dashboard';
 
@@ -87,6 +89,10 @@ class AppRoutes {
         if (dashboard == null) return isLogin ? null : login;
         if (isLogin) return dashboard;
         if (location.startsWith('/admin/') && auth.roleName != 'admin') {
+          return dashboard;
+        }
+        if (location.startsWith('/inventory/') &&
+            auth.roleName != 'inventory') {
           return dashboard;
         }
 
@@ -161,6 +167,12 @@ class AppRoutes {
           name: 'inventory_dashboard',
           pageBuilder: (context, state) =>
               _transitionPage(state, const InventoryDashboard()),
+        ),
+        GoRoute(
+          path: inventoryProducts,
+          name: 'inventory_products',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const ProductsPage()),
         ),
         GoRoute(
           path: posDashboard,
