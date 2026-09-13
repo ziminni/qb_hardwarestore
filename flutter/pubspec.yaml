@@ -15,6 +15,7 @@ dependencies:
   window_manager: ^0.3.0  # Handles window settings
   dio: ^5.4.0             # HTTP client for Django API calls
   flutter_secure_storage: ^11.0.0
+  file_selector: ^1.1.0   # Desktop product image selection
   
 dev_dependencies:
   flutter_test:
@@ -46,4 +47,3 @@ flutter:
           weight: 500
         - asset: assets/fonts/OpenSans-Bold.ttf
           weight: 700
-
