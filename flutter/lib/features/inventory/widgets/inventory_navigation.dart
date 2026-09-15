@@ -10,6 +10,8 @@ void navigateInventory(BuildContext context, int index) {
     3 => AppRoutes.inventoryStock,
     4 => AppRoutes.inventoryStockMovements,
     5 => AppRoutes.inventoryLowStock,
+    6 => AppRoutes.inventoryPurchases,
+    7 => AppRoutes.inventorySuppliers,
     _ => null,
   };
   if (path != null) context.go(path);
