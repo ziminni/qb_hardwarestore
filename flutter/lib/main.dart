@@ -4,6 +4,7 @@ import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
+import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmodel.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
@@ -28,6 +29,7 @@ Future<void> main() async {
       providers: [
         ChangeNotifierProvider.value(value: authViewmodel),
         ChangeNotifierProvider(create: (_) => InventoryViewmodel()),
+        ChangeNotifierProvider(create: (_) => SuppliersPurchasesViewmodel()),
       ],
       child: MyApp(auth: authViewmodel),
     ),
