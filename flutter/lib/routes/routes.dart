@@ -19,6 +19,9 @@ import 'package:client/features/inventory/views/inventory_stock_page.dart';
 import 'package:client/features/products/views/products_page.dart';
 import 'package:client/features/suppliers/views/purchases_page.dart';
 import 'package:client/features/suppliers/views/suppliers_page.dart';
+import 'package:client/features/sales/views/inventory_returns_page.dart';
+import 'package:client/features/sales/views/inventory_sales_page.dart';
+import 'package:client/features/reports/views/inventory_reports_page.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -42,6 +45,9 @@ class AppRoutes {
   static const String inventoryLowStock = '/inventory/low-stock';
   static const String inventoryPurchases = '/inventory/purchases';
   static const String inventorySuppliers = '/inventory/suppliers';
+  static const String inventorySales = '/inventory/sales';
+  static const String inventoryReturns = '/inventory/returns';
+  static const String inventoryReports = '/inventory/reports';
   static const String posDashboard = '/pos/dashboard';
   static const String salesDashboard = '/sales/dashboard';
 
@@ -221,6 +227,24 @@ class AppRoutes {
           name: 'inventory_suppliers',
           pageBuilder: (context, state) =>
               _transitionPage(state, const SuppliersPage()),
+        ),
+        GoRoute(
+          path: inventorySales,
+          name: 'inventory_sales',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const InventorySalesPage()),
+        ),
+        GoRoute(
+          path: inventoryReturns,
+          name: 'inventory_returns',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const InventoryReturnsPage()),
+        ),
+        GoRoute(
+          path: inventoryReports,
+          name: 'inventory_reports',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const InventoryReportsPage()),
         ),
         GoRoute(
           path: posDashboard,
