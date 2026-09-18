@@ -1,3 +1,6 @@
+import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_radii.dart';
+import 'package:client/core/constants/app_shadows.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:flutter/material.dart';
 
@@ -63,105 +66,151 @@ class _ProductsToolbarState extends State<ProductsToolbar> {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final compact = constraints.maxWidth < 900;
-        final search = TextField(
-          controller: _searchController,
-          onChanged: widget.onSearchChanged,
-          decoration: const InputDecoration(
-            hintText: 'Search name, description, brand, or variant',
-            prefixIcon: Icon(Icons.search),
-          ),
-        );
-        final category = DropdownButtonFormField<String?>(
-          initialValue: widget.selectedCategory,
-          decoration: const InputDecoration(labelText: 'Category'),
-          items: [
-            const DropdownMenuItem(value: null, child: Text('All categories')),
-            ...widget.categories.map(
-              (value) => DropdownMenuItem(value: value, child: Text(value)),
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(AppRadii.medium),
+        boxShadow: const [AppShadows.card],
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 900;
+          final search = TextField(
+            controller: _searchController,
+            onChanged: widget.onSearchChanged,
+            decoration: const InputDecoration(
+              hintText: 'Search name, description, brand, or variant',
+              prefixIcon: Icon(Icons.search),
             ),
-          ],
-          onChanged: widget.onCategoryChanged,
-        );
-        final brand = DropdownButtonFormField<String?>(
-          initialValue: widget.selectedBrand,
-          decoration: const InputDecoration(labelText: 'Brand'),
-          items: [
-            const DropdownMenuItem(value: null, child: Text('All brands')),
-            ...widget.brands.map(
-              (value) => DropdownMenuItem(value: value, child: Text(value)),
-            ),
-          ],
-          onChanged: widget.onBrandChanged,
-        );
-        final status = DropdownButtonFormField<bool?>(
-          initialValue: widget.activeStatus,
-          decoration: const InputDecoration(labelText: 'Status'),
-          items: const [
-            DropdownMenuItem(value: null, child: Text('All statuses')),
-            DropdownMenuItem(value: true, child: Text('Active')),
-            DropdownMenuItem(value: false, child: Text('Inactive')),
-          ],
-          onChanged: widget.onStatusChanged,
-        );
-        final actions = Wrap(
-          spacing: AppSpacing.sm,
-          runSpacing: AppSpacing.sm,
-          children: [
-            OutlinedButton.icon(
-              onPressed: widget.onClearFilters,
-              icon: const Icon(Icons.filter_alt_off_outlined),
-              label: const Text('Clear'),
-            ),
-            FilledButton.icon(
-              onPressed: widget.onAddProduct,
-              icon: const Icon(Icons.add),
-              label: const Text('Add product'),
-            ),
-          ],
-        );
+          );
+          final category = DropdownButtonFormField<String?>(
+            initialValue: widget.selectedCategory,
+            decoration: const InputDecoration(labelText: 'Category'),
+            items: [
+              const DropdownMenuItem(
+                value: null,
+                child: Text('All categories'),
+              ),
+              ...widget.categories.map(
+                (value) => DropdownMenuItem(value: value, child: Text(value)),
+              ),
+            ],
+            onChanged: widget.onCategoryChanged,
+          );
+          final brand = DropdownButtonFormField<String?>(
+            initialValue: widget.selectedBrand,
+            decoration: const InputDecoration(labelText: 'Brand'),
+            items: [
+              const DropdownMenuItem(value: null, child: Text('All brands')),
+              ...widget.brands.map(
+                (value) => DropdownMenuItem(value: value, child: Text(value)),
+              ),
+            ],
+            onChanged: widget.onBrandChanged,
+          );
+          final status = DropdownButtonFormField<bool?>(
+            initialValue: widget.activeStatus,
+            decoration: const InputDecoration(labelText: 'Status'),
+            items: const [
+              DropdownMenuItem(value: null, child: Text('All statuses')),
+              DropdownMenuItem(value: true, child: Text('Active')),
+              DropdownMenuItem(value: false, child: Text('Inactive')),
+            ],
+            onChanged: widget.onStatusChanged,
+          );
+          final heading = Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Product catalog',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      'Search the catalog or narrow results using filters.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              FilledButton.icon(
+                onPressed: widget.onAddProduct,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add product'),
+              ),
+            ],
+          );
 
-        if (compact) {
+          if (compact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                heading,
+                const SizedBox(height: AppSpacing.lg),
+                search,
+                const SizedBox(height: AppSpacing.md),
+                Wrap(
+                  spacing: AppSpacing.md,
+                  runSpacing: AppSpacing.md,
+                  children: [
+                    SizedBox(width: 210, child: category),
+                    SizedBox(width: 210, child: brand),
+                    SizedBox(width: 180, child: status),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: widget.onClearFilters,
+                    icon: const Icon(Icons.filter_alt_off_outlined, size: 17),
+                    label: const Text('Clear filters'),
+                  ),
+                ),
+              ],
+            );
+          }
+
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              search,
-              const SizedBox(height: AppSpacing.md),
-              Wrap(
-                spacing: AppSpacing.md,
-                runSpacing: AppSpacing.md,
+              heading,
+              const SizedBox(height: AppSpacing.lg),
+              Row(
                 children: [
-                  SizedBox(width: 210, child: category),
-                  SizedBox(width: 210, child: brand),
-                  SizedBox(width: 180, child: status),
+                  Expanded(flex: 3, child: search),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(child: category),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(child: brand),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(child: status),
                 ],
               ),
-              const SizedBox(height: AppSpacing.md),
-              Align(alignment: Alignment.centerRight, child: actions),
+              const SizedBox(height: AppSpacing.sm),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: widget.onClearFilters,
+                  icon: const Icon(Icons.filter_alt_off_outlined, size: 17),
+                  label: const Text('Clear filters'),
+                ),
+              ),
             ],
           );
-        }
-
-        return Column(
-          children: [
-            Row(
-              children: [
-                Expanded(flex: 3, child: search),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(child: category),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(child: brand),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(child: status),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Align(alignment: Alignment.centerRight, child: actions),
-          ],
-        );
-      },
+        },
+      ),
     );
   }
 }

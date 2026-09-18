@@ -1,6 +1,7 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/constants/app_shadows.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/features/products/widgets/products_empty_state.dart';
 import 'package:client/features/products/widgets/products_image.dart';
@@ -60,16 +61,54 @@ class ProductsTable extends StatelessWidget {
         color: colors.surface,
         border: Border.all(color: AppColors.border),
         borderRadius: BorderRadius.circular(AppRadii.medium),
+        boxShadow: const [AppShadows.card],
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.md,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'All products',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        '$totalItems catalog ${totalItems == 1 ? 'entry' : 'entries'} found',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.table_rows_outlined, color: colors.primary),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
           if (products.isEmpty)
             ProductsEmptyState(onClearFilters: onClearFilters)
           else
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
+                dataRowMinHeight: 68,
+                dataRowMaxHeight: 68,
+                headingRowHeight: 48,
+                columnSpacing: AppSpacing.xl,
                 headingRowColor: WidgetStatePropertyAll(
                   colors.secondaryContainer,
                 ),
@@ -109,8 +148,8 @@ class ProductsTable extends StatelessWidget {
                                 ),
                                 child: ProductsImage(
                                   imageUrl: product.imageUrl,
-                                  width: 40,
-                                  height: 40,
+                                  width: 46,
+                                  height: 46,
                                 ),
                               ),
                               const SizedBox(width: AppSpacing.md),
@@ -139,9 +178,37 @@ class ProductsTable extends StatelessWidget {
                           ),
                         ),
                       ),
-                      DataCell(Text(product.categoryName)),
+                      DataCell(
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.sm,
+                            vertical: AppSpacing.xs,
+                          ),
+                          decoration: BoxDecoration(
+                            color: colors.secondaryContainer,
+                            borderRadius: BorderRadius.circular(AppRadii.pill),
+                          ),
+                          child: Text(
+                            product.categoryName,
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ),
+                      ),
                       DataCell(Text(product.brandName)),
-                      DataCell(Text('${product.variants.length}')),
+                      DataCell(
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.layers_outlined,
+                              size: 16,
+                              color: colors.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: AppSpacing.xs),
+                            Text('${product.variants.length}'),
+                          ],
+                        ),
+                      ),
                       DataCell(ProductsStatusBadge(isActive: product.isActive)),
                       DataCell(
                         Row(
@@ -150,9 +217,12 @@ class ProductsTable extends StatelessWidget {
                             IconButton(
                               tooltip: 'View product',
                               onPressed: () => onViewProduct(product),
+                              style: IconButton.styleFrom(
+                                backgroundColor: colors.secondaryContainer,
+                              ),
                               icon: const Icon(
                                 Icons.visibility_outlined,
-                                size: 18,
+                                size: 17,
                               ),
                             ),
                             IconButton(

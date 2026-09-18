@@ -1,3 +1,4 @@
+import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
 import 'package:client/data/models/product.dart';
@@ -90,9 +91,15 @@ class ProductsPage extends StatelessWidget {
               children: [
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    final cardWidth = constraints.maxWidth < 760
-                        ? constraints.maxWidth
-                        : 190.0;
+                    final columns = constraints.maxWidth >= 1060
+                        ? 4
+                        : constraints.maxWidth >= 540
+                        ? 2
+                        : 1;
+                    final cardWidth =
+                        (constraints.maxWidth -
+                            (AppSpacing.md * (columns - 1))) /
+                        columns;
 
                     return Wrap(
                       spacing: AppSpacing.md,
@@ -104,6 +111,7 @@ class ProductsPage extends StatelessWidget {
                             label: 'Total products',
                             value: '${viewModel.totalProducts}',
                             icon: Icons.inventory_2_outlined,
+                            caption: 'Catalog entries',
                           ),
                         ),
                         SizedBox(
@@ -112,6 +120,8 @@ class ProductsPage extends StatelessWidget {
                             label: 'Active',
                             value: '${viewModel.activeProducts}',
                             icon: Icons.check_circle_outline,
+                            caption: 'Available for transactions',
+                            color: AppColors.success,
                           ),
                         ),
                         SizedBox(
@@ -120,6 +130,8 @@ class ProductsPage extends StatelessWidget {
                             label: 'Inactive',
                             value: '${viewModel.inactiveProducts}',
                             icon: Icons.block_outlined,
+                            caption: 'Hidden from transactions',
+                            color: AppColors.error,
                           ),
                         ),
                         SizedBox(
@@ -128,6 +140,8 @@ class ProductsPage extends StatelessWidget {
                             label: 'Variants',
                             value: '${viewModel.totalVariants}',
                             icon: Icons.format_list_bulleted_outlined,
+                            caption: 'Sizes and specifications',
+                            color: AppColors.info,
                           ),
                         ),
                       ],
