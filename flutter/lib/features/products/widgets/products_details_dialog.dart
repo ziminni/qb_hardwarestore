@@ -4,7 +4,6 @@ import 'package:client/data/models/product.dart';
 import 'package:client/data/models/inventory.dart';
 import 'package:client/features/inventory/widgets/inventory_stock_status_badge.dart';
 import 'package:client/features/products/widgets/products_image.dart';
-import 'package:client/features/products/widgets/products_status_badge.dart';
 import 'package:flutter/material.dart';
 
 class ProductsDetailsDialog extends StatelessWidget {
@@ -37,8 +36,6 @@ class ProductsDetailsDialog extends StatelessWidget {
                   height: 120,
                 ),
               ),
-              const SizedBox(height: AppSpacing.lg),
-              ProductsStatusBadge(isActive: product.isActive),
               const SizedBox(height: AppSpacing.lg),
               Text('Category', style: theme.textTheme.labelMedium),
               Text(product.categoryName),

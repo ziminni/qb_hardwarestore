@@ -33,7 +33,6 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   late final TextEditingController _locationController;
   late int _categoryId;
   late int _brandId;
-  late bool _isActive;
   late String _imagePath;
 
   final _imageFileService = const ImageFileService();
@@ -66,7 +65,6 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     );
     _categoryId = product?.categoryId ?? widget.categories.first.categoryId;
     _brandId = product?.brandId ?? widget.brands.first.brandId;
-    _isActive = product?.isActive ?? true;
     _imagePath = product?.imageUrl ?? '';
   }
 
@@ -109,7 +107,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
         baseName: _nameController.text.trim(),
         description: _descriptionController.text.trim(),
         imageUrl: _imagePath,
-        isActive: _isActive,
+        isActive: existing?.isActive ?? true,
         variants:
             existing?.variants ??
             [
@@ -312,15 +310,6 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Active product'),
-                  subtitle: const Text(
-                    'Inactive products remain in the catalog.',
-                  ),
-                  value: _isActive,
-                  onChanged: (value) => setState(() => _isActive = value),
-                ),
               ],
             ),
           ),

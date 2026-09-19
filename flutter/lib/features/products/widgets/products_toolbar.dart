@@ -12,11 +12,9 @@ class ProductsToolbar extends StatefulWidget {
     required this.brands,
     required this.selectedCategory,
     required this.selectedBrand,
-    required this.activeStatus,
     required this.onSearchChanged,
     required this.onCategoryChanged,
     required this.onBrandChanged,
-    required this.onStatusChanged,
     required this.onClearFilters,
     required this.onAddProduct,
   });
@@ -26,11 +24,9 @@ class ProductsToolbar extends StatefulWidget {
   final List<String> brands;
   final String? selectedCategory;
   final String? selectedBrand;
-  final bool? activeStatus;
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<String?> onCategoryChanged;
   final ValueChanged<String?> onBrandChanged;
-  final ValueChanged<bool?> onStatusChanged;
   final VoidCallback onClearFilters;
   final VoidCallback onAddProduct;
 
@@ -112,16 +108,6 @@ class _ProductsToolbarState extends State<ProductsToolbar> {
             ],
             onChanged: widget.onBrandChanged,
           );
-          final status = DropdownButtonFormField<bool?>(
-            initialValue: widget.activeStatus,
-            decoration: const InputDecoration(labelText: 'Status'),
-            items: const [
-              DropdownMenuItem(value: null, child: Text('All statuses')),
-              DropdownMenuItem(value: true, child: Text('Active')),
-              DropdownMenuItem(value: false, child: Text('Inactive')),
-            ],
-            onChanged: widget.onStatusChanged,
-          );
           final heading = Row(
             children: [
               Expanded(
@@ -166,7 +152,6 @@ class _ProductsToolbarState extends State<ProductsToolbar> {
                   children: [
                     SizedBox(width: 210, child: category),
                     SizedBox(width: 210, child: brand),
-                    SizedBox(width: 180, child: status),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.md),
@@ -195,7 +180,6 @@ class _ProductsToolbarState extends State<ProductsToolbar> {
                   const SizedBox(width: AppSpacing.md),
                   Expanded(child: brand),
                   const SizedBox(width: AppSpacing.md),
-                  Expanded(child: status),
                 ],
               ),
               const SizedBox(height: AppSpacing.sm),

@@ -13,7 +13,6 @@ class ProductsViewmodel extends ChangeNotifier {
   String _searchQuery = '';
   String? _selectedCategory;
   String? _selectedBrand;
-  bool? _activeStatus;
   int _currentPage = 1;
   int _rowsPerPage = 5;
 
@@ -22,22 +21,31 @@ class ProductsViewmodel extends ChangeNotifier {
   String get searchQuery => _searchQuery;
   String? get selectedCategory => _selectedCategory;
   String? get selectedBrand => _selectedBrand;
-  bool? get activeStatus => _activeStatus;
   int get currentPage => _currentPage;
   int get rowsPerPage => _rowsPerPage;
-  int get totalProducts => _products.length;
-  int get activeProducts =>
+  int get totalProducts =>
       _products.where((product) => product.isActive).length;
-  int get inactiveProducts => totalProducts - activeProducts;
-  int get totalVariants =>
-      _products.fold(0, (total, product) => total + product.variants.length);
+  int get archivedProducts =>
+      _products.where((product) => !product.isActive).length;
+  int get totalVariants => _products
+      .where((product) => product.isActive)
+      .fold(0, (total, product) => total + product.variants.length);
 
   List<String> get categories =>
-      (_products.map((product) => product.categoryName).toSet().toList()
+      (_products
+          .where((product) => product.isActive)
+          .map((product) => product.categoryName)
+          .toSet()
+          .toList()
         ..sort());
 
   List<String> get brands =>
-      (_products.map((product) => product.brandName).toSet().toList()..sort());
+      (_products
+          .where((product) => product.isActive)
+          .map((product) => product.brandName)
+          .toSet()
+          .toList()
+        ..sort());
 
   List<Product> get filteredProducts {
     final normalizedQuery = _searchQuery.trim().toLowerCase();
@@ -59,13 +67,10 @@ class ProductsViewmodel extends ChangeNotifier {
               product.categoryName == _selectedCategory;
           final matchesBrand =
               _selectedBrand == null || product.brandName == _selectedBrand;
-          final matchesStatus =
-              _activeStatus == null || product.isActive == _activeStatus;
-
           return matchesSearch &&
               matchesCategory &&
               matchesBrand &&
-              matchesStatus;
+              product.isActive;
         })
         .toList(growable: false);
   }
@@ -100,16 +105,10 @@ class ProductsViewmodel extends ChangeNotifier {
     _resetPage();
   }
 
-  void setActiveStatus(bool? value) {
-    _activeStatus = value;
-    _resetPage();
-  }
-
   void clearFilters() {
     _searchQuery = '';
     _selectedCategory = null;
     _selectedBrand = null;
-    _activeStatus = null;
     _resetPage();
   }
 
@@ -144,11 +143,11 @@ class ProductsViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setSelectedProductsActive(bool isActive) {
+  void archiveSelectedProducts() {
     for (var index = 0; index < _products.length; index++) {
       final product = _products[index];
       if (_selectedProductIds.contains(product.id)) {
-        _products[index] = product.copyWith(isActive: isActive);
+        _products[index] = product.copyWith(isActive: false);
       }
     }
     _selectedProductIds.clear();
@@ -172,8 +171,8 @@ class ProductsViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void toggleProductStatus(Product product) {
-    updateProduct(product.copyWith(isActive: !product.isActive));
+  void archiveProduct(Product product) {
+    updateProduct(product.copyWith(isActive: false));
   }
 
   void _resetPage() {

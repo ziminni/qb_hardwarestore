@@ -7,14 +7,12 @@ class ProductsBulkActions extends StatelessWidget {
   const ProductsBulkActions({
     super.key,
     required this.selectedCount,
-    required this.onActivate,
-    required this.onDeactivate,
+    required this.onArchive,
     required this.onClear,
   });
 
   final int selectedCount;
-  final VoidCallback onActivate;
-  final VoidCallback onDeactivate;
+  final VoidCallback onArchive;
   final VoidCallback onClear;
 
   @override
@@ -41,10 +39,10 @@ class ProductsBulkActions extends StatelessWidget {
             style: const TextStyle(fontWeight: FontWeight.w600),
           ),
           const SizedBox(width: AppSpacing.sm),
-          OutlinedButton(onPressed: onActivate, child: const Text('Activate')),
-          OutlinedButton(
-            onPressed: onDeactivate,
-            child: const Text('Deactivate'),
+          OutlinedButton.icon(
+            onPressed: onArchive,
+            icon: const Icon(Icons.archive_outlined, size: 17),
+            label: const Text('Move to archive'),
           ),
           TextButton(onPressed: onClear, child: const Text('Clear selection')),
         ],
