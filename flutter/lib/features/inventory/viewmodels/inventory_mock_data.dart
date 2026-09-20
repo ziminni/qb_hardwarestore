@@ -109,15 +109,15 @@ class InventoryMockData {
       variants: [
         ProductVariant(
           id: 3,
-          variantName: '1/2 inch × 3 m',
-          baseUomCode: 'Piece',
+          variantName: '1/2 inch × 10 m',
+          baseUomCode: 'm',
           isActive: true,
           sku: 'PVC-NEL-050',
           qrIdentifier: 'MAT-00021',
           costPrice: 135,
           sellingPrice: 180,
-          currentStock: 42,
-          reorderLevel: 15,
+          currentStock: 97,
+          reorderLevel: 20,
           storageLocation: 'Rack B-02',
         ),
         ProductVariant(
@@ -434,14 +434,14 @@ class InventoryMockData {
       variants: [
         ProductVariant(
           id: 19,
-          variantName: '2 inch × 1 kg',
-          baseUomCode: 'Box',
+          variantName: '2 inch',
+          baseUomCode: 'kg',
           isActive: true,
           sku: 'NAIL-COM-02',
           qrIdentifier: 'MAT-00081',
           costPrice: 72,
           sellingPrice: 95,
-          currentStock: 48,
+          currentStock: 122.5,
           reorderLevel: 15,
           storageLocation: 'Bin H-01',
         ),

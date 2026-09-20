@@ -72,6 +72,40 @@ enum InventoryStockStatus {
   final String label;
 }
 
+enum InventoryMovementView {
+  all('All Movements'),
+  stockIn('Stock In'),
+  stockOut('Stock Out'),
+  balance('Stock Balance');
+
+  const InventoryMovementView(this.label);
+  final String label;
+}
+
+enum InventoryDatePreset {
+  today('Today'),
+  thisWeek('This Week'),
+  thisMonth('This Month'),
+  custom('Custom Range');
+
+  const InventoryDatePreset(this.label);
+  final String label;
+}
+
+class InventoryMovementPhysicalDetail {
+  const InventoryMovementPhysicalDetail({
+    this.packageDescription,
+    this.packageEffect,
+    this.sourcePiece,
+    this.remainingPiece,
+  });
+
+  final String? packageDescription;
+  final String? packageEffect;
+  final double? sourcePiece;
+  final double? remainingPiece;
+}
+
 class InventoryMovement {
   const InventoryMovement({
     required this.id,
@@ -85,6 +119,10 @@ class InventoryMovement {
     required this.reference,
     required this.reason,
     required this.userName,
+    this.unit,
+    this.source,
+    this.notes = '',
+    this.physicalDetail,
   });
 
   final int id;
@@ -98,4 +136,13 @@ class InventoryMovement {
   final String reference;
   final String reason;
   final String userName;
+  final String? unit;
+  final String? source;
+  final String notes;
+  final InventoryMovementPhysicalDetail? physicalDetail;
+
+  bool get isIncoming =>
+      quantityChange > 0 ||
+      (quantityChange == 0 && type == InventoryMovementType.initialStock);
+  bool get isOutgoing => quantityChange < 0;
 }

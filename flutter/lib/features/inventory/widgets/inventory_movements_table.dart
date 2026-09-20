@@ -10,9 +10,13 @@ class InventoryMovementsTable extends StatelessWidget {
     super.key,
     required this.movements,
     required this.products,
+    required this.onView,
+    required this.emptyMessage,
   });
   final List<InventoryMovement> movements;
   final List<Product> products;
+  final ValueChanged<InventoryMovement> onView;
+  final String emptyMessage;
   ({Product product, ProductVariant variant}) _record(
     InventoryMovement movement,
   ) {
@@ -27,8 +31,13 @@ class InventoryMovementsTable extends StatelessWidget {
     );
   }
 
-  String _number(double value) =>
-      '${value > 0 ? '+' : ''}${value.toStringAsFixed(0)}';
+  String _number(double value) {
+    final number = value == value.roundToDouble()
+        ? value.toStringAsFixed(0)
+        : value.toStringAsFixed(2);
+    return '${value > 0 ? '+' : ''}$number';
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -41,11 +50,9 @@ class InventoryMovementsTable extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: movements.isEmpty
-          ? const Padding(
-              padding: EdgeInsets.all(48),
-              child: Center(
-                child: Text('No stock movements match these filters.'),
-              ),
+          ? Padding(
+              padding: const EdgeInsets.all(48),
+              child: Center(child: Text(emptyMessage)),
             )
           : SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -65,9 +72,11 @@ class InventoryMovementsTable extends StatelessWidget {
                   DataColumn(label: Text('Reference')),
                   DataColumn(label: Text('Reason')),
                   DataColumn(label: Text('User')),
+                  DataColumn(label: Text('Actions')),
                 ],
                 rows: movements.map((movement) {
                   final record = _record(movement);
+                  final unit = movement.unit ?? record.variant.baseUomCode;
                   return DataRow(
                     cells: [
                       DataCell(
@@ -81,7 +90,7 @@ class InventoryMovementsTable extends StatelessWidget {
                       DataCell(InventoryMovementBadge(type: movement.type)),
                       DataCell(
                         Text(
-                          _number(movement.quantityChange),
+                          '${_number(movement.quantityChange)} $unit',
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
                             color: movement.quantityChange >= 0
@@ -90,8 +99,16 @@ class InventoryMovementsTable extends StatelessWidget {
                           ),
                         ),
                       ),
-                      DataCell(Text(movement.previousStock.toStringAsFixed(0))),
-                      DataCell(Text(movement.newStock.toStringAsFixed(0))),
+                      DataCell(
+                        Text(
+                          '${_number(movement.previousStock).replaceFirst('+', '')} $unit',
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          '${_number(movement.newStock).replaceFirst('+', '')} $unit',
+                        ),
+                      ),
                       DataCell(Text(movement.reference)),
                       DataCell(
                         SizedBox(
@@ -103,6 +120,12 @@ class InventoryMovementsTable extends StatelessWidget {
                         ),
                       ),
                       DataCell(Text(movement.userName)),
+                      DataCell(
+                        TextButton(
+                          onPressed: () => onView(movement),
+                          child: const Text('View'),
+                        ),
+                      ),
                     ],
                   );
                 }).toList(),

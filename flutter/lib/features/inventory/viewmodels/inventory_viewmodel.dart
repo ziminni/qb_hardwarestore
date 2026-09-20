@@ -138,53 +138,190 @@ class InventoryViewmodel extends ChangeNotifier {
     var id = 1;
     for (final record in stockRecords) {
       final current = record.variant.currentStock;
+      final opening = max(current - 5, 0).toDouble();
+      final received = 10.0;
+      final sold = opening + received - current;
       _movements.add(
         InventoryMovement(
           id: id++,
           productId: record.product.id,
           variantId: record.variant.id,
-          timestamp: DateTime(2026, 9, 10, 8, record.variant.id),
+          timestamp: DateTime(2026, 9, 1, 8, record.variant.id),
           type: InventoryMovementType.initialStock,
-          quantityChange: current,
+          quantityChange: opening,
           previousStock: 0,
-          newStock: current,
+          newStock: opening,
           reference: 'INITIAL',
           reason: 'Initial setup',
           userName: 'Admin',
+          source: 'Opening inventory',
         ),
       );
-      if (record.variant.id <= 4) {
-        _movements.addAll([
-          InventoryMovement(
-            id: id++,
-            productId: record.product.id,
-            variantId: record.variant.id,
-            timestamp: DateTime(2026, 9, 11, 9, record.variant.id),
-            type: InventoryMovementType.purchaseReceipt,
-            quantityChange: 10,
-            previousStock: current,
-            newStock: current + 10,
-            reference: 'PO-${record.variant.id.toString().padLeft(4, '0')}',
-            reason: 'Supplier delivery',
-            userName: 'Inventory Staff',
-          ),
-          InventoryMovement(
-            id: id++,
-            productId: record.product.id,
-            variantId: record.variant.id,
-            timestamp: DateTime(2026, 9, 12, 14, record.variant.id),
-            type: InventoryMovementType.sale,
-            quantityChange: -10,
-            previousStock: current + 10,
-            newStock: current,
-            reference:
-                'SALE-${(50 + record.variant.id).toString().padLeft(4, '0')}',
-            reason: 'POS sale',
-            userName: 'Sales Staff',
-          ),
-        ]);
-      }
+      _movements.addAll([
+        InventoryMovement(
+          id: id++,
+          productId: record.product.id,
+          variantId: record.variant.id,
+          timestamp: DateTime(2026, 9, 5, 9, record.variant.id),
+          type: InventoryMovementType.purchaseReceipt,
+          quantityChange: received,
+          previousStock: opening,
+          newStock: opening + received,
+          reference: 'PO-${record.variant.id.toString().padLeft(4, '0')}',
+          reason: 'Supplier delivery received',
+          userName: 'Inventory Staff',
+          source: 'Purchase',
+        ),
+        InventoryMovement(
+          id: id++,
+          productId: record.product.id,
+          variantId: record.variant.id,
+          timestamp: DateTime(2026, 9, 10, 14, record.variant.id),
+          type: InventoryMovementType.sale,
+          quantityChange: -sold,
+          previousStock: opening + received,
+          newStock: current,
+          reference:
+              'SALE-${(50 + record.variant.id).toString().padLeft(4, '0')}',
+          reason: 'POS sale',
+          userName: 'Sales Staff',
+          source: 'Sale',
+        ),
+      ]);
     }
+    _seedDemonstrationMovements(id);
     _movements.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+  }
+
+  void _seedDemonstrationMovements(int startingId) {
+    var id = startingId;
+    void add({
+      required int variantId,
+      required InventoryMovementType type,
+      required double change,
+      required double before,
+      required DateTime timestamp,
+      required String reference,
+      required String reason,
+      required String source,
+      String? unit,
+      InventoryMovementPhysicalDetail? detail,
+    }) {
+      final product = _products.firstWhere(
+        (item) => item.variants.any((variant) => variant.id == variantId),
+      );
+      _movements.add(
+        InventoryMovement(
+          id: id++,
+          productId: product.id,
+          variantId: variantId,
+          timestamp: timestamp,
+          type: type,
+          quantityChange: change,
+          previousStock: before,
+          newStock: before + change,
+          reference: reference,
+          reason: reason,
+          userName: 'Inventory Staff',
+          source: source,
+          unit: unit,
+          physicalDetail: detail,
+        ),
+      );
+    }
+
+    add(
+      variantId: 1,
+      type: InventoryMovementType.customerReturn,
+      change: 1.5,
+      before: 130,
+      timestamp: DateTime(2026, 9, 14, 10, 20),
+      reference: 'RET-0007',
+      reason: 'Unopened material returned and restocked',
+      source: 'Customer Return',
+    );
+    add(
+      variantId: 1,
+      type: InventoryMovementType.sale,
+      change: -1.5,
+      before: 131.5,
+      timestamp: DateTime(2026, 9, 15, 11, 5),
+      reference: 'SALE-0088',
+      reason: 'Partial package sale',
+      source: 'Sale',
+      detail: const InventoryMovementPhysicalDetail(
+        packageDescription: '40 kg bag',
+        packageEffect:
+            '1 sealed bag and 20 kg from an opened bag; 20 kg remains',
+      ),
+    );
+    add(
+      variantId: 3,
+      type: InventoryMovementType.stockAdjustment,
+      change: 3,
+      before: 97,
+      timestamp: DateTime(2026, 9, 16, 8, 30),
+      reference: 'ADJ-0021',
+      reason: 'Physical count correction',
+      source: 'Stock Adjustment',
+      unit: 'm',
+    );
+    add(
+      variantId: 3,
+      type: InventoryMovementType.sale,
+      change: -3,
+      before: 100,
+      timestamp: DateTime(2026, 9, 16, 13, 20),
+      reference: 'SALE-0091',
+      reason: 'Sale / Cut',
+      source: 'Sale',
+      unit: 'm',
+      detail: const InventoryMovementPhysicalDetail(
+        sourcePiece: 10,
+        remainingPiece: 7,
+      ),
+    );
+    add(
+      variantId: 19,
+      type: InventoryMovementType.stockAdjustment,
+      change: 2.5,
+      before: 122.5,
+      timestamp: DateTime(2026, 9, 17, 9),
+      reference: 'ADJ-0022',
+      reason: 'Physical count correction',
+      source: 'Stock Adjustment',
+      unit: 'kg',
+    );
+    add(
+      variantId: 19,
+      type: InventoryMovementType.stockAdjustment,
+      change: -2.5,
+      before: 125,
+      timestamp: DateTime(2026, 9, 18, 15),
+      reference: 'ADJ-0023',
+      reason: 'Damaged stock',
+      source: 'Stock Adjustment',
+      unit: 'kg',
+    );
+    add(
+      variantId: 18,
+      type: InventoryMovementType.supplierReturn,
+      change: -2,
+      before: 16,
+      timestamp: DateTime(2026, 9, 18, 16),
+      reference: 'SRET-0003',
+      reason: 'Defective tools returned to supplier',
+      source: 'Supplier Return',
+    );
+    add(
+      variantId: 18,
+      type: InventoryMovementType.purchaseReceipt,
+      change: 2,
+      before: 14,
+      timestamp: DateTime(2026, 9, 19, 9),
+      reference: 'PO-REPLACE-0003',
+      reason: 'Supplier replacement received',
+      source: 'Purchase',
+    );
   }
 }
