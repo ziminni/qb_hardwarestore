@@ -1,7 +1,7 @@
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
 import 'package:client/data/models/category.dart';
-import 'package:client/features/categories/widgets/inventory_categories_table.dart';
+import 'package:client/features/categories/widgets/inventory_category_card.dart';
 import 'package:client/features/categories/widgets/inventory_category_dialog.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
@@ -71,6 +71,10 @@ class _CategoriesPageState extends State<CategoriesPage> {
               item.description.toLowerCase().contains(_query.toLowerCase()),
         )
         .toList();
+    final activeCount = inventory.categories
+        .where((item) => item.isActive)
+        .length;
+    final archivedCount = inventory.categories.length - activeCount;
     return InventorySkeletonLayout(
       title: 'Categories',
       subtitle: 'Organize related construction products.',
@@ -79,24 +83,75 @@ class _CategoriesPageState extends State<CategoriesPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 360,
-            child: TextField(
-              onChanged: (value) => setState(() => _query = value),
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                hintText: 'Search categories',
+          Row(
+            children: [
+              Expanded(
+                child: Wrap(
+                  spacing: AppSpacing.xl,
+                  runSpacing: AppSpacing.sm,
+                  children: [
+                    Text(
+                      '${inventory.categories.length} categories',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text('$activeCount active'),
+                    Text('$archivedCount archived'),
+                  ],
+                ),
               ),
-            ),
+              SizedBox(
+                width: 360,
+                child: TextField(
+                  onChanged: (value) => setState(() => _query = value),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    hintText: 'Search categories',
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: AppSpacing.xl),
-          InventoryCategoriesTable(
-            categories: categories,
-            productCount: inventory.productCountForCategory,
-            onView: (item) => _open(item, false),
-            onEdit: (item) => _open(item, true),
-            onArchive: _archive,
-          ),
+          if (categories.isEmpty)
+            const SizedBox(
+              height: 240,
+              child: Center(child: Text('No categories match your search.')),
+            )
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                const gap = AppSpacing.lg;
+                final columns = constraints.maxWidth >= 1050
+                    ? 3
+                    : constraints.maxWidth >= 650
+                    ? 2
+                    : 1;
+                final cardWidth =
+                    (constraints.maxWidth - (gap * (columns - 1))) / columns;
+                return Wrap(
+                  spacing: gap,
+                  runSpacing: gap,
+                  children: categories
+                      .map(
+                        (category) => SizedBox(
+                          width: cardWidth,
+                          child: InventoryCategoryCard(
+                            category: category,
+                            productCount: inventory.productCountForCategory(
+                              category.id,
+                            ),
+                            onView: () => _open(category, false),
+                            onEdit: () => _open(category, true),
+                            onArchive: () => _archive(category),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                );
+              },
+            ),
         ],
       ),
     );
