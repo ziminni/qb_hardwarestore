@@ -2,6 +2,7 @@ import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/inventory.dart';
+import 'package:client/data/models/product_tracking.dart';
 import 'package:client/features/inventory/widgets/inventory_stock_status_badge.dart';
 import 'package:client/features/products/widgets/products_image.dart';
 import 'package:flutter/material.dart';
@@ -11,10 +12,12 @@ class ProductsDetailsDialog extends StatelessWidget {
     super.key,
     required this.product,
     this.movements = const [],
+    this.tracking,
   });
 
   final Product product;
   final List<InventoryMovement> movements;
+  final ProductTrackingConfiguration? tracking;
 
   @override
   Widget build(BuildContext context) {
@@ -49,6 +52,52 @@ class ProductsDetailsDialog extends StatelessWidget {
                     ? 'No description provided.'
                     : product.description,
               ),
+              if (tracking != null) ...[
+                const SizedBox(height: AppSpacing.xl),
+                Text('Inventory Tracking', style: theme.textTheme.titleSmall),
+                const Divider(),
+                Wrap(
+                  spacing: AppSpacing.xl,
+                  runSpacing: AppSpacing.sm,
+                  children: [
+                    Text('Method: ${tracking!.method.label}'),
+                    Text('Base unit: ${tracking!.baseUnit}'),
+                    Text('Stock form: ${tracking!.stockForm.label}'),
+                    Text(
+                      'Total available: ${tracking!.totalBaseQuantity.toStringAsFixed(3)} ${tracking!.baseUnit}',
+                    ),
+                    Text('Location: ${tracking!.storageLocation}'),
+                  ],
+                ),
+                if (tracking!.physicalPieces.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  Text('Physical pieces', style: theme.textTheme.labelLarge),
+                  const SizedBox(height: AppSpacing.sm),
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 220),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: tracking!.physicalPieces.length,
+                      itemBuilder: (context, index) {
+                        final remaining = tracking!.physicalPieces[index];
+                        final full =
+                            (remaining - tracking!.standardLength).abs() <
+                            .0001;
+                        return ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            'Piece #${(index + 1).toString().padLeft(3, '0')}',
+                          ),
+                          trailing: Text(
+                            '${remaining.toStringAsFixed(3)} ${tracking!.baseUnit} · ${full ? 'Full' : 'Cut'}',
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ],
               const SizedBox(height: AppSpacing.xl),
               Text(
                 'Variants (${product.variants.length})',

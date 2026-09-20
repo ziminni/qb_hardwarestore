@@ -9,6 +9,8 @@ import 'package:client/features/products/widgets/products_form_dialog.dart';
 import 'package:client/features/products/widgets/products_catalog_overview.dart';
 import 'package:client/features/products/widgets/products_table.dart';
 import 'package:client/features/products/widgets/products_toolbar.dart';
+import 'package:client/features/products/widgets/products_inventory_simulator_dialog.dart';
+import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:flutter/material.dart';
@@ -70,6 +72,9 @@ class ProductsPage extends StatelessWidget {
             .movements
             .where((item) => item.productId == product.id)
             .toList(),
+        tracking: context.read<ProductTrackingViewmodel>().configurationFor(
+          product.baseName,
+        ),
       ),
     );
   }
@@ -215,6 +220,10 @@ class ProductsPage extends StatelessWidget {
                   onBrandChanged: viewModel.setBrand,
                   onClearFilters: viewModel.clearFilters,
                   onAddProduct: () => _showProductForm(context, viewModel),
+                  onOpenSimulator: () => showDialog<void>(
+                    context: context,
+                    builder: (_) => const ProductsInventorySimulatorDialog(),
+                  ),
                 ),
                 if (viewModel.selectedProductIds.isNotEmpty) ...[
                   const SizedBox(height: AppSpacing.lg),
