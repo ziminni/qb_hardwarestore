@@ -11,7 +11,7 @@ import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/auth/views/login_page.dart';
 import 'package:client/features/dashboard/views/admin_dashboard.dart';
 import 'package:client/features/dashboard/views/inventory_dashboard.dart';
-import 'package:client/features/dashboard/views/pos_dashboard.dart';
+import 'package:client/features/pos/views/pos_transaction_page.dart';
 import 'package:client/features/dashboard/views/sales_dashboard.dart';
 import 'package:client/features/inventory/views/inventory_stock_movements_page.dart';
 import 'package:client/features/inventory/views/inventory_low_stock_page.dart';
@@ -250,7 +250,7 @@ class AppRoutes {
           path: posDashboard,
           name: 'pos_dashboard',
           pageBuilder: (context, state) =>
-              _transitionPage(state, const POSDashboard()),
+              _transitionPage(state, const PosTransactionPage()),
         ),
         GoRoute(
           path: salesDashboard,
