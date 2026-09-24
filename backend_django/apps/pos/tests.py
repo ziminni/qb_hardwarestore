@@ -93,3 +93,20 @@ class ProcessSaleTests(POSTestBase):
         self.assertFalse(
             CollectibleLedger.objects.filter(transaction=txn).exists())
 
+    def test_selling_uom_conversion_deducts_base_stock(self):
+        box = UnitOfMeasure.objects.create(code='BOX', name='Box')
+        box_uom = VariantUOM.objects.create(
+            variant=self.variant, uom=box, conversion_factor=Decimal('2'),
+            default_selling_price=Decimal('20'),
+        )
+        process_sale(
+            customer_id=self.customer.id,
+            cashier=self.cashier,
+            items_data=[{'variant_id': box_uom.id, 'qty': 3,
+                         'unit_price': Decimal('20')}],
+            payments_data=[{'method': 'CASH',
+                            'amount_tendered': Decimal('60')}],
+        )
+        remaining = sum(self.variant.batches.values_list(
+            'current_qty', flat=True))
+        self.assertEqual(remaining, Decimal('4'))

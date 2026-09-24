@@ -1,10 +1,21 @@
-import 'package:client/data/models/product_tracking.dart';
+import 'package:client/data/models/pos_transaction.dart';
 import 'package:flutter/material.dart';
 
-class PosSaleQuantityDialog extends StatefulWidget {
-  const PosSaleQuantityDialog({super.key, required this.product});
+class PosSaleSelection {
+  const PosSaleSelection({required this.item, required this.quantity});
+  final PosCatalogItem item;
+  final double quantity;
+}
 
-  final ProductTrackingConfiguration product;
+class PosSaleQuantityDialog extends StatefulWidget {
+  const PosSaleQuantityDialog({
+    super.key,
+    required this.product,
+    required this.options,
+  });
+
+  final PosCatalogItem product;
+  final List<PosCatalogItem> options;
 
   @override
   State<PosSaleQuantityDialog> createState() => _PosSaleQuantityDialogState();
@@ -13,7 +24,7 @@ class PosSaleQuantityDialog extends StatefulWidget {
 class _PosSaleQuantityDialogState extends State<PosSaleQuantityDialog> {
   final _formKey = GlobalKey<FormState>();
   final _quantity = TextEditingController(text: '1');
-  late String _unit = widget.product.allowedSaleUnits.first;
+  late PosCatalogItem _selected = widget.options.first;
 
   @override
   void dispose() {
@@ -33,54 +44,63 @@ class _PosSaleQuantityDialogState extends State<PosSaleQuantityDialog> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  '${widget.product.totalBaseQuantity.toStringAsFixed(2)} ${widget.product.baseUnit} currently available',
-                ),
+                Text(widget.product.variantName),
                 const SizedBox(height: 18),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _quantity,
-                        autofocus: true,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
+                DropdownButtonFormField<PosCatalogItem>(
+                  isExpanded: true,
+                  initialValue: _selected,
+                  decoration: const InputDecoration(labelText: 'Selling unit'),
+                  items: widget.options
+                      .map(
+                        (item) => DropdownMenuItem(
+                          value: item,
+                          child: Text(
+                            '${item.unit} — ₱${item.unitPrice.toStringAsFixed(2)}',
+                          ),
                         ),
-                        decoration: const InputDecoration(
-                          labelText: 'Quantity',
-                        ),
-                        validator: (value) {
-                          final number = double.tryParse(value ?? '');
-                          if (number == null || number <= 0) {
-                            return 'Enter a valid quantity';
-                          }
-                          if (!widget.product.allowFractional &&
-                              number != number.roundToDouble()) {
-                            return 'Whole numbers only';
-                          }
-                          return null;
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    SizedBox(
-                      width: 140,
-                      child: DropdownButtonFormField<String>(
-                        initialValue: _unit,
-                        decoration: const InputDecoration(labelText: 'Unit'),
-                        items: widget.product.allowedSaleUnits
-                            .map(
-                              (unit) => DropdownMenuItem(
-                                value: unit,
-                                child: Text(unit),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (value) => setState(() => _unit = value!),
-                      ),
-                    ),
-                  ],
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) setState(() => _selected = value);
+                  },
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  '${_selected.availableSaleQuantity.toStringAsFixed(2)} ${_selected.unit} currently available',
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _quantity,
+                  autofocus: true,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: InputDecoration(
+                    labelText: 'Quantity',
+                    suffixText: _selected.unit,
+                  ),
+                  validator: (value) {
+                    final number = double.tryParse(value ?? '');
+                    if (number == null || number <= 0) {
+                      return 'Enter a valid quantity';
+                    }
+                    const wholeUnits = {
+                      'piece',
+                      'bag',
+                      'box',
+                      'sheet',
+                      'roll',
+                      'pack',
+                    };
+                    if (wholeUnits.contains(_selected.unit.toLowerCase()) &&
+                        number != number.roundToDouble()) {
+                      return 'Use a whole number for ${_selected.unit}';
+                    }
+                    if (number > _selected.availableSaleQuantity) {
+                      return 'Only ${_selected.availableSaleQuantity.toStringAsFixed(2)} available';
+                    }
+                    return null;
+                  },
                 ),
               ],
             ),
@@ -95,10 +115,13 @@ class _PosSaleQuantityDialogState extends State<PosSaleQuantityDialog> {
         FilledButton(
           onPressed: () {
             if (!_formKey.currentState!.validate()) return;
-            Navigator.pop(context, (
-              quantity: double.parse(_quantity.text),
-              unit: _unit,
-            ));
+            Navigator.pop(
+              context,
+              PosSaleSelection(
+                item: _selected,
+                quantity: double.parse(_quantity.text),
+              ),
+            );
           },
           child: const Text('Add to cart'),
         ),

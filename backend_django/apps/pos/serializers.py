@@ -42,4 +42,4 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = SalesTransaction
         fields = ['id','customer','customer_name','cashier','cashier_name','transaction_no','trans_date','vatable_sales','vat_amount','discount_amount','grand_total','source','status','notes','items','payments','receipt','created_at','updated_at']
-        read_only_fields = ['id','transaction_no','trans_date','created_at','updated_at']
+        read_only_fields = ['id','cashier','transaction_no','trans_date','created_at','updated_at']

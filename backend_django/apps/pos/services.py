@@ -64,12 +64,14 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
             # (POS payload) or a ProductVariant id; resolve to the variant.
             from apps.inventory.models import VariantUOM
             variant_id = item_id
+            stock_qty = qty
             vuom = VariantUOM.objects.filter(
                 pk=item_id).select_related('variant').first()
             if vuom is not None:
                 variant_id = vuom.variant_id
+                stock_qty = qty * vuom.conversion_factor
             # Raises ValueError on insufficient stock → whole sale rolls back.
-            allocate_fifo(variant_id=variant_id, qty_needed=qty)
+            allocate_fifo(variant_id=variant_id, qty_needed=stock_qty)
 
             vatable_sales += subtotal
 

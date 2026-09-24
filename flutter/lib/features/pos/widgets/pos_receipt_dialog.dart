@@ -22,6 +22,7 @@ class PosReceiptDialog extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text('Reference: ${receipt.reference}'),
+              Text('Receipt: ${receipt.officialReceiptNumber}'),
               Text('Payment: ${receipt.paymentMethod}'),
               const Divider(height: 28),
               ...receipt.lines.map(
@@ -31,7 +32,7 @@ class PosReceiptDialog extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          '${line.productName}\n${line.quantity.toStringAsFixed(2)} ${line.unit}',
+                          '${line.productName} — ${line.variantName}\n${line.quantity.toStringAsFixed(2)} ${line.unit}',
                         ),
                       ),
                       Text('₱${line.total.toStringAsFixed(2)}'),

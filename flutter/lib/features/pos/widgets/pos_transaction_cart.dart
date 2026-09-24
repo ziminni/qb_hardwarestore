@@ -51,7 +51,7 @@ class PosTransactionCart extends StatelessWidget {
                           contentPadding: EdgeInsets.zero,
                           title: Text(line.productName),
                           subtitle: Text(
-                            '${line.quantity.toStringAsFixed(2)} ${line.unit} × ₱${line.unitPrice.toStringAsFixed(2)}',
+                            '${line.variantName}\n${line.quantity.toStringAsFixed(2)} ${line.unit} × ₱${line.unitPrice.toStringAsFixed(2)}',
                           ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,

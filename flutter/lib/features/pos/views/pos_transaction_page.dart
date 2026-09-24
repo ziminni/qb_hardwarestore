@@ -1,5 +1,6 @@
-import 'package:client/data/models/product_tracking.dart';
+import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_payment_dialog.dart';
 import 'package:client/features/pos/widgets/pos_product_browser.dart';
@@ -16,14 +17,14 @@ class PosTransactionPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => PosTransactionViewmodel(),
+      create: (context) => PosTransactionViewmodel(
+        context.read<InventoryViewmodel>(),
+        context.read<ProductTrackingViewmodel>(),
+      ),
       child: Builder(
         builder: (context) {
           final transaction = context.watch<PosTransactionViewmodel>();
-          final inventory = context.watch<ProductTrackingViewmodel>();
-          final products = transaction.filteredProducts(
-            inventory.configurations,
-          );
+          final products = transaction.filteredProducts;
           return DashboardShell(
             title: 'Point of Sale',
             subtitle: 'Frontend transaction and inventory simulation',
@@ -74,42 +75,31 @@ class PosTransactionPage extends StatelessWidget {
     );
   }
 
-  Future<void> _addProduct(
-    BuildContext context,
-    ProductTrackingConfiguration product,
-  ) async {
-    final selection = await showDialog<({double quantity, String unit})>(
+  Future<void> _addProduct(BuildContext context, PosCatalogItem product) async {
+    final transaction = context.read<PosTransactionViewmodel>();
+    final selection = await showDialog<PosSaleSelection>(
       context: context,
-      builder: (_) => PosSaleQuantityDialog(product: product),
+      builder: (_) => PosSaleQuantityDialog(
+        product: product,
+        options: transaction.saleOptionsFor(product),
+      ),
     );
     if (selection == null || !context.mounted) return;
-    final inventory = context.read<ProductTrackingViewmodel>();
-    final validation = inventory.validateSale(
-      product.productName,
-      selection.quantity,
-      selection.unit,
-    );
-    if (!validation.success) {
+    final error = transaction.addLine(selection.item, selection.quantity);
+    if (error != null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(validation.message)));
-      return;
+      ).showSnackBar(SnackBar(content: Text(error)));
     }
-    context.read<PosTransactionViewmodel>().addLine(
-      product,
-      selection.quantity,
-      selection.unit,
-    );
   }
 
   Future<void> _pay(BuildContext context) async {
     final transaction = context.read<PosTransactionViewmodel>();
-    final inventory = context.read<ProductTrackingViewmodel>();
-    final validation = transaction.validate(inventory);
-    if (!validation.success) {
+    final error = transaction.validate();
+    if (error != null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(validation.message)));
+      ).showSnackBar(SnackBar(content: Text(error)));
       return;
     }
     final payment = await showDialog<PosPaymentDetails>(
@@ -118,7 +108,6 @@ class PosTransactionPage extends StatelessWidget {
     );
     if (payment == null || !context.mounted) return;
     final receipt = transaction.complete(
-      inventory: inventory,
       paymentMethod: payment.method,
       amountPaid: payment.amountPaid,
     );
