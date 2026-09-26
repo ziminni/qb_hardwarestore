@@ -16,13 +16,12 @@ class ProductTrackingViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
-  InventorySimulationResult simulateSale(
+  InventorySimulationResult validateSale(
     String productName,
     double quantity,
     String unit,
   ) {
-    final key = productName.toLowerCase();
-    final config = _configurations[key];
+    final config = configurationFor(productName);
     if (config == null) {
       return const InventorySimulationResult(
         success: false,
@@ -35,6 +34,12 @@ class ProductTrackingViewmodel extends ChangeNotifier {
         message: 'Enter a quantity greater than zero.',
       );
     }
+    if (!config.allowedSaleUnits.contains(unit)) {
+      return const InventorySimulationResult(
+        success: false,
+        message: 'The selected sale unit is not supported.',
+      );
+    }
     if (config.method == ProductTrackingMethod.quantity &&
         !config.allowFractional &&
         quantity != quantity.roundToDouble()) {
@@ -43,6 +48,37 @@ class ProductTrackingViewmodel extends ChangeNotifier {
         message: 'Fractional quantities are not allowed for this product.',
       );
     }
+    final baseQuantity = _convert(quantity, unit, config.baseUnit);
+    if (config.method == ProductTrackingMethod.length &&
+        config.stockForm == ProductStockForm.standardLengths &&
+        !config.physicalPieces.any((piece) => piece >= baseQuantity)) {
+      return const InventorySimulationResult(
+        success: false,
+        message: 'No single piece is long enough. Remnants cannot be combined.',
+      );
+    }
+    if (baseQuantity > config.totalBaseQuantity) {
+      return const InventorySimulationResult(
+        success: false,
+        message: 'Not enough inventory for this mock sale.',
+      );
+    }
+    return const InventorySimulationResult(
+      success: true,
+      message: 'Inventory is available.',
+    );
+  }
+
+  InventorySimulationResult simulateSale(
+    String productName,
+    double quantity,
+    String unit,
+  ) {
+    final validation = validateSale(productName, quantity, unit);
+    if (!validation.success) return validation;
+    final key = productName.toLowerCase();
+    final config = _configurations[key];
+    if (config == null) return validation;
     final baseQuantity = _convert(quantity, unit, config.baseUnit);
     if (config.method == ProductTrackingMethod.length &&
         config.stockForm == ProductStockForm.standardLengths) {

@@ -92,6 +92,41 @@ class InventoryViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
+  void sellStock({
+    required int variantId,
+    required double quantity,
+    required String reference,
+    required String userName,
+  }) {
+    final record = stockRecords.firstWhere(
+      (record) => record.variant.id == variantId,
+    );
+    final previous = record.variant.currentStock;
+    final next = previous - quantity;
+    if (quantity <= 0 || next < 0) return;
+    _replaceVariant(
+      record.product,
+      record.variant.copyWith(currentStock: next),
+    );
+    _movements.insert(
+      0,
+      InventoryMovement(
+        id: _movements.length + 1,
+        productId: record.product.id,
+        variantId: variantId,
+        timestamp: DateTime.now(),
+        type: InventoryMovementType.sale,
+        quantityChange: -quantity,
+        previousStock: previous,
+        newStock: next,
+        reference: reference,
+        reason: 'Frontend POS sale',
+        userName: userName,
+      ),
+    );
+    notifyListeners();
+  }
+
   void addProduct(Product product) {
     final id = _products.fold<int>(0, (value, item) => max(value, item.id)) + 1;
     _products.add(product.copyWith(id: id));
