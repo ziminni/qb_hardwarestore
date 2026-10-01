@@ -138,7 +138,7 @@ class ProductsDetailsDialog extends StatelessWidget {
                             runSpacing: AppSpacing.sm,
                             children: [
                               Text('SKU: ${variant.sku}'),
-                              Text('QR: ${variant.qrIdentifier}'),
+                              Text('Barcode: ${variant.qrIdentifier}'),
                               Text('Unit: ${variant.baseUomCode}'),
                               Text(
                                 'Cost: ₱${variant.costPrice.toStringAsFixed(2)}',

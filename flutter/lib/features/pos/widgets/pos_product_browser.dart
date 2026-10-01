@@ -8,11 +8,17 @@ class PosProductBrowser extends StatelessWidget {
     required this.products,
     required this.onSearch,
     required this.onSelect,
+    required this.searchController,
+    required this.searchFocusNode,
+    required this.onSubmitted,
   });
 
   final List<PosCatalogItem> products;
   final ValueChanged<String> onSearch;
   final ValueChanged<PosCatalogItem> onSelect;
+  final TextEditingController searchController;
+  final FocusNode searchFocusNode;
+  final ValueChanged<String> onSubmitted;
 
   @override
   Widget build(BuildContext context) {
@@ -20,10 +26,18 @@ class PosProductBrowser extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         TextField(
+          controller: searchController,
+          focusNode: searchFocusNode,
+          autofocus: true,
           onChanged: onSearch,
+          onSubmitted: onSubmitted,
           decoration: const InputDecoration(
-            hintText: 'Search or scan a product',
-            prefixIcon: Icon(Icons.search),
+            hintText: 'Search or scan a Queen Builders barcode',
+            prefixIcon: Icon(Icons.barcode_reader),
+            suffixIcon: Tooltip(
+              message: 'USB scanner ready — scan a barcode and press Enter',
+              child: Icon(Icons.usb),
+            ),
           ),
         ),
         const SizedBox(height: 16),

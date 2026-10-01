@@ -35,6 +35,7 @@ class ProductsPage extends StatelessWidget {
       context: context,
       builder: (context) => ProductsFormDialog(
         product: product,
+        products: viewModel.products,
         categories: categories,
         brands: brands,
       ),

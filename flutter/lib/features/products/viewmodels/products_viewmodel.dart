@@ -60,7 +60,13 @@ class ProductsViewmodel extends ChangeNotifier {
               product.brandName.toLowerCase().contains(normalizedQuery) ||
               product.variants.any(
                 (variant) =>
-                    variant.variantName.toLowerCase().contains(normalizedQuery),
+                    variant.variantName.toLowerCase().contains(
+                      normalizedQuery,
+                    ) ||
+                    variant.sku.toLowerCase().contains(normalizedQuery) ||
+                    variant.qrIdentifier.toLowerCase().contains(
+                      normalizedQuery,
+                    ),
               );
           final matchesCategory =
               _selectedCategory == null ||

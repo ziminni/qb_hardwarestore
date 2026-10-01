@@ -14,11 +14,13 @@ class ProductsFormDialog extends StatefulWidget {
     super.key,
     required this.categories,
     required this.brands,
+    required this.products,
     this.product,
   });
 
   final List<Product> categories;
   final List<Product> brands;
+  final List<Product> products;
   final Product? product;
 
   @override
@@ -31,6 +33,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   late final TextEditingController _descriptionController;
   late final TextEditingController _variantController;
   late final TextEditingController _skuController;
+  late final TextEditingController _barcodeController;
   late final TextEditingController _initialStockController;
   late final TextEditingController _reorderController;
   late final TextEditingController _locationController;
@@ -62,6 +65,11 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
       text: firstVariant?.variantName ?? 'Standard',
     );
     _skuController = TextEditingController(text: firstVariant?.sku ?? '');
+    _barcodeController = TextEditingController(
+      text: firstVariant?.qrIdentifier.isNotEmpty == true
+          ? firstVariant!.qrIdentifier
+          : 'QB-${DateTime.now().millisecondsSinceEpoch}',
+    );
     _initialStockController = TextEditingController(
       text: firstVariant == null
           ? '0'
@@ -93,6 +101,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     _descriptionController.dispose();
     _variantController.dispose();
     _skuController.dispose();
+    _barcodeController.dispose();
     _initialStockController.dispose();
     _reorderController.dispose();
     _locationController.dispose();
@@ -198,6 +207,24 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
         _stockForm == ProductStockForm.packaged ||
         _stockForm == ProductStockForm.standardLengths;
     final total = packaged ? initial * packageSize : initial;
+    final existingVariant = existing?.variants.firstOrNull;
+    final variant =
+        existingVariant?.copyWith(
+          qrIdentifier: _barcodeController.text.trim(),
+        ) ??
+        ProductVariant(
+          id: DateTime.now().microsecondsSinceEpoch,
+          variantName: _variantController.text.trim(),
+          baseUomCode: _baseUnit,
+          isActive: true,
+          sku: _skuController.text.trim(),
+          qrIdentifier: _barcodeController.text.trim(),
+          currentStock: total,
+          reorderLevel: double.tryParse(_reorderController.text) ?? 0,
+          storageLocation: _locationController.text.trim(),
+          costPrice: double.tryParse(_costController.text) ?? 0,
+          sellingPrice: double.tryParse(_sellingController.text) ?? 0,
+        );
     final configuration = ProductTrackingConfiguration(
       productName: _nameController.text.trim(),
       method: _trackingMethod,
@@ -235,24 +262,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
         description: _descriptionController.text.trim(),
         imageUrl: _imagePath,
         isActive: existing?.isActive ?? true,
-        variants:
-            existing?.variants ??
-            [
-              ProductVariant(
-                id: DateTime.now().microsecondsSinceEpoch,
-                variantName: _variantController.text.trim(),
-                baseUomCode: _baseUnit,
-                isActive: true,
-                sku: _skuController.text.trim(),
-                qrIdentifier:
-                    'MAT-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
-                currentStock: total,
-                reorderLevel: double.tryParse(_reorderController.text) ?? 0,
-                storageLocation: _locationController.text.trim(),
-                costPrice: double.tryParse(_costController.text) ?? 0,
-                sellingPrice: double.tryParse(_sellingController.text) ?? 0,
-              ),
-            ],
+        variants: [variant, ...?existing?.variants.skip(1)],
       ),
     );
   }
@@ -312,6 +322,34 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                         : null,
                   ),
                 ],
+                const SizedBox(height: AppSpacing.md),
+                TextFormField(
+                  controller: _barcodeController,
+                  decoration: const InputDecoration(
+                    labelText: 'Queen Builders barcode',
+                    hintText: 'Scan or enter the product barcode',
+                    prefixIcon: Icon(Icons.barcode_reader),
+                    helperText:
+                        'One barcode identifies this main product package.',
+                  ),
+                  validator: (value) {
+                    final barcode = value?.trim() ?? '';
+                    if (barcode.isEmpty) return 'Scan or enter a barcode.';
+                    final duplicate = widget.products.any(
+                      (product) =>
+                          product.id != widget.product?.id &&
+                          product.variants.any(
+                            (variant) =>
+                                variant.qrIdentifier.toLowerCase() ==
+                                barcode.toLowerCase(),
+                          ),
+                    );
+                    return duplicate
+                        ? 'This barcode is already assigned to another product.'
+                        : null;
+                  },
+                  onFieldSubmitted: (_) => setState(() {}),
+                ),
                 const SizedBox(height: AppSpacing.lg),
                 DropdownButtonFormField<int>(
                   initialValue: _categoryId,

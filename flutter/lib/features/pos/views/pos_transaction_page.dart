@@ -11,8 +11,23 @@ import 'package:client/features/products/viewmodels/product_tracking_viewmodel.d
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-class PosTransactionPage extends StatelessWidget {
+class PosTransactionPage extends StatefulWidget {
   const PosTransactionPage({super.key});
+
+  @override
+  State<PosTransactionPage> createState() => _PosTransactionPageState();
+}
+
+class _PosTransactionPageState extends State<PosTransactionPage> {
+  final _scanController = TextEditingController();
+  final _scanFocusNode = FocusNode(debugLabel: 'POS barcode scanner');
+
+  @override
+  void dispose() {
+    _scanController.dispose();
+    _scanFocusNode.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -54,6 +69,9 @@ class PosTransactionPage extends StatelessWidget {
                     flex: 3,
                     child: PosProductBrowser(
                       products: products,
+                      searchController: _scanController,
+                      searchFocusNode: _scanFocusNode,
+                      onSubmitted: (value) => _handleScan(context, value),
                       onSearch: transaction.setQuery,
                       onSelect: (product) => _addProduct(context, product),
                     ),
@@ -75,6 +93,33 @@ class PosTransactionPage extends StatelessWidget {
     );
   }
 
+  Future<void> _handleScan(BuildContext context, String value) async {
+    final transaction = context.read<PosTransactionViewmodel>();
+    final product = transaction.findByBarcode(value);
+    _scanController.clear();
+    transaction.setQuery('');
+
+    if (product == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Product not found for barcode: ${value.trim()}'),
+        ),
+      );
+      _restoreScannerFocus();
+      return;
+    }
+
+    await _addProduct(context, product);
+    _restoreScannerFocus();
+  }
+
+  void _restoreScannerFocus() {
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _scanFocusNode.requestFocus();
+    });
+  }
+
   Future<void> _addProduct(BuildContext context, PosCatalogItem product) async {
     final transaction = context.read<PosTransactionViewmodel>();
     final selection = await showDialog<PosSaleSelection>(
@@ -84,13 +129,17 @@ class PosTransactionPage extends StatelessWidget {
         options: transaction.saleOptionsFor(product),
       ),
     );
-    if (selection == null || !context.mounted) return;
+    if (selection == null || !context.mounted) {
+      _restoreScannerFocus();
+      return;
+    }
     final error = transaction.addLine(selection.item, selection.quantity);
     if (error != null) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(error)));
     }
+    _restoreScannerFocus();
   }
 
   Future<void> _pay(BuildContext context) async {
@@ -100,13 +149,17 @@ class PosTransactionPage extends StatelessWidget {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(error)));
+      _restoreScannerFocus();
       return;
     }
     final payment = await showDialog<PosPaymentDetails>(
       context: context,
       builder: (_) => PosPaymentDialog(total: transaction.total),
     );
-    if (payment == null || !context.mounted) return;
+    if (payment == null || !context.mounted) {
+      _restoreScannerFocus();
+      return;
+    }
     final receipt = transaction.complete(
       paymentMethod: payment.method,
       amountPaid: payment.amountPaid,
@@ -116,5 +169,6 @@ class PosTransactionPage extends StatelessWidget {
       barrierDismissible: false,
       builder: (_) => PosReceiptDialog(receipt: receipt),
     );
+    _restoreScannerFocus();
   }
 }

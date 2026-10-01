@@ -105,6 +105,15 @@ class PosTransactionViewmodel extends ChangeNotifier {
       .where((item) => item.variantId == product.variantId)
       .toList(growable: false);
 
+  PosCatalogItem? findByBarcode(String value) {
+    final barcode = value.trim().toLowerCase();
+    if (barcode.isEmpty) return null;
+    for (final item in _catalog) {
+      if (item.barcode.trim().toLowerCase() == barcode) return item;
+    }
+    return null;
+  }
+
   void setQuery(String value) {
     _query = value.trim().toLowerCase();
     notifyListeners();
