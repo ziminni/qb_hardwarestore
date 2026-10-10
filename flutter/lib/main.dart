@@ -6,6 +6,7 @@ import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
+import 'package:client/features/sales/viewmodels/sales_module_viewmodel.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -33,6 +34,7 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (_) => InventoryViewmodel()),
         ChangeNotifierProvider(create: (_) => SuppliersPurchasesViewmodel()),
         ChangeNotifierProvider(create: (_) => InventorySalesViewmodel()),
+        ChangeNotifierProvider(create: (_) => SalesModuleViewmodel()),
         ChangeNotifierProvider(create: (_) => ProductTrackingViewmodel()),
       ],
       child: MyApp(auth: authViewmodel),

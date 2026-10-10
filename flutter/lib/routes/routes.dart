@@ -12,7 +12,14 @@ import 'package:client/features/auth/views/login_page.dart';
 import 'package:client/features/dashboard/views/admin_dashboard.dart';
 import 'package:client/features/dashboard/views/inventory_dashboard.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
-import 'package:client/features/dashboard/views/sales_dashboard.dart';
+import 'package:client/features/sales/views/sales_dashboard_page.dart';
+import 'package:client/features/sales/views/sales_customers_page.dart';
+import 'package:client/features/sales/views/sales_orders_page.dart';
+import 'package:client/features/sales/views/sales_quotations_page.dart';
+import 'package:client/features/sales/views/sales_receivables_page.dart';
+import 'package:client/features/sales/views/sales_reports_page.dart';
+import 'package:client/features/sales/views/sales_returns_page.dart';
+import 'package:client/features/sales/views/sales_transactions_page.dart';
 import 'package:client/features/inventory/views/inventory_stock_movements_page.dart';
 import 'package:client/features/inventory/views/inventory_low_stock_page.dart';
 import 'package:client/features/inventory/views/inventory_stock_page.dart';
@@ -50,6 +57,13 @@ class AppRoutes {
   static const String inventoryReports = '/inventory/reports';
   static const String posDashboard = '/pos/dashboard';
   static const String salesDashboard = '/sales/dashboard';
+  static const String salesTransactions = '/sales/transactions';
+  static const String salesQuotations = '/sales/quotations';
+  static const String salesOrders = '/sales/orders';
+  static const String salesCustomers = '/sales/customers';
+  static const String salesReceivables = '/sales/receivables';
+  static const String salesReturns = '/sales/returns';
+  static const String salesReports = '/sales/reports';
 
   static String? dashboardForRole(String? role) {
     return switch (role) {
@@ -111,6 +125,9 @@ class AppRoutes {
         }
         if (location.startsWith('/inventory/') &&
             auth.roleName != 'inventory') {
+          return dashboard;
+        }
+        if (location.startsWith('/sales/') && auth.roleName != 'sales') {
           return dashboard;
         }
 
@@ -256,7 +273,49 @@ class AppRoutes {
           path: salesDashboard,
           name: 'sales_dashboard',
           pageBuilder: (context, state) =>
-              _transitionPage(state, const SalesDashboard()),
+              _transitionPage(state, const SalesDashboardPage()),
+        ),
+        GoRoute(
+          path: salesTransactions,
+          name: 'sales_transactions',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const SalesTransactionsPage()),
+        ),
+        GoRoute(
+          path: salesQuotations,
+          name: 'sales_quotations',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const SalesQuotationsPage()),
+        ),
+        GoRoute(
+          path: salesOrders,
+          name: 'sales_orders',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const SalesOrdersPage()),
+        ),
+        GoRoute(
+          path: salesCustomers,
+          name: 'sales_customers',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const SalesCustomersPage()),
+        ),
+        GoRoute(
+          path: salesReceivables,
+          name: 'sales_receivables',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const SalesReceivablesPage()),
+        ),
+        GoRoute(
+          path: salesReturns,
+          name: 'sales_returns',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const SalesReturnsPage()),
+        ),
+        GoRoute(
+          path: salesReports,
+          name: 'sales_reports',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const SalesReportsPage()),
         ),
       ],
     );
