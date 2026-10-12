@@ -25,6 +25,8 @@ Future<void> main() async {
   await windowManager.setSize(const Size(1200, 700));
   await windowManager.center();
   await windowManager.setResizable(true);
+  await windowManager.show();
+  await windowManager.focus();
 
   runApp(
     MultiProvider(

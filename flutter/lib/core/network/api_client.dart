@@ -70,8 +70,13 @@ class ApiClient {
   bool get hasTokens => _accessToken != null && _refreshToken != null;
 
   Future<void> restoreTokens() async {
-    _accessToken = await _storage.read(key: _accessTokenKey);
-    _refreshToken = await _storage.read(key: _refreshTokenKey);
+    try {
+      _accessToken = await _storage.read(key: _accessTokenKey);
+      _refreshToken = await _storage.read(key: _refreshTokenKey);
+    } catch (_) {
+      _accessToken = null;
+      _refreshToken = null;
+    }
   }
 
   Future<void> saveTokens({
@@ -80,19 +85,27 @@ class ApiClient {
   }) async {
     _accessToken = accessToken;
     _refreshToken = refreshToken;
-    await Future.wait([
-      _storage.write(key: _accessTokenKey, value: accessToken),
-      _storage.write(key: _refreshTokenKey, value: refreshToken),
-    ]);
+    try {
+      await Future.wait([
+        _storage.write(key: _accessTokenKey, value: accessToken),
+        _storage.write(key: _refreshTokenKey, value: refreshToken),
+      ]);
+    } catch (_) {
+      // Keep tokens in memory even if secure storage fails
+    }
   }
 
   Future<void> clearTokens() async {
     _accessToken = null;
     _refreshToken = null;
-    await Future.wait([
-      _storage.delete(key: _accessTokenKey),
-      _storage.delete(key: _refreshTokenKey),
-    ]);
+    try {
+      await Future.wait([
+        _storage.delete(key: _accessTokenKey),
+        _storage.delete(key: _refreshTokenKey),
+      ]);
+    } catch (_) {
+      // Ignored
+    }
   }
 
   Future<bool> _refreshOnce() {
