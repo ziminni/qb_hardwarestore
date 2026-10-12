@@ -7,7 +7,9 @@ services:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: adminpassword
     ports:
-      - "5433:5432" # Maps Docker's 5432 to your PC's 5433 to avoid conflicts!
+      # Host 5435 -> container 5432 (Postgres listens on 5432 inside the container).
+      # Kept off 5432/5433 so it does not clash with a Postgres already installed on the host.
+      - "5435:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -18,7 +20,7 @@ services:
 
   backend:
     build: ./backend_django
-    container_name: config
+    container_name: buildpro_backend
     command: >
       sh -c "python manage.py migrate &&
              python manage.py runserver 0.0.0.0:8000"
