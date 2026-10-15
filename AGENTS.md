@@ -25,13 +25,14 @@ the same commit that breaks it.
 
 ## Current Status & Next Step
 
-- **Active branch:** `feature/backend-integration` — 33 commits ahead of `origin/master`, unpushed.
+- **Active branch:** `feature/backend-integration` — 37 commits ahead of `origin/master`, unpushed.
 - **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. The slice
   order is **locked** (Cashier journey); six decisions remain open and resolve one per session, in the order
   listed on that map's frontier.
-- **Last session:** `docs/sessions/2026-10-15-system-atlas-and-docs-consolidation.md` — built the system atlas,
-  consolidated the docs (removed 5 obsolete root files), and opened the integration map. Docs only; no app
-  source changed.
+- **Last session:** `docs/sessions/2026-10-15-integration-map.md` — opened the integration map and locked the
+  Cashier-journey slice order; corrected the atlas tally to 8 dead of 38 rows. Planning only; no app source
+  changed. (Earlier the same day: `docs/sessions/2026-10-15-system-atlas-and-docs-consolidation.md` — atlas
+  built, 5 obsolete root docs removed.)
 - **Current state (verified):** the backend is feature-complete; the client consumes almost none of it.
   Of 10 feature modules only `auth` reaches the API. 38 screens scored: 3 live · 27 mock · 8 dead. See
   `docs/SYSTEM_ATLAS.md`.
