@@ -26,7 +26,7 @@ Two related deliverables on the **POS/inventory** repo (CPMS deliberately untouc
 | `docs/SYSTEM_ATLAS.md` (209 L) | Architecture flowchart, 27-entity erDiagram, Truth Matrix, vibe-debt hotspots, ranked study path. |
 | `docs/system-atlas.html` (579 L) | Self-contained cockpit: Tailwind + Mermaid v10 CDNs, 5 tabs, filterable matrix, localStorage study checkboxes. |
 
-Truth Matrix result: **3 live · 27 mock · 9 dead.** Only `auth` (5 routes) and `api/health/` are called by
+Truth Matrix result: **3 live · 27 mock · 8 dead** (38 rows). Only `auth` (5 routes) and `api/health/` are called by
 the Flutter client; all 24 router routes + 4 report paths are uncalled.
 
 ### Deliverable 2 — docs consolidation (`9aecbe4`)

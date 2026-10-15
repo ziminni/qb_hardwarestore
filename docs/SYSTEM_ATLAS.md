@@ -139,7 +139,7 @@ Legend: 🟢 Live (real API) · 🟡 Partial · 🔴 Mock (hardcoded) · ⚫ Dea
 | Payments / receipts | **no UI** | — | `/payments/` `/receipts/` | ⚫ Dead |
 | Project entity | **no UI** | — | `/projects/` | ⚫ Dead |
 
-**Score: 3 live · 0 partial · 27 mock · 9 dead.**
+**Score: 3 live · 0 partial · 27 mock · 8 dead.** Of the 8 dead, 2 are orphaned legacy dashboards and 6 are endpoints with no UI.
 
 ---
 
