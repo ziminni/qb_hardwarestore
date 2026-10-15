@@ -1,7 +1,7 @@
 # planning/api-integration/MAP.md
 
 **Slug:** `api-integration` · **Opened:** 2026-10-15
-**Status:** Active Frontier open — 4 decisions queued, 0 locked.
+**Status:** 1 locked · 6 open. Phase 0 next. Immediate decision: [Product & Variant Client Model Shape](./decisions/02-product-variant-client-model.md).
 
 ## Destination
 
@@ -25,29 +25,35 @@ Rules every session on this map must respect. Facts that already have a home are
 
 ## Decisions So Far
 
-None yet.
+- [First Vertical Slice & Ordering Lens](./decisions/01-first-vertical-slice.md): **Cashier journey** — products → inventory → POS checkout → customers → requisitions → admin, walked in dependency order, one demoable outcome per phase.
 
 ## Active Frontier (Open & Unblocked)
 
-- [ ] [First Vertical Slice & Ordering Lens](./decisions/01-first-vertical-slice.md) — grill
-- [ ] [Product & Variant Client Model Shape](./decisions/02-product-variant-client-model.md) — domain-model
-- [ ] [Pagination Envelope Strategy](./decisions/03-pagination-envelope-strategy.md) — research
-- [ ] [Role to Dashboard Routing for All Six Roles](./decisions/04-role-dashboard-routing.md) — grill
+Ordered by the locked phase order: define the entity, then the transport, then the presentation. Resolve one
+per session.
+
+- [ ] [Product & Variant Client Model Shape](./decisions/02-product-variant-client-model.md) — domain-model · Phase 0, gates Phase 1
+- [ ] [Pagination Envelope Strategy](./decisions/03-pagination-envelope-strategy.md) — research · Phase 0
+- [ ] [Loading, Error and Empty State Convention](./decisions/07-loading-error-empty-convention.md) — grill · Phase 0
+- [ ] [Role to Dashboard Routing for All Six Roles](./decisions/04-role-dashboard-routing.md) — grill · Phase 0, needed again at Phase 5
+- [ ] [POS Checkout Client Contract](./decisions/06-checkout-client-contract.md) — domain-model · Phase 3
+- [ ] [Sales Stack Reconciliation](./decisions/05-sales-stack-reconciliation.md) — domain-model · Phase 6
 
 ## Blocked
 
-- [ ] [Sales Stack Reconciliation](./decisions/05-sales-stack-reconciliation.md) — domain-model (Blocked by: [First Vertical Slice & Ordering Lens](./decisions/01-first-vertical-slice.md))
+Nothing is blocked. [Sales Stack Reconciliation](./decisions/05-sales-stack-reconciliation.md) was released
+when the slice order locked and is now simply sequenced at Phase 6.
 
 ## Fog of War (Not Yet Specified)
 
 In scope, but not sharp enough to state until the frontier advances.
 
-- Requisition and material-token release UI shape — waits on the routing decision (a foreman must be able to log in at all) and on the slice order.
-- Goods receipt / receiving UI — only required if the demo must create stock without `seed_demo`.
+- Goods receipt / receiving UI — Phase 2 is read-only stock; receiving is only required if the demo must create stock without `seed_demo`.
+- Requisition and material-token release UI shape — Phase 5; waits on the routing decision and on products being live.
 - Collectibles / utang screens — overdue list and aging report.
+- Customer master-data screens — which slice of customer CRUD the POS actually needs.
 - Reports: three screens (`reports/views/inventory_reports_page.dart`, `sales/views/sales_reports_page.dart`, `admin/views/reports_page.dart`) over one backend surface; consolidation and wiring are entangled.
-- Customer master-data screens.
-- Failure behaviour of POS checkout — network loss mid-sale, insufficient stock.
+- Product image handling — `image_url` is in the serializer, but whether the demo renders images at all is unspecified.
 
 ## Out of Scope
 

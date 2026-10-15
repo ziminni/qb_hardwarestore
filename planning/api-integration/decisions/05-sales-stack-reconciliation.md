@@ -1,9 +1,8 @@
 # Sales Stack Reconciliation
 
-**Mode:** domain-model · **Status:** BLOCKED · **Opened:** 2026-10-15
-
-**Blocked by:** [First Vertical Slice & Ordering Lens](./01-first-vertical-slice.md) — only matters once the
-slice order reaches the sales module.
+**Mode:** domain-model · **Status:** OPEN · **Opened:** 2026-10-15
+**Phase:** 6 — released when [First Vertical Slice & Ordering Lens](./01-first-vertical-slice.md) locked the
+slice order.
 
 ## The question
 
@@ -30,4 +29,4 @@ against both would double the work and leave two competing sources of truth. Quo
 
 ## Resolution
 
-_Unresolved — blocked until the slice order determines whether sales is in scope._
+_Unresolved — Phase 6. Both sales stacks are in scope, so one must be chosen before anything is wired._

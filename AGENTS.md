@@ -26,14 +26,17 @@ the same commit that breaks it.
 ## Current Status & Next Step
 
 - **Active branch:** `feature/backend-integration` — 33 commits ahead of `origin/master`, unpushed.
-- **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. Four decisions
-  are open on the frontier and **none are locked yet**; resolve them one per session, in order.
-- **Last session:** `docs/sessions/2026-10-15-system-atlas-and-docs-consolidation.md` — built the system atlas
-  and consolidated the docs (removed 5 obsolete root files). Documentation only; no app source changed.
+- **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. The slice
+  order is **locked** (Cashier journey); six decisions remain open and resolve one per session, in the order
+  listed on that map's frontier.
+- **Last session:** `docs/sessions/2026-10-15-system-atlas-and-docs-consolidation.md` — built the system atlas,
+  consolidated the docs (removed 5 obsolete root files), and opened the integration map. Docs only; no app
+  source changed.
 - **Current state (verified):** the backend is feature-complete; the client consumes almost none of it.
-  Of 10 feature modules only `auth` reaches the API. See the Truth Matrix in `docs/SYSTEM_ATLAS.md`.
-- **Next step:** resolve the first frontier decision — `planning/api-integration/decisions/01-first-vertical-slice.md`.
-  Do not write client code until the phase order is locked. The known constraints that shape it: product.dart
-  reads 7 fields the backend never sends, only 6 of 8 viewmodels are registered in `main.dart`, and every list
-  response is a paginated envelope. A salvageable earlier attempt sits in commit `22c7c26`
-  (`planning/02-lost-work-recovery.md`).
+  Of 10 feature modules only `auth` reaches the API. 38 screens scored: 3 live · 27 mock · 8 dead. See
+  `docs/SYSTEM_ATLAS.md`.
+- **Next step:** resolve `planning/api-integration/decisions/02-product-variant-client-model.md` — the
+  product/variant model shape gates Phase 1. Do not write client code until the Phase 0 decisions are locked.
+  The three constraints that shape them: `product.dart` reads 7 fields the backend never sends, only 6 of 8
+  viewmodels are registered in `main.dart`, and every list response is a paginated envelope. A salvageable
+  earlier attempt sits in commit `22c7c26` (`planning/02-lost-work-recovery.md`).

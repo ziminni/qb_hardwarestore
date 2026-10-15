@@ -82,11 +82,11 @@ demonstrate; option C is currently blocked by the routing gap; option D is safe 
 The ordering criterion this locks: **prove the pattern on the highest-value read, then walk the dependency
 chain, shipping a demoable outcome every phase.**
 
-## Proposed phase order (locks when this decision closes)
+## Phase order (locked 2026-10-15)
 
 | Phase | Scope | Why here |
 | :--- | :--- | :--- |
-| 0 | Substrate: product/variant model, pagination helper, role routing | Blocks everything; small and unglamorous |
+| 0 | Substrate: product/variant model, pagination helper, role routing, register the 2 unregistered viewmodels | Blocks everything; small and unglamorous |
 | 1 | Products module | The `ProductVariant` hub; highest-connectivity read |
 | 2 | Inventory: stock list, low stock, movements | Needs the batch-vs-adjustment model distinction |
 | 3 | POS checkout + receipt | The money path; the demo centrepiece |
@@ -94,6 +94,28 @@ chain, shipping a demoable outcome every phase.**
 | 5 | Requisitions + token release | The differentiator; needs phases 1-2 and routing |
 | 6 | Admin, reports, sales | Bulk wiring at low risk once the pattern is proven |
 
-## Resolution
+## Resolution — LOCKED 2026-10-15
 
-_Unresolved — awaiting the ordering decision._
+**Option A: the Cashier journey, executed in dependency order within the slice.**
+
+The lens this locks, for every session on this map: **prove the pattern on the highest-value read, then walk
+the dependency chain, shipping a demoable outcome each phase.**
+
+Why A over the alternatives:
+
+- **vs. B (reference data first):** `seed_demo` already supplies products, stock and customers, so the
+data-creation prerequisite that would justify leaves-first does not exist. B spends two or three sessions
+producing nothing demonstrable.
+- **vs. C (requisition first):** C is blocked today — a Site Foreman cannot reach a dashboard at all (see
+  [Role to Dashboard Routing for All Six Roles](./04-role-dashboard-routing.md)) — and it needs products and
+  stock regardless, making it strictly downstream of A's Phases 1-2.
+- **vs. D (admin first):** lowest risk, but teaches nothing about products, stock or checkout and leaves the
+expensive unknowns untouched.
+
+Accepted risk: Phase 3 hits the most complex call in the API — `process_sale` does FIFO deduction, payment
+allocation, receipt generation and ledger posting behind one POST. Mitigated because Phases 1-2 settle the
+product and stock model shapes before checkout depends on them.
+
+The Phase 0 prerequisite that is easy to forget: `ProductsViewmodel` and `PosTransactionViewmodel` exist but
+are **not registered** in `flutter/lib/main.dart` — only 6 of 8 viewmodels are wired, so Phases 1 and 3 would
+appear to do nothing until they are added.
