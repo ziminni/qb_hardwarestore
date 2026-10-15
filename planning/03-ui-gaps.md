@@ -66,7 +66,7 @@ redeemable, because only the server's UUID is accepted by `verify_token`.
 
 ## Secondary: stock cannot be created from the UI today
 
-`01-api-integration.md` wires screens that *read* stock. Nothing lets a user *add* stock. The missing link
+`planning/api-integration/MAP.md` wires screens that *read* stock. Nothing lets a user *add* stock. The missing link
 is Purchase Order → Goods Receipt → `POST /api/v1/goods-receipts/{id}/process/`, which creates the FIFO
 `InventoryBatch` rows everything else depends on.
 
@@ -79,4 +79,4 @@ always run `seed_demo` before demoing, or build the receiving screen.
 - A cashier can complete verify → release from the UI and see the resulting sale and ledger entry.
 - A user can receive stock through the UI, making goods-receipt `process` reachable without curl.
 - These screens handle the loading/error/empty states their peers are missing (see
-  `01-api-integration.md`).
+  `planning/api-integration/MAP.md`).

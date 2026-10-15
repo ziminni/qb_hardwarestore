@@ -146,6 +146,6 @@ diagnostics. Backend stack healthy on 8000 (API) / 5435 (DB), 5 seeded accounts 
    viewmodels are wired, so they are currently unreachable).
 3. Handle the paginated envelope (`response.data['results']`, not `response.data`).
 
-Only then wire `products` → `inventory` → the rest, per `planning/01-api-integration.md`. A recovered
+Only then wire `products` → `inventory` → the rest, per `planning/api-integration/MAP.md`. A recovered
 earlier implementation of exactly this (`pos_service.dart` calling `/products/` and `/batches/`) is
 salvageable from commit `22c7c26` — see `planning/02-lost-work-recovery.md`.

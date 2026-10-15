@@ -20,7 +20,7 @@ delete it — leaving a non-compiling test in the tree invites someone to commit
 
 | Duplicate | Verdict |
 | :--- | :--- |
-| `sales/viewmodels/sales_module_viewmodel.dart` (129 lines) vs `sales/viewmodels/inventory_sales_viewmodel.dart` | **Two parallel sales stacks with no shared model.** `data/models/sales_module.dart` and `data/models/sales.dart` describe overlapping concepts. Pick one before wiring the API, or `01-api-integration.md` will wire both. |
+| `sales/viewmodels/sales_module_viewmodel.dart` (129 lines) vs `sales/viewmodels/inventory_sales_viewmodel.dart` | **Two parallel sales stacks with no shared model.** `data/models/sales_module.dart` and `data/models/sales.dart` describe overlapping concepts. Pick one before wiring the API, or `planning/api-integration/MAP.md` will wire both. |
 | `reports/views/inventory_reports_page.dart` + `sales/views/sales_reports_page.dart` + `admin/views/reports_page.dart` | Three screens over one backend surface (`/api/v1/reports/*`). Consolidate to one parameterised screen. |
 | `core/layout/sales_skeleton_layout.dart` (190 lines) vs `core/layout/inventory_skeleton_layout.dart` (201 lines) | Near-clones; the diff is mostly nav labels. Collapse to one parameterised layout. |
 | `flutter/README.md` | The generated 3-line stub (`# client` / "A new Flutter project."). Wrong name, no content. The real setup doc is the root `README.md`. |

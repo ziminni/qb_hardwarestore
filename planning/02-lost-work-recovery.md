@@ -44,14 +44,14 @@ git checkout 22c7c26 -- flutter/lib/data/repositories/pos_repository.dart
 - It predates the port fix (`5435:5432`, backend on `8000`) and the Linux desktop work, so it was written
   against an older tree. Re-check imports and the `ApiClient` surface it uses.
 - It calls `/api/v1/products/` — which is **paginated** (`PAGE_SIZE = 50`). If it read `response.data` as a
-  list, it is silently broken and needs `['results']`. See `01-api-integration.md`.
+  list, it is silently broken and needs `['results']`. See `planning/api-integration/MAP.md`.
 - The backend `apps/pos` diff may already be superseded by later work; diff it before restoring.
 - It was written alongside the invented `product.dart` model fields. If it deserialises into that model, it
   inherits the same defect.
 
 ## Why this matters
 
-`01-api-integration.md` lists "wire products and inventory" as the P0 workstream. This commit is a
+`planning/api-integration/MAP.md` lists "wire products and inventory" as the P0 workstream. This commit is a
 ready-made partial answer to items 1 and 2 of that plan. Recovering it — even only as reference — is worth
 more than starting from a blank file.
 

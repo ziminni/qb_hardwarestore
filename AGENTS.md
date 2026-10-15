@@ -12,7 +12,7 @@ grepping the codebase, and never paste a copy of a fact that already has a home.
 | System architecture & Live/Mock matrix | `docs/SYSTEM_ATLAS.md` |
 | Interactive architecture cockpit | `docs/system-atlas.html` |
 | API contract: endpoints, auth, role matrix | `ENDPOINTS.md` |
-| Unbuilt work, decisions, roadmap | `planning/` — read `planning/MAP.md` first |
+| Unbuilt work, decisions, roadmap | `planning/MAP.md` (index) → active map: `planning/api-integration/MAP.md` |
 | Session history & gotchas | `docs/sessions/` — newest date first |
 | Branch, commit & review conventions | `CONTRIBUTING.md` |
 | Django backend (6 apps + `services.py`) | `backend_django/apps/{users,inventory,pos,collectibles,requisitions,reports}/` |
@@ -26,13 +26,14 @@ the same commit that breaks it.
 ## Current Status & Next Step
 
 - **Active branch:** `feature/backend-integration` — 33 commits ahead of `origin/master`, unpushed.
+- **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. Four decisions
+  are open on the frontier and **none are locked yet**; resolve them one per session, in order.
 - **Last session:** `docs/sessions/2026-10-15-system-atlas-and-docs-consolidation.md` — built the system atlas
   and consolidated the docs (removed 5 obsolete root files). Documentation only; no app source changed.
 - **Current state (verified):** the backend is feature-complete; the client consumes almost none of it.
   Of 10 feature modules only `auth` reaches the API. See the Truth Matrix in `docs/SYSTEM_ATLAS.md`.
-- **Next step:** before writing any API call — (1) fix `flutter/lib/data/models/product.dart`, which reads 7
-  fields the backend never sends; (2) register `ProductsViewmodel` and `PosTransactionViewmodel` in
-  `flutter/lib/main.dart`, since only 6 of 8 viewmodels are wired; (3) read the paginated envelope
-  (`response.data['results']`, not `response.data`). Then wire `products` → `inventory` per
-  `planning/01-api-integration.md`. A salvageable earlier attempt sits in commit `22c7c26`
+- **Next step:** resolve the first frontier decision — `planning/api-integration/decisions/01-first-vertical-slice.md`.
+  Do not write client code until the phase order is locked. The known constraints that shape it: product.dart
+  reads 7 fields the backend never sends, only 6 of 8 viewmodels are registered in `main.dart`, and every list
+  response is a paginated envelope. A salvageable earlier attempt sits in commit `22c7c26`
   (`planning/02-lost-work-recovery.md`).

@@ -8,20 +8,30 @@ contract lives in `ENDPOINTS.md`. None of those three duplicate each other.
 none of it — of 10 feature modules, only `auth` reaches the API. The work below is therefore mostly
 *wiring*, not *building*.
 
-## Plans
+## Active plan
 
-| # | Plan | Scope | Priority |
-| :--- | :--- | :--- | :--- |
-| 01 | [API integration](01-api-integration.md) | Replace 27 mock screens with live API calls; fix the frontend models first | **P0** |
-| 02 | [Lost work recovery](02-lost-work-recovery.md) | Restore `pos_service.dart` / `pos_repository.dart` dropped by a bad merge | **P1** |
-| 03 | [UI gaps](03-ui-gaps.md) | Screens that do not exist for endpoints that do (token flow, utang, receipts) | **P1** |
-| 04 | [Cleanup](04-cleanup.md) | Dead files, duplicate stacks, stale branches, config debt | **P2** |
+The integration epic runs as a **Wayfinder map** — a low-resolution index plus one file per open decision,
+so it stays workable across many sessions without loading everything at once.
+
+**[planning/api-integration/MAP.md](api-integration/MAP.md)** — destination, invariants, four open decisions
+and the phase order.
+
+## Reference plans
+
+Supporting material that is not itself on the map's frontier.
+
+| Plan | Scope | Priority |
+| :--- | :--- | :--- |
+| [Lost work recovery](02-lost-work-recovery.md) | Restore `pos_service.dart` / `pos_repository.dart` dropped by a bad merge — feeds Phase 1 | **P1** |
+| [UI gaps](03-ui-gaps.md) | Screens that do not exist for endpoints that do (token flow, utang, receipts) — feeds Phase 5 | **P1** |
+| [Cleanup](04-cleanup.md) | Dead files, duplicate stacks, stale branches, config debt | **P2** |
 
 ## Priority reasoning
 
-1. **01 first, because it unblocks the demo.** The capstone's visible weakness is that the app shows
-   hardcoded data. Fixing the frontend models is a hard prerequisite — shipping API calls against the
-   current `product.dart` would fail against the real serializer.
+1. **The map's Phase 0 first, because it unblocks the demo.** The capstone's visible weakness is that the app
+   shows hardcoded data. Fixing the frontend models is a hard prerequisite — shipping API calls against the
+   current `product.dart` would fail against the real serializer. Phase order lives in
+   `api-integration/MAP.md`.
 2. **02 alongside 01, because it is free.** The lost commit already contains a working
    `PosService` that calls `/api/v1/products/` and `/api/v1/batches/`. Recovering it is cheaper than
    rewriting it.
@@ -39,8 +49,9 @@ none of it — of 10 feature modules, only `auth` reaches the API. The work belo
 
 ## Verification rule
 
-Every claim in these plans was checked against source, not against older markdown. `README.md`,
-`PHASE_*.md` and `ENDPOINTS.md` were **not** trusted for status. Two of them were in fact wrong:
+Every claim in these plans was checked against source, not against older markdown. The old `PHASE_*.md` and
+`TEAM_UPDATE.md` files were **not** trusted for status and have since been deleted in the docs consolidation.
+Two claims in `ENDPOINTS.md` were in fact wrong:
 
 - `ENDPOINTS.md` claimed list endpoints return **unpaginated** arrays. They do not — settings define
   `PAGE_SIZE = 50`, so every list response is a `{count, next, previous, results}` envelope.
