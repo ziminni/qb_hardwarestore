@@ -13,6 +13,7 @@ grepping the codebase, and never paste a copy of a fact that already has a home.
 | Interactive architecture cockpit | `docs/system-atlas.html` |
 | API contract: endpoints, auth, role matrix | `ENDPOINTS.md` |
 | Unbuilt work, decisions, roadmap | `planning/` — read `planning/MAP.md` first |
+| Session history & gotchas | `docs/sessions/` — newest date first |
 | Branch, commit & review conventions | `CONTRIBUTING.md` |
 | Django backend (6 apps + `services.py`) | `backend_django/apps/{users,inventory,pos,collectibles,requisitions,reports}/` |
 | Flutter MVVM client (10 features) | `flutter/lib/features/` — shared models in `flutter/lib/data/models/` |
@@ -24,9 +25,14 @@ the same commit that breaks it.
 
 ## Current Status & Next Step
 
-- **Active branch:** `feature/backend-integration`
+- **Active branch:** `feature/backend-integration` — 33 commits ahead of `origin/master`, unpushed.
+- **Last session:** `docs/sessions/2026-10-15-system-atlas-and-docs-consolidation.md` — built the system atlas
+  and consolidated the docs (removed 5 obsolete root files). Documentation only; no app source changed.
 - **Current state (verified):** the backend is feature-complete; the client consumes almost none of it.
   Of 10 feature modules only `auth` reaches the API. See the Truth Matrix in `docs/SYSTEM_ATLAS.md`.
-- **Next step:** wire the mock viewmodels to the live API, starting with `pos` and `inventory`.
-  Model shape fixes are a prerequisite — `flutter/lib/data/models/product.dart` expects fields the
-  backend never sends. Details: `planning/MAP.md`.
+- **Next step:** before writing any API call — (1) fix `flutter/lib/data/models/product.dart`, which reads 7
+  fields the backend never sends; (2) register `ProductsViewmodel` and `PosTransactionViewmodel` in
+  `flutter/lib/main.dart`, since only 6 of 8 viewmodels are wired; (3) read the paginated envelope
+  (`response.data['results']`, not `response.data`). Then wire `products` → `inventory` per
+  `planning/01-api-integration.md`. A salvageable earlier attempt sits in commit `22c7c26`
+  (`planning/02-lost-work-recovery.md`).
