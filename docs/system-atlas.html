@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>System Atlas — BuildPro POS / Inventory</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --line:#334155; }
+  body { background:var(--bg); }
+  .card { background:var(--card); border:1px solid var(--line); }
+  .tabbtn { border-bottom:2px solid transparent; }
+  .tabbtn.active { border-bottom-color:#38bdf8; color:#e2e8f0; }
+  .tabbtn:not(.active) { color:#94a3b8; }
+  .tabbtn:not(.active):hover { color:#e2e8f0; }
+  .pill.on { background:#0ea5e9; color:#fff; border-color:#0ea5e9; }
+  .pill { border:1px solid var(--line); }
+  pre.mermaid { line-height:1.5; background:transparent; }
+  .copybtn.done { background:#059669; border-color:#059669; color:#fff; }
+  input[type=checkbox] { accent-color:#38bdf8; width:1.15rem; height:1.15rem; }
+  .study.done .stitle { text-decoration:line-through; opacity:.55; }
+  .mdcode { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.8rem; color:#7dd3fc; }
+  .mdbold { color:#f1f5f9; font-weight:600; }
+  .mdem { font-style:italic; }
+  ::-webkit-scrollbar { height:10px; width:10px; }
+  ::-webkit-scrollbar-thumb { background:#334155; border-radius:6px; }
+</style>
+</head>
+<body class="text-slate-200 antialiased">
+
+<header class="border-b border-slate-700/60">
+  <div class="max-w-7xl mx-auto px-6 py-7">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight text-white">System Atlas — BuildPro POS / Inventory</h1>
+        <p class="text-sm text-slate-400 mt-1">
+          Reverse-engineered from source · branch <span class="mdcode">feature/backend-integration</span> · generated 2026-10-15
+        </p>
+        <div class="flex flex-wrap gap-2 mt-3 text-xs">
+          <span class="px-2 py-1 rounded bg-sky-500/10 text-sky-300 border border-sky-500/30">Django 5.2 LTS</span>
+          <span class="px-2 py-1 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/30">DRF 3.15</span>
+          <span class="px-2 py-1 rounded bg-violet-500/10 text-violet-300 border border-violet-500/30">Flutter · Dio · go_router</span>
+          <span class="px-2 py-1 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30">PostgreSQL 15</span>
+          <span class="px-2 py-1 rounded bg-slate-500/10 text-slate-300 border border-slate-500/30">Docker Compose</span>
+        </div>
+      </div>
+      <div class="text-xs text-slate-400 card rounded-lg px-4 py-3 max-w-sm">
+        <strong class="text-amber-300">Code is the only truth.</strong>
+        <span class="mdcode">README.md</span>, <span class="mdcode">PHASE_*.md</span> and
+        <span class="mdcode">ENDPOINTS.md</span> were deliberately <em>not</em> trusted; every claim here was
+        checked against route tables, model FKs and viewmodel bodies.
+      </div>
+    </div>
+  </div>
+</header>
+
+<section class="max-w-7xl mx-auto px-6 py-6">
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="card rounded-xl p-5">
+      <div class="text-3xl font-bold text-white">10</div>
+      <div class="text-sm text-slate-400 mt-1">Frontend Modules</div>
+      <div class="text-xs text-slate-500 mt-1">31 screens · 29 routes · 8 viewmodels</div>
+    </div>
+    <div class="card rounded-xl p-5 border-l-4 border-l-emerald-500">
+      <div class="text-3xl font-bold text-emerald-400">1<span class="text-lg text-slate-500"> / 10</span></div>
+      <div class="text-sm text-slate-400 mt-1">🟢 Live &amp; API-wired</div>
+      <div class="text-xs text-slate-500 mt-1">auth only (<span class="mdcode">AuthViewmodel</span>)</div>
+    </div>
+    <div class="card rounded-xl p-5 border-l-4 border-l-rose-500">
+      <div class="text-3xl font-bold text-rose-400">9<span class="text-lg text-slate-500"> / 10</span></div>
+      <div class="text-sm text-slate-400 mt-1">🔴 Mock or 🟡 partial</div>
+      <div class="text-xs text-slate-500 mt-1">3 mock-data files · 635 lines of fixtures</div>
+    </div>
+    <div class="card rounded-xl p-5 border-l-4 border-l-amber-500">
+      <div class="text-3xl font-bold text-amber-400">11</div>
+      <div class="text-sm text-slate-400 mt-1">⚠️ Vibe-Debt Hotspots</div>
+      <div class="text-xs text-slate-500 mt-1">2 orphans · 2 unwired VMs · 28 dead endpoints</div>
+    </div>
+  </div>
+  <div class="card rounded-xl mt-4 px-5 py-3 text-xs text-slate-400 flex flex-wrap gap-x-8 gap-y-1">
+    <span>Backend: <strong class="text-slate-200">6 apps</strong></span>
+    <span><strong class="text-slate-200">25</strong> models</span>
+    <span><strong class="text-slate-200">24</strong> router routes</span>
+    <span><strong class="text-slate-200">4</strong> report paths</span>
+    <span><strong class="text-slate-200">5</strong> auth routes</span>
+    <span class="text-rose-300">28 of 33 endpoints unreachable from the client</span>
+  </div>
+</section>
+
+<nav class="max-w-7xl mx-auto px-6">
+  <div class="flex flex-wrap gap-1 border-b border-slate-700/60">
+    <button class="tabbtn active px-4 py-3 text-sm font-medium" data-tab="architecture">1 · Architecture &amp; Data Flow</button>
+    <button class="tabbtn px-4 py-3 text-sm font-medium" data-tab="models">2 · Database &amp; Model Map</button>
+    <button class="tabbtn px-4 py-3 text-sm font-medium" data-tab="matrix">3 · Truth Matrix</button>
+    <button class="tabbtn px-4 py-3 text-sm font-medium" data-tab="debt">4 · Vibe-Debt &amp; Hotspots</button>
+    <button class="tabbtn px-4 py-3 text-sm font-medium" data-tab="study">5 · Guided Study Path</button>
+  </div>
+</nav>
+
+<main class="max-w-7xl mx-auto px-6 py-7">
+
+<section data-panel="architecture">
+  <h2 class="text-lg font-semibold text-white mb-1">Container architecture</h2>
+  <p class="text-sm text-slate-400 mb-4">Two processes, one database. The API owns all business logic; the client currently exercises a sliver of it.</p>
+  <div class="card rounded-xl p-6 overflow-x-auto">
+<pre class="mermaid">
+flowchart LR
+  subgraph Client["Flutter client - flutter/"]
+    UI["31 screens in features/views"]
+    VM["8 viewmodels"]
+    NET["api_client.dart - Dio + JWT refresh"]
+    SEC["flutter_secure_storage"]
+    UI --&gt; VM --&gt; NET
+    NET -. tokens .-&gt; SEC
+  end
+  subgraph Server["Django REST - backend_django/"]
+    URLS["config/urls.py - /api/v1/"]
+    APPS["6 apps - users inventory pos collectibles requisitions reports"]
+    SVC["services.py - process_sale, approve_requisition, verify_token, release_materials"]
+    URLS --&gt; APPS --&gt; SVC
+  end
+  DB[("PostgreSQL 15 - 25 models")]
+  NET -- "HTTP :8000" --&gt; URLS
+  SVC --&gt; DB
+</pre>
+  </div>
+
+  <h3 class="text-base font-semibold text-white mt-7 mb-3">Request lifecycle — click a stage</h3>
+  <div id="flow" class="grid md:grid-cols-3 gap-3"></div>
+  <div id="flowout" class="card rounded-xl p-5 mt-3 text-sm text-slate-300 min-h-[5rem]"></div>
+</section>
+
+<section data-panel="models" class="hidden">
+  <h2 class="text-lg font-semibold text-white mb-1">Domain model</h2>
+  <p class="text-sm text-slate-400 mb-4">Derived from real <span class="mdcode">ForeignKey</span> / <span class="mdcode">OneToOneField</span> declarations — not from docs.</p>
+  <div class="card rounded-xl p-6 overflow-x-auto">
+<pre class="mermaid">
+erDiagram
+  Category       ||--o{ Product : category
+  Brand          ||--o{ Product : brand
+  UnitOfMeasure  ||--o{ ProductVariant : base_uom
+  Product        ||--o{ ProductVariant : product
+  ProductVariant ||--o{ VariantUOM : variant
+  UnitOfMeasure  ||--o{ VariantUOM : uom
+  ProductVariant ||--o{ InventoryBatch : variant
+  ProductVariant ||--o{ StockAdjustment : variant
+  ProductVariant ||--o{ SystemAlert : variant
+  Supplier       ||--o{ PurchaseOrder : supplier
+  PurchaseOrder  ||--o{ POItem : po
+  PurchaseOrder  ||--o{ GoodsReceipt : po
+  ProductVariant ||--o{ POItem : variant
+  GoodsReceipt   ||--o{ InventoryBatch : receipt
+  Customer       ||--o{ SalesTransaction : customer
+  SalesTransaction ||--o{ SalesItem : items
+  SalesTransaction ||--o{ Payment : payments
+  SalesTransaction ||--o{ OfficialReceipt : receipts
+  VariantUOM     ||--o{ SalesItem : variant_uom
+  Customer       ||--o{ CollectibleLedger : customer
+  SalesTransaction ||--o{ CollectibleLedger : transaction
+  CollectibleLedger ||--o{ CollectiblePayment : collectible
+  Customer       ||--o{ Project : customer
+  Project        ||--o{ Requisition : project
+  Requisition    ||--o{ RequisitionItem : requisition
+  Requisition    ||--o| MaterialToken : "1 to 1"
+  ProductVariant ||--o{ RequisitionItem : variant
+  User           ||--o{ AuditLog : user
+</pre>
+  </div>
+
+  <h3 class="text-base font-semibold text-white mt-7 mb-1">Backend Model ↔ Endpoint ↔ Frontend Model</h3>
+  <p class="text-sm text-slate-400 mb-3">Field-level comparison. <span class="text-rose-300">Rose</span> = frontend expects a key the backend never sends.</p>
+  <div class="card rounded-xl overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-800/60 text-slate-300">
+        <tr>
+          <th class="text-left px-4 py-3 font-medium">Backend model</th>
+          <th class="text-left px-4 py-3 font-medium">API endpoint</th>
+          <th class="text-left px-4 py-3 font-medium">Frontend model</th>
+          <th class="text-left px-4 py-3 font-medium">Field verdict</th>
+        </tr>
+      </thead>
+      <tbody id="modelmap" class="divide-y divide-slate-700/50"></tbody>
+    </table>
+  </div>
+</section>
+
+<section data-panel="matrix" class="hidden">
+  <h2 class="text-lg font-semibold text-white mb-1">The Truth Matrix</h2>
+  <p class="text-sm text-slate-400 mb-4">What the UI actually does versus what the backend offers.</p>
+
+  <div class="flex flex-wrap items-center gap-2 mb-4">
+    <button class="pill on px-3 py-1.5 rounded-full text-xs font-medium" data-filter="all">All <span class="opacity-70" id="c-all"></span></button>
+    <button class="pill px-3 py-1.5 rounded-full text-xs font-medium" data-filter="live">🟢 Live API <span class="opacity-70" id="c-live"></span></button>
+    <button class="pill px-3 py-1.5 rounded-full text-xs font-medium" data-filter="partial">🟡 Partial <span class="opacity-70" id="c-partial"></span></button>
+    <button class="pill px-3 py-1.5 rounded-full text-xs font-medium" data-filter="mock">🔴 Mock Data <span class="opacity-70" id="c-mock"></span></button>
+    <button class="pill px-3 py-1.5 rounded-full text-xs font-medium" data-filter="dead">⚫ Dead/Orphaned <span class="opacity-70" id="c-dead"></span></button>
+    <input id="q" type="search" placeholder="Search feature, file or endpoint…"
+      class="ml-auto w-72 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-600 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500">
+  </div>
+
+  <div class="card rounded-xl overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-800/60 text-slate-300">
+        <tr>
+          <th class="text-left px-4 py-3 font-medium">Feature / Screen</th>
+          <th class="text-left px-4 py-3 font-medium">UI file</th>
+          <th class="text-left px-4 py-3 font-medium">ViewModel / State</th>
+          <th class="text-left px-4 py-3 font-medium">Backend endpoint</th>
+          <th class="text-left px-4 py-3 font-medium">Status</th>
+          <th class="text-left px-4 py-3 font-medium">Notes</th>
+        </tr>
+      </thead>
+      <tbody id="matrix" class="divide-y divide-slate-700/50"></tbody>
+    </table>
+    <div id="empty" class="hidden p-8 text-center text-slate-500 text-sm">No rows match that filter.</div>
+  </div>
+</section>
+
+<section data-panel="debt" class="hidden">
+  <h2 class="text-lg font-semibold text-white mb-1">Vibe-Debt &amp; Hotspots</h2>
+  <p class="text-sm text-slate-400 mb-4">Artifacts of code grown rapidly across multiple AI sessions.</p>
+  <div id="debt" class="space-y-6"></div>
+</section>
+
+<section data-panel="study" class="hidden">
+  <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
+    <div>
+      <h2 class="text-lg font-semibold text-white mb-1">Guided Study Path</h2>
+      <p class="text-sm text-slate-400">Read in this order. Progress is saved in <span class="mdcode">localStorage</span>.</p>
+    </div>
+    <div class="flex items-center gap-3">
+      <span class="text-sm text-slate-400"><span id="prog" class="text-sky-300 font-semibold">0</span> / 8 read</span>
+      <button id="reset" class="px-3 py-1.5 rounded-lg text-xs border border-slate-600 text-slate-300 hover:bg-slate-700/50">Reset</button>
+    </div>
+  </div>
+  <div class="h-1.5 rounded-full bg-slate-800 mb-6 overflow-hidden">
+    <div id="bar" class="h-full bg-sky-500 transition-all" style="width:0%"></div>
+  </div>
+  <div id="study" class="space-y-4"></div>
+</section>
+
+</main>
+
+<footer class="max-w-7xl mx-auto px-6 py-8 text-xs text-slate-500 border-t border-slate-700/60">
+  Companion to <span class="mdcode">docs/SYSTEM_ATLAS.md</span>. Diagrams render client-side via Mermaid CDN;
+  a network connection is needed on first load.
+</footer>
+
+<script>
+/* ============================================================
+   DOM helpers — no innerHTML anywhere.
+   Inline markup is authored as `code` and **bold** and `*em*`,
+   tokenised here into real nodes via createElement/textContent.
+   ============================================================ */
+function el(tag, cls, children){
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  (children || []).forEach(c => n.append(typeof c === 'string' ? document.createTextNode(c) : c));
+  return n;
+}
+const INLINE = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+function md(str){
+  const frag = document.createDocumentFragment();
+  const s = String(str == null ? '' : str);
+  let last = 0, m;
+  INLINE.lastIndex = 0;
+  while ((m = INLINE.exec(s)) !== null) {
+    if (m.index > last) frag.append(document.createTextNode(s.slice(last, m.index)));
+    const tok = m[0];
+    if (tok[0] === '`')      frag.append(el('span', 'mdcode', [tok.slice(1, -1)]));
+    else if (tok.startsWith('**')) frag.append(el('strong', 'mdbold', [tok.slice(2, -2)]));
+    else                     frag.append(el('em', 'mdem', [tok.slice(1, -1)]));
+    last = m.index + tok.length;
+  }
+  if (last < s.length) frag.append(document.createTextNode(s.slice(last)));
+  return frag;
+}
+function setMd(node, str){ node.replaceChildren(md(str)); }
+
+/* ============================== DATA ============================== */
+const MATRIX = [
+  { f:'Login', ui:'auth/views/login_page.dart', vm:'auth/viewmodels/auth_viewmodel.dart', ep:'POST /auth/login/', s:'live', n:'The only complete round trip.' },
+  { f:'Token refresh / logout / me', ui:'(via ApiClient)', vm:'auth_viewmodel', ep:'/auth/refresh/ · /auth/logout/ · /auth/me/', s:'live', n:'SimpleJWT, refresh-on-401.' },
+  { f:'Health probe', ui:'—', vm:'data/services/health_service.dart', ep:'GET /health/', s:'live', n:'Infrastructure, not a feature.' },
+  { f:'Admin dashboard', ui:'dashboard/views/admin_dashboard.dart', vm:'dashboard_mock_data.dart', ep:'—', s:'mock', n:'KPI cards from one shared mock object.' },
+  { f:'Inventory dashboard', ui:'dashboard/views/inventory_dashboard.dart', vm:'dashboard_mock_data.dart', ep:'—', s:'mock', n:'' },
+  { f:'Inventory stock list', ui:'inventory/views/inventory_stock_page.dart', vm:'inventory/viewmodels/inventory_viewmodel.dart', ep:'GET /batches/', s:'mock', n:'464-line inventory_mock_data.dart.' },
+  { f:'Low stock', ui:'inventory/views/inventory_low_stock_page.dart', vm:'inventory_viewmodel', ep:'GET /alerts/', s:'mock', n:'' },
+  { f:'Stock movements', ui:'inventory/views/inventory_stock_movements_page.dart', vm:'inventory_viewmodel', ep:'GET /adjustments/', s:'mock', n:'' },
+  { f:'Products', ui:'products/views/products_page.dart', vm:'products/viewmodels/products_viewmodel.dart', ep:'GET /products/', s:'mock', n:'VM exists but is NOT in MultiProvider.' },
+  { f:'Categories', ui:'categories/views/categories_page.dart', vm:'(local state)', ep:'GET /categories/', s:'mock', n:'No viewmodel at all.' },
+  { f:'Suppliers', ui:'suppliers/views/suppliers_page.dart', vm:'suppliers_purchases_viewmodel', ep:'GET /suppliers/', s:'mock', n:'' },
+  { f:'Purchases / PO', ui:'suppliers/views/purchases_page.dart', vm:'suppliers_purchases_viewmodel', ep:'GET /purchase-orders/', s:'mock', n:'' },
+  { f:'POS transaction', ui:'pos/views/pos_transaction_page.dart', vm:'pos/viewmodels/pos_transaction_viewmodel.dart', ep:'POST /transactions/', s:'mock', n:'Checkout is client-side; process_sale never runs.' },
+  { f:'Sales dashboard', ui:'sales/views/sales_dashboard_page.dart', vm:'sales/viewmodels/inventory_sales_viewmodel.dart', ep:'—', s:'mock', n:'' },
+  { f:'Sales transactions', ui:'sales/views/sales_transactions_page.dart', vm:'inventory_sales_viewmodel', ep:'GET /transactions/', s:'mock', n:'' },
+  { f:'Sales returns', ui:'sales/views/sales_returns_page.dart', vm:'inventory_sales_viewmodel', ep:'—', s:'mock', n:'No backend return model exists.' },
+  { f:'Sales reports', ui:'sales/views/sales_reports_page.dart', vm:'inventory_sales_viewmodel', ep:'GET /reports/sales-summary/', s:'mock', n:'1 of 3 report screens.' },
+  { f:'Quotations', ui:'sales/views/sales_quotations_page.dart', vm:'sales/viewmodels/sales_module_viewmodel.dart', ep:'— no backend model', s:'mock', n:'Frontend-only concept.' },
+  { f:'Sales orders', ui:'sales/views/sales_orders_page.dart', vm:'sales_module_viewmodel', ep:'— no backend model', s:'mock', n:'Frontend-only concept.' },
+  { f:'Sales customers', ui:'sales/views/sales_customers_page.dart', vm:'sales_module_viewmodel', ep:'GET /customers/', s:'mock', n:'' },
+  { f:'Receivables / utang', ui:'sales/views/sales_receivables_page.dart', vm:'sales_module_viewmodel', ep:'GET /ledgers/', s:'mock', n:'Ledger logic exists; never called.' },
+  { f:'Inventory sales', ui:'sales/views/inventory_sales_page.dart', vm:'inventory_sales_viewmodel', ep:'GET /transactions/', s:'mock', n:'' },
+  { f:'Inventory returns', ui:'sales/views/inventory_returns_page.dart', vm:'inventory_sales_viewmodel', ep:'—', s:'mock', n:'' },
+  { f:'Inventory reports', ui:'reports/views/inventory_reports_page.dart', vm:'(local state)', ep:'GET /reports/*', s:'mock', n:'2 of 3 report screens.' },
+  { f:'Admin users', ui:'admin/views/admin_user_management_page.dart', vm:'admin/viewmodels/admin_mock_data.dart', ep:'GET /users/', s:'mock', n:'Mock shape ≈ real serializer — near drop-in.' },
+  { f:'Admin audit logs', ui:'admin/views/audit_logs_page.dart', vm:'admin_mock_data.dart', ep:'GET /audit-logs/', s:'mock', n:'' },
+  { f:'Admin requisitions', ui:'admin/views/requisitions_page.dart', vm:'admin_mock_data.dart', ep:'GET /requisitions/', s:'mock', n:'' },
+  { f:'Admin reports', ui:'admin/views/reports_page.dart', vm:'admin_mock_data.dart', ep:'GET /reports/*', s:'mock', n:'3 of 3 report screens.' },
+  { f:'Admin monitoring', ui:'admin/views/{sales,inventory}_monitoring_page.dart', vm:'admin_mock_data.dart', ep:'GET /reports/*', s:'mock', n:'2 screens, 1 mock source.' },
+  { f:'Admin settings', ui:'admin/views/settings_page.dart', vm:'(static)', ep:'—', s:'mock', n:'Agreed deferral.' },
+  { f:'Sales dashboard (legacy)', ui:'dashboard/views/sales_dashboard.dart', vm:'dashboard_mock_data.dart', ep:'—', s:'dead', n:'Orphan — routes use sales_dashboard_page.dart.' },
+  { f:'POS dashboard (legacy)', ui:'dashboard/views/pos_dashboard.dart', vm:'dashboard_mock_data.dart', ep:'—', s:'dead', n:'Orphan — routes use pos_transaction_page.dart.' },
+  { f:'Requisition token flow', ui:'— no UI', vm:'—', ep:'/tokens/verify/ · /tokens/release/', s:'dead', n:'Full backend flow, zero client consumer.' },
+  { f:'Collectibles CRUD', ui:'— no UI', vm:'—', ep:'/ledgers/ · /ledger-payments/', s:'dead', n:'' },
+  { f:'Goods receipts', ui:'— no UI', vm:'—', ep:'/goods-receipts/', s:'dead', n:'' },
+  { f:'Brands / UOMs / variant-UOMs', ui:'— no UI', vm:'—', ep:'/brands/ · /uoms/ · /variant-uoms/', s:'dead', n:'' },
+  { f:'Payments / receipts', ui:'— no UI', vm:'—', ep:'/payments/ · /receipts/', s:'dead', n:'' },
+  { f:'Project entity', ui:'— no UI', vm:'—', ep:'/projects/', s:'dead', n:'Used by the CPMS integration contract.' }
+];
+
+const FLOW = [
+  { k:'UI', body:'A screen under `features/*/views/` reads its viewmodel via Provider. 31 screens exist; **all but login render hardcoded state**.' },
+  { k:'ViewModel', body:'8 viewmodels. **Only `AuthViewmodel` reaches the network.** The other 7 hold literal lists. `PosTransactionViewmodel` and `ProductsViewmodel` are not even registered in `main.dart`.' },
+  { k:'ApiClient', body:'`core/network/api_client.dart` (148 L) — Dio instance, base URL from `api_config.dart`, JWT in `flutter_secure_storage`, single refresh-on-401 retry. The *only* egress point.' },
+  { k:'Django routing', body:'`config/urls.py` mounts 6 apps under `/api/v1/` plus `/api/health/`: 24 router routes + 4 report paths.' },
+  { k:'ViewSet / Serializer', body:'DRF ModelViewSets with per-role permission classes. The **serializers** define the true field contract — not the docs.' },
+  { k:'services.py', body:'The real logic: `process_sale` (FIFO deduction, payments, receipt, ledger), `approve_requisition` → `verify_token` → `release_materials`. **None of it is exercised by the client today.**' }
+];
+
+const MODELMAP = [
+  { be:'Product', ep:'GET /api/v1/products/', fe:'data/models/product.dart', v:'bad',
+    d:'Frontend expects `sku`, `cost_price`, `selling_price`, `current_stock`, `reorder_level`, `qr_identifier`, `storage_location` — **none of these exist in any backend serializer or model**.' },
+  { be:'ProductVariant', ep:'GET /api/v1/variants/', fe:'data/models/product.dart (flattened)', v:'warn',
+    d:'`variant_name` and `base_uom_code` live on **ProductVariant**, but the frontend reads them off a flattened Product.' },
+  { be:'ProductVariant', ep:'GET /api/v1/variants/', fe:'—', v:'ok',
+    d:'Backend also exposes `selling_uoms`, `min_stock_threshold`, `max_stock_level` — no frontend counterpart.' },
+  { be:'StockAdjustment', ep:'GET /api/v1/adjustments/', fe:'data/models/inventory.dart', v:'ok',
+    d:'**Exact match** — all 7 keys align (`variant, user, adjustment_type, qty_adjusted, remarks, timestamp`). Misleadingly named "inventory"; it is the adjustment shape.' },
+  { be:'InventoryBatch', ep:'GET /api/v1/batches/', fe:'— no model', v:'bad',
+    d:'Backend exposes `initial_qty, current_qty, unit_cost_landed, markup_percentage, batch_selling_price, expiration_date`. No frontend model consumes batches — **the FIFO layer is invisible to the UI**.' },
+  { be:'Customer', ep:'GET /api/v1/customers/', fe:'data/models/sales_module.dart', v:'warn',
+    d:'Backend has `tin_no`, `total_credit_limit`, `customer_type`. Mock customers carry only name / contact / balance.' },
+  { be:'SalesTransaction', ep:'GET /api/v1/transactions/', fe:'data/models/pos_transaction.dart', v:'warn',
+    d:'Backend returns `vatable_sales, vat_amount, discount_amount, grand_total, source, status` plus nested `items/payments/receipt`. Mock data carries a flat subset.' },
+  { be:'CollectibleLedger', ep:'GET /api/v1/ledgers/', fe:'data/models/sales_module.dart', v:'warn',
+    d:'Ledger + payments exist server-side with a payment rollup; the frontend mirrors it as static rows.' }
+];
+
+const DEBT = [
+  { title:'Duplicate / overlapping files', tone:'rose', items:[
+    { k:'dashboard/views/pos_dashboard.dart', v:'⚫ **Orphan.** `routes.dart` now builds `features/pos/views/pos_transaction_page.dart` for `posDashboard`.' },
+    { k:'dashboard/views/sales_dashboard.dart', v:'⚫ **Orphan.** Superseded by `features/sales/views/sales_dashboard_page.dart`.' },
+    { k:'sales_module_viewmodel.dart vs inventory_sales_viewmodel.dart', v:'**Two parallel sales stacks, no shared model.** `models/sales_module.dart` and `models/sales.dart` describe overlapping concepts.' },
+    { k:'3 report screens', v:'`reports/views/inventory_reports_page.dart` · `sales/views/sales_reports_page.dart` · `admin/views/reports_page.dart` — all serving one `/api/v1/reports/*` surface.' },
+    { k:'sales_skeleton_layout.dart (190 L)', v:'Near-clone of `inventory_skeleton_layout.dart` (201 L); the diff is mostly nav labels.' }
+  ]},
+  { title:'Wiring gaps & naming', tone:'amber', items:[
+    { k:'2 unwired viewmodels', v:'`PosTransactionViewmodel` and `ProductsViewmodel` are absent from the `MultiProvider` in `main.dart` — only 6 of 8 are global.' },
+    { k:'Singular vs plural dirs', v:'`features/dashboard/widget/` and `features/auth/widget/` are singular; the other 8 features use `widgets/`.' },
+    { k:'One mock, seven screens', v:'`admin/viewmodels/admin_mock_data.dart` feeds 7 admin pages from a single shared object.' },
+    { k:'Misleading filename', v:'`data/models/inventory.dart` is actually the StockAdjustment shape, not stock/batch.' }
+  ]},
+  { title:'Disconnected endpoints', tone:'sky', items:[
+    { k:'28 of 33 endpoints unreachable', v:'All 24 router routes + 4 report paths are never called by the client. Only the 5 auth routes and `/api/health/` are wired.' },
+    { k:'Lost integration code', v:'Commit `22c7c26` added `flutter/lib/data/services/pos_service.dart` (+ `pos_repository.dart`) calling `/api/v1/products/` and `/api/v1/batches/`. Merge `27a853e` **dropped it**; it is absent at the tip. Recover with `git show 22c7c26 -- flutter/lib/data/services/pos_service.dart`.' }
+  ]},
+  { title:'Critical business logic (no client consumer)', tone:'violet', items:[
+    { k:'apps/pos/services.py:28 process_sale', v:'FIFO stock deduction, payment allocation, official-receipt generation, collectibles posting on underpayment.' },
+    { k:'apps/requisitions/services.py:33 approve_requisition', v:'DRAFT → APPROVED, mints the `MaterialToken` the POS redeems.' },
+    { k:'apps/requisitions/services.py:50 verify_token', v:'Token validation endpoint for the store counter.' },
+    { k:'apps/requisitions/services.py:82 release_materials', v:'Token redemption → FIFO deduct → `SalesTransaction` → ledger.' },
+    { k:'apps/collectibles/models.py', v:'Utang ledger with payment rollup and derived status.' }
+  ]}
+];
+
+const STUDY = [
+  { id:'s1', t:'flutter/lib/main.dart', l:'45 L — whole file', w:'Bootstrap and the `MultiProvider` list. Reveals which 6 viewmodels are global — and by omission, the 2 that are not.', p:'/skill:codebase-xray Walk me through flutter/lib/main.dart line by line: the startup sequence, window_manager setup, and exactly which viewmodels are registered in MultiProvider vs missing.' },
+  { id:'s2', t:'flutter/lib/routes/routes.dart', l:'323 L — L60-90 role map, L140-320 routes', w:'Single source of truth for navigation: 29 routes, the redirect/role map, and the `/inventory/` + `/sales/` guards.', p:'/skill:codebase-xray Walk me through flutter/lib/routes/routes.dart: the redirect/role map, all 29 routes, and how the inventory and sales guards work.' },
+  { id:'s3', t:'flutter/lib/core/network/api_client.dart', l:'148 L — L60-140', w:'The only network layer: Dio setup, JWT persistence, single refresh-on-401 retry. Every live call flows through here.', p:'/skill:codebase-xray Walk me through flutter/lib/core/network/api_client.dart: base URL resolution, token storage, the 401 refresh interceptor, and failure modes.' },
+  { id:'s4', t:'backend_django/config/urls.py', l:'46 L — whole file', w:'The complete API surface in 6 includes: users, inventory, pos, collectibles, requisitions, reports.', p:'/skill:codebase-xray Walk me through backend_django/config/urls.py and map every included app to its feature area and permission model.' },
+  { id:'s5', t:'backend_django/apps/pos/services.py', l:'111 L — L28-111 process_sale', w:'The money path. FIFO deduction across InventoryBatch, payment allocation, receipt generation and ledger posting.', p:'/skill:codebase-xray Walk me through process_sale in backend_django/apps/pos/services.py line by line, especially FIFO batch deduction and the underpayment-to-ledger path.' },
+  { id:'s6', t:'backend_django/apps/requisitions/services.py', l:'169 L — L33-169', w:'Full token lifecycle: approve → mint MaterialToken → verify → release. This is the contract the CPMS repo integrates against.', p:'/skill:codebase-xray Walk me through backend_django/apps/requisitions/services.py: approve_requisition, verify_token and release_materials, and what the CPMS integration must match.' },
+  { id:'s7', t:'backend_django/apps/inventory/models.py', l:'321 L — L73-140, L244-300', w:'The 14-model catalogue. Product/Variant/VariantUOM is the pricing and UOM core; InventoryBatch is what FIFO walks.', p:'/skill:codebase-xray Walk me through backend_django/apps/inventory/models.py: the Product/Variant/VariantUOM structure and how InventoryBatch supports FIFO costing.' },
+  { id:'s8', t:'flutter/lib/features/sales/viewmodels/sales_module_viewmodel.dart', l:'129 L — L1-40', w:'Canonical mock-data viewmodel — the exact pattern to replace during backend integration.', p:'/skill:codebase-xray Walk me through sales_module_viewmodel.dart and show me precisely what would change to replace the hardcoded lists with real API calls through ApiClient.' }
+];
+
+/* ============================ RENDER ============================ */
+const BADGE = {
+  live:   ['🟢 Live',    'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'],
+  partial:['🟡 Partial', 'bg-amber-500/15 text-amber-300 border-amber-500/30'],
+  mock:   ['🔴 Mock',    'bg-rose-500/15 text-rose-300 border-rose-500/30'],
+  dead:   ['⚫ Dead',    'bg-slate-500/15 text-slate-400 border-slate-500/30']
+};
+
+/* KPI pill counts */
+['all','live','partial','mock','dead'].forEach(k=>{
+  const n = document.querySelector('#c-' + k);
+  if (n) n.textContent = k === 'all' ? MATRIX.length : MATRIX.filter(r => r.s === k).length;
+});
+
+/* --- Tab 1: flow cards --- */
+const flowWrap = document.querySelector('#flow');
+const flowOut  = document.querySelector('#flowout');
+setMd(flowOut, 'Select a stage above to trace it.');
+FLOW.forEach((f, i) => {
+  const b = el('button', 'card rounded-xl p-4 text-left hover:border-sky-500/60 transition', [
+    el('div', 'text-xs text-slate-500', ['stage ' + (i + 1)]),
+    el('div', 'font-semibold text-white', [f.k])
+  ]);
+  b.addEventListener('click', () => {
+    flowOut.replaceChildren(
+      el('div', 'text-sky-300 font-semibold mb-1', [f.k]),
+      el('div', null, [md(f.body)])
+    );
+  });
+  flowWrap.append(b);
+});
+
+/* --- Tab 2: model map --- */
+const V_LINE = { ok:'border-l-emerald-500', warn:'border-l-amber-500', bad:'border-l-rose-500' };
+const mmBody = document.querySelector('#modelmap');
+MODELMAP.forEach(m => {
+  const tr = el('tr', 'border-l-4 ' + V_LINE[m.v]);
+  tr.append(el('td', 'px-4 py-3 mdcode', [m.be]));
+  tr.append(el('td', 'px-4 py-3 font-mono text-xs text-slate-400', [m.ep]));
+  tr.append(el('td', 'px-4 py-3 font-mono text-xs text-violet-200', [m.fe]));
+  tr.append(el('td', 'px-4 py-3 text-slate-400', [md(m.d)]));
+  mmBody.append(tr);
+});
+
+/* --- Tab 3: truth matrix --- */
+let filter = 'all', query = '';
+const mxBody = document.querySelector('#matrix');
+const emptyEl = document.querySelector('#empty');
+function renderMatrix(){
+  const q = query.toLowerCase();
+  const rows = MATRIX.filter(r =>
+    (filter === 'all' || r.s === filter) &&
+    (!q || (r.f + r.ui + r.vm + r.ep + r.n).toLowerCase().includes(q))
+  );
+  mxBody.replaceChildren();
+  rows.forEach(r => {
+    const tr = el('tr');
+    tr.append(el('td', 'px-4 py-3 font-medium text-slate-100', [r.f]));
+    tr.append(el('td', 'px-4 py-3 font-mono text-xs text-violet-200', [r.ui]));
+    tr.append(el('td', 'px-4 py-3 font-mono text-xs text-slate-400', [r.vm]));
+    tr.append(el('td', 'px-4 py-3 font-mono text-xs text-sky-200', [r.ep]));
+    tr.append(el('td', 'px-4 py-3', [
+      el('span', 'px-2 py-1 rounded border text-xs whitespace-nowrap ' + BADGE[r.s][1], [BADGE[r.s][0]])
+    ]));
+    tr.append(el('td', 'px-4 py-3 text-xs text-slate-400', [r.n]));
+    mxBody.append(tr);
+  });
+  emptyEl.classList.toggle('hidden', rows.length > 0);
+}
+document.querySelectorAll('[data-filter]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    filter = btn.dataset.filter;
+    document.querySelectorAll('[data-filter]').forEach(x => x.classList.toggle('on', x === btn));
+    renderMatrix();
+  });
+});
+document.querySelector('#q').addEventListener('input', e => { query = e.target.value; renderMatrix(); });
+renderMatrix();
+
+/* --- Tab 4: debt cards --- */
+const TONE = { rose:'border-l-rose-500', amber:'border-l-amber-500', sky:'border-l-sky-500', violet:'border-l-violet-500' };
+const TONE_TEXT = { rose:'text-rose-300', amber:'text-amber-300', sky:'text-sky-300', violet:'text-violet-300' };
+const debtWrap = document.querySelector('#debt');
+DEBT.forEach(g => {
+  const card = el('div', 'card rounded-xl p-5 border-l-4 ' + TONE[g.tone]);
+  card.append(el('h3', 'font-semibold mb-3 ' + TONE_TEXT[g.tone], [g.title]));
+  const box = el('div', 'space-y-3');
+  g.items.forEach(i => {
+    const row = el('div', 'grid md:grid-cols-[minmax(0,18rem)_1fr] gap-1 md:gap-4 text-sm');
+    row.append(el('div', 'font-mono text-xs text-slate-300 break-words', [i.k]));
+    row.append(el('div', 'text-slate-400', [md(i.v)]));
+    box.append(row);
+  });
+  card.append(box);
+  debtWrap.append(card);
+});
+
+/* --- Tab 5: study path + localStorage --- */
+const KEY = 'atlas.study.v1';
+let done = {};
+try { done = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { done = {}; }
+const studyWrap = document.querySelector('#study');
+const progEl = document.querySelector('#prog');
+const barEl  = document.querySelector('#bar');
+
+function refreshProgress(){
+  const n = STUDY.filter(s => done[s.id]).length;
+  progEl.textContent = n;
+  barEl.style.width = (n / STUDY.length * 100) + '%';
+}
+function renderStudy(){
+  studyWrap.replaceChildren();
+  STUDY.forEach((s, i) => {
+    const box = el('input');
+    box.type = 'checkbox';
+    box.className = 'mt-1 shrink-0';
+    box.checked = !!done[s.id];
+    box.addEventListener('change', () => {
+      done[s.id] = box.checked;
+      try { localStorage.setItem(KEY, JSON.stringify(done)); } catch (e) {}
+      wrap.classList.toggle('done', box.checked);
+      refreshProgress();
+    });
+
+    const meta = el('div', 'flex flex-wrap items-center gap-2', [
+      el('span', 'text-xs text-slate-500', ['#' + (i + 1)]),
+      el('span', 'stitle mdcode', [s.t]),
+      el('span', 'text-xs text-slate-500', [s.l])
+    ]);
+    const btn = el('button', 'copybtn mt-3 px-3 py-1.5 rounded-lg text-xs border border-slate-600 text-slate-300 hover:bg-slate-700/50 transition');
+    btn.textContent = 'Copy /skill:codebase-xray prompt';
+    btn.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(s.p); }
+      catch (err) {
+        const ta = el('textarea');
+        ta.value = s.p;
+        ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.append(ta); ta.select();
+        try { document.execCommand('copy'); } catch (e2) {}
+        document.body.removeChild(ta);
+      }
+      btn.classList.add('done');
+      btn.textContent = '✓ Prompt copied';
+      setTimeout(() => { btn.classList.remove('done'); btn.textContent = 'Copy /skill:codebase-xray prompt'; }, 1800);
+    });
+
+    const inner = el('div', 'min-w-0 flex-1', [meta, el('p', 'text-sm text-slate-400 mt-2', [md(s.w)]), btn]);
+    const wrap = el('div', 'study card rounded-xl p-5' + (done[s.id] ? ' done' : ''), [
+      el('div', 'flex gap-4', [box, inner])
+    ]);
+    studyWrap.append(wrap);
+  });
+  refreshProgress();
+}
+renderStudy();
+document.querySelector('#reset').addEventListener('click', () => {
+  done = {};
+  try { localStorage.setItem(KEY, '{}'); } catch (e) {}
+  renderStudy();
+});
+
+/* ======================= TABS + MERMAID ======================= */
+mermaid.initialize({
+  startOnLoad: false, theme: 'dark',
+  themeVariables: { darkMode:true, background:'#1e293b', primaryColor:'#1e293b',
+    primaryTextColor:'#e2e8f0', primaryBorderColor:'#38bdf8', lineColor:'#64748b',
+    secondaryColor:'#334155', tertiaryColor:'#0f172a', fontSize:'13px' },
+  er: { useMaxWidth:true }, flowchart: { useMaxWidth:true, curve:'basis' }
+});
+
+async function paintMermaid(){
+  /* Render ONLY the active panel's diagrams. Mermaid cannot render into a
+     display:none container — it emits a "Syntax error in text" error SVG.
+     It skips nodes already marked data-processed, so re-activating is a no-op. */
+  const panel = document.querySelector('[data-panel]:not(.hidden)');
+  if (!panel) return;
+  const nodes = [...panel.querySelectorAll('pre.mermaid')];
+  if (!nodes.length) return;
+  try { await mermaid.run({ nodes }); }
+  catch (e) { console.error('mermaid render issue', e); }
+}
+function activate(name){
+  document.querySelectorAll('[data-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== name));
+  document.querySelectorAll('.tabbtn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  paintMermaid();   /* lazy: mermaid skips nodes already processed */
+}
+document.querySelectorAll('.tabbtn').forEach(b => b.addEventListener('click', () => activate(b.dataset.tab)));
+activate('architecture');
+</script>
+</body>
+</html>
