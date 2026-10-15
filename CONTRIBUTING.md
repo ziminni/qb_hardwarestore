@@ -194,10 +194,13 @@ Before committing Flutter work:
 cd flutter
 dart format lib
 flutter analyze
-flutter build macos --debug
+flutter build linux --debug     # Linux / WSL
+# flutter build macos --debug   # macOS
+# flutter build windows --debug # native Windows
 ```
 
-On Windows, replace the last command with the appropriate Windows build.
+Build for **your own** platform. The team develops on macOS, native Windows and WSL/Linux, so any one of
+these is enough evidence that the work compiles — the point is that it builds somewhere.
 
 ## 8. Django structure rules
 
@@ -227,40 +230,26 @@ require a development database reset.
 
 ## 9. Starting the project
 
-Start Docker Desktop first. From the repository root:
+Quickstart, ports, device targets and demo accounts live in [`README.md`](README.md) — set the project up
+there instead of duplicating the commands here.
 
-```bash
-docker compose up -d
-docker compose ps
-```
+Starting Docker differs by platform. On macOS and Windows that means launching **Docker Desktop**; on Linux
+and WSL the daemon runs as a service (`sudo systemctl start docker`).
 
-If dependencies or the Docker image changed:
-
-```bash
-docker compose up -d --build
-```
-
-Run Flutter in another terminal:
+Choose the Flutter device for your own platform:
 
 ```bash
 cd flutter
-flutter run -d macos
+flutter run -d linux    # Linux / WSL
+# flutter run -d macos  # macOS
+# flutter run -d windows
 ```
 
-Stop the containers without deleting data:
+Two rules matter for collaboration:
 
-```bash
-docker compose down
-```
-
-Do not run the following during normal development:
-
-```bash
-docker compose down -v
-```
-
-The `-v` option deletes the PostgreSQL volume, including local users and all
-other local application data.
+- Start a task branch from an up-to-date `master` (§3), never from a teammate's feature branch.
+- `docker compose down` is safe — it stops the containers and keeps your data. **Never add `-v`**: that
+  deletes the PostgreSQL volume, which holds every contributor's local users and application data.
 
 ## 10. Secrets and local data
 

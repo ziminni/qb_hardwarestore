@@ -7,8 +7,8 @@ This document maps every **frontend feature** (`flutter/lib/features/`) to the *
 ## 1. Base URL & Authentication
 
 | Item | Value |
-|---|---|
-| Base URL (dev) | `http://10.0.2.2:8000` (Android emulator) / `http://127.0.0.1:8000` (web/desktop) — see `API_CONNECTION_SETUP.md` |
+| --- | --- |
+| Base URL (dev) | `http://10.0.2.2:8000` (Android emulator) / `http://127.0.0.1:8000` (web/desktop) — see `README.md` |
 | API prefix | `/api/v1/` |
 | Auth scheme | JWT Bearer (`rest_framework_simplejwt`) |
 | Header | `Authorization: Bearer <access_token>` |
@@ -17,8 +17,8 @@ This document maps every **frontend feature** (`flutter/lib/features/`) to the *
 ### API conventions (agreed — do not break)
 
 | Topic | Convention |
-|---|---|
-| Pagination | **None for now** — list endpoints return full arrays (capstone-scale data). If data grows, migrate to DRF `?page=` before frontend relies on raw lists. |
+| --- | --- |
+| Pagination | **Enabled** — DRF `PageNumberPagination` with `PAGE_SIZE = 50` (`config/settings.py`). Every list response is an envelope: `{ "count", "next", "previous", "results" }`. Read `results`, and page with `?page=N`. |
 | Error format | DRF default: `{"detail": "..."}` for auth/permission errors; `{"field": ["msg"]}` for validation errors. Frontend should read `detail` or the first field error. |
 | 401 handling | Frontend retries once via `POST /auth/refresh/`; if that fails → logout to `/login`. |
 | Null safety | Every account is created **with a role** (`group_name` required at registration), so `role` in user payloads is never `null`. |
@@ -29,7 +29,7 @@ This document maps every **frontend feature** (`flutter/lib/features/`) to the *
 ## 2. Frontend Feature → Backend App (the big picture)
 
 | Flutter feature folder | Backend app that serves it | Key endpoints |
-|---|---|---|
+| --- | --- | --- |
 | `features/auth` | `apps/users` | `/api/v1/auth/*` |
 | `features/admin` | `apps/users` | `/api/v1/users/*`, `/api/v1/audit-logs/*` |
 | `features/categories` | `apps/inventory` | `/api/v1/categories/*`, `/api/v1/brands/*`, `/api/v1/uoms/*` |
@@ -52,16 +52,16 @@ This document maps every **frontend feature** (`flutter/lib/features/`) to the *
 ### 3.1 Health — `config/urls.py`
 
 | Method | Path | Purpose | Auth |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | GET | `/api/health/` | Connectivity check for Flutter | Public |
 
 ### 3.2 `apps/users` — auth, admin, audit
 
 | Method | Path | Purpose | Auth |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | POST | `/api/v1/auth/login/` | Login (username or email + password) → JWT pair | Public |
 | POST | `/api/v1/auth/refresh/` | Refresh access token | Public (refresh token in body) |
-| POST | `/api/v1/auth/register/` | Create account — **`group_name` is required** (roles: Admin, Stock Manager, Cashier, Store Manager); guarantees every account has a non-null `role` | Admin |
+| POST | `/api/v1/auth/register/` | Create account — **`group_name` is required**, one of the six roles in `apps/users/permissions.py`: `Admin`, `System Administrator`, `Store Manager`, `Stock Manager`, `Cashier`, `Site Foreman` (`seed_demo` creates five, omitting `Admin`); guarantees every account has a non-null `role` | Admin |
 | POST | `/api/v1/auth/logout/` | Logout (blacklists refresh token, writes audit log) | Authenticated |
 | GET | `/api/v1/auth/me/` | Current user profile + roles | Authenticated |
 | GET/POST/PATCH/DELETE | `/api/v1/users/` | User CRUD (admin). Query param: `?search=<term>` matches **username**, full name, or email | Admin |
@@ -75,7 +75,7 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 ### 3.3 `apps/inventory` — products, catalog, purchasing, stock
 
 | Method | Path | Purpose | Auth |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | GET/POST/PATCH/DELETE | `/api/v1/categories/` | Category CRUD | Authenticated |
 | GET/POST/PATCH/DELETE | `/api/v1/brands/` | Brand CRUD | Authenticated |
 | GET/POST/PATCH/DELETE | `/api/v1/uoms/` | Unit-of-measure CRUD | Authenticated |
@@ -94,7 +94,7 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 ### 3.4 `apps/pos` — checkout, customers, sales, receipts
 
 | Method | Path | Purpose | Auth |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | GET/POST/PATCH/DELETE | `/api/v1/customers/` | Customer CRUD (walk-in, regular, contractor) | Authenticated |
 | POST | `/api/v1/transactions/` | **Checkout** — body: `{customer, source, items[], payments[]}`; runs `process_sale` (FIFO stock deduction, payment allocation, OR generation, collectibles posting if underpaid) | Authenticated |
 | GET | `/api/v1/transactions/` | Sales history (with items, payments, receipt) | Authenticated |
@@ -105,7 +105,7 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 ### 3.5 `apps/collectibles` — utang / accounts receivable
 
 | Method | Path | Purpose | Auth |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | GET | `/api/v1/ledgers/` | Outstanding receivable entries (+ nested payments) | Authenticated |
 | GET | `/api/v1/ledgers/aging/` | **Aging report** — overdue/open balances grouped by customer | Authenticated |
 | POST/PATCH/DELETE | `/api/v1/ledgers/` | Ledger write operations | Admin (`IsAdminOrReadOnly`) |
@@ -116,7 +116,7 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 ### 3.6 `apps/requisitions` — projects, material requests, tokens
 
 | Method | Path | Purpose | Auth |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | GET/POST/PATCH/DELETE | `/api/v1/projects/` | Construction project CRUD | Authenticated |
 | GET/POST/PATCH/DELETE | `/api/v1/requisitions/` | Requisition CRUD (auto `req_number`, `requested_by` = current user) | Authenticated |
 | POST | `/api/v1/requisitions/{id}/submit/` | DRAFT → SUBMITTED | Authenticated |
@@ -132,7 +132,7 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 ## 4. Typical Frontend Flows (which endpoints to call, in order)
 
 | Flow | Endpoint sequence |
-|---|---|
+| --- | --- |
 | Login | `POST /auth/login/` → store tokens → `GET /auth/me/` → route to role dashboard |
 | Product catalog page | `GET /products/` (+ `GET /categories/`, `GET /brands/` for filters) |
 | Receiving stock | `POST /purchase-orders/` → `POST /goods-receipts/` → `POST /goods-receipts/{id}/process/` |
@@ -144,7 +144,7 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 ## 4b. Reports Endpoints (`/api/v1/reports/` — Store Manager / Admin only)
 
 | Method | Endpoint | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | GET | `/api/v1/reports/sales-summary/?from=YYYY-MM-DD&to=YYYY-MM-DD` | Daily sales totals (count, gross, VAT, discounts) + range totals. Defaults to last 30 days. |
 | GET | `/api/v1/reports/inventory-valuation/` | Stock value at cost & retail, grouped by category + grand totals. |
 | GET | `/api/v1/reports/stock-movements/?from=&to=` | Stock IN (goods receipts/day) vs OUT (adjustments by type). |
@@ -157,7 +157,7 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 2. ~~**Role-level permissions not yet enforced per endpoint**~~ — **FIXED**: role permissions enforced via `apps/users/permissions.py`. Matrix:
 
    | Endpoint group | Write access | Read access |
-   |---|---|---|
+   | --- | --- | --- |
    | Auth (`login/`, `verify/`, `refresh/`) | Public / Authenticated | — |
    | Users CRUD, roles, audit logs, register | Django staff (`IsAdminUser`) | Django staff |
    | Inventory catalog & stock (products, categories, brands, UOMs, suppliers, POs, goods receipts + `process`, stock adjustments) | Stock Manager / Store Manager / Admin | Any authenticated |
@@ -173,6 +173,6 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
    | Token `release` | Cashier / Store Manager / Admin | — |
 
    Superusers bypass all role checks. Frontend role route guards (`/admin/*` etc.) are now backed by matching API enforcement.
-3. **`tests.py` are still empty stubs** across all apps.
+3. ~~**`tests.py` are still empty stubs**~~ — **FIXED**: 546 lines of real tests across all 5 apps (`users` 140, `requisitions` 128, `inventory` 121, `pos` 95, `collectibles` 62). Run with `docker compose exec backend python manage.py test`.
 4. ~~No dedicated `reports` aggregation endpoints yet~~ — **FIXED**: new read-only `apps/reports` (§4b) with `sales-summary`, `inventory-valuation`, `stock-movements`, `requisition-history`; `daily_report` now accepts `?date=`.
 
