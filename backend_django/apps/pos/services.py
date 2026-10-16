@@ -4,6 +4,8 @@ from decimal import Decimal
 from django.db import transaction
 from apps.collectibles.models import CollectibleLedger
 from apps.inventory.services import allocate_fifo
+
+from .exceptions import WalkInCannotOwe
 from .models import Customer, SalesTransaction, SalesItem, Payment, OfficialReceipt
 
 
@@ -98,8 +100,20 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
         )
 
         # Underpaid sale -> post the shortfall to Collectibles (utang).
+        #
+        # Decision 14: only a NAMED customer may owe. The seeded Walk-in Customer is a
+        # placeholder, so a balance against it is money owed by nobody - it inflates
+        # receivables, makes the aging report a fiction, and hides the real signal that
+        # the till came up short. Raising here rather than validating up front is
+        # deliberate: the shortfall is only known after the items are totalled, and the
+        # enclosing `transaction.atomic()` rolls the sale back wholesale, so a refused
+        # walk-in leaves no transaction, no ledger and no moved stock.
         shortfall = grand_total - total_paid
         if shortfall > 0 and customer_id:
+            customer = Customer.objects.only('customer_type', 'name').get(
+                pk=customer_id)
+            if customer.customer_type == Customer.Type.WALK_IN:
+                raise WalkInCannotOwe(shortfall, customer.name)
             CollectibleLedger.objects.create(
                 customer_id=customer_id,
                 transaction=txn,

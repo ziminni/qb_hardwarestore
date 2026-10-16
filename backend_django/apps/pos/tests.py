@@ -24,6 +24,7 @@ from apps.inventory.services import process_goods_receipt
 
 from .models import Customer, OfficialReceipt, Payment, SalesTransaction
 from .services import process_sale
+from .exceptions import WalkInCannotOwe
 
 User = get_user_model()
 
@@ -82,19 +83,77 @@ class ProcessSaleTests(POSTestBase):
             'current_qty', flat=True))
         self.assertEqual(qtys, [Decimal('0'), Decimal('3')])
 
-    def test_underpaid_walk_in_posts_to_collectibles(self):
+    def test_underpaid_walk_in_sale_is_refused(self):
+        # Decision 14: a walk-in is NOT a customer record, so a balance on the shared
+        # Walk-in account is money owed by nobody - the live database already carries
+        # 4,900.00 booked exactly that way, and the aging report calls it overdue.
+        #
+        # This test REPLACES `test_underpaid_walk_in_posts_to_collectibles`, which pinned
+        # the opposite behaviour. That test passed for as long as nothing ever consulted
+        # the customer's type, which is the point: the rule has teeth only when the SERVER
+        # enforces it, since a client-side check is advisory and this one is about money.
+        with self.assertRaises(WalkInCannotOwe) as caught:
+            process_sale(
+                customer_id=self.customer.id,  # the fixture is WALK_IN by default
+                cashier=self.cashier,
+                items_data=[{'variant_id': self.vuom.id, 'qty': 10,
+                             'unit_price': Decimal('10')}],
+                payments_data=[{'method': 'CASH',
+                                'amount_tendered': Decimal('60')}],  # 40 short
+            )
+        self.assertEqual(caught.exception.code, 'WALK_IN_CANNOT_OWE')
+        self.assertEqual(caught.exception.shortfall, Decimal('40'))
+
+    def test_a_refused_walk_in_sale_leaves_nothing_behind(self):
+        # The refusal must roll back WHOLESALE, exactly like a short-stock rejection: no
+        # transaction, no ledger, and the stock untouched. A half-written sale would be
+        # worse than accepting it, because the utang is the thing we are refusing.
+        with self.assertRaises(WalkInCannotOwe):
+            process_sale(
+                customer_id=self.customer.id,
+                cashier=self.cashier,
+                items_data=[{'variant_id': self.vuom.id, 'qty': 10,
+                             'unit_price': Decimal('10')}],
+                payments_data=[{'method': 'CASH',
+                                'amount_tendered': Decimal('60')}],
+            )
+        self.assertFalse(SalesTransaction.objects.exists())
+        self.assertFalse(CollectibleLedger.objects.exists())
+        self.assertEqual(
+            sorted(self.variant.batches.values_list('current_qty', flat=True)),
+            [Decimal('5'), Decimal('5')])
+
+    def test_an_underpaid_named_customer_still_posts_to_collectibles(self):
+        # The rule is about ANONYMITY, not about underpayment. A named customer owing
+        # money is the entire purpose of the utang, so this must keep working.
+        named = Customer.objects.create(
+            name='Maria Santos', customer_type=Customer.Type.REGULAR)
         txn = process_sale(
-            customer_id=self.customer.id,
+            customer_id=named.id,
             cashier=self.cashier,
             items_data=[{'variant_id': self.vuom.id, 'qty': 10,
                          'unit_price': Decimal('10')}],
             payments_data=[{'method': 'CASH',
-                            'amount_tendered': Decimal('60')}],  # 40 short
+                            'amount_tendered': Decimal('60')}],
         )
         self.assertEqual(txn.grand_total, Decimal('100'))
         ledger = CollectibleLedger.objects.get(transaction=txn)
         self.assertEqual(ledger.balance_due, Decimal('40'))
-        self.assertEqual(ledger.status, CollectibleLedger.Status.OPEN)
+        self.assertEqual(ledger.customer, named)
+
+    def test_a_fully_paid_walk_in_sale_still_succeeds(self):
+        # The guard must not touch the ordinary anonymous sale, which is most of them.
+        txn = process_sale(
+            customer_id=self.customer.id,
+            cashier=self.cashier,
+            items_data=[{'variant_id': self.vuom.id, 'qty': 2,
+                         'unit_price': Decimal('10')}],
+            payments_data=[{'method': 'CASH',
+                            'amount_tendered': Decimal('20')}],
+        )
+        self.assertEqual(txn.grand_total, Decimal('20'))
+        self.assertFalse(
+            CollectibleLedger.objects.filter(transaction=txn).exists())
 
     def test_fully_paid_sale_creates_no_ledger(self):
         txn = process_sale(
@@ -162,6 +221,40 @@ class CheckoutApiTests(POSTestBase):
             TRANSACTIONS_URL, data=self._payload(qty),
             content_type='application/json',
             **self.auth)  # pyright: ignore[reportArgumentType]
+
+    def _post_paying(self, qty, amount, customer_id=None):
+        """Post with a chosen payment amount, and optionally a chosen customer.
+
+        `_payload` hardcodes 100.00, which within the fixture's 10-unit stock can only
+        overpay - so an underpaid sale cannot be built from it.
+        """
+        payload = self._payload(qty)
+        payload['payments'] = [{'method': 'CASH', 'amount_tendered': amount}]
+        if customer_id is not None:
+            payload['customer'] = customer_id
+        return self.client.post(
+            TRANSACTIONS_URL, data=payload,
+            content_type='application/json',
+            **self.auth)  # pyright: ignore[reportArgumentType]
+
+    def test_an_underpaid_walk_in_sale_is_a_400_with_a_code(self):
+        # Decision 14's rule, seen from the client's side: a stable code it can branch on,
+        # not a 500 and not a silently-created debt.
+        response = self._post_paying(10, '60.00')  # 100 total, 40 short
+        self.assertEqual(response.status_code, 400)
+        body = response.json()
+        self.assertEqual(body['code'], 'WALK_IN_CANNOT_OWE')
+        self.assertEqual(body['shortfall'], '40.00')
+        self.assertFalse(SalesTransaction.objects.exists(),
+                         'the refused sale must not be recorded')
+
+    def test_an_underpaid_named_customer_sale_still_returns_201(self):
+        named = Customer.objects.create(
+            name='Maria Santos', customer_type=Customer.Type.REGULAR)
+        response = self._post_paying(10, '60.00', customer_id=named.id)
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(
+            CollectibleLedger.objects.filter(customer=named).exists())
 
     def test_insufficient_stock_is_a_400_with_a_stable_code(self):
         # 10 on hand; ask for 11.
