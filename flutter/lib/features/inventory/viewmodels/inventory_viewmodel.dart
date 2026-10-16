@@ -36,6 +36,7 @@ class InventoryViewmodel extends ChangeNotifier {
 
   bool _isLoading = false;
   String? _loadError;
+  bool _hasLoaded = false;
 
   /// Where stock actually lives (decision 02). Every quantity question is
   /// answered from here, never from a field on the variant.
@@ -57,6 +58,17 @@ class InventoryViewmodel extends ChangeNotifier {
   /// Why the last load failed, or null. Outranks the empty state in
   /// [AsyncView], so a failed fetch is never reported as "no products".
   String? get loadError => _loadError;
+
+  /// Whether a load attempt has finished — successfully or not.
+  ///
+  /// The screen needs this to tell "not fetched yet" from "fetched and empty",
+  /// because until the first attempt completes the lists still hold the MOCK
+  /// catalogue. Without it the products page renders 12 mock products for a frame
+  /// before the API's 6 arrive: a visible flash of data that is not real.
+  ///
+  /// A FAILED attempt also counts, so the page shows the retryable error instead
+  /// of spinning forever.
+  bool get hasLoaded => _hasLoaded;
 
   /// Replaces the catalogue and its stock with live API data (decision 12).
   ///
@@ -89,6 +101,7 @@ class InventoryViewmodel extends ChangeNotifier {
       _loadError = error.message;
     } finally {
       _isLoading = false;
+      _hasLoaded = true;
       notifyListeners();
     }
   }

@@ -78,7 +78,8 @@ ProductsSnapshot _apiSnapshot() => ProductsSnapshot(
 
 class _FakeProductsRepository extends ProductsRepository {
   _FakeProductsRepository({this.snapshot})
-    : error = null, super(ProductsService());
+    : error = null,
+      super(ProductsService());
 
   ProductsSnapshot? snapshot;
   ProductsServiceException? error;
@@ -140,7 +141,11 @@ void main() {
 
     final pending = store.load();
 
-    expect(store.isLoading, isTrue, reason: 'AsyncView must be able to show it');
+    expect(
+      store.isLoading,
+      isTrue,
+      reason: 'AsyncView must be able to show it',
+    );
     expect(notifications, greaterThan(0));
 
     gate.complete();
@@ -164,10 +169,7 @@ void main() {
     // cannot act on, and half-filling it would invent a catalogue. Compared
     // against the captured baseline rather than a count, because the property is
     // "unchanged", not "a particular size".
-    expect(
-      store.products.map((product) => product.baseName).toList(),
-      before,
-    );
+    expect(store.products.map((product) => product.baseName).toList(), before);
   });
 
   test('a failed load can be retried and then succeeds', () async {
@@ -193,5 +195,30 @@ void main() {
     await store.load();
 
     expect(store.movements, hasLength(movementsBefore));
+  });
+
+  test('hasLoaded is false until an attempt has finished', () async {
+    // The screen needs to tell "not fetched yet" from "fetched and empty".
+    // Without it the page renders the 12 mock products for one frame before the
+    // API's 6 arrive — a visible flash of data that is not real.
+    final store = InventoryViewmodel(products: products);
+
+    expect(store.hasLoaded, isFalse);
+
+    await store.load();
+
+    expect(store.hasLoaded, isTrue);
+  });
+
+  test('a FAILED attempt still counts as loaded, so the error shows', () async {
+    // If a failure left hasLoaded false the page would sit on a spinner forever
+    // instead of offering the retry it can actually perform.
+    final store = InventoryViewmodel(products: products);
+    products.error = const ProductsServiceException('Cannot connect.');
+
+    await store.load();
+
+    expect(store.hasLoaded, isTrue);
+    expect(store.loadError, 'Cannot connect.');
   });
 }

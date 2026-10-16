@@ -44,23 +44,28 @@ Map<String, dynamic> _variant({int id = 8, String price = '315.00'}) => {
   'updated_at': '2026-09-25T16:24:33.630104+08:00',
 };
 
-Map<String, dynamic> _product({int id = 6, List<Map<String, dynamic>>? variants}) =>
-    {
-      'id': id,
-      'category': 1,
-      'category_name': 'Electrical',
-      'brand': 1,
-      'brand_name': 'Omni',
-      'base_name': 'Circuit Breaker',
-      'description': '',
-      'image_url': '',
-      'is_active': true,
-      'variants': variants ?? [_variant()],
-      'created_at': '2026-09-25T16:24:33.630104+08:00',
-      'updated_at': '2026-09-25T16:24:33.630104+08:00',
-    };
+Map<String, dynamic> _product({
+  int id = 6,
+  List<Map<String, dynamic>>? variants,
+}) => {
+  'id': id,
+  'category': 1,
+  'category_name': 'Electrical',
+  'brand': 1,
+  'brand_name': 'Omni',
+  'base_name': 'Circuit Breaker',
+  'description': '',
+  'image_url': '',
+  'is_active': true,
+  'variants': variants ?? [_variant()],
+  'created_at': '2026-09-25T16:24:33.630104+08:00',
+  'updated_at': '2026-09-25T16:24:33.630104+08:00',
+};
 
-Map<String, dynamic> _batch({int variantId = 8, String currentQty = '100.00'}) => {
+Map<String, dynamic> _batch({
+  int variantId = 8,
+  String currentQty = '100.00',
+}) => {
   'id': 6,
   'variant': variantId,
   'receipt': 6,
@@ -98,14 +103,20 @@ class _PathFakeAdapter implements HttpClientAdapter {
   ) async {
     requested.add(options.path);
     if (!bodies.containsKey(options.path)) {
-      return ResponseBody.fromString('{"detail":"not found"}', 404, headers: {
-        Headers.contentTypeHeader: [Headers.jsonContentType],
-      });
+      return ResponseBody.fromString(
+        '{"detail":"not found"}',
+        404,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
     }
     return ResponseBody.fromString(
       jsonEncode(bodies[options.path]),
       statusCode,
-      headers: {Headers.contentTypeHeader: [Headers.jsonContentType]},
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
     );
   }
 
@@ -145,7 +156,13 @@ void main() {
       // the catalogue's price and barcode come from them (decisions 08 and 10).
       expect(snapshot.products.single.variants, hasLength(1));
       expect(
-        snapshot.products.single.variants.single.sellingUoms.single
+        snapshot
+            .products
+            .single
+            .variants
+            .single
+            .sellingUoms
+            .single
             .defaultSellingPrice,
         315.0,
       );
@@ -157,38 +174,44 @@ void main() {
       expect(adapter.requested, containsAll([_productsPath, _batchesPath]));
     });
 
-    test('uses parsePaged, so a body with no results list fails loudly', () async {
-      // This is the anti-regression test for decision 03. The lost PosService
-      // read `data['results']` by hand, which turns a contract break into a
-      // silently EMPTY catalogue. `parsePaged` throws instead, and that is the
-      // behaviour worth protecting.
-      useBodies({
-        _productsPath: {'count': 1, 'next': null, 'previous': null},
-        _batchesPath: _envelope([_batch()]),
-      });
+    test(
+      'uses parsePaged, so a body with no results list fails loudly',
+      () async {
+        // This is the anti-regression test for decision 03. The lost PosService
+        // read `data['results']` by hand, which turns a contract break into a
+        // silently EMPTY catalogue. `parsePaged` throws instead, and that is the
+        // behaviour worth protecting.
+        useBodies({
+          _productsPath: {'count': 1, 'next': null, 'previous': null},
+          _batchesPath: _envelope([_batch()]),
+        });
 
-      await expectLater(
-        service().fetchCatalogue(),
-        throwsA(isA<FormatException>()),
-      );
-    });
+        await expectLater(
+          service().fetchCatalogue(),
+          throwsA(isA<FormatException>()),
+        );
+      },
+    );
 
-    test('rejects a count that is not numeric rather than guessing it', () async {
-      useBodies({
-        _productsPath: {
-          'count': 'six',
-          'next': null,
-          'previous': null,
-          'results': [_product()],
-        },
-        _batchesPath: _envelope([_batch()]),
-      });
+    test(
+      'rejects a count that is not numeric rather than guessing it',
+      () async {
+        useBodies({
+          _productsPath: {
+            'count': 'six',
+            'next': null,
+            'previous': null,
+            'results': [_product()],
+          },
+          _batchesPath: _envelope([_batch()]),
+        });
 
-      await expectLater(
-        service().fetchCatalogue(),
-        throwsA(isA<FormatException>()),
-      );
-    });
+        await expectLater(
+          service().fetchCatalogue(),
+          throwsA(isA<FormatException>()),
+        );
+      },
+    );
 
     test('reports a failed request as ProductsServiceException', () async {
       useBodies({}, statusCode: 500);

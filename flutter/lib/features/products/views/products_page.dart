@@ -1,5 +1,6 @@
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
+import 'package:client/core/widgets/async_view.dart';
 import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/features/products/viewmodels/products_viewmodel.dart';
@@ -17,8 +18,29 @@ import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-class ProductsPage extends StatelessWidget {
+class ProductsPage extends StatefulWidget {
   const ProductsPage({super.key});
+
+  @override
+  State<ProductsPage> createState() => _ProductsPageState();
+}
+
+class _ProductsPageState extends State<ProductsPage> {
+  @override
+  void initState() {
+    super.initState();
+    // Fetch the catalogue once, when the screen opens (decision 12).
+    //
+    // Deferred to after the first frame on purpose: `load()` calls
+    // notifyListeners() synchronously, and doing that from initState means
+    // marking an element dirty while it is still being built. The view passes
+    // `!hasLoaded` to AsyncView, so the spinner covers the frame in which the
+    // store still holds the 12 MOCK products — otherwise they would visibly
+    // flash before the API's 6 arrive.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<InventoryViewmodel>().load();
+    });
+  }
 
   Future<void> _showProductForm(
     BuildContext context,
@@ -176,83 +198,94 @@ class ProductsPage extends StatelessWidget {
             subtitle: 'View and organize the hardware product catalog.',
             selectedNavigationIndex: 1,
             onNavigationSelected: (index) => navigateInventory(context, index),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ProductsCatalogOverview(
-                  totalProducts: viewModel.totalProducts,
-                  totalVariants: viewModel.totalVariants,
-                  archivedProducts: viewModel.archivedProducts,
-                  categoryCount: viewModel.categories.length,
-                  brandCount: viewModel.brands.length,
-                  lowStockVariants: inventory.stockRecords
-                      .where(
-                        (record) =>
-                            inventory.statusForVariant(record.variant.id) ==
-                            InventoryStockStatus.lowStock,
-                      )
-                      .length,
-                  outOfStockVariants: inventory.stockRecords
-                      .where(
-                        (record) =>
-                            inventory.statusForVariant(record.variant.id) ==
-                            InventoryStockStatus.outOfStock,
-                      )
-                      .length,
-                  onShowAll: viewModel.clearFilters,
-                  onShowLowStock: () => navigateInventory(context, 5),
-                ),
-                const SizedBox(height: AppSpacing.xl),
-                ProductsToolbar(
-                  searchQuery: viewModel.searchQuery,
-                  categories: viewModel.categories,
-                  brands: viewModel.brands,
-                  selectedCategory: viewModel.selectedCategory,
-                  selectedBrand: viewModel.selectedBrand,
-                  onSearchChanged: viewModel.setSearchQuery,
-                  onCategoryChanged: viewModel.setCategory,
-                  onBrandChanged: viewModel.setBrand,
-                  onClearFilters: viewModel.clearFilters,
-                  onAddProduct: () => _showProductForm(context, viewModel),
-                  onOpenSimulator: () => showDialog<void>(
-                    context: context,
-                    builder: (_) => const ProductsInventorySimulatorDialog(),
+            // Decision 07: one shared widget owns loading, error, empty and data,
+            // with the precedence baked in so the builder only runs with data.
+            // `!hasLoaded` keeps the spinner up for the frame before the first
+            // load attempt, when the store still holds mock data.
+            child: AsyncView(
+              isLoading: inventory.isLoading || !inventory.hasLoaded,
+              error: inventory.loadError,
+              isEmpty: inventory.products.isEmpty,
+              emptyMessage: 'No products in the catalogue yet.',
+              onRetry: inventory.load,
+              builder: (context) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ProductsCatalogOverview(
+                    totalProducts: viewModel.totalProducts,
+                    totalVariants: viewModel.totalVariants,
+                    archivedProducts: viewModel.archivedProducts,
+                    categoryCount: viewModel.categories.length,
+                    brandCount: viewModel.brands.length,
+                    lowStockVariants: inventory.stockRecords
+                        .where(
+                          (record) =>
+                              inventory.statusForVariant(record.variant.id) ==
+                              InventoryStockStatus.lowStock,
+                        )
+                        .length,
+                    outOfStockVariants: inventory.stockRecords
+                        .where(
+                          (record) =>
+                              inventory.statusForVariant(record.variant.id) ==
+                              InventoryStockStatus.outOfStock,
+                        )
+                        .length,
+                    onShowAll: viewModel.clearFilters,
+                    onShowLowStock: () => navigateInventory(context, 5),
                   ),
-                ),
-                if (viewModel.selectedProductIds.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.lg),
-                  ProductsBulkActions(
-                    selectedCount: viewModel.selectedProductIds.length,
-                    onArchive: () => _archiveSelected(context, viewModel),
-                    onClear: viewModel.clearSelection,
+                  const SizedBox(height: AppSpacing.xl),
+                  ProductsToolbar(
+                    searchQuery: viewModel.searchQuery,
+                    categories: viewModel.categories,
+                    brands: viewModel.brands,
+                    selectedCategory: viewModel.selectedCategory,
+                    selectedBrand: viewModel.selectedBrand,
+                    onSearchChanged: viewModel.setSearchQuery,
+                    onCategoryChanged: viewModel.setCategory,
+                    onBrandChanged: viewModel.setBrand,
+                    onClearFilters: viewModel.clearFilters,
+                    onAddProduct: () => _showProductForm(context, viewModel),
+                    onOpenSimulator: () => showDialog<void>(
+                      context: context,
+                      builder: (_) => const ProductsInventorySimulatorDialog(),
+                    ),
+                  ),
+                  if (viewModel.selectedProductIds.isNotEmpty) ...[
+                    const SizedBox(height: AppSpacing.lg),
+                    ProductsBulkActions(
+                      selectedCount: viewModel.selectedProductIds.length,
+                      onArchive: () => _archiveSelected(context, viewModel),
+                      onClear: viewModel.clearSelection,
+                    ),
+                  ],
+                  const SizedBox(height: AppSpacing.xl),
+                  ProductsTable(
+                    products: viewModel.visibleProducts,
+                    selectedProductIds: viewModel.selectedProductIds,
+                    firstItem: viewModel.firstVisibleItem,
+                    lastItem: viewModel.lastVisibleItem,
+                    totalItems: viewModel.filteredProducts.length,
+                    currentPage: viewModel.currentPage,
+                    totalPages: viewModel.totalPages,
+                    rowsPerPage: viewModel.rowsPerPage,
+                    onSelectProduct: viewModel.toggleSelection,
+                    onSelectAll: viewModel.selectVisibleProducts,
+                    onViewProduct: (product) =>
+                        _showProductDetails(context, product),
+                    onEditProduct: (product) =>
+                        _showProductForm(context, viewModel, product),
+                    onArchiveProduct: (product) =>
+                        _archiveProduct(context, viewModel, product),
+                    onClearFilters: viewModel.clearFilters,
+                    onPageChanged: viewModel.goToPage,
+                    onRowsPerPageChanged: viewModel.setRowsPerPage,
+                    archivedCount: viewModel.archivedProducts,
+                    onShowArchived: () =>
+                        _showArchivedProducts(context, viewModel),
                   ),
                 ],
-                const SizedBox(height: AppSpacing.xl),
-                ProductsTable(
-                  products: viewModel.visibleProducts,
-                  selectedProductIds: viewModel.selectedProductIds,
-                  firstItem: viewModel.firstVisibleItem,
-                  lastItem: viewModel.lastVisibleItem,
-                  totalItems: viewModel.filteredProducts.length,
-                  currentPage: viewModel.currentPage,
-                  totalPages: viewModel.totalPages,
-                  rowsPerPage: viewModel.rowsPerPage,
-                  onSelectProduct: viewModel.toggleSelection,
-                  onSelectAll: viewModel.selectVisibleProducts,
-                  onViewProduct: (product) =>
-                      _showProductDetails(context, product),
-                  onEditProduct: (product) =>
-                      _showProductForm(context, viewModel, product),
-                  onArchiveProduct: (product) =>
-                      _archiveProduct(context, viewModel, product),
-                  onClearFilters: viewModel.clearFilters,
-                  onPageChanged: viewModel.goToPage,
-                  onRowsPerPageChanged: viewModel.setRowsPerPage,
-                  archivedCount: viewModel.archivedProducts,
-                  onShowArchived: () =>
-                      _showArchivedProducts(context, viewModel),
-                ),
-              ],
+              ),
             ),
           );
         },
