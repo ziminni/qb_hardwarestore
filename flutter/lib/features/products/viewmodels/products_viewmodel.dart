@@ -1,13 +1,38 @@
 import 'dart:math';
 
+import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:flutter/foundation.dart';
 
+/// View state for the products screen: search, category and brand filters,
+/// sorting, paging and row selection. It owns **no product data**.
+///
+/// Decision 11. Before this, the class held a *copy* of the product list taken
+/// at construction
+///
+/// ```dart
+/// ProductsViewmodel(context.read<InventoryViewmodel>().products)
+/// ```
+///
+/// and the page applied every mutation to both this and [InventoryViewmodel] —
+/// each computing its own `max(id)+1`. Two lists, two id authorities, and a
+/// table that could disagree with its own counters the moment a call site
+/// forgot to mirror one. The list is now read live from the store and every
+/// mutation is delegated to it, so there is one authority.
+///
+/// This mirrors `PosTransactionViewmodel`, which already took the live store and
+/// listened to it — the correct pattern already existed one screen over.
+///
+/// NOT registered in `main.dart`, deliberately: this is per-screen view state,
+/// and a single app-wide instance would share one search box, one page number
+/// and one selection across every visit to the screen.
 class ProductsViewmodel extends ChangeNotifier {
-  ProductsViewmodel(List<Product> products)
-    : _products = List<Product>.of(products);
+  ProductsViewmodel(this._inventory) {
+    _inventory.addListener(_onStoreChanged);
+  }
 
-  final List<Product> _products;
+  final InventoryViewmodel _inventory;
   final Set<int> _selectedProductIds = {};
 
   String _searchQuery = '';
@@ -16,7 +41,9 @@ class ProductsViewmodel extends ChangeNotifier {
   int _currentPage = 1;
   int _rowsPerPage = 5;
 
-  List<Product> get products => List.unmodifiable(_products);
+  /// The store's list, live. Never a copy — see the class doc.
+  List<Product> get products => _inventory.products;
+
   Set<int> get selectedProductIds => Set.unmodifiable(_selectedProductIds);
   String get searchQuery => _searchQuery;
   String? get selectedCategory => _selectedCategory;
@@ -24,15 +51,15 @@ class ProductsViewmodel extends ChangeNotifier {
   int get currentPage => _currentPage;
   int get rowsPerPage => _rowsPerPage;
   int get totalProducts =>
-      _products.where((product) => product.isActive).length;
+      products.where((product) => product.isActive).length;
   int get archivedProducts =>
-      _products.where((product) => !product.isActive).length;
-  int get totalVariants => _products
+      products.where((product) => !product.isActive).length;
+  int get totalVariants => products
       .where((product) => product.isActive)
       .fold(0, (total, product) => total + product.variants.length);
 
   List<String> get categories =>
-      (_products
+      (products
           .where((product) => product.isActive)
           .map((product) => product.categoryName)
           .toSet()
@@ -40,7 +67,7 @@ class ProductsViewmodel extends ChangeNotifier {
         ..sort());
 
   List<String> get brands =>
-      (_products
+      (products
           .where((product) => product.isActive)
           .map((product) => product.brandName)
           .toSet()
@@ -50,7 +77,7 @@ class ProductsViewmodel extends ChangeNotifier {
   List<Product> get filteredProducts {
     final normalizedQuery = _searchQuery.trim().toLowerCase();
 
-    return _products
+    return products
         .where((product) {
           final matchesSearch =
               normalizedQuery.isEmpty ||
@@ -146,36 +173,45 @@ class ProductsViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void archiveSelectedProducts() {
-    for (var index = 0; index < _products.length; index++) {
-      final product = _products[index];
-      if (_selectedProductIds.contains(product.id)) {
-        _products[index] = product.copyWith(isActive: false);
-      }
-    }
-    _selectedProductIds.clear();
-    notifyListeners();
-  }
-
-  void addProduct(Product product) {
-    final nextId = _products.isEmpty
-        ? 1
-        : _products.map((item) => item.id).reduce(max) + 1;
-    _products.add(product.copyWith(id: nextId));
-    notifyListeners();
+  /// Adds a product to the store, carrying the opening stock the form collected.
+  ///
+  /// Opening stock is a batch — "a lot at a cost" — so it is passed straight
+  /// through to the store rather than kept here (decisions 02 and 11).
+  void addProduct(
+    Product product, {
+    List<InventoryBatch> openingStock = const [],
+  }) {
+    _inventory.addProduct(product, openingStock: openingStock);
   }
 
   void updateProduct(Product updatedProduct) {
-    final index = _products.indexWhere(
-      (product) => product.id == updatedProduct.id,
-    );
-    if (index == -1) return;
-    _products[index] = updatedProduct;
-    notifyListeners();
+    _inventory.updateProduct(updatedProduct);
   }
 
   void archiveProduct(Product product) {
-    updateProduct(product.copyWith(isActive: false));
+    _inventory.updateProduct(product.copyWith(isActive: false));
+  }
+
+  /// Archives every selected product through the store, then clears the
+  /// selection. Clearing first means the store's per-product notifications
+  /// cannot re-enter this loop.
+  void archiveSelectedProducts() {
+    final selected = Set<int>.of(_selectedProductIds);
+    _selectedProductIds.clear();
+    for (final product in _inventory.products) {
+      if (selected.contains(product.id)) {
+        _inventory.updateProduct(product.copyWith(isActive: false));
+      }
+    }
+    notifyListeners();
+  }
+
+  void _onStoreChanged() => notifyListeners();
+
+  @override
+  void dispose() {
+    _inventory.removeListener(_onStoreChanged);
+    super.dispose();
   }
 
   void _resetPage() {

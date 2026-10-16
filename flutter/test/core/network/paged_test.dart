@@ -145,5 +145,40 @@ void main() {
         throwsA(isA<TypeError>()),
       );
     });
+    test('hasMore is false when the page holds the whole collection', () {
+      final single = parsePaged<Category>(
+        envelope(results: [
+          {'id': 1, 'name': 'Cement'},
+        ], count: 1),
+        Category.fromJson,
+      );
+      final firstOfMany = parsePaged<Category>(
+        envelope(results: [
+          {'id': 1, 'name': 'Cement'},
+        ], count: 2),
+        Category.fromJson,
+      );
+
+      expect(single.hasMore, isFalse);
+      expect(firstOfMany.hasMore, isTrue);
+    });
+
+    test('ignores the envelope keys it does not need', () {
+      // `next`/`previous` are null or URLs depending on the page, and paging is
+      // deferred because no seeded list exceeds PAGE_SIZE. They must not be able
+      // to break parsing of a page that is otherwise fine.
+      final page = parsePaged<Category>({
+        'count': 2,
+        'next': 'http://example.test/api/v1/categories/?page=2',
+        'previous': 'http://example.test/api/v1/categories/?page=0',
+        'results': [
+          {'id': 1, 'name': 'Cement'},
+          {'id': 2, 'name': 'Electrical'},
+        ],
+      }, Category.fromJson);
+
+      expect(page.items, hasLength(2));
+      expect(page.total, 2);
+    });
   });
 }

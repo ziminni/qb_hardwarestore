@@ -43,14 +43,16 @@ class ProductsPage extends StatelessWidget {
     );
     if (result == null || !context.mounted) return;
 
-    final inventory = context.read<InventoryViewmodel>();
+    // Decision 11: the viewmodel delegates to the store, so each mutation is
+    // applied ONCE. Calling both viewmodels was the duplicated-write path that
+    // let their two product lists drift apart.
     if (product == null) {
-      viewModel.addProduct(result.product);
-      // Opening stock arrives as a batch: "a lot at a cost" (decision 02).
-      inventory.addProduct(result.product, openingStock: result.openingStock);
+      viewModel.addProduct(
+        result.product,
+        openingStock: result.openingStock,
+      );
     } else {
       viewModel.updateProduct(result.product);
-      inventory.updateProduct(result.product);
     }
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -123,9 +125,7 @@ class ProductsPage extends StatelessWidget {
     );
     if (confirmed != true || !context.mounted) return;
 
-    final archived = product.copyWith(isActive: false);
     viewModel.archiveProduct(product);
-    context.read<InventoryViewmodel>().updateProduct(archived);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('${product.baseName} moved to archive.')),
     );
@@ -158,12 +158,6 @@ class ProductsPage extends StatelessWidget {
     );
     if (confirmed != true || !context.mounted) return;
 
-    final inventory = context.read<InventoryViewmodel>();
-    for (final product in viewModel.products) {
-      if (selectedIds.contains(product.id)) {
-        inventory.updateProduct(product.copyWith(isActive: false));
-      }
-    }
     viewModel.archiveSelectedProducts();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -176,7 +170,7 @@ class ProductsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (context) =>
-          ProductsViewmodel(context.read<InventoryViewmodel>().products),
+          ProductsViewmodel(context.read<InventoryViewmodel>()),
       child: Consumer<ProductsViewmodel>(
         builder: (context, viewModel, child) {
           final inventory = context.watch<InventoryViewmodel>();
