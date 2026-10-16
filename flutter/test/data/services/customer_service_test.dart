@@ -91,7 +91,11 @@ void main() {
       _page([
         {'id': 1, 'name': 'Walk-in Customer', 'customer_type': 'WALK_IN'},
         {'id': 2, 'name': 'Maria Santos', 'customer_type': 'REGULAR'},
-        {'id': 3, 'name': 'Dela Cruz Construction', 'customer_type': 'CONSTRUCTION_FIRM'},
+        {
+          'id': 3,
+          'name': 'Dela Cruz Construction',
+          'customer_type': 'CONSTRUCTION_FIRM',
+        },
         {'id': 4, 'name': 'Pedro Contractor', 'customer_type': 'CONTRACTOR'},
       ]),
     );
@@ -109,40 +113,50 @@ void main() {
     expect(customers[3].type, CustomerType.contractor);
   });
 
-  test('an unrecognised type does not throw - it must not shorten the picker', () async {
-    serve(
-      _page([
-        {'id': 9, 'name': 'Future Type Co', 'customer_type': 'FRANCHISE'},
-      ]),
-    );
+  test(
+    'an unrecognised type does not throw - it must not shorten the picker',
+    () async {
+      serve(
+        _page([
+          {'id': 9, 'name': 'Future Type Co', 'customer_type': 'FRANCHISE'},
+        ]),
+      );
 
-    final customers = await service.fetchCustomers();
+      final customers = await service.fetchCustomers();
 
-    expect(customers.single.type, CustomerType.unknown);
-    expect(customers.single.name, 'Future Type Co');
-  });
+      expect(customers.single.type, CustomerType.unknown);
+      expect(customers.single.name, 'Future Type Co');
+    },
+  );
 
-  test('creates a customer with the minimal record and no credit limit', () async {
-    serve({'id': 7, 'name': 'Nena Reyes', 'customer_type': 'REGULAR'}, status: 201);
+  test(
+    'creates a customer with the minimal record and no credit limit',
+    () async {
+      serve({
+        'id': 7,
+        'name': 'Nena Reyes',
+        'customer_type': 'REGULAR',
+      }, status: 201);
 
-    final created = await service.createCustomer(
-      name: 'Nena Reyes',
-      type: CustomerType.regular,
-    );
+      final created = await service.createCustomer(
+        name: 'Nena Reyes',
+        type: CustomerType.regular,
+      );
 
-    expect(created.id, 7);
-    expect(created.name, 'Nena Reyes');
-    final sent = adapter.lastRequest!.data as Map<String, dynamic>;
-    expect(sent['name'], 'Nena Reyes');
-    expect(sent['customer_type'], 'REGULAR');
-    // Locked decision 1: name + type ONLY. Sending a credit limit would put credit control
-    // in the cashier's hands at the till.
-    expect(
-      sent.containsKey('total_credit_limit'),
-      isFalse,
-      reason: 'the counter form captures name and type, nothing else',
-    );
-  });
+      expect(created.id, 7);
+      expect(created.name, 'Nena Reyes');
+      final sent = adapter.lastRequest!.data as Map<String, dynamic>;
+      expect(sent['name'], 'Nena Reyes');
+      expect(sent['customer_type'], 'REGULAR');
+      // Locked decision 1: name + type ONLY. Sending a credit limit would put credit control
+      // in the cashier's hands at the till.
+      expect(
+        sent.containsKey('total_credit_limit'),
+        isFalse,
+        reason: 'the counter form captures name and type, nothing else',
+      );
+    },
+  );
 
   test('reads one customer\'s utang from the aging report', () async {
     serve({
@@ -177,7 +191,8 @@ void main() {
     expect(
       summary.hasDebt,
       isTrue,
-      reason: 'the panel shows a balance; an empty one must read as zero, not unknown',
+      reason:
+          'the panel shows a balance; an empty one must read as zero, not unknown',
     );
   });
 

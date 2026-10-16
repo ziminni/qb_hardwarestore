@@ -24,7 +24,10 @@ from apps.inventory.services import process_goods_receipt
 
 from .models import Customer, OfficialReceipt, Payment, SalesTransaction
 from .services import process_sale
-from .exceptions import WalkInCannotOwe
+# Absolute, not relative: the project imports apps.<app> absolutely everywhere else
+# (see the imports above), and a relative import is what this checker cannot resolve
+# from a working directory outside the repo. Same module either way.
+from apps.pos.exceptions import WalkInCannotOwe
 
 User = get_user_model()
 
