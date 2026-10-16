@@ -36,6 +36,23 @@ Then **Phase 1**: wire the products catalogue screen to `GET /api/v1/products/` 
 > the `product.dart` swap is deliberately not applied yet so the build stays green.
 > Full reasoning and evidence: `.superpowers/sdd/MAP/progress.md` ruling **R7**.
 
+> ✅ **Resolved 2026-10-16 — step 3's crux is not a product choice after all.** The question was how the mutable
+> mock store (`InventoryViewmodel.adjustStock`/`sellStock`, which mutate `variant.currentStock`) should move
+> stock onto batches. The backend already answers it, so it is **specified rather than guessed**:
+> `apps/inventory/services.py::allocate_fifo` deducts **oldest batch first**, ordered by `receipt__receive_date`,
+> taking `min(current_qty, remaining)` and raising when short; `apply_stock_adjustment` routes *removals*
+> through that same FIFO and lands *additions* on the **newest** active batch, then re-checks low stock.
+>
+> The client's ordering key is `InventoryBatch.receiptId` — the only non-null date proxy available, because
+> **every mock batch was materialised with `createdAt: null`** (20 of 20). `createdAt` is therefore unusable
+> for ordering in the mock even though the live API populates it.
+>
+> ⚠️ **Coverage gap found while verifying this:** every variant has **exactly one batch** — in the mock
+> (20 variants / 20 batches) *and* in `seed_demo` (8 / 8). **FIFO crossing a batch boundary cannot be
+> exercised from any current data, mock or live.** Deduction correctness is therefore unprovable by the demo
+> as it stands. Recommendation: give one variant a second batch when step 3 lands, so the path is testable
+> rather than merely asserted. This does not block step 3 — the ordering rule is settled either way.
+
 ## Notes & Invariants
 
 Rules every session on this map must respect. Facts that already have a home are linked, never restated.
