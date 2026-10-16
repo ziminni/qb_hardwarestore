@@ -1,4 +1,5 @@
 import 'package:client/core/network/api_client.dart';
+import 'package:client/data/models/customer.dart';
 import 'package:dio/dio.dart';
 
 /// One line of a checkout request.
@@ -130,6 +131,38 @@ class PosService {
   final ApiClient _client;
 
   static const transactionsPath = '/api/v1/transactions/';
+  static const customersPath = '/api/v1/customers/';
+
+  /// The customer id to send for an anonymous sale.
+  ///
+  /// Decision 06 section 2: a walk-in sale **cannot omit** the customer.
+  /// `SalesTransaction.customer` is `FK(PROTECT)` with no `null=True`, and the view
+  /// reads `validated_data['customer'].id` without a fallback - so an anonymous sale
+  /// still sends an id, and the id it sends is the Walk-in Customer record that
+  /// `seed_demo` creates.
+  ///
+  /// Fails loudly rather than picking another customer: sending a real customer's id
+  /// would post the utang to their account.
+  Future<int> fetchWalkInCustomerId() async {
+    try {
+      final page = await _client.getList<Customer>(
+        customersPath,
+        Customer.fromJson,
+      );
+      for (final customer in page.items) {
+        if (customer.name.trim().toLowerCase() ==
+            Customer.walkInName.toLowerCase()) {
+          return customer.id;
+        }
+      }
+    } on DioException catch (error) {
+      throw _failureFor(error);
+    }
+    throw const PosServiceException(
+      'The demo data has no Walk-in Customer, so an anonymous sale cannot be '
+      'recorded. Run the seed command first.',
+    );
+  }
 
   Future<PosCheckoutResult> checkout({
     required int customerId,

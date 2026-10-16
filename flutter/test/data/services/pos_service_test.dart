@@ -212,6 +212,54 @@ void main() {
       'Cannot connect to the BuildPro server.',
     );
   });
+
+  // Task 4 (decision 06 section 2): a walk-in sale CANNOT omit the customer.
+  // SalesTransaction.customer is FK(PROTECT) with no null=True and the view reads
+  // validated_data['customer'].id, so an anonymous sale still sends an id - the
+  // Walk-in Customer that seed_demo creates. This resolves it once.
+  group('resolving the Walk-in Customer', () {
+    Map<String, dynamic> envelope(List<Map<String, dynamic>> results) => {
+      'count': results.length,
+      'next': null,
+      'previous': null,
+      'results': results,
+    };
+
+    test('finds the Walk-in Customer by name and returns its id', () async {
+      final adapter = _FakeAdapter(
+        envelope([
+          {'id': 1, 'name': 'Juan Dela Cruz', 'customer_type': 'REGULAR'},
+          {'id': 2, 'name': 'Walk-in Customer', 'customer_type': 'WALK_IN'},
+        ]),
+        200,
+      );
+      client.dio.httpClientAdapter = adapter;
+      final service = PosService(client: client);
+
+      expect(await service.fetchWalkInCustomerId(), 2);
+      expect(adapter.requests.single.path, '/api/v1/customers/');
+      expect(adapter.requests.single.method, 'GET');
+    });
+
+    test('fails loudly when the demo data has no Walk-in Customer', () async {
+      // Better to refuse the sale than to send a wrong customer id and charge the
+      // utang to somebody else.
+      final adapter = _FakeAdapter(
+        envelope([
+          {'id': 1, 'name': 'Juan Dela Cruz', 'customer_type': 'REGULAR'},
+        ]),
+        200,
+      );
+      client.dio.httpClientAdapter = adapter;
+      final service = PosService(client: client);
+
+      final error = await service
+          .fetchWalkInCustomerId()
+          .then<Object?>((_) => null, onError: (e) => e);
+      expect(error, isA<PosServiceException>());
+      expect((error! as PosServiceException).message, contains('Walk-in'));
+    });
+  });
 }
 
 /// Fails the way an unreachable server does.
