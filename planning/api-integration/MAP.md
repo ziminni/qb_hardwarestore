@@ -98,7 +98,7 @@ Rules every session on this map must respect. Facts that already have a home are
 | **One data path, no new shapes** | `View → ViewModel → Repository → Service → ApiClient`. The only correct example is `features/auth/viewmodels/auth_viewmodel.dart`; `sales_module_viewmodel.dart` is the mock shape being replaced. |
 | **Demo data comes from `seed_demo`** | Products with stock batches, customers, completed sales, an unpaid utang, and an APPROVED requisition with a minted token. Setup: `README.md`. |
 | **Every wired screen needs three states** | loading, error, empty. Every list today is synchronous and has none. |
-| **`flutter analyze` must stay clean** | `flutter/test/widget_test.dart` (untracked, broken template) is currently the sole error — see `planning/04-cleanup.md`. |
+| **`flutter analyze` must stay clean** | It **is** clean today, over the whole tree (verified 2026-10-16: "No issues found!"). `flutter/test/widget_test.dart` is no longer the untracked broken counter template this row used to describe — it is **tracked** and is a real smoke test that imports `app.dart` (not `main.dart`), supplies the required `auth` argument, and asserts an unauthenticated launch lands on `LoginPage`. See `planning/04-cleanup.md`. |
 | **Six roles exist, five are seeded** | Canonical names: `apps/users/permissions.py`. Demo logins: `README.md`. |
 
 ## Decisions So Far
