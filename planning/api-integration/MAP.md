@@ -1,7 +1,8 @@
 # planning/api-integration/MAP.md
 
 **Slug:** `api-integration` · **Opened:** 2026-10-15
-**Status:** 7 locked · 3 open. The Phase 0 model swap is **in progress** (staged, see the ⚠️ note below). Next: finish step 3, then step 4.
+**Status:** 7 locked · 3 open. **Phase 0 is complete in code as well as in decisions** — the staged
+`ProductVariant` swap finished all four steps, so the client model mirrors the API exactly. Next: **Phase 1**.
 
 ## Destination
 
@@ -11,7 +12,20 @@ mockup *of* the system and becomes a client *of* it.
 
 ## Phase 0 — Complete (2026-10-16)
 
-All four Phase 0 decisions are locked, so Phase 1 can start. What a coding session must build first:
+✅ **All four steps of the staged swap are done, and all seven Phase 0 decisions are locked.** The table below
+records what the swap had to build; it is kept for the reasoning, not as a to-do list. Evidence and rulings:
+`.superpowers/sdd/MAP/progress.md`; narrative: `docs/sessions/2026-10-16-staged-model-swap-complete.md`.
+
+Landed: `ProductVariant` mirrors the API exactly (nine fields plus a derived `barcode` getter; the six invented
+fields are deleted), `InventoryViewmodel` is batch-backed with FIFO deduction mirroring `allocate_fifo`, all 16
+readers consume batches and `CatalogueItem`, and `LocationHintStore` holds the location hints.
+**65 tests pass; `flutter analyze` is clean.**
+
+⚠️ **One caveat carried forward:** the live `seed_demo` data still has **exactly one batch per variant** (8/8),
+so FIFO crossing a batch boundary cannot be exercised from seeded data — only the mock can (variant 1 carries
+two lots). See ruling **R14**.
+
+What a coding session had to build first:
 
 | Item | Deliverable |
 | :--- | :--- |

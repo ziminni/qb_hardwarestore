@@ -25,26 +25,34 @@ the same commit that breaks it.
 
 ## Current Status & Next Step
 
-- **Active branch:** `feature/backend-integration` — 51 commits ahead of `origin/master`, unpushed.
+- **Active branch:** `feature/backend-integration` — 66 commits ahead of `origin/master`, unpushed.
 - **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. The slice
-  order is **locked** (Cashier journey) and the map reads **7 locked · 3 open**. Phase 0's *decisions* are
-  locked but its *code* is mid-flight: the staged `ProductVariant` swap is at step 2 of 4 — steps 1 and 2 are
-  committed, step 3 is unblocked by decision 10, step 4 pends. Three decisions remain open, gating Phases 3, 5
-  and 6.
-- **Last session:** `docs/sessions/2026-10-16-staged-swap-blockers-and-location-store.md` — unblocked ruling
-  R9 by locking decision 10 (the SKU column becomes a **Barcode** column, because **no SKU field exists in the
-  backend**; storage location becomes a **persisted client-local hint**) and delivered `LocationHintStore`.
-  Earlier: `docs/sessions/2026-10-16-phase-0-decisions.md` locked all six Phase 0 decisions;
+  order is **locked** (Cashier journey) and the map reads **7 locked · 3 open**. **Phase 0 is complete in code
+  as well as in decisions**: the staged `ProductVariant` swap finished all four steps, so the client model now
+  mirrors the API exactly. Three decisions remain open, gating Phases 3, 5 and 6.
+- **Last session:** `docs/sessions/2026-10-16-staged-model-swap-complete.md` — **finished the staged model swap**
+  (deleted `sku`, `qrIdentifier`, `costPrice`, `sellingPrice`, `currentStock`, `storageLocation` and the
+  `reorderLevel` getter), migrated all 16 readers onto batch stock, and took it through a fresh-context review.
+  Tests 0-runnable → **65**. Earlier: `docs/sessions/2026-10-16-staged-swap-blockers-and-location-store.md`
+  locked decision 10; `docs/sessions/2026-10-16-phase-0-decisions.md` locked the six Phase 0 decisions;
   `docs/sessions/2026-10-15-integration-map.md` opened the map.
 - **Current state (verified):** the backend is feature-complete; the client consumes almost none of it.
   Of 10 feature modules only `auth` reaches the API. 38 screens scored: 3 live · 27 mock · 8 dead. See
   `docs/SYSTEM_ATLAS.md`.
-- **Next step:** finish **staged-swap step 3** — migrate the 13 reader-only files onto `CatalogueItem`,
-  relaying the Barcode column into the 4 inventory tables and wiring `LocationHintStore` into the 3 location
-  sites. The crux is `InventoryViewmodel`, a mutable mock store whose `adjustStock`/`sellStock` mutate
-  `variant.currentStock` and must move onto batches instead. Then **step 4** deletes `sku`, `storageLocation`,
-  `costPrice`, `sellingPrice`, `currentStock` and the `reorderLevel` getter. Only then does **Phase 1**
-  (products catalogue → `GET /api/v1/products/` + `GET /api/v1/batches/`) begin — no further design input is
-  needed for it: `ApiClient.getList<T>` returning `Paged<T>`, `core/widgets/async_view.dart`, and
-  `assembleCatalogue` are all specified and locked. A salvageable earlier attempt at products/batches wiring
-  sits in commit `22c7c26` (`planning/02-lost-work-recovery.md`).
+- **Next step:** **Phase 1** — wire the products catalogue to `GET /api/v1/products/` + `GET /api/v1/batches/`.
+  No further design input is needed: `ApiClient.getList<T>` returning `Paged<T>`, `core/widgets/async_view.dart`
+  (decision 07) and `assembleCatalogue` are all specified and locked, and the model layer they build on now
+  exists. Note `ProductsViewmodel` and `PosTransactionViewmodel` are still **not registered** in `main.dart`.
+  A salvageable earlier attempt at products/batches wiring sits in commit `22c7c26`
+  (`planning/02-lost-work-recovery.md`).
+- **Current state (verified):** the backend is feature-complete; the client consumes almost none of it.
+  Of 10 feature modules only `auth` reaches the API. 38 screens scored: 3 live · 27 mock · 8 dead. See
+  `docs/SYSTEM_ATLAS.md`.
+- **Next step:** **Phase 1** — wire the products catalogue to `GET /api/v1/products/` + `GET /api/v1/batches/`.
+  Everything it needs now exists and is locked: `ApiClient.getList<T>` returning `Paged<T>`,
+  `core/widgets/async_view.dart` (decision 07), and `assembleCatalogue`. Note `ProductsViewmodel` and
+  `PosTransactionViewmodel` are still **not registered** in `main.dart`. A salvageable earlier attempt at
+  products/batches wiring sits in commit `22c7c26` (`planning/02-lost-work-recovery.md`).
+- **Open backend issue (found during review):** `apps/inventory/services.py::apply_stock_adjustment` silently
+  discards a positive adjustment when no batch has `current_qty > 0`, so a count correction on a depleted
+  variant is lost with no error. Out of scope for the client-only map; needs a backend issue.
