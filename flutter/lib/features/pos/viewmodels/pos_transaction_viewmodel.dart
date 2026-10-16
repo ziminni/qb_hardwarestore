@@ -1,5 +1,6 @@
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/data/models/product_tracking.dart';
+import 'package:client/data/models/variant_uom.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:flutter/foundation.dart';
@@ -35,25 +36,26 @@ class PosTransactionViewmodel extends ChangeNotifier {
           tracking != null &&
           tracking.baseUnit.toLowerCase() ==
               record.variant.baseUomCode.toLowerCase();
-      final units = <String>[
-        if (usesTracking &&
-            tracking.packageType.isNotEmpty &&
-            (tracking.stockForm == ProductStockForm.packaged ||
-                tracking.stockForm == ProductStockForm.standardLengths))
-          tracking.packageType,
-        if (usesTracking) ...tracking.allowedSaleUnits,
-        if (!usesTracking) record.variant.baseUomCode,
-      ];
-      final distinctUnits = <String>[];
-      for (final unit in units) {
-        if (!distinctUnits.any(
-          (existing) => existing.toLowerCase() == unit.toLowerCase(),
-        )) {
-          distinctUnits.add(unit);
-        }
+      // Decision 06 section 2: the rows are built from the variant's REAL selling
+      // units, because that is both what the catalogue can actually sell and the
+      // only source of a valid `variantUomId` for the payload. Tracking supplies the
+      // conversion factor and package price for whichever units it recognises; it can
+      // no longer add a unit the catalogue does not sell, because such a row has no
+      // id to submit.
+      //
+      // Building from tracking's labels instead produced DUPLICATE ids: variant 19 is
+      // tracked with two sale units ('kg', 'g') but carries a single selling unit, so
+      // both rows resolved to id 19. That silently merged two cart lines in `addLine`
+      // (which de-duplicates on `variantUomId`) and made `complete()` price and deduct
+      // a 'g' line as 'kg' (it takes the FIRST row matching the id).
+      final sellableUnits = <String, VariantUom>{};
+      for (final uom in record.variant.sellingUoms) {
+        final code = uom.uomCode.trim();
+        if (code.isEmpty) continue;
+        sellableUnits.putIfAbsent(code.toLowerCase(), () => uom);
       }
-      for (var index = 0; index < distinctUnits.length; index++) {
-        final unit = distinctUnits[index];
+      for (final uom in sellableUnits.values) {
+        final unit = uom.uomCode;
         final factor = usesTracking ? _conversionFactor(tracking, unit) : 1.0;
         final configuredPackagePrice =
             usesTracking &&
@@ -62,7 +64,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
             : 0.0;
         items.add(
           PosCatalogItem(
-            variantUomId: record.variant.id * 100 + index,
+            variantUomId: uom.id,
             variantId: record.variant.id,
             productName: record.product.baseName,
             variantName: record.variant.variantName,
