@@ -36,8 +36,8 @@ class _InventoryLowStockPageState extends State<InventoryLowStockPage> {
     final records = inventory.stockRecords
         .where(
           (record) =>
-              inventory.statusFor(record.variant).name != 'inStock' &&
-              '${record.product.baseName} ${record.variant.variantName} ${record.variant.sku}'
+              inventory.statusForVariant(record.variant.id).name != 'inStock' &&
+              '${record.product.baseName} ${record.variant.variantName} ${record.variant.barcode}'
                   .toLowerCase()
                   .contains(_query.toLowerCase()),
         )

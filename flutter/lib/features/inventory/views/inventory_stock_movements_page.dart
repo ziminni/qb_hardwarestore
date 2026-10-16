@@ -165,7 +165,7 @@ class _InventoryStockMovementsPageState
         periodMovements.where((movement) {
           final record = _record(inventory, movement);
           final text =
-              '${record.product.baseName} ${record.variant.variantName} ${record.variant.sku} ${movement.reference} ${movement.reason}'
+              '${record.product.baseName} ${record.variant.variantName} ${record.variant.barcode} ${movement.reference} ${movement.reason}'
                   .toLowerCase();
           final directionMatches = switch (_view) {
             InventoryMovementView.stockIn => movement.isIncoming,
@@ -185,7 +185,7 @@ class _InventoryStockMovementsPageState
     final balances = <InventoryBalanceRecord>[];
     for (final record in inventory.stockRecords) {
       final searchText =
-          '${record.product.baseName} ${record.variant.variantName} ${record.variant.sku}'
+          '${record.product.baseName} ${record.variant.variantName} ${record.variant.barcode}'
               .toLowerCase();
       if (!searchText.contains(_query.toLowerCase()) ||
           (_category != null && record.product.categoryName != _category)) {

@@ -49,7 +49,7 @@ class InventoryMovementDetailsDialog extends StatelessWidget {
                 '${movement.timestamp.year}-${movement.timestamp.month.toString().padLeft(2, '0')}-${movement.timestamp.day.toString().padLeft(2, '0')} ${movement.timestamp.hour.toString().padLeft(2, '0')}:${movement.timestamp.minute.toString().padLeft(2, '0')}',
               ),
               _row('Product', '${product.baseName} — ${variant.variantName}'),
-              _row('SKU', variant.sku),
+              _row('Barcode', variant.barcode),
               _row(
                 'Quantity',
                 '${movement.isIncoming ? '+' : ''}${_quantity(movement.quantityChange)} $unit',

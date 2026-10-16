@@ -64,7 +64,7 @@ class InventoryMovementsTable extends StatelessWidget {
                   DataColumn(label: Text('Date / Time')),
                   DataColumn(label: Text('Product')),
                   DataColumn(label: Text('Variant')),
-                  DataColumn(label: Text('SKU')),
+                  DataColumn(label: Text('Barcode')),
                   DataColumn(label: Text('Movement Type')),
                   DataColumn(label: Text('Change')),
                   DataColumn(label: Text('Previous')),
@@ -86,7 +86,7 @@ class InventoryMovementsTable extends StatelessWidget {
                       ),
                       DataCell(Text(record.product.baseName)),
                       DataCell(Text(record.variant.variantName)),
-                      DataCell(Text(record.variant.sku)),
+                      DataCell(Text(record.variant.barcode)),
                       DataCell(InventoryMovementBadge(type: movement.type)),
                       DataCell(
                         Text(

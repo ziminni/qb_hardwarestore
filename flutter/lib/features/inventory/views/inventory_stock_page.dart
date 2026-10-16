@@ -24,13 +24,16 @@ class _InventoryStockPageState extends State<InventoryStockPage> {
   bool _ascending = true;
 
   Future<void> _adjust(Product product, ProductVariant variant) async {
+    final inventory = context.read<InventoryViewmodel>();
     final result = await showDialog<InventoryAdjustStockResult>(
       context: context,
-      builder: (_) =>
-          InventoryAdjustStockDialog(product: product, variant: variant),
+      builder: (_) => InventoryAdjustStockDialog(
+        product: product,
+        variant: variant,
+        currentStock: inventory.stockOnHandFor(variant.id),
+      ),
     );
     if (result == null || !mounted) return;
-    final inventory = context.read<InventoryViewmodel>();
     final user =
         context.read<AuthViewmodel>().user?.fullName ?? 'Inventory Staff';
     inventory.adjustStock(
@@ -52,21 +55,22 @@ class _InventoryStockPageState extends State<InventoryStockPage> {
     final inventory = context.watch<InventoryViewmodel>();
     final locations =
         inventory.stockRecords
-            .map((item) => item.variant.storageLocation)
+            .map((item) => inventory.locationHintFor(item.variant.id))
+            .where((location) => location.isNotEmpty)
             .toSet()
             .toList()
           ..sort();
     final records =
         inventory.stockRecords.where((record) {
           final search =
-              '${record.product.baseName} ${record.variant.variantName} ${record.variant.sku}'
+              '${record.product.baseName} ${record.variant.variantName} ${record.variant.barcode}'
                   .toLowerCase();
           return search.contains(_query.toLowerCase()) &&
               (_category == null || record.product.categoryName == _category) &&
               (_status == null ||
-                  inventory.statusFor(record.variant) == _status) &&
+                  inventory.statusForVariant(record.variant.id) == _status) &&
               (_location == null ||
-                  record.variant.storageLocation == _location);
+                  inventory.locationHintFor(record.variant.id) == _location);
         }).toList()..sort(
           (a, b) => _ascending
               ? a.product.baseName.compareTo(b.product.baseName)

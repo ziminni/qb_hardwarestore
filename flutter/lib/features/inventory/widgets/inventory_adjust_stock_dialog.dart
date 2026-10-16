@@ -18,9 +18,14 @@ class InventoryAdjustStockDialog extends StatefulWidget {
     super.key,
     required this.product,
     required this.variant,
+    required this.currentStock,
   });
   final Product product;
   final ProductVariant variant;
+
+  /// Stock on hand, passed in from the batch-backed viewmodel rather than read
+  /// off the variant: the variant no longer carries a quantity (decision 02).
+  final double currentStock;
 
   @override
   State<InventoryAdjustStockDialog> createState() =>
@@ -31,7 +36,7 @@ class _InventoryAdjustStockDialogState
     extends State<InventoryAdjustStockDialog> {
   final _formKey = GlobalKey<FormState>();
   late final _quantity = TextEditingController(
-    text: widget.variant.currentStock.toStringAsFixed(0),
+    text: widget.currentStock.toStringAsFixed(0),
   );
   final _notes = TextEditingController();
   String _reason = 'Count Correction';
@@ -45,9 +50,8 @@ class _InventoryAdjustStockDialogState
 
   @override
   Widget build(BuildContext context) {
-    final quantity =
-        double.tryParse(_quantity.text) ?? widget.variant.currentStock;
-    final difference = quantity - widget.variant.currentStock;
+    final quantity = double.tryParse(_quantity.text) ?? widget.currentStock;
+    final difference = quantity - widget.currentStock;
     return AlertDialog(
       title: const Text('Adjust Stock'),
       content: SizedBox(
@@ -65,7 +69,7 @@ class _InventoryAdjustStockDialogState
                 Text(widget.variant.variantName),
                 const SizedBox(height: AppSpacing.lg),
                 Text(
-                  'Current system quantity: ${widget.variant.currentStock.toStringAsFixed(0)}',
+                  'Current system quantity: ${widget.currentStock.toStringAsFixed(0)}',
                 ),
                 const SizedBox(height: AppSpacing.md),
                 TextFormField(
