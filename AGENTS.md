@@ -25,7 +25,7 @@ the same commit that breaks it.
 
 ## Current Status & Next Step
 
-- **Active branch:** `feature/backend-integration` — 99 commits ahead of `origin/master`, unpushed.
+- **Active branch:** `feature/backend-integration` — 101 commits ahead of `origin/master`, unpushed.
 - **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. The slice
   order is **locked** (Cashier journey) and the map reads **10 locked · 3 open**. **Phases 0, 1 and 2 are COMPLETE**
   — Phase 0's 7 rows are built (the map's "Phase 0 — status" table is the authority, and it was re-verified
@@ -40,24 +40,25 @@ the same commit that breaks it.
   defects that reading and widget tests had both missed** — an HTTP 400 (the serializer demanded a `user` it then
   overwrote with `request.user`) and an HTTP 500 with a **partial write** (`allocate_fifo` used
   `select_for_update` outside a transaction, so the adjustment row committed while the stock never moved).
-  **161 tests pass; `flutter analyze` is clean; `manage.py check` reports 0 issues.**
-  `InventoryViewmodel.load()` with `isLoading`/`loadError`/`hasLoaded`, and `products_page` rendering all four
-  states through `AsyncView`. Suite **131 → 146**. Verified fresh: analyze clean, **146/146**, tree clean, **87**
-  commits ahead. Earlier: `docs/sessions/2026-10-16-map-repair-and-tracker-reconciliation.md` repaired the map's
+  **161 tests pass; `flutter analyze` is clean; `manage.py check` reports 0 issues.** Verified fresh in the
+  closing message: analyze clean, **161/161**, tree clean, **101** commits ahead. Two backend changes went past
+  decision 13's "seed_demo only" scope and both are recorded: `user` is read-only on the adjustment serializer,
+  and `perform_create` is atomic. **`docs/SYSTEM_ATLAS.md` was refreshed for the two rows Phase 2 changed** (their
+  grades did not move, so the tally is unchanged). Earlier: `docs/sessions/2026-10-16-map-repair-and-tracker-reconciliation.md` repaired the map's
   route in the index and reconciled the task tracker; `docs/sessions/2026-10-16-phase-0-complete.md` built the
   five remaining Phase 0 rows and had `Paged.hasMore` falsified by review;
   `docs/sessions/2026-10-16-staged-model-swap-complete.md` finished the staged model swap;
   `docs/sessions/2026-10-16-staged-swap-blockers-and-location-store.md` locked decision 10;
   `docs/sessions/2026-10-16-phase-0-decisions.md` locked the six Phase 0 decisions;
   `docs/sessions/2026-10-15-integration-map.md` opened the map.
-- **Current state (verified):** the backend is feature-complete; the client consumes almost none of it.
-  Of 10 feature modules only `auth` reaches the API. 38 screens scored: 3 live · 27 mock · 8 dead. See
-  `docs/SYSTEM_ATLAS.md`.
-- **Next step:** **Phase 2 — inventory** (stock list, low stock, movements). It needs **no new decisions**; the
-  batch-vs-adjustment distinction was settled by Phase 0 rulings R12–R14. Note that Phase 1 already made
-  `InventoryViewmodel` API-backed, so the inventory screens are **already reading live products and batches** —
-  Phase 2's work is their REMAINING endpoints (movements, adjustments, alerts, tracking) and removing the
-  corresponding mock. Then Phase 3 (POS checkout), gated by decision 06.
+- **Current state (verified):** 38 screens scored **6 live · 4 partial · 20 mock · 8 dead** — see
+  `docs/SYSTEM_ATLAS.md`, which is the authority. Phases 0–2 are built: auth, products, stock, low stock and stock
+  movements all read the server.
+- **Next step:** **Phase 3 — POS checkout** (the money path), gated by
+  [decision 06](./planning/api-integration/decisions/06-checkout-client-contract.md), which is now the **only
+  unblocked frontier item**. The cart already prices and stocks from live catalogue data; what is missing is the
+  `POST /api/v1/transactions/` checkout and its receipt. Consider first: adopting `django-stubs` as a dev
+  dependency (proven to let both type-checker rules stay on with zero suppressions).
 - **Known unfixed, carried forward:** the products toolbar overflows — `A RenderFlex overflowed by 9.7 pixels on
   the right` from `products_toolbar.dart:113` and `products_catalog_overview.dart:156` — pre-existing, visible at
   ~1600px window widths, found while testing Phase 1 and deliberately not fixed (UI work outside that phase's

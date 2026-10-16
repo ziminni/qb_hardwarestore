@@ -11,6 +11,8 @@ commits:
   - 3df40cd  # screens wired, adjustments POSTed
   - 6011bcf  # the adjustment write is atomic and its actor server-owned
   - 794e83a  # type-checker config
+  - 89961a6  # session note, MAP/AGENTS sync, dead imports, pyright directive
+  - ATLAS     # truth-matrix refresh for the two rows Phase 2 re-graded in reason
 scope: Phase 2 — the server becomes the single authority for inventory state
 repo: qb_pos_inventory_system
 skills: [wayfinder, executing-plans, test-driven-development, verification-before-completion, save-progress]
@@ -36,6 +38,16 @@ of mutating local batches. Five ledgered tasks, executed inline with TDD per ste
 
 Net: 190 lines of invented fixture-seeding deleted (`_seedMovements` and its orphaned helper), the client's
 adjustment FIFO path deleted, and six tests deleted that had encoded the removed behaviour.
+
+**Two backend changes went beyond decision 13's "seed_demo only" scope, and both are recorded rather than
+quiet**: `StockAdjustmentSerializer.user` became read-only (the user chose this over sending the actor from the
+client), and `StockAdjustmentViewSet.perform_create` became atomic. Neither was optional — the endpoint could not
+succeed from any client without them.
+
+**`docs/SYSTEM_ATLAS.md` and `docs/system-atlas.html` were refreshed incrementally** for the two rows Phase 2
+changed. The grades did **not** move (Low stock stayed Live, Stock movements stayed Partial), so the tally is
+unchanged at 6 · 4 · 20 · 8 — what changed is the *reason*, and the artifacts had two now-false claims: "derived
+in-client" / "/alerts/ still uncalled" and "movement history still `_seedMovements()`".
 
 ## Mistakes & Gotchas
 

@@ -114,7 +114,7 @@ Legend: 🟢 Live (real API) · 🟡 Partial · 🔴 Mock (hardcoded) · ⚫ Dea
 | Admin dashboard | `dashboard/views/admin_dashboard.dart` | `dashboard/viewmodels/dashboard_mock_data.dart` | — | 🔴 Mock |
 | Inventory dashboard | `dashboard/views/inventory_dashboard.dart` | `dashboard_mock_data.dart` | — | 🔴 Mock |
 | Inventory stock list | `inventory/views/inventory_stock_page.dart` | `inventory/viewmodels/inventory_viewmodel.dart` | `GET /api/v1/batches/` | 🟢 Live |
-| Low stock | `inventory/views/inventory_low_stock_page.dart` | `inventory_viewmodel` | `GET /api/v1/alerts/` · derived in-client | 🟢 Live |
+| Low stock | `inventory/views/inventory_low_stock_page.dart` | `inventory_viewmodel` | `GET /api/v1/alerts/` | 🟢 Live |
 | Stock movements | `inventory/views/inventory_stock_movements_page.dart` | `inventory_viewmodel` | `GET /api/v1/adjustments/` | 🟡 Partial |
 | Products | `products/views/products_page.dart` | `products/viewmodels/products_viewmodel.dart` | `GET /api/v1/products/` + `/batches/` | 🟢 Live |
 | Categories | `categories/views/categories_page.dart` | `inventory_viewmodel` (was recorded as local state — wrong) | `GET /api/v1/categories/` | 🟡 Partial |
@@ -154,10 +154,19 @@ Grading rule, so these are not vibes: 🟢 Live = the screen's *primary* data co
 
 Why they moved: `InventoryViewmodel` is the product list's only home, so **loading it once** (Phase 1) turned
 the catalogue, the stock list and the low-stock list live together. The three Partial rows are those whose
-**own** data is still local — movements (`_seedMovements`), category names (`InventoryMockData.categories`),
-and the checkout POST (the cart reads live prices but `/transactions/` is unwired). `/brands/`, `/uoms/` and
-`/variant-uoms/` stay dead as standalone endpoints: selling units now arrive nested inside `/products/`, and
-the client never calls those routes directly.
+**own** data is still local — category names (`InventoryMockData.categories`), the checkout POST (the cart reads
+live prices but `/transactions/` is unwired), and the movements table, which now renders the **server's**
+adjustments but leaves Previous/New/Reference blank because `StockAdjustmentSerializer` carries a delta with no
+before/after pair, and whose sale and opening-stock rows are still recorded locally (Phase 2; see
+`decision 13`). `/brands/`, `/uoms/` and `/variant-uoms/` stay dead as standalone endpoints: selling units now
+arrive nested inside `/products/`, and the client never calls those routes directly.
+
+**Phase 2 (2026-10-16) moved two rows' *reasons* without changing their grades.** Low stock no longer derives
+its list in-client — it reads `GET /api/v1/alerts/` and shows exactly what the server alerted, so a variant
+below its threshold with no alert does **not** appear (decision 13's accepted cost). Stock movements stopped
+being a client-seeded fiction: `_seedMovements` and its 190 lines of invented history were **deleted**, and
+adjustments are POSTed to the server rather than invented. The tally is unchanged at 6 · 4 · 20 · 8 because both
+rows were already graded Live and Partial.
 
 ---
 
