@@ -16,8 +16,11 @@ library;
 
 /// One page of a list response.
 class Paged<T> {
-  Paged({required List<T> items, required this.total})
-    : items = List.unmodifiable(items);
+  Paged({
+    required List<T> items,
+    required this.total,
+    required this.hasMore,
+  }) : items = List.unmodifiable(items);
 
   /// The rows on this page.
   final List<T> items;
@@ -26,11 +29,16 @@ class Paged<T> {
   /// with `total` 137 is a full first page, not a complete list.
   final int total;
 
+  /// Whether a further page exists, taken from the envelope's `next` link.
+  ///
+  /// DRF sets `next` to null on the last page, so that link is the signal. This
+  /// deliberately is NOT `total > items.length`: that is true of every short
+  /// page, so the last and partial page of a collection would claim another one
+  /// follows and a "load more" control would never stop offering more.
+  final bool hasMore;
+
   bool get isEmpty => items.isEmpty;
   int get length => items.length;
-
-  /// True when the collection is larger than the page that arrived.
-  bool get hasMore => total > items.length;
 }
 
 /// Unwraps the `{count, next, previous, results}` envelope into a [Paged].
@@ -77,5 +85,9 @@ Paged<T> parsePaged<T>(
     items.add(fromJson(row));
   }
 
-  return Paged<T>(items: items, total: count.toInt());
+  return Paged<T>(
+    items: items,
+    total: count.toInt(),
+    hasMore: body['next'] != null,
+  );
 }

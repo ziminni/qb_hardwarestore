@@ -14,6 +14,7 @@ Map<String, dynamic> envelope({
   List<Map<String, dynamic>>? results,
   int? count,
   bool includeCount = true,
+  String? next,
 }) {
   final rows =
       results ??
@@ -23,7 +24,7 @@ Map<String, dynamic> envelope({
       ];
   return {
     if (includeCount) 'count': count ?? rows.length,
-    'next': null,
+    'next': next,
     'previous': null,
     'results': rows,
   };
@@ -147,28 +148,51 @@ void main() {
         throwsA(isA<TypeError>()),
       );
     });
-    test('hasMore is false when the page holds the whole collection', () {
-      final single = parsePaged<Category>(
+    test('a final partial page does not claim more', () {
+      // The defect this locks: `total > items.length` reports "more" for ANY
+      // short page, so page 2 of 137 rows would claim a page 3 forever and a
+      // "Load more" control would never stop. DRF sets `next` to null exactly
+      // on the last page, so THAT is the signal — not the row count.
+      final lastPage = parsePaged<Category>(
         envelope(
           results: [
-            {'id': 1, 'name': 'Cement'},
+            for (var i = 0; i < 37; i++) {'id': i, 'name': 'Row $i'},
           ],
-          count: 1,
-        ),
-        Category.fromJson,
-      );
-      final firstOfMany = parsePaged<Category>(
-        envelope(
-          results: [
-            {'id': 1, 'name': 'Cement'},
-          ],
-          count: 2,
+          count: 137,
         ),
         Category.fromJson,
       );
 
-      expect(single.hasMore, isFalse);
-      expect(firstOfMany.hasMore, isTrue);
+      expect(lastPage.total, 137);
+      expect(lastPage.items, hasLength(37));
+      expect(
+        lastPage.hasMore,
+        isFalse,
+        reason: 'a short page is not a promise of another one',
+      );
+    });
+
+    test('a page with a next link reports more', () {
+      final firstPage = parsePaged<Category>(
+        envelope(
+          results: [
+            {'id': 1, 'name': 'Cement'},
+          ],
+          count: 137,
+          next: 'http://example.test/api/v1/categories/?page=2',
+        ),
+        Category.fromJson,
+      );
+
+      expect(firstPage.hasMore, isTrue);
+    });
+
+    test('a complete single page reports no more', () {
+      final complete = parsePaged<Category>(envelope(), Category.fromJson);
+
+      expect(complete.length, 2);
+      expect(complete.total, 2);
+      expect(complete.hasMore, isFalse);
     });
 
     test('ignores the envelope keys it does not need', () {

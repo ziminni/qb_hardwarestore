@@ -50,11 +50,14 @@ class _FakeAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
-String envelopeBody({int count = 2, List<Map<String, dynamic>>? results}) =>
-    jsonEncode({
-      'count': count,
-      'next': null,
-      'previous': null,
+String envelopeBody({
+  int count = 2,
+  List<Map<String, dynamic>>? results,
+  String? next,
+}) => jsonEncode({
+  'count': count,
+  'next': next,
+  'previous': null,
       'results':
           results ??
           [
@@ -100,6 +103,9 @@ void main() {
       useBody(
         envelopeBody(
           count: 137,
+          // A NON-final page: DRF sets `next` whenever another page exists,
+          // and that link — not the row count — is what `hasMore` reports.
+          next: 'http://example.test/api/v1/products/?page=2',
           results: [
             {'id': 1, 'name': 'Cement'},
           ],
