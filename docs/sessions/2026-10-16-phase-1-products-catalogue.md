@@ -28,7 +28,7 @@ implementation — not left to a commit message.
 
 | File | What |
 | :--- | :--- |
-| `planning/.../decisions/12-phase-1-live-data-home.md` | **Decision 12, LOCKED** — the store swap, what the mock retains, and the accepted cost |
+| `planning/api-integration/decisions/12-phase-1-live-data-home.md` | **Decision 12, LOCKED** — the store swap, what the mock retains, and the accepted cost |
 | `flutter/lib/data/services/products_service.dart` | `ProductsService.fetchCatalogue()` → both endpoints via `ApiClient.getList<T>`, so `parsePaged` unwraps each envelope (decision 03). `ProductsSnapshot {products, batches}`. `DioException` → `ProductsServiceException` |
 | `flutter/lib/data/repositories/products_repository.dart` | Pass-through, keeping `View → VM → Repo → Service → ApiClient` |
 | `flutter/lib/features/inventory/viewmodels/inventory_viewmodel.dart` | `load()`, `isLoading`, `loadError`, `hasLoaded`; injected `ProductsRepository` defaulting to the real one, so all 27 existing `InventoryViewmodel()` sites keep working |
