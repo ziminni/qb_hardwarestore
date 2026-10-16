@@ -6,14 +6,17 @@ import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/variant_uom.dart';
+import 'package:client/data/repositories/products_repository.dart';
 import 'package:client/data/services/catalogue_assembler.dart';
 import 'package:client/data/services/location_hint_store.dart';
+import 'package:client/data/services/products_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_mock_data.dart';
 import 'package:flutter/foundation.dart' show ChangeNotifier;
 
 class InventoryViewmodel extends ChangeNotifier {
-  InventoryViewmodel()
-    : _categories = List.of(InventoryMockData.categories),
+  InventoryViewmodel({ProductsRepository? products})
+    : _catalogue = products ?? ProductsRepository(ProductsService()),
+      _categories = List.of(InventoryMockData.categories),
       _products = List.of(InventoryMockData.products),
       _batches = List.of(InventoryMockData.batches) {
     _seedMovements();
@@ -25,6 +28,14 @@ class InventoryViewmodel extends ChangeNotifier {
 
   final List<Category> _categories;
   final List<Product> _products;
+
+  /// Where the catalogue is fetched from (decision 12). Injected so a test can
+  /// drive a load without a network, and so the store keeps the one-data-path
+  /// shape: viewmodel -> repository -> service -> ApiClient.
+  final ProductsRepository _catalogue;
+
+  bool _isLoading = false;
+  String? _loadError;
 
   /// Where stock actually lives (decision 02). Every quantity question is
   /// answered from here, never from a field on the variant.
@@ -38,6 +49,49 @@ class InventoryViewmodel extends ChangeNotifier {
   List<Category> get categories => List.unmodifiable(_categories);
   List<Product> get products => List.unmodifiable(_products);
   List<InventoryMovement> get movements => List.unmodifiable(_movements);
+
+  /// A catalogue fetch is in flight. Public per decision 07's convention, so
+  /// [AsyncView] can render the loading state.
+  bool get isLoading => _isLoading;
+
+  /// Why the last load failed, or null. Outranks the empty state in
+  /// [AsyncView], so a failed fetch is never reported as "no products".
+  String? get loadError => _loadError;
+
+  /// Replaces the catalogue and its stock with live API data (decision 12).
+  ///
+  /// The product list has exactly ONE home — here — which is why Phase 1 makes
+  /// this store API-backed rather than adding a second source: `ProductsViewmodel`
+  /// (decision 11) and `assembleCatalogue` both already read from these lists, so
+  /// every downstream screen goes live without a single consumer change.
+  ///
+  /// On failure the message is surfaced and the existing catalogue is **left
+  /// intact**. It is deliberately not cleared: an empty list would render as a
+  /// legitimate "no products" that the user cannot act on, whereas a retained
+  /// list plus [loadError] lets [AsyncView] show a retryable error.
+  ///
+  /// Only products and batches are touched. The mock stays the source for
+  /// movements, adjustments and tracking until their phases land.
+  Future<void> load() async {
+    _isLoading = true;
+    _loadError = null;
+    notifyListeners();
+    try {
+      final snapshot = await _catalogue.loadCatalogue();
+      _products
+        ..clear()
+        ..addAll(snapshot.products);
+      _batches
+        ..clear()
+        ..addAll(snapshot.batches);
+      _loadError = null;
+    } on ProductsServiceException catch (error) {
+      _loadError = error.message;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
 
   /// A variant's batches, oldest delivery first — the order FIFO deducts in.
   ///
