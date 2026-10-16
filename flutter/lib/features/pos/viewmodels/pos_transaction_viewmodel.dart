@@ -1,15 +1,23 @@
+import 'package:client/data/models/customer.dart';
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/data/models/product_tracking.dart';
 import 'package:client/data/models/variant_uom.dart';
+import 'package:client/data/repositories/customer_repository.dart';
 import 'package:client/data/repositories/pos_repository.dart';
+import 'package:client/data/services/customer_service.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:flutter/foundation.dart';
 
 class PosTransactionViewmodel extends ChangeNotifier {
-  PosTransactionViewmodel(this._inventory, this._tracking, {PosRepository? pos})
-    : _pos = pos ?? PosRepository(PosService()) {
+  PosTransactionViewmodel(
+    this._inventory,
+    this._tracking, {
+    PosRepository? pos,
+    CustomerRepository? customers,
+  }) : _pos = pos ?? PosRepository(PosService()),
+       _customers = customers {
     _inventory.addListener(_inventoryChanged);
     _tracking.addListener(_inventoryChanged);
   }
@@ -17,6 +25,16 @@ class PosTransactionViewmodel extends ChangeNotifier {
   final InventoryViewmodel _inventory;
   final ProductTrackingViewmodel _tracking;
   final PosRepository _pos;
+  final CustomerRepository? _customers;
+
+  /// Built on FIRST USE, not in the constructor.
+  ///
+  /// Eager construction meant every test that only wanted the cart still built a real
+  /// `CustomerService` over `ApiClient.instance`, and any test whose `ApiClient.init()` had
+  /// not run died with `LateInitializationError: Field 'dio' has not been initialized` -
+  /// a failure about the transport, in tests about the cart.
+  CustomerRepository get _customerRepo =>
+      _customers ?? CustomerRepository(CustomerService());
   final List<PosCartLine> _lines = [];
   final List<PosReceipt> _receipts = [];
   String _query = '';
@@ -24,6 +42,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
   String? _submitError;
   int? _walkInCustomerId;
   int? _insufficientStockLineId;
+  Customer? _selectedCustomer;
 
   List<PosCartLine> get lines => List.unmodifiable(_lines);
   List<PosReceipt> get receipts => List.unmodifiable(_receipts);
@@ -49,6 +68,51 @@ class PosTransactionViewmodel extends ChangeNotifier {
   /// is mapped through the catalogue; the cart holds the row, the server holds the
   /// variant, and only the catalogue knows which units a variant sells.
   int? get insufficientStockLineId => _insufficientStockLineId;
+
+  /// Who this sale is addressed to, or null for an **anonymous** sale.
+  ///
+  /// Null is the DEFAULT and not an error state: decision 14 made a walk-in stop being a
+  /// customer record, so an anonymous sale is the ordinary case and reuses the seeded
+  /// Walk-in Customer without asking the buyer anything. A non-null value means the cashier
+  /// picked or created a named account, and the debt that may follow belongs to someone
+  /// collectable.
+  Customer? get selectedCustomer => _selectedCustomer;
+
+  /// What the checkout shows as the buyer. Never empty, so the cashier can always tell who
+  /// the sale is for. The `(anonymous)` marker matters: it is the difference between "this
+  /// will be paid in full" and "this may become someone's debt".
+  String get customerLabel => _selectedCustomer?.name ?? 'Walk-in Customer (anonymous)';
+
+  /// Chooses the buyer, or null to go back to an anonymous sale.
+  void selectCustomer(Customer? customer) {
+    _selectedCustomer = customer;
+    notifyListeners();
+  }
+
+  /// Records a customer at the counter and selects them.
+  ///
+  /// Returns null on success, or a message safe to show a cashier. On failure NOTHING is
+  /// selected - selecting a customer that was never created would post the sale, and any
+  /// utang with it, to a record that does not exist.
+  ///
+  /// The record is deliberately minimal (name + type): decision 14's locked decision 1 keeps
+  /// contact details, TIN and the credit limit out of the cashier's hands at the till.
+  Future<String?> createAndSelectCustomer({
+    required String name,
+    required CustomerType type,
+  }) async {
+    try {
+      final created = await _customerRepo.createCustomer(
+        name: name,
+        type: type,
+      );
+      _selectedCustomer = created;
+      notifyListeners();
+      return null;
+    } on CustomerServiceException catch (error) {
+      return error.message;
+    }
+  }
 
   /// The cart line selling [variantId], or null when the cart sells no such variant.
   int? _lineForVariant(int? variantId) {
@@ -272,7 +336,6 @@ class PosTransactionViewmodel extends ChangeNotifier {
   /// Returns whether the sale was confirmed, so a caller cannot announce success
   /// unconditionally.
   Future<bool> submit({
-    int? customerId,
     required String paymentMethod,
     required double amountPaid,
   }) async {
@@ -284,10 +347,12 @@ class PosTransactionViewmodel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // A walk-in sale cannot omit the customer (decision 06 section 2), so resolve
-      // the seed's Walk-in Customer once and reuse it.
+      // The buyer is the SELECTED customer when the cashier picked or created one, and the
+      // seeded Walk-in Customer otherwise - a walk-in sale still cannot omit the customer,
+      // because the FK is not nullable (decision 06 section 2).
       final buyer =
-          customerId ?? (_walkInCustomerId ??= await _pos.walkInCustomerId());
+          _selectedCustomer?.id ??
+          (_walkInCustomerId ??= await _pos.walkInCustomerId());
       // Snapshot the lines being sold: the receipt must describe THIS sale, not
       // whatever the cart holds when the response lands.
       final sold = List<PosCartLine>.of(_lines);

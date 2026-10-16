@@ -12,6 +12,7 @@
 //   * An empty cart is never submitted: the server has no guard on an empty items
 //     list and would happily mint a zero-value receipt.
 
+import 'package:client/data/models/customer.dart';
 import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
@@ -75,8 +76,18 @@ void main() {
     expect(cart.addLine(option, 2), isNull);
   }
 
-  Future<bool> submit() =>
-      cart.submit(customerId: 2, paymentMethod: 'CASH', amountPaid: 20);
+  /// Submits, selecting a named customer first.
+  ///
+  /// `submit` no longer takes a `customerId`: decision 14 made the selection a step of its
+  /// own ([PosTransactionViewmodel.selectCustomer]), because the cashier can also CREATE a
+  /// customer mid-sale and the sale must go to whichever account is selected when the
+  /// button is pressed - not to an id passed in at the call site.
+  Future<bool> submit() {
+    cart.selectCustomer(
+      const Customer(id: 2, name: 'Maria Santos', customerType: 'REGULAR'),
+    );
+    return cart.submit(paymentMethod: 'CASH', amountPaid: 20);
+  }
 
   test(
     'a confirmed sale clears the cart and carries the SERVER numbers',
