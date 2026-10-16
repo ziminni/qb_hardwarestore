@@ -27,10 +27,10 @@ the same commit that breaks it.
 
 - **Active branch:** `feature/backend-integration` — 114 commits ahead of `origin/master`, unpushed.
 - **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. The slice order is
-  **locked** (Cashier journey) and the map reads **11 locked · 3 open** — 14 decision files: 11 settled, and 05,
-  09 and 14 open. (It read "2 open" until 2026-10-16, which was correct the moment decision 06 resolved and stale
+  **locked** (Cashier journey) and the map reads **12 locked · 2 open** — 14 decision files: 12 settled, and 09
+  and 05 open. (It read "2 open" until 2026-10-16, which was correct the moment decision 06 resolved and stale
   the moment decision 14 graduated out of the Fog of War in the same session; the headline was never recounted.)
-  **Phases 0-3 are COMPLETE.** Phase 0's 7
+  **Phases 0-3 are COMPLETE and Phase 4 is unlocked.** Phase 0's 7
   rows are built (the map's "Phase 0 — status" table is the authority, and it was re-verified against the CODE
   after being wrong twice in opposite directions); Phase 1's products catalogue renders live API data; Phase 2
   made the **server the authority for inventory state**; and Phase 3 made the POS **complete a real sale**. The map
@@ -63,10 +63,16 @@ the same commit that breaks it.
   than restating the arithmetic. Auth, products, stock, low stock, stock movements and **checkout** read the server.
   The Atlas's own count of wired endpoints was corrected from 8 to **11** while refreshing: it had already been
   stale by two before Phase 3, because Phase 2 wired `alerts/` and `adjustments/` and the count was not revisited.
-- **Next step:** **resolve decision 14 (Customer Master-Data Scope) in domain-model mode** — Phase 4's question,
-  which checkout sharpened by making the customer id mandatory on every sale. Phases 5 and 6 remain gated by
-  decisions 09 and 05. One item is owed **before the branch merges**: a fresh-context review of Phase 3 (the
-  review performed was a self-review, because both dispatches failed on `402: insufficient credits`).
+- **Next step:** **BUILD Phase 4 — customer master data**, whose ticket
+  [Customer Master-Data Scope (POS side)](./planning/api-integration/decisions/14-customer-master-data-scope.md)
+  was **resolved 2026-10-16**, so the phase is ready with no new decisions. The contract is pinned in that file;
+  three things in it are worth knowing before starting: a walk-in is **not** a customer record and **cannot go
+  into utang** (the live DB already carries **₱4,900 booked against Walk-in** from the old behaviour), utang is
+  shown in a **panel at the till** with a credit-limit warning that is **advisory only**, and the phase **must
+  first fix three real backend defects** — `Customer` has no `full_name`, so `/ledgers/aging/` returns **500** and
+  every ledger row's `customer_name` is silently **null**. Phases 5 and 6 remain gated by decisions 09 and 05. One
+  item is owed **before the branch merges**: a fresh-context review of Phase 3 (the review performed was a
+  self-review, because both dispatches failed on `402: insufficient credits`).
 - **Known unfixed, carried forward:** the products toolbar overflows — `A RenderFlex overflowed by 9.7 pixels on
   the right` from `products_toolbar.dart:113` and `products_catalog_overview.dart:156` — pre-existing, visible at
   ~1600px window widths, found while testing Phase 1 and deliberately not fixed (UI work outside that phase's
