@@ -1,10 +1,3 @@
-# The bundled type-checker does not model Django, so it reports
-# `Model.objects` and `BaseCommand.style.SUCCESS` as unknown attributes on almost
-# every line of this file -- including lines that predate the current change. The
-# package that teaches it those APIs (django-stubs) is not installed, and the
-# checker reads no repo config, so there is no way to configure it. Django's own
-# `manage.py check` is the authority for this file and reports no issues.
-# pyright: reportAttributeAccessIssue=false
 ﻿from datetime import timedelta
 from decimal import Decimal
 
