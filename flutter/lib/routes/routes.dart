@@ -9,6 +9,7 @@ import 'package:client/features/admin/views/settings_page.dart';
 import 'package:client/features/categories/views/categories_page.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/auth/views/login_page.dart';
+import 'package:client/features/auth/views/unsupported_role_page.dart';
 import 'package:client/features/dashboard/views/admin_dashboard.dart';
 import 'package:client/features/dashboard/views/inventory_dashboard.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
@@ -36,6 +37,10 @@ class AppRoutes {
   AppRoutes._();
 
   static const String login = '/login';
+
+  /// Where an authenticated account with no POS dashboard is sent.
+  /// See [UnsupportedRolePage] and decision 04.
+  static const String unsupportedRole = '/unsupported-role';
   static const String adminDashboard = '/admin/dashboard';
   static const String adminUserManagement = '/admin/users';
   static const String adminInventory = '/admin/inventory';
@@ -64,6 +69,50 @@ class AppRoutes {
   static const String salesReceivables = '/sales/receivables';
   static const String salesReturns = '/sales/returns';
   static const String salesReports = '/sales/reports';
+
+  /// The pure routing decision: where a request to [location] should go, or null
+  /// to stay.
+  ///
+  /// Extracted from the router's `redirect` closure so the role rules are
+  /// testable **without rendering a dashboard**. Every dashboard is built on the
+  /// same skeleton, whose existing layout assertions fire under a widget test,
+  /// so a routing test that rendered one would fail for a reason that has
+  /// nothing to do with routing.
+  static String? redirectFor({
+    required bool isAuthenticated,
+    required String? role,
+    required String location,
+  }) {
+    final isLogin = location == login;
+    final isUnsupported = location == unsupportedRole;
+
+    if (!isAuthenticated) return isLogin ? null : login;
+
+    final dashboard = dashboardForRole(role);
+    if (dashboard == null) {
+      // Decision 04: an unmapped or role-less account gets an explicit screen,
+      // never a silent bounce to `/login` while apparently signed in. Returning
+      // null when already there is what stops this from looping.
+      return isUnsupported ? null : unsupportedRole;
+    }
+    if (isLogin || isUnsupported) return dashboard;
+    if (location.startsWith('/admin/') && role != 'admin') return dashboard;
+    if (location.startsWith('/inventory/') && role != 'inventory') {
+      return dashboard;
+    }
+    if (location.startsWith('/sales/') && role != 'sales') return dashboard;
+
+    const protectedDashboards = {
+      adminDashboard,
+      inventoryDashboard,
+      posDashboard,
+      salesDashboard,
+    };
+    if (protectedDashboards.contains(location) && location != dashboard) {
+      return dashboard;
+    }
+    return null;
+  }
 
   static String? dashboardForRole(String? role) {
     return switch (role) {
@@ -111,43 +160,23 @@ class AppRoutes {
     return GoRouter(
       initialLocation: login,
       refreshListenable: auth,
-      redirect: (context, state) {
-        final location = state.matchedLocation;
-        final isLogin = location == login;
-
-        if (!auth.isAuthenticated) return isLogin ? null : login;
-
-        final dashboard = dashboardForRole(auth.roleName);
-        if (dashboard == null) return isLogin ? null : login;
-        if (isLogin) return dashboard;
-        if (location.startsWith('/admin/') && auth.roleName != 'admin') {
-          return dashboard;
-        }
-        if (location.startsWith('/inventory/') &&
-            auth.roleName != 'inventory') {
-          return dashboard;
-        }
-        if (location.startsWith('/sales/') && auth.roleName != 'sales') {
-          return dashboard;
-        }
-
-        const protectedDashboards = {
-          adminDashboard,
-          inventoryDashboard,
-          posDashboard,
-          salesDashboard,
-        };
-        if (protectedDashboards.contains(location) && location != dashboard) {
-          return dashboard;
-        }
-        return null;
-      },
+      redirect: (context, state) => redirectFor(
+        isAuthenticated: auth.isAuthenticated,
+        role: auth.roleName,
+        location: state.matchedLocation,
+      ),
       routes: [
         GoRoute(
           path: login,
           name: 'login',
           pageBuilder: (context, state) =>
               _transitionPage(state, const LoginPage()),
+        ),
+        GoRoute(
+          path: unsupportedRole,
+          name: 'unsupported_role',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const UnsupportedRolePage()),
         ),
         GoRoute(
           path: adminDashboard,
