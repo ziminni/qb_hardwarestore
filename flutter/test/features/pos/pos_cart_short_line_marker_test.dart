@@ -109,7 +109,11 @@ void main() {
       ),
     );
     expect((marked.title! as Text).data, target.name);
-    expect(cart.lines.last.productName, isNot(target.name), reason: 'need two rows');
+    expect(
+      cart.lines.last.productName,
+      isNot(target.name),
+      reason: 'need two rows',
+    );
     expect(cart.lines.last.productName, other);
   });
 

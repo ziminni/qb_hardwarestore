@@ -101,7 +101,8 @@ void main() {
     expect(
       cart.insufficientStockLineId,
       isNull,
-      reason: 'a 500 is terminal - pointing at a row would blame the wrong thing',
+      reason:
+          'a 500 is terminal - pointing at a row would blame the wrong thing',
     );
   });
 
@@ -121,7 +122,8 @@ void main() {
     expect(
       cart.insufficientStockLineId,
       isNull,
-      reason: 'a stale marker would point at a line during an unrelated failure',
+      reason:
+          'a stale marker would point at a line during an unrelated failure',
     );
   });
 
@@ -134,19 +136,21 @@ void main() {
     expect(cart.insufficientStockLineId, isNull);
   });
 
-  test('a stock rejection the cart cannot map still reports no line, not a wrong one',
-      () async {
-    addFirstLine();
-    // A variant id that matches no line in the cart: better to say nothing than to
-    // point the cashier at an innocent row.
-    repository.failure = PosServiceException(
-      'short',
-      code: 'INSUFFICIENT_STOCK',
-      variantId: 999999,
-    );
+  test(
+    'a stock rejection the cart cannot map still reports no line, not a wrong one',
+    () async {
+      addFirstLine();
+      // A variant id that matches no line in the cart: better to say nothing than to
+      // point the cashier at an innocent row.
+      repository.failure = PosServiceException(
+        'short',
+        code: 'INSUFFICIENT_STOCK',
+        variantId: 999999,
+      );
 
-    await cart.submit(paymentMethod: 'CASH', amountPaid: 1);
+      await cart.submit(paymentMethod: 'CASH', amountPaid: 1);
 
-    expect(cart.insufficientStockLineId, isNull);
-  });
+      expect(cart.insufficientStockLineId, isNull);
+    },
+  );
 }
