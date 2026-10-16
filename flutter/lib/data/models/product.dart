@@ -69,29 +69,28 @@ class ProductVariant {
     bool? isActive,
     String? variantName,
     String? baseUomCode,
-    String? sku,
-    String? qrIdentifier,
-    double? costPrice,
-    double? sellingPrice,
+    double? minStockThreshold,
+    List<VariantUom>? sellingUoms,
+    // Transitional: `_syncLegacyStock` mirrors the batch total onto this field
+    // so not-yet-migrated readers stay correct. Deleted at step 4 with the field.
     double? currentStock,
-    String? storageLocation,
   }) {
     return ProductVariant(
       id: id,
       productId: productId,
       baseUomId: baseUomId,
-      minStockThreshold: minStockThreshold,
+      minStockThreshold: minStockThreshold ?? this.minStockThreshold,
       maxStockLevel: maxStockLevel,
-      sellingUoms: sellingUoms,
+      sellingUoms: sellingUoms ?? this.sellingUoms,
       variantName: variantName ?? this.variantName,
       baseUomCode: baseUomCode ?? this.baseUomCode,
       isActive: isActive ?? this.isActive,
-      sku: sku ?? this.sku,
-      qrIdentifier: qrIdentifier ?? this.qrIdentifier,
-      costPrice: costPrice ?? this.costPrice,
-      sellingPrice: sellingPrice ?? this.sellingPrice,
+      sku: sku,
+      qrIdentifier: qrIdentifier,
+      costPrice: costPrice,
+      sellingPrice: sellingPrice,
       currentStock: currentStock ?? this.currentStock,
-      storageLocation: storageLocation ?? this.storageLocation,
+      storageLocation: storageLocation,
     );
   }
 

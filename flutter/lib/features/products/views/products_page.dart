@@ -32,7 +32,7 @@ class ProductsPage extends StatelessWidget {
       for (final item in viewModel.products) item.brandId: item,
     }.values.toList();
 
-    final result = await showDialog<Product>(
+    final result = await showDialog<ProductFormResult>(
       context: context,
       builder: (context) => ProductsFormDialog(
         product: product,
@@ -45,11 +45,15 @@ class ProductsPage extends StatelessWidget {
 
     final inventory = context.read<InventoryViewmodel>();
     if (product == null) {
-      viewModel.addProduct(result);
-      inventory.addProduct(result);
+      viewModel.addProduct(result.product);
+      // Opening stock arrives as a batch: "a lot at a cost" (decision 02).
+      inventory.addProduct(
+        result.product,
+        openingStock: result.openingStock,
+      );
     } else {
-      viewModel.updateProduct(result);
-      inventory.updateProduct(result);
+      viewModel.updateProduct(result.product);
+      inventory.updateProduct(result.product);
     }
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

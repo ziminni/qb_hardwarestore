@@ -253,34 +253,38 @@ class InventoryViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Adds a product and creates one opening batch per variant that arrives with
-  /// stock — a batch is exactly "a lot at a cost", so the form's quantity and
-  /// cost become real entities here instead of a number on the variant.
+  /// Adds a product and records the opening stock it arrived with.
   ///
-  /// Transitional: the quantity and cost are still read off the legacy
-  /// `currentStock`/`costPrice` fields, which step 4 deletes. The products form is
-  /// migrated onto explicit opening stock before then; if it is not, step 4 fails
-  /// to compile rather than letting this silently write wrong stock.
-  void addProduct(Product product) {
+  /// Opening stock arrives as [InventoryBatch] rows because a batch is exactly
+  /// "a lot at a cost": the quantity and cost the form collects become real
+  /// entities here instead of numbers parked on the variant (decision 02, and
+  /// the answer to decision 10's add-product question). The form passes ids of 0
+  /// and the viewmodel assigns real ones, so it cannot invent colliding ids.
+  ///
+  /// A variant added with no opening stock simply has no batch — `stockOnHandFor`
+  /// then reads 0 and `statusForVariant` calls it out of stock.
+  void addProduct(
+    Product product, {
+    List<InventoryBatch> openingStock = const [],
+  }) {
     final id = _products.fold<int>(0, (value, item) => max(value, item.id)) + 1;
     final stored = product.copyWith(id: id);
     _products.add(stored);
 
-    for (final variant in stored.variants.where(
-      (item) => item.currentStock > 0,
-    )) {
+    for (final batch in openingStock) {
+      if (batch.initialQty <= 0) continue;
       _batches.add(
         InventoryBatch(
           id: _nextBatchId(),
-          variantId: variant.id,
+          variantId: batch.variantId,
           receiptId: _nextReceiptId(),
-          initialQty: variant.currentStock,
-          currentQty: variant.currentStock,
-          unitCostLanded: variant.costPrice,
-          markupPercentage: 0,
-          batchSellingPrice: variant.sellingPrice,
-          expirationDate: null,
-          createdAt: null,
+          initialQty: batch.initialQty,
+          currentQty: batch.currentQty,
+          unitCostLanded: batch.unitCostLanded,
+          markupPercentage: batch.markupPercentage,
+          batchSellingPrice: batch.batchSellingPrice,
+          expirationDate: batch.expirationDate,
+          createdAt: batch.createdAt,
         ),
       );
       _movements.insert(
@@ -288,12 +292,12 @@ class InventoryViewmodel extends ChangeNotifier {
         InventoryMovement(
           id: _movements.length + 1,
           productId: id,
-          variantId: variant.id,
+          variantId: batch.variantId,
           timestamp: DateTime.now(),
           type: InventoryMovementType.initialStock,
-          quantityChange: variant.currentStock,
+          quantityChange: batch.initialQty,
           previousStock: 0,
-          newStock: variant.currentStock,
+          newStock: batch.initialQty,
           reference: 'INITIAL',
           reason: 'Initial setup',
           userName: 'Inventory Staff',

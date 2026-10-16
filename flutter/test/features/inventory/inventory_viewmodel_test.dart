@@ -10,6 +10,7 @@
 // form collects a quantity and a cost and a batch is exactly "a lot at a cost".
 
 import 'package:client/data/models/inventory.dart';
+import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
@@ -145,7 +146,7 @@ void main() {
       expect(vm.stockOnHandFor(1), 140.0);
     });
 
-    test('adding a product creates an opening batch for its stock', () {
+    test('adding a product records the opening stock it is given', () {
       final vm = InventoryViewmodel();
       const product = Product(
         id: 0,
@@ -167,8 +168,6 @@ void main() {
             variantName: 'Test Variant',
             baseUomCode: 'Bag',
             isActive: true,
-            currentStock: 42,
-            costPrice: 100,
             sellingUoms: [
               VariantUom(
                 id: 900,
@@ -185,7 +184,25 @@ void main() {
         ],
       );
 
-      vm.addProduct(product);
+      // Stock arrives as batches, because a batch is exactly "a lot at a cost"
+      // and the variant no longer owns a quantity (decision 02 / decision 10).
+      vm.addProduct(
+        product,
+        openingStock: const [
+          InventoryBatch(
+            id: 0,
+            variantId: 900,
+            receiptId: 0,
+            initialQty: 42,
+            currentQty: 42,
+            unitCostLanded: 100,
+            markupPercentage: 0,
+            batchSellingPrice: 120,
+            expirationDate: null,
+            createdAt: null,
+          ),
+        ],
+      );
 
       final batches = vm.batchesFor(900);
       expect(batches, hasLength(1));
@@ -193,6 +210,42 @@ void main() {
       expect(batches.single.unitCostLanded, 100.0);
       expect(batches.single.initialQty, 42.0);
       expect(vm.stockOnHandFor(900), 42.0);
+      // The viewmodel assigns real ids rather than trusting the form's zeros.
+      expect(batches.single.id, greaterThan(0));
+      expect(batches.single.receiptId, greaterThan(0));
+    });
+
+    test('adding a product with no opening stock creates no batch', () {
+      final vm = InventoryViewmodel();
+      const product = Product(
+        id: 0,
+        categoryId: 1,
+        categoryName: 'Cement',
+        brandId: 1,
+        brandName: 'Holcim',
+        baseName: 'Zero Stock Product',
+        description: '',
+        imageUrl: '',
+        isActive: true,
+        variants: [
+          ProductVariant(
+            id: 901,
+            productId: 0,
+            baseUomId: 1,
+            minStockThreshold: 10,
+            maxStockLevel: 0,
+            variantName: 'No Stock Variant',
+            baseUomCode: 'Bag',
+            isActive: true,
+          ),
+        ],
+      );
+
+      vm.addProduct(product);
+
+      expect(vm.batchesFor(901), isEmpty);
+      expect(vm.stockOnHandFor(901), 0.0);
+      expect(vm.movements.where((m) => m.variantId == 901), isEmpty);
     });
 
     test(

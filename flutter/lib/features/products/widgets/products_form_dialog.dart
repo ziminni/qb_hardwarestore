@@ -1,13 +1,29 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/product_tracking.dart';
+import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/services/image_file_service.dart';
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/products/widgets/products_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
+
+/// What the product form produces: the product plus the opening stock it
+/// collected.
+///
+/// Opening stock is a batch, because a batch is exactly "a lot at a cost" and
+/// the variant no longer carries a quantity (decision 02; decision 10's
+/// add-product answer). The form passes ids of 0 and the viewmodel assigns real
+/// ones.
+class ProductFormResult {
+  const ProductFormResult({required this.product, required this.openingStock});
+  final Product product;
+  final List<InventoryBatch> openingStock;
+}
 
 class ProductsFormDialog extends StatefulWidget {
   const ProductsFormDialog({
@@ -32,7 +48,6 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
   late final TextEditingController _variantController;
-  late final TextEditingController _skuController;
   late final TextEditingController _barcodeController;
   late final TextEditingController _initialStockController;
   late final TextEditingController _reorderController;
@@ -64,35 +79,52 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     _variantController = TextEditingController(
       text: firstVariant?.variantName ?? 'Standard',
     );
-    _skuController = TextEditingController(text: firstVariant?.sku ?? '');
     _barcodeController = TextEditingController(
-      text: firstVariant?.qrIdentifier.isNotEmpty == true
-          ? firstVariant!.qrIdentifier
+      // Barcodes live on the selling unit now (decision 10). This is readable in
+      // initState because it needs no viewmodel; stock, cost and location do, so
+      // they are filled in didChangeDependencies instead.
+      text: firstVariant?.barcode.isNotEmpty == true
+          ? firstVariant!.barcode
           : 'QB-${DateTime.now().millisecondsSinceEpoch}',
     );
-    _initialStockController = TextEditingController(
-      text: firstVariant == null
-          ? '0'
-          : firstVariant.currentStock.toStringAsFixed(0),
-    );
+    _initialStockController = TextEditingController(text: '0');
     _reorderController = TextEditingController(
       text: firstVariant == null
           ? '10'
           : firstVariant.reorderLevel.toStringAsFixed(0),
     );
-    _locationController = TextEditingController(
-      text: firstVariant?.storageLocation ?? '',
-    );
+    _locationController = TextEditingController(text: '');
     _packageSizeController = TextEditingController(text: '40');
-    _costController = TextEditingController(
-      text: firstVariant?.costPrice.toStringAsFixed(2) ?? '0',
-    );
+    _costController = TextEditingController(text: '0');
     _sellingController = TextEditingController(
-      text: firstVariant?.sellingPrice.toStringAsFixed(2) ?? '0',
+      // The charged price is the selling unit's, never the batch's (decision 08).
+      text:
+          firstVariant?.sellingUoms.firstOrNull?.defaultSellingPrice
+              .toStringAsFixed(2) ??
+          '0',
     );
     _categoryId = product?.categoryId ?? widget.categories.first.categoryId;
     _brandId = product?.brandId ?? widget.brands.first.brandId;
     _imagePath = product?.imageUrl ?? '';
+  }
+
+  InventoryViewmodel? _inventory;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Batch stock, batch cost and the store-local location hint are not on the
+    // variant, so they are read once here into the controllers the form shows.
+    if (_inventory != null) return;
+    _inventory = context.read<InventoryViewmodel>();
+    final first = widget.product?.variants.firstOrNull;
+    if (first == null) return;
+    _initialStockController.text = _inventory!.stockOnHandFor(
+      first.id,
+    ).toStringAsFixed(0);
+    _costController.text = (_inventory!.costFor(first.id) ?? 0)
+        .toStringAsFixed(2);
+    _locationController.text = _inventory!.locationHintFor(first.id);
   }
 
   @override
@@ -100,7 +132,6 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     _nameController.dispose();
     _descriptionController.dispose();
     _variantController.dispose();
-    _skuController.dispose();
     _barcodeController.dispose();
     _initialStockController.dispose();
     _reorderController.dispose();
@@ -208,10 +239,22 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
         _stockForm == ProductStockForm.standardLengths;
     final total = packaged ? initial * packageSize : initial;
     final existingVariant = existing?.variants.firstOrNull;
+    // Price and barcode belong to the selling unit (decisions 08 and 10), so the
+    // form builds one rather than parking them on the variant.
+    final sellingUoms = <VariantUom>[
+      VariantUom(
+        id: existingVariant?.sellingUoms.firstOrNull?.id ?? 0,
+        variantId: existingVariant?.id ?? 0,
+        uomId: existingVariant?.sellingUoms.firstOrNull?.uomId ?? 0,
+        uomCode: _baseUnit,
+        uomName: _baseUnit,
+        barcodeQr: _barcodeController.text.trim(),
+        conversionFactor: 1,
+        defaultSellingPrice: double.tryParse(_sellingController.text) ?? 0,
+      ),
+    ];
     final variant =
-        existingVariant?.copyWith(
-          qrIdentifier: _barcodeController.text.trim(),
-        ) ??
+        existingVariant?.copyWith(sellingUoms: sellingUoms) ??
         ProductVariant(
           id: DateTime.now().microsecondsSinceEpoch,
           productId: existing?.id ?? 0,
@@ -220,13 +263,8 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
           variantName: _variantController.text.trim(),
           baseUomCode: _baseUnit,
           isActive: true,
-          sku: _skuController.text.trim(),
-          qrIdentifier: _barcodeController.text.trim(),
-          currentStock: total,
           minStockThreshold: double.tryParse(_reorderController.text) ?? 0,
-          storageLocation: _locationController.text.trim(),
-          costPrice: double.tryParse(_costController.text) ?? 0,
-          sellingPrice: double.tryParse(_sellingController.text) ?? 0,
+          sellingUoms: sellingUoms,
         );
     final configuration = ProductTrackingConfiguration(
       productName: _nameController.text.trim(),
@@ -254,18 +292,39 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     );
     context.read<ProductTrackingViewmodel>().save(configuration);
 
+    final product = Product(
+      id: existing?.id ?? 0,
+      categoryId: category.categoryId,
+      categoryName: category.categoryName,
+      brandId: brand.brandId,
+      brandName: brand.brandName,
+      baseName: _nameController.text.trim(),
+      description: _descriptionController.text.trim(),
+      imageUrl: _imagePath,
+      isActive: existing?.isActive ?? true,
+      variants: [variant, ...?existing?.variants.skip(1)],
+    );
+
     Navigator.of(context).pop(
-      Product(
-        id: existing?.id ?? 0,
-        categoryId: category.categoryId,
-        categoryName: category.categoryName,
-        brandId: brand.brandId,
-        brandName: brand.brandName,
-        baseName: _nameController.text.trim(),
-        description: _descriptionController.text.trim(),
-        imageUrl: _imagePath,
-        isActive: existing?.isActive ?? true,
-        variants: [variant, ...?existing?.variants.skip(1)],
+      ProductFormResult(
+        product: product,
+        openingStock: total > 0
+            ? [
+                InventoryBatch(
+                  id: 0,
+                  variantId: variant.id,
+                  receiptId: 0,
+                  initialQty: total,
+                  currentQty: total,
+                  unitCostLanded: double.tryParse(_costController.text) ?? 0,
+                  markupPercentage: 0,
+                  batchSellingPrice:
+                      double.tryParse(_sellingController.text) ?? 0,
+                  expirationDate: null,
+                  createdAt: null,
+                ),
+              ]
+            : const <InventoryBatch>[],
       ),
     );
   }
@@ -316,14 +375,6 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                         ? 'Enter a variant name.'
                         : null,
                   ),
-                  const SizedBox(height: AppSpacing.md),
-                  TextFormField(
-                    controller: _skuController,
-                    decoration: const InputDecoration(labelText: 'SKU'),
-                    validator: (value) => value == null || value.trim().isEmpty
-                        ? 'Enter an SKU.'
-                        : null,
-                  ),
                 ],
                 const SizedBox(height: AppSpacing.md),
                 TextFormField(
@@ -343,7 +394,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                           product.id != widget.product?.id &&
                           product.variants.any(
                             (variant) =>
-                                variant.qrIdentifier.toLowerCase() ==
+                                variant.barcode.toLowerCase() ==
                                 barcode.toLowerCase(),
                           ),
                     );

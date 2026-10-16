@@ -3,7 +3,9 @@ import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/supplier.dart';
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 class PurchasesFormDialog extends StatefulWidget {
   const PurchasesFormDialog({
@@ -38,6 +40,18 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
           if (variant.isActive) (product: product, variant: variant),
   ];
 
+  InventoryViewmodel? _inventory;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _inventory ??= context.read<InventoryViewmodel>();
+  }
+
+  /// The displayed cost is the newest batch's landed unit cost (decision 08).
+  /// The variant no longer owns a cost.
+  double _costFor(int variantId) => _inventory?.costFor(variantId) ?? 0;
+
   List<({Product product, ProductVariant variant})> get _filteredMaterials {
     final query = _query.trim().toLowerCase();
     if (query.isEmpty) return _materials;
@@ -48,8 +62,7 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
               item.product.categoryName.toLowerCase().contains(query) ||
               item.product.brandName.toLowerCase().contains(query) ||
               item.variant.variantName.toLowerCase().contains(query) ||
-              item.variant.sku.toLowerCase().contains(query) ||
-              item.variant.qrIdentifier.toLowerCase().contains(query),
+              item.variant.barcode.toLowerCase().contains(query),
         )
         .toList(growable: false);
   }
@@ -63,7 +76,7 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
     0,
     (sum, item) =>
         sum +
-        item.variant.costPrice * (_selectedQuantities[item.variant.id] ?? 0),
+        _costFor(item.variant.id) * (_selectedQuantities[item.variant.id] ?? 0),
   );
 
   @override
@@ -110,10 +123,10 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
               (item) => PurchaseItem(
                 productName: item.product.baseName,
                 variantName: item.variant.variantName,
-                sku: item.variant.sku,
+                sku: item.variant.barcode,
                 quantity: _selectedQuantities[item.variant.id]!,
                 receivedQuantity: 0,
-                unitCost: item.variant.costPrice,
+                unitCost: _costFor(item.variant.id),
               ),
             )
             .toList(growable: false),
@@ -238,7 +251,7 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
                                               overflow: TextOverflow.ellipsis,
                                             ),
                                             subtitle: Text(
-                                              '${item.variant.variantName} · ${item.variant.sku}\n₱${item.variant.costPrice.toStringAsFixed(2)} / ${item.variant.baseUomCode}',
+                                              '${item.variant.variantName} · ${item.variant.barcode}\n₱${_costFor(item.variant.id).toStringAsFixed(2)} / ${item.variant.baseUomCode}',
                                               maxLines: 2,
                                               overflow: TextOverflow.ellipsis,
                                             ),
@@ -371,7 +384,7 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
                                                 ],
                                               ),
                                               Text(
-                                                '${item.variant.variantName} · ${item.variant.sku}',
+                                                '${item.variant.variantName} · ${item.variant.barcode}',
                                                 style:
                                                     theme.textTheme.bodySmall,
                                               ),
@@ -434,7 +447,7 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
                                                   SizedBox(
                                                     width: 112,
                                                     child: Text(
-                                                      '₱${(item.variant.costPrice * (_selectedQuantities[item.variant.id] ?? 0)).toStringAsFixed(2)}',
+                                                      '₱${(_costFor(item.variant.id) * (_selectedQuantities[item.variant.id] ?? 0)).toStringAsFixed(2)}',
                                                       textAlign: TextAlign.end,
                                                       style: const TextStyle(
                                                         fontWeight:
