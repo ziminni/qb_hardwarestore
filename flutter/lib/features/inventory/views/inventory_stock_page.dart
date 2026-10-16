@@ -2,7 +2,6 @@ import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
 import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/product.dart';
-import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_adjust_stock_dialog.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
@@ -34,18 +33,24 @@ class _InventoryStockPageState extends State<InventoryStockPage> {
       ),
     );
     if (result == null || !mounted) return;
-    final user =
-        context.read<AuthViewmodel>().user?.fullName ?? 'Inventory Staff';
-    inventory.adjustStock(
+    final messenger = ScaffoldMessenger.of(context);
+    // A real write now: the viewmodel POSTs to /api/v1/adjustments/ and re-reads,
+    // so both the stock figure and the movement row come from the server. The
+    // snackbar no longer claims the change lives in mock data.
+    final recorded = await inventory.adjustStock(
       variantId: variant.id,
       newQuantity: result.quantity,
       reason: result.reason,
       notes: result.notes,
-      userName: user,
     );
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Stock and movement history updated in mock data.'),
+    if (!mounted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          recorded
+              ? 'Adjustment recorded on the server.'
+              : inventory.loadError ?? 'The adjustment could not be recorded.',
+        ),
       ),
     );
   }

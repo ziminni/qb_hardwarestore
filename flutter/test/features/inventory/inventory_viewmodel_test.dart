@@ -110,38 +110,6 @@ void main() {
       expect(movement.quantityChange, -30.0);
     });
 
-    test('a downward count correction deducts oldest first', () {
-      final vm = InventoryViewmodel();
-
-      vm.adjustStock(
-        variantId: 1,
-        newQuantity: 120, // a delta of -10
-        reason: 'Shrinkage',
-        notes: '',
-        userName: 'Test',
-      );
-
-      expect(_batchQtys(vm, 1), [70.0, 50.0]);
-    });
-
-    test('an upward count correction lands on the newest batch', () {
-      final vm = InventoryViewmodel();
-
-      vm.adjustStock(
-        variantId: 1,
-        newQuantity: 140, // a delta of +10
-        reason: 'Return',
-        notes: '',
-        userName: 'Test',
-      );
-
-      expect(_batchQtys(vm, 1), [
-        80.0,
-        60.0,
-      ]); // newest lot grew, oldest did not
-      expect(vm.stockOnHandFor(1), 140.0);
-    });
-
     test('adding a product records the opening stock it is given', () {
       final vm = InventoryViewmodel();
       const product = Product(
@@ -277,22 +245,6 @@ void main() {
       expect(vm.costFor(999999), isNull);
     });
 
-    test('costFor follows the newest batch, not the oldest', () {
-      final vm = InventoryViewmodel();
-
-      // An addition lands on the newest batch, which is the one cost reads.
-      vm.adjustStock(
-        variantId: 1,
-        newQuantity: 140,
-        reason: 'Return',
-        notes: '',
-        userName: 'Test',
-      );
-
-      expect(vm.costFor(1), 235.0);
-      expect(vm.latestBatchFor(1)!.currentQty, 60.0);
-    });
-
     test('variantFor finds a variant across products', () {
       final vm = InventoryViewmodel();
 
@@ -398,97 +350,13 @@ void main() {
     });
   });
 
-  group('InventoryViewmodel — adjustment edge cases', () {
-    const noStockProduct = Product(
-      id: 0,
-      categoryId: 1,
-      categoryName: 'Cement',
-      brandId: 1,
-      brandName: 'Holcim',
-      baseName: 'Zero Stock Product',
-      description: '',
-      imageUrl: '',
-      isActive: true,
-      variants: [
-        ProductVariant(
-          id: 901,
-          productId: 0,
-          baseUomId: 1,
-          minStockThreshold: 10,
-          maxStockLevel: 0,
-          variantName: 'No Stock Variant',
-          baseUomCode: 'Bag',
-          isActive: true,
-        ),
-      ],
-    );
-
-    test('a correction below zero is clamped instead of draining stock', () {
-      // The dialog validates >= 0, but a programmatic caller can pass a negative
-      // "new quantity". Clamping keeps the recorded movement honest: without it
-      // the movement would report a NEGATIVE newStock.
-      final vm = InventoryViewmodel();
-
-      vm.adjustStock(
-        variantId: 1,
-        newQuantity: -50,
-        reason: 'Bad input',
-        notes: '',
-        userName: 'Test',
-      );
-
-      expect(vm.stockOnHandFor(1), 0.0);
-      final movement = vm.movements.firstWhere(
-        (entry) => entry.type == InventoryMovementType.stockAdjustment,
-      );
-      expect(movement.newStock, 0.0);
-      expect(movement.newStock, greaterThanOrEqualTo(0));
-      expect(movement.previousStock, 130.0);
-    });
-
-    test('an upward correction on a variant with no batches records it', () {
-      // DELIBERATE DIVERGENCE from the backend, recorded rather than hidden:
-      // `apply_stock_adjustment` (backend_django/apps/inventory/services.py)
-      // applies NOTHING when no batch has current_qty > 0, so a correction on a
-      // fully-depleted item is silently discarded. That is arguably a backend
-      // bug, and silently losing a count the user just typed would be a visible
-      // defect in the demo this mock exists to drive.
-      //
-      // So the count is honoured and the new lot carries it at zero cost, because
-      // there is no cost basis to know. Raised to the human partner as a possible
-      // backend bug; fixing the backend is out of this client-only map's scope.
-      final vm = InventoryViewmodel();
-      vm.addProduct(noStockProduct);
-      expect(vm.batchesFor(901), isEmpty);
-
-      vm.adjustStock(
-        variantId: 901,
-        newQuantity: 40,
-        reason: 'Opening count',
-        notes: '',
-        userName: 'Test',
-      );
-
-      expect(vm.stockOnHandFor(901), 40.0);
-      expect(vm.batchesFor(901), hasLength(1));
-      expect(vm.batchesFor(901).single.unitCostLanded, 0.0);
-    });
-
-    test('a correction that changes nothing records no movement', () {
-      final vm = InventoryViewmodel();
-      final before = vm.movements.length;
-
-      vm.adjustStock(
-        variantId: 1,
-        newQuantity: 130,
-        reason: 'No change',
-        notes: '',
-        userName: 'Test',
-      );
-
-      expect(vm.movements, hasLength(before));
-    });
-
+  // The client-side adjustment tests that used to live here were DELETED, not
+  // rewritten in place: decision 13 makes an adjustment a server write, so they
+  // encoded removed behaviour. Their replacements live in
+  // inventory_viewmodel_authority_test.dart, which asserts the request the client
+  // sends. Removal on its own is a real change, so `sellStock` — which still
+  // deducts locally — keeps its coverage here.
+  group('InventoryViewmodel — selling stock', () {
     test('selling an unknown variant is a no-op, not a crash', () {
       final vm = InventoryViewmodel();
 

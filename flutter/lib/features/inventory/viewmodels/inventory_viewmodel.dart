@@ -17,12 +17,14 @@ import 'package:client/features/inventory/viewmodels/inventory_mock_data.dart';
 import 'package:flutter/foundation.dart' show ChangeNotifier;
 
 class InventoryViewmodel extends ChangeNotifier {
-  InventoryViewmodel({ProductsRepository? products, InventoryRepository? inventory})
-    : _catalogue = products ?? ProductsRepository(ProductsService()),
-      _inventory = inventory ?? InventoryRepository(InventoryService()),
-      _categories = List.of(InventoryMockData.categories),
-      _products = List.of(InventoryMockData.products),
-      _batches = List.of(InventoryMockData.batches) {
+  InventoryViewmodel({
+    ProductsRepository? products,
+    InventoryRepository? inventory,
+  }) : _catalogue = products ?? ProductsRepository(ProductsService()),
+       _inventory = inventory ?? InventoryRepository(InventoryService()),
+       _categories = List.of(InventoryMockData.categories),
+       _products = List.of(InventoryMockData.products),
+       _batches = List.of(InventoryMockData.batches) {
     // Deliberately no `_seedMovements()`: movements are the SERVER's record now
     // (decision 13), and inventing fixtures is the thing being removed.
     // Deliberately no `loadLocationHints()` here: the constructor stays free of
@@ -322,50 +324,63 @@ class InventoryViewmodel extends ChangeNotifier {
   void archiveCategory(Category category) =>
       updateCategory(category.copyWith(isActive: false));
 
-  /// Sets a variant's stock to an absolute count (a count correction). Mirrors
-  /// the backend's `apply_stock_adjustment`: a reduction goes through FIFO oldest
-  /// batch first, an addition lands on the newest batch.
-  void adjustStock({
+  /// Records a stock adjustment ON THE SERVER, then re-reads.
+  ///
+  /// Decision 13: the server owns inventory state, so this no longer moves the
+  /// local batches or inserts a movement row of its own. It POSTs to
+  /// `/api/v1/adjustments/` and calls [load].
+  ///
+  /// It re-reads rather than patching locally because applying an adjustment moves
+  /// stock in the SERVER's batches: a client that only re-fetched the adjustments
+  /// list would draw the new movement beside a now-wrong stock figure.
+  ///
+  /// Returns whether the server accepted it, so the caller does not announce
+  /// success unconditionally.
+  Future<bool> adjustStock({
     required int variantId,
     required double newQuantity,
     required String reason,
     required String notes,
-    required String userName,
-  }) {
-    final product = _productForVariant(variantId);
-    if (product == null) return;
-
+  }) async {
     final previous = stockOnHandFor(variantId);
     // A caller can hand us a negative "new quantity" even though the dialog
-    // validates >= 0. Clamp it: otherwise the FIFO deduction drains every batch
-    // and the movement is recorded with a NEGATIVE newStock.
+    // validates >= 0. Clamp it: otherwise the adjustment asks the server to remove
+    // more than exists.
     final target = newQuantity < 0 ? 0.0 : newQuantity;
     final delta = target - previous;
-    if (delta == 0) return;
+    if (delta == 0) return true;
 
-    if (delta < 0) {
-      _deductFifo(variantId: variantId, quantity: -delta);
-    } else {
-      _addToNewestBatch(variantId: variantId, quantity: delta);
-    }
-
-    _movements.insert(
-      0,
-      InventoryMovement(
-        id: _movements.length + 1,
-        productId: product.id,
+    final trimmed = notes.trim();
+    try {
+      await _inventory.recordAdjustment(
         variantId: variantId,
-        timestamp: DateTime.now(),
-        type: InventoryMovementType.stockAdjustment,
-        quantityChange: delta,
-        previousStock: previous,
-        newStock: previous + delta,
-        reference: 'ADJ-${(_movements.length + 1).toString().padLeft(4, '0')}',
-        reason: notes.trim().isEmpty ? reason : '$reason — ${notes.trim()}',
-        userName: userName,
-      ),
-    );
-    notifyListeners();
+        type: _serverTypeFor(reason),
+        quantity: delta,
+        remarks: trimmed.isEmpty ? reason : '$reason — $trimmed',
+      );
+    } on InventoryServiceException catch (error) {
+      _loadError = error.message;
+      notifyListeners();
+      return false;
+    }
+    await load();
+    return true;
+  }
+
+  /// Maps the adjust dialog's human wording onto the server's `adjustment_type`
+  /// codes. An unknown wording becomes a count correction, matching
+  /// `StockAdjustmentType.fromApiValue`'s own fallback in the other direction.
+  static StockAdjustmentType _serverTypeFor(String reason) {
+    switch (reason) {
+      case 'Damaged Items':
+        return StockAdjustmentType.damage;
+      case 'Shrinkage / Loss':
+        return StockAdjustmentType.shrinkage;
+      case 'Supplier Return':
+        return StockAdjustmentType.returnToSupplier;
+      default:
+        return StockAdjustmentType.correction;
+    }
   }
 
   /// Sells [quantity] of a variant, deducting the oldest batch first — the client
@@ -497,32 +512,6 @@ class InventoryViewmodel extends ChangeNotifier {
     }
   }
 
-  /// Mirrors the addition branch of `apply_stock_adjustment`: the newest batch.
-  void _addToNewestBatch({required int variantId, required double quantity}) {
-    final newest = latestBatchFor(variantId);
-    if (newest == null) {
-      // An upward correction with no prior lot: the count is real but there is no
-      // cost basis for it, so the lot carries the quantity at zero cost rather
-      // than inventing a figure.
-      _batches.add(
-        InventoryBatch(
-          id: _nextBatchId(),
-          variantId: variantId,
-          receiptId: _nextReceiptId(),
-          initialQty: quantity,
-          currentQty: quantity,
-          unitCostLanded: 0,
-          markupPercentage: 0,
-          batchSellingPrice: 0,
-          expirationDate: null,
-          createdAt: null,
-        ),
-      );
-      return;
-    }
-    _replaceBatch(newest, currentQty: newest.currentQty + quantity);
-  }
-
   void _replaceBatch(InventoryBatch batch, {required double currentQty}) {
     final index = _batches.indexWhere((item) => item.id == batch.id);
     if (index < 0) return;
@@ -539,5 +528,4 @@ class InventoryViewmodel extends ChangeNotifier {
       createdAt: batch.createdAt,
     );
   }
-
 }

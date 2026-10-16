@@ -31,6 +31,19 @@ class InventoryMovementsTable extends StatelessWidget {
     );
   }
 
+  /// A before/after figure, or an em dash when the row came from the server.
+  ///
+  /// `StockAdjustmentSerializer` carries a delta (`qty_adjusted`), not a
+  /// before/after pair, so a server row has no such value to show. Every locally
+  /// recorded row — a POS sale, an opening balance — has a reference, which is
+  /// what distinguishes the two here. This is where the mock used to invent
+  /// numbers; decision 13's rule is that the UI must not present an invented
+  /// figure as a real one.
+  String _beforeAfter(double value, InventoryMovement movement, String unit) =>
+      movement.reference.isEmpty
+      ? '—'
+      : '${_number(value).replaceFirst('+', '')} $unit';
+
   String _number(double value) {
     final number = value == value.roundToDouble()
         ? value.toStringAsFixed(0)
@@ -101,15 +114,17 @@ class InventoryMovementsTable extends StatelessWidget {
                       ),
                       DataCell(
                         Text(
-                          '${_number(movement.previousStock).replaceFirst('+', '')} $unit',
+                          _beforeAfter(movement.previousStock, movement, unit),
                         ),
                       ),
                       DataCell(
+                        Text(_beforeAfter(movement.newStock, movement, unit)),
+                      ),
+                      DataCell(
                         Text(
-                          '${_number(movement.newStock).replaceFirst('+', '')} $unit',
+                          movement.reference.isEmpty ? '—' : movement.reference,
                         ),
                       ),
-                      DataCell(Text(movement.reference)),
                       DataCell(
                         SizedBox(
                           width: 220,
