@@ -8,11 +8,8 @@ import 'package:client/features/products/viewmodels/product_tracking_viewmodel.d
 import 'package:flutter/foundation.dart';
 
 class PosTransactionViewmodel extends ChangeNotifier {
-  PosTransactionViewmodel(
-    this._inventory,
-    this._tracking, {
-    PosRepository? pos,
-  }) : _pos = pos ?? PosRepository(PosService()) {
+  PosTransactionViewmodel(this._inventory, this._tracking, {PosRepository? pos})
+    : _pos = pos ?? PosRepository(PosService()) {
     _inventory.addListener(_inventoryChanged);
     _tracking.addListener(_inventoryChanged);
   }

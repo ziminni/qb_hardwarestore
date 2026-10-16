@@ -44,7 +44,9 @@ void main() {
     return answer;
   }
 
-  testWidgets('states the total, what was paid, and the shortfall', (tester) async {
+  testWidgets('states the total, what was paid, and the shortfall', (
+    tester,
+  ) async {
     await show(tester);
 
     expect(find.text('Total'), findsOneWidget);
@@ -59,7 +61,10 @@ void main() {
   testWidgets('submits NOTHING until the utang is accepted', (tester) async {
     // The wording is deliberate: nothing has been submitted at this point.
     await show(tester);
-    expect(find.textContaining('Nothing has been submitted yet'), findsOneWidget);
+    expect(
+      find.textContaining('Nothing has been submitted yet'),
+      findsOneWidget,
+    );
     expect(find.text('Record the utang'), findsOneWidget);
     expect(find.text('Go back'), findsOneWidget);
   });
@@ -96,7 +101,9 @@ void main() {
     expect(answer, isTrue);
   });
 
-  testWidgets('"Go back" answers FALSE, so nothing is submitted', (tester) async {
+  testWidgets('"Go back" answers FALSE, so nothing is submitted', (
+    tester,
+  ) async {
     bool? answer;
     await tester.pumpWidget(
       MaterialApp(

@@ -78,21 +78,24 @@ void main() {
   Future<bool> submit() =>
       cart.submit(customerId: 2, paymentMethod: 'CASH', amountPaid: 20);
 
-  test('a confirmed sale clears the cart and carries the SERVER numbers', () async {
-    addOne();
-    final lines = cart.lines.length;
-    expect(lines, 1);
+  test(
+    'a confirmed sale clears the cart and carries the SERVER numbers',
+    () async {
+      addOne();
+      final lines = cart.lines.length;
+      expect(lines, 1);
 
-    expect(await submit(), isTrue);
+      expect(await submit(), isTrue);
 
-    expect(cart.lines, isEmpty, reason: 'cleared only after a 201');
-    final receipt = cart.receipts.first;
-    expect(receipt.reference, 'TRX-20261016-0007');
-    expect(receipt.officialReceiptNumber, 'OR-20261016-0007');
-    expect(receipt.total, 20);
-    expect(cart.submitError, isNull);
-    expect(cart.isSubmitting, isFalse);
-  });
+      expect(cart.lines, isEmpty, reason: 'cleared only after a 201');
+      final receipt = cart.receipts.first;
+      expect(receipt.reference, 'TRX-20261016-0007');
+      expect(receipt.officialReceiptNumber, 'OR-20261016-0007');
+      expect(receipt.total, 20);
+      expect(cart.submitError, isNull);
+      expect(cart.isSubmitting, isFalse);
+    },
+  );
 
   test('sends the real selling-unit ids and the chosen customer', () async {
     addOne();
@@ -128,16 +131,19 @@ void main() {
     expect(cart.isSubmitting, isFalse);
   });
 
-  test('a server failure keeps the cart and is NOT called a stock problem', () async {
-    addOne();
-    repository.failure = const PosServiceException('Try again.');
+  test(
+    'a server failure keeps the cart and is NOT called a stock problem',
+    () async {
+      addOne();
+      repository.failure = const PosServiceException('Try again.');
 
-    expect(await submit(), isFalse);
+      expect(await submit(), isFalse);
 
-    expect(cart.lines, hasLength(1));
-    expect(cart.receipts, isEmpty);
-    expect(cart.submitError, 'Try again.');
-  });
+      expect(cart.lines, hasLength(1));
+      expect(cart.receipts, isEmpty);
+      expect(cart.submitError, 'Try again.');
+    },
+  );
 
   test('never submits an empty cart', () async {
     // The server has no empty-items guard: an empty sale would succeed and mint a
@@ -153,7 +159,11 @@ void main() {
 
     await submit();
 
-    expect(states, contains(true), reason: 'submit must disable itself in flight');
+    expect(
+      states,
+      contains(true),
+      reason: 'submit must disable itself in flight',
+    );
     expect(states.last, isFalse);
   });
 }

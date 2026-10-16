@@ -76,6 +76,9 @@ void main() {
   test('draining a variant does NOT crash the catalogue rebuild', () {
     addThenDrain();
     expect(() => cart.filteredProducts, returnsNormally);
-    expect(() => cart.saleOptionsFor(cart.filteredProducts.first), returnsNormally);
+    expect(
+      () => cart.saleOptionsFor(cart.filteredProducts.first),
+      returnsNormally,
+    );
   });
 }

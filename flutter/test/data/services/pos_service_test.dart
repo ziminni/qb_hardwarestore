@@ -129,12 +129,8 @@ void main() {
 
   Future<PosCheckoutResult> submit() => service.checkout(
     customerId: 2,
-    items: const [
-      PosCheckoutItem(variantUomId: 8, quantity: 2, unitPrice: 10),
-    ],
-    payments: const [
-      PosCheckoutPayment(method: 'CASH', amountTendered: 20),
-    ],
+    items: const [PosCheckoutItem(variantUomId: 8, quantity: 2, unitPrice: 10)],
+    payments: const [PosCheckoutPayment(method: 'CASH', amountTendered: 20)],
   );
 
   test('POSTs the payload the API expects, under the one data path', () async {
@@ -253,9 +249,10 @@ void main() {
       client.dio.httpClientAdapter = adapter;
       final service = PosService(client: client);
 
-      final error = await service
-          .fetchWalkInCustomerId()
-          .then<Object?>((_) => null, onError: (e) => e);
+      final error = await service.fetchWalkInCustomerId().then<Object?>(
+        (_) => null,
+        onError: (e) => e,
+      );
       expect(error, isA<PosServiceException>());
       expect((error! as PosServiceException).message, contains('Walk-in'));
     });

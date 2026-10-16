@@ -220,7 +220,10 @@ class PosService {
         }
         final detail = body['detail'];
         if (detail is String && detail.isNotEmpty) {
-          return PosServiceException(detail, code: code is String ? code : null);
+          return PosServiceException(
+            detail,
+            code: code is String ? code : null,
+          );
         }
       }
     }
