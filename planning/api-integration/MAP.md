@@ -1,9 +1,10 @@
 # planning/api-integration/MAP.md
 
 **Slug:** `api-integration` · **Opened:** 2026-10-15
-**Status:** 7 locked · 3 open. **Phase 0's decisions are all locked, but its CODE is 2 of 7 rows done** — see
-"Phase 0 — status" below. The staged `ProductVariant` swap finished all four steps (the Models row) and the
-catalogue assembler exists; Transport, Presentation, Routing, Registration and Cleanup are **NOT STARTED**.
+**Status:** 8 locked · 3 open. **Phase 0's decisions are ALL locked and its code work is now fully specified** —
+see "Phase 0 — status" below. The staged `ProductVariant` swap finished all four steps (the Models row) and the
+catalogue assembler exists; Transport, Presentation, Routing, Registration and Cleanup are **specified and
+ready to build, not yet built**.
 
 ## Destination
 
@@ -13,7 +14,7 @@ mockup *of* the system and becomes a client *of* it.
 
 ## Phase 0 — status (verified 2026-10-16)
 
-**2 of 7 rows done. Phase 1 CANNOT start yet.** The continuation session that recorded the swap as "Phase 0
+**2 of 7 rows built; 5 specified and ready to build. Phase 1 CANNOT start until those 5 land.** The continuation session that recorded the swap as "Phase 0
 complete" conflated the staged `ProductVariant` swap (which is the *Models* row, expanded by rulings R7/R8 into
 a phase-sized job) with the whole of Phase 0. The swap is genuinely finished; the rest of Phase 0 is not.
 
@@ -24,8 +25,8 @@ a phase-sized job) with the whole of Phase 0. The swap is genuinely finished; th
 | **Transport** | ❌ **not started** | no `ApiClient.getList<T>`, no `Paged<T>` anywhere in `lib/` |
 | **Presentation** | ❌ **not started** | `lib/core/widgets/async_view.dart` does not exist |
 | **Routing** | ❌ **not started** | `dashboardForRole` still returns `null` for unmapped roles and `routes.dart:121` still does `if (dashboard == null) return isLogin ? null : login` — the silent bounce to `/login` that decision 04 exists to replace |
-| **Registration** | ❌ **not started** | `main.dart` registers 6 providers; `ProductsViewmodel` and `PosTransactionViewmodel` are still absent |
-| **Cleanup** | ❌ **not started** | `products_page.dart` still creates its own local `ChangeNotifierProvider` and watches `InventoryViewmodel` for the low/out-of-stock counts — the "decide which is correct" question is unanswered |
+| **Registration** | 📝 **specified — premise corrected** | Neither viewmodel was ever unwired: `PosTransactionViewmodel` is provided at `pos_transaction_page.dart:35` and already takes the **live** viewmodels and listens to them. `ProductsViewmodel` is provided at `products_page.dart:179` but takes a **snapshot**. By decision 11 the fix is to make it live too, **not** to register either in `main.dart` — they are screen-scoped view state. |
+| **Cleanup** | 📝 **specified** | **Decision 11** answers it: `ProductsViewmodel` becomes view state only, reads the list live from `InventoryViewmodel`, and delegates every mutation so the page calls it once. |
 
 What the swap delivered, for the reasoning only: `InventoryViewmodel` is batch-backed with FIFO deduction
 mirroring `allocate_fifo`, all 16 readers consume batches and `CatalogueItem`, and `LocationHintStore` holds the
@@ -103,6 +104,7 @@ Rules every session on this map must respect. Facts that already have a home are
 - [Role to Dashboard Routing for All Six Roles](./decisions/04-role-dashboard-routing.md): a Site Foreman is a **CPMS-side identity, not a POS user** — `site_foreman` gets no POS dashboard, and unmapped roles route to an explicit screen instead of looping to `/login`.
 - [Which Price the POS Charges](./decisions/08-pricing-rule.md): `VariantUom.default_selling_price` is what the customer is charged; `InventoryBatch.batch_selling_price` is display-only. Cost shows the latest batch's `unit_cost_landed`, labelled as such.
 - [Stock Identifier and Location Hint Presentation](./decisions/10-stock-identifier-and-location-hint.md): **there is no SKU field anywhere in the backend** — the SKU column becomes a **Barcode** column fed by `VariantUom.barcode_qr`. Storage location becomes a **client-local hint persisted with `shared_preferences`**, keyed by variant id, explicitly not API data.
+- [Product List Ownership in the Products Screen](./decisions/11-products-list-ownership.md): `ProductsViewmodel` becomes **view state only** (search, filters, paging, selection) and reads the list live from `InventoryViewmodel`; the duplicate list and the double mutation are deleted. Registering it in `main.dart` is **superseded** — it is screen-scoped, like `PosTransactionViewmodel`, which was never unwired.
 
 ## Active Frontier (Open & Unblocked)
 
