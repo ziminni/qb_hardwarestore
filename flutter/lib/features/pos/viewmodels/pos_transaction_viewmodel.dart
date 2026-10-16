@@ -27,7 +27,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
     for (final record in _inventory.stockRecords) {
       if (!record.product.isActive ||
           !record.variant.isActive ||
-          record.variant.currentStock <= 0) {
+          _inventory.stockOnHandFor(record.variant.id) <= 0) {
         continue;
       }
       final tracking = _tracking.configurationFor(record.product.baseName);
@@ -67,14 +67,12 @@ class PosTransactionViewmodel extends ChangeNotifier {
             productName: record.product.baseName,
             variantName: record.variant.variantName,
             unit: unit,
-            barcode: record.variant.qrIdentifier.isNotEmpty
-                ? record.variant.qrIdentifier
-                : record.variant.sku,
+            barcode: record.variant.barcode,
             conversionFactor: factor,
             unitPrice: configuredPackagePrice > 0
                 ? configuredPackagePrice
-                : record.variant.sellingPrice * factor,
-            availableBaseStock: record.variant.currentStock,
+                : (_inventory.priceFor(record.variant.id) ?? 0) * factor,
+            availableBaseStock: _inventory.stockOnHandFor(record.variant.id),
           ),
         );
       }
