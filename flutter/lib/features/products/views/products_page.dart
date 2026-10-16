@@ -1,5 +1,6 @@
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
+import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/features/products/viewmodels/products_viewmodel.dart';
 import 'package:client/features/products/widgets/products_bulk_actions.dart';
@@ -177,6 +178,7 @@ class ProductsPage extends StatelessWidget {
           ProductsViewmodel(context.read<InventoryViewmodel>().products),
       child: Consumer<ProductsViewmodel>(
         builder: (context, viewModel, child) {
+          final inventory = context.watch<InventoryViewmodel>();
           return InventorySkeletonLayout(
             title: 'Products',
             subtitle: 'View and organize the hardware product catalog.',
@@ -191,20 +193,19 @@ class ProductsPage extends StatelessWidget {
                   archivedProducts: viewModel.archivedProducts,
                   categoryCount: viewModel.categories.length,
                   brandCount: viewModel.brands.length,
-                  lowStockVariants: context
-                      .watch<InventoryViewmodel>()
-                      .stockRecords
+                  lowStockVariants: inventory.stockRecords
                       .where(
                         (record) =>
-                            record.variant.currentStock > 0 &&
-                            record.variant.currentStock <=
-                                record.variant.reorderLevel,
+                            inventory.statusForVariant(record.variant.id) ==
+                            InventoryStockStatus.lowStock,
                       )
                       .length,
-                  outOfStockVariants: context
-                      .watch<InventoryViewmodel>()
-                      .stockRecords
-                      .where((record) => record.variant.currentStock <= 0)
+                  outOfStockVariants: inventory.stockRecords
+                      .where(
+                        (record) =>
+                            inventory.statusForVariant(record.variant.id) ==
+                            InventoryStockStatus.outOfStock,
+                      )
                       .length,
                   onShowAll: viewModel.clearFilters,
                   onShowLowStock: () => navigateInventory(context, 5),

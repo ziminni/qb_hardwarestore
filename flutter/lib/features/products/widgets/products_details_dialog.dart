@@ -3,9 +3,11 @@ import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/product_tracking.dart';
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_stock_status_badge.dart';
 import 'package:client/features/products/widgets/products_image.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 class ProductsDetailsDialog extends StatelessWidget {
   const ProductsDetailsDialog({
@@ -22,6 +24,10 @@ class ProductsDetailsDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Stock, price, cost and location all live outside the variant now: stock on
+    // batches, price on the selling unit, cost on the newest batch, location in
+    // the local hint store. Decision 02 / 08 / 10.
+    final inventory = context.read<InventoryViewmodel>();
 
     return AlertDialog(
       title: Text(product.baseName),
@@ -123,12 +129,7 @@ class ProductsDetailsDialog extends StatelessWidget {
                                 ),
                               ),
                               InventoryStockStatusBadge(
-                                status: variant.currentStock <= 0
-                                    ? InventoryStockStatus.outOfStock
-                                    : variant.currentStock <=
-                                          variant.reorderLevel
-                                    ? InventoryStockStatus.lowStock
-                                    : InventoryStockStatus.inStock,
+                                status: inventory.statusForVariant(variant.id),
                               ),
                             ],
                           ),
@@ -137,22 +138,23 @@ class ProductsDetailsDialog extends StatelessWidget {
                             spacing: AppSpacing.xl,
                             runSpacing: AppSpacing.sm,
                             children: [
-                              Text('SKU: ${variant.sku}'),
-                              Text('Barcode: ${variant.qrIdentifier}'),
+                              Text('Barcode: ${variant.barcode}'),
                               Text('Unit: ${variant.baseUomCode}'),
                               Text(
-                                'Cost: ₱${variant.costPrice.toStringAsFixed(2)}',
+                                'Cost: ₱${(inventory.costFor(variant.id) ?? 0).toStringAsFixed(2)}',
                               ),
                               Text(
-                                'Selling: ₱${variant.sellingPrice.toStringAsFixed(2)}',
+                                'Selling: ₱${(inventory.priceFor(variant.id) ?? 0).toStringAsFixed(2)}',
                               ),
                               Text(
-                                'Stock: ${variant.currentStock.toStringAsFixed(0)}',
+                                'Stock: ${inventory.stockOnHandFor(variant.id).toStringAsFixed(0)}',
                               ),
                               Text(
-                                'Reorder: ${variant.reorderLevel.toStringAsFixed(0)}',
+                                'Reorder: ${variant.minStockThreshold.toStringAsFixed(0)}',
                               ),
-                              Text('Location: ${variant.storageLocation}'),
+                              Text(
+                                'Location: ${inventory.locationHintFor(variant.id)}',
+                              ),
                             ],
                           ),
                         ],
