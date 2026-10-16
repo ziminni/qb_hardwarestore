@@ -1,10 +1,9 @@
 # planning/api-integration/MAP.md
 
 **Slug:** `api-integration` · **Opened:** 2026-10-15
-**Status:** 8 locked · 3 open. **Phase 0's decisions are ALL locked and its code work is now fully specified** —
-see "Phase 0 — status" below. The staged `ProductVariant` swap finished all four steps (the Models row) and the
-catalogue assembler exists; Transport, Presentation, Routing, Registration and Cleanup are **specified and
-ready to build, not yet built**.
+**Status:** 8 locked · 3 open. **Phase 0 is COMPLETE — all 7 rows built, then verified row-by-row against
+the code rather than against the ledger, then reviewed on a fresh context and the two defects it found fixed.**
+Phase 1 is unblocked; the three open decisions gate Phases 3, 5 and 6.
 
 ## Destination
 
@@ -12,25 +11,32 @@ Every screen reachable by a seeded role renders **live API data** with loading, 
 `*_mock_data.dart` file survives, and no client-reachable endpoint is left uncalled. The client stops being a
 mockup *of* the system and becomes a client *of* it.
 
-## Phase 0 — status (verified 2026-10-16)
+## Phase 0 — status (verified 2026-10-16, after the build)
 
-**2 of 7 rows built; 5 specified and ready to build. Phase 1 CANNOT start until those 5 land.** The continuation session that recorded the swap as "Phase 0
-complete" conflated the staged `ProductVariant` swap (which is the *Models* row, expanded by rulings R7/R8 into
-a phase-sized job) with the whole of Phase 0. The swap is genuinely finished; the rest of Phase 0 is not.
+**7 of 7 rows done. Phase 1 is unblocked.** This table has been wrong twice in opposite directions, so it is
+stated with evidence and was re-verified against the CODE after the build landed, not against the ledger: an
+earlier session recorded "Phase 0 complete" while only 2 rows existed (it had conflated the staged
+`ProductVariant` swap — the *Models* row, expanded by rulings R7/R8 into a phase-sized job — with all of
+Phase 0), and the table then under-claimed for a session after the work had actually landed.
 
 | Row | State | Evidence |
 | :--- | :--- | :--- |
 | **Models** | ✅ done | `ProductVariant` carries exactly the nine API fields plus a derived `barcode` getter; the six invented fields are deleted |
 | **Assembler** | ✅ done | `lib/data/models/catalogue_item.dart`, `lib/data/services/catalogue_assembler.dart` |
-| **Transport** | ❌ **not started** | no `ApiClient.getList<T>`, no `Paged<T>` anywhere in `lib/` |
-| **Presentation** | ❌ **not started** | `lib/core/widgets/async_view.dart` does not exist |
-| **Routing** | ❌ **not started** | `dashboardForRole` still returns `null` for unmapped roles and `routes.dart:121` still does `if (dashboard == null) return isLogin ? null : login` — the silent bounce to `/login` that decision 04 exists to replace |
-| **Registration** | 📝 **specified — premise corrected** | Neither viewmodel was ever unwired: `PosTransactionViewmodel` is provided at `pos_transaction_page.dart:35` and already takes the **live** viewmodels and listens to them. `ProductsViewmodel` is provided at `products_page.dart:179` but takes a **snapshot**. By decision 11 the fix is to make it live too, **not** to register either in `main.dart` — they are screen-scoped view state. |
-| **Cleanup** | 📝 **specified** | **Decision 11** answers it: `ProductsViewmodel` becomes view state only, reads the list live from `InventoryViewmodel`, and delegates every mutation so the page calls it once. |
+| **Transport** | ✅ done | `lib/core/network/paged.dart` — `Paged<T>` + the pure `parsePaged` unwrapping the envelope in one place — and `ApiClient.getList<T>`. Commit `adac3bc`, 15 tests |
+| **Presentation** | ✅ done | `lib/core/widgets/async_view.dart`, precedence loading > error > empty > data baked into the widget. Commit `f7359db`, 6 tests |
+| **Routing** | ✅ done | `lib/features/auth/views/unsupported_role_page.dart`, `AppRoutes.unsupportedRole`, and a **pure** `AppRoutes.redirectFor` replacing the silent bounce to `/login`. Commit `3fd1cf1`, 20 tests |
+| **Registration** | ✅ **dissolved — no code needed** | Neither viewmodel was ever unwired: `PosTransactionViewmodel` is provided at `pos_transaction_page.dart:35` and already takes the **live** viewmodels and listens to them, and `ProductsViewmodel` is provided at `products_page.dart` and is now live too. Decision 11 **supersedes** registering either in `main.dart` — they are screen-scoped view state, and a globally shared search box and half-finished till cart are unwanted. |
+| **Cleanup** | ✅ done | **Decision 11**: `ProductsViewmodel` is view state only, reads the list live from `InventoryViewmodel`, and delegates every mutation, so the page calls each one ONCE and the two product-id authorities are gone. Commit `cd8dcef`, 20 tests |
+
+Two defects were found by the fresh-context review of this work and both are fixed: `Paged.hasMore` reported
+"more" for any short page (it used the row count instead of the envelope's `next` link), and the sign-out path
+had no test proving it arrives anywhere. See rulings **R29** and the Task 6/7 entries in
+`.superpowers/sdd/MAP/progress.md`.
 
 What the swap delivered, for the reasoning only: `InventoryViewmodel` is batch-backed with FIFO deduction
 mirroring `allocate_fifo`, all 16 readers consume batches and `CatalogueItem`, and `LocationHintStore` holds the
-location hints. **65 tests pass; `flutter analyze` is clean.** Evidence and rulings:
+location hints. **131 tests pass; `flutter analyze` is clean.** Evidence and rulings:
 `.superpowers/sdd/MAP/progress.md`; narrative: `docs/sessions/2026-10-16-staged-model-swap-complete.md`.
 
 The rows below record what each remaining row must deliver:
@@ -48,7 +54,7 @@ What a coding session had to build first:
 | **Presentation** | New `flutter/lib/core/widgets/async_view.dart`. |
 | **Assembler** | A catalogue assembler producing `CatalogueItem { product, variant, uom, price, stockOnHand }`, where `price = uom.defaultSellingPrice` and `stockOnHand = sum(batch.currentQty)`. |
 | **Routing** | Give `site_foreman` no dashboard; route unmapped and role-less accounts to an explicit unsupported-role screen instead of `/login`. |
-| **Registration** | Register `ProductsViewmodel` and `PosTransactionViewmodel` in `main.dart` — only 6 of 8 viewmodels are currently wired. |
+| **Registration** | ~~Register `ProductsViewmodel` and `PosTransactionViewmodel` in `main.dart`.~~ **Superseded by decision 11** — both are screen-scoped view state and neither belongs in `main.dart`. Nothing to do. |
 | **Cleanup** | `products_page.dart` watches `InventoryViewmodel`, not its own viewmodel — decide which is correct before wiring. |
 
 Then **Phase 1**: wire the products catalogue screen to `GET /api/v1/products/` + `GET /api/v1/batches/`.

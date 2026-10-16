@@ -25,36 +25,30 @@ the same commit that breaks it.
 
 ## Current Status & Next Step
 
-- **Active branch:** `feature/backend-integration` — 66 commits ahead of `origin/master`, unpushed.
+- **Active branch:** `feature/backend-integration` — 79 commits ahead of `origin/master`, unpushed.
 - **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. The slice
-  order is **locked** (Cashier journey) and the map reads **7 locked · 3 open**. **Phase 0's decisions are all
-  locked, but its CODE is 2 of 7 rows done** — the map's "Phase 0 — status" table is the authority. The staged
-  `ProductVariant` swap finished all four steps (the Models row) and the catalogue assembler exists; Transport,
-  Presentation, Routing, Registration and Cleanup are **not started**. Three decisions remain open, gating
-  Phases 3, 5 and 6.
-- **Last session:** `docs/sessions/2026-10-16-staged-model-swap-complete.md` — **finished the staged model swap**
-  (deleted `sku`, `qrIdentifier`, `costPrice`, `sellingPrice`, `currentStock`, `storageLocation` and the
-  `reorderLevel` getter), migrated all 16 readers onto batch stock, and took it through a fresh-context review.
-  Tests 0-runnable → **65**. Earlier: `docs/sessions/2026-10-16-staged-swap-blockers-and-location-store.md`
-  locked decision 10; `docs/sessions/2026-10-16-phase-0-decisions.md` locked the six Phase 0 decisions;
+  order is **locked** (Cashier journey) and the map reads **8 locked · 3 open**. **Phase 0 is COMPLETE** — all 7
+  of its rows are built, and the map's "Phase 0 — status" table is the authority. It has been wrong twice in
+  opposite directions, so it is stated with per-row evidence and was re-verified against the CODE, not against
+  the ledger. Three decisions remain open, gating Phases 3, 5 and 6.
+- **Last session:** `docs/sessions/2026-10-16-phase-0-complete.md` — built the five remaining Phase 0 rows
+  (transport: `Paged<T>` + the pure `parsePaged` + `ApiClient.getList<T>`; `AsyncView`; the unsupported-role
+  screen plus a pure `redirectFor`; `ProductsViewmodel` reduced to view state; Registration dissolved by
+  decision 11), then took the work through a fresh-context review that falsified `Paged.hasMore` and found the
+  sign-out path untested — both fixed. Tests **65 → 131**; `flutter analyze` clean. Earlier:
+  `docs/sessions/2026-10-16-staged-model-swap-complete.md` finished the staged model swap;
+  `docs/sessions/2026-10-16-staged-swap-blockers-and-location-store.md` locked decision 10;
+  `docs/sessions/2026-10-16-phase-0-decisions.md` locked the six Phase 0 decisions;
   `docs/sessions/2026-10-15-integration-map.md` opened the map.
-- **Current state (verified):** the backend is feature-complete; the client consumes almost none of it.
-  Of 10 feature modules only `auth` reaches the API. 38 screens scored: 3 live · 27 mock · 8 dead. See
-  `docs/SYSTEM_ATLAS.md`.
-- **Next step:** finish the **five remaining Phase 0 rows** — `ApiClient.getList<T>` returning `Paged<T>`;
-  `core/widgets/async_view.dart`; the explicit unsupported-role screen (decision 04 — today an unmapped role is
-  still bounced to `/login`); registering `ProductsViewmodel` and `PosTransactionViewmodel` in `main.dart`; and
-  settling who owns `products_page`'s stock counts. **Only then** Phase 1 — wire the products catalogue to
-  `GET /api/v1/products/` + `GET /api/v1/batches/`. A salvageable earlier attempt sits in commit `22c7c26`
-  (`planning/02-lost-work-recovery.md`).
 - **Current state (verified):** the backend is feature-complete; the client consumes almost none of it.
   Of 10 feature modules only `auth` reaches the API. 38 screens scored: 3 live · 27 mock · 8 dead. See
   `docs/SYSTEM_ATLAS.md`.
 - **Next step:** **Phase 1** — wire the products catalogue to `GET /api/v1/products/` + `GET /api/v1/batches/`.
   Everything it needs now exists and is locked: `ApiClient.getList<T>` returning `Paged<T>`,
-  `core/widgets/async_view.dart` (decision 07), and `assembleCatalogue`. Note `ProductsViewmodel` and
-  `PosTransactionViewmodel` are still **not registered** in `main.dart`. A salvageable earlier attempt at
-  products/batches wiring sits in commit `22c7c26` (`planning/02-lost-work-recovery.md`).
+  `core/widgets/async_view.dart` (decision 07), and `assembleCatalogue`. Neither `ProductsViewmodel` nor
+  `PosTransactionViewmodel` belongs in `main.dart` — decision 11 makes them screen-scoped view state, like the
+  POS screen's existing pattern. A salvageable earlier attempt at products/batches wiring sits in commit
+  `22c7c26` (`planning/02-lost-work-recovery.md`).
 - **Open backend issue (found during review):** `apps/inventory/services.py::apply_stock_adjustment` silently
   discards a positive adjustment when no batch has `current_qty > 0`, so a count correction on a depleted
   variant is lost with no error. Out of scope for the client-only map; needs a backend issue.
