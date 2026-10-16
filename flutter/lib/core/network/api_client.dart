@@ -1,4 +1,5 @@
 import 'package:client/core/config/api_config.dart';
+import 'package:client/core/network/paged.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -140,6 +141,30 @@ class ApiClient {
     Map<String, dynamic>? queryParameters,
   }) {
     return dio.get<T>(path, queryParameters: queryParameters);
+  }
+
+  /// GETs a **list** endpoint and unwraps the pagination envelope.
+  ///
+  /// Every list route returns `{count, next, previous, results}`. That envelope
+  /// is unwrapped in exactly one place — [parsePaged] — so no repository and no
+  /// screen has to know its shape (decision 03).
+  ///
+  /// Prefer this over [get] for any list route: [get] hands back the envelope
+  /// itself, which is almost never what a caller wants.
+  ///
+  /// The body is fetched as `dynamic` deliberately. Asking Dio for
+  /// `Map<String, dynamic>` would throw a type error before [parsePaged] could
+  /// report what actually arrived, and that report is the more useful failure.
+  Future<Paged<T>> getList<T>(
+    String path,
+    T Function(Map<String, dynamic> json) fromJson, {
+    Map<String, dynamic>? queryParameters,
+  }) async {
+    final response = await dio.get<dynamic>(
+      path,
+      queryParameters: queryParameters,
+    );
+    return parsePaged<T>(response.data, fromJson);
   }
 
   Future<Response<T>> post<T>(String path, {Object? data}) {
