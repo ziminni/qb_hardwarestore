@@ -46,3 +46,4 @@ backend_django/.env
 # =====================
 .agents/
 skills-lock.json
+.superpowers/
