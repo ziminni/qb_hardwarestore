@@ -164,6 +164,9 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    # Decision 06: publishes InsufficientStock as a 400 with a stable code so a
+    # short-stock sale is distinguishable from a server failure.
+    'EXCEPTION_HANDLER': 'apps.pos.exceptions.handler',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 50,
 }

@@ -6,6 +6,7 @@ from django.db import transaction
 from django.db.models import F, Sum
 
 
+from .exceptions import InsufficientStock
 from .models import (
     GoodsReceipt,
     InventoryBatch,
@@ -90,9 +91,10 @@ def allocate_fifo(*, variant_id: int, qty_needed: Decimal):
 
     if remaining > 0:
         variant = ProductVariant.objects.get(pk=variant_id)
-        raise ValueError(
-            f'Insufficient stock for {variant}. '
-            f'Needed {qty_needed}, short by {remaining}.'
+        raise InsufficientStock(
+            f'Insufficient stock for {variant}.',
+            shortfall=remaining,
+            variant_id=variant_id,
         )
 
     # Bulk save deductions

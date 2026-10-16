@@ -1,5 +1,11 @@
 from rest_framework import serializers
-from .models import Customer, SalesTransaction, SalesItem, Payment, OfficialReceipt
+from .models import (
+    Customer,
+    OfficialReceipt,
+    Payment,
+    SalesItem,
+    SalesTransaction,
+)
 
 
 class CustomerSerializer(serializers.ModelSerializer):
@@ -42,4 +48,11 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = SalesTransaction
         fields = ['id','customer','customer_name','cashier','cashier_name','transaction_no','trans_date','vatable_sales','vat_amount','discount_amount','grand_total','source','status','notes','items','payments','receipt','created_at','updated_at']
-        read_only_fields = ['id','transaction_no','trans_date','created_at','updated_at']
+        # `cashier` is READ-ONLY because the actor is not the client's to choose. The view
+        # already passes `cashier=request.user` into `process_sale`, so a writable
+        # `cashier` was demanded by validation and then discarded -- every client had to
+        # send a value that had no effect, and a client could have attributed a sale to
+        # another cashier. Same invariant as StockAdjustmentSerializer.user (Phase 2),
+        # found here by POSTing a valid sale to the endpoint: HTTP 400
+        # {"cashier": ["This field is required."]}.
+        read_only_fields = ['id','transaction_no','trans_date','created_at','updated_at','cashier']

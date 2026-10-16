@@ -1,3 +1,9 @@
+# pyright: reportAttributeAccessIssue=false
+#
+# Same reason as apps/inventory/views.py and seed_demo.py: the checker resolves its
+# config from its WORKING DIRECTORY and does not run inside this repo here, so a
+# pyrightconfig.json is not found. This travels with the file. It disables the one
+# rule that cannot model Django's `Model.objects` without django-stubs.
 from django.db.models import Sum
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
