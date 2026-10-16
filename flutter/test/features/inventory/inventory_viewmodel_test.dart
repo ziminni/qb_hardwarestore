@@ -359,8 +359,7 @@ void main() {
 
   // Status must be derived from the batch total, not from the mirrored legacy
   // field, or step 4 could not delete that field.
-  group('InventoryViewmodel — status from batch stock', () {
-    test('a variant at or below its threshold is low stock', () {
+  group('InventoryViewmodel — status from batch stock', () {    test('a variant at or below its threshold is low stock', () {
       final vm = InventoryViewmodel();
 
       // Variant 1 holds 130 against a threshold of 30.
@@ -395,6 +394,111 @@ void main() {
         InventoryViewmodel().statusForVariant(999999),
         InventoryStockStatus.outOfStock,
       );
+    });
+  });
+
+  group('InventoryViewmodel — adjustment edge cases', () {
+    const noStockProduct = Product(
+      id: 0,
+      categoryId: 1,
+      categoryName: 'Cement',
+      brandId: 1,
+      brandName: 'Holcim',
+      baseName: 'Zero Stock Product',
+      description: '',
+      imageUrl: '',
+      isActive: true,
+      variants: [
+        ProductVariant(
+          id: 901,
+          productId: 0,
+          baseUomId: 1,
+          minStockThreshold: 10,
+          maxStockLevel: 0,
+          variantName: 'No Stock Variant',
+          baseUomCode: 'Bag',
+          isActive: true,
+        ),
+      ],
+    );
+
+    test('a correction below zero is clamped instead of draining stock', () {
+      // The dialog validates >= 0, but a programmatic caller can pass a negative
+      // "new quantity". Clamping keeps the recorded movement honest: without it
+      // the movement would report a NEGATIVE newStock.
+      final vm = InventoryViewmodel();
+
+      vm.adjustStock(
+        variantId: 1,
+        newQuantity: -50,
+        reason: 'Bad input',
+        notes: '',
+        userName: 'Test',
+      );
+
+      expect(vm.stockOnHandFor(1), 0.0);
+      final movement = vm.movements.firstWhere(
+        (entry) => entry.type == InventoryMovementType.stockAdjustment,
+      );
+      expect(movement.newStock, 0.0);
+      expect(movement.newStock, greaterThanOrEqualTo(0));
+      expect(movement.previousStock, 130.0);
+    });
+
+    test('an upward correction on a variant with no batches records it', () {
+      // DELIBERATE DIVERGENCE from the backend, recorded rather than hidden:
+      // `apply_stock_adjustment` (backend_django/apps/inventory/services.py)
+      // applies NOTHING when no batch has current_qty > 0, so a correction on a
+      // fully-depleted item is silently discarded. That is arguably a backend
+      // bug, and silently losing a count the user just typed would be a visible
+      // defect in the demo this mock exists to drive.
+      //
+      // So the count is honoured and the new lot carries it at zero cost, because
+      // there is no cost basis to know. Raised to the human partner as a possible
+      // backend bug; fixing the backend is out of this client-only map's scope.
+      final vm = InventoryViewmodel();
+      vm.addProduct(noStockProduct);
+      expect(vm.batchesFor(901), isEmpty);
+
+      vm.adjustStock(
+        variantId: 901,
+        newQuantity: 40,
+        reason: 'Opening count',
+        notes: '',
+        userName: 'Test',
+      );
+
+      expect(vm.stockOnHandFor(901), 40.0);
+      expect(vm.batchesFor(901), hasLength(1));
+      expect(vm.batchesFor(901).single.unitCostLanded, 0.0);
+    });
+
+    test('a correction that changes nothing records no movement', () {
+      final vm = InventoryViewmodel();
+      final before = vm.movements.length;
+
+      vm.adjustStock(
+        variantId: 1,
+        newQuantity: 130,
+        reason: 'No change',
+        notes: '',
+        userName: 'Test',
+      );
+
+      expect(vm.movements, hasLength(before));
+    });
+
+    test('selling an unknown variant is a no-op, not a crash', () {
+      final vm = InventoryViewmodel();
+
+      vm.sellStock(
+        variantId: 999999,
+        quantity: 1,
+        reference: 'SALE-X',
+        userName: 'Test',
+      );
+
+      expect(vm.movements.any((m) => m.reference == 'SALE-X'), isFalse);
     });
   });
 }

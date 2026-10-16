@@ -4,8 +4,8 @@ import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/product_tracking.dart';
-import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/services/image_file_service.dart';
+import 'package:client/data/services/variant_uom_merge.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/products/widgets/products_image.dart';
 import 'package:flutter/material.dart';
@@ -241,19 +241,15 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     final total = packaged ? initial * packageSize : initial;
     final existingVariant = existing?.variants.firstOrNull;
     // Price and barcode belong to the selling unit (decisions 08 and 10), so the
-    // form builds one rather than parking them on the variant.
-    final sellingUoms = <VariantUom>[
-      VariantUom(
-        id: existingVariant?.sellingUoms.firstOrNull?.id ?? 0,
-        variantId: existingVariant?.id ?? 0,
-        uomId: existingVariant?.sellingUoms.firstOrNull?.uomId ?? 0,
-        uomCode: _baseUnit,
-        uomName: _baseUnit,
-        barcodeQr: _barcodeController.text.trim(),
-        conversionFactor: 1,
-        defaultSellingPrice: double.tryParse(_sellingController.text) ?? 0,
-      ),
-    ];
+    // form edits that unit rather than parking them on the variant. Any extra
+    // selling units the variant already had are preserved, not rebuilt away.
+    final sellingUoms = mergePrimarySellingUom(
+      existing: existingVariant?.sellingUoms ?? const [],
+      variantId: existingVariant?.id ?? 0,
+      uomCode: _baseUnit,
+      barcodeQr: _barcodeController.text.trim(),
+      defaultSellingPrice: double.tryParse(_sellingController.text) ?? 0,
+    );
     final variant =
         existingVariant?.copyWith(sellingUoms: sellingUoms) ??
         ProductVariant(

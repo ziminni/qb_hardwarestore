@@ -179,7 +179,11 @@ class InventoryViewmodel extends ChangeNotifier {
     if (product == null) return;
 
     final previous = stockOnHandFor(variantId);
-    final delta = newQuantity - previous;
+    // A caller can hand us a negative "new quantity" even though the dialog
+    // validates >= 0. Clamp it: otherwise the FIFO deduction drains every batch
+    // and the movement is recorded with a NEGATIVE newStock.
+    final target = newQuantity < 0 ? 0.0 : newQuantity;
+    final delta = target - previous;
     if (delta == 0) return;
 
     if (delta < 0) {
@@ -250,8 +254,10 @@ class InventoryViewmodel extends ChangeNotifier {
   /// Opening stock arrives as [InventoryBatch] rows because a batch is exactly
   /// "a lot at a cost": the quantity and cost the form collects become real
   /// entities here instead of numbers parked on the variant (decision 02, and
-  /// the answer to decision 10's add-product question). The form passes ids of 0
-  /// and the viewmodel assigns real ones, so it cannot invent colliding ids.
+  /// the answer to decision 10's add-product question). The form passes batch
+  /// ids of 0 and the viewmodel assigns real batch and receipt ids from its own
+  /// `max+1`, so opening stock cannot collide with existing lots. Variant ids are
+  /// the form's own (a microsecond timestamp) and are NOT reassigned here.
   ///
   /// A variant added with no opening stock simply has no batch — `stockOnHandFor`
   /// then reads 0 and `statusForVariant` calls it out of stock.
