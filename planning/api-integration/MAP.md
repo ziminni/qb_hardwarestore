@@ -127,7 +127,7 @@ phase table and tracked in neither the frontier nor the fog.
 | :--- | :--- | :--- | :--- |
 | 0 | Substrate (model, transport, presentation, routing, cleanup) | ✅ **done** | The 8 Phase 0 decisions; see the status table above |
 | 1 | Products module (the `ProductVariant` hub) | ✅ **done** | [Phase 1 Live Data Home and Mock Retention](./decisions/12-phase-1-live-data-home.md) — locked; built in `6070442`…`557dfd3` |
-| 2 | Inventory: stock list, low stock, movements | 🤖 **ready to build** | ✅ [Inventory Data Authority for Phase 2](./decisions/13-inventory-data-authority.md) — locked; needs one `seed_demo` change |
+| 2 | Inventory: stock list, low stock, movements | 🔨 **ready to build** | ✅ [Inventory Data Authority for Phase 2](./decisions/13-inventory-data-authority.md) — locked; needs one `seed_demo` change |
 | 3 | POS checkout + receipt (the money path) | ❓ **gated** | [POS Checkout Client Contract](./decisions/06-checkout-client-contract.md) — open |
 | 4 | Customers master data (the `Customer` hub) | ❓ **gated** | Fog: which slice of customer CRUD the POS needs — see Fog of War |
 | 5 | Requisitions + material-token release | ❓ **gated** | [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md) — open |
