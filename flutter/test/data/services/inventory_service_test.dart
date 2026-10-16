@@ -72,14 +72,20 @@ class _FakeAdapter implements HttpClientAdapter {
   ) async {
     requests.add(options);
     if (!bodies.containsKey(options.path)) {
-      return ResponseBody.fromString('{"detail":"not found"}', 404, headers: {
-        Headers.contentTypeHeader: [Headers.jsonContentType],
-      });
+      return ResponseBody.fromString(
+        '{"detail":"not found"}',
+        404,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
     }
     return ResponseBody.fromString(
       jsonEncode(bodies[options.path]),
       statusCode,
-      headers: {Headers.contentTypeHeader: [Headers.jsonContentType]},
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
     );
   }
 
@@ -123,29 +129,35 @@ void main() {
       expect(adapter.requests.single.path, _alertsPath);
     });
 
-    test('keeps an unknown alert type rather than dropping the alert', () async {
-      // A backend that adds an alert type must not make the screen silently
-      // shorter. Unknown maps to a benign label, the row still renders.
-      useBodies({
-        _alertsPath: _envelope([_alert(type: 'SOMETHING_NEW')]),
-      });
+    test(
+      'keeps an unknown alert type rather than dropping the alert',
+      () async {
+        // A backend that adds an alert type must not make the screen silently
+        // shorter. Unknown maps to a benign label, the row still renders.
+        useBodies({
+          _alertsPath: _envelope([_alert(type: 'SOMETHING_NEW')]),
+        });
 
-      final alerts = await service().fetchAlerts();
+        final alerts = await service().fetchAlerts();
 
-      expect(alerts, hasLength(1));
-      expect(alerts.single.type, SystemAlertType.unknown);
-    });
+        expect(alerts, hasLength(1));
+        expect(alerts.single.type, SystemAlertType.unknown);
+      },
+    );
 
-    test('a body with no results list throws instead of reading empty', () async {
-      useBodies({
-        _alertsPath: {'count': 1, 'next': null, 'previous': null},
-      });
+    test(
+      'a body with no results list throws instead of reading empty',
+      () async {
+        useBodies({
+          _alertsPath: {'count': 1, 'next': null, 'previous': null},
+        });
 
-      await expectLater(
-        service().fetchAlerts(),
-        throwsA(isA<FormatException>()),
-      );
-    });
+        await expectLater(
+          service().fetchAlerts(),
+          throwsA(isA<FormatException>()),
+        );
+      },
+    );
 
     test('a failed request becomes an InventoryServiceException', () async {
       useBodies({}, statusCode: 500);

@@ -14,8 +14,7 @@ class InventoryRepository {
 
   Future<List<SystemAlert>> loadAlerts() => service.fetchAlerts();
 
-  Future<List<StockAdjustment>> loadAdjustments() =>
-      service.fetchAdjustments();
+  Future<List<StockAdjustment>> loadAdjustments() => service.fetchAdjustments();
 
   Future<StockAdjustment> recordAdjustment({
     required int variantId,

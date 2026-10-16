@@ -210,10 +210,7 @@ void main() {
     // makes movements the SERVER's record, so the seeding is gone and the
     // property worth holding is the opposite one: a load must not fabricate any
     // movement row. The fake repository returns none, so this stays empty.
-    final store = InventoryViewmodel(
-      products: products,
-      inventory: inventory,
-    );
+    final store = InventoryViewmodel(products: products, inventory: inventory);
     expect(store.movements, isEmpty, reason: 'nothing is invented any more');
 
     await store.load();

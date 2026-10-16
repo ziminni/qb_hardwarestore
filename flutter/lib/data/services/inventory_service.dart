@@ -27,7 +27,8 @@ class InventoryServiceException implements Exception {
 /// * `SystemAlertSerializer` — `id, alert_type, variant, message, is_resolved, created_at`
 /// * `StockAdjustmentSerializer` — `id, variant, user, adjustment_type, qty_adjusted, remarks, timestamp`
 class InventoryService {
-  InventoryService({ApiClient? client}) : _client = client ?? ApiClient.instance;
+  InventoryService({ApiClient? client})
+    : _client = client ?? ApiClient.instance;
 
   final ApiClient _client;
 
