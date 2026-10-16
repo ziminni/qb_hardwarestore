@@ -65,7 +65,9 @@ class InventoryStockTable extends StatelessWidget {
                             ),
                           ),
                           DataCell(Text(record.variant.variantName)),
-                          DataCell(Text(inventory.barcodeFor(record.variant.id))),
+                          DataCell(
+                            Text(inventory.barcodeFor(record.variant.id)),
+                          ),
                           DataCell(Text(record.product.categoryName)),
                           DataCell(Text(record.variant.baseUomCode)),
                           DataCell(

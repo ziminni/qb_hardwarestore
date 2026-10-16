@@ -45,20 +45,18 @@ class InventoryViewmodel extends ChangeNotifier {
   /// every mock batch was materialised with `createdAt: null`, so ordering by
   /// date is impossible here even though the live API populates it.
   List<InventoryBatch> batchesFor(int variantId) {
-    final rows = _batches
-        .where((batch) => batch.variantId == variantId)
-        .toList()
-      ..sort((a, b) {
-        final byReceipt = a.receiptId.compareTo(b.receiptId);
-        return byReceipt != 0 ? byReceipt : a.id.compareTo(b.id);
-      });
+    final rows =
+        _batches.where((batch) => batch.variantId == variantId).toList()
+          ..sort((a, b) {
+            final byReceipt = a.receiptId.compareTo(b.receiptId);
+            return byReceipt != 0 ? byReceipt : a.id.compareTo(b.id);
+          });
     return List.unmodifiable(rows);
   }
 
   /// Stock on hand for a variant — the sum of its batches.
-  double stockOnHandFor(int variantId) => batchesFor(
-    variantId,
-  ).fold(0, (sum, batch) => sum + batch.currentQty);
+  double stockOnHandFor(int variantId) =>
+      batchesFor(variantId).fold(0, (sum, batch) => sum + batch.currentQty);
 
   /// The newest batch: what an upward correction lands on, and where the
   /// displayed cost comes from (decision 08 — no weighted average, no charging).
@@ -399,9 +397,8 @@ class InventoryViewmodel extends ChangeNotifier {
       _products[i] = product.copyWith(
         variants: product.variants
             .map(
-              (variant) => variant.copyWith(
-                currentStock: stockOnHandFor(variant.id),
-              ),
+              (variant) =>
+                  variant.copyWith(currentStock: stockOnHandFor(variant.id)),
             )
             .toList(growable: false),
       );

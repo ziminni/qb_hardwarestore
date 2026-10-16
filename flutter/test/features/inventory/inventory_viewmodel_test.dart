@@ -40,10 +40,7 @@ void main() {
     test('batches are exposed oldest receipt first', () {
       final vm = InventoryViewmodel();
 
-      expect(
-        vm.batchesFor(1).map((batch) => batch.receiptId).toList(),
-        [1, 2],
-      );
+      expect(vm.batchesFor(1).map((batch) => batch.receiptId).toList(), [1, 2]);
     });
 
     test('the catalogue carries batch stock and the selling-uom price', () {
@@ -141,7 +138,10 @@ void main() {
         userName: 'Test',
       );
 
-      expect(_batchQtys(vm, 1), [80.0, 60.0]); // newest lot grew, oldest did not
+      expect(_batchQtys(vm, 1), [
+        80.0,
+        60.0,
+      ]); // newest lot grew, oldest did not
       expect(vm.stockOnHandFor(1), 140.0);
     });
 
@@ -195,20 +195,23 @@ void main() {
       expect(vm.stockOnHandFor(900), 42.0);
     });
 
-    test('the legacy currentStock mirrors the batch total while it still exists', () {
-      // Transitional: readers not yet migrated onto CatalogueItem read
-      // `variant.currentStock`, and must not be shown a stale number.
-      final vm = InventoryViewmodel();
+    test(
+      'the legacy currentStock mirrors the batch total while it still exists',
+      () {
+        // Transitional: readers not yet migrated onto CatalogueItem read
+        // `variant.currentStock`, and must not be shown a stale number.
+        final vm = InventoryViewmodel();
 
-      vm.sellStock(
-        variantId: 1,
-        quantity: 30,
-        reference: 'SALE-5',
-        userName: 'Test',
-      );
+        vm.sellStock(
+          variantId: 1,
+          quantity: 30,
+          reference: 'SALE-5',
+          userName: 'Test',
+        );
 
-      expect(_variantOf(vm, 1).currentStock, 100.0);
-    });
+        expect(_variantOf(vm, 1).currentStock, 100.0);
+      },
+    );
 
     test('seeded stock and seeded batches agree to begin with', () {
       final vm = InventoryViewmodel();
