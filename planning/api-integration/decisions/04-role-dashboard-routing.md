@@ -1,6 +1,6 @@
 # Role to Dashboard Routing for All Six Roles
 
-**Mode:** grill · **Status:** LOCKED 2026-10-15 · **Opened:** 2026-10-15
+**Mode:** grill · **Status:** LOCKED 2026-10-16 · **Opened:** 2026-10-15
 
 ## The question
 
@@ -55,7 +55,7 @@ regardless, because a silent redirect loop is a bad failure mode for any future 
 This decision should also cover the general rule: every role in `permissions.py` must resolve to *something*,
 so the same bug cannot reappear when a seventh role is added.
 
-## Resolution — LOCKED 2026-10-15
+## Resolution — LOCKED 2026-10-16
 
 **A Site Foreman is not a POS user. `site_foreman` gets no POS dashboard, and unmapped roles get an explicit
 screen instead of a silent redirect loop.**

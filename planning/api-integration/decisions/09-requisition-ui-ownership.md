@@ -1,6 +1,6 @@
 # Requisition UI Ownership (POS side vs CPMS side)
 
-**Mode:** grill · **Status:** OPEN · **Opened:** 2026-10-15
+**Mode:** grill · **Status:** OPEN · **Opened:** 2026-10-16
 **Phase:** 5 — born from [Role to Dashboard Routing for All Six Roles](./04-role-dashboard-routing.md).
 
 ## The question

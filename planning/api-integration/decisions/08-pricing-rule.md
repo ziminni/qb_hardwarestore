@@ -1,6 +1,6 @@
 # Which Price the POS Charges
 
-**Mode:** grill · **Status:** LOCKED 2026-10-15 · **Opened:** 2026-10-15
+**Mode:** grill · **Status:** LOCKED 2026-10-16 · **Opened:** 2026-10-15
 **Phase:** 0 — surfaced by research during [Product & Variant Client Model Shape](./02-product-variant-client-model.md).
 
 ## The question
@@ -61,7 +61,7 @@ For cost, recommend showing **latest batch `unit_cost_landed`** and labelling it
 presenting it as *the* cost — and not deriving a weighted average, which nothing in the schema supports
 without summing every batch on every read.
 
-## Resolution — LOCKED 2026-10-15
+## Resolution — LOCKED 2026-10-16
 
 **Option A: `VariantUom.default_selling_price` is the charged price. `InventoryBatch.batch_selling_price`
 becomes display-only.**

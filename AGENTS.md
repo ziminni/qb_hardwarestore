@@ -25,14 +25,15 @@ the same commit that breaks it.
 
 ## Current Status & Next Step
 
-- **Active branch:** `feature/backend-integration` — 37 commits ahead of `origin/master`, unpushed.
+- **Active branch:** `feature/backend-integration` — 39 commits ahead of `origin/master`, unpushed.
 - **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. The slice
   order is **locked** (Cashier journey) and **Phase 0 is complete**: all four substrate decisions are locked,
   so Phase 1 can start. Three decisions remain open, gating Phases 3, 5 and 6.
-- **Last session:** `docs/sessions/2026-10-15-integration-map.md` — opened the integration map and locked the
-  Cashier-journey slice order; corrected the atlas tally to 8 dead of 38 rows. Planning only; no app source
-  changed. (Earlier the same day: `docs/sessions/2026-10-15-system-atlas-and-docs-consolidation.md` — atlas
-  built, 5 obsolete root docs removed.)
+- **Last session:** `docs/sessions/2026-10-16-phase-0-decisions.md` — locked all six Phase 0 decisions (product
+  model, pagination, async states, role routing, pricing) and recorded two new decisions the research
+  surfaced. Planning only; no app source changed. Earlier: `docs/sessions/2026-10-15-integration-map.md`
+  opened the map and locked the Cashier-journey slice order; `docs/sessions/2026-10-15-system-atlas-and-docs-consolidation.md`
+  built the atlas and consolidated the docs.
 - **Current state (verified):** the backend is feature-complete; the client consumes almost none of it.
   Of 10 feature modules only `auth` reaches the API. 38 screens scored: 3 live · 27 mock · 8 dead. See
   `docs/SYSTEM_ATLAS.md`.

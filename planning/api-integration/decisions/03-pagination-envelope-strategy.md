@@ -1,6 +1,6 @@
 # Pagination Envelope Strategy
 
-**Mode:** research · **Status:** OPEN · **Opened:** 2026-10-15
+**Mode:** research · **Status:** LOCKED 2026-10-16 · **Opened:** 2026-10-15
 
 ## The question
 
@@ -32,7 +32,7 @@ The sharp consequence: **no demo screen needs page 2, but every list screen need
 reading `response.data` throws immediately on its first call. This is not hypothetical — the canonical
 contract document asserted the opposite once, which is exactly how the risk surfaced.
 
-## Resolution — LOCKED 2026-10-15
+## Resolution — LOCKED 2026-10-16
 
 **One unwrap helper on `ApiClient`, returning a small paged value type.**
 

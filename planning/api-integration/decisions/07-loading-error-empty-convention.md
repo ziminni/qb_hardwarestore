@@ -1,6 +1,6 @@
 # Loading, Error and Empty State Convention
 
-**Mode:** grill · **Status:** LOCKED 2026-10-15 · **Opened:** 2026-10-15
+**Mode:** grill · **Status:** LOCKED 2026-10-16 · **Opened:** 2026-10-15
 **Phase:** 0 — graduated from Fog of War when the slice order locked.
 
 ## The question
@@ -48,7 +48,7 @@ No convention exists for data screens, but there is exactly one working preceden
 A related wiring surprise worth its own fix: `products_page.dart` watches `InventoryViewmodel`, not
 `ProductsViewmodel` — and `ProductsViewmodel` is not registered in `main.dart` at all.
 
-## Resolution — LOCKED 2026-10-15
+## Resolution — LOCKED 2026-10-16
 
 **Option A: viewmodels follow the `auth_viewmodel` field convention; one shared `AsyncView` widget owns the
 rendering.**

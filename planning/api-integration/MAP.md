@@ -9,7 +9,7 @@ Every screen reachable by a seeded role renders **live API data** with loading, 
 `*_mock_data.dart` file survives, and no client-reachable endpoint is left uncalled. The client stops being a
 mockup *of* the system and becomes a client *of* it.
 
-## Phase 0 — Complete (2026-10-15)
+## Phase 0 — Complete (2026-10-16)
 
 All four Phase 0 decisions are locked, so Phase 1 can start. What a coding session must build first:
 

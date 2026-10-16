@@ -1,6 +1,6 @@
 # First Vertical Slice & Ordering Lens
 
-**Mode:** grill · **Status:** OPEN · **Opened:** 2026-10-15
+**Mode:** grill · **Status:** LOCKED 2026-10-15 · **Opened:** 2026-10-15
 
 ## The question
 

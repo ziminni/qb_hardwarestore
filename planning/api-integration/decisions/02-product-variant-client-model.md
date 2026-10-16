@@ -1,6 +1,6 @@
 # Product & Variant Client Model Shape
 
-**Mode:** domain-model · **Status:** LOCKED 2026-10-15 · **Opened:** 2026-10-15
+**Mode:** domain-model · **Status:** LOCKED 2026-10-16 · **Opened:** 2026-10-15
 
 ## The question
 
@@ -32,7 +32,7 @@ The open shape questions, to be worked collaboratively:
   batch and adjustment into two files?
 - Which screens need variant-level granularity versus product-level display?
 
-## Resolution — LOCKED 2026-10-15
+## Resolution — LOCKED 2026-10-16
 
 **Option A: mirror the API's four entities, plus one computed `CatalogueItem`.**
 
