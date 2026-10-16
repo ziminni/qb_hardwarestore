@@ -34,11 +34,7 @@ ProductVariant _variant({
   );
 }
 
-VariantUom _uom({
-  int id = 8,
-  int variantId = 8,
-  double price = 315,
-}) {
+VariantUom _uom({int id = 8, int variantId = 8, double price = 315}) {
   return VariantUom(
     id: id,
     variantId: variantId,
@@ -51,7 +47,11 @@ VariantUom _uom({
   );
 }
 
-Product _product({int id = 6, String name = 'Circuit Breaker', List<ProductVariant> variants = const []}) {
+Product _product({
+  int id = 6,
+  String name = 'Circuit Breaker',
+  List<ProductVariant> variants = const [],
+}) {
   return Product(
     id: id,
     categoryId: 4,
@@ -91,7 +91,11 @@ void main() {
     test('takes the charged price from the selling uom, not the batch', () {
       final items = assembleCatalogue(
         products: [
-          _product(variants: [_variant(sellingUoms: [_uom(price: 315)])]),
+          _product(
+            variants: [
+              _variant(sellingUoms: [_uom(price: 315)]),
+            ],
+          ),
         ],
         batches: [_batch(variantId: 8, batchSellingPrice: 180)],
       );
@@ -104,7 +108,11 @@ void main() {
     test('sums stock across every batch of the variant', () {
       final items = assembleCatalogue(
         products: [
-          _product(variants: [_variant(sellingUoms: [_uom()])]),
+          _product(
+            variants: [
+              _variant(sellingUoms: [_uom()]),
+            ],
+          ),
         ],
         batches: [
           _batch(id: 1, variantId: 8, currentQty: 100),
@@ -118,7 +126,11 @@ void main() {
     test('ignores batches belonging to other variants', () {
       final items = assembleCatalogue(
         products: [
-          _product(variants: [_variant(id: 8, sellingUoms: [_uom()])]),
+          _product(
+            variants: [
+              _variant(id: 8, sellingUoms: [_uom()]),
+            ],
+          ),
         ],
         batches: [
           _batch(id: 1, variantId: 8, currentQty: 10),
@@ -132,7 +144,11 @@ void main() {
     test('reports zero stock when a variant has no batches', () {
       final items = assembleCatalogue(
         products: [
-          _product(variants: [_variant(sellingUoms: [_uom()])]),
+          _product(
+            variants: [
+              _variant(sellingUoms: [_uom()]),
+            ],
+          ),
         ],
         batches: const [],
       );
@@ -196,24 +212,37 @@ void main() {
     test('walks several products and variants', () {
       final items = assembleCatalogue(
         products: [
-          _product(id: 1, variants: [
-            _variant(id: 10, productId: 1, sellingUoms: [_uom(variantId: 10)]),
-            _variant(id: 11, productId: 1, sellingUoms: [_uom(variantId: 11)]),
-          ]),
-          _product(id: 2, variants: [
-            _variant(id: 12, productId: 2, sellingUoms: [_uom(variantId: 12)]),
-          ]),
+          _product(
+            id: 1,
+            variants: [
+              _variant(
+                id: 10,
+                productId: 1,
+                sellingUoms: [_uom(variantId: 10)],
+              ),
+              _variant(
+                id: 11,
+                productId: 1,
+                sellingUoms: [_uom(variantId: 11)],
+              ),
+            ],
+          ),
+          _product(
+            id: 2,
+            variants: [
+              _variant(
+                id: 12,
+                productId: 2,
+                sellingUoms: [_uom(variantId: 12)],
+              ),
+            ],
+          ),
         ],
-        batches: [
-          _batch(id: 1, variantId: 11, currentQty: 7),
-        ],
+        batches: [_batch(id: 1, variantId: 11, currentQty: 7)],
       );
 
       expect(items, hasLength(3));
-      expect(
-        items.where((i) => i.stockOnHand == 7).single.variant.id,
-        11,
-      );
+      expect(items.where((i) => i.stockOnHand == 7).single.variant.id, 11);
     });
   });
 }

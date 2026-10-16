@@ -45,6 +45,7 @@ class ProductVariant {
   final double costPrice;
   final double sellingPrice;
   final double currentStock;
+
   /// Legacy alias. `min_stock_threshold` is the API field; this getter keeps
   /// the old readers compiling until step 4 of the staged swap deletes it.
   double get reorderLevel => minStockThreshold;
