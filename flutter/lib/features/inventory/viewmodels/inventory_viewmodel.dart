@@ -142,12 +142,20 @@ class InventoryViewmodel extends ChangeNotifier {
     }
   }
 
-  InventoryStockStatus statusFor(ProductVariant variant) {
-    if (variant.currentStock <= 0) return InventoryStockStatus.outOfStock;
-    if (variant.currentStock <= variant.reorderLevel) {
-      return InventoryStockStatus.lowStock;
-    }
+  /// Low-stock status derived from the **batch** total, so it keeps working once
+  /// the legacy `currentStock` field is deleted in step 4.
+  InventoryStockStatus statusForVariant(int variantId) {
+    final stock = stockOnHandFor(variantId);
+    if (stock <= 0) return InventoryStockStatus.outOfStock;
+    final threshold = variantFor(variantId)?.minStockThreshold ?? 0;
+    if (stock <= threshold) return InventoryStockStatus.lowStock;
     return InventoryStockStatus.inStock;
+  }
+
+  /// Transitional overload for readers not yet migrated. Delegates to the
+  /// batch-derived status so there is one source of truth for the rule.
+  InventoryStockStatus statusFor(ProductVariant variant) {
+    return statusForVariant(variant.id);
   }
 
   int productCountForCategory(int categoryId) =>

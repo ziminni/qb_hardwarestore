@@ -9,6 +9,7 @@
 // Decision 10 answer: adding a product creates an opening batch, because the
 // form collects a quantity and a cost and a batch is exactly "a lot at a cost".
 
+import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
@@ -331,6 +332,47 @@ void main() {
       await vm.setLocationHint(1, 'Rack A-01');
 
       expect(notified, greaterThan(0));
+    });
+  });
+
+  // Status must be derived from the batch total, not from the mirrored legacy
+  // field, or step 4 could not delete that field.
+  group('InventoryViewmodel — status from batch stock', () {
+    test('a variant at or below its threshold is low stock', () {
+      final vm = InventoryViewmodel();
+
+      // Variant 1 holds 130 against a threshold of 30.
+      expect(vm.statusForVariant(1), InventoryStockStatus.inStock);
+
+      vm.sellStock(
+        variantId: 1,
+        quantity: 105,
+        reference: 'SALE-LOW',
+        userName: 'Test',
+      );
+
+      expect(vm.stockOnHandFor(1), 25.0);
+      expect(vm.statusForVariant(1), InventoryStockStatus.lowStock);
+    });
+
+    test('an empty variant is out of stock', () {
+      final vm = InventoryViewmodel();
+
+      vm.sellStock(
+        variantId: 1,
+        quantity: 130,
+        reference: 'SALE-ALL',
+        userName: 'Test',
+      );
+
+      expect(vm.statusForVariant(1), InventoryStockStatus.outOfStock);
+    });
+
+    test('an unknown variant is out of stock, not a crash', () {
+      expect(
+        InventoryViewmodel().statusForVariant(999999),
+        InventoryStockStatus.outOfStock,
+      );
     });
   });
 }

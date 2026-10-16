@@ -43,7 +43,7 @@ class InventoryStockTable extends StatelessWidget {
                 columns: const [
                   DataColumn(label: Text('Product')),
                   DataColumn(label: Text('Variant')),
-                  DataColumn(label: Text('SKU')),
+                  DataColumn(label: Text('Barcode')),
                   DataColumn(label: Text('Category')),
                   DataColumn(label: Text('Unit')),
                   DataColumn(label: Text('Current Stock')),
@@ -65,12 +65,14 @@ class InventoryStockTable extends StatelessWidget {
                             ),
                           ),
                           DataCell(Text(record.variant.variantName)),
-                          DataCell(Text(record.variant.sku)),
+                          DataCell(Text(inventory.barcodeFor(record.variant.id))),
                           DataCell(Text(record.product.categoryName)),
                           DataCell(Text(record.variant.baseUomCode)),
                           DataCell(
                             Text(
-                              record.variant.currentStock.toStringAsFixed(0),
+                              inventory
+                                  .stockOnHandFor(record.variant.id)
+                                  .toStringAsFixed(0),
                             ),
                           ),
                           DataCell(
@@ -80,10 +82,14 @@ class InventoryStockTable extends StatelessWidget {
                           ),
                           DataCell(
                             InventoryStockStatusBadge(
-                              status: inventory.statusFor(record.variant),
+                              status: inventory.statusForVariant(
+                                record.variant.id,
+                              ),
                             ),
                           ),
-                          DataCell(Text(record.variant.storageLocation)),
+                          DataCell(
+                            Text(inventory.locationHintFor(record.variant.id)),
+                          ),
                           DataCell(
                             OutlinedButton.icon(
                               onPressed: () =>
