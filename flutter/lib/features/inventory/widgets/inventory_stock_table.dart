@@ -79,8 +79,9 @@ class InventoryStockTable extends StatelessWidget {
                           ),
                           DataCell(
                             Text(
-                              record.variant.minStockThreshold
-                                  .toStringAsFixed(0),
+                              record.variant.minStockThreshold.toStringAsFixed(
+                                0,
+                              ),
                             ),
                           ),
                           DataCell(

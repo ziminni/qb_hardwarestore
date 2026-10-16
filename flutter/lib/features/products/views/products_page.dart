@@ -47,10 +47,7 @@ class ProductsPage extends StatelessWidget {
     if (product == null) {
       viewModel.addProduct(result.product);
       // Opening stock arrives as a batch: "a lot at a cost" (decision 02).
-      inventory.addProduct(
-        result.product,
-        openingStock: result.openingStock,
-      );
+      inventory.addProduct(result.product, openingStock: result.openingStock);
     } else {
       viewModel.updateProduct(result.product);
       inventory.updateProduct(result.product);

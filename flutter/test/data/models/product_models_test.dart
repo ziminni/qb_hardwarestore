@@ -149,7 +149,8 @@ void main() {
     test('throws when variant_name is missing', () {
       // The old model defaulted this class of field to '' or 0, which is how a
       // variant silently rendered as PHP 0.00.
-      final payload = Map<String, dynamic>.from(livePayload)..remove('variant_name');
+      final payload = Map<String, dynamic>.from(livePayload)
+        ..remove('variant_name');
 
       expect(() => ProductVariant.fromJson(payload), throwsFormatException);
     });

@@ -243,7 +243,6 @@ void main() {
       expect(vm.stockOnHandFor(901), 0.0);
       expect(vm.movements.where((m) => m.variantId == 901), isEmpty);
     });
-
   });
 
   // The three lookups the readers need once they stop reading the legacy

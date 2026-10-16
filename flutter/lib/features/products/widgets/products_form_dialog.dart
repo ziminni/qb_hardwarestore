@@ -119,11 +119,12 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     _inventory = context.read<InventoryViewmodel>();
     final first = widget.product?.variants.firstOrNull;
     if (first == null) return;
-    _initialStockController.text = _inventory!.stockOnHandFor(
-      first.id,
-    ).toStringAsFixed(0);
-    _costController.text = (_inventory!.costFor(first.id) ?? 0)
-        .toStringAsFixed(2);
+    _initialStockController.text = _inventory!
+        .stockOnHandFor(first.id)
+        .toStringAsFixed(0);
+    _costController.text = (_inventory!.costFor(first.id) ?? 0).toStringAsFixed(
+      2,
+    );
     _locationController.text = _inventory!.locationHintFor(first.id);
   }
 
