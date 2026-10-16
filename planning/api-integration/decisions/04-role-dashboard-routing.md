@@ -1,6 +1,6 @@
 # Role to Dashboard Routing for All Six Roles
 
-**Mode:** grill · **Status:** OPEN · **Opened:** 2026-10-15
+**Mode:** grill · **Status:** LOCKED 2026-10-15 · **Opened:** 2026-10-15
 
 ## The question
 
@@ -55,6 +55,35 @@ regardless, because a silent redirect loop is a bad failure mode for any future 
 This decision should also cover the general rule: every role in `permissions.py` must resolve to *something*,
 so the same bug cannot reappear when a seventh role is added.
 
-## Resolution
+## Resolution — LOCKED 2026-10-15
 
-_Unresolved — awaiting the routing decision._
+**A Site Foreman is not a POS user. `site_foreman` gets no POS dashboard, and unmapped roles get an explicit
+screen instead of a silent redirect loop.**
+
+Clarified by the product owner during this session: the foreman is a **CPMS-side identity** that requests
+material from the store. POS models the role only because `Requisition.requested_by` needs an actor
+(`apps/users/permissions.py:19`, plus the `foreman` account `seed_demo` creates). It is not a role that logs
+into the POS client.
+
+So the resolution is deliberately **not** "give it a dashboard":
+
+- `dashboardForRole()` keeps returning `null` for `site_foreman`, now **by intent** rather than by omission.
+- The null branch changes: `if (dashboard == null) return isLogin ? null : login;` becomes an explicit
+  unsupported-role screen, so an unmapped or role-less account is told *why* instead of looping.
+- No foreman dashboard is built in POS. The Fog of War entry for requisition screens is re-scoped by
+  [Requisition UI Ownership](./09-requisition-ui-ownership.md).
+
+Why not the other options:
+
+- **Build a foreman dashboard** — builds POS screens for a role that does not exist in POS, duplicating screens
+  that belong to CPMS.
+- **Temporary mapping to an existing dashboard** — would show a foreman POS screens that are not theirs and
+  leaves a misleading mapping to unlearn. With the role's true ownership now known, honesty is cheaper.
+
+### Knock-on corrections
+
+| Item | Correction |
+| :--- | :--- |
+| `README.md` demo-account table | Must state that `foreman` has **no POS UI role** — it exists for API and CPMS use, not for logging into this client. |
+| Phase 5 scope | Creating and submitting requisitions is CPMS-side. POS owns approval and material release. Re-scoped in [Requisition UI Ownership](./09-requisition-ui-ownership.md). |
+| General rule | Every role in `permissions.py` must resolve to *something* — a dashboard or the explicit unsupported screen. No silent loops, ever. |

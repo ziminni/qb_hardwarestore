@@ -88,18 +88,19 @@ Password is the same for all five. These are seeded by `seed_demo` and were veri
 | `manager` | Mana Ger | Store Manager | Approve/reject requisitions, reports, ledger, users |
 | `stocker` | Stock Er | Stock Manager | Inventory writes: products, POs, receipts, adjustments |
 | `cashier` | Cashi Er | Cashier | POS transactions, customers, token release, utang payments |
-| `foreman` | Fore Man | Site Foreman | Creates requisitions — ⚠️ **cannot reach a dashboard yet**, see below |
+| `foreman` | Fore Man | Site Foreman | ⚠️ **No POS UI role** — a CPMS-side identity, see below |
 
 **Password for all: `demo1234`.** Emails follow `<username>@demo.ph`.
 
 > ⚠️ Some historical docs in this repo claim `admin` / `admin123`. That is **wrong** and returns HTTP 400.
 > Use `demo1234`.
 >
-> ⚠️ **`foreman` authenticates but never leaves `/login`.** The backend assigns the role `Site Foreman`,
-> but the client's `dashboardForRole()` (`flutter/lib/routes/routes.dart:68`) has no `site_foreman` case, so
-> the login redirect sends it straight back to the login page. The account is fine — the client simply has
-> no destination for it. Use `admin` (a superuser, so it maps to the admin dashboard) to exercise the
-> requisition flow until this is fixed. Tracked in `planning/03-ui-gaps.md`.
+> ⚠️ **`foreman` authenticates but has no POS dashboard — by design.** A Site Foreman is a **CPMS-side**
+> identity that requests material from the store. POS models the role only because `Requisition.requested_by`
+> needs an actor, and `seed_demo` creates the account for that reason — it is not intended to log into this
+> client. Use `admin` (a superuser, so it always maps to the admin dashboard) to exercise the requisition
+> flow. The client routes unmapped roles to an explicit screen rather than looping back to `/login`.
+> Decision: `planning/api-integration/decisions/04-role-dashboard-routing.md`.
 
 Django admin: <http://127.0.0.1:8000/admin/> with `admin` / `demo1234`.
 

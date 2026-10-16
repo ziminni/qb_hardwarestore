@@ -27,8 +27,8 @@ the same commit that breaks it.
 
 - **Active branch:** `feature/backend-integration` — 37 commits ahead of `origin/master`, unpushed.
 - **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. The slice
-  order is **locked** (Cashier journey); six decisions remain open and resolve one per session, in the order
-  listed on that map's frontier.
+  order is **locked** (Cashier journey) and **Phase 0 is complete**: all four substrate decisions are locked,
+  so Phase 1 can start. Three decisions remain open, gating Phases 3, 5 and 6.
 - **Last session:** `docs/sessions/2026-10-15-integration-map.md` — opened the integration map and locked the
   Cashier-journey slice order; corrected the atlas tally to 8 dead of 38 rows. Planning only; no app source
   changed. (Earlier the same day: `docs/sessions/2026-10-15-system-atlas-and-docs-consolidation.md` — atlas
@@ -36,8 +36,10 @@ the same commit that breaks it.
 - **Current state (verified):** the backend is feature-complete; the client consumes almost none of it.
   Of 10 feature modules only `auth` reaches the API. 38 screens scored: 3 live · 27 mock · 8 dead. See
   `docs/SYSTEM_ATLAS.md`.
-- **Next step:** resolve `planning/api-integration/decisions/02-product-variant-client-model.md` — the
-  product/variant model shape gates Phase 1. Do not write client code until the Phase 0 decisions are locked.
-  The three constraints that shape them: `product.dart` reads 7 fields the backend never sends, only 6 of 8
-  viewmodels are registered in `main.dart`, and every list response is a paginated envelope. A salvageable
-  earlier attempt sits in commit `22c7c26` (`planning/02-lost-work-recovery.md`).
+- **Next step:** build the **Phase 0 deliverables** (hand-off table in `planning/api-integration/MAP.md`),
+  then start **Phase 1** — wire the products catalogue to `GET /api/v1/products/` + `GET /api/v1/batches/`.
+  No further design input is needed: the decisions are locked (mirror the API's four entities plus a
+  `CatalogueItem` assembler; `price = uom.defaultSellingPrice`; `stockOnHand = sum(batch.currentQty)`; add
+  `ApiClient.getList<T>` and `core/widgets/async_view.dart`; route unmapped roles to an explicit screen).
+  A salvageable earlier attempt at products/batches wiring sits in commit `22c7c26`
+  (`planning/02-lost-work-recovery.md`).

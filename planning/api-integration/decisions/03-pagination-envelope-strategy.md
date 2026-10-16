@@ -15,23 +15,47 @@ once: `ENDPOINTS.md` claimed pagination was disabled, which is how the risk was 
 
 This is a cross-cutting decision: it touches every module on the map, so it belongs in Phase 0.
 
-## Research to complete
+## Verified findings (live API + source)
 
-- What does the existing `ApiClient` return today — raw `Response`, or unwrapped `data`? Read
-  `flutter/lib/core/network/api_client.dart`.
-- Does the auth flow (the only live path) hit any paginated endpoint, giving a precedent to follow?
-- Is there an existing helper or interceptor that already unwraps envelopes?
-- Do any screens need true page-by-page navigation, or is a single 50-row page sufficient for the demo? If
-  `count > 50` in the seeded data for any list, that changes the answer.
+All four research questions answered against the running stack and the source. Nothing guessed.
 
-## Candidate approaches
-
-| Approach | Trade-off |
+| Question | Finding |
 | :--- | :--- |
-| Unwrap centrally in `ApiClient` | One place, impossible to forget; loses access to `count`/`next` for paginated UI. |
-| Typed `Paginated<T>` wrapper returned by repositories | Explicit and type-safe; every repository must remember to use it. |
-| Per-repository handling | No shared abstraction; the most likely to be forgotten. |
+| What does `ApiClient` return? | Raw `Future<Response<T>>` from `dio.get` / `dio.post`. **No unwrapping anywhere.** It exposes exactly two generic methods, `get<T>` and `post<T>`. |
+| Does the one live path hit a paginated endpoint? | No. `auth` uses `/auth/login/`, `/auth/refresh/`, `/auth/logout/`, `/auth/me/` — none paginated, so there is **no precedent to copy**. |
+| Is there an existing helper or interceptor? | No. The single interceptor handles JWT attach and refresh-on-401 only. |
+| Do any seeded lists exceed one page? | No. Verified live — products 6, variants 8, variant-uoms 8, batches 8, categories 4, customers 3, transactions 6, ledgers 2, purchase-orders 8. **Largest is 8 against `PAGE_SIZE = 50`.** |
 
-## Resolution
+The envelope `{count, next, previous, results}` was confirmed live on all 9 endpoints.
 
-_Unresolved — needs the read of `api_client.dart` and a count check against seeded data._
+The sharp consequence: **no demo screen needs page 2, but every list screen needs `.results`.** A repository
+reading `response.data` throws immediately on its first call. This is not hypothetical — the canonical
+contract document asserted the opposite once, which is exactly how the risk surfaced.
+
+## Resolution — LOCKED 2026-10-15
+
+**One unwrap helper on `ApiClient`, returning a small paged value type.**
+
+```dart
+class Paged<T> {
+  const Paged({required this.items, required this.total});
+  final List<T> items;
+  final int total;
+}
+```
+
+A single `ApiClient.getList<T>(path, fromJson, {queryParameters})` unwraps `results` and maps the items, so
+the envelope is handled in exactly one place. Returning `Paged` keeps `count` available for result counts and
+future paging without a second round trip.
+
+Why not the alternatives:
+
+- **Per-repository handling** — 27 screens each remembering `.results` is precisely the failure mode that
+  produced the bad documentation. Rejected outright.
+- **Unwrap inside `get<T>`** — would silently break the auth path and every non-list call, since not all
+  responses are paginated. Rejected.
+- **A wrapper each repository must opt into** — close to the chosen design, but putting it on `ApiClient`
+  means a repository cannot accidentally bypass it.
+
+Deferred: true page navigation. No seeded list exceeds one page, so nothing in Phases 1-6 reads `next`.
+`Paged.total` is the hook a paging UI would build on if the data grows.
