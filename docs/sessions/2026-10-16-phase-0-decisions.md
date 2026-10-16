@@ -13,7 +13,9 @@ skill: wayfinder (Map Mode, Phase 0 resolution)
 
 Resolve the Phase 0 frontier of `planning/api-integration/MAP.md` — starting with
 [Product & Variant Client Model Shape](../../planning/api-integration/decisions/02-product-variant-client-model.md),
-then continuing through pagination, async states and role routing — so Phase 0 is completely unlocked for coding.
+then continuing through pagination, async states and role routing — so Phase 0's *decisions* no longer block
+the coding work. (Phase 0's *code* is a separate, unfinished matter — see the correction under "Wins & Next
+Step".)
 
 Research surfaced **two decisions the map did not have**, both now recorded: pricing, and requisition UI
 ownership.
@@ -115,7 +117,12 @@ first. Corrected with `set(...)` over the filename capture group.
 
 ## Wins & Next Step
 
-**Phase 0 is complete** — 6 locked, 3 open, and nothing blocks Phase 1.
+**Phase 0's DECISIONS are complete** — 6 locked, 3 open, and nothing blocks the Phase 0 *code*.
+
+> ⚠️ **Corrected 2026-10-16.** This line originally read "**Phase 0 is complete**", which conflated *locked
+decisions* with *delivered code* and was false. Phase 0's code is **2 of 7 rows done** (Models and Assembler).
+The authority for that status is the **"Phase 0 — status"** table in
+`planning/api-integration/MAP.md`, not this note.
 
 Verified: 21 doc files with 0 broken links · all 9 decision headers agree with the map's locked/open lists ·
 6 locked · 3 open · no orphan or missing decision files · 7 changed files with 0 diagnostics · working tree
