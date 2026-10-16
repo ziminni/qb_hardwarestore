@@ -19,7 +19,10 @@ class InventoryReportsPage extends StatelessWidget {
         .toList();
     final lines = completed.expand((item) => item.lines).toList();
     final lowStock = inventory.stockRecords
-        .where((item) => inventory.statusFor(item.variant).name != 'inStock')
+          .where(
+            (item) =>
+                inventory.statusForVariant(item.variant.id).name != 'inStock',
+          )
         .length;
     return InventorySkeletonLayout(
       title: 'Reports',

@@ -65,13 +65,7 @@ class InventoryMockData {
           variantName: '40 kg Bag',
           baseUomCode: 'Bag',
           isActive: true,
-          sku: 'CEM-HOL-40',
-          qrIdentifier: 'MAT-00001',
-          costPrice: 235,
-          sellingPrice: 270,
-          currentStock: 130,
           minStockThreshold: 30,
-          storageLocation: 'Rack A-01',
           sellingUoms: [
             VariantUom(
               id: 1,
@@ -106,13 +100,7 @@ class InventoryMockData {
           variantName: '40 kg Bag',
           baseUomCode: 'Bag',
           isActive: true,
-          sku: 'CEM-REP-40',
-          qrIdentifier: 'MAT-00002',
-          costPrice: 215,
-          sellingPrice: 250,
-          currentStock: 24,
           minStockThreshold: 25,
-          storageLocation: 'Rack A-02',
           sellingUoms: [
             VariantUom(
               id: 2,
@@ -147,13 +135,7 @@ class InventoryMockData {
           variantName: '1/2 inch × 10 m',
           baseUomCode: 'm',
           isActive: true,
-          sku: 'PVC-NEL-050',
-          qrIdentifier: 'MAT-00021',
-          costPrice: 135,
-          sellingPrice: 180,
-          currentStock: 97,
           minStockThreshold: 20,
-          storageLocation: 'Rack B-02',
           sellingUoms: [
             VariantUom(
               id: 3,
@@ -175,13 +157,7 @@ class InventoryMockData {
           variantName: '3/4 inch × 3 m',
           baseUomCode: 'Piece',
           isActive: true,
-          sku: 'PVC-NEL-075',
-          qrIdentifier: 'MAT-00022',
-          costPrice: 175,
-          sellingPrice: 225,
-          currentStock: 19,
           minStockThreshold: 15,
-          storageLocation: 'Rack B-02',
           sellingUoms: [
             VariantUom(
               id: 4,
@@ -203,13 +179,7 @@ class InventoryMockData {
           variantName: '1 inch × 3 m',
           baseUomCode: 'Piece',
           isActive: true,
-          sku: 'PVC-NEL-100',
-          qrIdentifier: 'MAT-00023',
-          costPrice: 230,
-          sellingPrice: 290,
-          currentStock: 8,
           minStockThreshold: 15,
-          storageLocation: 'Rack B-03',
           sellingUoms: [
             VariantUom(
               id: 5,
@@ -244,13 +214,7 @@ class InventoryMockData {
           variantName: '1/2 inch',
           baseUomCode: 'Piece',
           isActive: true,
-          sku: 'ELB-NEL-050',
-          qrIdentifier: 'MAT-00024',
-          costPrice: 18,
-          sellingPrice: 28,
-          currentStock: 65,
           minStockThreshold: 20,
-          storageLocation: 'Bin B-10',
           sellingUoms: [
             VariantUom(
               id: 6,
@@ -272,13 +236,7 @@ class InventoryMockData {
           variantName: '1 inch',
           baseUomCode: 'Piece',
           isActive: true,
-          sku: 'ELB-NEL-100',
-          qrIdentifier: 'MAT-00025',
-          costPrice: 32,
-          sellingPrice: 48,
-          currentStock: 12,
           minStockThreshold: 15,
-          storageLocation: 'Bin B-11',
           sellingUoms: [
             VariantUom(
               id: 7,
@@ -313,13 +271,7 @@ class InventoryMockData {
           variantName: 'Standard 1/2 inch',
           baseUomCode: 'Piece',
           isActive: true,
-          sku: 'FAU-HCG-050',
-          qrIdentifier: 'MAT-00026',
-          costPrice: 290,
-          sellingPrice: 390,
-          currentStock: 14,
           minStockThreshold: 8,
-          storageLocation: 'Shelf B-05',
           sellingUoms: [
             VariantUom(
               id: 8,
@@ -354,13 +306,7 @@ class InventoryMockData {
           variantName: '1/2 inch × 4 ft × 8 ft',
           baseUomCode: 'Sheet',
           isActive: true,
-          sku: 'PLY-MAR-050',
-          qrIdentifier: 'MAT-00031',
-          costPrice: 890,
-          sellingPrice: 1050,
-          currentStock: 18,
           minStockThreshold: 10,
-          storageLocation: 'Rack C-01',
           sellingUoms: [
             VariantUom(
               id: 9,
@@ -382,13 +328,7 @@ class InventoryMockData {
           variantName: '3/4 inch × 4 ft × 8 ft',
           baseUomCode: 'Sheet',
           isActive: true,
-          sku: 'PLY-MAR-075',
-          qrIdentifier: 'MAT-00032',
-          costPrice: 1250,
-          sellingPrice: 1450,
-          currentStock: 0,
           minStockThreshold: 10,
-          storageLocation: 'Rack C-02',
           sellingUoms: [
             VariantUom(
               id: 10,
@@ -423,13 +363,7 @@ class InventoryMockData {
           variantName: 'Universal Duplex',
           baseUomCode: 'Piece',
           isActive: true,
-          sku: 'OUT-ROY-UNI',
-          qrIdentifier: 'MAT-00041',
-          costPrice: 95,
-          sellingPrice: 135,
-          currentStock: 36,
           minStockThreshold: 12,
-          storageLocation: 'Shelf D-03',
           sellingUoms: [
             VariantUom(
               id: 11,
@@ -464,13 +398,7 @@ class InventoryMockData {
           variantName: '2.0 mm² × 150 m',
           baseUomCode: 'Roll',
           isActive: true,
-          sku: 'WIR-PD-200',
-          qrIdentifier: 'MAT-00042',
-          costPrice: 2150,
-          sellingPrice: 2490,
-          currentStock: 7,
           minStockThreshold: 5,
-          storageLocation: 'Rack D-05',
           sellingUoms: [
             VariantUom(
               id: 12,
@@ -492,13 +420,7 @@ class InventoryMockData {
           variantName: '3.5 mm² × 150 m',
           baseUomCode: 'Roll',
           isActive: true,
-          sku: 'WIR-PD-350',
-          qrIdentifier: 'MAT-00043',
-          costPrice: 3400,
-          sellingPrice: 3890,
-          currentStock: 4,
           minStockThreshold: 5,
-          storageLocation: 'Rack D-06',
           sellingUoms: [
             VariantUom(
               id: 13,
@@ -533,13 +455,7 @@ class InventoryMockData {
           variantName: '10 mm × 6 m',
           baseUomCode: 'Piece',
           isActive: true,
-          sku: 'BAR-SA-10',
-          qrIdentifier: 'MAT-00051',
-          costPrice: 155,
-          sellingPrice: 185,
-          currentStock: 95,
           minStockThreshold: 30,
-          storageLocation: 'Yard E-01',
           sellingUoms: [
             VariantUom(
               id: 14,
@@ -561,13 +477,7 @@ class InventoryMockData {
           variantName: '12 mm × 6 m',
           baseUomCode: 'Piece',
           isActive: true,
-          sku: 'BAR-SA-12',
-          qrIdentifier: 'MAT-00052',
-          costPrice: 220,
-          sellingPrice: 260,
-          currentStock: 28,
           minStockThreshold: 30,
-          storageLocation: 'Yard E-02',
           sellingUoms: [
             VariantUom(
               id: 15,
@@ -602,13 +512,7 @@ class InventoryMockData {
           variantName: '0.4 mm × 8 ft',
           baseUomCode: 'Sheet',
           isActive: true,
-          sku: 'ROOF-UG-08',
-          qrIdentifier: 'MAT-00061',
-          costPrice: 520,
-          sellingPrice: 620,
-          currentStock: 22,
           minStockThreshold: 12,
-          storageLocation: 'Rack F-01',
           sellingUoms: [
             VariantUom(
               id: 16,
@@ -630,13 +534,7 @@ class InventoryMockData {
           variantName: '0.4 mm × 10 ft',
           baseUomCode: 'Sheet',
           isActive: true,
-          sku: 'ROOF-UG-10',
-          qrIdentifier: 'MAT-00062',
-          costPrice: 650,
-          sellingPrice: 765,
-          currentStock: 9,
           minStockThreshold: 12,
-          storageLocation: 'Rack F-02',
           sellingUoms: [
             VariantUom(
               id: 17,
@@ -671,13 +569,7 @@ class InventoryMockData {
           variantName: '16 oz',
           baseUomCode: 'Piece',
           isActive: true,
-          sku: 'HAM-STA-16',
-          qrIdentifier: 'MAT-00071',
-          costPrice: 420,
-          sellingPrice: 525,
-          currentStock: 16,
           minStockThreshold: 6,
-          storageLocation: 'Shelf G-02',
           sellingUoms: [
             VariantUom(
               id: 18,
@@ -712,13 +604,7 @@ class InventoryMockData {
           variantName: '2 inch',
           baseUomCode: 'kg',
           isActive: true,
-          sku: 'NAIL-COM-02',
-          qrIdentifier: 'MAT-00081',
-          costPrice: 72,
-          sellingPrice: 95,
-          currentStock: 122.5,
           minStockThreshold: 15,
-          storageLocation: 'Bin H-01',
           sellingUoms: [
             VariantUom(
               id: 19,
@@ -740,13 +626,7 @@ class InventoryMockData {
           variantName: '4 inch × 1 kg',
           baseUomCode: 'Box',
           isActive: true,
-          sku: 'NAIL-COM-04',
-          qrIdentifier: 'MAT-00082',
-          costPrice: 78,
-          sellingPrice: 105,
-          currentStock: 0,
           minStockThreshold: 12,
-          storageLocation: 'Bin H-02',
           sellingUoms: [
             VariantUom(
               id: 20,

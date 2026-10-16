@@ -214,7 +214,7 @@ class _InventoryStockMovementsPageState
       final closing = opening + stockIn - stockOut;
       final status = closing <= 0
           ? InventoryStockStatus.outOfStock
-          : closing <= record.variant.reorderLevel
+          : closing <= record.variant.minStockThreshold
           ? InventoryStockStatus.lowStock
           : InventoryStockStatus.inStock;
       balances.add((

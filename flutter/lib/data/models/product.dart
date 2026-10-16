@@ -4,22 +4,14 @@ import 'package:client/data/models/variant_uom.dart';
 class ProductVariant {
   const ProductVariant({
     required this.id,
-    // --- API-faithful fields (added by the staged swap, decreed by R8) ---
     required this.productId,
     required this.baseUomId,
     required this.minStockThreshold,
     required this.maxStockLevel,
     this.sellingUoms = const [],
-    // --- legacy flattened fields, DELETED in step 4 once the 13 readers migrate ---
     required this.variantName,
     required this.baseUomCode,
     required this.isActive,
-    this.sku = '',
-    this.qrIdentifier = '',
-    this.costPrice = 0,
-    this.sellingPrice = 0,
-    this.currentStock = 0,
-    this.storageLocation = '',
   });
 
   final int id;
@@ -40,15 +32,6 @@ class ProductVariant {
   final String variantName;
   final String baseUomCode;
   final bool isActive;
-  final String sku;
-  final String qrIdentifier;
-  final double costPrice;
-  final double sellingPrice;
-  final double currentStock;
-
-  /// Legacy alias. `min_stock_threshold` is the API field; this getter keeps
-  /// the old readers compiling until step 4 of the staged swap deletes it.
-  double get reorderLevel => minStockThreshold;
 
   /// The variant's barcode — `VariantUom.barcode_qr`, which is the only
   /// identifier the API carries.
@@ -63,7 +46,6 @@ class ProductVariant {
     }
     return '';
   }
-  final String storageLocation;
 
   ProductVariant copyWith({
     bool? isActive,
@@ -71,9 +53,6 @@ class ProductVariant {
     String? baseUomCode,
     double? minStockThreshold,
     List<VariantUom>? sellingUoms,
-    // Transitional: `_syncLegacyStock` mirrors the batch total onto this field
-    // so not-yet-migrated readers stay correct. Deleted at step 4 with the field.
-    double? currentStock,
   }) {
     return ProductVariant(
       id: id,
@@ -85,12 +64,6 @@ class ProductVariant {
       variantName: variantName ?? this.variantName,
       baseUomCode: baseUomCode ?? this.baseUomCode,
       isActive: isActive ?? this.isActive,
-      sku: sku,
-      qrIdentifier: qrIdentifier,
-      costPrice: costPrice,
-      sellingPrice: sellingPrice,
-      currentStock: currentStock ?? this.currentStock,
-      storageLocation: storageLocation,
     );
   }
 
@@ -107,12 +80,6 @@ class ProductVariant {
       sellingUoms: (json['selling_uoms'] as List<dynamic>? ?? const [])
           .map((u) => VariantUom.fromJson(u as Map<String, dynamic>))
           .toList(growable: false),
-      sku: json['sku'] as String? ?? '',
-      qrIdentifier: json['qr_identifier'] as String? ?? '',
-      costPrice: double.tryParse('${json['cost_price'] ?? 0}') ?? 0,
-      sellingPrice: double.tryParse('${json['selling_price'] ?? 0}') ?? 0,
-      currentStock: double.tryParse('${json['current_stock'] ?? 0}') ?? 0,
-      storageLocation: json['storage_location'] as String? ?? '',
     );
   }
 }

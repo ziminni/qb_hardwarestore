@@ -21,10 +21,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 List<double> _batchQtys(InventoryViewmodel vm, int variantId) =>
     vm.batchesFor(variantId).map((batch) => batch.currentQty).toList();
 
-ProductVariant _variantOf(InventoryViewmodel vm, int variantId) => vm.products
-    .expand((product) => product.variants)
-    .firstWhere((variant) => variant.id == variantId);
-
 void main() {
   // Needed only by the location-hint group, which legitimately exercises
   // `shared_preferences` through its mock. The stock and lookup groups build a
@@ -248,35 +244,6 @@ void main() {
       expect(vm.movements.where((m) => m.variantId == 901), isEmpty);
     });
 
-    test(
-      'the legacy currentStock mirrors the batch total while it still exists',
-      () {
-        // Transitional: readers not yet migrated onto CatalogueItem read
-        // `variant.currentStock`, and must not be shown a stale number.
-        final vm = InventoryViewmodel();
-
-        vm.sellStock(
-          variantId: 1,
-          quantity: 30,
-          reference: 'SALE-5',
-          userName: 'Test',
-        );
-
-        expect(_variantOf(vm, 1).currentStock, 100.0);
-      },
-    );
-
-    test('seeded stock and seeded batches agree to begin with', () {
-      final vm = InventoryViewmodel();
-
-      for (final variant in vm.products.expand((p) => p.variants)) {
-        expect(
-          variant.currentStock,
-          vm.stockOnHandFor(variant.id),
-          reason: 'variant ${variant.id} mirror disagrees with its batches',
-        );
-      }
-    });
   });
 
   // The three lookups the readers need once they stop reading the legacy

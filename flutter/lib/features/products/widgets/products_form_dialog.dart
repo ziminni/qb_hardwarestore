@@ -91,7 +91,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     _reorderController = TextEditingController(
       text: firstVariant == null
           ? '10'
-          : firstVariant.reorderLevel.toStringAsFixed(0),
+          : firstVariant.minStockThreshold.toStringAsFixed(0),
     );
     _locationController = TextEditingController(text: '');
     _packageSizeController = TextEditingController(text: '40');

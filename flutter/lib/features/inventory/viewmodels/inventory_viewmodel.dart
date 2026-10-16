@@ -144,12 +144,6 @@ class InventoryViewmodel extends ChangeNotifier {
     return InventoryStockStatus.inStock;
   }
 
-  /// Transitional overload for readers not yet migrated. Delegates to the
-  /// batch-derived status so there is one source of truth for the rule.
-  InventoryStockStatus statusFor(ProductVariant variant) {
-    return statusForVariant(variant.id);
-  }
-
   int productCountForCategory(int categoryId) =>
       _products.where((product) => product.categoryId == categoryId).length;
 
@@ -193,7 +187,6 @@ class InventoryViewmodel extends ChangeNotifier {
     } else {
       _addToNewestBatch(variantId: variantId, quantity: delta);
     }
-    _syncLegacyStock();
 
     _movements.insert(
       0,
@@ -232,7 +225,6 @@ class InventoryViewmodel extends ChangeNotifier {
     if (quantity > previous) return;
 
     _deductFifo(variantId: variantId, quantity: quantity);
-    _syncLegacyStock();
 
     _movements.insert(
       0,
@@ -304,7 +296,6 @@ class InventoryViewmodel extends ChangeNotifier {
         ),
       );
     }
-    _syncLegacyStock();
     notifyListeners();
   }
 
@@ -384,23 +375,6 @@ class InventoryViewmodel extends ChangeNotifier {
       expirationDate: batch.expirationDate,
       createdAt: batch.createdAt,
     );
-  }
-
-  /// Transitional mirror: keeps the legacy `currentStock` equal to the batch
-  /// total, so readers not yet migrated onto `CatalogueItem` are never shown a
-  /// stale number. Deleted in step 4 along with the field itself.
-  void _syncLegacyStock() {
-    for (var i = 0; i < _products.length; i++) {
-      final product = _products[i];
-      _products[i] = product.copyWith(
-        variants: product.variants
-            .map(
-              (variant) =>
-                  variant.copyWith(currentStock: stockOnHandFor(variant.id)),
-            )
-            .toList(growable: false),
-      );
-    }
   }
 
   void _seedMovements() {
