@@ -69,8 +69,11 @@ the same commit that breaks it.
   three things in it are worth knowing before starting: a walk-in is **not** a customer record and **cannot go
   into utang** (the live DB already carries **₱4,900 booked against Walk-in** from the old behaviour), utang is
   shown in a **panel at the till** with a credit-limit warning that is **advisory only**, and the phase **must
-  first fix three real backend defects** — `Customer` has no `full_name`, so `/ledgers/aging/` returns **500** and
-  every ledger row's `customer_name` is silently **null**. Phases 5 and 6 remain gated by decisions 09 and 05. One
+  first fix three real backend defects — `Customer` has no `full_name` (the project's `User` does; one wrong
+  assumption copied across). **Those three are now FIXED** (commit `df908a9`, Phase 4 Task 1): `/ledgers/aging/`
+  was a verified **500** and is now 200 with real customer names, and `customer_name` was not null on every ledger
+  row as first recorded — DRF **skips** a ReadOnlyField whose lookup fails, so the key was **absent** on a 200 that
+  looked fine. Phases 5 and 6 remain gated by decisions 09 and 05. One
   item is owed **before the branch merges**: a fresh-context review of Phase 3 (the review performed was a
   self-review, because both dispatches failed on `402: insufficient credits`).
 - **Known unfixed, carried forward:** the products toolbar overflows — `A RenderFlex overflowed by 9.7 pixels on
