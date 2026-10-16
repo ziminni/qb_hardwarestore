@@ -13,6 +13,7 @@ import 'package:client/data/models/product.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Current quantities of a variant's batches, oldest receipt first.
 List<double> _batchQtys(InventoryViewmodel vm, int variantId) =>
@@ -23,6 +24,11 @@ ProductVariant _variantOf(InventoryViewmodel vm, int variantId) => vm.products
     .firstWhere((variant) => variant.id == variantId);
 
 void main() {
+  // Needed only by the location-hint group, which legitimately exercises
+  // `shared_preferences` through its mock. The stock and lookup groups build a
+  // viewmodel with no platform dependency at all.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('InventoryViewmodel — stock lives on batches', () {
     test('stockOnHandFor sums every batch of a variant', () {
       // Variant 1 ("40 kg Bag") is seeded as two lots of the same delivery
@@ -269,6 +275,62 @@ void main() {
 
       expect(vm.variantFor(1)?.variantName, '40 kg Bag');
       expect(vm.variantFor(999999), isNull);
+    });
+  });
+
+  // Storage location is store-local knowledge, not API data (decision 10). The
+  // viewmodel owns it so widgets stay synchronous and the blob is read once
+  // rather than once per table row.
+  group('InventoryViewmodel — location hints', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test('starts with no hints recorded', () async {
+      final vm = InventoryViewmodel();
+
+      expect(vm.locationHints, isEmpty);
+      expect(vm.locationHintFor(1), '');
+    });
+
+    test('a saved hint is readable and survives a new viewmodel', () async {
+      final vm = InventoryViewmodel();
+
+      await vm.setLocationHint(1, 'Rack A-01');
+      expect(vm.locationHintFor(1), 'Rack A-01');
+
+      // A fresh viewmodel reads the same persisted blob.
+      final reopened = InventoryViewmodel();
+      await reopened.loadLocationHints();
+      expect(reopened.locationHintFor(1), 'Rack A-01');
+    });
+
+    test('hints are keyed by variant, not product', () async {
+      final vm = InventoryViewmodel();
+
+      await vm.setLocationHint(1, 'Rack A-01');
+      await vm.setLocationHint(2, 'Yard E-02');
+
+      expect(vm.locationHintFor(1), 'Rack A-01');
+      expect(vm.locationHintFor(2), 'Yard E-02');
+    });
+
+    test('an empty hint reads back as no hint', () async {
+      final vm = InventoryViewmodel();
+      await vm.setLocationHint(1, 'Rack A-01');
+
+      await vm.setLocationHint(1, '   ');
+
+      expect(vm.locationHintFor(1), '');
+      expect(vm.locationHints, isEmpty);
+    });
+
+    test('setting a hint notifies listeners', () async {
+      final vm = InventoryViewmodel();
+      var notified = 0;
+      vm.addListener(() => notified++);
+
+      await vm.setLocationHint(1, 'Rack A-01');
+
+      expect(notified, greaterThan(0));
     });
   });
 }

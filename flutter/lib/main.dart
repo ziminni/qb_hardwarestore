@@ -21,6 +21,11 @@ Future<void> main() async {
   final authViewmodel = AuthViewmodel(authRepository);
   await authViewmodel.initialize();
 
+  // Storage-location hints are store-local, not API data (decision 10). Loaded
+  // once here so the widgets can read them synchronously.
+  final inventoryViewmodel = InventoryViewmodel();
+  await inventoryViewmodel.loadLocationHints();
+
   await windowManager.ensureInitialized();
   await windowManager.setMinimumSize(const Size(1000, 600));
   await windowManager.setSize(const Size(1200, 700));
@@ -33,7 +38,7 @@ Future<void> main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: authViewmodel),
-        ChangeNotifierProvider(create: (_) => InventoryViewmodel()),
+        ChangeNotifierProvider.value(value: inventoryViewmodel),
         ChangeNotifierProvider(create: (_) => SuppliersPurchasesViewmodel()),
         ChangeNotifierProvider(create: (_) => InventorySalesViewmodel()),
         ChangeNotifierProvider(create: (_) => SalesModuleViewmodel()),

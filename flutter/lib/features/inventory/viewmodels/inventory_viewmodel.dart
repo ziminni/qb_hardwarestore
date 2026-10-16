@@ -7,6 +7,7 @@ import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/services/catalogue_assembler.dart';
+import 'package:client/data/services/location_hint_store.dart';
 import 'package:client/features/inventory/viewmodels/inventory_mock_data.dart';
 import 'package:flutter/foundation.dart' show ChangeNotifier;
 
@@ -16,6 +17,10 @@ class InventoryViewmodel extends ChangeNotifier {
       _products = List.of(InventoryMockData.products),
       _batches = List.of(InventoryMockData.batches) {
     _seedMovements();
+    // Deliberately no `loadLocationHints()` here: the constructor stays free of
+    // side effects reaching platform storage, so a viewmodel can be built in a
+    // plain test. The app loads the hints once at startup (see `main.dart`), and
+    // until then `locationHintFor` honestly reads as "unknown".
   }
 
   final List<Category> _categories;
@@ -26,6 +31,9 @@ class InventoryViewmodel extends ChangeNotifier {
   final List<InventoryBatch> _batches;
 
   final List<InventoryMovement> _movements = [];
+
+  final LocationHintStore _locationHintStore = LocationHintStore();
+  Map<int, String> _locationHints = const {};
 
   List<Category> get categories => List.unmodifiable(_categories);
   List<Product> get products => List.unmodifiable(_products);
@@ -102,6 +110,29 @@ class InventoryViewmodel extends ChangeNotifier {
   /// The **displayed** cost: the newest batch's landed unit cost, which is what
   /// decision 08 chose over a weighted average. This is not a charging price.
   double? costFor(int variantId) => latestBatchFor(variantId)?.unitCostLanded;
+
+  /// Storage-location hints, keyed by variant id.
+  ///
+  /// Store-local knowledge, explicitly **not** API data (decision 10): the
+  /// backend has no location field, so these live on the device and must not be
+  /// presented as though the server sent them.
+  Map<int, String> get locationHints => Map.unmodifiable(_locationHints);
+
+  /// The recorded location for a variant, or an empty string when none is
+  /// recorded. Empty rather than a placeholder, because "we do not know where it
+  /// is" is a real state and must not look like a location.
+  String locationHintFor(int variantId) => _locationHints[variantId] ?? '';
+
+  Future<void> loadLocationHints() async {
+    _locationHints = await _locationHintStore.loadAll();
+    notifyListeners();
+  }
+
+  /// Records a location hint. A blank [location] clears it.
+  Future<void> setLocationHint(int variantId, String location) async {
+    await _locationHintStore.save(variantId, location);
+    await loadLocationHints();
+  }
 
   Iterable<({Product product, ProductVariant variant})> get stockRecords sync* {
     for (final product in _products) {
