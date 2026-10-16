@@ -151,19 +151,16 @@ class PosTransactionViewmodel extends ChangeNotifier {
       (line) => line.variantUomId == item.variantUomId,
     );
     final cartQuantity = index < 0 ? 0.0 : _lines[index].quantity;
-    final reservedBaseStock = _lines
-        .where((line) {
-          final option = _catalog.firstWhere(
-            (catalogItem) => catalogItem.variantUomId == line.variantUomId,
-          );
-          return option.variantId == item.variantId;
-        })
-        .fold<double>(0, (sum, line) {
-          final option = _catalog.firstWhere(
-            (catalogItem) => catalogItem.variantUomId == line.variantUomId,
-          );
-          return sum + line.quantity * option.conversionFactor;
-        });
+    // Walked as a loop rather than a where/fold chain so a stale line can be SKIPPED.
+    var reservedBaseStock = 0.0;
+    for (final line in _lines) {
+      final option = _rowFor(line);
+      // A line whose catalogue row is gone reserves nothing, and validate() refuses
+      // the sale while it is there, so ignoring it here cannot oversell.
+      if (option == null) continue;
+      if (option.variantId != item.variantId) continue;
+      reservedBaseStock += line.quantity * option.conversionFactor;
+    }
     final requestedBaseStock = quantity * item.conversionFactor;
     if (reservedBaseStock + requestedBaseStock > item.availableBaseStock) {
       return 'Only ${_quantity(item.availableSaleQuantity)} ${item.unit} available.';
@@ -201,15 +198,40 @@ class PosTransactionViewmodel extends ChangeNotifier {
     if (_lines.isEmpty) return 'Add at least one product to the transaction.';
     final requestedByVariant = <int, double>{};
     for (final line in _lines) {
-      final item = _catalog.firstWhere(
-        (catalogItem) => catalogItem.variantUomId == line.variantUomId,
-      );
+      final item = _rowFor(line);
+      // The catalogue is rebuilt from live stock and skips a variant at zero, so a
+      // line can outlive its row. Refusing by NAME is the honest outcome: silently
+      // dropping the line would submit a sale the cashier did not assemble, and
+      // pricing it anyway would sell something the catalogue says is gone.
+      if (item == null) {
+        return '${line.productName} ${line.variantName} is no longer '
+            'available. Remove it from the cart.';
+      }
       requestedByVariant[item.variantId] =
           (requestedByVariant[item.variantId] ?? 0) +
           line.quantity * item.conversionFactor;
       if (requestedByVariant[item.variantId]! > item.availableBaseStock) {
         return '${line.productName}: the combined units exceed available stock.';
       }
+    }
+    return null;
+  }
+
+  /// The catalogue row a cart line refers to, or null when the row is gone.
+  ///
+  /// The catalogue is a getter rebuilt from live stock and it SKIPS any variant whose
+  /// stock has reached zero. A line can outlive its row: a server refresh (`load()`) or
+  /// a sale on another screen sharing this InventoryViewmodel can drain the variant
+  /// while the basket still holds it. Every lookup by line must go through here,
+  /// because `_catalog.firstWhere(...)` with no `orElse` throws
+  /// `StateError: Bad state: No element` and takes the whole POS down.
+  ///
+  /// Found by the Phase 3 review's adversarial pass, which reproduced the crash before
+  /// it was fixed. `addLine`'s reserved-stock arithmetic threw first, on the line it
+  /// was not even looking at.
+  PosCatalogItem? _rowFor(PosCartLine line) {
+    for (final item in _catalog) {
+      if (item.variantUomId == line.variantUomId) return item;
     }
     return null;
   }
