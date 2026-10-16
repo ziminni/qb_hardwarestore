@@ -1,5 +1,6 @@
 """Inventory app — ViewSets for catalog, purchasing & stock."""
 
+from django.db import transaction
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
@@ -113,8 +114,20 @@ class StockAdjustmentViewSet(_CatalogBaseViewSet):
     serializer_class = StockAdjustmentSerializer
 
     def perform_create(self, serializer):
-        adj = serializer.save(user=self.request.user)
-        apply_stock_adjustment(adjustment=adj)
+        # `apply_stock_adjustment` -> `allocate_fifo` uses `select_for_update`, which
+        # Django refuses outside a transaction, and the row is saved BEFORE the stock
+        # moves. Without this wrapper a POST raised
+        # TransactionManagementError: select_for_update cannot be used outside of a
+        # transaction -- and left the StockAdjustment row COMMITTED with the stock
+        # unmoved, so the ledger recorded an adjustment that never happened.
+        #
+        # The atomic must wrap BOTH statements, not just the service call: an
+        # `@atomic` on `apply_stock_adjustment` alone would still commit the row
+        # first. Found by POSTing to the running server from the Phase 2 client
+        # contract check, not by reading the code.
+        with transaction.atomic():
+            adj = serializer.save(user=self.request.user)
+            apply_stock_adjustment(adjustment=adj)
 
 
 class SystemAlertViewSet(viewsets.ModelViewSet):

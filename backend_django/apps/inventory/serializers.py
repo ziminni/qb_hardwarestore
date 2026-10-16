@@ -5,17 +5,17 @@ from rest_framework import serializers
 from .models import (
     Brand,
     Category,
-    Product,
-    ProductVariant,
-    UnitOfMeasure,
-    VariantUOM,
-    Supplier,
-    PurchaseOrder,
-    POItem,
     GoodsReceipt,
     InventoryBatch,
+    POItem,
+    Product,
+    ProductVariant,
+    PurchaseOrder,
     StockAdjustment,
+    Supplier,
     SystemAlert,
+    UnitOfMeasure,
+    VariantUOM,
 )
 
 
@@ -125,7 +125,15 @@ class StockAdjustmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = StockAdjustment
         fields = ['id','variant','user','adjustment_type','qty_adjusted','remarks','timestamp']
-        read_only_fields = ['id','timestamp']
+        # `user` is READ-ONLY because the actor is never the client's to choose.
+        # StockAdjustmentViewSet.perform_create already does
+        # `serializer.save(user=self.request.user)`, so a writable `user` was
+        # both demanded by validation and then discarded -- every client was
+        # forced to send a value that had no effect, and a client could have
+        # attributed an adjustment to somebody else. Found by POSTing this
+        # endpoint's real body to the running server: HTTP 400
+        # {"user":["This field is required."]}.
+        read_only_fields = ['id','timestamp','user']
 
 
 class SystemAlertSerializer(serializers.ModelSerializer):
