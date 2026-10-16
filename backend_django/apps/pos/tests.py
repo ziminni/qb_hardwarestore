@@ -1,3 +1,12 @@
+#!/usr/bin/env python
+# pyright: reportAttributeAccessIssue=false
+#
+# The same directive, with the same reason, as apps/inventory/views.py and seed_demo.py:
+# this checker is run by a client whose working directory is outside the repo, so it
+# resolves no config and cannot be silenced by pyrightconfig.json, and every
+# `Model.objects` access and `self.client.post(...).status_code` is a false positive on
+# valid Django. Django's own `manage.py check` and the test run remain the authority.
+
 """POS app tests — process_sale, FIFO deduction, receipts, underpayment."""
 
 from decimal import Decimal
@@ -8,8 +17,8 @@ from django.test import TestCase
 
 from apps.collectibles.models import CollectibleLedger
 from apps.inventory.models import (
-    Brand, Category, GoodsReceipt, Product, ProductVariant, PurchaseOrder,
-    POItem, Supplier, UnitOfMeasure, VariantUOM,
+    Brand, Category, GoodsReceipt, POItem, Product, ProductVariant, PurchaseOrder,
+    Supplier, UnitOfMeasure, VariantUOM,
 )
 from apps.inventory.services import process_goods_receipt
 
@@ -151,7 +160,8 @@ class CheckoutApiTests(POSTestBase):
     def _post(self, qty):
         return self.client.post(
             TRANSACTIONS_URL, data=self._payload(qty),
-            content_type='application/json', **self.auth)
+            content_type='application/json',
+            **self.auth)  # pyright: ignore[reportArgumentType]
 
     def test_insufficient_stock_is_a_400_with_a_stable_code(self):
         # 10 on hand; ask for 11.
@@ -162,6 +172,13 @@ class CheckoutApiTests(POSTestBase):
         body = response.json()
         self.assertEqual(body['code'], 'INSUFFICIENT_STOCK')
         self.assertIn('shortfall', body, 'the client needs the shortfall to explain it')
+        # Decision 06 section 3 requires the client to "identify the offending line".
+        # `detail` names the product, but only an id lets the cart point AT the row it
+        # must fix, and InsufficientStock already carries one (inventory/services.py
+        # raises it with the variant) - the handler simply was not publishing it.
+        self.assertEqual(
+            body['variant_id'], self.variant.id,
+            'without the variant id the client can only print a sentence')
 
     def test_a_rejected_sale_rolls_back_entirely(self):
         # transaction.atomic() means a failure leaves NOTHING behind: the client is

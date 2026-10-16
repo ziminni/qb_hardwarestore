@@ -23,6 +23,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
   bool _isSubmitting = false;
   String? _submitError;
   int? _walkInCustomerId;
+  int? _insufficientStockLineId;
 
   List<PosCartLine> get lines => List.unmodifiable(_lines);
   List<PosReceipt> get receipts => List.unmodifiable(_receipts);
@@ -36,6 +37,27 @@ class PosTransactionViewmodel extends ChangeNotifier {
 
   /// The last submit failure, safe to show a cashier. Null after a success.
   String? get submitError => _submitError;
+
+  /// The cart line the server rejected for stock, or null.
+  ///
+  /// Non-null means the failure is **recoverable in place**, as decision 06 section 3
+  /// requires: the sale did not happen, the cart is intact, and this is the row to fix.
+  /// A terminal failure (a 5xx, or a stock rejection naming a variant no line sells)
+  /// leaves this null rather than pointing the cashier at an innocent row.
+  ///
+  /// The server blames a *variant* while the cart is keyed by `VariantUom`, so the id
+  /// is mapped through the catalogue; the cart holds the row, the server holds the
+  /// variant, and only the catalogue knows which units a variant sells.
+  int? get insufficientStockLineId => _insufficientStockLineId;
+
+  /// The cart line selling [variantId], or null when the cart sells no such variant.
+  int? _lineForVariant(int? variantId) {
+    if (variantId == null) return null;
+    for (final line in _lines) {
+      if (_rowFor(line)?.variantId == variantId) return line.variantUomId;
+    }
+    return null;
+  }
 
   List<PosCatalogItem> get _catalog {
     final items = <PosCatalogItem>[];
@@ -258,6 +280,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
 
     _isSubmitting = true;
     _submitError = null;
+    _insufficientStockLineId = null;
     notifyListeners();
 
     try {
@@ -301,6 +324,12 @@ class PosTransactionViewmodel extends ChangeNotifier {
       return true;
     } on PosServiceException catch (error) {
       _submitError = error.message;
+      // Decision 06 section 3 separates a recoverable stock rejection from a terminal
+      // failure. Recording WHICH line is what makes it recoverable: the cashier is
+      // told which row to fix instead of being left to re-read the basket.
+      _insufficientStockLineId = error.isInsufficientStock
+          ? _lineForVariant(error.variantId)
+          : null;
       return false;
     } finally {
       _isSubmitting = false;

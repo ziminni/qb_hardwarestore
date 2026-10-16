@@ -91,7 +91,12 @@ class PosCheckoutResult {
 
 /// Raised when a sale cannot be completed. [message] is safe to show a cashier.
 class PosServiceException implements Exception {
-  const PosServiceException(this.message, {this.code, this.shortfall});
+  const PosServiceException(
+    this.message, {
+    this.code,
+    this.shortfall,
+    this.variantId,
+  });
 
   final String message;
 
@@ -100,6 +105,14 @@ class PosServiceException implements Exception {
 
   /// How far short the sale was, when the server said so.
   final double? shortfall;
+
+  /// The variant the server blamed, when it said stock was short.
+  ///
+  /// Decision 06 section 3 requires the client to "identify the offending line". The
+  /// server names a **variant**, while the cart is keyed by `VariantUom`, so this is
+  /// what the viewmodel maps onto a cart row. Null when the server did not say - and
+  /// a caller must then point at nothing rather than guess.
+  final int? variantId;
 
   /// True only when the server explicitly said stock was short.
   ///
@@ -210,12 +223,14 @@ class PosService {
         if (code is String && code == 'INSUFFICIENT_STOCK') {
           final detail = body['detail'];
           final shortfall = body['shortfall'];
+          final variantId = body['variant_id'];
           return PosServiceException(
             detail is String && detail.isNotEmpty
                 ? detail
                 : 'There is not enough stock to complete this sale.',
             code: code,
             shortfall: shortfall == null ? null : double.tryParse('$shortfall'),
+            variantId: variantId is int ? variantId : null,
           );
         }
         final detail = body['detail'];

@@ -47,11 +47,38 @@ class PosTransactionCart extends StatelessWidget {
                       separatorBuilder: (_, _) => const Divider(),
                       itemBuilder: (context, index) {
                         final line = state.lines[index];
+                        // Decision 06 section 3: a short-stock rejection is recoverable
+                        // in place, so the cart names the row the cashier must fix.
+                        // Without this the viewmodel's marker would be a fact nothing
+                        // shows - the same defect the final review found, one layer up.
+                        final isShort =
+                            line.variantUomId == state.insufficientStockLineId;
+                        final breakdown =
+                            '${line.variantName}\n'
+                            '${line.quantity.toStringAsFixed(2)} ${line.unit} × '
+                            '₱${line.unitPrice.toStringAsFixed(2)}';
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
+                          tileColor: isShort
+                              ? Theme.of(context).colorScheme.errorContainer
+                              : null,
+                          shape: isShort
+                              ? RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                )
+                              : null,
                           title: Text(line.productName),
                           subtitle: Text(
-                            '${line.variantName}\n${line.quantity.toStringAsFixed(2)} ${line.unit} × ₱${line.unitPrice.toStringAsFixed(2)}',
+                            isShort
+                                ? '$breakdown\nNot enough stock — reduce this line.'
+                                : breakdown,
+                            style: isShort
+                                ? TextStyle(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onErrorContainer,
+                                  )
+                                : null,
                           ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
