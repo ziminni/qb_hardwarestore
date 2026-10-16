@@ -1,9 +1,10 @@
 # planning/api-integration/MAP.md
 
 **Slug:** `api-integration` · **Opened:** 2026-10-15
-**Status:** 8 locked · 3 open. **Phase 0 is COMPLETE — all 7 rows built, then verified row-by-row against
+**Status:** 9 locked · 3 open. **Phase 0 is COMPLETE — all 7 rows built, then verified row-by-row against
 the code rather than against the ledger, then reviewed on a fresh context and the two defects it found fixed.**
-Phase 1 is unblocked; the three open decisions gate Phases 3, 5 and 6.
+**Phase 1's scope is now locked too** (decision 12), so it is ready to build; the three open decisions gate
+Phases 3, 5 and 6.
 
 ## Destination
 
@@ -111,6 +112,7 @@ Rules every session on this map must respect. Facts that already have a home are
 - [Which Price the POS Charges](./decisions/08-pricing-rule.md): `VariantUom.default_selling_price` is what the customer is charged; `InventoryBatch.batch_selling_price` is display-only. Cost shows the latest batch's `unit_cost_landed`, labelled as such.
 - [Stock Identifier and Location Hint Presentation](./decisions/10-stock-identifier-and-location-hint.md): **there is no SKU field anywhere in the backend** — the SKU column becomes a **Barcode** column fed by `VariantUom.barcode_qr`. Storage location becomes a **client-local hint persisted with `shared_preferences`**, keyed by variant id, explicitly not API data.
 - [Product List Ownership in the Products Screen](./decisions/11-products-list-ownership.md): `ProductsViewmodel` becomes **view state only** (search, filters, paging, selection) and reads the list live from `InventoryViewmodel`; the duplicate list and the double mutation are deleted. Registering it in `main.dart` is **superseded** — it is screen-scoped, like `PosTransactionViewmodel`, which was never unwired.
+- [Phase 1 Live Data Home and Mock Retention](./decisions/12-phase-1-live-data-home.md): Phase 1 loads `GET /api/v1/products/` + `GET /api/v1/batches/` into **`InventoryViewmodel`**, which is the product list's only home — so the catalogue, inventory screens and POS catalogue all go live in one move with no consumer rewrites. `InventoryMockData` is **retained** for what the API cannot yet serve (movements, adjustments, tracking, suppliers), and the Add/Edit/Archive paths stay memory-only until their phase.
 
 ## Phase order (locked 2026-10-15 — from [First Vertical Slice & Ordering Lens](./decisions/01-first-vertical-slice.md))
 
@@ -121,21 +123,21 @@ phase table and tracked in neither the frontier nor the fog.
 
 | Phase | Scope | State | Ticket |
 | :--- | :--- | :--- | :--- |
-| 0 | Substrate (model, transport, presentation, routing, cleanup) | ✅ **done** | The 8 locked decisions; see the status table above |
-| 1 | Products module (the `ProductVariant` hub) | 🔨 **ready to build** | None needed — decisions 02, 03, 07, 08, 10 and 11 are locked |
+| 0 | Substrate (model, transport, presentation, routing, cleanup) | ✅ **done** | The 8 Phase 0 decisions; see the status table above |
+| 1 | Products module (the `ProductVariant` hub) | 🔨 **ready to build** | ✅ [Phase 1 Live Data Home and Mock Retention](./decisions/12-phase-1-live-data-home.md) — locked |
 | 2 | Inventory: stock list, low stock, movements | 🔨 **ready to build** | None needed — the batch-vs-adjustment distinction is settled by Phase 0 rulings R12–R14 |
 | 3 | POS checkout + receipt (the money path) | ❓ **gated** | [POS Checkout Client Contract](./decisions/06-checkout-client-contract.md) — open |
 | 4 | Customers master data (the `Customer` hub) | ❓ **gated** | Fog: which slice of customer CRUD the POS needs — see Fog of War |
 | 5 | Requisitions + material-token release | ❓ **gated** | [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md) — open |
 | 6 | Admin, reports, sales | ❓ **gated** | [Sales Stack Reconciliation](./decisions/05-sales-stack-reconciliation.md) — open |
 
-**Phases 1 and 2 need no new decisions and can be built now** — they are the only two in that state. Everything
-from Phase 3 up waits on a frontier decision.
+**Phase 1 is fully specified and can be built now**, and Phase 2 needs no new decisions either — those two are
+the only phases in that state. Everything from Phase 3 up waits on a frontier decision.
 
 ## Active Frontier (Open & Unblocked)
 
 Ordered by the locked phase order: define the entity, then the transport, then the presentation. Resolve one
-per session. Phases 0, 1 and 2 need no further decisions; the next three gate Phases 3, 5 and 6.
+per session. Phases 0–2 need no further decisions; the next three gate Phases 3, 5 and 6.
 
 - [ ] [POS Checkout Client Contract](./decisions/06-checkout-client-contract.md) — domain-model · Phase 3
 - [ ] [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md) — grill · Phase 5
