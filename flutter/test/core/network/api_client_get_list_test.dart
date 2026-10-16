@@ -71,12 +71,23 @@ void main() {
 
   late ApiClient client;
   late _FakeAdapter adapter;
+  late HttpClientAdapter originalAdapter;
 
   // `ApiClient.init()` assigns a `late final Dio dio`, so it is NOT idempotent —
   // calling it once per test throws `LateInitializationError` on the second
   // call. Initialise the singleton once here and swap only the adapter below.
   setUpAll(() {
     client = ApiClient.instance..init();
+    // The tests below replace the adapter on the SINGLETON, so capture the real
+    // one and hand it back in tearDown. Otherwise the app-wide client is left
+    // answering every request with this file's last fixture, which would trap
+    // the next suite that expects a working adapter (a failure with no visible
+    // connection to this file).
+    originalAdapter = client.dio.httpClientAdapter;
+  });
+
+  tearDown(() {
+    client.dio.httpClientAdapter = originalAdapter;
   });
 
   void useBody(String body, {int statusCode = 200}) {

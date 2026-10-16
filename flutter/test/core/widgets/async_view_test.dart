@@ -96,6 +96,34 @@ void main() {
       expect(builderRan, isFalse, reason: 'builder must not run when empty');
     });
 
+    testWidgets('the empty state offers no retry, even when one is supplied', (
+      tester,
+    ) async {
+      // An empty list is a legitimate result, not a failure, so a "Retry"
+      // button would imply something went wrong. onRetry is deliberately inert in
+      // this branch — this test is what stops a later change from wiring it in,
+      // which a comment alone cannot do.
+      var retried = false;
+
+      await tester.pumpWidget(
+        _host(
+          AsyncView(
+            isLoading: false,
+            error: null,
+            isEmpty: true,
+            emptyMessage: 'No products yet.',
+            onRetry: () => retried = true,
+            builder: (_) => const Text('DATA'),
+          ),
+        ),
+      );
+
+      expect(find.text('No products yet.'), findsOneWidget);
+      expect(find.text('Retry'), findsNothing);
+      expect(find.byIcon(Icons.refresh), findsNothing);
+      expect(retried, isFalse);
+    });
+
     testWidgets('builds the data when nothing else applies', (tester) async {
       await tester.pumpWidget(
         _host(

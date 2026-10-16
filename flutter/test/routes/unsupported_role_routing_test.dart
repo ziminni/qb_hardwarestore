@@ -14,7 +14,10 @@
 // dashboard would fail for a reason unrelated to routing. The page itself is
 // covered by rendering it directly, which is safe.
 
+import 'dart:typed_data';
+
 import 'package:client/app.dart';
+import 'package:client/core/network/api_client.dart';
 import 'package:client/data/models/role.dart';
 import 'package:client/data/models/user.dart';
 import 'package:client/data/repositories/auth_repository.dart';
@@ -24,7 +27,9 @@ import 'package:client/features/auth/views/login_page.dart';
 import 'package:client/features/auth/views/unsupported_role_page.dart';
 import 'package:client/routes/routes.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:dio/dio.dart';
 import 'package:provider/provider.dart';
 
 /// [redirectFor] with a signed-in actor, so each case states only what it varies.
@@ -246,5 +251,91 @@ void main() {
       expect(find.byType(UnsupportedRolePage), findsOneWidget);
       expect(find.byType(LoginPage), findsNothing);
     });
+
+    testWidgets('the offered way out actually ARRIVES at the login page', (
+      tester,
+    ) async {
+      // 'offers a way out' only proves the button exists. This proves the exit
+      // works: logout() clears the user, the router re-evaluates through its
+      // refreshListenable, and the sign-out lands on /login instead of bouncing
+      // back to the screen the user is trying to leave.
+      //
+      // The client is pointed at an UNREACHABLE backend on purpose: this is the
+      // path `AuthService.logout` promises in its own comment, "Local logout
+      // must still succeed if the backend is unavailable", and DioException is
+      // what it catches for it. (An UNINITIALISED client would instead throw a
+      // LateError, which escapes that catch — so init() is called here; dio is
+      // `late final`, so this happens exactly once.)
+      ApiClient.instance.init();
+      ApiClient.instance.dio.httpClientAdapter = _OfflineAdapter();
+
+      // Secure storage is a PLATFORM CHANNEL, and its reply arrives on the real
+      // event loop that a widget test never yields to — so an unmocked logout()
+      // parks in the FakeAsync zone forever and `isLoading` never clears. The
+      // package ships this in-memory double for exactly this. Diagnosed, not
+      // guessed: a plain-test logout completed fine, a widget-test one did not.
+      FlutterSecureStorage.setMockInitialValues({});
+
+      final auth = AuthViewmodel(AuthRepository(AuthService()))
+        ..user = User(
+          id: 1,
+          username: 'foreman',
+          email: 'foreman@example.com',
+          fullName: 'Site Foreman',
+          role: const Role(
+            id: 5,
+            name: 'site_foreman',
+            displayName: 'Site Foreman',
+          ),
+          isActive: true,
+        );
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AuthViewmodel>.value(
+          value: auth,
+          child: MyApp(auth: auth),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(UnsupportedRolePage), findsOneWidget);
+
+      await tester.tap(find.text('Sign out'));
+
+      // The button does NOT await logout(). With storage mocked the remaining
+      // awaits resolve as ordinary microtasks, but pumpAndSettle still only
+      // chases FRAMES, so pump with a duration to advance the fake clock and
+      // flush them. Bounded, so a genuine hang fails the assertion below rather
+      // than looping forever.
+      for (var i = 0; i < 20 && auth.isLoading; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+      await tester.pumpAndSettle();
+
+      expect(auth.isLoading, isFalse, reason: 'logout() never completed');
+      expect(find.byType(LoginPage), findsOneWidget);
+      expect(find.byType(UnsupportedRolePage), findsNothing);
+      expect(auth.user, isNull);
+    });
   });
+}
+
+/// Answers every request the way an unreachable backend does, so sign-out is
+/// tested against the failure it is supposed to tolerate rather than against a
+/// happy-path server that would hide the interesting branch.
+class _OfflineAdapter implements HttpClientAdapter {
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    throw DioException(
+      requestOptions: options,
+      type: DioExceptionType.connectionError,
+      error: 'offline',
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
