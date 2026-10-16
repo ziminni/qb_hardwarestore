@@ -25,6 +25,17 @@ All four Phase 0 decisions are locked, so Phase 1 can start. What a coding sessi
 
 Then **Phase 1**: wire the products catalogue screen to `GET /api/v1/products/` + `GET /api/v1/batches/`.
 
+> ⚠️ **Measured during execution (2026-10-16) — the Models row under-states its cost, and the task order inverts.**
+> Swapping `product.dart` produces **332 analyzer errors across 17 files**. The 92 outside the mock data are not
+> field renames: `inventory_viewmodel` derives stock status from `currentStock`/`reorderLevel` and
+> `pos_transaction_viewmodel` prices its cart from `sellingPrice`/`currentStock`, so they consume the removed
+> fields as **domain logic**.
+>
+> Required order: **catalogue assembler (`CatalogueItem`) → 16-file domain migration → `product.dart` swap**.
+> The additive models (`VariantUom`, `InventoryBatch`, strict JSON readers) are already delivered and tested;
+> the `product.dart` swap is deliberately not applied yet so the build stays green.
+> Full reasoning and evidence: `.superpowers/sdd/MAP/progress.md` ruling **R7**.
+
 ## Notes & Invariants
 
 Rules every session on this map must respect. Facts that already have a home are linked, never restated.
