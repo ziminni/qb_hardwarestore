@@ -1,10 +1,11 @@
 # planning/api-integration/MAP.md
 
 **Slug:** `api-integration` · **Opened:** 2026-10-15
-**Status:** 9 locked · 3 open. **Phase 0 is COMPLETE — all 7 rows built, then verified row-by-row against
-the code rather than against the ledger, then reviewed on a fresh context and the two defects it found fixed.**
-**Phase 1's scope is now locked too** (decision 12), so it is ready to build; the three open decisions gate
-Phases 3, 5 and 6.
+**Status:** 9 locked · 3 open. **Phases 0 and 1 are COMPLETE.** Phase 0's 7 rows are built and were verified
+row-by-row against the code (the "Phase 0 — status" table below is the authority; it has been wrong twice in
+opposite directions, so it is stated with per-row evidence); Phase 1's products catalogue renders live API data
+(commits `6070442`…`557dfd3`). **Phase 2 needs no new decisions and can be built now**; the three open decisions
+gate Phases 3, 5 and 6.
 
 ## Destination
 
@@ -124,15 +125,15 @@ phase table and tracked in neither the frontier nor the fog.
 | Phase | Scope | State | Ticket |
 | :--- | :--- | :--- | :--- |
 | 0 | Substrate (model, transport, presentation, routing, cleanup) | ✅ **done** | The 8 Phase 0 decisions; see the status table above |
-| 1 | Products module (the `ProductVariant` hub) | 🔨 **ready to build** | ✅ [Phase 1 Live Data Home and Mock Retention](./decisions/12-phase-1-live-data-home.md) — locked |
+| 1 | Products module (the `ProductVariant` hub) | ✅ **done** | [Phase 1 Live Data Home and Mock Retention](./decisions/12-phase-1-live-data-home.md) — locked; built in `6070442`…`557dfd3` |
 | 2 | Inventory: stock list, low stock, movements | 🔨 **ready to build** | None needed — the batch-vs-adjustment distinction is settled by Phase 0 rulings R12–R14 |
 | 3 | POS checkout + receipt (the money path) | ❓ **gated** | [POS Checkout Client Contract](./decisions/06-checkout-client-contract.md) — open |
 | 4 | Customers master data (the `Customer` hub) | ❓ **gated** | Fog: which slice of customer CRUD the POS needs — see Fog of War |
 | 5 | Requisitions + material-token release | ❓ **gated** | [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md) — open |
 | 6 | Admin, reports, sales | ❓ **gated** | [Sales Stack Reconciliation](./decisions/05-sales-stack-reconciliation.md) — open |
 
-**Phase 1 is fully specified and can be built now**, and Phase 2 needs no new decisions either — those two are
-the only phases in that state. Everything from Phase 3 up waits on a frontier decision.
+**Phase 1 is complete**, and **Phase 2 needs no new decisions and can be built now** — it is the only phase in
+that state. Everything from Phase 3 up waits on a frontier decision.
 
 ## Active Frontier (Open & Unblocked)
 

@@ -25,38 +25,42 @@ the same commit that breaks it.
 
 ## Current Status & Next Step
 
-- **Active branch:** `feature/backend-integration` — 82 commits ahead of `origin/master`, unpushed.
+- **Active branch:** `feature/backend-integration` — 87 commits ahead of `origin/master`, unpushed.
 - **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. The slice
-  order is **locked** (Cashier journey) and the map reads **8 locked · 3 open**. **Phase 0 is COMPLETE** — all 7
-  of its rows are built, and the map's "Phase 0 — status" table is the authority. It has been wrong twice in
-  opposite directions, so it is stated with per-row evidence and was re-verified against the CODE, not against
-  the ledger. The map now carries the **7-phase route** with each phase's ticket attached, so "what is next" is
-  answerable from the index alone: **Phases 1 and 2 need no new decisions and can be built now**, while Phases
-  3, 5 and 6 wait on the three open decisions.
-- **Last session:** `docs/sessions/2026-10-16-map-repair-and-tracker-reconciliation.md` — answered "what is
-  genuinely still open?" from the code rather than from memory, after the previous session's "Phase 0 complete"
-  claim over-reached. Put the **7-phase route into the map's index** (it had lived only inside decision 01, so
-  the map could not answer "what is next"); gave **Phase 4 a ticket** (it was a station with none); struck
-  **decision 01's instruction to register the viewmodels in `main.dart`** (superseded by decision 11 and wrong on
-  two counts); corrected a stale `MAP.md` invariant that called `widget_test.dart` an untracked broken template;
-  and **reconciled the task tracker** — six items were marked open for work already committed, and each now
-  carries its evidence inline. Verified fresh: analyze clean, **131/131**, tree clean, **82** commits ahead.
-  Earlier: `docs/sessions/2026-10-16-phase-0-complete.md` built the five remaining Phase 0 rows (transport,
-  presentation, routing, cleanup; Registration dissolved by decision 11) and had `Paged.hasMore` falsified by a
-  fresh-context review; `docs/sessions/2026-10-16-staged-model-swap-complete.md` finished the staged model swap;
+  order is **locked** (Cashier journey) and the map reads **9 locked · 3 open**. **Phases 0 and 1 are COMPLETE**
+  — Phase 0's 7 rows are built (the map's "Phase 0 — status" table is the authority, and it was re-verified
+  against the CODE after being wrong twice in opposite directions), and Phase 1's products catalogue now renders
+  live API data. The map carries the **7-phase route** with each phase's ticket attached, so "what is next" is
+  answerable from the index alone: **Phase 2 needs no new decisions and can be built now**, while Phases 3, 5
+  and 6 wait on the three open decisions.
+- **Last session:** `docs/sessions/2026-10-16-phase-1-products-catalogue.md` — **built Phase 1**: the products
+  catalogue now renders live API data. Locked **decision 12** *before* coding, because the product list has
+  exactly one home (`InventoryViewmodel`) and decision 11 plus `assembleCatalogue` already read from it, so
+  loading that store lights up the inventory and POS screens in the same move. Added `ProductsService` (both
+  endpoints through `getList<T>`, so `parsePaged` unwraps each envelope), `ProductsRepository`,
+  `InventoryViewmodel.load()` with `isLoading`/`loadError`/`hasLoaded`, and `products_page` rendering all four
+  states through `AsyncView`. Suite **131 → 146**. Verified fresh: analyze clean, **146/146**, tree clean, **87**
+  commits ahead. Earlier: `docs/sessions/2026-10-16-map-repair-and-tracker-reconciliation.md` repaired the map's
+  route in the index and reconciled the task tracker; `docs/sessions/2026-10-16-phase-0-complete.md` built the
+  five remaining Phase 0 rows and had `Paged.hasMore` falsified by review;
+  `docs/sessions/2026-10-16-staged-model-swap-complete.md` finished the staged model swap;
   `docs/sessions/2026-10-16-staged-swap-blockers-and-location-store.md` locked decision 10;
   `docs/sessions/2026-10-16-phase-0-decisions.md` locked the six Phase 0 decisions;
   `docs/sessions/2026-10-15-integration-map.md` opened the map.
 - **Current state (verified):** the backend is feature-complete; the client consumes almost none of it.
   Of 10 feature modules only `auth` reaches the API. 38 screens scored: 3 live · 27 mock · 8 dead. See
   `docs/SYSTEM_ATLAS.md`.
-- **Next step:** **Phase 1** — task-tracker `#9`, the **one** open item and the only genuinely unbuilt work.
-  Wire the products catalogue to `GET /api/v1/products/` + `GET /api/v1/batches/` (verified 0 references to
-  either in `lib/`). Everything it needs now exists and is locked: `ApiClient.getList<T>` returning `Paged<T>`,
-  `core/widgets/async_view.dart` (decision 07), and `assembleCatalogue`. It needs **no new decisions** — switch
-  to `executing-plans`. Neither `ProductsViewmodel` nor `PosTransactionViewmodel` belongs in `main.dart` —
-  decision 11 makes them screen-scoped view state, like the POS screen's existing pattern. A salvageable earlier
-  attempt at products/batches wiring sits in commit `22c7c26` (`planning/02-lost-work-recovery.md`).
+- **Next step:** **Phase 2 — inventory** (stock list, low stock, movements). It needs **no new decisions**; the
+  batch-vs-adjustment distinction was settled by Phase 0 rulings R12–R14. Note that Phase 1 already made
+  `InventoryViewmodel` API-backed, so the inventory screens are **already reading live products and batches** —
+  Phase 2's work is their REMAINING endpoints (movements, adjustments, alerts, tracking) and removing the
+  corresponding mock. Then Phase 3 (POS checkout), gated by decision 06.
+- **Known unfixed, carried forward:** the products toolbar overflows — `A RenderFlex overflowed by 9.7 pixels on
+  the right` from `products_toolbar.dart:113` and `products_catalog_overview.dart:156` — pre-existing, visible at
+  ~1600px window widths, found while testing Phase 1 and deliberately not fixed (UI work outside that phase's
+  scope). The products page's Add / Edit / Archive paths are **memory-only** until a later phase wires the writes
+  (decision 12's accepted cost). And **`flutter run` against the live backend has still not been executed** — the
+  API contract is verified by probing the server, and the wiring by widget tests, but not the running app.
 - **Open backend issue (found during review):** `apps/inventory/services.py::apply_stock_adjustment` silently
   discards a positive adjustment when no batch has `current_qty > 0`, so a count correction on a depleted
   variant is lost with no error. Out of scope for the client-only map; needs a backend issue.
