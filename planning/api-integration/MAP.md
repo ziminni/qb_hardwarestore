@@ -1,7 +1,7 @@
 # planning/api-integration/MAP.md
 
 **Slug:** `api-integration` · **Opened:** 2026-10-15
-**Status:** Phase 0 **complete** — 6 locked · 3 open. Next: Phase 1 (products catalogue). Remaining decisions gate Phases 3, 5 and 6.
+**Status:** 7 locked · 3 open. The Phase 0 model swap is **in progress** (staged, see the ⚠️ note below). Next: finish step 3, then step 4.
 
 ## Destination
 
@@ -58,6 +58,7 @@ Rules every session on this map must respect. Facts that already have a home are
 - [Loading, Error and Empty State Convention](./decisions/07-loading-error-empty-convention.md): viewmodels follow the `auth_viewmodel` public-field convention; one shared `AsyncView` widget in a new `core/widgets/` owns loading/error/empty rendering.
 - [Role to Dashboard Routing for All Six Roles](./decisions/04-role-dashboard-routing.md): a Site Foreman is a **CPMS-side identity, not a POS user** — `site_foreman` gets no POS dashboard, and unmapped roles route to an explicit screen instead of looping to `/login`.
 - [Which Price the POS Charges](./decisions/08-pricing-rule.md): `VariantUom.default_selling_price` is what the customer is charged; `InventoryBatch.batch_selling_price` is display-only. Cost shows the latest batch's `unit_cost_landed`, labelled as such.
+- [Stock Identifier and Location Hint Presentation](./decisions/10-stock-identifier-and-location-hint.md): **there is no SKU field anywhere in the backend** — the SKU column becomes a **Barcode** column fed by `VariantUom.barcode_qr`. Storage location becomes a **client-local hint persisted with `shared_preferences`**, keyed by variant id, explicitly not API data.
 
 ## Active Frontier (Open & Unblocked)
 
