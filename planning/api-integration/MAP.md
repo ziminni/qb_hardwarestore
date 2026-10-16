@@ -1,7 +1,7 @@
 # planning/api-integration/MAP.md
 
 **Slug:** `api-integration` · **Opened:** 2026-10-15
-**Status:** 11 locked · 2 open. **Phases 0, 1, 2 and 3 are COMPLETE.** Phase 0's 7 rows
+**Status:** 11 locked · 3 open. **Phases 0, 1, 2 and 3 are COMPLETE.** Phase 0's 7 rows
 are built and were verified row-by-row against the code (the "Phase 0 — status" table below is the authority; it
 has been wrong twice in opposite directions, so it is stated with per-row evidence); Phase 1's products catalogue
 renders live API data (commits `6070442`…`557dfd3`); Phase 2 made the server the authority for inventory state

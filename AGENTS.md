@@ -27,7 +27,10 @@ the same commit that breaks it.
 
 - **Active branch:** `feature/backend-integration` — 114 commits ahead of `origin/master`, unpushed.
 - **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. The slice order is
-  **locked** (Cashier journey) and the map reads **11 locked · 2 open**. **Phases 0-3 are COMPLETE.** Phase 0's 7
+  **locked** (Cashier journey) and the map reads **11 locked · 3 open** — 14 decision files: 11 settled, and 05,
+  09 and 14 open. (It read "2 open" until 2026-10-16, which was correct the moment decision 06 resolved and stale
+  the moment decision 14 graduated out of the Fog of War in the same session; the headline was never recounted.)
+  **Phases 0-3 are COMPLETE.** Phase 0's 7
   rows are built (the map's "Phase 0 — status" table is the authority, and it was re-verified against the CODE
   after being wrong twice in opposite directions); Phase 1's products catalogue renders live API data; Phase 2
   made the **server the authority for inventory state**; and Phase 3 made the POS **complete a real sale**. The map
