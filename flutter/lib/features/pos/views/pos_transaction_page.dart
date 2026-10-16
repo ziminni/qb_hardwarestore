@@ -2,6 +2,7 @@ import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
+import 'package:client/features/pos/widgets/pos_customer_picker_dialog.dart';
 import 'package:client/features/pos/widgets/pos_payment_dialog.dart';
 import 'package:client/features/pos/widgets/pos_underpayment_dialog.dart';
 import 'package:client/features/pos/widgets/pos_product_browser.dart';
@@ -83,6 +84,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
                     child: PosTransactionCart(
                       onPayment: () => _pay(context),
                       onClear: transaction.clear,
+                      onChangeCustomer: () => _changeCustomer(context),
                     ),
                   ),
                 ],
@@ -143,8 +145,45 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     _restoreScannerFocus();
   }
 
-  Future<void> _pay(BuildContext context) async {
+  /// Opens the customer picker, loading the list first.
+  ///
+  /// Loaded on open rather than at page start so the list is as current as the moment the
+  /// cashier looks at it - a customer recorded on another terminal a minute ago should be
+  /// pickable here, and the till is where that matters.
+  ///
+  /// Decision 14: cancelling changes NOTHING (the choice is null), "Walk-in (anonymous)" is
+  /// an explicit selection rather than a cancellation, and a new customer is recorded on a
+  /// name + type record and then selected.
+  Future<void> _changeCustomer(BuildContext context) async {
     final transaction = context.read<PosTransactionViewmodel>();
+    await transaction.loadCustomers();
+    if (!context.mounted) return;
+
+    final choice = await showDialog<PosCustomerSelection>(
+      context: context,
+      builder: (_) => PosCustomerPickerDialog(
+        customers: transaction.customers,
+        loadError: transaction.customersError,
+        onCreate: (name, type) async {
+          final error = await transaction.createAndSelectCustomer(
+            name: name,
+            type: type,
+          );
+          if (error != null) return (null, error);
+          return (transaction.selectedCustomer, null);
+        },
+      ),
+    );
+    if (choice == null) {
+      _restoreScannerFocus();
+      return;
+    }
+    if (!context.mounted) return;
+    transaction.selectCustomer(choice.customer);
+    _restoreScannerFocus();
+  }
+
+  Future<void> _pay(BuildContext context) async {    final transaction = context.read<PosTransactionViewmodel>();
     // A sale is one atomic server operation, so a double submit would be two sales.
     if (transaction.isSubmitting) return;
     final error = transaction.validate();

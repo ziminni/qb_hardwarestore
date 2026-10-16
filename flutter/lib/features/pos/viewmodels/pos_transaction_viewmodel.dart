@@ -43,6 +43,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
   int? _walkInCustomerId;
   int? _insufficientStockLineId;
   Customer? _selectedCustomer;
+  final List<Customer> _customerList = [];
+  String? _customersError;
 
   List<PosCartLine> get lines => List.unmodifiable(_lines);
   List<PosReceipt> get receipts => List.unmodifiable(_receipts);
@@ -78,10 +80,36 @@ class PosTransactionViewmodel extends ChangeNotifier {
   /// collectable.
   Customer? get selectedCustomer => _selectedCustomer;
 
+  /// The live customer list the picker searches, loaded by [loadCustomers].
+  List<Customer> get customers => List.unmodifiable(_customerList);
+
+  /// Set when the list could not be loaded. The picker shows this rather than looking empty,
+  /// because "no customers" and "could not ask the server" are different statements.
+  String? get customersError => _customersError;
+
+  /// Loads the picker's list.
+  ///
+  /// On failure the existing list is KEPT: emptying it would read as "this store has no
+  /// customers", which is a different and false claim, and the cashier could not tell the
+  /// difference between a network blip and an empty database.
+  Future<void> loadCustomers() async {
+    try {
+      final loaded = await _customerRepo.fetchCustomers();
+      _customerList
+        ..clear()
+        ..addAll(loaded);
+      _customersError = null;
+    } on CustomerServiceException catch (error) {
+      _customersError = error.message;
+    }
+    notifyListeners();
+  }
+
   /// What the checkout shows as the buyer. Never empty, so the cashier can always tell who
   /// the sale is for. The `(anonymous)` marker matters: it is the difference between "this
   /// will be paid in full" and "this may become someone's debt".
-  String get customerLabel => _selectedCustomer?.name ?? 'Walk-in Customer (anonymous)';
+  String get customerLabel =>
+      _selectedCustomer?.name ?? 'Walk-in Customer (anonymous)';
 
   /// Chooses the buyer, or null to go back to an anonymous sale.
   void selectCustomer(Customer? customer) {

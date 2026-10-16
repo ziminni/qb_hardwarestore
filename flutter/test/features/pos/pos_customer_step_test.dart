@@ -73,6 +73,8 @@ class _StubCustomerRepository extends CustomerRepository {
 }
 
 void main() {
+  _loadCustomersTests();
+
   late InventoryViewmodel inventory;
   late _StubPosRepository pos;
   late _StubCustomerRepository customers;
@@ -101,24 +103,29 @@ void main() {
     expect(
       cart.customerLabel,
       contains('Walk-in'),
-      reason: 'the default must read as an anonymous sale, not as "nobody selected"',
+      reason:
+          'the default must read as an anonymous sale, not as "nobody selected"',
     );
   });
 
-  test('selecting a customer changes the label and what the sale is addressed to', () async {
-    await addOneLine();
-    cart.selectCustomer(
-      const Customer(id: 5, name: 'Maria Santos', customerType: 'REGULAR'),
-    );
+  test(
+    'selecting a customer changes the label and what the sale is addressed to',
+    () async {
+      await addOneLine();
+      cart.selectCustomer(
+        const Customer(id: 5, name: 'Maria Santos', customerType: 'REGULAR'),
+      );
 
-    expect(cart.customerLabel, 'Maria Santos');
-    await cart.submit(paymentMethod: 'CASH', amountPaid: 100);
-    expect(
-      pos.sentCustomerId,
-      5,
-      reason: 'the sale must go to the chosen account, not to the resolved walk-in',
-    );
-  });
+      expect(cart.customerLabel, 'Maria Santos');
+      await cart.submit(paymentMethod: 'CASH', amountPaid: 100);
+      expect(
+        pos.sentCustomerId,
+        5,
+        reason:
+            'the sale must go to the chosen account, not to the resolved walk-in',
+      );
+    },
+  );
 
   test('an anonymous sale still resolves the walk-in id itself', () async {
     await addOneLine();
@@ -158,19 +165,78 @@ void main() {
     expect(
       cart.selectedCustomer,
       isNull,
-      reason: 'selecting a customer that was never created would post a sale to a ghost',
+      reason:
+          'selecting a customer that was never created would post a sale to a ghost',
     );
   });
 
-  test('the selection survives a failed submit - the cart is not reset', () async {
-    await addOneLine();
-    cart.selectCustomer(
-      const Customer(id: 5, name: 'Maria Santos', customerType: 'REGULAR'),
-    );
-    pos.sentCustomerId = null;
+  test(
+    'the selection survives a failed submit - the cart is not reset',
+    () async {
+      await addOneLine();
+      cart.selectCustomer(
+        const Customer(id: 5, name: 'Maria Santos', customerType: 'REGULAR'),
+      );
+      pos.sentCustomerId = null;
 
-    await cart.submit(paymentMethod: 'CASH', amountPaid: 100);
+      await cart.submit(paymentMethod: 'CASH', amountPaid: 100);
 
-    expect(cart.selectedCustomer?.id, 5);
+      expect(cart.selectedCustomer?.id, 5);
+    },
+  );
+}
+
+// Appended for the widget layer: the page needs the live customer list to hand the picker, so
+// the viewmodel owns loading it (the one-data-path invariant - the page never touches a service).
+void _loadCustomersTests() {
+  group('customer list', () {
+    late InventoryViewmodel inventory;
+    late _StubCustomerRepository customers;
+    late PosTransactionViewmodel cart;
+
+    setUp(() {
+      inventory = InventoryViewmodel();
+      customers = _StubCustomerRepository();
+      cart = PosTransactionViewmodel(
+        inventory,
+        ProductTrackingViewmodel(),
+        pos: _StubPosRepository(),
+        customers: customers,
+      );
+    });
+
+    test('starts with nothing loaded and no error', () {
+      expect(cart.customers, isEmpty);
+      expect(cart.customersError, isNull);
+    });
+
+    test('loadCustomers brings the list in', () async {
+      customers.customers = const [
+        Customer(id: 2, name: 'Maria Santos', customerType: 'REGULAR'),
+      ];
+
+      await cart.loadCustomers();
+
+      expect(cart.customers, hasLength(1));
+      expect(cart.customers.single.name, 'Maria Santos');
+      expect(cart.customersError, isNull);
+    });
+
+    test('a failed load sets customersError and does NOT empty the list', () async {
+      customers.customers = const [
+        Customer(id: 2, name: 'Maria Santos', customerType: 'REGULAR'),
+      ];
+      await cart.loadCustomers();
+      customers.failureMessage = 'Cannot connect to the BuildPro server.';
+
+      await cart.loadCustomers();
+
+      expect(cart.customersError, contains('Cannot connect'));
+      expect(
+        cart.customers,
+        hasLength(1),
+        reason: 'an emptied list would read as "this store has no customers"',
+      );
+    });
   });
 }

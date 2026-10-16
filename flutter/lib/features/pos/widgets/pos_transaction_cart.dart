@@ -8,10 +8,15 @@ class PosTransactionCart extends StatelessWidget {
     super.key,
     required this.onPayment,
     required this.onClear,
+    required this.onChangeCustomer,
   });
 
   final VoidCallback onPayment;
   final VoidCallback onClear;
+
+  /// Opens the customer picker. The sale's account is [PosTransactionViewmodel]
+  /// state, so this row only reports the selection and asks to change it.
+  final VoidCallback onChangeCustomer;
 
   @override
   Widget build(BuildContext context) {
@@ -32,6 +37,35 @@ class PosTransactionCart extends StatelessWidget {
                 const Spacer(),
                 Text('${state.itemCount} line item(s)'),
               ],
+            ),
+            // Decision 14: who is paying sits above what they are paying for, so the cashier
+            // sees the account before assembling the basket. An anonymous sale is marked as
+            // such, because that is the difference between "paid in full" and "becomes a
+            // debt" - and a walk-in CANNOT owe.
+            InkWell(
+              onTap: onChangeCustomer,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  children: [
+                    const Icon(Icons.person_outline, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        state.customerLabel,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: state.selectedCustomer == null
+                              ? AppColors.textSecondary
+                              : null,
+                        ),
+                      ),
+                    ),
+                    const Text('Change', style: TextStyle(fontSize: 12)),
+                  ],
+                ),
+              ),
             ),
             const Divider(height: 28),
             Expanded(

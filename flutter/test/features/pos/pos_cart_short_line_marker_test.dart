@@ -61,7 +61,11 @@ void main() {
         value: cart,
         child: MaterialApp(
           home: Scaffold(
-            body: PosTransactionCart(onPayment: () {}, onClear: () {}),
+            body: PosTransactionCart(
+              onPayment: () {},
+              onClear: () {},
+              onChangeCustomer: () {},
+            ),
           ),
         ),
       ),
