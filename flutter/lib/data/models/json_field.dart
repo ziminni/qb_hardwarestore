@@ -36,9 +36,7 @@ String stringField(Map<String, dynamic> json, String key) {
     throw FormatException('Missing required string field "$key"');
   }
   if (value is! String) {
-    throw FormatException(
-      'Field "$key" is not a string: ${value.runtimeType}',
-    );
+    throw FormatException('Field "$key" is not a string: ${value.runtimeType}');
   }
   return value;
 }

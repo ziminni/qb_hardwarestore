@@ -87,9 +87,78 @@ void main() {
     });
 
     test('throws when current_qty is missing', () {
-      final payload = Map<String, dynamic>.from(livePayload)..remove('current_qty');
+      final payload = Map<String, dynamic>.from(livePayload)
+        ..remove('current_qty');
 
       expect(() => InventoryBatch.fromJson(payload), throwsFormatException);
+    });
+  });
+
+  group('ProductVariant.fromJson', () {
+    // GET /api/v1/variants/ (live) — nesting includes selling_uoms
+    final livePayload = <String, dynamic>{
+      'id': 8,
+      'product': 6,
+      'variant_name': '20A 1-pole',
+      'base_uom': 2,
+      'base_uom_code': 'PC',
+      'min_stock_threshold': '20.00',
+      'max_stock_level': '0.00',
+      'is_active': true,
+      'selling_uoms': [
+        {
+          'id': 8,
+          'variant': 8,
+          'uom': 2,
+          'uom_code': 'PC',
+          'uom_name': 'Piece',
+          'barcode_qr': '',
+          'conversion_factor': '1.00',
+          'default_selling_price': '315.00',
+        },
+      ],
+      'created_at': '2026-09-25T11:30:00+08:00',
+      'updated_at': '2026-09-25T11:30:00+08:00',
+    };
+
+    test('parses the variant exactly as the API sends it', () {
+      final variant = ProductVariant.fromJson(livePayload);
+
+      expect(variant.id, 8);
+      expect(variant.productId, 6);
+      expect(variant.variantName, '20A 1-pole');
+      expect(variant.baseUomCode, 'PC');
+      expect(variant.minStockThreshold, 20.00);
+      expect(variant.maxStockLevel, 0.00);
+      expect(variant.isActive, isTrue);
+      expect(variant.sellingUoms, hasLength(1));
+      expect(variant.sellingUoms.single.defaultSellingPrice, 315.00);
+    });
+
+    test('carries no stock or price of its own', () {
+      // The API exposes neither on a variant, so a variant with no selling_uoms
+      // still parses — price and stock are the catalogue assembler's job.
+      final payload = Map<String, dynamic>.from(livePayload)
+        ..['selling_uoms'] = <dynamic>[];
+
+      final variant = ProductVariant.fromJson(payload);
+
+      expect(variant.sellingUoms, isEmpty);
+    });
+
+    test('throws when variant_name is missing', () {
+      // The old model defaulted this class of field to '' or 0, which is how a
+      // variant silently rendered as PHP 0.00.
+      final payload = Map<String, dynamic>.from(livePayload)..remove('variant_name');
+
+      expect(() => ProductVariant.fromJson(payload), throwsFormatException);
+    });
+
+    test('throws when min_stock_threshold is missing', () {
+      final payload = Map<String, dynamic>.from(livePayload)
+        ..remove('min_stock_threshold');
+
+      expect(() => ProductVariant.fromJson(payload), throwsFormatException);
     });
   });
 

@@ -214,13 +214,16 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
         ) ??
         ProductVariant(
           id: DateTime.now().microsecondsSinceEpoch,
+          productId: existing?.id ?? 0,
+          baseUomId: 0,
+          maxStockLevel: 0,
           variantName: _variantController.text.trim(),
           baseUomCode: _baseUnit,
           isActive: true,
           sku: _skuController.text.trim(),
           qrIdentifier: _barcodeController.text.trim(),
           currentStock: total,
-          reorderLevel: double.tryParse(_reorderController.text) ?? 0,
+          minStockThreshold: double.tryParse(_reorderController.text) ?? 0,
           storageLocation: _locationController.text.trim(),
           costPrice: double.tryParse(_costController.text) ?? 0,
           sellingPrice: double.tryParse(_sellingController.text) ?? 0,

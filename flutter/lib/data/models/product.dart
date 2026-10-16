@@ -1,6 +1,16 @@
+import 'package:client/data/models/json_field.dart';
+import 'package:client/data/models/variant_uom.dart';
+
 class ProductVariant {
   const ProductVariant({
     required this.id,
+    // --- API-faithful fields (added by the staged swap, decreed by R8) ---
+    required this.productId,
+    required this.baseUomId,
+    required this.minStockThreshold,
+    required this.maxStockLevel,
+    this.sellingUoms = const [],
+    // --- legacy flattened fields, DELETED in step 4 once the 13 readers migrate ---
     required this.variantName,
     required this.baseUomCode,
     required this.isActive,
@@ -9,11 +19,24 @@ class ProductVariant {
     this.costPrice = 0,
     this.sellingPrice = 0,
     this.currentStock = 0,
-    this.reorderLevel = 0,
     this.storageLocation = '',
   });
 
   final int id;
+
+  /// Owning product id. API field `product`.
+  final int productId;
+
+  /// Base unit id. API field `base_uom`.
+  final int baseUomId;
+
+  /// Low-stock threshold. API field `min_stock_threshold`; replaces `reorderLevel`.
+  final double minStockThreshold;
+  final double maxStockLevel;
+
+  /// Selling units, each owning the charged price. API field `selling_uoms`.
+  final List<VariantUom> sellingUoms;
+
   final String variantName;
   final String baseUomCode;
   final bool isActive;
@@ -22,7 +45,9 @@ class ProductVariant {
   final double costPrice;
   final double sellingPrice;
   final double currentStock;
-  final double reorderLevel;
+  /// Legacy alias. `min_stock_threshold` is the API field; this getter keeps
+  /// the old readers compiling until step 4 of the staged swap deletes it.
+  double get reorderLevel => minStockThreshold;
   final String storageLocation;
 
   ProductVariant copyWith({
@@ -34,11 +59,15 @@ class ProductVariant {
     double? costPrice,
     double? sellingPrice,
     double? currentStock,
-    double? reorderLevel,
     String? storageLocation,
   }) {
     return ProductVariant(
       id: id,
+      productId: productId,
+      baseUomId: baseUomId,
+      minStockThreshold: minStockThreshold,
+      maxStockLevel: maxStockLevel,
+      sellingUoms: sellingUoms,
       variantName: variantName ?? this.variantName,
       baseUomCode: baseUomCode ?? this.baseUomCode,
       isActive: isActive ?? this.isActive,
@@ -47,23 +76,28 @@ class ProductVariant {
       costPrice: costPrice ?? this.costPrice,
       sellingPrice: sellingPrice ?? this.sellingPrice,
       currentStock: currentStock ?? this.currentStock,
-      reorderLevel: reorderLevel ?? this.reorderLevel,
       storageLocation: storageLocation ?? this.storageLocation,
     );
   }
 
   factory ProductVariant.fromJson(Map<String, dynamic> json) {
     return ProductVariant(
-      id: json['id'] as int,
-      variantName: json['variant_name'] as String,
-      baseUomCode: json['base_uom_code'] as String? ?? '',
-      isActive: json['is_active'] as bool? ?? true,
+      id: intField(json, 'id'),
+      variantName: stringField(json, 'variant_name'),
+      baseUomCode: stringField(json, 'base_uom_code'),
+      isActive: boolFieldOr(json, 'is_active', or: true),
+      productId: intField(json, 'product'),
+      baseUomId: intField(json, 'base_uom'),
+      minStockThreshold: decimalField(json, 'min_stock_threshold'),
+      maxStockLevel: decimalField(json, 'max_stock_level'),
+      sellingUoms: (json['selling_uoms'] as List<dynamic>? ?? const [])
+          .map((u) => VariantUom.fromJson(u as Map<String, dynamic>))
+          .toList(growable: false),
       sku: json['sku'] as String? ?? '',
       qrIdentifier: json['qr_identifier'] as String? ?? '',
       costPrice: double.tryParse('${json['cost_price'] ?? 0}') ?? 0,
       sellingPrice: double.tryParse('${json['selling_price'] ?? 0}') ?? 0,
       currentStock: double.tryParse('${json['current_stock'] ?? 0}') ?? 0,
-      reorderLevel: double.tryParse('${json['reorder_level'] ?? 0}') ?? 0,
       storageLocation: json['storage_location'] as String? ?? '',
     );
   }
