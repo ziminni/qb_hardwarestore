@@ -215,4 +215,60 @@ void main() {
       }
     });
   });
+
+  // The three lookups the readers need once they stop reading the legacy
+  // flattened fields. Each has exactly one home: barcode on the selling unit,
+  // price on the selling unit (decision 08), cost on the newest batch.
+  group('InventoryViewmodel — legacy field lookups', () {
+    test('barcodeFor reads the selling uom, not a SKU', () {
+      // There is no SKU field anywhere in the backend (decision 10);
+      // VariantUom.barcodeQr is the only identifier the API carries.
+      final vm = InventoryViewmodel();
+
+      expect(vm.barcodeFor(1), 'MAT-00001');
+    });
+
+    test('barcodeFor is empty when no selling unit carries one', () {
+      final vm = InventoryViewmodel();
+
+      expect(vm.barcodeFor(999999), '');
+    });
+
+    test('priceFor reads the selling uom default, never a batch price', () {
+      final vm = InventoryViewmodel();
+
+      expect(vm.priceFor(1), 270.0); // uom price; batch price is also 270 here
+      expect(vm.priceFor(999999), isNull);
+    });
+
+    test('costFor reads the newest batch, labelled as such', () {
+      final vm = InventoryViewmodel();
+
+      expect(vm.costFor(1), 235.0);
+      expect(vm.costFor(999999), isNull);
+    });
+
+    test('costFor follows the newest batch, not the oldest', () {
+      final vm = InventoryViewmodel();
+
+      // An addition lands on the newest batch, which is the one cost reads.
+      vm.adjustStock(
+        variantId: 1,
+        newQuantity: 140,
+        reason: 'Return',
+        notes: '',
+        userName: 'Test',
+      );
+
+      expect(vm.costFor(1), 235.0);
+      expect(vm.latestBatchFor(1)!.currentQty, 60.0);
+    });
+
+    test('variantFor finds a variant across products', () {
+      final vm = InventoryViewmodel();
+
+      expect(vm.variantFor(1)?.variantName, '40 kg Bag');
+      expect(vm.variantFor(999999), isNull);
+    });
+  });
 }

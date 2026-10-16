@@ -5,6 +5,7 @@ import 'package:client/data/models/category.dart';
 import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
+import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/services/catalogue_assembler.dart';
 import 'package:client/features/inventory/viewmodels/inventory_mock_data.dart';
 import 'package:flutter/foundation.dart' show ChangeNotifier;
@@ -63,6 +64,44 @@ class InventoryViewmodel extends ChangeNotifier {
   /// has to re-do that join.
   List<CatalogueItem> get catalogue =>
       assembleCatalogue(products: _products, batches: _batches);
+
+  /// The variant behind an id, searched across every product.
+  ProductVariant? variantFor(int variantId) {
+    for (final product in _products) {
+      for (final variant in product.variants) {
+        if (variant.id == variantId) return variant;
+      }
+    }
+    return null;
+  }
+
+  /// The variant's barcode — `VariantUom.barcode_qr`, the only identifier the API
+  /// carries. Empty when no selling unit has one, which is the honest state for
+  /// all seeded data.
+  ///
+  /// This replaces the invented `sku` (decision 10): there is no SKU field
+  /// anywhere in the backend, and the `CEM-HOL-40`-style values were fabricated
+  /// by the mock data rather than typed into any database.
+  String barcodeFor(int variantId) {
+    final uoms = variantFor(variantId)?.sellingUoms ?? const <VariantUom>[];
+    for (final uom in uoms) {
+      if (uom.barcodeQr.isNotEmpty) return uom.barcodeQr;
+    }
+    return '';
+  }
+
+  /// The price the POS charges: the selling unit's default price (decision 08).
+  /// Never the batch price, so FIFO crossing a batch boundary cannot split a
+  /// cart line or change what the customer pays. Null when there is no selling
+  /// unit — no price is invented for it.
+  double? priceFor(int variantId) {
+    final uoms = variantFor(variantId)?.sellingUoms ?? const <VariantUom>[];
+    return uoms.isEmpty ? null : uoms.first.defaultSellingPrice;
+  }
+
+  /// The **displayed** cost: the newest batch's landed unit cost, which is what
+  /// decision 08 chose over a weighted average. This is not a charging price.
+  double? costFor(int variantId) => latestBatchFor(variantId)?.unitCostLanded;
 
   Iterable<({Product product, ProductVariant variant})> get stockRecords sync* {
     for (final product in _products) {
