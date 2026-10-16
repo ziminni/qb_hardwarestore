@@ -1,25 +1,68 @@
 import 'dart:math';
 
+import 'package:client/data/models/catalogue_item.dart';
 import 'package:client/data/models/category.dart';
 import 'package:client/data/models/inventory.dart';
+import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
+import 'package:client/data/services/catalogue_assembler.dart';
 import 'package:client/features/inventory/viewmodels/inventory_mock_data.dart';
 import 'package:flutter/foundation.dart' show ChangeNotifier;
 
 class InventoryViewmodel extends ChangeNotifier {
   InventoryViewmodel()
     : _categories = List.of(InventoryMockData.categories),
-      _products = List.of(InventoryMockData.products) {
+      _products = List.of(InventoryMockData.products),
+      _batches = List.of(InventoryMockData.batches) {
     _seedMovements();
   }
 
   final List<Category> _categories;
   final List<Product> _products;
+
+  /// Where stock actually lives (decision 02). Every quantity question is
+  /// answered from here, never from a field on the variant.
+  final List<InventoryBatch> _batches;
+
   final List<InventoryMovement> _movements = [];
 
   List<Category> get categories => List.unmodifiable(_categories);
   List<Product> get products => List.unmodifiable(_products);
   List<InventoryMovement> get movements => List.unmodifiable(_movements);
+
+  /// A variant's batches, oldest delivery first — the order FIFO deducts in.
+  ///
+  /// Ordered by `receiptId`, which is the client's only non-null date proxy:
+  /// every mock batch was materialised with `createdAt: null`, so ordering by
+  /// date is impossible here even though the live API populates it.
+  List<InventoryBatch> batchesFor(int variantId) {
+    final rows = _batches
+        .where((batch) => batch.variantId == variantId)
+        .toList()
+      ..sort((a, b) {
+        final byReceipt = a.receiptId.compareTo(b.receiptId);
+        return byReceipt != 0 ? byReceipt : a.id.compareTo(b.id);
+      });
+    return List.unmodifiable(rows);
+  }
+
+  /// Stock on hand for a variant — the sum of its batches.
+  double stockOnHandFor(int variantId) => batchesFor(
+    variantId,
+  ).fold(0, (sum, batch) => sum + batch.currentQty);
+
+  /// The newest batch: what an upward correction lands on, and where the
+  /// displayed cost comes from (decision 08 — no weighted average, no charging).
+  InventoryBatch? latestBatchFor(int variantId) {
+    final rows = batchesFor(variantId);
+    return rows.isEmpty ? null : rows.last;
+  }
+
+  /// One row per (variant, selling unit), assembled from products and batches.
+  /// Price comes from the selling unit and stock from the batches, so no screen
+  /// has to re-do that join.
+  List<CatalogueItem> get catalogue =>
+      assembleCatalogue(products: _products, batches: _batches);
 
   Iterable<({Product product, ProductVariant variant})> get stockRecords sync* {
     for (final product in _products) {
@@ -58,6 +101,9 @@ class InventoryViewmodel extends ChangeNotifier {
   void archiveCategory(Category category) =>
       updateCategory(category.copyWith(isActive: false));
 
+  /// Sets a variant's stock to an absolute count (a count correction). Mirrors
+  /// the backend's `apply_stock_adjustment`: a reduction goes through FIFO oldest
+  /// batch first, an addition lands on the newest batch.
   void adjustStock({
     required int variantId,
     required double newQuantity,
@@ -65,25 +111,31 @@ class InventoryViewmodel extends ChangeNotifier {
     required String notes,
     required String userName,
   }) {
-    final record = stockRecords.firstWhere(
-      (record) => record.variant.id == variantId,
-    );
-    final previous = record.variant.currentStock;
-    _replaceVariant(
-      record.product,
-      record.variant.copyWith(currentStock: newQuantity),
-    );
+    final product = _productForVariant(variantId);
+    if (product == null) return;
+
+    final previous = stockOnHandFor(variantId);
+    final delta = newQuantity - previous;
+    if (delta == 0) return;
+
+    if (delta < 0) {
+      _deductFifo(variantId: variantId, quantity: -delta);
+    } else {
+      _addToNewestBatch(variantId: variantId, quantity: delta);
+    }
+    _syncLegacyStock();
+
     _movements.insert(
       0,
       InventoryMovement(
         id: _movements.length + 1,
-        productId: record.product.id,
+        productId: product.id,
         variantId: variantId,
         timestamp: DateTime.now(),
         type: InventoryMovementType.stockAdjustment,
-        quantityChange: newQuantity - previous,
+        quantityChange: delta,
         previousStock: previous,
-        newStock: newQuantity,
+        newStock: previous + delta,
         reference: 'ADJ-${(_movements.length + 1).toString().padLeft(4, '0')}',
         reason: notes.trim().isEmpty ? reason : '$reason — ${notes.trim()}',
         userName: userName,
@@ -92,33 +144,37 @@ class InventoryViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Sells [quantity] of a variant, deducting the oldest batch first — the client
+  /// mirror of `inventory.services.allocate_fifo`. A sale larger than the stock on
+  /// hand is refused and changes nothing, which is what the backend does by
+  /// raising before it writes anything.
   void sellStock({
     required int variantId,
     required double quantity,
     required String reference,
     required String userName,
   }) {
-    final record = stockRecords.firstWhere(
-      (record) => record.variant.id == variantId,
-    );
-    final previous = record.variant.currentStock;
-    final next = previous - quantity;
-    if (quantity <= 0 || next < 0) return;
-    _replaceVariant(
-      record.product,
-      record.variant.copyWith(currentStock: next),
-    );
+    if (quantity <= 0) return;
+    final product = _productForVariant(variantId);
+    if (product == null) return;
+
+    final previous = stockOnHandFor(variantId);
+    if (quantity > previous) return;
+
+    _deductFifo(variantId: variantId, quantity: quantity);
+    _syncLegacyStock();
+
     _movements.insert(
       0,
       InventoryMovement(
         id: _movements.length + 1,
-        productId: record.product.id,
+        productId: product.id,
         variantId: variantId,
         timestamp: DateTime.now(),
         type: InventoryMovementType.sale,
         quantityChange: -quantity,
         previousStock: previous,
-        newStock: next,
+        newStock: previous - quantity,
         reference: reference,
         reason: 'Frontend POS sale',
         userName: userName,
@@ -127,12 +183,36 @@ class InventoryViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Adds a product and creates one opening batch per variant that arrives with
+  /// stock — a batch is exactly "a lot at a cost", so the form's quantity and
+  /// cost become real entities here instead of a number on the variant.
+  ///
+  /// Transitional: the quantity and cost are still read off the legacy
+  /// `currentStock`/`costPrice` fields, which step 4 deletes. The products form is
+  /// migrated onto explicit opening stock before then; if it is not, step 4 fails
+  /// to compile rather than letting this silently write wrong stock.
   void addProduct(Product product) {
     final id = _products.fold<int>(0, (value, item) => max(value, item.id)) + 1;
-    _products.add(product.copyWith(id: id));
-    for (final variant in product.variants.where(
+    final stored = product.copyWith(id: id);
+    _products.add(stored);
+
+    for (final variant in stored.variants.where(
       (item) => item.currentStock > 0,
     )) {
+      _batches.add(
+        InventoryBatch(
+          id: _nextBatchId(),
+          variantId: variant.id,
+          receiptId: _nextReceiptId(),
+          initialQty: variant.currentStock,
+          currentQty: variant.currentStock,
+          unitCostLanded: variant.costPrice,
+          markupPercentage: 0,
+          batchSellingPrice: variant.sellingPrice,
+          expirationDate: null,
+          createdAt: null,
+        ),
+      );
       _movements.insert(
         0,
         InventoryMovement(
@@ -150,6 +230,7 @@ class InventoryViewmodel extends ChangeNotifier {
         ),
       );
     }
+    _syncLegacyStock();
     notifyListeners();
   }
 
@@ -160,19 +241,99 @@ class InventoryViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _replaceVariant(Product product, ProductVariant variant) {
-    _products[_products.indexWhere((item) => item.id == product.id)] = product
-        .copyWith(
-          variants: product.variants
-              .map((item) => item.id == variant.id ? variant : item)
-              .toList(growable: false),
-        );
+  Product? _productForVariant(int variantId) {
+    for (final product in _products) {
+      if (product.variants.any((variant) => variant.id == variantId)) {
+        return product;
+      }
+    }
+    return null;
+  }
+
+  int _nextBatchId() =>
+      _batches.fold<int>(0, (value, batch) => max(value, batch.id)) + 1;
+
+  int _nextReceiptId() =>
+      _batches.fold<int>(0, (value, batch) => max(value, batch.receiptId)) + 1;
+
+  /// Deducts from the oldest batches first, stopping once the quantity is met.
+  /// Mirrors `allocate_fifo`; every caller checks sufficiency before calling.
+  void _deductFifo({required int variantId, required double quantity}) {
+    var remaining = quantity;
+    for (final batch in batchesFor(variantId)) {
+      if (remaining <= 0) break;
+      final take = min(batch.currentQty, remaining);
+      if (take <= 0) continue;
+      _replaceBatch(batch, currentQty: batch.currentQty - take);
+      remaining -= take;
+    }
+  }
+
+  /// Mirrors the addition branch of `apply_stock_adjustment`: the newest batch.
+  void _addToNewestBatch({required int variantId, required double quantity}) {
+    final newest = latestBatchFor(variantId);
+    if (newest == null) {
+      // An upward correction with no prior lot: the count is real but there is no
+      // cost basis for it, so the lot carries the quantity at zero cost rather
+      // than inventing a figure.
+      _batches.add(
+        InventoryBatch(
+          id: _nextBatchId(),
+          variantId: variantId,
+          receiptId: _nextReceiptId(),
+          initialQty: quantity,
+          currentQty: quantity,
+          unitCostLanded: 0,
+          markupPercentage: 0,
+          batchSellingPrice: 0,
+          expirationDate: null,
+          createdAt: null,
+        ),
+      );
+      return;
+    }
+    _replaceBatch(newest, currentQty: newest.currentQty + quantity);
+  }
+
+  void _replaceBatch(InventoryBatch batch, {required double currentQty}) {
+    final index = _batches.indexWhere((item) => item.id == batch.id);
+    if (index < 0) return;
+    _batches[index] = InventoryBatch(
+      id: batch.id,
+      variantId: batch.variantId,
+      receiptId: batch.receiptId,
+      initialQty: batch.initialQty,
+      currentQty: currentQty,
+      unitCostLanded: batch.unitCostLanded,
+      markupPercentage: batch.markupPercentage,
+      batchSellingPrice: batch.batchSellingPrice,
+      expirationDate: batch.expirationDate,
+      createdAt: batch.createdAt,
+    );
+  }
+
+  /// Transitional mirror: keeps the legacy `currentStock` equal to the batch
+  /// total, so readers not yet migrated onto `CatalogueItem` are never shown a
+  /// stale number. Deleted in step 4 along with the field itself.
+  void _syncLegacyStock() {
+    for (var i = 0; i < _products.length; i++) {
+      final product = _products[i];
+      _products[i] = product.copyWith(
+        variants: product.variants
+            .map(
+              (variant) => variant.copyWith(
+                currentStock: stockOnHandFor(variant.id),
+              ),
+            )
+            .toList(growable: false),
+      );
+    }
   }
 
   void _seedMovements() {
     var id = 1;
     for (final record in stockRecords) {
-      final current = record.variant.currentStock;
+      final current = stockOnHandFor(record.variant.id);
       final opening = max(current - 5, 0).toDouble();
       final received = 10.0;
       final sold = opening + received - current;

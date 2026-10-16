@@ -771,8 +771,8 @@ class InventoryMockData {
       id: 1,
       variantId: 1,
       receiptId: 1,
-      initialQty: 130,
-      currentQty: 130,
+      initialQty: 80,
+      currentQty: 80,
       unitCostLanded: 235,
       markupPercentage: 0,
       batchSellingPrice: 270,
@@ -1004,6 +1004,22 @@ class InventoryMockData {
       unitCostLanded: 78,
       markupPercentage: 0,
       batchSellingPrice: 105,
+      expirationDate: null,
+      createdAt: null,
+    ),
+    // A second lot for variant 1, from the receipt that also carried variant 2 —
+    // so FIFO can actually cross a batch boundary. The two lots sum to the 130
+    // the variant's legacy `currentStock` still carries: that 130 is SPLIT, not
+    // increased, so no seeded total and no movement history changes.
+    InventoryBatch(
+      id: 21,
+      variantId: 1,
+      receiptId: 2,
+      initialQty: 50,
+      currentQty: 50,
+      unitCostLanded: 235,
+      markupPercentage: 0,
+      batchSellingPrice: 270,
       expirationDate: null,
       createdAt: null,
     ),
