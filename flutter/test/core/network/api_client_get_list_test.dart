@@ -17,10 +17,8 @@ class Category {
   const Category({required this.id, required this.name});
   final int id;
   final String name;
-  factory Category.fromJson(Map<String, dynamic> json) => Category(
-    id: json['id'] as int,
-    name: json['name'] as String,
-  );
+  factory Category.fromJson(Map<String, dynamic> json) =>
+      Category(id: json['id'] as int, name: json['name'] as String);
 }
 
 /// A Dio adapter that answers every request with a canned body and records the
@@ -133,16 +131,19 @@ void main() {
       });
     });
 
-    test('surfaces a malformed envelope instead of returning an empty list',
-        () async {
-      // A 200 carrying the wrong shape must not read as "no results".
-      useBody(jsonEncode({'count': 2}));
+    test(
+      'surfaces a malformed envelope instead of returning an empty list',
+      () async {
+        // A 200 carrying the wrong shape must not read as "no results".
+        useBody(jsonEncode({'count': 2}));
 
-      expect(
-        () => client.getList<Category>('/api/v1/products/', Category.fromJson),
-        throwsFormatException,
-      );
-    });
+        expect(
+          () =>
+              client.getList<Category>('/api/v1/products/', Category.fromJson),
+          throwsFormatException,
+        );
+      },
+    );
 
     test('a non-list body (a detail endpoint) is a loud failure', () async {
       useBody(jsonEncode({'id': 1, 'name': 'Cement'}));

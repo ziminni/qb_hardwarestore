@@ -50,8 +50,7 @@ class ProductsViewmodel extends ChangeNotifier {
   String? get selectedBrand => _selectedBrand;
   int get currentPage => _currentPage;
   int get rowsPerPage => _rowsPerPage;
-  int get totalProducts =>
-      products.where((product) => product.isActive).length;
+  int get totalProducts => products.where((product) => product.isActive).length;
   int get archivedProducts =>
       products.where((product) => !product.isActive).length;
   int get totalVariants => products

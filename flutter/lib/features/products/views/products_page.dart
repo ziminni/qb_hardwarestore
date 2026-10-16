@@ -47,10 +47,7 @@ class ProductsPage extends StatelessWidget {
     // applied ONCE. Calling both viewmodels was the duplicated-write path that
     // let their two product lists drift apart.
     if (product == null) {
-      viewModel.addProduct(
-        result.product,
-        openingStock: result.openingStock,
-      );
+      viewModel.addProduct(result.product, openingStock: result.openingStock);
     } else {
       viewModel.updateProduct(result.product);
     }

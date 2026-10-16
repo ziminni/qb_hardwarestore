@@ -60,20 +60,20 @@ void main() {
   });
 
   group('redirectFor — unmapped roles (the decision 04 fix)', () {
-    test('an unmapped role at the login page goes to the unsupported screen', () {
-      // The defect: this returned null and left them on a login form they had
-      // already passed.
-      expect(
-        _redirectFor('site_foreman', AppRoutes.login),
-        AppRoutes.unsupportedRole,
-      );
-    });
+    test(
+      'an unmapped role at the login page goes to the unsupported screen',
+      () {
+        // The defect: this returned null and left them on a login form they had
+        // already passed.
+        expect(
+          _redirectFor('site_foreman', AppRoutes.login),
+          AppRoutes.unsupportedRole,
+        );
+      },
+    );
 
     test('a role-less account goes to the unsupported screen', () {
-      expect(
-        _redirectFor(null, AppRoutes.login),
-        AppRoutes.unsupportedRole,
-      );
+      expect(_redirectFor(null, AppRoutes.login), AppRoutes.unsupportedRole);
     });
 
     test('an unknown role goes to the unsupported screen', () {

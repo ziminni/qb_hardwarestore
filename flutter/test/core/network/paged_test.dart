@@ -33,10 +33,8 @@ class Category {
   const Category({required this.id, required this.name});
   final int id;
   final String name;
-  factory Category.fromJson(Map<String, dynamic> json) => Category(
-    id: json['id'] as int,
-    name: json['name'] as String,
-  );
+  factory Category.fromJson(Map<String, dynamic> json) =>
+      Category(id: json['id'] as int, name: json['name'] as String);
 }
 
 void main() {
@@ -54,9 +52,12 @@ void main() {
     test('a full page reports a total larger than the items it carries', () {
       // The realistic shape: count is the WHOLE collection, results is one page.
       final page = parsePaged<Category>(
-        envelope(results: [
-          {'id': 1, 'name': 'Cement'},
-        ], count: 137),
+        envelope(
+          results: [
+            {'id': 1, 'name': 'Cement'},
+          ],
+          count: 137,
+        ),
         Category.fromJson,
       );
 
@@ -77,8 +78,10 @@ void main() {
     test('the returned items list cannot be mutated by callers', () {
       final page = parsePaged<Category>(envelope(), Category.fromJson);
 
-      expect(() => page.items.add(Category.fromJson({'id': 3, 'name': 'x'})),
-          throwsUnsupportedError);
+      expect(
+        () => page.items.add(Category.fromJson({'id': 3, 'name': 'x'})),
+        throwsUnsupportedError,
+      );
     });
 
     test('throws when the body is not the envelope map at all', () {
@@ -98,10 +101,10 @@ void main() {
 
     test('throws when results is not a list', () {
       expect(
-        () => parsePaged<Category>(
-          const {'count': 1, 'results': 'nope'},
-          Category.fromJson,
-        ),
+        () => parsePaged<Category>(const {
+          'count': 1,
+          'results': 'nope',
+        }, Category.fromJson),
         throwsFormatException,
       );
     });
@@ -120,13 +123,10 @@ void main() {
 
     test('throws when a row is not a JSON object', () {
       expect(
-        () => parsePaged<Category>(
-          const {
-            'count': 1,
-            'results': ['not-an-object'],
-          },
-          Category.fromJson,
-        ),
+        () => parsePaged<Category>(const {
+          'count': 1,
+          'results': ['not-an-object'],
+        }, Category.fromJson),
         throwsFormatException,
       );
     });
@@ -136,10 +136,12 @@ void main() {
       // a list the user is counting on.
       expect(
         () => parsePaged<Category>(
-          envelope(results: [
-            {'id': 1, 'name': 'Cement'},
-            {'id': 2}, // no name
-          ]),
+          envelope(
+            results: [
+              {'id': 1, 'name': 'Cement'},
+              {'id': 2}, // no name
+            ],
+          ),
           Category.fromJson,
         ),
         throwsA(isA<TypeError>()),
@@ -147,15 +149,21 @@ void main() {
     });
     test('hasMore is false when the page holds the whole collection', () {
       final single = parsePaged<Category>(
-        envelope(results: [
-          {'id': 1, 'name': 'Cement'},
-        ], count: 1),
+        envelope(
+          results: [
+            {'id': 1, 'name': 'Cement'},
+          ],
+          count: 1,
+        ),
         Category.fromJson,
       );
       final firstOfMany = parsePaged<Category>(
-        envelope(results: [
-          {'id': 1, 'name': 'Cement'},
-        ], count: 2),
+        envelope(
+          results: [
+            {'id': 1, 'name': 'Cement'},
+          ],
+          count: 2,
+        ),
         Category.fromJson,
       );
 

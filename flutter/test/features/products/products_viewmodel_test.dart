@@ -112,8 +112,7 @@ void main() {
     test('search matches a variant barcode, not just the product', () {
       // The migrated behaviour: search used to look at sku + qrIdentifier, which
       // no longer exist. A barcode lives on the selling unit.
-      final barcode = inventory
-          .products
+      final barcode = inventory.products
           .expand((product) => product.variants)
           .map((variant) => variant.barcode)
           .firstWhere((value) => value.isNotEmpty);
@@ -266,10 +265,7 @@ void main() {
         inventory.products.any((p) => p.baseName == 'Renamed Product'),
         isTrue,
       );
-      expect(
-        vm.products.any((p) => p.baseName == 'Renamed Product'),
-        isTrue,
-      );
+      expect(vm.products.any((p) => p.baseName == 'Renamed Product'), isTrue);
     });
 
     test('archiveProduct deactivates it in the store', () {

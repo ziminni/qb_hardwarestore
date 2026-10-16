@@ -63,9 +63,7 @@ Paged<T> parsePaged<T>(
 
   final count = body['count'];
   if (count is! num) {
-    throw const FormatException(
-      'Paginated envelope has no numeric "count".',
-    );
+    throw const FormatException('Paginated envelope has no numeric "count".');
   }
 
   final items = <T>[];

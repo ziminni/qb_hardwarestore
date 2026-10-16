@@ -12,8 +12,7 @@ import 'package:client/core/widgets/async_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Widget _host(Widget child) =>
-    MaterialApp(home: Scaffold(body: child));
+Widget _host(Widget child) => MaterialApp(home: Scaffold(body: child));
 
 void main() {
   group('AsyncView', () {
@@ -41,7 +40,9 @@ void main() {
       expect(builderRan, isFalse, reason: 'builder must not run while loading');
     });
 
-    testWidgets('shows the error and a retry that calls onRetry', (tester) async {
+    testWidgets('shows the error and a retry that calls onRetry', (
+      tester,
+    ) async {
       var retries = 0;
       var builderRan = false;
 
@@ -70,7 +71,9 @@ void main() {
       expect(retries, 1);
     });
 
-    testWidgets('shows the empty message when there is no data', (tester) async {
+    testWidgets('shows the empty message when there is no data', (
+      tester,
+    ) async {
       var builderRan = false;
 
       await tester.pumpWidget(
@@ -112,8 +115,9 @@ void main() {
       expect(find.text('Nothing here.'), findsNothing);
     });
 
-    testWidgets('loading outranks an error left over from a retry',
-        (tester) async {
+    testWidgets('loading outranks an error left over from a retry', (
+      tester,
+    ) async {
       // The realistic retry: the previous error is still held while the next
       // attempt is in flight. Showing the stale error would flash.
       await tester.pumpWidget(
