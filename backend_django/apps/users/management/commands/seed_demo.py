@@ -8,9 +8,12 @@ from django.utils import timezone
 from apps.collectibles.models import CollectibleLedger
 from apps.inventory.models import (
     Brand, Category, GoodsReceipt, InventoryBatch, Product,
-    ProductVariant, PurchaseOrder, POItem, Supplier, UnitOfMeasure,
+    ProductVariant, PurchaseOrder, POItem, StockAdjustment, Supplier,
+    UnitOfMeasure,
 )
-from apps.inventory.services import allocate_fifo, process_goods_receipt
+from apps.inventory.services import (
+    allocate_fifo, apply_stock_adjustment, process_goods_receipt,
+)
 from apps.pos.models import Customer
 from apps.pos.services import process_sale
 from apps.requisitions.models import Project, Requisition, RequisitionItem
@@ -66,6 +69,7 @@ class Command(BaseCommand):
         users = self._seed_users()
         variants = self._seed_catalog()
         self._seed_stock(users['stocker'], variants)
+        self._seed_adjustments(users['stocker'], variants)
         self._seed_customers()
         customers = {c.name: c for c in Customer.objects.all()}
         self._seed_sales(users['cashier'], variants, customers)
@@ -149,6 +153,87 @@ class Command(BaseCommand):
             with db_txn.atomic():
                 allocate_fifo(variant_id=low_stock_variant.pk, qty_needed=Decimal('90'))
         self.stdout.write(self.style.SUCCESS('Stock batches seeded (FIFO)'))
+
+    def _seed_adjustments(self, stocker, variants):
+        """Record stock adjustments through the REAL service path.
+
+        Two jobs at once, which is why it goes through the service rather than
+        creating rows directly:
+
+        * the movements screen reads `GET /api/v1/adjustments/`, which was empty; and
+        * `apply_stock_adjustment` ends by calling `_check_low_stock`, so these
+          adjustments also generate the `SystemAlert` rows the low-stock screen reads.
+
+        That second job fixes a gap this command had all along: `_seed_stock`
+        deliberately drives variant 1 down to 6 units against a threshold of 20 —
+        a genuine low-stock situation — but `allocate_fifo` never checks
+        thresholds, so no alert was ever raised for it. The data warranted an
+        alert and `/api/v1/alerts/` was empty.
+        """
+        if StockAdjustment.objects.exists():
+            self.stdout.write(
+                self.style.WARNING('Adjustments already seeded - skipping'))
+            return
+
+        # (adjustment_type, qty, remarks) - one of each type the UI filters on,
+        # with the first landing on the variant _seed_stock took below threshold.
+        plan = [
+            ('SHRINKAGE', Decimal('-3'), 'Broken in transit.'),
+            ('DAMAGE', Decimal('-2'), 'Water damage in storage.'),
+            ('CORRECTION', Decimal('4'), 'Cycle count correction.'),
+            ('RETURN', Decimal('-1'), 'Returned to supplier.'),
+            ('SHRINKAGE', Decimal('-5'), 'Unaccounted loss.'),
+        ]
+        from django.db.models import Sum
+
+        made = 0
+        # The first adjustment must land on the variant that is ACTUALLY below its
+        # threshold, because that is what makes `_check_low_stock` raise the
+        # LOW_STOCK alert the low-stock screen reads.
+        #
+        # Chosen by QUERY, not by dict order. An earlier version paired the plan
+        # with `zip(plan, variants.values())` and assumed its first value was the
+        # low-stock variant. It was not: the adjustments landed on variants
+        # 4, 3, 6, 7 and 8, the one variant genuinely below threshold was never
+        # touched, and `/api/v1/adjustments/` filled up while `/api/v1/alerts/`
+        # stayed empty. Found by running the command and probing both endpoints -
+        # it is not visible by reading the code.
+        below_threshold = None
+        for info in variants.values():
+            candidate = info['variant']
+            live = (
+                InventoryBatch.objects
+                .filter(variant=candidate, current_qty__gt=0)
+                .aggregate(total=Sum('current_qty'))['total'] or 0
+            )
+            if (candidate.min_stock_threshold > 0
+                    and live < candidate.min_stock_threshold):
+                below_threshold = candidate
+                break
+
+        targets = [info['variant'] for info in variants.values()]
+        if below_threshold is not None:
+            targets.remove(below_threshold)
+            targets.insert(0, below_threshold)
+
+        # `apply_stock_adjustment` routes removals through `allocate_fifo`, which
+        # uses `select_for_update` — that raises TransactionManagementError
+        # outside a transaction. `_seed_stock` wraps its own call for the same
+        # reason. Found by actually running the command, not by reading it.
+        from django.db import transaction as db_txn
+        with db_txn.atomic():
+            for (adjustment_type, qty, remarks), variant in zip(plan, targets):
+                adjustment = StockAdjustment.objects.create(
+                    variant=variant,
+                    user=stocker,
+                    adjustment_type=adjustment_type,
+                    qty_adjusted=qty,
+                    remarks=remarks,
+                )
+                apply_stock_adjustment(adjustment=adjustment)
+                made += 1
+        self.stdout.write(
+            self.style.SUCCESS(f'{made} stock adjustments seeded'))
 
     def _seed_customers(self):
         Customer.objects.get_or_create(name='Walk-in Customer')
