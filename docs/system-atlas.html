@@ -63,19 +63,19 @@
       <div class="text-xs text-slate-500 mt-1">31 screens · 30 routes · 8 viewmodels</div>
     </div>
     <div class="card rounded-xl p-5 border-l-4 border-l-emerald-500">
-      <div class="text-3xl font-bold text-emerald-400">2<span class="text-lg text-slate-500"> / 10</span></div>
+      <div class="text-3xl font-bold text-emerald-400">3<span class="text-lg text-slate-500"> / 10</span></div>
       <div class="text-sm text-slate-400 mt-1">🟢 Live &amp; API-wired</div>
-      <div class="text-xs text-slate-500 mt-1">auth + products (<span class="mdcode">AuthViewmodel</span> · <span class="mdcode">InventoryViewmodel</span>)</div>
+      <div class="text-xs text-slate-500 mt-1">auth + products + POS checkout (<span class="mdcode">AuthViewmodel</span> · <span class="mdcode">InventoryViewmodel</span> · <span class="mdcode">PosTransactionViewmodel</span>)</div>
     </div>
     <div class="card rounded-xl p-5 border-l-4 border-l-rose-500">
-      <div class="text-3xl font-bold text-rose-400">8<span class="text-lg text-slate-500"> / 10</span></div>
+      <div class="text-3xl font-bold text-rose-400">7<span class="text-lg text-slate-500"> / 10</span></div>
       <div class="text-sm text-slate-400 mt-1">🔴 Mock or 🟡 partial</div>
       <div class="text-xs text-slate-500 mt-1">3 mock-data files remain: admin · dashboard · inventory</div>
     </div>
     <div class="card rounded-xl p-5 border-l-4 border-l-amber-500">
       <div class="text-3xl font-bold text-amber-400">10</div>
       <div class="text-sm text-slate-400 mt-1">⚠️ Vibe-Debt Hotspots</div>
-      <div class="text-xs text-slate-500 mt-1">2 orphans · 25 uncalled endpoints · 1 resolved</div>
+      <div class="text-xs text-slate-500 mt-1">2 orphans · 23 uncalled endpoints · 1 resolved</div>
     </div>
   </div>
   <div class="card rounded-xl mt-4 px-5 py-3 text-xs text-slate-400 flex flex-wrap gap-x-8 gap-y-1">
@@ -84,7 +84,7 @@
     <span><strong class="text-slate-200">24</strong> router routes</span>
     <span><strong class="text-slate-200">4</strong> report paths</span>
     <span><strong class="text-slate-200">5</strong> auth routes</span>
-    <span class="text-rose-300">25 of 33 endpoints unreachable from the client</span>
+    <span class="text-rose-300">23 of 33 endpoints unreachable from the client</span>
   </div>
 </section>
 
@@ -292,7 +292,7 @@ const MATRIX = [
   { f:'Categories', ui:'categories/views/categories_page.dart', vm:'inventory_viewmodel (was recorded as local state — wrong)', ep:'GET /categories/', s:'partial', n:'Category NAMES from InventoryMockData; per-category counts live.' },
   { f:'Suppliers', ui:'suppliers/views/suppliers_page.dart', vm:'suppliers_purchases_viewmodel', ep:'GET /suppliers/', s:'mock', n:'' },
   { f:'Purchases / PO', ui:'suppliers/views/purchases_page.dart', vm:'suppliers_purchases_viewmodel', ep:'GET /purchase-orders/', s:'mock', n:'' },
-  { f:'POS transaction', ui:'pos/views/pos_transaction_page.dart', vm:'pos/viewmodels/pos_transaction_viewmodel.dart', ep:'POST /transactions/', s:'partial', n:'Catalogue + prices live; the checkout POST is NOT wired, so process_sale never runs.' },
+  { f:'POS transaction', ui:'pos/views/pos_transaction_page.dart', vm:'pos/viewmodels/pos_transaction_viewmodel.dart', ep:'POST /transactions/', s:'ok', n:'Phase 3: the sale POSTs to /transactions/ and the receipt is built from the SERVER response (transaction_no, receipt.or_number, grand_total) — no second fetch. Cart rows are keyed by the real VariantUom id. A short sale is a 400 INSUFFICIENT_STOCK carrying variant_id, which marks the offending row; the cart clears ONLY on a 201.' },
   { f:'Sales dashboard', ui:'sales/views/sales_dashboard_page.dart', vm:'sales/viewmodels/inventory_sales_viewmodel.dart', ep:'—', s:'mock', n:'' },
   { f:'Sales transactions', ui:'sales/views/sales_transactions_page.dart', vm:'inventory_sales_viewmodel', ep:'GET /transactions/', s:'mock', n:'' },
   { f:'Sales returns', ui:'sales/views/sales_returns_page.dart', vm:'inventory_sales_viewmodel', ep:'—', s:'mock', n:'No backend return model exists.' },
@@ -325,7 +325,7 @@ const FLOW = [
   { k:'ViewModel', body:'8 viewmodels. `AuthViewmodel` and (since Phase 1) `InventoryViewmodel` reach the network. Note `PosTransactionViewmodel` and `ProductsViewmodel` are absent from `main.dart` **by design** (decision 11) — they are screen-scoped, provided by their own pages.' },
   { k:'ApiClient', body:'`core/network/api_client.dart` (~175 L) — Dio instance, base URL from `api_config.dart`, JWT in `flutter_secure_storage`, single refresh-on-401 retry. The *only* egress point. `init()` is **not idempotent**.' },
   { k:'paged.dart', body:'`core/network/paged.dart` — unwraps `{count,next,previous,results}` in exactly one place (decision 03). `hasMore` comes from the `next` link, NOT the row count.' },
-  { k:'Django routing', body:'`config/urls.py` mounts 6 apps under `/api/v1/` plus `/api/health/`. The CLIENT calls 8 endpoints in total; 30 `GoRoute`s exist on the client side.' },
+  { k:'Django routing', body:'`config/urls.py` mounts 6 apps under `/api/v1/` plus `/api/health/`. The CLIENT calls 11 endpoints in total; 30 `GoRoute`s exist on the client side.' },
   { k:'ViewSet / Serializer', body:'DRF ModelViewSets with per-role permission classes. The **serializers** define the true field contract — not the docs.' },
   { k:'services.py', body:'The real logic: `process_sale` (FIFO deduction, payments, receipt, ledger), `approve_requisition` → `verify_token` → `release_materials`. **None of it is exercised by the client today.**' }
 ];
@@ -341,10 +341,10 @@ const MODELMAP = [
     d:'**Exact match** — all 7 keys align (`variant, user, adjustment_type, qty_adjusted, remarks, timestamp`). Misleadingly named "inventory"; it is the adjustment shape.' },
   { be:'InventoryBatch', ep:'GET /api/v1/batches/', fe:'data/models/inventory_batch.dart', v:'ok',
     d:'**FIXED.** `data/models/inventory_batch.dart` exists and `/api/v1/batches/` is CALLED, so the FIFO layer is no longer invisible. Backend exposes `initial_qty, current_qty, unit_cost_landed, markup_percentage, batch_selling_price, expiration_date`. The once-invisible FIFO layer is now the sole source of stock quantities.' },
-  { be:'Customer', ep:'GET /api/v1/customers/', fe:'data/models/sales_module.dart', v:'warn',
-    d:'Backend has `tin_no`, `total_credit_limit`, `customer_type`. Mock customers carry only name / contact / balance.' },
+  { be:'Customer', ep:'GET /api/v1/customers/', fe:'data/models/customer.dart (POS) · data/models/sales_module.dart (mock screen)', v:'warn',
+    d:'**Phase 3 added `data/models/customer.dart`** — the POS had NO customer model and called `/customers/` nowhere, yet a walk-in sale still sends a customer id because the FK is not nullable, so the POS resolves the seeded Walk-in Customer by name. The Sales customers SCREEN is still Mock (it reads `sales_module.dart`): backend has `tin_no`, `total_credit_limit`, `customer_type`, which the mock rows do not carry. Two client models now describe Customer, and the POS one is deliberately minimal (id, name, customer_type).' },
   { be:'SalesTransaction', ep:'GET /api/v1/transactions/', fe:'data/models/pos_transaction.dart', v:'warn',
-    d:'Backend returns `vatable_sales, vat_amount, discount_amount, grand_total, source, status` plus nested `items/payments/receipt`. Mock data carries a flat subset.' },
+    d:'**The POS POSTs here now (Phase 3)** and reads the response as the finished transaction: `transaction_no`, nested `items/payments/receipt` and `grand_total` — the response carries all of it, so no second fetch. Backend additionally returns `vatable_sales, vat_amount, discount_amount, source, status`; `vat_amount` is written 0 and never updated and `discount` is hardcoded `0`, so VAT and discounts are deliberately not wired (decision 06 §7).' },
   { be:'CollectibleLedger', ep:'GET /api/v1/ledgers/', fe:'data/models/sales_module.dart', v:'warn',
     d:'Ledger + payments exist server-side with a payment rollup; the frontend mirrors it as static rows.' }
 ];
@@ -365,11 +365,11 @@ const DEBT = [
     { k:'⚠️ NEW: products toolbar overflow', v:'`A RenderFlex overflowed by 9.7 pixels` from `products/widgets/products_toolbar.dart:113` and `products_catalog_overview.dart:156`, visible at ~1600px widths. Found while testing Phase 1; deliberately not fixed (UI work outside that phase).' }
   ]},
   { title:'Disconnected endpoints', tone:'sky', items:[
-    { k:'25 of 33 endpoints unreachable', v:'Wired today: the 5 auth routes, `/api/health/`, and — new — `GET /api/v1/products/` + `GET /api/v1/batches/`. That is **8 of 33**. Everything else is curl-only.' },
+    { k:'23 of 33 endpoints unreachable', v:'Wired today: `/api/health/`, the 4 auth routes, `/products/`, `/batches/`, `/alerts/`, `/adjustments/`, and — new in Phase 3 — `POST /transactions/` + `GET /customers/`. That is **11 of 33**. Everything else is curl-only. The previous revision said 8 and had already missed Phase 2’s `alerts/` + `adjustments/`; this line is now count-verified by grepping `lib/` for `/api/` paths.' },
     { k:'Lost integration code — superseded', v:'Commit `22c7c26` added `data/services/pos_service.dart` calling `/api/v1/products/` and `/api/v1/batches/`; merge `27a853e` dropped it. Phase 1 has since delivered this properly (`products_service.dart`, commit `b308717`). Read the old file as a REFERENCE only: it hand-rolled `data["results"]` instead of using `parsePaged`, and filtered to `availableBaseStock > 0` — wrong for a catalogue.' }
   ]},
-  { title:'Critical business logic (no client consumer)', tone:'violet', items:[
-    { k:'apps/pos/services.py:28 process_sale', v:'FIFO stock deduction, payment allocation, official-receipt generation, collectibles posting on underpayment.' },
+  { title:'Critical business logic (backend)', tone:'violet', items:[
+    { k:'apps/pos/services.py:28 process_sale', v:'FIFO stock deduction, payment allocation, official-receipt generation, collectibles posting on underpayment. **Gained its first client consumer in Phase 3** — the POS checkout; the other five below are still server-side only.' },
     { k:'apps/requisitions/services.py:33 approve_requisition', v:'DRAFT → APPROVED, mints the `MaterialToken` the POS redeems.' },
     { k:'apps/requisitions/services.py:50 verify_token', v:'Token validation endpoint for the store counter.' },
     { k:'apps/requisitions/services.py:82 release_materials', v:'Token redemption → FIFO deduct → `SalesTransaction` → ledger.' },
@@ -385,7 +385,7 @@ const STUDY = [
   { id:'s5', t:'flutter/lib/features/inventory/viewmodels/inventory_viewmodel.dart', l:'~250 L — load, isLoading/loadError/hasLoaded, batchesFor, stockOnHandFor', w:'**NEW (Phase 1).** The product list’s ONLY home, and so the hinge of the whole integration: loading it lights up products, inventory AND POS at once. `load()` mutates in place (`_products`/`_batches` are `final List`) and on failure KEEPS the catalogue rather than emptying it.', p:'/skill:codebase-xray Walk me through InventoryViewmodel: the constructor, why products and batches are the single store, how load() replaces them in place, and the failure path that deliberately leaves the catalogue intact.' },
   { id:'s6', t:'flutter/lib/data/services/products_service.dart', l:'~85 L — whole file', w:'**NEW (Phase 1).** The live fetch: both endpoints through `getList<T>`. Its test holds the decision-03 anti-regression — a body with no `results` list must THROW, not return an empty catalogue. Wired screen example: `features/products/views/products_page.dart`.', p:'/skill:codebase-xray Walk me through products_service.dart and products_repository.dart: the two parallel fetches, how parsePaged unwraps both envelopes, and how errors become ProductsServiceException.' },
   { id:'s7', t:'flutter/lib/core/widgets/async_view.dart', l:'~95 L — whole file', w:'**NEW (Phase 0).** Owns loading/error/empty/data for every data screen (decision 07). The precedence is baked into the widget so the builder never runs without data, and a stale error cannot flash during a retry.', p:'/skill:codebase-xray Walk me through AsyncView: the four states, the precedence rule and why loading outranks error, and how products_page drives it.' },
-  { id:'s8', t:'backend_django/apps/pos/services.py', l:'111 L — L28-111 process_sale', w:'**Next phase’s money path** (Phase 3, gated by decision 06). FIFO deduction, payment allocation, receipt generation and ledger posting behind one POST. Still unobserved — read from source only.', p:'/skill:codebase-xray Walk me through process_sale in backend_django/apps/pos/services.py line by line, especially FIFO batch deduction and the underpayment-to-ledger path.' }
+  { id:'s8', t:'flutter/lib/data/services/pos_service.dart + backend_django/apps/pos/services.py', l:'~250 L — checkout/fetchWalkInCustomerId; then L28-111 process_sale', w:'**NEW (Phase 3) — the money path, and the one contract spanning both sides.** The client half carries the rules the checkout obeys: `variant_id` is really a `VariantUom` id, NO `cashier` key is sent (the server assigns the actor), `isInsufficientStock` reads the server’s `code` and never the HTTP status, and the cart is cleared only on a 201. The server half is one `transaction.atomic()` doing FIFO deduction, payment allocation, OR generation and ledger posting. Now **observed live**, not merely read.', p:'/skill:codebase-xray Walk me through the POS checkout contract end to end: pos_service.dart on the client and process_sale in backend_django/apps/pos/services.py. Why is the response the finished transaction, why is variant_id a VariantUom id, and how does insufficient stock become a 400 instead of a 500?' }
 ];
 
 /* ============================ RENDER ============================ */

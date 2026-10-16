@@ -120,14 +120,14 @@ Legend: 🟢 Live (real API) · 🟡 Partial · 🔴 Mock (hardcoded) · ⚫ Dea
 | Categories | `categories/views/categories_page.dart` | `inventory_viewmodel` (was recorded as local state — wrong) | `GET /api/v1/categories/` | 🟡 Partial |
 | Suppliers | `suppliers/views/suppliers_page.dart` | `suppliers_purchases_viewmodel` | `GET /api/v1/suppliers/` | 🔴 Mock |
 | Purchases / PO | `suppliers/views/purchases_page.dart` | `suppliers_purchases_viewmodel` | `GET /api/v1/purchase-orders/` | 🔴 Mock |
-| POS transaction | `pos/views/pos_transaction_page.dart` | `pos/viewmodels/pos_transaction_viewmodel.dart` | `POST /api/v1/transactions/` | 🟡 Partial |
+| POS transaction | `pos/views/pos_transaction_page.dart` | `pos/viewmodels/pos_transaction_viewmodel.dart` | `POST /api/v1/transactions/` | 🟢 Live |
 | Sales dashboard | `sales/views/sales_dashboard_page.dart` | `sales/viewmodels/inventory_sales_viewmodel.dart` | — | 🔴 Mock |
 | Sales transactions | `sales/views/sales_transactions_page.dart` | `inventory_sales_viewmodel` | `GET /api/v1/transactions/` | 🔴 Mock |
 | Sales returns | `sales/views/sales_returns_page.dart` | `inventory_sales_viewmodel` | — | 🔴 Mock |
 | Sales reports | `sales/views/sales_reports_page.dart` | `inventory_sales_viewmodel` | `GET /api/v1/reports/sales-summary/` | 🔴 Mock |
 | Quotations | `sales/views/sales_quotations_page.dart` | `sales/viewmodels/sales_module_viewmodel.dart` | — (no backend model) | 🔴 Mock |
 | Sales orders | `sales/views/sales_orders_page.dart` | `sales_module_viewmodel` | — (no backend model) | 🔴 Mock |
-| Sales customers | `sales/views/sales_customers_page.dart` | `sales_module_viewmodel` | `GET /api/v1/customers/` | 🔴 Mock |
+| Sales customers | `sales/views/sales_customers_page.dart` | `sales_module_viewmodel` | `GET /api/v1/customers/` (also called by the POS, not by this screen) | 🔴 Mock |
 | Receivables / utang | `sales/views/sales_receivables_page.dart` | `sales_module_viewmodel` | `GET /api/v1/ledgers/` | 🔴 Mock |
 | Inventory sales | `sales/views/inventory_sales_page.dart` | `inventory_sales_viewmodel` | `GET /api/v1/transactions/` | 🔴 Mock |
 | Inventory returns | `sales/views/inventory_returns_page.dart` | `inventory_sales_viewmodel` | — | 🔴 Mock |
@@ -147,26 +147,39 @@ Legend: 🟢 Live (real API) · 🟡 Partial · 🔴 Mock (hardcoded) · ⚫ Dea
 | Payments / receipts | **no UI** | — | `/payments/` `/receipts/` | ⚫ Dead |
 | Project entity | **no UI** | — | `/projects/` | ⚫ Dead |
 
-**Score: 6 live · 4 partial · 20 mock · 8 dead (38 rows).** Was 3 · 0 · 27 · 8.
+**Score: 7 live · 3 partial · 20 mock · 8 dead (38 rows).** Was 6 · 4 · 20 · 8 before Phase 3, and 3 · 0 · 27 · 8 before Phase 1.
 
 Grading rule, so these are not vibes: 🟢 Live = the screen's *primary* data comes from an API response;
 🟡 Partial = some of what it renders is live and the row's Notes say which; ⚫ Dead = never called.
 
 Why they moved: `InventoryViewmodel` is the product list's only home, so **loading it once** (Phase 1) turned
-the catalogue, the stock list and the low-stock list live together. The three Partial rows are those whose
-**own** data is still local — category names (`InventoryMockData.categories`), the checkout POST (the cart reads
-live prices but `/transactions/` is unwired), and the movements table, which now renders the **server's**
-adjustments but leaves Previous/New/Reference blank because `StockAdjustmentSerializer` carries a delta with no
-before/after pair, and whose sale and opening-stock rows are still recorded locally (Phase 2; see
-`decision 13`). `/brands/`, `/uoms/` and `/variant-uoms/` stay dead as standalone endpoints: selling units now
-arrive nested inside `/products/`, and the client never calls those routes directly.
+the catalogue, the stock list and the low-stock list live together. The two Partial rows are those whose
+**own** data is still local — category names (`InventoryMockData.categories`) and the movements table, which
+now renders the **server's** adjustments but leaves Previous/New/Reference blank because
+`StockAdjustmentSerializer` carries a delta with no before/after pair, and whose sale and opening-stock rows are
+still recorded locally (Phase 2; see `decision 13`). `/brands/`, `/uoms/` and `/variant-uoms/` stay dead as
+standalone endpoints: selling units now arrive nested inside `/products/`, and the client never calls those
+routes directly.
 
 **Phase 2 (2026-10-16) moved two rows' *reasons* without changing their grades.** Low stock no longer derives
 its list in-client — it reads `GET /api/v1/alerts/` and shows exactly what the server alerted, so a variant
 below its threshold with no alert does **not** appear (decision 13's accepted cost). Stock movements stopped
 being a client-seeded fiction: `_seedMovements` and its 190 lines of invented history were **deleted**, and
-adjustments are POSTed to the server rather than invented. The tally is unchanged at 6 · 4 · 20 · 8 because both
+adjustments are POSTed to the server rather than invented. The tally was unchanged at 6 · 4 · 20 · 8 because both
 rows were already graded Live and Partial.
+
+**Phase 3 (2026-10-16) moved one row's grade: POS transaction 🟡 → 🟢.** It was Partial because the cart read
+live prices but the sale itself never left the device — `complete()` deducted stock locally and minted a
+`SIM-` receipt reference. It now POSTs to `/api/v1/transactions/`, and the receipt is built from the **server's**
+`transaction_no`, `receipt.or_number` and `grand_total`, so the response is the finished transaction and no
+second fetch is needed (decision 06 §1). Cart rows are keyed by the real `VariantUom.id` rather than the
+synthesized `variant.id * 100 + index` — a fabricated number that resolved to the wrong unit or none at all.
+Three backend changes were needed and are recorded: `cashier` became read-only (the view already assigned it
+from `request.user`, so a valid sale was rejected with `400 {"cashier": ["This field is required."]}`),
+`InsufficientStock` became a `400` with a stable code plus `variant_id` instead of an uncaught `ValueError`
+surfacing as a 500, and `apps/__init__.py` was added because `manage.py test` had been running **zero** tests.
+`GET /api/v1/customers/` is now called too, for the Walk-in Customer id — but by the POS, not by the Sales
+customers screen, which stays Mock.
 
 ---
 
@@ -199,10 +212,11 @@ rows were already graded Live and Partial.
 
 ### Disconnected endpoints
 
-- **Wired today** (verified by grepping `lib/` for `/api/v1/` paths): the 5 auth routes, `api/health/`, and —
-  new since this refresh — `GET /api/v1/products/` and `GET /api/v1/batches/`. That is **8 endpoints**. The rest
-  of the backend inventory/POS/collectibles/requisitions surface is still reachable only via curl / the
-  browsable API.
+- **Wired today** (verified by grepping `lib/` for `/api/` paths): **11 distinct paths** — `api/health/`,
+  `auth/login/`, `auth/refresh/`, `auth/logout/`, `auth/me/`, `products/`, `batches/`, `alerts/`, `adjustments/`,
+  `customers/` and `transactions/`. The rest of the backend inventory/POS/collectibles/requisitions surface is
+  still reachable only via curl / the browsable API. (The previous revision said **8** and missed `alerts/` and
+  `adjustments/` — Phase 2 wired both and the count was not revisited, so it was stale by two before Phase 3.)
 - Counts refreshed: **30 `GoRoute`s** in `routes.dart`. The previous revision said 24 routes (and 29 in the study
   path) — both were stale.
 - **Lost integration code — now superseded, not merely recoverable.** Commit `22c7c26` added
@@ -214,23 +228,26 @@ rows were already graded Live and Partial.
   is POS-shaped rather than `CatalogueItem`, and it filters to `availableBaseStock > 0` — **wrong for a
   catalogue**, which must show out-of-stock products.
 
-### Critical business logic (backend — no client consumer)
+### Critical business logic (backend)
 
-| Location | What it does |
-| --- | --- |
-| `apps/pos/services.py:28` `process_sale` | FIFO stock deduction, payment allocation, OR generation, collectibles posting on underpayment |
-| `apps/requisitions/services.py:18` `generate_req_number` | Requisition numbering |
-| `apps/requisitions/services.py:33` `approve_requisition` | DRAFT→APPROVED, mints `MaterialToken` |
-| `apps/requisitions/services.py:50` `verify_token` | Token validation for the POS |
-| `apps/requisitions/services.py:82` `release_materials` | Token redemption → FIFO deduct → `SalesTransaction` → ledger |
-| `apps/collectibles/models.py` | Utang ledger + payment rollup |
+`process_sale` gained its first client consumer in Phase 3; the other five are still server-side only — no
+screen exercises them, so they are read from source rather than observed through the app.
+
+| Location | What it does | Client consumer? |
+| --- | --- | --- |
+| `apps/pos/services.py:28` `process_sale` | FIFO stock deduction, payment allocation, OR generation, collectibles posting on underpayment | ✅ **the POS checkout** (Phase 3) |
+| `apps/requisitions/services.py:18` `generate_req_number` | Requisition numbering | — |
+| `apps/requisitions/services.py:33` `approve_requisition` | DRAFT→APPROVED, mints `MaterialToken` | — |
+| `apps/requisitions/services.py:50` `verify_token` | Token validation for the POS | — |
+| `apps/requisitions/services.py:82` `release_materials` | Token redemption → FIFO deduct → `SalesTransaction` → ledger | — |
+| `apps/collectibles/models.py` | Utang ledger + payment rollup | — |
 
 ---
 
 ## 5. Read-First Study Path
 
-Read in this order. Items 4–8 are the files **newly wired in Phase 0 and Phase 1** — read 1–3 first for the
-layers they sit on, then the new path top-down.
+Read in this order. Items 4–8 are the files **newly wired in Phases 0–3** — read 1–3 first for the layers they
+sit on, then the new path top-down.
 
 | # | File | Read | Why it matters |
 | --- | --- | --- | --- |
@@ -241,7 +258,7 @@ layers they sit on, then the new path top-down.
 | 5 | `flutter/lib/features/inventory/viewmodels/inventory_viewmodel.dart` (~250 L) | `load()`, `isLoading`/`loadError`/`hasLoaded`, `batchesFor`, `stockOnHandFor` | **New (Phase 1).** The product list's ONLY home, and therefore the hinge of the whole integration: loading it lights up products, inventory and POS at once. `load()` mutates in place (`_products`/`_batches` are `final List`) and on failure keeps the catalogue rather than emptying it. |
 | 6 | `flutter/lib/data/services/products_service.dart` (~85 L) | whole file | **New (Phase 1).** The live fetch: both endpoints through `getList<T>`. Its test holds the decision-03 anti-regression — a body with no `results` list must **throw**, not return an empty catalogue. Worked example of the wired screen: `features/products/views/products_page.dart`. |
 | 7 | `flutter/lib/core/widgets/async_view.dart` (~95 L) | whole file | **New (Phase 0).** Owns loading/error/empty/data for every data screen (decision 07); the precedence is baked in so the builder never runs without data. |
-| 8 | `backend_django/apps/pos/services.py` (111 L) | L28-111 `process_sale` | **Next phase's money path** (Phase 3, gated by decision 06): FIFO deduction, payment allocation, OR generation, ledger posting behind one POST. Still unobserved — read from source only. |
+| 8 | `flutter/lib/data/services/pos_service.dart` (~250 L) **+** `backend_django/apps/pos/services.py:28` `process_sale` | the payload/result types, `checkout`, `fetchWalkInCustomerId`; then `process_sale` L28-111 | **New (Phase 3) — the money path, and the one contract spanning both sides.** The client half shows the rules the checkout obeys: `variant_id` is really a `VariantUom` id, no `cashier` key is sent because the server assigns it, `isInsufficientStock` reads the server's `code` and never the status, and the cart is cleared only on a 201. The server half is one `transaction.atomic()` doing FIFO deduction, payment allocation, OR generation and ledger posting. Now **observed live**, not just read: a real sale returned 201 with nested items/payments/receipt and moved stock 95.0 → 93.0, and a short sale returned 400 `INSUFFICIENT_STOCK` with stock unchanged. |
 
 ---
 
@@ -252,12 +269,18 @@ layers they sit on, then the new path top-down.
 **Not verified:**
 - ✅ **Corrected 2026-10-16 — the old note here was wrong.** `flutter analyze` **is** clean on this branch, and
   `flutter/test/widget_test.dart` is **tracked**, not an untracked broken counter template: it is a real smoke
-  test that asserts an unauthenticated launch lands on `LoginPage`. The suite is **146 tests, 0 failures**.
-- The backend apps were **deliberately not re-scanned** in this refresh. The erDiagram and the
-  critical-business-logic table are carried forward from 2026-10-15 and remain source-read, not observed.
-- **`flutter run` has never been executed against the live backend.** The `/products/` and `/batches/`
-  contracts *are* verified by probing the running server (count 6 and count 8 on 2026-10-16), but the running
-  app has not been exercised — the widget tests use a fake adapter.
+  test that asserts an unauthenticated launch lands on `LoginPage`. The suite is **192 tests, 0 failures**
+  (was 146 after Phase 1; Phase 2 and Phase 3 added 31 and 15). The backend suite is **33 tests, OK** — worth
+  stating because until Phase 3 `manage.py test` ran **zero** tests: `apps/` had no `__init__.py`, so discovery
+  died with `TypeError: expected str, bytes or os.PathLike object, not NoneType`.
+- The backend apps were **not** re-scanned in this refresh (unchanged since Phase 2 apart from the POS endpoint
+  surface noted above). The erDiagram and the critical-business-logic table are carried forward from 2026-10-15
+  and remain source-read, not observed — except `process_sale`, which Phase 3 exercised for real.
+- **`flutter run` has never been executed against the live backend.** The contracts *are* verified by probing the
+  running server — `/products/` (count 6) and `/batches/` (count 8) on 2026-10-16, and in Phase 3 a real
+  `POST /transactions/` returning **201** with `TRX-20261016-0001`, nested items/payments/receipt and stock moved
+  95.0 → 93.0, plus **400 `INSUFFICIENT_STOCK`** (`variant_id` included) leaving stock unchanged. But the running
+  app has not been exercised end to end — the widget tests use a fake adapter, so the pixels are unverified.
 - The three viewmodels not using an API layer were checked by import/usage grep, not by runtime tracing.
 - Known and deliberately unfixed: the products toolbar overflows (`A RenderFlex overflowed by 9.7 pixels`) from
   `products/widgets/products_toolbar.dart:113` and `products_catalog_overview.dart:156`, visible at ~1600px
