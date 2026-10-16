@@ -359,7 +359,8 @@ void main() {
 
   // Status must be derived from the batch total, not from the mirrored legacy
   // field, or step 4 could not delete that field.
-  group('InventoryViewmodel — status from batch stock', () {    test('a variant at or below its threshold is low stock', () {
+  group('InventoryViewmodel — status from batch stock', () {
+    test('a variant at or below its threshold is low stock', () {
       final vm = InventoryViewmodel();
 
       // Variant 1 holds 130 against a threshold of 30.
