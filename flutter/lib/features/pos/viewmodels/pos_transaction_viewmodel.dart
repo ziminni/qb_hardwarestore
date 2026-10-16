@@ -1,27 +1,44 @@
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/data/models/product_tracking.dart';
 import 'package:client/data/models/variant_uom.dart';
+import 'package:client/data/repositories/pos_repository.dart';
+import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:flutter/foundation.dart';
 
 class PosTransactionViewmodel extends ChangeNotifier {
-  PosTransactionViewmodel(this._inventory, this._tracking) {
+  PosTransactionViewmodel(
+    this._inventory,
+    this._tracking, {
+    PosRepository? pos,
+  }) : _pos = pos ?? PosRepository(PosService()) {
     _inventory.addListener(_inventoryChanged);
     _tracking.addListener(_inventoryChanged);
   }
 
   final InventoryViewmodel _inventory;
   final ProductTrackingViewmodel _tracking;
+  final PosRepository _pos;
   final List<PosCartLine> _lines = [];
   final List<PosReceipt> _receipts = [];
   String _query = '';
+  bool _isSubmitting = false;
+  String? _submitError;
+  int? _walkInCustomerId;
 
   List<PosCartLine> get lines => List.unmodifiable(_lines);
   List<PosReceipt> get receipts => List.unmodifiable(_receipts);
   double get subtotal => _lines.fold(0, (sum, line) => sum + line.total);
   double get total => subtotal;
   int get itemCount => _lines.length;
+
+  /// True while a sale is in flight. The submit action must be disabled, because the
+  /// sale is one atomic server operation and a double submit would be two sales.
+  bool get isSubmitting => _isSubmitting;
+
+  /// The last submit failure, safe to show a cashier. Null after a success.
+  String? get submitError => _submitError;
 
   List<PosCatalogItem> get _catalog {
     final items = <PosCatalogItem>[];
@@ -197,39 +214,79 @@ class PosTransactionViewmodel extends ChangeNotifier {
     return null;
   }
 
-  PosReceipt complete({
+  /// Completes the sale ON THE SERVER, then clears the cart.
+  ///
+  /// Decision 06 sections 3 and 5. Three rules are load-bearing here:
+  ///
+  /// * The cart is cleared **only** after a successful sale. `process_sale` runs in one
+  ///   `transaction.atomic()`, so a failure rolls back wholesale - the server state is
+  ///   unchanged, and the cashier's basket must survive so it can be corrected and
+  ///   retried. Clearing optimistically would lose a real order.
+  /// * An empty cart is never submitted. The server has no guard on an empty `items`
+  ///   list, so an empty sale would **succeed** and mint a zero-value receipt.
+  /// * Insufficient stock and a server failure both keep the cart, but they are
+  ///   different messages. The distinction comes from the server's code, never from
+  ///   the status alone.
+  ///
+  /// Returns whether the sale was confirmed, so a caller cannot announce success
+  /// unconditionally.
+  Future<bool> submit({
+    int? customerId,
     required String paymentMethod,
     required double amountPaid,
-  }) {
-    final now = DateTime.now();
-    final suffix = now.millisecondsSinceEpoch.toString().substring(5);
-    final reference = 'SIM-$suffix';
-    for (final line in _lines) {
-      final index = _catalog.indexWhere(
-        (item) => item.variantUomId == line.variantUomId,
-      );
-      final item = _catalog[index];
-      final deductedBaseStock = line.quantity * item.conversionFactor;
-      _inventory.sellStock(
-        variantId: item.variantId,
-        quantity: deductedBaseStock,
-        reference: reference,
-        userName: 'POS Staff',
-      );
-    }
-    final receipt = PosReceipt(
-      reference: reference,
-      officialReceiptNumber: 'SIM-OR-$suffix',
-      createdAt: now,
-      lines: List.unmodifiable(_lines),
-      paymentMethod: paymentMethod,
-      amountPaid: amountPaid,
-      total: total,
-    );
-    _receipts.insert(0, receipt);
-    _lines.clear();
+  }) async {
+    if (_lines.isEmpty) return false;
+
+    _isSubmitting = true;
+    _submitError = null;
     notifyListeners();
-    return receipt;
+
+    try {
+      // A walk-in sale cannot omit the customer (decision 06 section 2), so resolve
+      // the seed's Walk-in Customer once and reuse it.
+      final buyer =
+          customerId ?? (_walkInCustomerId ??= await _pos.walkInCustomerId());
+      // Snapshot the lines being sold: the receipt must describe THIS sale, not
+      // whatever the cart holds when the response lands.
+      final sold = List<PosCartLine>.of(_lines);
+      final result = await _pos.checkout(
+        customerId: buyer,
+        items: [
+          for (final line in sold)
+            PosCheckoutItem(
+              variantUomId: line.variantUomId,
+              quantity: line.quantity,
+              unitPrice: line.unitPrice,
+            ),
+        ],
+        payments: [
+          PosCheckoutPayment(method: paymentMethod, amountTendered: amountPaid),
+        ],
+      );
+
+      // The receipt's numbers are the SERVER's, not the cart's arithmetic: decision
+      // 06 section 1 says the response is the finished transaction.
+      _receipts.insert(
+        0,
+        PosReceipt(
+          reference: result.transactionNo,
+          officialReceiptNumber: result.orNumber,
+          createdAt: result.transDate,
+          lines: List.unmodifiable(sold),
+          paymentMethod: paymentMethod,
+          amountPaid: amountPaid,
+          total: result.grandTotal,
+        ),
+      );
+      _lines.clear();
+      return true;
+    } on PosServiceException catch (error) {
+      _submitError = error.message;
+      return false;
+    } finally {
+      _isSubmitting = false;
+      notifyListeners();
+    }
   }
 
   String _quantity(double value) => value == value.roundToDouble()

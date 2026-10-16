@@ -3,6 +3,7 @@ import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_payment_dialog.dart';
+import 'package:client/features/pos/widgets/pos_underpayment_dialog.dart';
 import 'package:client/features/pos/widgets/pos_product_browser.dart';
 import 'package:client/features/pos/widgets/pos_receipt_dialog.dart';
 import 'package:client/features/pos/widgets/pos_sale_quantity_dialog.dart';
@@ -144,6 +145,8 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
 
   Future<void> _pay(BuildContext context) async {
     final transaction = context.read<PosTransactionViewmodel>();
+    // A sale is one atomic server operation, so a double submit would be two sales.
+    if (transaction.isSubmitting) return;
     final error = transaction.validate();
     if (error != null) {
       ScaffoldMessenger.of(
@@ -160,14 +163,51 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
       _restoreScannerFocus();
       return;
     }
-    final receipt = transaction.complete(
+
+    // Decision 06 section 4: an underpaid sale posts a receivable to the customer's
+    // account, so it is confirmed BEFORE anything is submitted. Going back submits
+    // nothing and leaves the cart exactly as it was.
+    if (payment.amountPaid < transaction.total) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (_) => PosUnderpaymentDialog(
+          total: transaction.total,
+          amountPaid: payment.amountPaid,
+          customerName: 'Walk-in Customer',
+        ),
+      );
+      if (confirmed != true || !context.mounted) {
+        _restoreScannerFocus();
+        return;
+      }
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    final confirmed = await transaction.submit(
       paymentMethod: payment.method,
       amountPaid: payment.amountPaid,
     );
+    if (!context.mounted) return;
+
+    if (!confirmed) {
+      // The cart is deliberately untouched. `process_sale` runs in one
+      // `transaction.atomic()`, so a rejected sale rolled back wholesale - the stock
+      // is unchanged and the cashier can correct the basket and retry.
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            transaction.submitError ?? 'The sale could not be completed.',
+          ),
+        ),
+      );
+      _restoreScannerFocus();
+      return;
+    }
+
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => PosReceiptDialog(receipt: receipt),
+      builder: (_) => PosReceiptDialog(receipt: transaction.receipts.first),
     );
     _restoreScannerFocus();
   }

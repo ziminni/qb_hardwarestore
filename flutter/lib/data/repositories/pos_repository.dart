@@ -27,4 +27,7 @@ class PosRepository {
     payments: payments,
     source: source,
   );
+
+  /// The customer id an anonymous sale must still send (decision 06 section 2).
+  Future<int> walkInCustomerId() => service.fetchWalkInCustomerId();
 }
