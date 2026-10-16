@@ -25,22 +25,26 @@ the same commit that breaks it.
 
 ## Current Status & Next Step
 
-- **Active branch:** `feature/backend-integration` — 39 commits ahead of `origin/master`, unpushed.
+- **Active branch:** `feature/backend-integration` — 51 commits ahead of `origin/master`, unpushed.
 - **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. The slice
-  order is **locked** (Cashier journey) and **Phase 0 is complete**: all four substrate decisions are locked,
-  so Phase 1 can start. Three decisions remain open, gating Phases 3, 5 and 6.
-- **Last session:** `docs/sessions/2026-10-16-phase-0-decisions.md` — locked all six Phase 0 decisions (product
-  model, pagination, async states, role routing, pricing) and recorded two new decisions the research
-  surfaced. Planning only; no app source changed. Earlier: `docs/sessions/2026-10-15-integration-map.md`
-  opened the map and locked the Cashier-journey slice order; `docs/sessions/2026-10-15-system-atlas-and-docs-consolidation.md`
-  built the atlas and consolidated the docs.
+  order is **locked** (Cashier journey) and the map reads **7 locked · 3 open**. Phase 0's *decisions* are
+  locked but its *code* is mid-flight: the staged `ProductVariant` swap is at step 2 of 4 — steps 1 and 2 are
+  committed, step 3 is unblocked by decision 10, step 4 pends. Three decisions remain open, gating Phases 3, 5
+  and 6.
+- **Last session:** `docs/sessions/2026-10-16-staged-swap-blockers-and-location-store.md` — unblocked ruling
+  R9 by locking decision 10 (the SKU column becomes a **Barcode** column, because **no SKU field exists in the
+  backend**; storage location becomes a **persisted client-local hint**) and delivered `LocationHintStore`.
+  Earlier: `docs/sessions/2026-10-16-phase-0-decisions.md` locked all six Phase 0 decisions;
+  `docs/sessions/2026-10-15-integration-map.md` opened the map.
 - **Current state (verified):** the backend is feature-complete; the client consumes almost none of it.
   Of 10 feature modules only `auth` reaches the API. 38 screens scored: 3 live · 27 mock · 8 dead. See
   `docs/SYSTEM_ATLAS.md`.
-- **Next step:** build the **Phase 0 deliverables** (hand-off table in `planning/api-integration/MAP.md`),
-  then start **Phase 1** — wire the products catalogue to `GET /api/v1/products/` + `GET /api/v1/batches/`.
-  No further design input is needed: the decisions are locked (mirror the API's four entities plus a
-  `CatalogueItem` assembler; `price = uom.defaultSellingPrice`; `stockOnHand = sum(batch.currentQty)`; add
-  `ApiClient.getList<T>` and `core/widgets/async_view.dart`; route unmapped roles to an explicit screen).
-  A salvageable earlier attempt at products/batches wiring sits in commit `22c7c26`
-  (`planning/02-lost-work-recovery.md`).
+- **Next step:** finish **staged-swap step 3** — migrate the 13 reader-only files onto `CatalogueItem`,
+  relaying the Barcode column into the 4 inventory tables and wiring `LocationHintStore` into the 3 location
+  sites. The crux is `InventoryViewmodel`, a mutable mock store whose `adjustStock`/`sellStock` mutate
+  `variant.currentStock` and must move onto batches instead. Then **step 4** deletes `sku`, `storageLocation`,
+  `costPrice`, `sellingPrice`, `currentStock` and the `reorderLevel` getter. Only then does **Phase 1**
+  (products catalogue → `GET /api/v1/products/` + `GET /api/v1/batches/`) begin — no further design input is
+  needed for it: `ApiClient.getList<T>` returning `Paged<T>`, `core/widgets/async_view.dart`, and
+  `assembleCatalogue` are all specified and locked. A salvageable earlier attempt at products/batches wiring
+  sits in commit `22c7c26` (`planning/02-lost-work-recovery.md`).
