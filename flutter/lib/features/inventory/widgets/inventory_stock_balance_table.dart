@@ -58,7 +58,7 @@ class InventoryStockBalanceTable extends StatelessWidget {
                 ),
                 columns: const [
                   DataColumn(label: Text('Product')),
-                  DataColumn(label: Text('SKU')),
+                  DataColumn(label: Text('Barcode')),
                   DataColumn(label: Text('Unit')),
                   DataColumn(label: Text('Opening')),
                   DataColumn(label: Text('Stock In')),
@@ -79,7 +79,7 @@ class InventoryStockBalanceTable extends StatelessWidget {
                           ),
                         ),
                       ),
-                      DataCell(Text(record.variant.sku)),
+                      DataCell(Text(record.variant.barcode)),
                       DataCell(Text(unit)),
                       DataCell(Text('${_quantity(record.opening)} $unit')),
                       DataCell(

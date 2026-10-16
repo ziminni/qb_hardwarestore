@@ -203,4 +203,63 @@ void main() {
       expect(product.variants.single.variantName, '20A 1-pole');
     });
   });
+
+  group('ProductVariant.barcode', () {
+    // Decision 10: there is no SKU field in the backend. The SKU column becomes a
+    // Barcode column fed by VariantUom.barcode_qr, derived here so any widget can
+    // read it without reaching into the selling-unit list itself.
+    Map<String, dynamic> variantJson(List<Map<String, dynamic>> uoms) => {
+      'id': 8,
+      'variant_name': '20A 1-pole',
+      'base_uom_code': 'PC',
+      'product': 6,
+      'base_uom': 1,
+      'min_stock_threshold': '20.00',
+      'max_stock_level': '0.00',
+      'selling_uoms': uoms,
+    };
+
+    test('reads the barcode off the first selling unit that has one', () {
+      final variant = ProductVariant.fromJson(
+        variantJson([
+          {
+            'id': 8,
+            'variant': 8,
+            'uom': 1,
+            'uom_code': 'PC',
+            'uom_name': 'Piece',
+            'barcode_qr': 'MAT-00001',
+            'conversion_factor': '1.00',
+            'default_selling_price': '315.00',
+          },
+        ]),
+      );
+
+      expect(variant.barcode, 'MAT-00001');
+    });
+
+    test('is empty when no selling unit carries one', () {
+      // The honest seeded state: barcode_qr is '' in every live row.
+      final variant = ProductVariant.fromJson(
+        variantJson([
+          {
+            'id': 8,
+            'variant': 8,
+            'uom': 1,
+            'uom_code': 'PC',
+            'uom_name': 'Piece',
+            'barcode_qr': '',
+            'conversion_factor': '1.00',
+            'default_selling_price': '315.00',
+          },
+        ]),
+      );
+
+      expect(variant.barcode, '');
+    });
+
+    test('is empty when the variant has no selling unit at all', () {
+      expect(ProductVariant.fromJson(variantJson([])).barcode, '');
+    });
+  });
 }

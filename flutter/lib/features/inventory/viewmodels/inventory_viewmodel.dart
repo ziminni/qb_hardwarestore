@@ -88,13 +88,7 @@ class InventoryViewmodel extends ChangeNotifier {
   /// This replaces the invented `sku` (decision 10): there is no SKU field
   /// anywhere in the backend, and the `CEM-HOL-40`-style values were fabricated
   /// by the mock data rather than typed into any database.
-  String barcodeFor(int variantId) {
-    final uoms = variantFor(variantId)?.sellingUoms ?? const <VariantUom>[];
-    for (final uom in uoms) {
-      if (uom.barcodeQr.isNotEmpty) return uom.barcodeQr;
-    }
-    return '';
-  }
+  String barcodeFor(int variantId) => variantFor(variantId)?.barcode ?? '';
 
   /// The price the POS charges: the selling unit's default price (decision 08).
   /// Never the batch price, so FIFO crossing a batch boundary cannot split a

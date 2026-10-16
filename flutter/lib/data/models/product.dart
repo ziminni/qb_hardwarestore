@@ -49,6 +49,20 @@ class ProductVariant {
   /// Legacy alias. `min_stock_threshold` is the API field; this getter keeps
   /// the old readers compiling until step 4 of the staged swap deletes it.
   double get reorderLevel => minStockThreshold;
+
+  /// The variant's barcode — `VariantUom.barcode_qr`, which is the only
+  /// identifier the API carries.
+  ///
+  /// Derived rather than stored, and it replaces the invented `sku`
+  /// (decision 10): there is no SKU field in any backend model or serializer,
+  /// and the `CEM-HOL-40`-style values were fabricated by the mock data. Empty
+  /// when no selling unit carries one — which is every seeded row today.
+  String get barcode {
+    for (final uom in sellingUoms) {
+      if (uom.barcodeQr.isNotEmpty) return uom.barcodeQr;
+    }
+    return '';
+  }
   final String storageLocation;
 
   ProductVariant copyWith({
