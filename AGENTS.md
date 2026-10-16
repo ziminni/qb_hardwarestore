@@ -55,14 +55,15 @@ the same commit that breaks it.
   `docs/sessions/2026-10-16-staged-swap-blockers-and-location-store.md` locked decision 10;
   `docs/sessions/2026-10-16-phase-0-decisions.md` locked the six Phase 0 decisions;
   `docs/sessions/2026-10-15-integration-map.md` opened the map.
-- **Current state:** `docs/SYSTEM_ATLAS.md` is the authority, and its tally is **STALE as of Phase 3** — it last
-  read 38 screens scored **6 live · 4 partial · 20 mock · 8 dead**, but Phase 3 moved POS checkout from mock to
-  live, so both the tally and the checkout row need a refresh (see the session note). Still true: auth, products,
-  stock, low stock, stock movements, and now checkout all read the server.
+- **Current state:** `docs/SYSTEM_ATLAS.md` and `docs/system-atlas.html` are **in sync and refreshed for Phase 3** —
+  38 screens scored **7 live · 3 partial · 20 mock · 8 dead**, verified by counting the rows in both artifacts rather
+  than restating the arithmetic. Auth, products, stock, low stock, stock movements and **checkout** read the server.
+  The Atlas's own count of wired endpoints was corrected from 8 to **11** while refreshing: it had already been
+  stale by two before Phase 3, because Phase 2 wired `alerts/` and `adjustments/` and the count was not revisited.
 - **Next step:** **resolve decision 14 (Customer Master-Data Scope) in domain-model mode** — Phase 4's question,
   which checkout sharpened by making the customer id mandatory on every sale. Phases 5 and 6 remain gated by
-  decisions 09 and 05. Two items are owed **before the branch merges**: a fresh-context review of Phase 3, and the
-  Atlas refresh above.
+  decisions 09 and 05. One item is owed **before the branch merges**: a fresh-context review of Phase 3 (the
+  review performed was a self-review, because both dispatches failed on `402: insufficient credits`).
 - **Known unfixed, carried forward:** the products toolbar overflows — `A RenderFlex overflowed by 9.7 pixels on
   the right` from `products_toolbar.dart:113` and `products_catalog_overview.dart:156` — pre-existing, visible at
   ~1600px window widths, found while testing Phase 1 and deliberately not fixed (UI work outside that phase's

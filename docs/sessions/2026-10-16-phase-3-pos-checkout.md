@@ -109,7 +109,10 @@ Closing gate: `flutter analyze` clean, **192/192** Flutter tests, **33/33** back
 clean, tree clean. Decision 06 verified clause by clause: **11/11 met**.
 
 **Next step: resolve decision 14 (Customer Master-Data Scope) in domain-model mode** — Phase 4's question, which
-checkout sharpened by making the customer id mandatory. Two things are owed before merge: a **fresh-context
-reviewer** (the self-review is weaker), and a **`docs/SYSTEM_ATLAS.md` / `docs/system-atlas.html` refresh** —
-Phase 3 moved POS checkout from mock to live, so the Truth Matrix tally (last recorded as 6 live · 4 partial ·
-20 mock · 8 dead) and the checkout row are now stale. `flutter run` has still never been executed.
+checkout sharpened by making the customer id mandatory. One thing is owed before merge: a **fresh-context
+reviewer** (the self-review is weaker, and this session showed the cost — the spec checklist caught what the
+review passed). The **Atlas refresh is DONE** (commit `d44c21d`, fixed in `fe64787`): both artifacts now read 38
+rows scored **7 live · 3 partial · 20 mock · 8 dead**, verified by counting rows in each rather than restating the
+arithmetic. That refresh also caught the Atlas's wired-endpoint count being wrong before Phase 3 — it said 8 and
+had missed Phase 2's `alerts/` + `adjustments/`; a fresh grep returns **11** distinct `/api/` paths. `flutter run`
+has still never been executed.
