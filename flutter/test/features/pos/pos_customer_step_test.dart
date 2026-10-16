@@ -51,6 +51,8 @@ class _StubCustomerRepository extends CustomerRepository {
 
   List<Customer> customers = const [];
   String? failureMessage;
+  CustomerLedgerSummary? summary;
+  int ledgerCalls = 0;
   ({String name, CustomerType type})? created;
 
   @override
@@ -58,6 +60,14 @@ class _StubCustomerRepository extends CustomerRepository {
     final failure = failureMessage;
     if (failure != null) throw CustomerServiceException(failure);
     return customers;
+  }
+
+  @override
+  Future<CustomerLedgerSummary> fetchLedgerSummary(int customerId) async {
+    ledgerCalls++;
+    final failure = failureMessage;
+    if (failure != null) throw CustomerServiceException(failure);
+    return summary ?? CustomerLedgerSummary.empty(customerId);
   }
 
   @override
@@ -74,6 +84,7 @@ class _StubCustomerRepository extends CustomerRepository {
 
 void main() {
   _loadCustomersTests();
+  _utangPanelTests();
 
   late InventoryViewmodel inventory;
   late _StubPosRepository pos;
@@ -236,6 +247,82 @@ void _loadCustomersTests() {
         cart.customers,
         hasLength(1),
         reason: 'an emptied list would read as "this store has no customers"',
+      );
+    });
+  });
+}
+
+// T5: the utang panel. The balance is loaded for the SELECTED customer, and a customer who
+// owes nothing is a zero summary rather than an error - decision 14's panel shows the account
+// at the till, so "owes nothing" and "could not ask" must not look alike.
+void _utangPanelTests() {
+  group('utang for the selected customer', () {
+    late InventoryViewmodel inventory;
+    late _StubCustomerRepository customers;
+    late PosTransactionViewmodel cart;
+
+    setUp(() {
+      inventory = InventoryViewmodel();
+      customers = _StubCustomerRepository();
+      cart = PosTransactionViewmodel(
+        inventory,
+        ProductTrackingViewmodel(),
+        pos: _StubPosRepository(),
+        customers: customers,
+      );
+    });
+
+    test('no customer selected means no summary and no request', () {
+      expect(cart.ledgerSummary, isNull);
+      expect(customers.ledgerCalls, 0);
+    });
+
+    test('selecting a customer loads their balance', () async {
+      customers.summary = const CustomerLedgerSummary(
+        customerId: 5,
+        customerName: 'Maria Santos',
+        totalBalance: 4900,
+        openCount: 2,
+        overdueCount: 1,
+      );
+
+      cart.selectCustomer(
+        const Customer(id: 5, name: 'Maria Santos', customerType: 'REGULAR'),
+      );
+      await cart.loadLedgerForSelection();
+
+      expect(customers.ledgerCalls, 1);
+      expect(cart.ledgerSummary!.totalBalance, 4900);
+      expect(cart.ledgerSummary!.overdueCount, 1);
+    });
+
+    test('an anonymous sale has no utang to show', () async {
+      cart.selectCustomer(
+        const Customer(id: 5, name: 'Maria Santos', customerType: 'REGULAR'),
+      );
+      await cart.loadLedgerForSelection();
+      cart.selectCustomer(null);
+
+      expect(
+        cart.ledgerSummary,
+        isNull,
+        reason: 'an anonymous sale cannot owe, so there is nothing to display',
+      );
+    });
+
+    test('a failed ledger load sets an error and does not invent a balance', () async {
+      customers.failureMessage = 'Cannot connect to the BuildPro server.';
+      cart.selectCustomer(
+        const Customer(id: 5, name: 'Maria Santos', customerType: 'REGULAR'),
+      );
+
+      await cart.loadLedgerForSelection();
+
+      expect(cart.ledgerError, contains('Cannot connect'));
+      expect(
+        cart.ledgerSummary,
+        isNull,
+        reason: 'a zero balance would read as "this customer owes nothing"',
       );
     });
   });

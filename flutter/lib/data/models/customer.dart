@@ -50,6 +50,7 @@ class Customer {
     required this.id,
     required this.name,
     required this.customerType,
+    this.totalCreditLimit = 0,
   });
 
   factory Customer.fromJson(Map<String, dynamic> json) => Customer(
@@ -58,6 +59,9 @@ class Customer {
     // Optional on the wire: the serializer always sends it, but a customer is still
     // identifiable without it, so a missing type must not throw.
     customerType: (json['customer_type'] as String?) ?? '',
+    totalCreditLimit: json['total_credit_limit'] == null
+        ? 0
+        : decimalField(json, 'total_credit_limit'),
   );
 
   final int id;
@@ -65,6 +69,17 @@ class Customer {
 
   /// The raw wire value, kept so the model stays API-faithful.
   final String customerType;
+
+  /// The credit limit, **where 0 means NOT SET** rather than "no credit allowed".
+  ///
+  /// Pinned before the panel was built: every customer in the database sits at 0.00 and
+  /// nothing in the codebase ever sets the field, so warning on 0 would fire on every utang
+  /// sale for every customer - which is how a warning becomes something a cashier ignores.
+  /// The panel therefore warns only when this is greater than zero.
+  final double totalCreditLimit;
+
+  /// True when a limit has actually been configured.
+  bool get hasCreditLimit => totalCreditLimit > 0;
 
   /// The same value as a known type, or [CustomerType.unknown].
   CustomerType get type => CustomerType.fromApiValue(customerType);

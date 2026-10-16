@@ -1,5 +1,6 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
+import 'package:client/features/pos/widgets/pos_utang_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -66,6 +67,15 @@ class PosTransactionCart extends StatelessWidget {
                   ],
                 ),
               ),
+            ),
+            // Decision 14: the balance sits with the account, at the till, because a credit
+            // limit is only weighable where the sale is being decided.
+            PosUtangPanel(
+              customer: state.selectedCustomer,
+              summary: state.ledgerSummary,
+              error: state.ledgerError,
+              isLoading: state.isLoadingLedger,
+              thisSaleTotal: state.total,
             ),
             const Divider(height: 28),
             Expanded(

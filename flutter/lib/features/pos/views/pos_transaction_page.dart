@@ -180,10 +180,13 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     }
     if (!context.mounted) return;
     transaction.selectCustomer(choice.customer);
+    // Load the new account's balance, and clear it for an anonymous sale.
+    await transaction.loadLedgerForSelection();
     _restoreScannerFocus();
   }
 
-  Future<void> _pay(BuildContext context) async {    final transaction = context.read<PosTransactionViewmodel>();
+  Future<void> _pay(BuildContext context) async {
+    final transaction = context.read<PosTransactionViewmodel>();
     // A sale is one atomic server operation, so a double submit would be two sales.
     if (transaction.isSubmitting) return;
     final error = transaction.validate();

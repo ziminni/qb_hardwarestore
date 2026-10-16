@@ -46,7 +46,8 @@ class PosCustomerPickerDialog extends StatefulWidget {
   onCreate;
 
   @override
-  State<PosCustomerPickerDialog> createState() => _PosCustomerPickerDialogState();
+  State<PosCustomerPickerDialog> createState() =>
+      _PosCustomerPickerDialogState();
 }
 
 class _PosCustomerPickerDialogState extends State<PosCustomerPickerDialog> {
@@ -70,9 +71,7 @@ class _PosCustomerPickerDialogState extends State<PosCustomerPickerDialog> {
     // not appear twice and a cashier cannot pick it as if it were a real account.
     final named = widget.customers.where((c) => !c.isWalkIn);
     if (query.isEmpty) return named.toList();
-    return named
-        .where((c) => c.name.toLowerCase().contains(query))
-        .toList();
+    return named.where((c) => c.name.toLowerCase().contains(query)).toList();
   }
 
   Future<void> _save() async {
@@ -123,8 +122,10 @@ class _PosCustomerPickerDialogState extends State<PosCustomerPickerDialog> {
             ]
           : [
               TextButton(
-                onPressed: () =>
-                    Navigator.pop(context, const PosCustomerSelection.anonymous()),
+                onPressed: () => Navigator.pop(
+                  context,
+                  const PosCustomerSelection.anonymous(),
+                ),
                 child: const Text('Walk-in (anonymous)'),
               ),
               TextButton(
@@ -173,10 +174,8 @@ class _PosCustomerPickerDialogState extends State<PosCustomerPickerDialog> {
                   dense: true,
                   title: Text(customer.name),
                   subtitle: Text(customer.type.label),
-                  onTap: () => Navigator.pop(
-                    context,
-                    PosCustomerSelection.of(customer),
-                  ),
+                  onTap: () =>
+                      Navigator.pop(context, PosCustomerSelection.of(customer)),
                 );
               },
             ),

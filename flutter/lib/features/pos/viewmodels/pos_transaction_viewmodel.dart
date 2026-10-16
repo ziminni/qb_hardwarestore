@@ -45,6 +45,9 @@ class PosTransactionViewmodel extends ChangeNotifier {
   Customer? _selectedCustomer;
   final List<Customer> _customerList = [];
   String? _customersError;
+  CustomerLedgerSummary? _ledgerSummary;
+  String? _ledgerError;
+  bool _isLoadingLedger = false;
 
   List<PosCartLine> get lines => List.unmodifiable(_lines);
   List<PosReceipt> get receipts => List.unmodifiable(_receipts);
@@ -112,9 +115,56 @@ class PosTransactionViewmodel extends ChangeNotifier {
       _selectedCustomer?.name ?? 'Walk-in Customer (anonymous)';
 
   /// Chooses the buyer, or null to go back to an anonymous sale.
+  ///
+  /// Clears any loaded balance: a summary belonging to the PREVIOUS customer must never be
+  /// displayed against the new one, which would show the cashier someone else's debt.
   void selectCustomer(Customer? customer) {
+    if (_selectedCustomer?.id != customer?.id) {
+      _ledgerSummary = null;
+      _ledgerError = null;
+    }
     _selectedCustomer = customer;
     notifyListeners();
+  }
+
+  /// The selected customer's outstanding utang, once loaded. Null for an anonymous sale.
+  CustomerLedgerSummary? get ledgerSummary => _ledgerSummary;
+
+  /// Set when the balance could not be loaded. The panel shows this rather than a zero
+  /// balance, because a zero is a claim that the customer owes nothing.
+  String? get ledgerError => _ledgerError;
+
+  bool get isLoadingLedger => _isLoadingLedger;
+
+  /// Loads the utang for whoever is currently selected.
+  ///
+  /// An ANONYMOUS sale makes no request at all: decision 14 says a walk-in cannot owe, so
+  /// there is no balance to ask for - and asking would be asking about the shared placeholder.
+  Future<void> loadLedgerForSelection() async {
+    final customer = _selectedCustomer;
+    if (customer == null) {
+      _ledgerSummary = null;
+      _ledgerError = null;
+      _isLoadingLedger = false;
+      notifyListeners();
+      return;
+    }
+
+    _isLoadingLedger = true;
+    _ledgerError = null;
+    notifyListeners();
+
+    try {
+      final summary = await _customerRepo.fetchLedgerSummary(customer.id);
+      // A response that lands after the cashier moved on belongs to the old customer.
+      if (_selectedCustomer?.id == customer.id) _ledgerSummary = summary;
+    } on CustomerServiceException catch (error) {
+      _ledgerError = error.message;
+      _ledgerSummary = null;
+    } finally {
+      _isLoadingLedger = false;
+      notifyListeners();
+    }
   }
 
   /// Records a customer at the counter and selects them.
