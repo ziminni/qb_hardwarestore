@@ -116,6 +116,23 @@ Accepted risk: Phase 3 hits the most complex call in the API — `process_sale` 
 allocation, receipt generation and ledger posting behind one POST. Mitigated because Phases 1-2 settle the
 product and stock model shapes before checkout depends on them.
 
-The Phase 0 prerequisite that is easy to forget: `ProductsViewmodel` and `PosTransactionViewmodel` exist but
-are **not registered** in `flutter/lib/main.dart` — only 6 of 8 viewmodels are wired, so Phases 1 and 3 would
-appear to do nothing until they are added.
+**⚠️ CORRECTED 2026-10-16 — the instruction that stood here is SUPERSEDED. Do not follow it.** It read:
+
+> The Phase 0 prerequisite that is easy to forget: `ProductsViewmodel` and `PosTransactionViewmodel` exist but
+> are **not registered** in `flutter/lib/main.dart` — only 6 of 8 viewmodels are wired, so Phases 1 and 3 would
+> appear to do nothing until they are added.
+
+That premise was wrong on two counts, and acting on it would now **break** the products screen:
+
+- `PosTransactionViewmodel` was **never** unregistered. It is provided screen-scoped at
+  `pos_transaction_page.dart:35` and already receives the **live** `InventoryViewmodel` and
+  `ProductTrackingViewmodel` with listeners registered on both.
+- [Product List Ownership in the Products Screen](./11-products-list-ownership.md) rules that **neither
+  viewmodel belongs in `main.dart`** — both are screen-scoped view state, because a globally shared search box
+  and a half-finished till cart are unwanted. `ProductsViewmodel` is provided at `products_page.dart`.
+
+So **Phases 1 and 3 need no `main.dart` change at all.**
+
+The genuine lesson survives in a better form, and decision 11 exists because of it: a screen-scoped
+`ChangeNotifierProvider` must hand its viewmodel a **live** dependency, never a snapshot copied at
+construction — which is exactly the drift `ProductsViewmodel` had before decision 11.

@@ -112,10 +112,30 @@ Rules every session on this map must respect. Facts that already have a home are
 - [Stock Identifier and Location Hint Presentation](./decisions/10-stock-identifier-and-location-hint.md): **there is no SKU field anywhere in the backend** — the SKU column becomes a **Barcode** column fed by `VariantUom.barcode_qr`. Storage location becomes a **client-local hint persisted with `shared_preferences`**, keyed by variant id, explicitly not API data.
 - [Product List Ownership in the Products Screen](./decisions/11-products-list-ownership.md): `ProductsViewmodel` becomes **view state only** (search, filters, paging, selection) and reads the list live from `InventoryViewmodel`; the duplicate list and the double mutation are deleted. Registering it in `main.dart` is **superseded** — it is screen-scoped, like `PosTransactionViewmodel`, which was never unwired.
 
+## Phase order (locked 2026-10-15 — from [First Vertical Slice & Ordering Lens](./decisions/01-first-vertical-slice.md))
+
+The route. Decision 01 holds the full reasoning; this table is the **index of it**, so a session can answer
+"what is next" without re-surveying the plan. Every phase names its ticket — a locked decision, an open one, or
+an explicit Fog entry. **No phase may be a gap**: Phase 4 was one until 2026-10-16, named only in decision 01's
+phase table and tracked in neither the frontier nor the fog.
+
+| Phase | Scope | State | Ticket |
+| :--- | :--- | :--- | :--- |
+| 0 | Substrate (model, transport, presentation, routing, cleanup) | ✅ **done** | The 8 locked decisions; see the status table above |
+| 1 | Products module (the `ProductVariant` hub) | 🔨 **ready to build** | None needed — decisions 02, 03, 07, 08, 10 and 11 are locked |
+| 2 | Inventory: stock list, low stock, movements | 🔨 **ready to build** | None needed — the batch-vs-adjustment distinction is settled by Phase 0 rulings R12–R14 |
+| 3 | POS checkout + receipt (the money path) | ❓ **gated** | [POS Checkout Client Contract](./decisions/06-checkout-client-contract.md) — open |
+| 4 | Customers master data (the `Customer` hub) | ❓ **gated** | Fog: which slice of customer CRUD the POS needs — see Fog of War |
+| 5 | Requisitions + material-token release | ❓ **gated** | [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md) — open |
+| 6 | Admin, reports, sales | ❓ **gated** | [Sales Stack Reconciliation](./decisions/05-sales-stack-reconciliation.md) — open |
+
+**Phases 1 and 2 need no new decisions and can be built now** — they are the only two in that state. Everything
+from Phase 3 up waits on a frontier decision.
+
 ## Active Frontier (Open & Unblocked)
 
 Ordered by the locked phase order: define the entity, then the transport, then the presentation. Resolve one
-per session. Phase 0 is empty — the next three gate Phases 3, 5 and 6.
+per session. Phases 0, 1 and 2 need no further decisions; the next three gate Phases 3, 5 and 6.
 
 - [ ] [POS Checkout Client Contract](./decisions/06-checkout-client-contract.md) — domain-model · Phase 3
 - [ ] [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md) — grill · Phase 5
@@ -132,7 +152,7 @@ In scope, but not sharp enough to state until the frontier advances.
 
 - Goods receipt / receiving UI — Phase 2 is read-only stock; receiving is only required if the demo must create stock without `seed_demo`.
 - Collectibles / utang screens — overdue list and aging report.
-- Customer master-data screens — which slice of customer CRUD the POS actually needs.
+- **Customer master-data screens — this is Phase 4's ticket.** Which slice of customer CRUD the POS actually needs. Phase 4 is the one phase whose scope question is not yet sharp enough to state as a decision, which is why it lives here rather than in `decisions/`; when Phase 3 resolves, this graduates to the Active Frontier as a `domain-model` decision.
 - Reports: three screens (`reports/views/inventory_reports_page.dart`, `sales/views/sales_reports_page.dart`, `admin/views/reports_page.dart`) over one backend surface; consolidation and wiring are entangled.
 - Product image handling — `image_url` is in the serializer, but whether the demo renders images at all is unspecified.
 

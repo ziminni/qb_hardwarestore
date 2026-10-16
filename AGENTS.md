@@ -30,7 +30,9 @@ the same commit that breaks it.
   order is **locked** (Cashier journey) and the map reads **8 locked · 3 open**. **Phase 0 is COMPLETE** — all 7
   of its rows are built, and the map's "Phase 0 — status" table is the authority. It has been wrong twice in
   opposite directions, so it is stated with per-row evidence and was re-verified against the CODE, not against
-  the ledger. Three decisions remain open, gating Phases 3, 5 and 6.
+  the ledger. The map now carries the **7-phase route** with each phase's ticket attached, so "what is next" is
+  answerable from the index alone: **Phases 1 and 2 need no new decisions and can be built now**, while Phases
+  3, 5 and 6 wait on the three open decisions.
 - **Last session:** `docs/sessions/2026-10-16-phase-0-complete.md` — built the five remaining Phase 0 rows
   (transport: `Paged<T>` + the pure `parsePaged` + `ApiClient.getList<T>`; `AsyncView`; the unsupported-role
   screen plus a pure `redirectFor`; `ProductsViewmodel` reduced to view state; Registration dissolved by
