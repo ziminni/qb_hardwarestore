@@ -1,3 +1,11 @@
+# pyright: reportAttributeAccessIssue=false
+#
+# Same directive and reason as apps/pos/tests.py, apps/inventory/views.py and
+# seed_demo.py: the checker runs with a working directory outside the repo, so it
+# resolves no config, and `Model.objects` is a false positive on valid Django.
+# `transaction.atomic()` and relative imports are flagged for the same class of
+# reason and are settled by the test run, which is the authority.
+
 """POS services — checkout, FIFO allocation, receipt generation."""
 from datetime import date, timedelta
 from decimal import Decimal
