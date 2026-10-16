@@ -67,7 +67,8 @@ class LocationHintStore {
 
   /// Forgets the hint for one variant.
   Future<void> clear(int variantId) async {
-    final hints = await loadAll()..remove(variantId);
+    final hints = await loadAll()
+      ..remove(variantId);
     await _write(hints);
   }
 
