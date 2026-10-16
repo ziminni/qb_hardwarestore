@@ -87,6 +87,16 @@ and they must not be conflated:
    spot (chosen above) — the debt is then collectable and the aging report is honest.
 4. **A credit limit is advisory, never a hard block.** `total_credit_limit` defaults to `0`, and a hard block
    would refuse a sale a manager might approve. The panel *warns*; the server does not enforce.
+
+   **`0` means "not set", not "no credit".** The warning fires **only** when a limit is actually configured
+   **and** this sale would push the balance past it. This was pinned before building the panel, because every
+   customer in the database sits at `0.00` and **nothing in the codebase ever sets the field** — the model default
+   and the serializer's field list are its only references. Warning on `0` would therefore fire on every utang sale
+   for every customer, which is the fastest way to teach a cashier to ignore the warning, and an always-on warning
+   carries no information. The panel renders **"No credit limit set"** as a neutral note so the absence is visible
+   rather than silently reading as *unlimited*. Rejected: reading `0` as "no credit allowed" (fires always), and
+   adding a limit field to the cashier's create form (that reverses locked decision 1's control reasoning and
+   enlarges the phase).
 5. **The POS never deletes a customer.** `DELETE /customers/` exists and is Cashier-permitted, but removing a
    customer with transactions would break the FK (`on_delete=PROTECT`) and destroy the audit trail. Phase 4 wires
    no delete.
@@ -122,9 +132,9 @@ and they must not be conflated:
    counter and puts credit control in the cashier's hands).
 2. **The picker offers all four types**, including `CONSTRUCTION_FIRM` (correction 1).
 3. **Utang lives in a customer detail panel** on the checkout screen: name, type, outstanding balance, open and
-   overdue counts, and a credit-limit warning. *Rationale:* "charge it to my account" is only meaningful if the
-   balance is visible where the decision is made. Rejected: a separate screen only (the cashier cannot see the
-   balance while deciding).
+   overdue counts, and a credit-limit warning whose `0`-means-unset semantics are pinned in invariant 4.
+   *Rationale:* "charge it to my account" is only meaningful if the balance is visible where the decision is made.
+   Rejected: a separate screen only (the cashier cannot see the balance while deciding).
 4. **A walk-in cannot utang**, and the underpayment dialog offers to name the customer inline.
 5. **`sales_customers_page.dart` is DELETED; `sales_receivables_page.dart` is WIRED** to `/ledgers/`.
    *Rationale:* the POS picker is the single customer surface, so a separate mock customer list is a second home
@@ -182,5 +192,6 @@ and they must not be conflated:
 ## Status
 
 **RESOLVED 2026-10-16.** The scope is locked: the POS can select **and** create customers mid-sale on a minimal
-record, utang is shown at the till, walk-ins stay anonymous and cannot borrow, and the three `full_name` defects
-are fixed as part of the phase. Phase 4 is ready to build.
+record, utang is shown at the till with a credit-limit warning that stays silent unless a limit is configured,
+walk-ins stay anonymous and cannot borrow, and the three `full_name` defects are fixed as part of the phase.
+Phase 4 is ready to build — and its Task 1 is already done (`df908a9`).
