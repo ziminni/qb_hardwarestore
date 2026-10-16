@@ -33,7 +33,12 @@ class CollectiblePaymentSerializer(serializers.ModelSerializer):
 class CollectibleLedgerSerializer(serializers.ModelSerializer):
     """Collectible ledger entry with nested recent payments."""
 
-    customer_name = serializers.ReadOnlyField(source='customer.full_name')
+    # `Customer` has no `full_name` — the project's `User` does, and that one wrong
+    # assumption was copied across. DRF swallows the AttributeError for a ReadOnlyField
+    # and skips the field entirely, so this key was SILENTLY ABSENT from every ledger row
+    # rather than present-and-null: a client reading `json['customer_name']` got a
+    # KeyError and one reading `.get(...)` got None, with the response still a 200.
+    customer_name = serializers.ReadOnlyField(source='customer.name')
     transaction_no = serializers.ReadOnlyField(source='transaction.transaction_no')
     is_overdue = serializers.ReadOnlyField()
     recent_payments = CollectiblePaymentSerializer(

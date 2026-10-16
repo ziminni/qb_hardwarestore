@@ -45,7 +45,7 @@ model, and it breaks four sites:
 | Site | Failure (verified live) |
 | :--- | :--- |
 | `apps/collectibles/views.py:59` `entry.customer.full_name` | **Fatal** — `GET /api/v1/ledgers/aging/` returns **HTTP 500 `AttributeError`** |
-| `apps/collectibles/serializers.py:36` `ReadOnlyField(source='customer.full_name')` | **Silent** — every ledger row returns `customer_name: null` |
+| `apps/collectibles/serializers.py:36` `ReadOnlyField(source='customer.full_name')` | **Silent** — DRF *skips* a ReadOnlyField whose attribute lookup fails, so the key is **absent** from every ledger row. A client reading `json['customer_name']` gets KeyError; one reading `.get(...)` gets None, with the response still a 200 |
 | `apps/collectibles/admin.py:13` `search_fields = ['customer__full_name', ...]` | **Latent** — Django admin search on collectibles raises `FieldError` |
 | `apps/collectibles/serializers.py:12` `source='processed_by.full_name'` | **Fine** — that is `User.full_name`, which exists. Do not "fix" it. |
 

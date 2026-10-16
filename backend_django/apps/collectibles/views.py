@@ -1,11 +1,18 @@
+# pyright: reportAttributeAccessIssue=false
+#
+# Same directive and reason as apps/pos/tests.py, apps/inventory/views.py and
+# seed_demo.py: the checker runs with a working directory outside the repo, so it resolves
+# no config, and `Model.objects` is a false positive on valid Django.
+
 """Collectibles ViewSets — Accounts Receivable / Utang Management."""
 
-from django.db.models import Q, Sum
-from rest_framework import permissions, status, viewsets
+from django.db.models import Q
+from rest_framework import permissions, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from apps.users.permissions import IsPOSOrReadOnly
+
 from .models import CollectibleLedger, CollectiblePayment
 from .serializers import CollectibleLedgerSerializer, CollectiblePaymentSerializer
 
@@ -56,7 +63,7 @@ class CollectibleLedgerViewSet(viewsets.ModelViewSet):
             if cust_id not in aging:
                 aging[cust_id] = {
                     'customer_id': cust_id,
-                    'customer_name': entry.customer.full_name,
+                    'customer_name': entry.customer.name,
                     'total_balance': 0,
                     'open_count': 0,
                     'overdue_count': 0,
