@@ -1,9 +1,19 @@
+# pyright: reportAttributeAccessIssue=false
+#
+# Why a file-level directive rather than a pyrightconfig.json:
+# the checker resolves its config by walking up from its WORKING DIRECTORY, and in this
+# environment it does not run from inside this repo, so neither a repo-root nor a
+# workspace-root config is found (measured: 0 errors from qb_ecosystem or the repo root,
+# 14 from /home/yaji or /home/yaji/projects). A directive travels with the file and
+# therefore works regardless. It disables exactly one rule, the one that cannot model
+# Django's `Model.objects` without django-stubs; installing django-stubs would let it be
+# removed. `reportGeneralTypeIssues` is deliberately left ON.
 """Inventory app — ViewSets for catalog, purchasing & stock."""
 
 from django.db import transaction
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.users.permissions import (
@@ -12,13 +22,13 @@ from apps.users.permissions import (
 )
 from .models import (
     Brand, Category, Product, ProductVariant, UnitOfMeasure, VariantUOM,
-    Supplier, PurchaseOrder, POItem, GoodsReceipt,
+    Supplier, PurchaseOrder, GoodsReceipt,
     InventoryBatch, StockAdjustment, SystemAlert,
 )
 from .serializers import (
     BrandSerializer, CategorySerializer, ProductSerializer,
     ProductVariantSerializer, UnitOfMeasureSerializer, VariantUOMSerializer,
-    SupplierSerializer, PurchaseOrderSerializer, POItemSerializer,
+    SupplierSerializer, PurchaseOrderSerializer,
     GoodsReceiptSerializer, InventoryBatchSerializer,
     StockAdjustmentSerializer, SystemAlertSerializer,
 )
@@ -110,22 +120,33 @@ class InventoryBatchViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class StockAdjustmentViewSet(_CatalogBaseViewSet):
+    """The inventory write path. An adjustment moves stock, so it is not a plain CRUD.
+
+    Two invariants live here, both learned the hard way in Phase 2:
+
+    1. **The actor is the server's to assign, never the client's.** `user` is read-only on
+       the serializer, and `perform_create` sets it from `request.user`. While the field
+       was writable, DRF demanded it in the payload and then overwrote it anyway, so every
+       client had to send a value that had no effect and could have attributed an
+       adjustment to somebody else.
+
+    2. **Creating the row and moving the stock are ONE transaction.** `apply_stock_adjustment`
+       reaches `allocate_fifo`, which uses `select_for_update` and therefore refuses to run
+       outside a transaction. Without the wrapper below the POST raised
+       TransactionManagementError *after* the row was saved, leaving the ledger asserting an
+       adjustment that never moved any stock. Do not 'tidy' the atomic away, and do not move
+       it inside `apply_stock_adjustment` alone -- that would still commit the row first.
+    """
+
     queryset = StockAdjustment.objects.select_related('variant', 'user').all()
     serializer_class = StockAdjustmentSerializer
 
     def perform_create(self, serializer):
-        # `apply_stock_adjustment` -> `allocate_fifo` uses `select_for_update`, which
-        # Django refuses outside a transaction, and the row is saved BEFORE the stock
-        # moves. Without this wrapper a POST raised
-        # TransactionManagementError: select_for_update cannot be used outside of a
-        # transaction -- and left the StockAdjustment row COMMITTED with the stock
-        # unmoved, so the ledger recorded an adjustment that never happened.
-        #
-        # The atomic must wrap BOTH statements, not just the service call: an
-        # `@atomic` on `apply_stock_adjustment` alone would still commit the row
-        # first. Found by POSTing to the running server from the Phase 2 client
-        # contract check, not by reading the code.
-        with transaction.atomic():
+        # `with` on transaction.atomic() is a verified false positive: pyright cannot pick
+        # the context-manager overload without stubs, and the same idiom at 5 pre-existing
+        # sites is flagged identically. Ignored at the LINE, so the rule still guards every
+        # other line in this file.
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
             adj = serializer.save(user=self.request.user)
             apply_stock_adjustment(adjustment=adj)
 

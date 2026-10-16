@@ -1,11 +1,12 @@
 # planning/api-integration/MAP.md
 
 **Slug:** `api-integration` · **Opened:** 2026-10-15
-**Status:** 10 locked · 3 open. **Phases 0 and 1 are COMPLETE.** Phase 0's 7 rows are built and were verified
+**Status:** 10 locked · 3 open. **Phases 0, 1 and 2 are COMPLETE.** Phase 0's 7 rows are built and were verified
 row-by-row against the code (the "Phase 0 — status" table below is the authority; it has been wrong twice in
 opposite directions, so it is stated with per-row evidence); Phase 1's products catalogue renders live API data
-(commits `6070442`…`557dfd3`). **Phase 2 is fully specified and ready to build** (decision 13); the three open
-decisions gate Phases 3, 5 and 6.
+(commits `6070442`…`557dfd3`); Phase 2 made the server the authority for inventory state (commits `938547e`…`794e83a`),
+which required the backend changes the old "client-side only" invariant forbade — see that row's correction. The
+three open decisions gate Phases 3, 5 and 6.
 
 ## Destination
 
@@ -95,7 +96,7 @@ Rules every session on this map must respect. Facts that already have a home are
 
 | Invariant | Detail |
 | :--- | :--- |
-| **Client-side epic only** | The backend is feature-complete. No new endpoints, no model or migration changes. If a task appears to need one, re-read `docs/SYSTEM_ATLAS.md` §3 before changing anything. |
+| **Client-side epic only** | ⚠️ **PARTLY SUPERSEDED IN PHASE 2 — read this before trusting it.** The backend *was* feature-complete for Phases 0-1, but Phase 2 needed two backend changes and they are done, not pending: `seed_demo` now generates the alerts and adjustments both screens read (the endpoints were empty and nothing wrote a `SystemAlert`), and the adjustments write path was broken — a 400 from a serializer that demanded a `user` it then overwrote, and a 500 plus a partial write from `select_for_update` outside a transaction. Still true and still binding: **no NEW endpoints, and no model or migration changes.** If a task appears to need either, re-read `docs/SYSTEM_ATLAS.md` §3 before changing anything. |
 | **Every list is paginated** | `{count, next, previous, results}` with `PAGE_SIZE = 50`. Read `.results`. Contract: `ENDPOINTS.md` §1. |
 | **One data path, no new shapes** | `View → ViewModel → Repository → Service → ApiClient`. The only correct example is `features/auth/viewmodels/auth_viewmodel.dart`; `sales_module_viewmodel.dart` is the mock shape being replaced. |
 | **Demo data comes from `seed_demo`** | Products with stock batches, customers, completed sales, an unpaid utang, and an APPROVED requisition with a minted token. Setup: `README.md`. |
@@ -127,19 +128,26 @@ phase table and tracked in neither the frontier nor the fog.
 | :--- | :--- | :--- | :--- |
 | 0 | Substrate (model, transport, presentation, routing, cleanup) | ✅ **done** | The 8 Phase 0 decisions; see the status table above |
 | 1 | Products module (the `ProductVariant` hub) | ✅ **done** | [Phase 1 Live Data Home and Mock Retention](./decisions/12-phase-1-live-data-home.md) — locked; built in `6070442`…`557dfd3` |
-| 2 | Inventory: stock list, low stock, movements | 🔨 **ready to build** | ✅ [Inventory Data Authority for Phase 2](./decisions/13-inventory-data-authority.md) — locked; needs one `seed_demo` change |
+| 2 | Inventory: stock list, low stock, movements | ✅ **done** | [Inventory Data Authority for Phase 2](./decisions/13-inventory-data-authority.md) — locked; built in `938547e`…`794e83a` |
 | 3 | POS checkout + receipt (the money path) | ❓ **gated** | [POS Checkout Client Contract](./decisions/06-checkout-client-contract.md) — open |
 | 4 | Customers master data (the `Customer` hub) | ❓ **gated** | Fog: which slice of customer CRUD the POS needs — see Fog of War |
 | 5 | Requisitions + material-token release | ❓ **gated** | [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md) — open |
 | 6 | Admin, reports, sales | ❓ **gated** | [Sales Stack Reconciliation](./decisions/05-sales-stack-reconciliation.md) — open |
 
-**Phase 1 is complete.** **Phase 2 is now the only phase needing no further decisions** — decision 13 settled its
-read/write authority, so it is ready to build. Everything from Phase 3 up waits on a frontier decision.
+**Phases 0, 1 and 2 are complete.** Phase 2 was built in `938547e`…`794e83a` and finished with the live
+end-to-end pass that earned its keep: POSTing the Flutter client's real request body to the running server found
+**two defects that reading and widget tests had both missed** — an HTTP 400 (the serializer demanded a `user` it
+then overwrote with `request.user`) and an HTTP 500 plus a **partial write** (`allocate_fifo` used
+`select_for_update` outside a transaction, so the adjustment row committed while the stock never moved). Both are
+fixed. Everything from Phase 3 up waits on a frontier decision.
+
+**Phase 3 is now the only unblocked frontier item** — [POS Checkout Client Contract](./decisions/06-checkout-client-contract.md).
 
 ## Active Frontier (Open & Unblocked)
 
 Ordered by the locked phase order: define the entity, then the transport, then the presentation. Resolve one
-per session. Phases 0–2 need no further decisions; the next three gate Phases 3, 5 and 6.
+per session. Phases 0-2 need no further decisions, and all three are now built; the next three gate Phases 3, 5
+and 6.
 
 - [ ] [POS Checkout Client Contract](./decisions/06-checkout-client-contract.md) — domain-model · Phase 3
 - [ ] [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md) — grill · Phase 5

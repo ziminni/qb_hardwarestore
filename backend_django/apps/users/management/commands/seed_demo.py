@@ -1,3 +1,9 @@
+# pyright: reportAttributeAccessIssue=false
+#
+# Same reason as apps/inventory/views.py: the checker resolves its config from its
+# WORKING DIRECTORY and does not run inside this repo here, so a pyrightconfig.json is
+# not found. This travels with the file. It disables the one rule that cannot model
+# Django's `Model.objects`/`BaseCommand.style` without django-stubs.
 ﻿from datetime import timedelta
 from decimal import Decimal
 

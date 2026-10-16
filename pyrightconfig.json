@@ -1,6 +1,6 @@
 {
   "include": ["backend_django"],
   "exclude": ["**/migrations", "**/__pycache__"],
-  "useLibraryCodeForTypes": true,
-  "reportAttributeAccessIssue": "none"
+  "reportAttributeAccessIssue": "warning",
+  "reportGeneralTypeIssues": "warning"
 }

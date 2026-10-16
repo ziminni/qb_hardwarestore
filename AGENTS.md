@@ -25,19 +25,22 @@ the same commit that breaks it.
 
 ## Current Status & Next Step
 
-- **Active branch:** `feature/backend-integration` — 87 commits ahead of `origin/master`, unpushed.
+- **Active branch:** `feature/backend-integration` — 99 commits ahead of `origin/master`, unpushed.
 - **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. The slice
-  order is **locked** (Cashier journey) and the map reads **9 locked · 3 open**. **Phases 0 and 1 are COMPLETE**
+  order is **locked** (Cashier journey) and the map reads **10 locked · 3 open**. **Phases 0, 1 and 2 are COMPLETE**
   — Phase 0's 7 rows are built (the map's "Phase 0 — status" table is the authority, and it was re-verified
-  against the CODE after being wrong twice in opposite directions), and Phase 1's products catalogue now renders
-  live API data. The map carries the **7-phase route** with each phase's ticket attached, so "what is next" is
-  answerable from the index alone: **Phase 2 needs no new decisions and can be built now**, while Phases 3, 5
-  and 6 wait on the three open decisions.
-- **Last session:** `docs/sessions/2026-10-16-phase-1-products-catalogue.md` — **built Phase 1**: the products
-  catalogue now renders live API data. Locked **decision 12** *before* coding, because the product list has
-  exactly one home (`InventoryViewmodel`) and decision 11 plus `assembleCatalogue` already read from it, so
-  loading that store lights up the inventory and POS screens in the same move. Added `ProductsService` (both
-  endpoints through `getList<T>`, so `parsePaged` unwraps each envelope), `ProductsRepository`,
+  against the CODE after being wrong twice in opposite directions), Phase 1's products catalogue renders live API
+  data, and Phase 2 made the **server the authority for inventory state**. The map carries the **7-phase route**
+  with each phase's ticket attached, so "what is next" is answerable from the index alone: **Phase 3 is now the
+  only unblocked frontier item** (POS checkout contract), while Phases 5 and 6 wait on the other two decisions.
+- **Last session:** `docs/sessions/2026-10-16-phase-2-inventory-authority.md` — **built Phase 2**: the server now
+  owns inventory state. The low-stock screen reads `/api/v1/alerts/`, the movements screen reads
+  `/api/v1/adjustments/`, and the adjust dialog POSTs rather than mutating local batches. Decision 13 was locked
+  first. 190 lines of invented fixture-seeding were deleted. **The live end-to-end pass found two production
+  defects that reading and widget tests had both missed** — an HTTP 400 (the serializer demanded a `user` it then
+  overwrote with `request.user`) and an HTTP 500 with a **partial write** (`allocate_fifo` used
+  `select_for_update` outside a transaction, so the adjustment row committed while the stock never moved).
+  **161 tests pass; `flutter analyze` is clean; `manage.py check` reports 0 issues.**
   `InventoryViewmodel.load()` with `isLoading`/`loadError`/`hasLoaded`, and `products_page` rendering all four
   states through `AsyncView`. Suite **131 → 146**. Verified fresh: analyze clean, **146/146**, tree clean, **87**
   commits ahead. Earlier: `docs/sessions/2026-10-16-map-repair-and-tracker-reconciliation.md` repaired the map's
