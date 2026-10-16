@@ -16,11 +16,8 @@ library;
 
 /// One page of a list response.
 class Paged<T> {
-  Paged({
-    required List<T> items,
-    required this.total,
-    required this.hasMore,
-  }) : items = List.unmodifiable(items);
+  Paged({required List<T> items, required this.total, required this.hasMore})
+    : items = List.unmodifiable(items);
 
   /// The rows on this page.
   final List<T> items;
