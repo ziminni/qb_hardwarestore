@@ -1,8 +1,9 @@
 # planning/api-integration/MAP.md
 
 **Slug:** `api-integration` · **Opened:** 2026-10-15
-**Status:** 7 locked · 3 open. **Phase 0 is complete in code as well as in decisions** — the staged
-`ProductVariant` swap finished all four steps, so the client model mirrors the API exactly. Next: **Phase 1**.
+**Status:** 7 locked · 3 open. **Phase 0's decisions are all locked, but its CODE is 2 of 7 rows done** — see
+"Phase 0 — status" below. The staged `ProductVariant` swap finished all four steps (the Models row) and the
+catalogue assembler exists; Transport, Presentation, Routing, Registration and Cleanup are **NOT STARTED**.
 
 ## Destination
 
@@ -10,16 +11,28 @@ Every screen reachable by a seeded role renders **live API data** with loading, 
 `*_mock_data.dart` file survives, and no client-reachable endpoint is left uncalled. The client stops being a
 mockup *of* the system and becomes a client *of* it.
 
-## Phase 0 — Complete (2026-10-16)
+## Phase 0 — status (verified 2026-10-16)
 
-✅ **All four steps of the staged swap are done, and all seven Phase 0 decisions are locked.** The table below
-records what the swap had to build; it is kept for the reasoning, not as a to-do list. Evidence and rulings:
+**2 of 7 rows done. Phase 1 CANNOT start yet.** The continuation session that recorded the swap as "Phase 0
+complete" conflated the staged `ProductVariant` swap (which is the *Models* row, expanded by rulings R7/R8 into
+a phase-sized job) with the whole of Phase 0. The swap is genuinely finished; the rest of Phase 0 is not.
+
+| Row | State | Evidence |
+| :--- | :--- | :--- |
+| **Models** | ✅ done | `ProductVariant` carries exactly the nine API fields plus a derived `barcode` getter; the six invented fields are deleted |
+| **Assembler** | ✅ done | `lib/data/models/catalogue_item.dart`, `lib/data/services/catalogue_assembler.dart` |
+| **Transport** | ❌ **not started** | no `ApiClient.getList<T>`, no `Paged<T>` anywhere in `lib/` |
+| **Presentation** | ❌ **not started** | `lib/core/widgets/async_view.dart` does not exist |
+| **Routing** | ❌ **not started** | `dashboardForRole` still returns `null` for unmapped roles and `routes.dart:121` still does `if (dashboard == null) return isLogin ? null : login` — the silent bounce to `/login` that decision 04 exists to replace |
+| **Registration** | ❌ **not started** | `main.dart` registers 6 providers; `ProductsViewmodel` and `PosTransactionViewmodel` are still absent |
+| **Cleanup** | ❌ **not started** | `products_page.dart` still creates its own local `ChangeNotifierProvider` and watches `InventoryViewmodel` for the low/out-of-stock counts — the "decide which is correct" question is unanswered |
+
+What the swap delivered, for the reasoning only: `InventoryViewmodel` is batch-backed with FIFO deduction
+mirroring `allocate_fifo`, all 16 readers consume batches and `CatalogueItem`, and `LocationHintStore` holds the
+location hints. **65 tests pass; `flutter analyze` is clean.** Evidence and rulings:
 `.superpowers/sdd/MAP/progress.md`; narrative: `docs/sessions/2026-10-16-staged-model-swap-complete.md`.
 
-Landed: `ProductVariant` mirrors the API exactly (nine fields plus a derived `barcode` getter; the six invented
-fields are deleted), `InventoryViewmodel` is batch-backed with FIFO deduction mirroring `allocate_fifo`, all 16
-readers consume batches and `CatalogueItem`, and `LocationHintStore` holds the location hints.
-**65 tests pass; `flutter analyze` is clean.**
+The rows below record what each remaining row must deliver:
 
 ⚠️ **One caveat carried forward:** the live `seed_demo` data still has **exactly one batch per variant** (8/8),
 so FIFO crossing a batch boundary cannot be exercised from seeded data — only the mock can (variant 1 carries

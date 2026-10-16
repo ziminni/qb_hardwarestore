@@ -27,9 +27,11 @@ the same commit that breaks it.
 
 - **Active branch:** `feature/backend-integration` — 66 commits ahead of `origin/master`, unpushed.
 - **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. The slice
-  order is **locked** (Cashier journey) and the map reads **7 locked · 3 open**. **Phase 0 is complete in code
-  as well as in decisions**: the staged `ProductVariant` swap finished all four steps, so the client model now
-  mirrors the API exactly. Three decisions remain open, gating Phases 3, 5 and 6.
+  order is **locked** (Cashier journey) and the map reads **7 locked · 3 open**. **Phase 0's decisions are all
+  locked, but its CODE is 2 of 7 rows done** — the map's "Phase 0 — status" table is the authority. The staged
+  `ProductVariant` swap finished all four steps (the Models row) and the catalogue assembler exists; Transport,
+  Presentation, Routing, Registration and Cleanup are **not started**. Three decisions remain open, gating
+  Phases 3, 5 and 6.
 - **Last session:** `docs/sessions/2026-10-16-staged-model-swap-complete.md` — **finished the staged model swap**
   (deleted `sku`, `qrIdentifier`, `costPrice`, `sellingPrice`, `currentStock`, `storageLocation` and the
   `reorderLevel` getter), migrated all 16 readers onto batch stock, and took it through a fresh-context review.
@@ -39,11 +41,11 @@ the same commit that breaks it.
 - **Current state (verified):** the backend is feature-complete; the client consumes almost none of it.
   Of 10 feature modules only `auth` reaches the API. 38 screens scored: 3 live · 27 mock · 8 dead. See
   `docs/SYSTEM_ATLAS.md`.
-- **Next step:** **Phase 1** — wire the products catalogue to `GET /api/v1/products/` + `GET /api/v1/batches/`.
-  No further design input is needed: `ApiClient.getList<T>` returning `Paged<T>`, `core/widgets/async_view.dart`
-  (decision 07) and `assembleCatalogue` are all specified and locked, and the model layer they build on now
-  exists. Note `ProductsViewmodel` and `PosTransactionViewmodel` are still **not registered** in `main.dart`.
-  A salvageable earlier attempt at products/batches wiring sits in commit `22c7c26`
+- **Next step:** finish the **five remaining Phase 0 rows** — `ApiClient.getList<T>` returning `Paged<T>`;
+  `core/widgets/async_view.dart`; the explicit unsupported-role screen (decision 04 — today an unmapped role is
+  still bounced to `/login`); registering `ProductsViewmodel` and `PosTransactionViewmodel` in `main.dart`; and
+  settling who owns `products_page`'s stock counts. **Only then** Phase 1 — wire the products catalogue to
+  `GET /api/v1/products/` + `GET /api/v1/batches/`. A salvageable earlier attempt sits in commit `22c7c26`
   (`planning/02-lost-work-recovery.md`).
 - **Current state (verified):** the backend is feature-complete; the client consumes almost none of it.
   Of 10 feature modules only `auth` reaches the API. 38 screens scored: 3 live · 27 mock · 8 dead. See

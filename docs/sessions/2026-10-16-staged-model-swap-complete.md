@@ -127,7 +127,8 @@ finding — fixing a non-issue means editing working code to satisfy a cache.
 
 **Verified:** `flutter analyze` → `No issues found!`; `flutter test` → **65/65 pass**; tree clean; branch
 `feature/backend-integration` **66 commits ahead** of `origin/master`, unpushed. The staged model swap is done
-and reviewed by a fresh-context subagent (no Critical findings).
+and reviewed by a fresh-context subagent (no Critical findings). **The swap being done does NOT make Phase 0
+done — see the correction in "Next step" below.**
 
 ### ⚠️ Probable BACKEND bug found during the final review — act on this
 
@@ -157,8 +158,28 @@ normal. Out of scope for this client-only map; needs a backend issue.
 
 ### Next step
 
-**Phase 1 — wire the products catalogue to `GET /api/v1/products/` + `GET /api/v1/batches/`.** Everything it
-needs now exists and is locked: `ApiClient.getList<T>` returning `Paged<T>`, `core/widgets/async_view.dart`
-(decision 07), and `assembleCatalogue`. A salvageable earlier attempt sits in commit `22c7c26`
-(`planning/02-lost-work-recovery.md`). Note `ProductsViewmodel` and `PosTransactionViewmodel` are still **not
-registered** in `main.dart`.
+⚠️ **CORRECTION added the same day, after the user challenged the status.** This session recorded the swap as
+finishing "Phase 0", and the first version of this note said Phase 1's prerequisites "now exist". **Both were
+wrong.** The staged `ProductVariant` swap is one row of Phase 0's hand-off table — the *Models* row, which
+rulings R7/R8 expanded into a phase-sized job. Finishing it is **not** finishing Phase 0.
+
+**Phase 0 is 2 of 7 rows done, verified against the code:**
+
+| Row | State |
+| :--- | :--- |
+| Models | ✅ done |
+| Assembler | ✅ done |
+| Transport — `ApiClient.getList<T>` returning `Paged<T>` | ❌ **not started** — neither symbol exists anywhere in `lib/` |
+| Presentation — `core/widgets/async_view.dart` | ❌ **not started** — the file does not exist |
+| Routing — explicit unsupported-role screen (decision 04) | ❌ **not started** — `routes.dart:121` still bounces an unmapped role to `/login` |
+| Registration — `ProductsViewmodel` + `PosTransactionViewmodel` | ❌ **not started** — `main.dart` registers 6 |
+| Cleanup — who owns `products_page`'s stock counts | ❌ **not started** |
+
+**Next step: the five remaining Phase 0 rows, then Phase 1.** In order: `ApiClient.getList<T>`/`Paged<T>`;
+`async_view.dart`; the unsupported-role screen; the two viewmodel registrations; the `products_page` ownership
+decision. Each is fully specified and locked — no design input needed. Only then wire the products catalogue to
+`GET /api/v1/products/` + `GET /api/v1/batches/`. A salvageable earlier attempt sits in commit `22c7c26`
+(`planning/02-lost-work-recovery.md`).
+
+**Lesson for the next session:** "the swap is done" and "Phase 0 is done" are different claims. Check a plan's
+row-by-row status against the code, not against the size of the last thing finished.
