@@ -5,21 +5,26 @@ import 'package:client/data/models/category.dart';
 import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
+import 'package:client/data/models/system_alert.dart';
 import 'package:client/data/models/variant_uom.dart';
+import 'package:client/data/repositories/inventory_repository.dart';
 import 'package:client/data/repositories/products_repository.dart';
 import 'package:client/data/services/catalogue_assembler.dart';
+import 'package:client/data/services/inventory_service.dart';
 import 'package:client/data/services/location_hint_store.dart';
 import 'package:client/data/services/products_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_mock_data.dart';
 import 'package:flutter/foundation.dart' show ChangeNotifier;
 
 class InventoryViewmodel extends ChangeNotifier {
-  InventoryViewmodel({ProductsRepository? products})
+  InventoryViewmodel({ProductsRepository? products, InventoryRepository? inventory})
     : _catalogue = products ?? ProductsRepository(ProductsService()),
+      _inventory = inventory ?? InventoryRepository(InventoryService()),
       _categories = List.of(InventoryMockData.categories),
       _products = List.of(InventoryMockData.products),
       _batches = List.of(InventoryMockData.batches) {
-    _seedMovements();
+    // Deliberately no `_seedMovements()`: movements are the SERVER's record now
+    // (decision 13), and inventing fixtures is the thing being removed.
     // Deliberately no `loadLocationHints()` here: the constructor stays free of
     // side effects reaching platform storage, so a viewmodel can be built in a
     // plain test. The app loads the hints once at startup (see `main.dart`), and
@@ -33,6 +38,14 @@ class InventoryViewmodel extends ChangeNotifier {
   /// drive a load without a network, and so the store keeps the one-data-path
   /// shape: viewmodel -> repository -> service -> ApiClient.
   final ProductsRepository _catalogue;
+
+  /// Where alerts and adjustments come from (decision 13). Separate from the
+  /// catalogue because they are a different authority: products and batches are
+  /// the catalogue, while these are the server's record of what happened.
+  final InventoryRepository _inventory;
+
+  final List<SystemAlert> _alerts = [];
+  final List<StockAdjustment> _adjustments = [];
 
   bool _isLoading = false;
   String? _loadError;
@@ -49,7 +62,62 @@ class InventoryViewmodel extends ChangeNotifier {
 
   List<Category> get categories => List.unmodifiable(_categories);
   List<Product> get products => List.unmodifiable(_products);
-  List<InventoryMovement> get movements => List.unmodifiable(_movements);
+
+  /// Alerts the server has raised (low stock, out of stock, expiring).
+  ///
+  /// Read, not derived — decision 13. Note the consequence that decision
+  /// accepted: this is a list of events the server generated, so a variant that
+  /// dropped below its threshold without an alerted path will not appear until an
+  /// alert exists.
+  List<SystemAlert> get alerts => List.unmodifiable(_alerts);
+
+  /// The server's recorded stock adjustments, newest first.
+  List<StockAdjustment> get adjustments => List.unmodifiable(_adjustments);
+
+  /// What the movements screen renders.
+  ///
+  /// **Two sources, and the split is deliberate** (ledger ruling, Phase 2 Task 2):
+  ///
+  /// * stock ADJUSTMENTS come from the server, which is their authority;
+  /// * POS sales and opening stock are still recorded locally in [_movements],
+  ///   because **no row-level endpoint carries them**.
+  ///   `GET /api/v1/reports/stock-movements/` reports Stock IN vs OUT as a
+  ///   *summary*, not rows, so a complete history would need adjustments, sales
+  ///   and receipts merged from three endpoints — later phases' work.
+  ///
+  /// [_movements] therefore holds ONLY the kinds the API cannot supply, and it is
+  /// provisional. Decision 13 said to delete it; that rested on the premise that
+  /// `/adjustments/` covers the movement history, which it does not — deleting it
+  /// would make a demo sale produce no row at all.
+  List<InventoryMovement> get movements {
+    final merged = <InventoryMovement>[
+      ..._adjustments.map(_movementFromAdjustment),
+      ..._movements,
+    ]..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return List.unmodifiable(merged);
+  }
+
+  /// Projects a server adjustment into the shape the movements UI renders.
+  ///
+  /// `previousStock`, `newStock` and `reference` have NO server counterpart —
+  /// `StockAdjustmentSerializer` carries a delta (`qty_adjusted`), not a
+  /// before/after pair. They are left at zero here and rendered as an em dash by
+  /// the table, so the UI does not present an invented number as a real one.
+  InventoryMovement _movementFromAdjustment(StockAdjustment adjustment) {
+    return InventoryMovement(
+      id: adjustment.id,
+      timestamp: adjustment.timestamp,
+      productId: variantFor(adjustment.variantId)?.productId ?? 0,
+      variantId: adjustment.variantId,
+      type: InventoryMovementType.stockAdjustment,
+      quantityChange: adjustment.quantityAdjusted,
+      previousStock: 0,
+      newStock: 0,
+      reference: '',
+      reason: adjustment.remarks,
+      userName: 'User ${adjustment.userId}',
+    );
+  }
 
   /// A catalogue fetch is in flight. Public per decision 07's convention, so
   /// [AsyncView] can render the loading state.
@@ -90,14 +158,24 @@ class InventoryViewmodel extends ChangeNotifier {
     notifyListeners();
     try {
       final snapshot = await _catalogue.loadCatalogue();
+      final alerts = await _inventory.loadAlerts();
+      final adjustments = await _inventory.loadAdjustments();
       _products
         ..clear()
         ..addAll(snapshot.products);
       _batches
         ..clear()
         ..addAll(snapshot.batches);
+      _alerts
+        ..clear()
+        ..addAll(alerts);
+      _adjustments
+        ..clear()
+        ..addAll(adjustments);
       _loadError = null;
     } on ProductsServiceException catch (error) {
+      _loadError = error.message;
+    } on InventoryServiceException catch (error) {
       _loadError = error.message;
     } finally {
       _isLoading = false;
@@ -201,13 +279,25 @@ class InventoryViewmodel extends ChangeNotifier {
     }
   }
 
-  /// Low-stock status derived from the **batch** total, so it keeps working once
-  /// the legacy `currentStock` field is deleted in step 4.
+  /// Low-stock status derived from the **batch** total.
+  ///
+  /// The predicate is deliberately the **server's**, not a client invention:
+  /// `apps/inventory/services.py::_check_low_stock` raises a LOW_STOCK alert when
+  /// `total < min_stock_threshold` **and** `threshold > 0`, and an OUT_OF_STOCK
+  /// alert when `total <= 0`.
+  ///
+  /// It previously read `stock <= threshold` with no `threshold > 0` guard. On a
+  /// variant sitting exactly on its threshold that returned `lowStock` while the
+  /// server raised no alert, so the stock list and the alert screen contradicted
+  /// each other about the same row. Aligning it is the whole reason this method
+  /// changed in Phase 2 (decision 13, rule 2).
   InventoryStockStatus statusForVariant(int variantId) {
     final stock = stockOnHandFor(variantId);
     if (stock <= 0) return InventoryStockStatus.outOfStock;
     final threshold = variantFor(variantId)?.minStockThreshold ?? 0;
-    if (stock <= threshold) return InventoryStockStatus.lowStock;
+    if (threshold > 0 && stock < threshold) {
+      return InventoryStockStatus.lowStock;
+    }
     return InventoryStockStatus.inStock;
   }
 
@@ -218,7 +308,7 @@ class InventoryViewmodel extends ChangeNotifier {
       .where((product) => product.categoryId == categoryId)
       .toList(growable: false);
 
-  List<InventoryMovement> movementsForVariant(int variantId) => _movements
+  List<InventoryMovement> movementsForVariant(int variantId) => movements
       .where((movement) => movement.variantId == variantId)
       .toList(growable: false);
 
@@ -450,194 +540,4 @@ class InventoryViewmodel extends ChangeNotifier {
     );
   }
 
-  void _seedMovements() {
-    var id = 1;
-    for (final record in stockRecords) {
-      final current = stockOnHandFor(record.variant.id);
-      final opening = max(current - 5, 0).toDouble();
-      final received = 10.0;
-      final sold = opening + received - current;
-      _movements.add(
-        InventoryMovement(
-          id: id++,
-          productId: record.product.id,
-          variantId: record.variant.id,
-          timestamp: DateTime(2026, 9, 1, 8, record.variant.id),
-          type: InventoryMovementType.initialStock,
-          quantityChange: opening,
-          previousStock: 0,
-          newStock: opening,
-          reference: 'INITIAL',
-          reason: 'Initial setup',
-          userName: 'Admin',
-          source: 'Opening inventory',
-        ),
-      );
-      _movements.addAll([
-        InventoryMovement(
-          id: id++,
-          productId: record.product.id,
-          variantId: record.variant.id,
-          timestamp: DateTime(2026, 9, 5, 9, record.variant.id),
-          type: InventoryMovementType.purchaseReceipt,
-          quantityChange: received,
-          previousStock: opening,
-          newStock: opening + received,
-          reference: 'PO-${record.variant.id.toString().padLeft(4, '0')}',
-          reason: 'Supplier delivery received',
-          userName: 'Inventory Staff',
-          source: 'Purchase',
-        ),
-        InventoryMovement(
-          id: id++,
-          productId: record.product.id,
-          variantId: record.variant.id,
-          timestamp: DateTime(2026, 9, 10, 14, record.variant.id),
-          type: InventoryMovementType.sale,
-          quantityChange: -sold,
-          previousStock: opening + received,
-          newStock: current,
-          reference:
-              'SALE-${(50 + record.variant.id).toString().padLeft(4, '0')}',
-          reason: 'POS sale',
-          userName: 'Sales Staff',
-          source: 'Sale',
-        ),
-      ]);
-    }
-    _seedDemonstrationMovements(id);
-    _movements.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-  }
-
-  void _seedDemonstrationMovements(int startingId) {
-    var id = startingId;
-    void add({
-      required int variantId,
-      required InventoryMovementType type,
-      required double change,
-      required double before,
-      required DateTime timestamp,
-      required String reference,
-      required String reason,
-      required String source,
-      String? unit,
-      InventoryMovementPhysicalDetail? detail,
-    }) {
-      final product = _products.firstWhere(
-        (item) => item.variants.any((variant) => variant.id == variantId),
-      );
-      _movements.add(
-        InventoryMovement(
-          id: id++,
-          productId: product.id,
-          variantId: variantId,
-          timestamp: timestamp,
-          type: type,
-          quantityChange: change,
-          previousStock: before,
-          newStock: before + change,
-          reference: reference,
-          reason: reason,
-          userName: 'Inventory Staff',
-          source: source,
-          unit: unit,
-          physicalDetail: detail,
-        ),
-      );
-    }
-
-    add(
-      variantId: 1,
-      type: InventoryMovementType.customerReturn,
-      change: 1.5,
-      before: 130,
-      timestamp: DateTime(2026, 9, 14, 10, 20),
-      reference: 'RET-0007',
-      reason: 'Unopened material returned and restocked',
-      source: 'Customer Return',
-    );
-    add(
-      variantId: 1,
-      type: InventoryMovementType.sale,
-      change: -1.5,
-      before: 131.5,
-      timestamp: DateTime(2026, 9, 15, 11, 5),
-      reference: 'SALE-0088',
-      reason: 'Partial package sale',
-      source: 'Sale',
-      detail: const InventoryMovementPhysicalDetail(
-        packageDescription: '40 kg bag',
-        packageEffect:
-            '1 sealed bag and 20 kg from an opened bag; 20 kg remains',
-      ),
-    );
-    add(
-      variantId: 3,
-      type: InventoryMovementType.stockAdjustment,
-      change: 3,
-      before: 97,
-      timestamp: DateTime(2026, 9, 16, 8, 30),
-      reference: 'ADJ-0021',
-      reason: 'Physical count correction',
-      source: 'Stock Adjustment',
-      unit: 'm',
-    );
-    add(
-      variantId: 3,
-      type: InventoryMovementType.sale,
-      change: -3,
-      before: 100,
-      timestamp: DateTime(2026, 9, 16, 13, 20),
-      reference: 'SALE-0091',
-      reason: 'Sale / Cut',
-      source: 'Sale',
-      unit: 'm',
-      detail: const InventoryMovementPhysicalDetail(
-        sourcePiece: 10,
-        remainingPiece: 7,
-      ),
-    );
-    add(
-      variantId: 19,
-      type: InventoryMovementType.stockAdjustment,
-      change: 2.5,
-      before: 122.5,
-      timestamp: DateTime(2026, 9, 17, 9),
-      reference: 'ADJ-0022',
-      reason: 'Physical count correction',
-      source: 'Stock Adjustment',
-      unit: 'kg',
-    );
-    add(
-      variantId: 19,
-      type: InventoryMovementType.stockAdjustment,
-      change: -2.5,
-      before: 125,
-      timestamp: DateTime(2026, 9, 18, 15),
-      reference: 'ADJ-0023',
-      reason: 'Damaged stock',
-      source: 'Stock Adjustment',
-      unit: 'kg',
-    );
-    add(
-      variantId: 18,
-      type: InventoryMovementType.supplierReturn,
-      change: -2,
-      before: 16,
-      timestamp: DateTime(2026, 9, 18, 16),
-      reference: 'SRET-0003',
-      reason: 'Defective tools returned to supplier',
-      source: 'Supplier Return',
-    );
-    add(
-      variantId: 18,
-      type: InventoryMovementType.purchaseReceipt,
-      change: 2,
-      before: 14,
-      timestamp: DateTime(2026, 9, 19, 9),
-      reference: 'PO-REPLACE-0003',
-      reason: 'Supplier replacement received',
-      source: 'Purchase',
-    );
-  }
 }

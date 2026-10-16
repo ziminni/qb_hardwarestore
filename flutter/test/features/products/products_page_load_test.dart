@@ -11,7 +11,11 @@ import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/repositories/auth_repository.dart';
+import 'package:client/data/models/inventory.dart';
+import 'package:client/data/models/system_alert.dart';
+import 'package:client/data/repositories/inventory_repository.dart';
 import 'package:client/data/repositories/products_repository.dart';
+import 'package:client/data/services/inventory_service.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/products_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
@@ -76,6 +80,16 @@ ProductsSnapshot _apiSnapshot() => ProductsSnapshot(
   ],
 );
 
+/// Task 2 (decision 13) made load() also reach the inventory endpoints, so this
+/// must be supplied or the store would reach for a Dio that no test initialises.
+class _FakeInventoryRepository extends InventoryRepository {
+  _FakeInventoryRepository() : super(InventoryService());
+  @override
+  Future<List<SystemAlert>> loadAlerts() async => const [];
+  @override
+  Future<List<StockAdjustment>> loadAdjustments() async => const [];
+}
+
 class _FakeProductsRepository extends ProductsRepository {
   _FakeProductsRepository({this.snapshot}) : super(ProductsService());
 
@@ -96,8 +110,12 @@ class _FakeProductsRepository extends ProductsRepository {
 
 void main() {
   late _FakeProductsRepository products;
+  late _FakeInventoryRepository inventory;
 
-  setUp(() => products = _FakeProductsRepository(snapshot: _apiSnapshot()));
+  setUp(() {
+    products = _FakeProductsRepository(snapshot: _apiSnapshot());
+    inventory = _FakeInventoryRepository();
+  });
 
   Future<void> pumpPage(WidgetTester tester, InventoryViewmodel store) async {
     // The shared skeleton and its toolbar are built for a wide desktop shell;
@@ -131,7 +149,7 @@ void main() {
     // The store still holds 12 mock products at this point. If the page rendered
     // them, a user would see real-looking data that is not real and then watch it
     // change. The spinner must cover that window.
-    final store = InventoryViewmodel(products: products);
+    final store = InventoryViewmodel(products: products, inventory: inventory);
     final gate = Completer<void>();
     products.gate = gate.future;
 
@@ -146,7 +164,7 @@ void main() {
   });
 
   testWidgets('renders the loaded catalogue', (tester) async {
-    final store = InventoryViewmodel(products: products);
+    final store = InventoryViewmodel(products: products, inventory: inventory);
 
     await pumpPage(tester, store);
     await tester.pumpAndSettle();
@@ -158,7 +176,7 @@ void main() {
   testWidgets('a failed load shows the error and Retry re-runs the fetch', (
     tester,
   ) async {
-    final store = InventoryViewmodel(products: products);
+    final store = InventoryViewmodel(products: products, inventory: inventory);
     products.error = const ProductsServiceException('Cannot connect.');
 
     await pumpPage(tester, store);
