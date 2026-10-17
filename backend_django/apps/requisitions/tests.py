@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false
 """Requisitions tests — approval flow, tokens, material release."""
 
 from decimal import Decimal
@@ -135,7 +136,9 @@ class RequisitionProvenanceTests(RequisitionTestBase):
     the contract it depends on - pinned here rather than discovered in the UI."""
 
     def test_serializer_carries_all_four_provenance_facts(self):
-        data = RequisitionSerializer(self.requisition).data
+        # dict() pins the type: Serializer.data is ReturnDict | list, which a checker
+        # cannot index by string even though a ModelSerializer always returns one.
+        data = dict(RequisitionSerializer(self.requisition).data)
         self.assertEqual(data['req_number'], self.requisition.req_number)
         self.assertEqual(data['project_name'], 'House Build')
         self.assertEqual(data['requested_by_name'], self.foreman.full_name)
