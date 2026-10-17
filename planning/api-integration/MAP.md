@@ -170,10 +170,13 @@ when the slice order locked and is now simply sequenced at Phase 6.
 In scope, but not sharp enough to state until the frontier advances.
 
 - Goods receipt / receiving UI — Phase 2 is read-only stock; receiving is only required if the demo must create stock without `seed_demo`.
-- **Collectibles / utang screens** — **partly graduated on 2026-10-16**: [Customer Master-Data Scope (POS side)](./decisions/14-customer-master-data-scope.md) put the balance/aging panel at the till and wired the receivables screen. What remains in the fog is the **aging report as a screen of its own** and the **payment-posting UI**. The latter got SHARPER on 2026-10-17: `POST /ledger-payments/` was fixed to finally move `balance_due` and refuse overpayment (it had never done either), so a posting screen is viable for the first time — the receivables screen's button is still disabled because the WRITE is Admin-only, not because the endpoint is broken.
-- **Customer master-data screens graduated to the Active Frontier on 2026-10-16** as [Customer Master-Data Scope (POS side)](./decisions/14-customer-master-data-scope.md), once resolving [POS Checkout Client Contract](./decisions/06-checkout-client-contract.md) proved checkout cannot run without a customer.
 - Reports: three screens (`reports/views/inventory_reports_page.dart`, `sales/views/sales_reports_page.dart`, `admin/views/reports_page.dart`) over one backend surface; consolidation and wiring are entangled.
 - Product image handling — `image_url` is in the serializer, but whether the demo renders images at all is unspecified.
+
+> **Resolved fog, removed 2026-10-17:** the collectibles/utang screens and the customer
+> master-data screens are no longer unknowns — [Customer Master-Data Scope (POS side)](./decisions/14-customer-master-data-scope.md) is locked and Phase 4 shipped, including the
+> receivables screen. They were listed here as "partly graduated", which overstated what was
+> still unknown.
 
 ## Out of Scope
 
