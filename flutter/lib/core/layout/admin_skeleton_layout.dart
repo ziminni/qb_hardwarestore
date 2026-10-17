@@ -66,19 +66,26 @@ class AdminSkeletonLayout extends StatelessWidget {
                       final item = _navigationItems[index];
                       final selected = index == selectedNavigationIndex;
 
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 4),
-                        color: selected
-                            ? const Color(0xFFE5E5E5)
-                            : Colors.transparent,
-                        child: ListTile(
+                      // The colour belongs on the Material, not on a Container: a ListTile
+                      // inside a ColoredBox makes Flutter assert "ListTile background color or
+                      // ink splashes may be invisible", because a ListTile paints its background
+                      // and splashes on its nearest Material ancestor. Same defect and same fix as
+                      // dashboard_shell.dart (commit 7d04bf2).
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Material(
+                          color: selected
+                              ? const Color(0xFFE5E5E5)
+                              : Colors.transparent,
+                          child: ListTile(
                           dense: true,
                           selected: selected,
                           onTap: onNavigationSelected != null
                               ? () => onNavigationSelected!(index)
                               : () => context.go(item.$3),
-                          leading: Icon(item.$2, size: 19),
-                          title: Text(item.$1),
+                            leading: Icon(item.$2, size: 19),
+                            title: Text(item.$1),
+                          ),
                         ),
                       );
                     },

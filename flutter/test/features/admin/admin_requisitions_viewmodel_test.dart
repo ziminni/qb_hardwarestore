@@ -65,85 +65,122 @@ void main() {
       expect(repo.fetchCalls, 1);
     });
 
-    test('a FAILED load reports the error and does not claim the queue is empty', () async {
-      // An emptied list reads as "no requisitions awaiting approval" — a manager would stop looking.
-      final repo = _StubRequisitions([_req(1, 'SUBMITTED')]);
-      final vm = AdminRequisitionsViewmodel(repository: repo);
-      await vm.load();
+    test(
+      'a FAILED load reports the error and does not claim the queue is empty',
+      () async {
+        // An emptied list reads as "no requisitions awaiting approval" — a manager would stop looking.
+        final repo = _StubRequisitions([_req(1, 'SUBMITTED')]);
+        final vm = AdminRequisitionsViewmodel(repository: repo);
+        await vm.load();
 
-      repo.failFetch = RequisitionServiceException('The requisitions could not be loaded.');
-      await vm.load();
+        repo.failFetch = RequisitionServiceException(
+          'The requisitions could not be loaded.',
+        );
+        await vm.load();
 
-      expect(vm.loadError, 'The requisitions could not be loaded.');
-      expect(vm.requisitions, hasLength(1), reason: 'the rows already fetched are still real');
-    });
+        expect(vm.loadError, 'The requisitions could not be loaded.');
+        expect(
+          vm.requisitions,
+          hasLength(1),
+          reason: 'the rows already fetched are still real',
+        );
+      },
+    );
 
-    test('only a SUBMITTED row is approvable — the other statuses send nothing', () async {
-      final repo = _StubRequisitions([
-        _req(1, 'DRAFT'),
-        _req(2, 'APPROVED'),
-        _req(3, 'RELEASED'),
-        _req(4, 'REJECTED'),
-      ]);
-      final vm = AdminRequisitionsViewmodel(repository: repo);
-      await vm.load();
+    test(
+      'only a SUBMITTED row is approvable — the other statuses send nothing',
+      () async {
+        final repo = _StubRequisitions([
+          _req(1, 'DRAFT'),
+          _req(2, 'APPROVED'),
+          _req(3, 'RELEASED'),
+          _req(4, 'REJECTED'),
+        ]);
+        final vm = AdminRequisitionsViewmodel(repository: repo);
+        await vm.load();
 
-      for (final id in [1, 2, 3, 4]) {
-        expect(await vm.approve(id), isFalse, reason: 'row $id must not be approvable');
-      }
-      expect(repo.approved, isEmpty);
-    });
+        for (final id in [1, 2, 3, 4]) {
+          expect(
+            await vm.approve(id),
+            isFalse,
+            reason: 'row $id must not be approvable',
+          );
+        }
+        expect(repo.approved, isEmpty);
+      },
+    );
 
-    test('approving a SUBMITTED row calls the repository and it leaves the pending set', () async {
-      final repo = _StubRequisitions([_req(1, 'SUBMITTED'), _req(2, 'SUBMITTED')]);
-      final vm = AdminRequisitionsViewmodel(repository: repo);
-      await vm.load();
-      expect(vm.pending, hasLength(2));
+    test(
+      'approving a SUBMITTED row calls the repository and it leaves the pending set',
+      () async {
+        final repo = _StubRequisitions([
+          _req(1, 'SUBMITTED'),
+          _req(2, 'SUBMITTED'),
+        ]);
+        final vm = AdminRequisitionsViewmodel(repository: repo);
+        await vm.load();
+        expect(vm.pending, hasLength(2));
 
-      expect(await vm.approve(1), isTrue);
+        expect(await vm.approve(1), isTrue);
 
-      expect(repo.approved, [1]);
-      expect(vm.pending.map((r) => r.id), [2]);
-    });
+        expect(repo.approved, [1]);
+        expect(vm.pending.map((r) => r.id), [2]);
+      },
+    );
 
-    test('rejecting a SUBMITTED row calls the repository and it leaves the pending set', () async {
-      final repo = _StubRequisitions([_req(1, 'SUBMITTED')]);
-      final vm = AdminRequisitionsViewmodel(repository: repo);
-      await vm.load();
+    test(
+      'rejecting a SUBMITTED row calls the repository and it leaves the pending set',
+      () async {
+        final repo = _StubRequisitions([_req(1, 'SUBMITTED')]);
+        final vm = AdminRequisitionsViewmodel(repository: repo);
+        await vm.load();
 
-      expect(await vm.reject(1), isTrue);
+        expect(await vm.reject(1), isTrue);
 
-      expect(repo.rejected, [1]);
-      expect(vm.pending, isEmpty);
-    });
+        expect(repo.rejected, [1]);
+        expect(vm.pending, isEmpty);
+      },
+    );
 
-    test("the server's own refusal wins over the client's generic wording", () async {
-      // The status guards refuse with prose that names the reason ("Cannot approve a DRAFT
-      // requisition."). Replacing it with "something went wrong" destroys the only explanation
-      // a Store Manager gets for a button that did nothing.
-      final repo = _StubRequisitions([_req(1, 'SUBMITTED')]);
-      final vm = AdminRequisitionsViewmodel(repository: repo);
-      await vm.load();
-      repo.failApprove = RequisitionServiceException('Cannot approve a DRAFT requisition.');
+    test(
+      "the server's own refusal wins over the client's generic wording",
+      () async {
+        // The status guards refuse with prose that names the reason ("Cannot approve a DRAFT
+        // requisition."). Replacing it with "something went wrong" destroys the only explanation
+        // a Store Manager gets for a button that did nothing.
+        final repo = _StubRequisitions([_req(1, 'SUBMITTED')]);
+        final vm = AdminRequisitionsViewmodel(repository: repo);
+        await vm.load();
+        repo.failApprove = RequisitionServiceException(
+          'Cannot approve a DRAFT requisition.',
+        );
 
-      expect(await vm.approve(1), isFalse);
+        expect(await vm.approve(1), isFalse);
 
-      expect(vm.actionError, 'Cannot approve a DRAFT requisition.');
-      expect(vm.pending, hasLength(1), reason: 'a refused approval must not remove the row');
-    });
+        expect(vm.actionError, 'Cannot approve a DRAFT requisition.');
+        expect(
+          vm.pending,
+          hasLength(1),
+          reason: 'a refused approval must not remove the row',
+        );
+      },
+    );
 
-    test('a status the client was never taught is STILL SHOWN and is not approvable', () async {
-      // A server that adds a status must not make the queue silently shorter.
-      final repo = _StubRequisitions([_req(1, 'AWAITING_BUDGET')]);
-      final vm = AdminRequisitionsViewmodel(repository: repo);
+    test(
+      'a status the client was never taught is STILL SHOWN and is not approvable',
+      () async {
+        // A server that adds a status must not make the queue silently shorter.
+        final repo = _StubRequisitions([_req(1, 'AWAITING_BUDGET')]);
+        final vm = AdminRequisitionsViewmodel(repository: repo);
 
-      await vm.load();
+        await vm.load();
 
-      expect(vm.requisitions, hasLength(1));
-      expect(vm.requisitions.single.rawStatus, 'AWAITING_BUDGET');
-      expect(vm.pending, isEmpty);
-      expect(await vm.approve(1), isFalse);
-      expect(repo.approved, isEmpty);
-    });
+        expect(vm.requisitions, hasLength(1));
+        expect(vm.requisitions.single.rawStatus, 'AWAITING_BUDGET');
+        expect(vm.pending, isEmpty);
+        expect(await vm.approve(1), isFalse);
+        expect(repo.approved, isEmpty);
+      },
+    );
   });
 }
