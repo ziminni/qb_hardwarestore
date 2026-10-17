@@ -52,7 +52,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
 class RequisitionViewSet(viewsets.ModelViewSet):
     queryset = (
         Requisition.objects
-        .select_related('project', 'requested_by')
+        # project__customer, not project: the serializer exposes project.customer.name for the
+        # approve queue's provenance, and stopping at project makes that a per-row query.
+        # token is a REVERSE OneToOne (MaterialToken -> Requisition), so the serializer's
+        # token field costs one query per row unless it is joined too.
+        .select_related('project__customer', 'requested_by', 'token')
         .prefetch_related('items__variant')
         .all()
     )

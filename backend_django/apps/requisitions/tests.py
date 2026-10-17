@@ -143,3 +143,29 @@ class RequisitionProvenanceTests(RequisitionTestBase):
         self.assertEqual(data['project_name'], 'House Build')
         self.assertEqual(data['requested_by_name'], self.foreman.full_name)
         self.assertEqual(data['project_customer_name'], 'Builder Corp')
+
+
+class RequisitionListQueryTests(RequisitionTestBase):
+    """The list endpoint is the approve queue's data source, so its query count must not grow with
+    the number of rows: a manager with 200 open requisitions would otherwise wait on 200 extra
+    round trips to render the page."""
+
+    def _queries_for_list(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        from .views import RequisitionViewSet
+
+        with CaptureQueriesContext(connection) as ctx:
+            list(RequisitionSerializer(RequisitionViewSet().get_queryset(), many=True).data)
+        return len(ctx.captured_queries)
+
+    def test_serializing_the_list_does_not_query_once_per_row(self):
+        one_row = self._queries_for_list()
+        for index in range(3):
+            Requisition.objects.create(
+                project=self.project, requested_by=self.foreman,
+                req_number=f'REQ-QUERYTEST-{index:04d}')
+        four_rows = self._queries_for_list()
+        self.assertEqual(
+            one_row, four_rows,
+            'the project customer lookup is happening per row (N+1)')
