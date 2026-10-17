@@ -139,14 +139,14 @@ Legend: 🟢 Live (real API) · 🟡 Partial · 🔴 Mock (hardcoded) · ⚫ Dea
 | Admin settings | `admin/views/settings_page.dart` | — (static) | — | 🔴 Mock |
 | Sales dashboard (legacy) | `dashboard/views/sales_dashboard.dart` | `dashboard_mock_data.dart` | — | ⚫ Orphaned |
 | POS dashboard (legacy) | `dashboard/views/pos_dashboard.dart` | `dashboard_mock_data.dart` | — | ⚫ Orphaned |
-| Requisition token flow | **built but UNROUTED** (screen + viewmodel exist; no route or nav entry reaches them) | `pos/views/material_release_page.dart` · `pos/viewmodels/material_release_viewmodel.dart` | `/tokens/verify/` `/tokens/release/` | ⚫ Dead |
+| Requisition token flow (release counter) | `pos/views/material_release_page.dart` | `pos/viewmodels/material_release_viewmodel.dart` | `/tokens/verify/` `/tokens/release/` | 🟢 Live |
 | Collectibles CRUD (writes) | — (no client screen) | — | `POST/PUT/DELETE ledgers/`, `ledger-payments/` | ⚫ Dead |
 | Goods receipts | **no UI** | — | `/goods-receipts/` | ⚫ Dead |
 | Brands / UOMs / variant-UOMs | **no UI** | — | `/brands/` `/uoms/` `/variant-uoms/` | ⚫ Dead |
 | Payments / receipts | **no UI** | — | `/payments/` `/receipts/` | ⚫ Dead |
 | Project entity | **no UI** | — | `/projects/` | ⚫ Dead |
 
-**Score: 9 live · 3 partial · 17 mock · 8 dead (37 rows).** Was 8 · 3 · 18 · 8 before Phase 5's approve queue, 7 · 3 · 20 · 8 before Phase 4 task 7, and 6 · 4 · 20 · 8 before Phase 3.
+**Score: 10 live · 3 partial · 17 mock · 7 dead (37 rows).** Was 9 · 3 · 17 · 8 before the release counter was routed, 8 · 3 · 18 · 8 before Phase 5's approve queue, and 7 · 3 · 20 · 8 before Phase 4 task 7.
 
 Grading rule, so these are not vibes: 🟢 Live = the screen's *primary* data comes from an API response;
 🟡 Partial = some of what it renders is live and the row's Notes say which; ⚫ Dead = never called.

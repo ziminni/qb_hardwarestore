@@ -1,4 +1,5 @@
 import 'package:client/data/models/requisition.dart';
+import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/viewmodels/material_release_viewmodel.dart';
 import 'package:flutter/material.dart';
 
@@ -33,9 +34,18 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Release materials')),
-      body: AnimatedBuilder(
+    return DashboardShell(
+      title: 'Release materials',
+      subtitle: 'Verify a material token and release the stock it covers',
+      selectedNavigationIndex: 1,
+      navigationItems: const [
+        DashboardNavigationItem('New transaction', Icons.point_of_sale_outlined),
+        DashboardNavigationItem('Release materials', Icons.inventory_2_outlined),
+        DashboardNavigationItem('Customers', Icons.people_outline),
+      ],
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height - 132,
+        child: AnimatedBuilder(
         animation: _viewmodel,
         builder: (context, _) => SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -74,7 +84,9 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
                   padding: const EdgeInsets.only(top: 16),
                   child: Text(
                     _viewmodel.error!,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
                   ),
                 ),
               if (_viewmodel.verification != null) ...[
@@ -95,13 +107,17 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
             ],
           ),
         ),
+        ),
       ),
     );
   }
 }
 
 class _VerificationCard extends StatelessWidget {
-  const _VerificationCard({required this.verification, required this.onRelease});
+  const _VerificationCard({
+    required this.verification,
+    required this.onRelease,
+  });
 
   final TokenVerification verification;
   final VoidCallback? onRelease;
@@ -129,7 +145,9 @@ class _VerificationCard extends StatelessWidget {
             Text('For ${verification.customer}'),
             const SizedBox(height: 12),
             for (final item in verification.items)
-              Text('${item.remaining} of ${item.quantity} × ${item.variantName} remaining'),
+              Text(
+                '${item.remaining} of ${item.quantity} × ${item.variantName} remaining',
+              ),
             if (onRelease != null) ...[
               const SizedBox(height: 16),
               FilledButton(
@@ -158,7 +176,10 @@ class _ReceiptCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Released', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              'Released',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
             Text('Sale ${result.transactionNo}'),
             Text('Total ₱${result.grandTotal.toStringAsFixed(2)}'),

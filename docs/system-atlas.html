@@ -311,7 +311,7 @@ const MATRIX = [
   { f:'Admin settings', ui:'admin/views/settings_page.dart', vm:'(static)', ep:'—', s:'mock', n:'Agreed deferral.' },
   { f:'Sales dashboard (legacy)', ui:'dashboard/views/sales_dashboard.dart', vm:'dashboard_mock_data.dart', ep:'—', s:'dead', n:'Orphan — routes use sales_dashboard_page.dart.' },
   { f:'POS dashboard (legacy)', ui:'dashboard/views/pos_dashboard.dart', vm:'dashboard_mock_data.dart', ep:'—', s:'dead', n:'Orphan — routes use pos_transaction_page.dart.' },
-  { f:'Requisition token flow', ui:'— no UI', vm:'—', ep:'/tokens/verify/ · /tokens/release/', s:'dead', n:'Full backend flow, zero client consumer.' },
+  { f:'Requisition token flow (release counter)', ui:'pos/views/material_release_page.dart', vm:'pos/viewmodels/material_release_viewmodel.dart', ep:'/tokens/verify/ + /tokens/release/', s:'live', n:'LIVE: routed at /pos/release with a clickable nav entry. Phase 5\u2019s only IRREVERSIBLE action - it FIFO-deducts real stock, writes a real SalesTransaction and ALWAYS leaves a receivable, because a construction firm pays later. The receipt and the balance due are shown, not just the success.' },
   { f:'Collectibles CRUD (writes)', ui:'— no UI', vm:'—', ep:'POST/PUT/DELETE ledgers/ · ledger-payments/', s:'dead', n:'The WRITE surface only: reading the ledger is live (see Receivables).' },
   { f:'Goods receipts', ui:'— no UI', vm:'—', ep:'/goods-receipts/', s:'dead', n:'' },
   { f:'Brands / UOMs / variant-UOMs', ui:'— no UI', vm:'—', ep:'/brands/ · /uoms/ · /variant-uoms/', s:'dead', n:'' },

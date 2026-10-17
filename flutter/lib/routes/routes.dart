@@ -13,6 +13,7 @@ import 'package:client/features/auth/views/unsupported_role_page.dart';
 import 'package:client/features/dashboard/views/admin_dashboard.dart';
 import 'package:client/features/dashboard/views/inventory_dashboard.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
+import 'package:client/features/pos/views/material_release_page.dart';
 import 'package:client/features/sales/views/sales_dashboard_page.dart';
 import 'package:client/features/sales/views/sales_orders_page.dart';
 import 'package:client/features/sales/views/sales_quotations_page.dart';
@@ -60,6 +61,7 @@ class AppRoutes {
   static const String inventoryReturns = '/inventory/returns';
   static const String inventoryReports = '/inventory/reports';
   static const String posDashboard = '/pos/dashboard';
+  static const String posRelease = '/pos/release';
   static const String salesDashboard = '/sales/dashboard';
   static const String salesTransactions = '/sales/transactions';
   static const String salesQuotations = '/sales/quotations';
@@ -295,6 +297,12 @@ class AppRoutes {
           name: 'pos_dashboard',
           pageBuilder: (context, state) =>
               _transitionPage(state, const PosTransactionPage()),
+        ),
+        GoRoute(
+          path: posRelease,
+          name: 'pos_release',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const MaterialReleasePage()),
         ),
         GoRoute(
           path: salesDashboard,

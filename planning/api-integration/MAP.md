@@ -135,7 +135,7 @@ phase table and tracked in neither the frontier nor the fog.
 | 2 | Inventory: stock list, low stock, movements | ✅ **done** | [Inventory Data Authority for Phase 2](./decisions/13-inventory-data-authority.md) — locked; built in `938547e`…`794e83a` |
 | 3 | POS checkout + receipt (the money path) | ✅ **done** | [POS Checkout Client Contract](./decisions/06-checkout-client-contract.md) — resolved 2026-10-16; built in `102c121`…`1415664` |
 | 4 | Customers master data (the `Customer` hub) | ✅ **done** (8 of 8 tasks) | [Customer Master-Data Scope (POS side)](./decisions/14-customer-master-data-scope.md) — **decision** resolved 2026-10-16; Task 1 (the three `full_name` defects) built in `df908a9` |
-| 5 | Requisitions + material-token release | 🔨 **in progress** (transport, approve/reject queue, and the release counter built but NOT YET ROUTED — routing is the remaining work) | [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md) — **locked** 2026-10-17 |
+| 5 | Requisitions + material-token release | 🔨 **in progress** (transport, approve/reject queue, and the routed release counter built — the phase review and a live end-to-end pass remain) | [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md) — **locked** 2026-10-17 |
 | 6 | Admin, reports, sales | ❓ **gated** | [Sales Stack Reconciliation](./decisions/05-sales-stack-reconciliation.md) — open |
 
 **Phases 0, 1 and 2 are complete.** Phase 2 was built in `938547e`…`794e83a` and finished with the live

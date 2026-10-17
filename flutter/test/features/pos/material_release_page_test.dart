@@ -2,7 +2,11 @@ import 'package:client/data/models/requisition.dart';
 import 'package:client/data/repositories/requisition_repository.dart';
 import 'package:client/features/pos/viewmodels/material_release_viewmodel.dart';
 import 'package:client/features/pos/views/material_release_page.dart';
+import 'package:client/data/repositories/auth_repository.dart';
+import 'package:client/data/services/auth_service.dart';
+import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The release counter SCREEN — the last surface in Phase 5.
@@ -58,7 +62,12 @@ Future<void> _pump(WidgetTester tester, MaterialReleaseViewmodel vm) async {
   tester.view.physicalSize = const Size(1600, 1400);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(MaterialApp(home: MaterialReleasePage(viewmodel: vm)));
+  await tester.pumpWidget(
+    ChangeNotifierProvider<AuthViewmodel>.value(
+      value: AuthViewmodel(AuthRepository(AuthService())),
+      child: MaterialApp(home: MaterialReleasePage(viewmodel: vm)),
+    ),
+  );
   await tester.pumpAndSettle();
 }
 
@@ -70,26 +79,37 @@ void main() {
 
       await _pump(tester, vm);
 
-      expect(find.widgetWithText(FilledButton, 'Release materials'), findsNothing);
+      expect(
+        find.widgetWithText(FilledButton, 'Release materials'),
+        findsNothing,
+      );
       expect(repo.released, isEmpty);
     });
 
-    testWidgets('a verified token shows the requisition, its remaining quantity and the action', (tester) async {
-      final repo = _StubRequisitions();
-      final vm = MaterialReleaseViewmodel(repository: repo);
+    testWidgets(
+      'a verified token shows the requisition, its remaining quantity and the action',
+      (tester) async {
+        final repo = _StubRequisitions();
+        final vm = MaterialReleaseViewmodel(repository: repo);
 
-      await _pump(tester, vm);
-      await tester.enterText(find.byType(TextField), 'a-token');
-      await tester.tap(find.widgetWithText(FilledButton, 'Verify'));
-      await tester.pumpAndSettle();
+        await _pump(tester, vm);
+        await tester.enterText(find.byType(TextField), 'a-token');
+        await tester.tap(find.widgetWithText(FilledButton, 'Verify'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('REQ-20260925-0003'), findsOneWidget);
-      expect(find.textContaining('Dela Cruz Construction'), findsWidgets);
-      expect(find.textContaining('40kg'), findsWidgets);
-      expect(find.widgetWithText(FilledButton, 'Release materials'), findsOneWidget);
-    });
+        expect(find.text('REQ-20260925-0003'), findsOneWidget);
+        expect(find.textContaining('Dela Cruz Construction'), findsWidgets);
+        expect(find.textContaining('40kg'), findsWidgets);
+        expect(
+          find.widgetWithText(FilledButton, 'Release materials'),
+          findsOneWidget,
+        );
+      },
+    );
 
-    testWidgets('a release shows the sale and the receivable it left behind', (tester) async {
+    testWidgets('a release shows the sale and the receivable it left behind', (
+      tester,
+    ) async {
       final repo = _StubRequisitions();
       final vm = MaterialReleaseViewmodel(repository: repo);
 
@@ -104,7 +124,10 @@ void main() {
       expect(find.textContaining('TXN-20261017-0042'), findsWidgets);
       expect(find.textContaining('2700'), findsWidgets);
       // A released token cannot be released again, so the action must be gone.
-      expect(find.widgetWithText(FilledButton, 'Release materials'), findsNothing);
+      expect(
+        find.widgetWithText(FilledButton, 'Release materials'),
+        findsNothing,
+      );
     });
   });
 }
