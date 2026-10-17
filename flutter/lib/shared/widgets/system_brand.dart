@@ -34,30 +34,40 @@ class SystemBrand extends StatelessWidget {
           semanticLabel: 'Queen Builders logo',
         ),
         const SizedBox(width: AppSpacing.sm),
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              uppercase ? 'QUEEN BUILDERS' : 'Queen Builders',
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: textColor,
-                fontFamily: 'Cinzel',
-                fontSize: fontSize,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            if (subtitle != null)
+        // Flexible + ellipsis because this brand sits in a FIXED-width sidebar (220px in
+        // DashboardShell) with no defence of its own: the Row asks for its intrinsic width, so
+        // a longer subtitle, a larger accessibility text scale, or simply a wider font overflows
+        // it. A widget test found it rather than a device, because the test's fallback font is
+        // wider - but the widget is structurally undefended either way, and truncation engages
+        // only when the text would not have fitted.
+        Flexible(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Text(
-                subtitle!,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: AppColors.brandGold,
-                  fontSize: 8,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.35,
+                uppercase ? 'QUEEN BUILDERS' : 'Queen Builders',
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: textColor,
+                  fontFamily: 'Cinzel',
+                  fontSize: fontSize,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-          ],
+              if (subtitle != null)
+                Text(
+                  subtitle!,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: AppColors.brandGold,
+                    fontSize: 8,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.35,
+                  ),
+                ),
+            ],
+          ),
         ),
       ],
     );
