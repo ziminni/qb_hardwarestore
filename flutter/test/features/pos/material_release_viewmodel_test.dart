@@ -63,21 +63,26 @@ class _StubRequisitions extends RequisitionRepository {
 
 void main() {
   group('MaterialReleaseViewmodel', () {
-    test('verifying a token brings in the requisition and its remaining quantities', () async {
-      final repo = _StubRequisitions();
-      final vm = MaterialReleaseViewmodel(repository: repo);
+    test(
+      'verifying a token brings in the requisition and its remaining quantities',
+      () async {
+        final repo = _StubRequisitions();
+        final vm = MaterialReleaseViewmodel(repository: repo);
 
-      await vm.verify('a-token');
+        await vm.verify('a-token');
 
-      expect(vm.verification?.reqNumber, 'REQ-20260925-0003');
-      expect(vm.verification?.customer, 'Dela Cruz Construction');
-      expect(vm.verification?.items.single.remaining, 10);
-      expect(vm.error, isNull);
-    });
+        expect(vm.verification?.reqNumber, 'REQ-20260925-0003');
+        expect(vm.verification?.customer, 'Dela Cruz Construction');
+        expect(vm.verification?.items.single.remaining, 10);
+        expect(vm.error, isNull);
+      },
+    );
 
     test('an ALREADY USED token reports that, not "not found"', () async {
       final repo = _StubRequisitions();
-      repo.failVerify = RequisitionServiceException('Token has already been used.');
+      repo.failVerify = RequisitionServiceException(
+        'Token has already been used.',
+      );
       final vm = MaterialReleaseViewmodel(repository: repo);
 
       await vm.verify('spent-token');
@@ -95,18 +100,21 @@ void main() {
       expect(repo.released, isEmpty);
     });
 
-    test('a verified token releases and reports the sale and the receivable it created', () async {
-      final repo = _StubRequisitions();
-      final vm = MaterialReleaseViewmodel(repository: repo);
-      await vm.verify('a-token');
+    test(
+      'a verified token releases and reports the sale and the receivable it created',
+      () async {
+        final repo = _StubRequisitions();
+        final vm = MaterialReleaseViewmodel(repository: repo);
+        await vm.verify('a-token');
 
-      expect(await vm.release(), isTrue);
+        expect(await vm.release(), isTrue);
 
-      expect(repo.released, ['a-token']);
-      expect(vm.result?.transactionNo, 'TXN-20261017-0042');
-      // A construction firm pays later, so a release ALWAYS leaves a balance.
-      expect(vm.result?.balanceDue, 2700);
-    });
+        expect(repo.released, ['a-token']);
+        expect(vm.result?.transactionNo, 'TXN-20261017-0042');
+        // A construction firm pays later, so a release ALWAYS leaves a balance.
+        expect(vm.result?.balanceDue, 2700);
+      },
+    );
 
     test('a released token cannot be released a second time', () async {
       final repo = _StubRequisitions();
@@ -115,7 +123,11 @@ void main() {
       await vm.release();
 
       expect(await vm.release(), isFalse);
-      expect(repo.released, hasLength(1), reason: 'the second press must send nothing');
+      expect(
+        repo.released,
+        hasLength(1),
+        reason: 'the second press must send nothing',
+      );
     });
 
     test("the server's refusal wins over the client's wording", () async {
