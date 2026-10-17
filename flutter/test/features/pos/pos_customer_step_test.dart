@@ -246,22 +246,25 @@ void _loadCustomersTests() {
       expect(cart.customersError, isNull);
     });
 
-    test('a failed load sets customersError and does NOT empty the list', () async {
-      customers.customers = const [
-        Customer(id: 2, name: 'Maria Santos', customerType: 'REGULAR'),
-      ];
-      await cart.loadCustomers();
-      customers.failureMessage = 'Cannot connect to the BuildPro server.';
+    test(
+      'a failed load sets customersError and does NOT empty the list',
+      () async {
+        customers.customers = const [
+          Customer(id: 2, name: 'Maria Santos', customerType: 'REGULAR'),
+        ];
+        await cart.loadCustomers();
+        customers.failureMessage = 'Cannot connect to the BuildPro server.';
 
-      await cart.loadCustomers();
+        await cart.loadCustomers();
 
-      expect(cart.customersError, contains('Cannot connect'));
-      expect(
-        cart.customers,
-        hasLength(1),
-        reason: 'an emptied list would read as "this store has no customers"',
-      );
-    });
+        expect(cart.customersError, contains('Cannot connect'));
+        expect(
+          cart.customers,
+          hasLength(1),
+          reason: 'an emptied list would read as "this store has no customers"',
+        );
+      },
+    );
   });
 }
 
@@ -323,21 +326,24 @@ void _utangPanelTests() {
       );
     });
 
-    test('a failed ledger load sets an error and does not invent a balance', () async {
-      customers.failureMessage = 'Cannot connect to the BuildPro server.';
-      cart.selectCustomer(
-        const Customer(id: 5, name: 'Maria Santos', customerType: 'REGULAR'),
-      );
+    test(
+      'a failed ledger load sets an error and does not invent a balance',
+      () async {
+        customers.failureMessage = 'Cannot connect to the BuildPro server.';
+        cart.selectCustomer(
+          const Customer(id: 5, name: 'Maria Santos', customerType: 'REGULAR'),
+        );
 
-      await cart.loadLedgerForSelection();
+        await cart.loadLedgerForSelection();
 
-      expect(cart.ledgerError, contains('Cannot connect'));
-      expect(
-        cart.ledgerSummary,
-        isNull,
-        reason: 'a zero balance would read as "this customer owes nothing"',
-      );
-    });
+        expect(cart.ledgerError, contains('Cannot connect'));
+        expect(
+          cart.ledgerSummary,
+          isNull,
+          reason: 'a zero balance would read as "this customer owes nothing"',
+        );
+      },
+    );
   });
 }
 
@@ -359,75 +365,82 @@ void _reviewFixTests() {
       );
     });
 
-    test('F1: a stale FAILURE for the previous customer must not hide the new one\'s debt',
-        () async {
-      // The success path was guarded against a late response; the error path was not. So a
-      // late failure for A left A's message and a null summary sitting over B, and the panel
-      // checks the error BEFORE the summary - the cashier saw "cannot connect" where B's real
-      // balance had loaded fine.
-      customers.summary = const CustomerLedgerSummary(
-        customerId: 6,
-        customerName: 'B',
-        totalBalance: 250,
-        openCount: 1,
-        overdueCount: 0,
-      );
-      cart.selectCustomer(
-        const Customer(id: 6, name: 'B', customerType: 'REGULAR'),
-      );
-      await cart.loadLedgerForSelection();
-      expect(cart.ledgerSummary?.totalBalance, 250);
+    test(
+      'F1: a stale FAILURE for the previous customer must not hide the new one\'s debt',
+      () async {
+        // The success path was guarded against a late response; the error path was not. So a
+        // late failure for A left A's message and a null summary sitting over B, and the panel
+        // checks the error BEFORE the summary - the cashier saw "cannot connect" where B's real
+        // balance had loaded fine.
+        customers.summary = const CustomerLedgerSummary(
+          customerId: 6,
+          customerName: 'B',
+          totalBalance: 250,
+          openCount: 1,
+          overdueCount: 0,
+        );
+        cart.selectCustomer(
+          const Customer(id: 6, name: 'B', customerType: 'REGULAR'),
+        );
+        await cart.loadLedgerForSelection();
+        expect(cart.ledgerSummary?.totalBalance, 250);
 
-      // A late failure arrives for a customer no longer selected.
-      customers.lateFailureFor = 5;
-      customers.failureMessage = 'Cannot connect to the BuildPro server.';
-      cart.selectCustomer(
-        const Customer(id: 5, name: 'A', customerType: 'REGULAR'),
-      );
-      await cart.loadLedgerForSelection();
+        // A late failure arrives for a customer no longer selected.
+        customers.lateFailureFor = 5;
+        customers.failureMessage = 'Cannot connect to the BuildPro server.';
+        cart.selectCustomer(
+          const Customer(id: 5, name: 'A', customerType: 'REGULAR'),
+        );
+        await cart.loadLedgerForSelection();
 
-      // A's failure is A's business; B is gone, so the panel must show NO stale error over a
-      // customer it does not describe.
-      expect(
-        cart.ledgerError,
-        isNotNull,
-        reason: 'A DID fail, and A is the current selection - the error belongs to A',
-      );
-      expect(cart.ledgerSummary, isNull);
-    });
+        // A's failure is A's business; B is gone, so the panel must show NO stale error over a
+        // customer it does not describe.
+        expect(
+          cart.ledgerError,
+          isNotNull,
+          reason:
+              'A DID fail, and A is the current selection - the error belongs to A',
+        );
+        expect(cart.ledgerSummary, isNull);
+      },
+    );
 
-    test('F2: a created customer must not inherit the previous one\'s debt', () async {
-      customers.summary = const CustomerLedgerSummary(
-        customerId: 5,
-        customerName: 'Maria Santos',
-        totalBalance: 4900,
-        openCount: 2,
-        overdueCount: 1,
-      );
-      cart.selectCustomer(
-        const Customer(id: 5, name: 'Maria Santos', customerType: 'REGULAR'),
-      );
-      await cart.loadLedgerForSelection();
-      expect(cart.ledgerSummary?.totalBalance, 4900);
+    test(
+      'F2: a created customer must not inherit the previous one\'s debt',
+      () async {
+        customers.summary = const CustomerLedgerSummary(
+          customerId: 5,
+          customerName: 'Maria Santos',
+          totalBalance: 4900,
+          openCount: 2,
+          overdueCount: 1,
+        );
+        cart.selectCustomer(
+          const Customer(id: 5, name: 'Maria Santos', customerType: 'REGULAR'),
+        );
+        await cart.loadLedgerForSelection();
+        expect(cart.ledgerSummary?.totalBalance, 4900);
 
-      await cart.createAndSelectCustomer(
-        name: 'Nena Reyes',
-        type: CustomerType.regular,
-      );
+        await cart.createAndSelectCustomer(
+          name: 'Nena Reyes',
+          type: CustomerType.regular,
+        );
 
-      expect(
-        cart.ledgerSummary,
-        isNull,
-        reason: "Maria's 4900 must never render under Nena's name",
-      );
-      expect(cart.ledgerError, isNull);
-    });
+        expect(
+          cart.ledgerSummary,
+          isNull,
+          reason: "Maria's 4900 must never render under Nena's name",
+        );
+        expect(cart.ledgerError, isNull);
+      },
+    );
 
     test('F3: the selection must survive a genuinely FAILED submit', () async {
       // The old test could not fail: the stub always returned success, so `submit` returned
       // true, the cart cleared, and the assertion held no matter what. This drives the
       // failure path the test claimed to cover.
-      final pos = _StubPosRepository()..failure = PosServiceException('The server broke.');
+      final pos = _StubPosRepository()
+        ..failure = PosServiceException('The server broke.');
       final cart2 = PosTransactionViewmodel(
         inventory,
         ProductTrackingViewmodel(),
@@ -440,7 +453,10 @@ void _reviewFixTests() {
         const Customer(id: 5, name: 'Maria Santos', customerType: 'REGULAR'),
       );
 
-      final confirmed = await cart2.submit(paymentMethod: 'CASH', amountPaid: 100);
+      final confirmed = await cart2.submit(
+        paymentMethod: 'CASH',
+        amountPaid: 100,
+      );
 
       expect(confirmed, isFalse, reason: 'the submit must really have failed');
       expect(cart2.submitError, isNotNull);
