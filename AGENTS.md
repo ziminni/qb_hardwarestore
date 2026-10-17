@@ -42,7 +42,10 @@ the same commit that breaks it.
   method at all** — a service without `createRequisition` cannot grow a button needing a Site
   Foreman. **The approve/reject queue and the release counter are BOTH built and routed.** What
   remains for Phase 5 is the whole-branch review and a live end-to-end pass — not another screen.
-- **Last session:** `docs/sessions/2026-10-17-phase-5-and-coverage.md` — resolved decision 09, built
+- **Last session:** `docs/sessions/2026-10-17-phase-5-requisitions.md` — built the requisition
+  lifecycle's downstream half, resolved #21, and verified the whole thing LIVE (including
+  `WALK_IN_CANNOT_OWE` firing from the till for the first time). Superseded note:
+  `docs/sessions/2026-10-17-phase-5-and-coverage.md` — resolved decision 09, built
   Phase 5's transport, and paid down the Phase 4 test-coverage debt (flutter 235 → 291). **Verified
   fresh at `a9f74ec`:** backend **46/46 OK**, `manage.py check` clean, `flutter analyze` clean,
   flutter **291/291**, tree CLEAN. The live/mock tally is owned by `docs/SYSTEM_ATLAS.md`.
