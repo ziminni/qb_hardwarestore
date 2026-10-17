@@ -51,16 +51,24 @@ class DashboardShell extends StatelessWidget {
                     itemCount: navigationItems.length,
                     itemBuilder: (context, index) {
                       final item = navigationItems[index];
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 4),
-                        color: index == selectedNavigationIndex
-                            ? const Color(0xFFE5E5E5)
-                            : Colors.transparent,
-                        child: ListTile(
-                          dense: true,
-                          onTap: () {},
-                          leading: Icon(item.icon, size: 19),
-                          title: Text(item.label),
+                      // The colour belongs on the Material, not on a Container: a ListTile
+                      // inside a ColoredBox makes Flutter assert "ListTile background color or
+                      // ink splashes may be invisible", because the tile paints its background
+                      // and splashes on its nearest Material ancestor. Release builds skip the
+                      // assertion and merely lose the ink splash; widget tests FAIL on it, which
+                      // made this whole page untestable.
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Material(
+                          color: index == selectedNavigationIndex
+                              ? const Color(0xFFE5E5E5)
+                              : Colors.transparent,
+                          child: ListTile(
+                            dense: true,
+                            onTap: () {},
+                            leading: Icon(item.icon, size: 19),
+                            title: Text(item.label),
+                          ),
                         ),
                       );
                     },
