@@ -53,6 +53,7 @@ Map<String, dynamic> _requisition({
   'id': id,
   'project': 1,
   'project_name': '2-Storey House - Mandaue',
+  'project_customer_name': 'Dela Cruz Construction',
   'req_number': reqNumber,
   'requested_by': 5,
   'requested_by_name': 'Fore Man',
@@ -107,6 +108,7 @@ void main() {
     expect(req.reqNumber, 'REQ-20260925-0002');
     expect(req.status, RequisitionStatus.submitted);
     expect(req.projectName, '2-Storey House - Mandaue');
+    expect(req.projectCustomerName, 'Dela Cruz Construction');
     expect(req.requestedByName, 'Fore Man');
     expect(req.token, isNull, reason: 'SUBMITTED has no token yet - verified live');
     expect(req.items, hasLength(1));

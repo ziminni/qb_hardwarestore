@@ -63,7 +63,7 @@ class RequisitionItem {
 /// A material request, as `GET /api/v1/requisitions/` returns it.
 ///
 /// POS reads requisitions it did NOT create (decision 09: CPMS owns create and submit), which is
-/// why [projectName] and [requestedByName] are carried: a manager approving an anonymous list of
+/// why [projectName], [projectCustomerName] and [requestedByName] are carried: a manager approving an anonymous list of
 /// material requests is the failure mode that split creates.
 class Requisition {
   const Requisition({
@@ -71,6 +71,7 @@ class Requisition {
     required this.reqNumber,
     required this.rawStatus,
     required this.projectName,
+    required this.projectCustomerName,
     required this.requestedByName,
     required this.items,
     this.token,
@@ -83,6 +84,7 @@ class Requisition {
   final String rawStatus;
 
   final String projectName;
+  final String projectCustomerName;
   final String requestedByName;
   final List<RequisitionItem> items;
 
@@ -97,6 +99,7 @@ class Requisition {
     reqNumber: stringField(json, 'req_number'),
     rawStatus: stringField(json, 'status'),
     projectName: stringField(json, 'project_name'),
+    projectCustomerName: stringField(json, 'project_customer_name'),
     requestedByName: stringField(json, 'requested_by_name'),
     items: ((json['items'] as List?) ?? const [])
         .map((row) => RequisitionItem.fromJson(row as Map<String, dynamic>))
