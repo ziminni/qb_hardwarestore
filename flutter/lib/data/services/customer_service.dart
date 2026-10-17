@@ -36,16 +36,45 @@ class CustomerService {
   static const customersPath = '/api/v1/customers/';
   static const agingPath = '/api/v1/ledgers/aging/';
 
+  /// How many pages to read before giving up. 40 x DRF's PAGE_SIZE (50) = 2000 customers,
+  /// far past any counter's book, so hitting it means the API is misbehaving.
+  static const _maxPages = 40;
+
   /// Every customer the server knows, for the picker.
+  ///
+  /// FOLLOWS PAGINATION, and this is load-bearing rather than tidiness: `getList` returns ONE
+  /// page (DRF's `PAGE_SIZE` is 50), and the picker's search filters the list the client
+  /// holds - so a one-page read meant that past 50 customers an existing account silently
+  /// could not be selected at the till, and recording a duplicate was the likely outcome. The
+  /// demo database holds three customers, which is why no test could see it.
+  ///
+  /// There is no server-side search on this endpoint (no `SearchFilter` is configured for
+  /// `CustomerViewSet`), so the pages are read here rather than pushed to the server.
+  ///
+  /// Bounded: a `next` link that never ends fails loudly instead of hanging the till.
   Future<List<Customer>> fetchCustomers() async {
     try {
-      final page = await _client.getList<Customer>(
-        customersPath,
-        Customer.fromJson,
-      );
-      return page.items;
+      final all = <Customer>[];
+      var page = 1;
+      while (true) {
+        final result = await _client.getList<Customer>(
+          customersPath,
+          Customer.fromJson,
+          queryParameters: {'page': page},
+        );
+        all.addAll(result.items);
+        if (!result.hasMore) return all;
+        page++;
+        if (page > _maxPages) {
+          throw const FormatException('The customer list did not end.');
+        }
+      }
     } on DioException catch (error) {
       throw CustomerServiceException(_message(error));
+    } on FormatException {
+      throw const CustomerServiceException(
+        'The customer list did not finish loading. Try again.',
+      );
     }
   }
 

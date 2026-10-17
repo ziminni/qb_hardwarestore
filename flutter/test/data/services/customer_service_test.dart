@@ -61,9 +61,13 @@ Map<String, dynamic> _page(List<Map<String, dynamic>> rows) => {
 };
 
 void main() {
+  _paginationTests();
+
   late ApiClient client;
   late CustomerService service;
-  late _FakeAdapter adapter;
+  // Nullable because not every test installs one: a test that serves its own multi-page
+  // adapter leaves this unset, and a `late` field would throw in the shared tearDown.
+  _FakeAdapter? adapter;
 
   setUpAll(() {
     // The house pattern, and load-bearing: `ApiClient.init()` is NOT idempotent (dio is
@@ -76,14 +80,15 @@ void main() {
   });
 
   tearDown(() {
-    final previous = adapter.replaced;
+    final previous = adapter?.replaced;
     if (previous != null) client.dio.httpClientAdapter = previous;
   });
 
   void serve(Object body, {int status = 200}) {
-    adapter = _FakeAdapter(body, statusCode: status)
+    final fake = _FakeAdapter(body, statusCode: status)
       ..replaced = client.dio.httpClientAdapter;
-    client.dio.httpClientAdapter = adapter;
+    adapter = fake;
+    client.dio.httpClientAdapter = fake;
   }
 
   test('lists customers and parses all four types', () async {
@@ -145,7 +150,7 @@ void main() {
 
       expect(created.id, 7);
       expect(created.name, 'Nena Reyes');
-      final sent = adapter.lastRequest!.data as Map<String, dynamic>;
+      final sent = adapter!.lastRequest!.data as Map<String, dynamic>;
       expect(sent['name'], 'Nena Reyes');
       expect(sent['customer_type'], 'REGULAR');
       // Locked decision 1: name + type ONLY. Sending a credit limit would put credit control
@@ -231,5 +236,124 @@ void main() {
     final customers = await repository.fetchCustomers();
 
     expect(customers.single.name, 'Walk-in Customer');
+  });
+}
+
+/// Replays one canned body per call, so a test can serve several PAGES.
+class _PagedAdapter implements HttpClientAdapter {
+  _PagedAdapter(this.pages);
+
+  final List<Object> pages;
+  final List<String?> requestedPages = [];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<List<int>>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requestedPages.add(options.queryParameters['page']?.toString());
+    final index = (requestedPages.length - 1).clamp(0, pages.length - 1);
+    return ResponseBody.fromString(
+      jsonEncode(pages[index]),
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+// Review finding F4. The picker's search filters the list the client LOADED, and the list was
+// one page of 50 - so past 50 customers an existing account silently could not be selected and
+// a duplicate record at the till was the likely outcome. The demo database holds three
+// customers, which is why no test could see it.
+void _paginationTests() {
+  late ApiClient client;
+  late CustomerService service;
+  late _PagedAdapter paged;
+  late HttpClientAdapter original;
+
+  setUp(() {
+    // NOT `..init()`: init() is not idempotent (dio is `late final`), so calling it again
+    // here would rebuild dio and discard the fake adapter every other test installed.
+    client = ApiClient.instance;
+    service = CustomerService(client: client);
+    original = client.dio.httpClientAdapter;
+  });
+
+  tearDown(() => client.dio.httpClientAdapter = original);
+
+  test('follows the next link so a customer past page one is findable', () async {
+    paged = _PagedAdapter([
+      {
+        'count': 2,
+        'next': 'http://x/api/v1/customers/?page=2',
+        'previous': null,
+        'results': [
+          {'id': 1, 'name': 'Aaa Trading', 'customer_type': 'REGULAR'},
+        ],
+      },
+      {
+        'count': 2,
+        'next': null,
+        'previous': null,
+        'results': [
+          {'id': 2, 'name': 'Zulu Hardware', 'customer_type': 'CONTRACTOR'},
+        ],
+      },
+    ]);
+    client.dio.httpClientAdapter = paged;
+
+    final customers = await service.fetchCustomers();
+
+    expect(
+      customers.map((c) => c.name),
+      ['Aaa Trading', 'Zulu Hardware'],
+      reason: 'a one-page cap hides every customer past 50',
+    );
+    expect(paged.requestedPages, hasLength(2), reason: 'both pages fetched');
+  });
+
+  test('stops at the last page', () async {
+    paged = _PagedAdapter([
+      {
+        'count': 1,
+        'next': null,
+        'previous': null,
+        'results': [
+          {'id': 1, 'name': 'Only One', 'customer_type': 'REGULAR'},
+        ],
+      },
+    ]);
+    client.dio.httpClientAdapter = paged;
+
+    final customers = await service.fetchCustomers();
+
+    expect(customers, hasLength(1));
+    expect(paged.requestedPages, hasLength(1), reason: 'no pointless second request');
+  });
+
+  test('a runaway next link is refused rather than looping forever', () async {
+    paged = _PagedAdapter([
+      {
+        'count': 1,
+        'next': 'http://x/api/v1/customers/?page=2',
+        'previous': null,
+        'results': [
+          {'id': 1, 'name': 'A', 'customer_type': 'REGULAR'},
+        ],
+      },
+    ]);
+    client.dio.httpClientAdapter = paged;
+
+    await expectLater(
+      service.fetchCustomers(),
+      throwsA(isA<CustomerServiceException>()),
+      reason: 'an endless next link must fail loudly, not hang the till',
+    );
   });
 }
