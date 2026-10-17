@@ -25,7 +25,9 @@ the same commit that breaks it.
 
 ## Current Status & Next Step
 
-- **Active branch:** `feature/backend-integration` — **145 commits ahead of `origin/master`, unpushed.**
+- **Active branch:** `feature/backend-integration`, **unpushed.** For how far ahead it is run
+  `git rev-list --count origin/master..HEAD` — a count written into this file is stale the moment the
+  commit that writes it lands, which is how "114" survived four phases.)
 - **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. The slice order is
   **locked** (Cashier journey) and the map reads **13 locked · 1 open** — 14 decision files: 13 settled, and only
   [Sales Stack Reconciliation](./planning/api-integration/decisions/05-sales-stack-reconciliation.md) open (Phase 6).
