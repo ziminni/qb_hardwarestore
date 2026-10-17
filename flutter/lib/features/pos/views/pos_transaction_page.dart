@@ -145,19 +145,14 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     _restoreScannerFocus();
   }
 
-  /// Opens the customer picker, loading the list first.
+  /// Opens the customer picker and reports whether a **named** account is selected after it.
   ///
-  /// Loaded on open rather than at page start so the list is as current as the moment the
-  /// cashier looks at it - a customer recorded on another terminal a minute ago should be
-  /// pickable here, and the till is where that matters.
-  ///
-  /// Decision 14: cancelling changes NOTHING (the choice is null), "Walk-in (anonymous)" is
-  /// an explicit selection rather than a cancellation, and a new customer is recorded on a
-  /// name + type record and then selected.
-  Future<void> _changeCustomer(BuildContext context) async {
+  /// Returns false when the cashier cancelled, or chose to keep the sale anonymous - both of
+  /// which must submit NOTHING when the caller is the utang path.
+  Future<bool> _pickCustomer(BuildContext context) async {
     final transaction = context.read<PosTransactionViewmodel>();
     await transaction.loadCustomers();
-    if (!context.mounted) return;
+    if (!context.mounted) return false;
 
     final choice = await showDialog<PosCustomerSelection>(
       context: context,
@@ -174,14 +169,22 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
         },
       ),
     );
-    if (choice == null) {
-      _restoreScannerFocus();
-      return;
-    }
-    if (!context.mounted) return;
+    if (choice == null) return false;
+    if (!context.mounted) return false;
+
     transaction.selectCustomer(choice.customer);
     // Load the new account's balance, and clear it for an anonymous sale.
     await transaction.loadLedgerForSelection();
+    return choice.customer != null;
+  }
+
+  /// Opens the customer picker, loading the list first.
+  ///
+  /// Loaded on open rather than at page start so the list is as current as the moment the
+  /// cashier looks at it - a customer recorded on another terminal a minute ago should be
+  /// pickable here, and the till is where that matters.
+  Future<void> _changeCustomer(BuildContext context) async {
+    await _pickCustomer(context);
     _restoreScannerFocus();
   }
 
@@ -206,21 +209,38 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
       return;
     }
 
-    // Decision 06 section 4: an underpaid sale posts a receivable to the customer's
-    // account, so it is confirmed BEFORE anything is submitted. Going back submits
-    // nothing and leaves the cart exactly as it was.
+    // Decision 06 section 4, extended by decision 14. An underpaid sale posts a receivable,
+    // so it is confirmed BEFORE anything is submitted - and an ANONYMOUS one cannot post at
+    // all (the server answers WALK_IN_CANNOT_OWE), so the cashier is given a route out rather
+    // than a dead end. Nothing is submitted on any path out of here except the two that
+    // explicitly say so.
     if (payment.amountPaid < transaction.total) {
-      final confirmed = await showDialog<bool>(
+      final choice = await showDialog<PosUnderpaymentChoice>(
         context: context,
         builder: (_) => PosUnderpaymentDialog(
           total: transaction.total,
           amountPaid: payment.amountPaid,
-          customerName: 'Walk-in Customer',
+          customerName: transaction.customerLabel,
+          isAnonymous: transaction.selectedCustomer == null,
         ),
       );
-      if (confirmed != true || !context.mounted) {
+      if (!context.mounted) return;
+
+      // Dismissed, and "collect the full amount", both mean SUBMIT NOTHING. The cart stays
+      // exactly as it was, which is only true because this function returns here.
+      if (choice == null || choice == PosUnderpaymentChoice.collectFull) {
         _restoreScannerFocus();
         return;
+      }
+
+      // An anonymous sale cannot owe, so the customer is recorded first - and if the cashier
+      // does not end up with a named account, nothing is submitted.
+      if (choice == PosUnderpaymentChoice.nameCustomer) {
+        final named = await _pickCustomer(context);
+        if (!named || !context.mounted) {
+          _restoreScannerFocus();
+          return;
+        }
       }
     }
 
