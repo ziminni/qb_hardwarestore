@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import exception_handler as drf_exception_handler
 
 from apps.inventory.exceptions import InsufficientStock
+from apps.collectibles.services import Overpayment
 
 
 class WalkInCannotOwe(Exception):
@@ -66,6 +67,15 @@ def handler(exc, context):
                 'detail': str(exc),
                 'shortfall': None if exc.shortfall is None else str(exc.shortfall),
                 'variant_id': exc.variant_id,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if isinstance(exc, Overpayment):
+        return Response(
+            {
+                'code': exc.code,
+                'detail': str(exc),
+                'balance_due': f'{exc.balance_due:.2f}',
             },
             status=status.HTTP_400_BAD_REQUEST,
         )

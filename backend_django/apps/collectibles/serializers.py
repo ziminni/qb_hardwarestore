@@ -27,6 +27,11 @@ class CollectiblePaymentSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id',
             'payment_date',
+            # `processed_by` is required from the client and then OVERWRITTEN by
+            # perform_create with the logged-in user. Demanding a value that is
+            # discarded makes the client supply a lie and fails a request for
+            # omitting it - the same class as the checkout's `cashier` field.
+            'processed_by',
         ]
 
 

@@ -12,6 +12,7 @@ from datetime import date
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.test import TestCase
 
 from apps.pos.models import Customer, SalesTransaction
@@ -20,8 +21,9 @@ from .models import CollectibleLedger, CollectiblePayment
 
 User = get_user_model()
 
-LOGIN_URL = '/api/v1/auth/login/'
+PAYMENTS_URL = '/api/v1/ledger-payments/'
 LEDGERS_URL = '/api/v1/ledgers/'
+LOGIN_URL = '/api/v1/auth/login/'
 AGING_URL = '/api/v1/ledgers/aging/'
 
 
@@ -159,3 +161,98 @@ class LedgerApiCustomerNameTests(TestCase):
         self.assertEqual(len(rows), 1, 'the filter must actually narrow')
         self.assertEqual(rows[0]['customer_name'], 'Utang Corp')
 
+
+
+class LedgerPaymentApiTests(TestCase):
+    """Posting a payment must MOVE THE LEDGER - through the ENDPOINT.
+
+    The two payment tests above create the CollectiblePayment and then perform
+    the balance arithmetic THEMSELVES, asserting that the test can subtract.
+    They passed for as long as `perform_create` only saved the payment and left
+    `balance_due` alone, so a customer who had paid in full still read as owing
+    the full amount, and the aging report, the till's utang panel and the
+    receivables screen all repeated that number.
+
+    These go through POST /api/v1/ledger-payments/, which is where the
+    calculation has to happen for any of those consumers to be right.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='armgr', email='am@x.com', password='pass12345')  # nosemgrep
+        self.customer = Customer.objects.create(
+            name='Utang Corp', customer_type=Customer.Type.REGULAR)
+        self.txn = SalesTransaction.objects.create(
+            customer=self.customer, cashier=self.user,
+            transaction_no='TRX-TEST-0003',
+            vatable_sales=Decimal('500'), grand_total=Decimal('500'))
+        self.ledger = CollectibleLedger.objects.create(
+            customer=self.customer, transaction=self.txn,
+            original_amount=Decimal('500'), balance_due=Decimal('500'),
+            due_date=date.today(), status=CollectibleLedger.Status.OPEN,
+        )
+        # Posting a payment is IsPOSOrReadOnly, so the actor needs a POS role -
+        # the same fixture every other POS-role test uses.
+        self.user.groups.add(Group.objects.get_or_create(name='Cashier')[0])
+        login = self.client.post(
+            LOGIN_URL,
+            {'username': 'armgr', 'password': 'pass12345'},
+            content_type='application/json',
+        )
+        self.assertEqual(login.status_code, 200)
+        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {login.json()["access"]}'}
+
+    def _pay(self, amount):
+        return self.client.post(
+            PAYMENTS_URL,
+            {'collectible': self.ledger.pk, 'amount_paid': str(amount),
+             'payment_method': 'CASH'},
+            content_type='application/json', **self.auth)
+
+    def test_a_partial_payment_lowers_the_balance_and_marks_it_partial(self):
+        response = self._pay('200')
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.ledger.refresh_from_db()
+        self.assertEqual(self.ledger.balance_due, Decimal('300'))
+        self.assertEqual(self.ledger.status, CollectibleLedger.Status.PARTIAL)
+
+    def test_a_full_payment_clears_the_balance_and_marks_it_paid(self):
+        response = self._pay('500')
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.ledger.refresh_from_db()
+        self.assertEqual(self.ledger.balance_due, Decimal('0'))
+        self.assertEqual(self.ledger.status, CollectibleLedger.Status.PAID)
+        self.assertFalse(self.ledger.is_overdue)
+
+    def test_the_payment_is_attributed_to_the_logged_in_user(self):
+        # `processed_by` is read-only, so the server assigns the actor rather than
+        # trusting the client - the audit trail names who really took the money.
+        response = self._pay('100')
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(
+            CollectiblePayment.objects.get().processed_by_id, self.user.pk)
+
+    def test_an_overpayment_is_refused_and_writes_nothing(self):
+        response = self._pay('600')
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()['code'], 'PAYMENT_EXCEEDS_BALANCE')
+        self.assertEqual(response.json()['balance_due'], '500.00')
+        self.ledger.refresh_from_db()
+        self.assertEqual(self.ledger.balance_due, Decimal('500'))
+        self.assertEqual(self.ledger.status, CollectibleLedger.Status.OPEN)
+        self.assertEqual(self.ledger.payments.count(), 0)
+
+    def test_the_ledger_endpoint_reflects_the_payment_it_recorded(self):
+        # The consumer-facing proof: what the receivables screen reads.
+        self._pay('200')
+
+        response = self.client.get(
+            LEDGERS_URL, **self.auth)  # nosemgrep
+        self.assertEqual(response.status_code, 200, response.content)
+        row = next(r for r in response.json()['results']
+                   if r['id'] == self.ledger.pk)
+        self.assertEqual(row['balance_due'], '300.00')

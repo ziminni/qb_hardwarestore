@@ -7,6 +7,7 @@
 """Collectibles ViewSets — Accounts Receivable / Utang Management."""
 
 from django.db.models import Q
+from django.db import transaction
 from rest_framework import permissions, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -14,6 +15,7 @@ from rest_framework.response import Response
 from apps.users.permissions import IsPOSOrReadOnly
 
 from .models import CollectibleLedger, CollectiblePayment
+from .services import apply_payment_to_ledger
 from .serializers import CollectibleLedgerSerializer, CollectiblePaymentSerializer
 
 
@@ -101,5 +103,19 @@ class CollectiblePaymentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsPOSOrReadOnly]
 
     def perform_create(self, serializer):
-        """Auto-assign the logged-in user as processed_by."""
-        serializer.save(processed_by=self.request.user)
+        """Record the payment and move the ledger, as ONE transaction.
+
+        Saving the payment without moving `balance_due` was the defect this
+        replaces: the receivable kept reporting the full amount owed no matter
+        how much had been paid against it. `select_for_update` is taken first so
+        two terminals cannot both pay the last peso and have one payment lost.
+        """
+        with transaction.atomic():
+            ledger = CollectibleLedger.objects.select_for_update().get(
+                pk=serializer.validated_data['collectible'].pk,
+            )
+            apply_payment_to_ledger(
+                ledger,
+                serializer.validated_data['amount_paid'],
+            )
+            serializer.save(processed_by=self.request.user)
