@@ -27,37 +27,36 @@ the same commit that breaks it.
 
 - **Active branch:** `feature/backend-integration`, **unpushed.** For how far ahead it is run
   `git rev-list --count origin/master..HEAD` — a count written into this file is stale the moment the
-  commit that writes it lands, which is how "114" survived four phases.)
-- **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. The slice order is
-  **locked** (Cashier journey) and the map reads **13 locked · 1 open** — 14 decision files: 13 settled, and only
-  [Sales Stack Reconciliation](./planning/api-integration/decisions/05-sales-stack-reconciliation.md) open (Phase 6).
-  *This block was wrong in FIVE separate ways until 2026-10-17 — it claimed 114 commits (144), 33 backend tests
-  (46), 192 flutter tests (235), "Phases 0-3 COMPLETE, Phase 4 unlocked" (Phase 4 is done and reviewed), and named
-  Phase 3 as the last session, because Phase 4 had no note at all. It was rewritten from the gate output rather
-  than adjusted: a wrong index is worse than a missing one, because a missing one reads as unknown while a wrong
-  one reads as verified.*
-- **Phases 0, 1, 2, 3 and 4 are COMPLETE.** Phase 0's 7 rows are built (the map's "Phase 0 — status" table is the
-  authority); Phase 1's products catalogue renders live API data; Phase 2 made the **server the authority for
-  inventory state**; Phase 3 made the POS **complete a real sale**; Phase 4 built **customer master data** — the
-  till selects and creates customers, a walk-in **cannot** go into utang, utang is shown at the counter, and
-  `sales_receivables_page.dart` reads the real ledger.
-- **Phase 5 is UNLOCKED and ready to build:**
-  [Requisition UI Ownership](./planning/api-integration/decisions/09-requisition-ui-ownership.md) resolved
-  2026-10-17 — POS builds the **downstream half** (approve · reject · verify token · release) and CPMS owns create
-  and submit. Two screens: an approve/reject queue for the Store Manager, and verify+release for the Cashier. A
-  release is a **sale** (`source=REQUISITION`, FIFO stock through the same allocator the checkout uses), and every
-  approve/verify surface must show where the requisition came from, because POS did not originate it.
-- **Last session:** `docs/sessions/2026-10-17-phase-4-customer-master-data.md` — built Phase 4, then had it
-  reviewed and acted on the review. **Verified fresh:** `manage.py test` **46 OK**, `manage.py check` 0 issues,
-  `flutter analyze` clean, `flutter test` **235/235**, tree CLEAN, Atlas score **8 live · 3 partial · 18 mock ·
-  8 dead (37 rows)** recounted and asserted in BOTH artifacts.
-- **The standard this session established:** a test is not accepted as covering a fix until it has been run
-  against the code **without** the fix and seen to fail. Three tests were found that **could not fail** —
-  including two payment tests that performed the balance arithmetic themselves, which is how a real money bug
-  survived in the ledger for the life of the project.
-- **Recorded debt (not a blocker):** the Phase 4 **screens** have no widget tests — `SalesReceivablesViewmodel`,
-  `SalesReceivablesPage`, `LedgerRepository`, `PosCustomerPickerDialog`, `PosUtangPanel`, `PosTransactionPage._pay`
-  (which holds the entire "submit nothing" invariant), and `selectedNavigationIndex` on any page, whose absence
-  let a sidebar regression reach a commit.
-- **Standing caveat:** `flutter run` has **never** been executed against the live backend. API contracts are
-  probed; the pixels are unverified.
+  commit that writes it lands, which is how "114" survived four phases.
+- **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. The
+  slice order is **locked** (Cashier journey) and the map reads **13 locked · 1 open** — 14 decision
+  files, with only
+  [Sales Stack Reconciliation](./planning/api-integration/decisions/05-sales-stack-reconciliation.md)
+  open (Phase 6).
+- **Phases 0, 1, 2, 3 and 4 are COMPLETE.** Phase 4 (customer master data) shipped and was then
+  reviewed; every Important finding was fixed, including a real money bug — `POST /ledger-payments/`
+  never moved `balance_due` and accepted overpayment.
+- **Phase 5 is IN PROGRESS (1 of 4).**
+  [Requisition UI Ownership](./planning/api-integration/decisions/09-requisition-ui-ownership.md)
+  resolved 2026-10-17: POS builds the **downstream half** (approve · reject · verify token · release)
+  and CPMS owns create and submit. Task 1, the transport, is built with **no create or submit
+  method at all** — a service without `createRequisition` cannot grow a button needing a Site
+  Foreman. Next: the **approve/reject queue**, actions gated on status, showing where each
+  requisition came from.
+- **Last session:** `docs/sessions/2026-10-17-phase-5-and-coverage.md` — resolved decision 09, built
+  Phase 5's transport, and paid down the Phase 4 test-coverage debt (flutter 235 → 291). **Verified
+  fresh at `a9f74ec`:** backend **46/46 OK**, `manage.py check` clean, `flutter analyze` clean,
+  flutter **291/291**, tree CLEAN, Atlas **8 live · 3 partial · 18 mock · 8 dead (37 rows)**.
+- **THE DECISION WAITING FOR A HUMAN:** `#21` — `PosPaymentDialog` refuses any amount below the
+  total, so `_pay`'s underpayment branch can never run. Decision 06 §4's confirmation, the whole
+  three-way walk-in flow built as Phase 4 T6, and the server's `WALK_IN_CANNOT_OWE` path from the
+  till are **all unreachable**. Either the validator is wrong or that UI is. It also decides the
+  remaining test work.
+- **The standard this project now holds:** a test is not accepted as covering a fix until it has been
+  run against the code **without** the fix and seen to fail — and a mutation that breaks
+  **compilation** proves nothing, because Flutter reports it as `loading <file>`.
+- **Standing caveat:** `flutter run` has **never** been executed against the live backend. API
+  contracts are probed; the pixels are unverified — which is why an undefended `SystemBrand` row
+  took a widget test to find.
+- **`.superpowers/` is gitignored**, so the execution ledger and its ~80 ruled entries live only on
+  the machine that wrote them.
