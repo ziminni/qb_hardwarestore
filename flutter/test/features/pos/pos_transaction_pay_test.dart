@@ -116,24 +116,15 @@ void main() {
   });
 
   testWidgets(
-    'the payment dialog REFUSES a short amount - which makes the rest of _pay unreachable',
+    'a SHORT amount is ACCEPTED and reaches decision 06 section 4',
     (tester) async {
-      // FINDING (2026-10-17, found by this test and by nothing else): PosPaymentDialog's
-      // validator rejects any amount below the total ("Amount is below the total"), so
-      // `payment.amountPaid < transaction.total` in _pay can NEVER be true. Consequences:
+      // #21, resolved 2026-10-17: the validator was wrong, not the flow. A short amount records an
+      // utang, so the dialog must WARN rather than block - and _pay's section 4 confirmation, the
+      // three-way walk-in flow, and the server's WALK_IN_CANNOT_OWE guard all become reachable.
       //
-      //   * decision 06 section 4's underpayment confirmation step is DEAD CODE;
-      //   * the whole three-way walk-in flow built as Phase 4 task 6 - "Collect the full amount"
-      //     vs "Record a customer for this utang" - is UNREACHABLE through the UI;
-      //   * and the server's WALK_IN_CANNOT_OWE refusal, built in Phase 4 task 2, can never fire
-      //     from the till.
-      //
-      // Reading either file alone does not show it: the dialog looks generous, and _pay looks
-      // like it handles a case that the dialog above it prevents. Nothing tested the SEAM.
-      //
-      // This test pins TODAY'S behaviour rather than the intended one, deliberately: it is true,
-      // so it cannot pass vacuously, and it FAILS the moment someone lets a short amount through -
-      // at which point it must be replaced with a real underpayment test rather than deleted.
+      // This REPLACES the test that pinned the old refusal. That test said of itself: "it FAILS the
+      // moment someone lets a short amount through - at which point it must be replaced with a real
+      // underpayment test rather than deleted." This is that test.
       _addOneLine();
       await _pump(tester);
       final total = _cart.total;
@@ -142,18 +133,21 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(
         find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextField)).first,
-        (total - 1).toStringAsFixed(2),
+        (total - 70).toStringAsFixed(2),
       );
+      await tester.pumpAndSettle();
+
+      // The warning must name what is unpaid: it is the only thing between a mistyped amount and an
+      // unintended receivable.
+      expect(find.textContaining('will be left unpaid'), findsOneWidget);
+      expect(find.text('Amount is below the total'), findsNothing);
+
       await tester.tap(find.text('Complete sale'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Amount is below the total'), findsOneWidget);
-      expect(
-        find.text('Underpayment'),
-        findsNothing,
-        reason: 'unreachable while the validator refuses a short amount',
-      );
-      expect(_pos.calls, 0, reason: 'and the sale is not submitted either');
+      // The seam: the short amount got through, so section 4 opened instead of the sale posting.
+      expect(find.text('Underpayment'), findsOneWidget);
+      expect(_pos.calls, 0, reason: 'section 4 confirms BEFORE anything is submitted');
       expect(_cart.lines, hasLength(1), reason: 'the cart stays intact');
     },
   );

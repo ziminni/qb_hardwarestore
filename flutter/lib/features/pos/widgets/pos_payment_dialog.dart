@@ -76,17 +76,31 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                   decoration: const InputDecoration(
                     labelText: 'Amount received',
                   ),
+                  // #21 (2026-10-17): this validator used to reject any amount below the total,
+                  // which made `payment.amountPaid < transaction.total` in _pay unreachable - and
+                  // with it decision 06 section 4, Phase 4 T6's three-way walk-in flow, and the
+                  // server's WALK_IN_CANNOT_OWE guard. A short amount is a real transaction: it
+                  // records an utang. So the field accepts it and the WARNING below does the work
+                  // the error used to do, because a validator error would block the submission the
+                  // cashier actually intends.
                   validator: (value) {
-                    final number = double.tryParse(value ?? '');
-                    if (number == null) {
+                    if (double.tryParse(value ?? '') == null) {
                       return 'Enter a valid amount';
-                    }
-                    if (number < widget.total) {
-                      return 'Amount is below the total';
                     }
                     return null;
                   },
                 ),
+                if (paid < widget.total)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      '\u20b1${(widget.total - paid).toStringAsFixed(2)} will be left unpaid \u2014 this records an utang',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 14),
                 Text(
                   'Change: ₱${(paid - widget.total).clamp(0, double.infinity).toStringAsFixed(2)}',
