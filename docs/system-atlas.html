@@ -312,7 +312,7 @@ const MATRIX = [
   { f:'Sales dashboard (legacy)', ui:'dashboard/views/sales_dashboard.dart', vm:'dashboard_mock_data.dart', ep:'—', s:'dead', n:'Orphan — routes use sales_dashboard_page.dart.' },
   { f:'POS dashboard (legacy)', ui:'dashboard/views/pos_dashboard.dart', vm:'dashboard_mock_data.dart', ep:'—', s:'dead', n:'Orphan — routes use pos_transaction_page.dart.' },
   { f:'Requisition token flow', ui:'— no UI', vm:'—', ep:'/tokens/verify/ · /tokens/release/', s:'dead', n:'Full backend flow, zero client consumer.' },
-  { f:'Collectibles CRUD', ui:'— no UI', vm:'—', ep:'/ledgers/ · /ledger-payments/', s:'dead', n:'' },
+  { f:'Collectibles CRUD (writes)', ui:'— no UI', vm:'—', ep:'POST/PUT/DELETE ledgers/ · ledger-payments/', s:'dead', n:'The WRITE surface only: reading the ledger is live (see Receivables).' },
   { f:'Goods receipts', ui:'— no UI', vm:'—', ep:'/goods-receipts/', s:'dead', n:'' },
   { f:'Brands / UOMs / variant-UOMs', ui:'— no UI', vm:'—', ep:'/brands/ · /uoms/ · /variant-uoms/', s:'dead', n:'' },
   { f:'Payments / receipts', ui:'— no UI', vm:'—', ep:'/payments/ · /receipts/', s:'dead', n:'' },
