@@ -4,11 +4,9 @@ Entry point for everything not yet built. Read this first, then open the plan yo
 Roadmap and decisions live **here**; architecture lives in `docs/SYSTEM_ATLAS.md`; the endpoint
 contract lives in `ENDPOINTS.md`. None of those three duplicate each other.
 
-**State of the system:** the Django backend is feature-complete and **Phases 0-4 of the integration
-epic are done** — `auth`, `products`, `inventory`, `pos` and the receivables half of `sales` now
-render live API data, and Phase 5 is in progress. What is left is the admin/reports half of `sales`
-(Phase 6, still gated by an open decision) plus the requisition screens. Read
-`api-integration/MAP.md` for state; this file is the **index** and deliberately does not restate it.
+**State of the system:** owned by **`docs/SYSTEM_ATLAS.md`** (what is live vs mock) and the phase table
+in **`planning/api-integration/MAP.md`** (how far the epic has got). This file deliberately states
+neither — it is an index, and a second home for a fact is how the two drift.
 
 ## Active plan
 

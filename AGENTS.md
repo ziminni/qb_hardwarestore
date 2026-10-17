@@ -33,10 +33,9 @@ the same commit that breaks it.
   files, with only
   [Sales Stack Reconciliation](./planning/api-integration/decisions/05-sales-stack-reconciliation.md)
   open (Phase 6).
-- **Phases 0, 1, 2, 3 and 4 are COMPLETE.** Phase 4 (customer master data) shipped and was then
-  reviewed; every Important finding was fixed, including a real money bug — `POST /ledger-payments/`
-  never moved `balance_due` and accepted overpayment.
-- **Phase 5 is IN PROGRESS (1 of 4).**
+- **Phase state is NOT stated here** — it is owned by the phase table in the active map, per-row and with
+  evidence. Read that table; a copy here would be a second home, and this table's own rule forbids one.
+- **Phase 5, next step:**
   [Requisition UI Ownership](./planning/api-integration/decisions/09-requisition-ui-ownership.md)
   resolved 2026-10-17: POS builds the **downstream half** (approve · reject · verify token · release)
   and CPMS owns create and submit. Task 1, the transport, is built with **no create or submit
@@ -46,7 +45,7 @@ the same commit that breaks it.
 - **Last session:** `docs/sessions/2026-10-17-phase-5-and-coverage.md` — resolved decision 09, built
   Phase 5's transport, and paid down the Phase 4 test-coverage debt (flutter 235 → 291). **Verified
   fresh at `a9f74ec`:** backend **46/46 OK**, `manage.py check` clean, `flutter analyze` clean,
-  flutter **291/291**, tree CLEAN, Atlas **8 live · 3 partial · 18 mock · 8 dead (37 rows)**.
+  flutter **291/291**, tree CLEAN. The live/mock tally is owned by `docs/SYSTEM_ATLAS.md`.
 - **THE DECISION WAITING FOR A HUMAN:** `#21` — `PosPaymentDialog` refuses any amount below the
   total, so `_pay`'s underpayment branch can never run. Decision 06 §4's confirmation, the whole
   three-way walk-in flow built as Phase 4 T6, and the server's `WALK_IN_CANNOT_OWE` path from the
