@@ -83,6 +83,18 @@ class PosTransactionViewmodel extends ChangeNotifier {
   /// collectable.
   Customer? get selectedCustomer => _selectedCustomer;
 
+  /// Whether the sale being rung up is ANONYMOUS, by the SERVER's definition.
+  ///
+  /// The server refuses a shortfall when `customer.customer_type == WALK_IN`, so anonymity is
+  /// a property of the customer's TYPE, not of the selection being null. A `Customer` typed
+  /// walk-in is selected and still cannot owe - treating it as named let the underpayment
+  /// dialog promise a receivable the server then refused, which is the dead end task 6
+  /// removed.
+  ///
+  /// This lives on the viewmodel so the rule has ONE home and can be tested; the dialog's
+  /// copy and the picker's answer both read it rather than re-deriving it.
+  bool get isAnonymousSelection => _selectedCustomer?.isWalkIn ?? true;
+
   /// The live customer list the picker searches, loaded by [loadCustomers].
   List<Customer> get customers => List.unmodifiable(_customerList);
 

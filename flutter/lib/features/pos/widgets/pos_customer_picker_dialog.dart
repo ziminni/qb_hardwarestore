@@ -201,8 +201,13 @@ class _PosCustomerPickerDialogState extends State<PosCustomerPickerDialog> {
         Wrap(
           spacing: 8,
           children: [
+            // WALK_IN is NOT offered. The explicit "Walk-in (anonymous)" action already
+            // covers anonymity, and a NAMED record typed WALK_IN is refused by the server
+            // (WALK_IN_CANNOT_OWE) while `_visible` hides it from this very picker - so
+            // creating one produced a customer the cashier could never find again and a sale
+            // that 400s, which is the dead end task 6 exists to remove.
             for (final type in CustomerType.values)
-              if (type != CustomerType.unknown)
+              if (type != CustomerType.unknown && type != CustomerType.walkIn)
                 ChoiceChip(
                   label: Text(type.label),
                   selected: _type == type,

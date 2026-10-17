@@ -175,7 +175,10 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     transaction.selectCustomer(choice.customer);
     // Load the new account's balance, and clear it for an anonymous sale.
     await transaction.loadLedgerForSelection();
-    return choice.customer != null;
+    // A customer TYPED walk-in is anonymous as far as the server is concerned, so it cannot
+    // be a utang payer. Reporting "not named" here is what stops the dialog promising a
+    // receivable it will refuse.
+    return !transaction.isAnonymousSelection;
   }
 
   /// Opens the customer picker, loading the list first.
@@ -221,7 +224,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
           total: transaction.total,
           amountPaid: payment.amountPaid,
           customerName: transaction.customerLabel,
-          isAnonymous: transaction.selectedCustomer == null,
+          isAnonymous: transaction.isAnonymousSelection,
         ),
       );
       if (!context.mounted) return;
