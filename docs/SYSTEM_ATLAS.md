@@ -133,9 +133,9 @@ Legend: 🟢 Live (real API) · 🟡 Partial · 🔴 Mock (hardcoded) · ⚫ Dea
 | Inventory reports | `reports/views/inventory_reports_page.dart` | reads `inventory_viewmodel` (was recorded as local state — wrong) | `GET /api/v1/reports/*` | 🟡 Partial |
 | Admin users | `admin/views/admin_user_management_page.dart` | `admin/viewmodels/admin_mock_data.dart` | `GET /api/v1/users/` | 🔴 Mock |
 | Admin audit logs | `admin/views/audit_logs_page.dart` | `admin_mock_data.dart` | `GET /api/v1/audit-logs/` | 🔴 Mock |
-| Admin requisitions | `admin/views/requisitions_page.dart` | `admin_mock_data.dart` | `GET /api/v1/requisitions/` | 🔴 Mock |
+| Admin requisitions | `admin/views/requisitions_page.dart` | `admin_mock_data.dart` (screen) · `data/services/requisition_service.dart` (transport, **built Phase 5 T1**) | `GET /api/v1/requisitions/` | 🔴 Mock |
 | Admin reports | `admin/views/reports_page.dart` | `admin_mock_data.dart` | `GET /api/v1/reports/*` | 🔴 Mock |
-| Admin monitoring (sales/inventory) | `admin/views/{sales,inventory}_monitoring_page.dart` | `admin_mock_data.dart` | `GET /api/v1/reports/*` | 🔴 Mock |
+| Admin monitoring | `admin/views/{sales,inventory}_monitoring_page.dart` | `admin_mock_data.dart` | `GET /api/v1/reports/*` | 🔴 Mock |
 | Admin settings | `admin/views/settings_page.dart` | — (static) | — | 🔴 Mock |
 | Sales dashboard (legacy) | `dashboard/views/sales_dashboard.dart` | `dashboard_mock_data.dart` | — | ⚫ Orphaned |
 | POS dashboard (legacy) | `dashboard/views/pos_dashboard.dart` | `dashboard_mock_data.dart` | — | ⚫ Orphaned |
@@ -183,6 +183,7 @@ customers screen, which stays Mock.
 ---
 
 ## 4. Vibe-Debt Hotspots
+- **DEAD FEATURE: the whole underpayment flow (found 2026-10-17).** `PosPaymentDialog` refuses any amount below the total (`number < widget.total`), so `payment.amountPaid < transaction.total` in `_pay` can **never** be true. Decision 06 §4's confirmation step, the entire three-way walk-in flow built as Phase 4 T6, and the server's `WALK_IN_CANNOT_OWE` path from the till are all **unreachable**. It survived a whole phase because the dialog looks generous and `_pay` looks like it handles what the dialog prevents — both were reviewed, once by the author and once by a fresh-context reviewer, without either noticing. Nothing had tested the **seam between the two files**. Which is wrong is a product decision.
 
 ### Duplicate / overlapping files
 
@@ -245,7 +246,7 @@ screen exercises them, so they are read from source rather than observed through
 
 ## 5. Read-First Study Path
 
-Read in this order. Items 4–8 are the files **newly wired in Phases 0–3** — read 1–3 first for the layers they
+Read in this order. Items 4–10 are the files **newly wired in Phases 0–5** — read 1–3 first for the layers they
 sit on, then the new path top-down.
 
 | # | File | Read | Why it matters |
@@ -258,6 +259,8 @@ sit on, then the new path top-down.
 | 6 | `flutter/lib/data/services/products_service.dart` (~85 L) | whole file | **New (Phase 1).** The live fetch: both endpoints through `getList<T>`. Its test holds the decision-03 anti-regression — a body with no `results` list must **throw**, not return an empty catalogue. Worked example of the wired screen: `features/products/views/products_page.dart`. |
 | 7 | `flutter/lib/core/widgets/async_view.dart` (~95 L) | whole file | **New (Phase 0).** Owns loading/error/empty/data for every data screen (decision 07); the precedence is baked in so the builder never runs without data. |
 | 8 | `flutter/lib/data/services/pos_service.dart` (~250 L) **+** `backend_django/apps/pos/services.py:28` `process_sale` | the payload/result types, `checkout`, `fetchWalkInCustomerId`; then `process_sale` L28-111 | **New (Phase 3) — the money path, and the one contract spanning both sides.** The client half shows the rules the checkout obeys: `variant_id` is really a `VariantUom` id, no `cashier` key is sent because the server assigns it, `isInsufficientStock` reads the server's `code` and never the status, and the cart is cleared only on a 201. The server half is one `transaction.atomic()` doing FIFO deduction, payment allocation, OR generation and ledger posting. Now **observed live**, not just read: a real sale returned 201 with nested items/payments/receipt and moved stock 95.0 → 93.0, and a short sale returned 400 `INSUFFICIENT_STOCK` with stock unchanged. |
+| 9 | `flutter/lib/data/models/ledger_entry.dart` (~120 L) **+** `flutter/lib/data/services/ledger_service.dart` (~110 L) | `LedgerEntry.fromJson`, `paidAmount`, `statusAt`; then `fetchLedgers` | **New (Phase 4 T7).** The receivables screen's data. `paidAmount` is DERIVED (`original - balance`) — and the reason it survives is that the server now APPLIES payments; before this phase `POST /ledger-payments/` saved the payment and never moved `balance_due`, and the two tests that appeared to cover it did the subtraction **themselves**. `statusAt` treats overdue as winning if EITHER the server flag or the local clock says so, and compares at DAY granularity to match the server's `due_date < date.today()`. The service follows pagination: a screen that stops at the 50th debt hides money. |
+| 10 | `flutter/lib/data/services/requisition_service.dart` (~150 L) **+** `.../models/requisition.dart` (~200 L) | `approve`/`reject`/`verifyToken`/`release`, then the three wire shapes | **New (Phase 5 T1, decision 09).** Note what is ABSENT: no `createRequisition` and no `submit`. That is the decision made structural — a service without them cannot grow a button needing a Site Foreman, which is a CPMS identity that never logs into POS. Three DIFFERENT shapes (`Requisition`, `TokenVerification`, `ReleaseResult`) because the list row, the token check and the release result answer different questions. `token` is nullable because DRAFT/SUBMITTED rows have no token — verified live, and a regular DRF `Field` renders `None` where a `ReadOnlyField` **skips the key**. |
 
 ---
 
@@ -268,8 +271,8 @@ sit on, then the new path top-down.
 **Not verified:**
 - ✅ **Corrected 2026-10-16 — the old note here was wrong.** `flutter analyze` **is** clean on this branch, and
   `flutter/test/widget_test.dart` is **tracked**, not an untracked broken counter template: it is a real smoke
-  test that asserts an unauthenticated launch lands on `LoginPage`. The suite is **235 tests, 0 failures**
-  (was 146 after Phase 1; Phase 2 and Phase 3 added 31 and 15). The backend suite is **41 tests, OK** — worth
+  test that asserts an unauthenticated launch lands on `LoginPage`. The suite is **291 tests, 0 failures**
+  (was 146 after Phase 1; Phase 2 and Phase 3 added 31 and 15). The backend suite is **46 tests, OK** — worth
   stating because until Phase 3 `manage.py test` ran **zero** tests: `apps/` had no `__init__.py`, so discovery
   died with `TypeError: expected str, bytes or os.PathLike object, not NoneType`.
 - The backend apps were **not** re-scanned in this refresh (unchanged since Phase 2 apart from the POS endpoint
