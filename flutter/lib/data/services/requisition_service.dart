@@ -91,7 +91,7 @@ class RequisitionService {
   /// Verifies a token and returns what it is for. Moves NOTHING.
   Future<TokenVerification> verifyToken(String token) async {
     final body = await _post(verifyPath, {'token': token});
-    return TokenVerification.fromJson(body);
+    return _decode(TokenVerification.fromJson, body);
   }
 
   /// Releases the materials a token authorises.
@@ -101,7 +101,7 @@ class RequisitionService {
   /// used twice is refused rather than double-released.
   Future<ReleaseResult> release(String token) async {
     final body = await _post(releasePath, {'token': token});
-    return ReleaseResult.fromJson(body);
+    return _decode(ReleaseResult.fromJson, body);
   }
 
   /// POSTs [body] and returns the decoded object.
@@ -130,6 +130,21 @@ class RequisitionService {
     }
   }
 
+  /// Maps a decoded body, turning a DRIFTED shape into words a clerk can act on.
+  ///
+  /// The parsers used to run OUTSIDE the guarded conversion, so a 200 whose shape moved threw a bare
+  /// `FormatException`. `verify` swallowed it silently (no error, nothing on screen) and `release`
+  /// propagated it out of the button callback - leaving the one irreversible screen on its spinner.
+  T _decode<T>(T Function(Map<String, dynamic> json) parse, Map<String, dynamic> body) {
+    try {
+      return parse(body);
+    } on FormatException {
+      throw const RequisitionServiceException(
+        'The server sent an unexpected response. Try again.',
+      );
+    }
+  }
+
   String _messageFor(DioException error) {
     final detail = _serverDetail(error);
     if (detail != null) return detail;
@@ -146,7 +161,17 @@ class RequisitionService {
   /// The `detail` string a DRF error response carries, when it sent one.
   String? _serverDetail(DioException error) {
     final data = error.response?.data;
-    if (data is Map && data['detail'] is String) return data['detail'] as String;
+    if (data is! Map) return null;
+    if (data['detail'] is String) return data['detail'] as String;
+    // A DRF FIELD error carries no `detail` at all: a non-UUID token comes back as
+    // {'token': ['Enter a valid UUID.']}, so returning null here told a clerk who mistyped a token
+    // that the REQUISITIONS had failed to load. The first field message is far closer to the truth.
+    for (final value in data.values) {
+      if (value is List && value.isNotEmpty && value.first is String) {
+        return value.first as String;
+      }
+      if (value is String) return value;
+    }
     return null;
   }
 }

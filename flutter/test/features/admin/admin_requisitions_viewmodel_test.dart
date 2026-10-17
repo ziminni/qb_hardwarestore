@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:client/data/models/requisition.dart';
 import 'package:client/data/repositories/requisition_repository.dart';
 import 'package:client/data/services/requisition_service.dart';
@@ -16,6 +18,7 @@ class _StubRequisitions extends RequisitionRepository {
   final List<Requisition> rows;
   int fetchCalls = 0;
   final List<int> approved = [];
+  Completer<void>? hold;
   final List<int> rejected = [];
   Object? failFetch;
   Object? failApprove;
@@ -29,6 +32,7 @@ class _StubRequisitions extends RequisitionRepository {
 
   @override
   Future<String> approve(int requisitionId) async {
+    if (hold != null) await hold!.future;
     if (failApprove != null) throw failApprove!;
     approved.add(requisitionId);
     return 'token-$requisitionId';
@@ -182,5 +186,22 @@ void main() {
         expect(repo.approved, isEmpty);
       },
     );
+
+    test('a SECOND press while the first is in flight sends NOTHING', () async {
+      // Review finding: the page never disabled the buttons, and _act re-read the still-SUBMITTED row
+      // because the replacement only happens after the await - so both presses reached the server.
+      // The real server 400s the second, and the manager saw a refusal for an action that SUCCEEDED.
+      final repo = _StubRequisitions([_req(1, 'SUBMITTED')]);
+      final vm = AdminRequisitionsViewmodel(repository: repo);
+      await vm.load();
+      repo.hold = Completer<void>();
+
+      final first = vm.approve(1);
+      final second = vm.approve(1);
+      repo.hold!.complete();
+      await Future.wait([first, second]);
+
+      expect(repo.approved, [1], reason: 'the second press must send nothing');
+    });
   });
 }

@@ -78,6 +78,11 @@ class AdminRequisitionsViewmodel extends ChangeNotifier {
     Future<void> Function(int id) call,
     RequisitionStatus result,
   ) async {
+    // A second press while the first is in flight must send NOTHING. Without this the row is still
+    // SUBMITTED (the replacement only happens after the await), so both presses reached the server;
+    // the real one 400s the second, and the manager saw a refusal for an action that SUCCEEDED.
+    if (isLoading) return false;
+
     final row = _rowFor(requisitionId);
     if (row == null || !row.status.isAwaitingApproval) return false;
 
