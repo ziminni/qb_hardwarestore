@@ -60,7 +60,9 @@ void main() {
     return answer;
   }
 
-  testWidgets('states the total, what was paid, and the shortfall', (tester) async {
+  testWidgets('states the total, what was paid, and the shortfall', (
+    tester,
+  ) async {
     await show(tester, isAnonymous: false);
 
     expect(find.text('Total'), findsOneWidget);
@@ -77,8 +79,13 @@ void main() {
       expect(find.text('Record the utang'), findsOneWidget);
       expect(find.text('Go back'), findsOneWidget);
       expect(find.textContaining('Maria Santos'), findsOneWidget);
-      expect(find.text('This records a receivable against the customer. Nothing has been '
-          'submitted yet.'), findsOneWidget);
+      expect(
+        find.text(
+          'This records a receivable against the customer. Nothing has been '
+          'submitted yet.',
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('"Record the utang" answers recordUtang', (tester) async {
@@ -90,12 +97,10 @@ void main() {
       expect(answer, PosUnderpaymentChoice.recordUtang);
     });
 
-    testWidgets('"Go back" answers NOTHING, so nothing is submitted', (tester) async {
-      final answer = await show(
-        tester,
-        isAnonymous: false,
-        tap: 'Go back',
-      );
+    testWidgets('"Go back" answers NOTHING, so nothing is submitted', (
+      tester,
+    ) async {
+      final answer = await show(tester, isAnonymous: false, tap: 'Go back');
       expect(
         answer,
         isNull,
@@ -105,13 +110,20 @@ void main() {
   });
 
   group('an ANONYMOUS sale cannot owe, so it is offered a way out', () {
-    testWidgets('says the sale has no customer to owe the shortfall', (tester) async {
-      await show(tester, isAnonymous: true, customerName: 'Walk-in Customer (anonymous)');
+    testWidgets('says the sale has no customer to owe the shortfall', (
+      tester,
+    ) async {
+      await show(
+        tester,
+        isAnonymous: true,
+        customerName: 'Walk-in Customer (anonymous)',
+      );
 
       expect(
         find.textContaining('cannot go into utang'),
         findsOneWidget,
-        reason: 'the cashier must know WHY, not just that the button is missing',
+        reason:
+            'the cashier must know WHY, not just that the button is missing',
       );
       // It must NOT promise a receivable, because none would be created.
       expect(
@@ -122,7 +134,11 @@ void main() {
     });
 
     testWidgets('offers both routes', (tester) async {
-      await show(tester, isAnonymous: true, customerName: 'Walk-in Customer (anonymous)');
+      await show(
+        tester,
+        isAnonymous: true,
+        customerName: 'Walk-in Customer (anonymous)',
+      );
 
       expect(find.text('Collect the full amount'), findsOneWidget);
       expect(find.text('Record a customer for this utang'), findsOneWidget);
@@ -133,7 +149,9 @@ void main() {
       );
     });
 
-    testWidgets('"Collect the full amount" answers collectFull', (tester) async {
+    testWidgets('"Collect the full amount" answers collectFull', (
+      tester,
+    ) async {
       final answer = await show(
         tester,
         isAnonymous: true,
@@ -143,7 +161,9 @@ void main() {
       expect(answer, PosUnderpaymentChoice.collectFull);
     });
 
-    testWidgets('"Record a customer for this utang" answers nameCustomer', (tester) async {
+    testWidgets('"Record a customer for this utang" answers nameCustomer', (
+      tester,
+    ) async {
       final answer = await show(
         tester,
         isAnonymous: true,

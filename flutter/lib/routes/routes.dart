@@ -14,7 +14,6 @@ import 'package:client/features/dashboard/views/admin_dashboard.dart';
 import 'package:client/features/dashboard/views/inventory_dashboard.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
 import 'package:client/features/sales/views/sales_dashboard_page.dart';
-import 'package:client/features/sales/views/sales_customers_page.dart';
 import 'package:client/features/sales/views/sales_orders_page.dart';
 import 'package:client/features/sales/views/sales_quotations_page.dart';
 import 'package:client/features/sales/views/sales_receivables_page.dart';
@@ -321,12 +320,6 @@ class AppRoutes {
           name: 'sales_orders',
           pageBuilder: (context, state) =>
               _transitionPage(state, const SalesOrdersPage()),
-        ),
-        GoRoute(
-          path: salesCustomers,
-          name: 'sales_customers',
-          pageBuilder: (context, state) =>
-              _transitionPage(state, const SalesCustomersPage()),
         ),
         GoRoute(
           path: salesReceivables,

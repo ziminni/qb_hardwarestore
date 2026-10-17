@@ -53,7 +53,7 @@ class _InventoryReturnsPageState extends State<InventoryReturnsPage> {
     return InventorySkeletonLayout(
       title: 'Returns',
       subtitle: 'Track customer and supplier returns affecting inventory.',
-      selectedNavigationIndex: 9,
+      selectedNavigationIndex: 8,
       onNavigationSelected: (index) => navigateInventory(context, index),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

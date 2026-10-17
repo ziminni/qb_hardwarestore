@@ -127,8 +127,7 @@ Legend: 🟢 Live (real API) · 🟡 Partial · 🔴 Mock (hardcoded) · ⚫ Dea
 | Sales reports | `sales/views/sales_reports_page.dart` | `inventory_sales_viewmodel` | `GET /api/v1/reports/sales-summary/` | 🔴 Mock |
 | Quotations | `sales/views/sales_quotations_page.dart` | `sales/viewmodels/sales_module_viewmodel.dart` | — (no backend model) | 🔴 Mock |
 | Sales orders | `sales/views/sales_orders_page.dart` | `sales_module_viewmodel` | — (no backend model) | 🔴 Mock |
-| Sales customers | `sales/views/sales_customers_page.dart` | `sales_module_viewmodel` | `GET /api/v1/customers/` (also called by the POS, not by this screen) | 🔴 Mock |
-| Receivables / utang | `sales/views/sales_receivables_page.dart` | `sales_module_viewmodel` | `GET /api/v1/ledgers/` | 🔴 Mock |
+| Receivables / utang | `sales/views/sales_receivables_page.dart` | `sales/viewmodels/sales_receivables_viewmodel.dart` | `GET /api/v1/ledgers/` | 🟢 Live |
 | Inventory sales | `sales/views/inventory_sales_page.dart` | `inventory_sales_viewmodel` | `GET /api/v1/transactions/` | 🔴 Mock |
 | Inventory returns | `sales/views/inventory_returns_page.dart` | `inventory_sales_viewmodel` | — | 🔴 Mock |
 | Inventory reports | `reports/views/inventory_reports_page.dart` | reads `inventory_viewmodel` (was recorded as local state — wrong) | `GET /api/v1/reports/*` | 🟡 Partial |
@@ -147,7 +146,7 @@ Legend: 🟢 Live (real API) · 🟡 Partial · 🔴 Mock (hardcoded) · ⚫ Dea
 | Payments / receipts | **no UI** | — | `/payments/` `/receipts/` | ⚫ Dead |
 | Project entity | **no UI** | — | `/projects/` | ⚫ Dead |
 
-**Score: 7 live · 3 partial · 20 mock · 8 dead (38 rows).** Was 6 · 4 · 20 · 8 before Phase 3, and 3 · 0 · 27 · 8 before Phase 1.
+**Score: 8 live · 3 partial · 18 mock · 8 dead (37 rows).** Was 7 · 3 · 20 · 8 before Phase 4 task 7, and 6 · 4 · 20 · 8 before Phase 3.
 
 Grading rule, so these are not vibes: 🟢 Live = the screen's *primary* data comes from an API response;
 🟡 Partial = some of what it renders is live and the row's Notes say which; ⚫ Dead = never called.
@@ -269,7 +268,7 @@ sit on, then the new path top-down.
 **Not verified:**
 - ✅ **Corrected 2026-10-16 — the old note here was wrong.** `flutter analyze` **is** clean on this branch, and
   `flutter/test/widget_test.dart` is **tracked**, not an untracked broken counter template: it is a real smoke
-  test that asserts an unauthenticated launch lands on `LoginPage`. The suite is **192 tests, 0 failures**
+  test that asserts an unauthenticated launch lands on `LoginPage`. The suite is **229 tests, 0 failures**
   (was 146 after Phase 1; Phase 2 and Phase 3 added 31 and 15). The backend suite is **33 tests, OK** — worth
   stating because until Phase 3 `manage.py test` ran **zero** tests: `apps/` had no `__init__.py`, so discovery
   died with `TypeError: expected str, bytes or os.PathLike object, not NoneType`.

@@ -15,7 +15,7 @@ class SalesReturnsPage extends StatelessWidget {
     return SalesSkeletonLayout(
       title: 'Returns & Refunds',
       subtitle: 'Review customer returns, replacements, and refund outcomes.',
-      selectedNavigationIndex: 6,
+      selectedNavigationIndex: 5,
       onNavigationSelected: (index) => navigateSales(context, index),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

@@ -53,10 +53,6 @@ class SalesSkeletonLayout extends StatelessWidget {
       label: 'Customers',
       destinations: [
         SharedSidebarDestination(
-          label: 'Customers',
-          icon: Icons.people_outline,
-        ),
-        SharedSidebarDestination(
           label: 'Receivables',
           icon: Icons.account_balance_wallet_outlined,
         ),

@@ -27,7 +27,7 @@ class SalesReportsPage extends StatelessWidget {
       title: 'Sales Reports',
       subtitle:
           'Analyze revenue, transactions, products, and payment activity.',
-      selectedNavigationIndex: 7,
+      selectedNavigationIndex: 6,
       onNavigationSelected: (index) => navigateSales(context, index),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

@@ -8,7 +8,6 @@ void navigateSales(BuildContext context, int index) {
     AppRoutes.salesTransactions,
     AppRoutes.salesQuotations,
     AppRoutes.salesOrders,
-    AppRoutes.salesCustomers,
     AppRoutes.salesReceivables,
     AppRoutes.salesReturns,
     AppRoutes.salesReports,
