@@ -121,3 +121,34 @@ testable with no creation UI and no CPMS involvement.
 - The payment-posting UI for receivables. `POST /ledger-payments/` was fixed on 2026-10-17 so it finally moves
   `balance_due` and refuses overpayment, which makes such a screen viable for the first time — but it is a
   collectibles question, not a requisition one, and it stays in the Fog of War.
+
+
+---
+
+## Amendment — 2026-10-17: the queue needs a field the list endpoint did not return
+
+Resolving this decision required the approve queue to show **the project's customer**, but the queue's
+only data source, `GET /api/v1/requisitions/`, carried `project_name` and `requested_by_name` and **no
+customer at all**. The requirement and the contract disagreed, and nothing had noticed because decision
+09 was written from the domain, not from the serializer.
+
+**Ruling (user, 2026-10-17): add a read-only representation field.**
+
+- `RequisitionSerializer.project_customer_name = CharField(source='project.customer.name', read_only=True)`.
+- This adds **no endpoint** and touches **no model or migration**, so the map's binding backend
+  invariant — *no new endpoints, no model or migration changes* — still holds exactly. It is a
+  representation change, which is the one kind of backend edit the invariant permits.
+- Pinned by `apps.requisitions.tests.RequisitionProvenanceTests`, which asserts all **four**
+  provenance facts together (`req_number`, `project_name`, `requested_by_name`,
+  `project_customer_name`) because the row is only useful if the set is complete. It went RED with
+  `KeyError: 'project_customer_name'` while the first three asserts passed — evidence the test is
+  not vacuous.
+
+**The rejected alternatives, and why**, because both will be proposed again:
+
+- *Show the customer only at release time* would have required amending this decision's own
+  provenance rule, and it re-creates the anonymous-looking approval the rule exists to prevent: a
+  Store Manager would approve without seeing who the requisition is for.
+- *Client-side N+1 fetches* needs a `GET /api/v1/projects/` dependency and can render a row
+  half-loaded — a project with a blank customer on a partial failure, which reads as "no customer"
+  rather than "not loaded".

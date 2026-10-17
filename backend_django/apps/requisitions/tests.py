@@ -14,6 +14,7 @@ from apps.inventory.services import process_goods_receipt
 from apps.pos.models import Customer, SalesTransaction
 
 from .models import MaterialToken, Project, Requisition, RequisitionItem
+from .serializers import RequisitionSerializer
 from .services import (
     approve_requisition, reject_requisition, release_materials,
     submit_requisition, verify_token,
@@ -126,3 +127,16 @@ class RequisitionFlowTests(RequisitionTestBase):
         with self.assertRaises(ValueError):
             verify_token(token_value='not-a-uuid')
 
+
+
+class RequisitionProvenanceTests(RequisitionTestBase):
+    """Decision 09 requires the approve queue to show where a requisition came
+    from. The list endpoint is the queue's only data source, so these fields are
+    the contract it depends on - pinned here rather than discovered in the UI."""
+
+    def test_serializer_carries_all_four_provenance_facts(self):
+        data = RequisitionSerializer(self.requisition).data
+        self.assertEqual(data['req_number'], self.requisition.req_number)
+        self.assertEqual(data['project_name'], 'House Build')
+        self.assertEqual(data['requested_by_name'], self.foreman.full_name)
+        self.assertEqual(data['project_customer_name'], 'Builder Corp')

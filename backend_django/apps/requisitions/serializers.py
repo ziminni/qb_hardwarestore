@@ -40,12 +40,17 @@ class RequisitionSerializer(serializers.ModelSerializer):
     requested_by_name = serializers.CharField(
         source='requested_by.full_name', read_only=True)
     project_name = serializers.CharField(source='project.name', read_only=True)
+    # Decision 09: the approve queue must show WHERE a requisition came from, and the
+    # list endpoint is that queue's only data source. A read-only representation field
+    # adds no endpoint and touches no model, so the map's backend invariant holds.
+    project_customer_name = serializers.CharField(
+        source='project.customer.name', read_only=True)
     token = serializers.UUIDField(source='token.token', read_only=True)
 
     class Meta:
         model = Requisition
         fields = [
-            'id', 'project', 'project_name', 'req_number',
+            'id', 'project', 'project_name', 'project_customer_name', 'req_number',
             'requested_by', 'requested_by_name',
             'approved_by', 'status', 'notes',
             'items', 'token', 'created_at', 'updated_at',
