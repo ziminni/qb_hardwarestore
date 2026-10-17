@@ -17,12 +17,20 @@ import 'package:provider/provider.dart';
 /// holds, and its three states (loading, failed, empty) are deliberately distinct - a failed
 /// load must not look like a store that is owed nothing.
 class SalesReceivablesPage extends StatelessWidget {
-  const SalesReceivablesPage({super.key});
+  const SalesReceivablesPage({super.key, this.viewmodel});
+
+  /// Injected by tests so a state can be rendered WITHOUT a server.
+  ///
+  /// The page otherwise builds its own viewmodel, which means a widget test cannot put it into a
+  /// failed-load state at all - and the failed-load rule (an em dash rather than P0.00, because a
+  /// number beside an error banner states "this store is owed nothing") was verified only by
+  /// reading. Same shape as the repository injection this codebase already uses in four places.
+  final SalesReceivablesViewmodel? viewmodel;
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => SalesReceivablesViewmodel()..load(),
+      create: (_) => (viewmodel ?? SalesReceivablesViewmodel())..load(),
       child: const _ReceivablesView(),
     );
   }
