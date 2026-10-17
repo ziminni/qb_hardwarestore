@@ -139,7 +139,7 @@ Legend: 🟢 Live (real API) · 🟡 Partial · 🔴 Mock (hardcoded) · ⚫ Dea
 | Admin settings | `admin/views/settings_page.dart` | — (static) | — | 🔴 Mock |
 | Sales dashboard (legacy) | `dashboard/views/sales_dashboard.dart` | `dashboard_mock_data.dart` | — | ⚫ Orphaned |
 | POS dashboard (legacy) | `dashboard/views/pos_dashboard.dart` | `dashboard_mock_data.dart` | — | ⚫ Orphaned |
-| Requisition token flow | **no UI** | — | `/tokens/verify/` `/tokens/release/` | ⚫ Dead |
+| Requisition token flow | **no UI** (the viewmodel exists; the screen does not) | `pos/viewmodels/material_release_viewmodel.dart` | `/tokens/verify/` `/tokens/release/` | ⚫ Dead |
 | Collectibles CRUD (writes) | — (no client screen) | — | `POST/PUT/DELETE ledgers/`, `ledger-payments/` | ⚫ Dead |
 | Goods receipts | **no UI** | — | `/goods-receipts/` | ⚫ Dead |
 | Brands / UOMs / variant-UOMs | **no UI** | — | `/brands/` `/uoms/` `/variant-uoms/` | ⚫ Dead |
