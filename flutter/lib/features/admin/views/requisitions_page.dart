@@ -68,7 +68,10 @@ class _RequisitionsPageState extends State<RequisitionsPage> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(error, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          Text(
+            error,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
           const SizedBox(height: 12),
           OutlinedButton(onPressed: viewmodel.load, child: const Text('Retry')),
         ],
@@ -85,7 +88,10 @@ class _RequisitionsPageState extends State<RequisitionsPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (actionError != null) ...[
-          Text(actionError, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          Text(
+            actionError,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
           const SizedBox(height: 12),
         ],
         for (final row in rows)
@@ -125,7 +131,10 @@ class _RequisitionRow extends StatelessWidget {
           children: [
             Row(
               children: [
-                Text(row.reqNumber, style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text(
+                  row.reqNumber,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(width: 12),
                 Chip(label: Text(row.status.label)),
               ],
@@ -142,9 +151,15 @@ class _RequisitionRow extends StatelessWidget {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  FilledButton(onPressed: onApprove, child: const Text('Approve')),
+                  FilledButton(
+                    onPressed: onApprove,
+                    child: const Text('Approve'),
+                  ),
                   const SizedBox(width: 8),
-                  OutlinedButton(onPressed: onReject, child: const Text('Reject')),
+                  OutlinedButton(
+                    onPressed: onReject,
+                    child: const Text('Reject'),
+                  ),
                 ],
               ),
             ],

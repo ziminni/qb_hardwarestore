@@ -24,7 +24,11 @@ class _StubRequisitions extends RequisitionRepository {
 
   @override
   Future<List<Requisition>> fetchRequisitions() async {
-    if (failFetch) throw RequisitionServiceException('The requisitions could not be loaded.');
+    if (failFetch) {
+      throw RequisitionServiceException(
+        'The requisitions could not be loaded.',
+      );
+    }
     return rows;
   }
 
@@ -64,7 +68,9 @@ Future<void> _pump(WidgetTester tester, AdminRequisitionsViewmodel vm) async {
 
 void main() {
   group('RequisitionsPage', () {
-    testWidgets('shows all four provenance facts decision 09 requires', (tester) async {
+    testWidgets('shows all four provenance facts decision 09 requires', (
+      tester,
+    ) async {
       final vm = AdminRequisitionsViewmodel(
         repository: _StubRequisitions([_req(1, 'SUBMITTED')]),
       );
@@ -77,7 +83,9 @@ void main() {
       expect(find.textContaining('Fore Man'), findsWidgets);
     });
 
-    testWidgets('offers Approve on a SUBMITTED row and NOT on a DRAFT row', (tester) async {
+    testWidgets('offers Approve on a SUBMITTED row and NOT on a DRAFT row', (
+      tester,
+    ) async {
       final vm = AdminRequisitionsViewmodel(
         repository: _StubRequisitions([_req(1, 'SUBMITTED'), _req(2, 'DRAFT')]),
       );
@@ -85,22 +93,31 @@ void main() {
       await _pump(tester, vm);
 
       expect(find.widgetWithText(FilledButton, 'Approve'), findsOneWidget);
-      expect(find.text('REQ-0002'), findsOneWidget, reason: 'the DRAFT row is still listed');
+      expect(
+        find.text('REQ-0002'),
+        findsOneWidget,
+        reason: 'the DRAFT row is still listed',
+      );
     });
 
-    testWidgets('pressing Approve reaches the repository and the row leaves the queue', (tester) async {
-      final repo = _StubRequisitions([_req(1, 'SUBMITTED')]);
-      final vm = AdminRequisitionsViewmodel(repository: repo);
+    testWidgets(
+      'pressing Approve reaches the repository and the row leaves the queue',
+      (tester) async {
+        final repo = _StubRequisitions([_req(1, 'SUBMITTED')]);
+        final vm = AdminRequisitionsViewmodel(repository: repo);
 
-      await _pump(tester, vm);
-      await tester.tap(find.widgetWithText(FilledButton, 'Approve'));
-      await tester.pumpAndSettle();
+        await _pump(tester, vm);
+        await tester.tap(find.widgetWithText(FilledButton, 'Approve'));
+        await tester.pumpAndSettle();
 
-      expect(repo.approved, [1]);
-      expect(find.widgetWithText(FilledButton, 'Approve'), findsNothing);
-    });
+        expect(repo.approved, [1]);
+        expect(find.widgetWithText(FilledButton, 'Approve'), findsNothing);
+      },
+    );
 
-    testWidgets('a failed load says so instead of showing an empty queue', (tester) async {
+    testWidgets('a failed load says so instead of showing an empty queue', (
+      tester,
+    ) async {
       // "Nothing awaiting approval" and "we could not read the list" must not look the same.
       final repo = _StubRequisitions(const []);
       repo.failFetch = true;
