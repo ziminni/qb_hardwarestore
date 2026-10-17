@@ -146,7 +146,7 @@ Legend: 🟢 Live (real API) · 🟡 Partial · 🔴 Mock (hardcoded) · ⚫ Dea
 | Payments / receipts | **no UI** | — | `/payments/` `/receipts/` | ⚫ Dead |
 | Project entity | **no UI** | — | `/projects/` | ⚫ Dead |
 
-**Score: 8 live · 3 partial · 18 mock · 8 dead (37 rows).** Was 8 · 3 · 18 · 8 before the phase 4 review. Was 7 · 3 · 20 · 8 before Phase 4 task 7, and 6 · 4 · 20 · 8 before Phase 3.
+**Score: 8 live · 3 partial · 18 mock · 8 dead (37 rows).** Was 7 · 3 · 20 · 8 before Phase 4 task 7, and 6 · 4 · 20 · 8 before Phase 3.
 
 Grading rule, so these are not vibes: 🟢 Live = the screen's *primary* data comes from an API response;
 🟡 Partial = some of what it renders is live and the row's Notes say which; ⚫ Dead = never called.
