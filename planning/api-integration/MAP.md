@@ -1,7 +1,7 @@
 # planning/api-integration/MAP.md
 
 **Slug:** `api-integration` · **Opened:** 2026-10-15
-**Status:** 12 locked · 2 open. **Phases 0, 1, 2 and 3 are COMPLETE, and Phase 4 is unlocked.** Phase 0's 7 rows
+**Status:** 13 locked · 1 open. **Phases 0, 1, 2, 3 and 4 are COMPLETE and reviewed; Phase 5 is unlocked** by [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md), resolved 2026-10-17. Phase 0's 7 rows
 are built and were verified row-by-row against the code (the "Phase 0 — status" table below is the authority; it
 has been wrong twice in opposite directions, so it is stated with per-row evidence); Phase 1's products catalogue
 renders live API data (commits `6070442`…`557dfd3`); Phase 2 made the server the authority for inventory state
@@ -119,6 +119,7 @@ Rules every session on this map must respect. Facts that already have a home are
 - [Inventory Data Authority for Phase 2](./decisions/13-inventory-data-authority.md): the **server is the single authority** for inventory state — the low-stock screen reads `GET /api/v1/alerts/` and the movements screen reads `GET /api/v1/adjustments/` (with adjustments POSTed, not invented locally). The client's `_movements` log is deleted, and the derived status column is aligned to the server's exact predicate (`<` with a `threshold > 0` guard) so the list and the alert screen cannot contradict each other. Requires **one backend change: `seed_demo` demo data** (2 below-threshold variants, ~5 adjustments), because both endpoints are empty and no seed command writes a `SystemAlert`. Built in `938547e`…`794e83a`.
 - [POS Checkout Client Contract](./decisions/06-checkout-client-contract.md): the POST response **is** the finished transaction (nested items, payments and receipt), so the receipt screen needs no second fetch; the cart is keyed by the **real `VariantUom.id`** (`variant_id` in the payload is a misnomer, and the cart's synthesized `variant.id * 100 + index` would target the wrong unit); a walk-in sale still **sends the Walk-in Customer's id**, because the FK is not nullable; the cart is cleared **only** on a 201; insufficient stock becomes a **400 with a stable `INSUFFICIENT_STOCK` code** rather than today's 500 (one backend change, approved); and an underpaid sale stops at a **confirmation step** before submitting, since creating a debt is consequential and the receipt prints after the fact. **Built** in `102c121`…`1415664`; verified live against the running server.
 - [Customer Master-Data Scope (POS side)](./decisions/14-customer-master-data-scope.md): the POS **selects AND creates** customers mid-sale on a **minimal record (name + type)** — no backend permission change is needed, because `CustomerViewSet` inherits `IsPOSOrReadOnly`, so a Cashier may already POST. **A walk-in is not a customer record**: anonymous sales reuse the seeded `Walk-in Customer` and **cannot go into utang**, because an anonymous walker is not collectable — the live database already carries **₱4,900 booked against Walk-in**, which is that old behaviour's consequence. If a walker wants to owe, the cashier names them on the spot. Utang (balance, aging, a **credit-limit warning that is advisory, never a hard block**) is shown in a **customer detail panel at the till**. `sales_customers_page.dart` is **deleted** and `sales_receivables_page.dart` **wired** to `/ledgers/`. Requires fixing **three real backend defects** — `Customer` has no `full_name` (one wrong assumption copied from `User`), which **500s `/ledgers/aging/`** and silently returns `customer_name: null` on every ledger row.
+- [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md): POS builds the DOWNSTREAM half — approve, reject, verify token, release materials; CPMS owns create and submit. A release is a SALE (`source=REQUISITION`, FIFO stock), and every approve/verify surface must show where the requisition came from, since POS did not originate it.
 
 ## Phase order (locked 2026-10-15 — from [First Vertical Slice & Ordering Lens](./decisions/01-first-vertical-slice.md))
 
@@ -134,7 +135,7 @@ phase table and tracked in neither the frontier nor the fog.
 | 2 | Inventory: stock list, low stock, movements | ✅ **done** | [Inventory Data Authority for Phase 2](./decisions/13-inventory-data-authority.md) — locked; built in `938547e`…`794e83a` |
 | 3 | POS checkout + receipt (the money path) | ✅ **done** | [POS Checkout Client Contract](./decisions/06-checkout-client-contract.md) — resolved 2026-10-16; built in `102c121`…`1415664` |
 | 4 | Customers master data (the `Customer` hub) | ✅ **done** (8 of 8 tasks) | [Customer Master-Data Scope (POS side)](./decisions/14-customer-master-data-scope.md) — **decision** resolved 2026-10-16; Task 1 (the three `full_name` defects) built in `df908a9` |
-| 5 | Requisitions + material-token release | ❓ **gated** | [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md) — open |
+| 5 | Requisitions + material-token release | 🔨 **ready to build** (decision resolved) | [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md) — open |
 | 6 | Admin, reports, sales | ❓ **gated** | [Sales Stack Reconciliation](./decisions/05-sales-stack-reconciliation.md) — open |
 
 **Phases 0, 1 and 2 are complete.** Phase 2 was built in `938547e`…`794e83a` and finished with the live
@@ -155,7 +156,6 @@ Ordered by the locked phase order: define the entity, then the transport, then t
 per session. Phases 0-3 have their tickets and **Phase 4's is now resolved too**; the two items below gate
 Phases 5 and 6.
 
-- [ ] [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md) — grill · Phase 5
 - [ ] [Sales Stack Reconciliation](./decisions/05-sales-stack-reconciliation.md) — domain-model · Phase 6
 
 ## Blocked
@@ -168,7 +168,7 @@ when the slice order locked and is now simply sequenced at Phase 6.
 In scope, but not sharp enough to state until the frontier advances.
 
 - Goods receipt / receiving UI — Phase 2 is read-only stock; receiving is only required if the demo must create stock without `seed_demo`.
-- **Collectibles / utang screens** — **partly graduated on 2026-10-16**: [Customer Master-Data Scope (POS side)](./decisions/14-customer-master-data-scope.md) put the balance/aging panel at the till and wired the receivables screen. What remains in the fog is the **aging report as a screen of its own** and the overdue **payment-posting** flow (`POST /ledger-payments/`, Admin-only writes).
+- **Collectibles / utang screens** — **partly graduated on 2026-10-16**: [Customer Master-Data Scope (POS side)](./decisions/14-customer-master-data-scope.md) put the balance/aging panel at the till and wired the receivables screen. What remains in the fog is the **aging report as a screen of its own** and the **payment-posting UI**. The latter got SHARPER on 2026-10-17: `POST /ledger-payments/` was fixed to finally move `balance_due` and refuse overpayment (it had never done either), so a posting screen is viable for the first time — the receivables screen's button is still disabled because the WRITE is Admin-only, not because the endpoint is broken.
 - **Customer master-data screens graduated to the Active Frontier on 2026-10-16** as [Customer Master-Data Scope (POS side)](./decisions/14-customer-master-data-scope.md), once resolving [POS Checkout Client Contract](./decisions/06-checkout-client-contract.md) proved checkout cannot run without a customer.
 - Reports: three screens (`reports/views/inventory_reports_page.dart`, `sales/views/sales_reports_page.dart`, `admin/views/reports_page.dart`) over one backend surface; consolidation and wiring are entangled.
 - Product image handling — `image_url` is in the serializer, but whether the demo renders images at all is unspecified.

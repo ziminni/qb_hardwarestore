@@ -1,6 +1,6 @@
 # Requisition UI Ownership (POS side vs CPMS side)
 
-**Mode:** grill · **Status:** OPEN · **Opened:** 2026-10-16
+**Mode:** grill · **Status:** ✅ RESOLVED 2026-10-17
 **Phase:** 5 — born from [Role to Dashboard Routing for All Six Roles](./04-role-dashboard-routing.md).
 
 ## The question
@@ -25,9 +25,6 @@ different roles:
 
 Only creation and submission need a Site Foreman — a role that will not log into POS. Everything else is
 Store Manager or Cashier work, which are genuine POS roles.
-
-Building creation UI in POS would therefore duplicate work that belongs to CPMS, and would need a role that POS
-will not have. Conversely, skipping approval would break the flow, because POS is where the token gets minted.
 
 ## Options
 
@@ -65,4 +62,62 @@ This also shrinks Phase 5 from "build the requisition module" to "build two scre
 
 ## Resolution
 
-_Unresolved — Phase 5._
+**Option B — POS builds the DOWNSTREAM half. Locked 2026-10-17.**
+
+POS owns **approve · reject · verify token · release materials**. CPMS owns **create · submit**. No requisition
+creation UI is built in POS, and no CPMS identity logs into POS.
+
+### The contract, verified against the code rather than the table above
+
+Read from `backend_django/apps/requisitions/{models,services,urls}.py` on 2026-10-17:
+
+- **State machine.** `DRAFT → SUBMITTED → APPROVED → RELEASED`, with `REJECTED` as a branch off SUBMITTED/APPROVED.
+  Every transition is guarded in `services.py` and raises `ValueError` on an illegal move, so the UI must not
+  offer an action the current status forbids — the server will refuse it and the refusal is not distinguishable
+  from a bug to a counter clerk.
+- **Approve MINTS the token.** `approve_requisition` sets APPROVED, writes `approved_by`/`approved_at`, and
+  creates the `MaterialToken` inside one `transaction.atomic()`. A token is `OneToOneField` to its requisition:
+  **one token per requisition**, generated exactly once.
+- **The token is single-use.** `MaterialToken.is_used` / `used_at` / `used_by`; `verify_token` refuses a used
+  token (`'Token has already been used.'`) and refuses one whose requisition is not APPROVED.
+- **Release is a SALE, not a stock adjustment.** `release_materials` FIFO-deducts stock through the SAME
+  `apps.inventory.services.allocate_fifo` the POS checkout uses, **creates a `SalesTransaction` with
+  `source=REQUISITION`**, then marks the token used and the requisition RELEASED. So a release produces a
+  receivable-bearing sale the moment the customer is in utang, and it fails with the same
+  `INSUFFICIENT_STOCK` contract (carrying `variant_id`) that Phase 3 already taught the cart to mark.
+- **Provenance is available.** `verify_token` returns requisition details using
+  `select_related('requisition__project__customer')`, and `Requisition` carries `req_number`, `project`,
+  `requested_by` and `approved_by`. This matters because POS did not originate the requisition.
+
+### The provenance requirement (the risk this decision accepts)
+
+Because a requisition appears in a POS queue that POS never created, **every approve/verify surface must show
+where it came from**: `req_number`, the project, that project's customer, and the requesting foreman. A store
+manager approving an anonymous-looking list of material requests is the failure mode this decision creates, and
+showing the origin is the whole mitigation. The data is on the wire; nothing needs adding to the API.
+
+### What Phase 5 shrinks to
+
+1. **Approve / reject queue** (Store Manager) — the SUBMITTED requisitions, with items, project and requester,
+   and the two actions gated on status.
+2. **Verify and release** (Cashier, at the counter) — token entry/scan, the verified requisition shown for
+   confirmation, then release. A used token must read as *already used*, not as *not found*: they are different
+   things and the second one makes a cashier think they mistyped.
+
+`seed_demo` supplies DRAFT, SUBMITTED, APPROVED-with-token and RELEASED requisitions, so both screens are
+testable with no creation UI and no CPMS involvement.
+
+### Accepted costs
+
+- **POS cannot originate a requisition.** In the demo this is invisible (`seed_demo`), but a real deployment
+  needs CPMS to call `POST /api/v1/requisitions/`.
+- **Two systems now own one lifecycle**, split at submit/approve. The split point is the SUBMITTED status — the
+  one state CPMS can produce and POS must consume — so that status is the integration seam and should be treated
+  as a contract, not an implementation detail.
+
+### Not decided here
+
+- Whether the approve queue paginates or filters by project (a UI question once the screen exists).
+- The payment-posting UI for receivables. `POST /ledger-payments/` was fixed on 2026-10-17 so it finally moves
+  `balance_due` and refuses overpayment, which makes such a screen viable for the first time — but it is a
+  collectibles question, not a requisition one, and it stays in the Fog of War.
