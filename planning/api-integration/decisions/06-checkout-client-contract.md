@@ -224,3 +224,48 @@ cart therefore **succeeds**: a transaction and an `OfficialReceipt` are created 
 **RESOLVED 2026-10-16.** Requests and responses are pinned to the real code, the failure contract is decided, the
 underpayment step is decided, and the `variantUomId` landmine is named as Phase 3's first task. Phase 3 is
 unblocked.
+
+
+---
+
+## Amendment — 2026-10-17: the till must be able to underpay (§4 was unreachable)
+
+**The finding.** §4's underpayment confirmation could never run. `PosPaymentDialog`'s validator
+rejects any amount below the total:
+
+```dart
+if (number < widget.total) return 'Amount is below the total';
+```
+
+so `payment.amountPaid < transaction.total` in `PosTransactionPage._pay` is **always false**. That
+made §4's confirmation step, the entire three-way walk-in flow built as Phase 4 T6, and the server's
+`WALK_IN_CANNOT_OWE` guard **all unreachable from the till**.
+
+**Why it survived a whole phase and two reviews.** Each file is individually defensible: the dialog
+looks generous, and `_pay` looks like it handles a case the dialog prevents. Nothing had ever tested
+the **seam between the two** — a widget test that drives the dialog and then observes what `_pay`
+sends is the only test that could have caught it, and none existed.
+
+**Ruling (user, 2026-10-17): the VALIDATOR is wrong, not the flow.** A short amount is a real
+transaction — it records an utang — so the dialog must **warn** rather than block:
+
+- The amount field accepts a value below the total and shows an unmissable warning naming the unpaid
+  remainder (`₱70.00 will be left unpaid — this records a utang`).
+- `_pay`'s existing §4 flow then runs unchanged: *Collect the full amount* (submits nothing) or
+  *Record a customer for this utang*, and an anonymous sale reaching the server now genuinely
+  produces `WALK_IN_CANNOT_OWE`.
+
+**Why not the alternatives.**
+
+- *Delete the underpayment flow and keep the validator strict* would have made decision 14's work
+  dead rather than the dialog: `pos_utang_panel.dart`, the advisory credit-limit warning and the
+  `nameCustomer` path all exist to serve an utang sale at the till. Removing the till's ability to
+  record one orphans all three.
+- *An explicit "pay later" toggle* is more surface than the problem needs, and it puts credit behind
+  a control the cashier must learn rather than behind the amount they were already typing.
+
+**Consequence for the tests.** The warning is not decoration: it is the only thing standing between a
+mistyped amount and an unintended receivable, so the build must pin (a) that a short amount is
+ACCEPTED, (b) that the warning names the remainder, and (c) that a short amount then reaches §4's
+confirmation rather than submitting. This is the amendment that decides Phase 4's remaining
+test-coverage work is "cover those paths", not "delete them".
