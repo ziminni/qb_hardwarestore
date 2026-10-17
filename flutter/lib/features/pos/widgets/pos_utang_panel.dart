@@ -76,14 +76,21 @@ class PosUtangPanel extends StatelessWidget {
             children: [
               Text(
                 '${selected.type.label} · ',
-                style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                ),
               ),
               Text(
-                balance > 0 ? '₱${balance.toStringAsFixed(2)} outstanding' : 'No utang',
+                balance > 0
+                    ? '₱${balance.toStringAsFixed(2)} outstanding'
+                    : 'No utang',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: balance > 0 ? AppColors.error : AppColors.textSecondary,
+                  color: balance > 0
+                      ? AppColors.error
+                      : AppColors.textSecondary,
                 ),
               ),
             ],
@@ -91,7 +98,10 @@ class PosUtangPanel extends StatelessWidget {
           if (owed != null && owed.hasDebt)
             Text(
               '${owed.openCount} open · ${owed.overdueCount} overdue',
-              style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+              style: const TextStyle(
+                fontSize: 11,
+                color: AppColors.textSecondary,
+              ),
             ),
           _buildLimitLine(context, selected, balance),
         ],
@@ -99,7 +109,11 @@ class PosUtangPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildLimitLine(BuildContext context, Customer selected, double balance) {
+  Widget _buildLimitLine(
+    BuildContext context,
+    Customer selected,
+    double balance,
+  ) {
     // "0" means NOT SET, so a customer without a configured limit gets a neutral note rather
     // than a warning. Warning on 0 would fire for every customer on every utang sale.
     if (!selected.hasCreditLimit) {
