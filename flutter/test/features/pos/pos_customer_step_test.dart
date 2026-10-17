@@ -1,3 +1,4 @@
+import 'dart:async';
 // Phase 4 task 4 (decision 14). The checkout gains a CUSTOMER STEP: the cashier picks who is
 // paying, or creates one on the spot, or leaves it anonymous.
 //
@@ -60,7 +61,29 @@ class _StubCustomerRepository extends CustomerRepository {
   String? failureMessage;
   CustomerLedgerSummary? summary;
   int ledgerCalls = 0;
-  int? lateFailureFor;
+
+  /// Holds a load for [holdFor] in flight until the test completes [hold].
+  ///
+  /// This is what makes a LATE response testable at all. Without it a test can only observe a
+  /// request that has already finished, so "a stale response arrived after the cashier moved
+  /// on" - the whole class of defect F1 is about - cannot be reproduced. The previous attempt
+  /// faked it with `lateFailureFor`, whose condition (`lateFailureFor != customerId`) was
+  /// UNREACHABLE because the caller always requests the currently selected id: the test then
+  /// failed A while A was still selected, which is correct behaviour, so it passed against the
+  /// unfixed code as well.
+  Completer<void>? hold;
+  int? holdFor;
+
+  int? failLedgerFor;
+
+  /// This customer's ledger load throws - and it does so REGARDLESS of what else the test
+  /// changes while the request is in flight.
+  ///
+  /// The first version of this test drove the failure with `failureMessage`, which
+  /// `fetchLedgerSummary` reads AFTER the gate: the test then cleared that field before
+  /// completing the gate, so the "failing" request actually SUCCEEDED, the error branch was
+  /// never entered, and the test passed against the unguarded code. A failure a test can
+  /// accidentally cancel is not a failure.
   PosServiceException? failure;
   ({String name, CustomerType type})? created;
 
@@ -74,11 +97,13 @@ class _StubCustomerRepository extends CustomerRepository {
   @override
   Future<CustomerLedgerSummary> fetchLedgerSummary(int customerId) async {
     ledgerCalls++;
+    final gate = hold;
+    if (gate != null && holdFor == customerId) await gate.future;
+    if (failLedgerFor == customerId) {
+      throw CustomerServiceException('Cannot connect to the BuildPro server.');
+    }
     final failure = failureMessage;
     if (failure != null) throw CustomerServiceException(failure);
-    if (lateFailureFor != null && lateFailureFor != customerId) {
-      throw CustomerServiceException('latent');
-    }
     return summary ?? CustomerLedgerSummary.empty(customerId);
   }
 
@@ -366,12 +391,24 @@ void _reviewFixTests() {
     });
 
     test(
-      'F1: a stale FAILURE for the previous customer must not hide the new one\'s debt',
+      'F1: a late FAILURE for the PREVIOUS customer must not clobber the new one',
       () async {
-        // The success path was guarded against a late response; the error path was not. So a
-        // late failure for A left A's message and a null summary sitting over B, and the panel
-        // checks the error BEFORE the summary - the cashier saw "cannot connect" where B's real
-        // balance had loaded fine.
+        // The scenario the original test could not reach: A's load is still IN FLIGHT when the
+        // cashier moves to B and B's balance loads, and only then does A's request land - as a
+        // FAILURE. The success path was guarded against exactly this; the error path was not, so
+        // A's failure overwrote B's state. The panel checks the error BEFORE the summary, so the
+        // cashier saw "Cannot connect to the BuildPro server." where B's real balance had already
+        // loaded, with B's summary nulled on the way.
+        customers.hold = Completer<void>();
+        customers.holdFor = 5;
+        customers.failLedgerFor = 5;
+        cart.selectCustomer(
+          const Customer(id: 5, name: 'A', customerType: 'REGULAR'),
+        );
+        final aInFlight = cart.loadLedgerForSelection();
+
+        // The cashier moves on while A's request is still in the air. B loads fine.
+        customers.holdFor = null;
         customers.summary = const CustomerLedgerSummary(
           customerId: 6,
           customerName: 'B',
@@ -384,24 +421,22 @@ void _reviewFixTests() {
         );
         await cart.loadLedgerForSelection();
         expect(cart.ledgerSummary?.totalBalance, 250);
+        expect(cart.ledgerError, isNull);
 
-        // A late failure arrives for a customer no longer selected.
-        customers.lateFailureFor = 5;
-        customers.failureMessage = 'Cannot connect to the BuildPro server.';
-        cart.selectCustomer(
-          const Customer(id: 5, name: 'A', customerType: 'REGULAR'),
-        );
-        await cart.loadLedgerForSelection();
+        // A's request lands now, carrying A's failure.
+        customers.hold!.complete();
+        await aInFlight;
 
-        // A's failure is A's business; B is gone, so the panel must show NO stale error over a
-        // customer it does not describe.
         expect(
           cart.ledgerError,
-          isNotNull,
-          reason:
-              'A DID fail, and A is the current selection - the error belongs to A',
+          isNull,
+          reason: "A's failure describes A, who is no longer the selection",
         );
-        expect(cart.ledgerSummary, isNull);
+        expect(
+          cart.ledgerSummary?.totalBalance,
+          250,
+          reason: "B's loaded balance must survive A's late failure",
+        );
       },
     );
 
