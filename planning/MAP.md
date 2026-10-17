@@ -4,16 +4,18 @@ Entry point for everything not yet built. Read this first, then open the plan yo
 Roadmap and decisions live **here**; architecture lives in `docs/SYSTEM_ATLAS.md`; the endpoint
 contract lives in `ENDPOINTS.md`. None of those three duplicate each other.
 
-**State of the system:** the Django backend is feature-complete. The Flutter client consumes almost
-none of it — of 10 feature modules, only `auth` reaches the API. The work below is therefore mostly
-*wiring*, not *building*.
+**State of the system:** the Django backend is feature-complete and **Phases 0-4 of the integration
+epic are done** — `auth`, `products`, `inventory`, `pos` and the receivables half of `sales` now
+render live API data, and Phase 5 is in progress. What is left is the admin/reports half of `sales`
+(Phase 6, still gated by an open decision) plus the requisition screens. Read
+`api-integration/MAP.md` for state; this file is the **index** and deliberately does not restate it.
 
 ## Active plan
 
 The integration epic runs as a **Wayfinder map** — a low-resolution index plus one file per open decision,
 so it stays workable across many sessions without loading everything at once.
 
-**[planning/api-integration/MAP.md](api-integration/MAP.md)** — destination, invariants, four open decisions
+**[planning/api-integration/MAP.md](api-integration/MAP.md)** — destination, invariants, one open decision
 and the phase order.
 
 ## Reference plans
@@ -26,7 +28,7 @@ Supporting material that is not itself on the map's frontier.
 | [UI gaps](03-ui-gaps.md) | Screens that do not exist for endpoints that do (token flow, utang, receipts) — feeds Phase 5 | **P1** |
 | [Cleanup](04-cleanup.md) | Dead files, duplicate stacks, stale branches, config debt | **P2** |
 
-## Priority reasoning
+## Priority reasoning (historical — Phases 0-4 are now DONE; kept for the why)
 
 1. **The map's Phase 0 first, because it unblocks the demo.** The capstone's visible weakness is that the app
    shows hardcoded data. Fixing the frontend models is a hard prerequisite — shipping API calls against the
