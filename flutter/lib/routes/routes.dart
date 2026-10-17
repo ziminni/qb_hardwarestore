@@ -64,7 +64,6 @@ class AppRoutes {
   static const String salesTransactions = '/sales/transactions';
   static const String salesQuotations = '/sales/quotations';
   static const String salesOrders = '/sales/orders';
-  static const String salesCustomers = '/sales/customers';
   static const String salesReceivables = '/sales/receivables';
   static const String salesReturns = '/sales/returns';
   static const String salesReports = '/sales/reports';

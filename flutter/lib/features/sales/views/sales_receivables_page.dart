@@ -35,6 +35,10 @@ class _ReceivablesView extends StatelessWidget {
   Widget build(BuildContext context) {
     final viewmodel = context.watch<SalesReceivablesViewmodel>();
     final now = DateTime.now();
+    // A failed load must not render money. Showing "Outstanding P0.00 / 0 open invoices" beside
+    // an error banner states "this store is owed nothing" - the same dangerous claim the empty
+    // message is worded to avoid, and a number is more believable than a caption.
+    final totalsUnknown = viewmodel.loadError != null && !viewmodel.hasEntries;
 
     return SalesSkeletonLayout(
       title: 'Receivables',
@@ -52,8 +56,12 @@ class _ReceivablesView extends StatelessWidget {
                 width: 260,
                 child: SalesDashboardMetricCard(
                   label: 'Outstanding',
-                  value: '₱${viewmodel.outstanding.toStringAsFixed(2)}',
-                  caption: '${viewmodel.entries.length} open invoices',
+                  value: totalsUnknown
+                      ? '—'
+                      : '₱${viewmodel.outstanding.toStringAsFixed(2)}',
+                  caption: totalsUnknown
+                      ? 'Not loaded'
+                      : '${viewmodel.entries.length} open invoices',
                   icon: Icons.account_balance_wallet_outlined,
                   color: AppColors.info,
                 ),
@@ -62,7 +70,9 @@ class _ReceivablesView extends StatelessWidget {
                 width: 260,
                 child: SalesDashboardMetricCard(
                   label: 'Overdue',
-                  value: '₱${viewmodel.overdue.toStringAsFixed(2)}',
+                  value: totalsUnknown
+                      ? '—'
+                      : '₱${viewmodel.overdue.toStringAsFixed(2)}',
                   caption: 'Requires follow-up',
                   icon: Icons.warning_amber_outlined,
                   color: AppColors.error,

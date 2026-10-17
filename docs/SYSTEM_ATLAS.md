@@ -140,7 +140,7 @@ Legend: 🟢 Live (real API) · 🟡 Partial · 🔴 Mock (hardcoded) · ⚫ Dea
 | Sales dashboard (legacy) | `dashboard/views/sales_dashboard.dart` | `dashboard_mock_data.dart` | — | ⚫ Orphaned |
 | POS dashboard (legacy) | `dashboard/views/pos_dashboard.dart` | `dashboard_mock_data.dart` | — | ⚫ Orphaned |
 | Requisition token flow | **no UI** | — | `/tokens/verify/` `/tokens/release/` | ⚫ Dead |
-| Collectibles CRUD | **no UI** | — | `/ledgers/` `/ledger-payments/` | ⚫ Dead |
+| Collectibles CRUD | — (no client screen) | — | `POST/PUT/DELETE ledgers/`, `ledger-payments/` | ⚫ Dead for WRITES only |
 | Goods receipts | **no UI** | — | `/goods-receipts/` | ⚫ Dead |
 | Brands / UOMs / variant-UOMs | **no UI** | — | `/brands/` `/uoms/` `/variant-uoms/` | ⚫ Dead |
 | Payments / receipts | **no UI** | — | `/payments/` `/receipts/` | ⚫ Dead |
@@ -268,8 +268,8 @@ sit on, then the new path top-down.
 **Not verified:**
 - ✅ **Corrected 2026-10-16 — the old note here was wrong.** `flutter analyze` **is** clean on this branch, and
   `flutter/test/widget_test.dart` is **tracked**, not an untracked broken counter template: it is a real smoke
-  test that asserts an unauthenticated launch lands on `LoginPage`. The suite is **229 tests, 0 failures**
-  (was 146 after Phase 1; Phase 2 and Phase 3 added 31 and 15). The backend suite is **33 tests, OK** — worth
+  test that asserts an unauthenticated launch lands on `LoginPage`. The suite is **235 tests, 0 failures**
+  (was 146 after Phase 1; Phase 2 and Phase 3 added 31 and 15). The backend suite is **41 tests, OK** — worth
   stating because until Phase 3 `manage.py test` ran **zero** tests: `apps/` had no `__init__.py`, so discovery
   died with `TypeError: expected str, bytes or os.PathLike object, not NoneType`.
 - The backend apps were **not** re-scanned in this refresh (unchanged since Phase 2 apart from the POS endpoint

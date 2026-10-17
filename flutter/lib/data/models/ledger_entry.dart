@@ -65,7 +65,13 @@ class LedgerEntry {
   /// [dueSoonWindow] is how far ahead "due soon" starts; the default week matches how far a
   /// counter clerk plans.
   LedgerStatus statusAt(DateTime now, {Duration dueSoonWindow = const Duration(days: 7)}) {
-    if (isOverdue || dueDate.isBefore(now)) return LedgerStatus.overdue;
+    // Compared at DAY granularity, to match the server's `due_date < date.today()`.
+    // Comparing raw DateTimes made a receivable due today read Overdue from 00:00, while the
+    // server calls it overdue only after midnight - so the two disagreed for a whole day.
+    final today = DateTime(now.year, now.month, now.day);
+    if (isOverdue || dueDate.isBefore(today)) {
+      return LedgerStatus.overdue;
+    }
     if (dueDate.difference(now) <= dueSoonWindow) return LedgerStatus.dueSoon;
     return LedgerStatus.current;
   }
