@@ -40,8 +40,8 @@ the same commit that breaks it.
   resolved 2026-10-17: POS builds the **downstream half** (approve · reject · verify token · release)
   and CPMS owns create and submit. Task 1, the transport, is built with **no create or submit
   method at all** — a service without `createRequisition` cannot grow a button needing a Site
-  Foreman. Next: the **approve/reject queue**, actions gated on status, showing where each
-  requisition came from.
+  Foreman. **The approve/reject queue and the release counter are BOTH built and routed.** What
+  remains for Phase 5 is the whole-branch review and a live end-to-end pass — not another screen.
 - **Last session:** `docs/sessions/2026-10-17-phase-5-and-coverage.md` — resolved decision 09, built
   Phase 5's transport, and paid down the Phase 4 test-coverage debt (flutter 235 → 291). **Verified
   fresh at `a9f74ec`:** backend **46/46 OK**, `manage.py check` clean, `flutter analyze` clean,
