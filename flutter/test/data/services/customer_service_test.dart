@@ -287,36 +287,38 @@ void _paginationTests() {
 
   tearDown(() => client.dio.httpClientAdapter = original);
 
-  test('follows the next link so a customer past page one is findable', () async {
-    paged = _PagedAdapter([
-      {
-        'count': 2,
-        'next': 'http://x/api/v1/customers/?page=2',
-        'previous': null,
-        'results': [
-          {'id': 1, 'name': 'Aaa Trading', 'customer_type': 'REGULAR'},
-        ],
-      },
-      {
-        'count': 2,
-        'next': null,
-        'previous': null,
-        'results': [
-          {'id': 2, 'name': 'Zulu Hardware', 'customer_type': 'CONTRACTOR'},
-        ],
-      },
-    ]);
-    client.dio.httpClientAdapter = paged;
+  test(
+    'follows the next link so a customer past page one is findable',
+    () async {
+      paged = _PagedAdapter([
+        {
+          'count': 2,
+          'next': 'http://x/api/v1/customers/?page=2',
+          'previous': null,
+          'results': [
+            {'id': 1, 'name': 'Aaa Trading', 'customer_type': 'REGULAR'},
+          ],
+        },
+        {
+          'count': 2,
+          'next': null,
+          'previous': null,
+          'results': [
+            {'id': 2, 'name': 'Zulu Hardware', 'customer_type': 'CONTRACTOR'},
+          ],
+        },
+      ]);
+      client.dio.httpClientAdapter = paged;
 
-    final customers = await service.fetchCustomers();
+      final customers = await service.fetchCustomers();
 
-    expect(
-      customers.map((c) => c.name),
-      ['Aaa Trading', 'Zulu Hardware'],
-      reason: 'a one-page cap hides every customer past 50',
-    );
-    expect(paged.requestedPages, hasLength(2), reason: 'both pages fetched');
-  });
+      expect(customers.map((c) => c.name), [
+        'Aaa Trading',
+        'Zulu Hardware',
+      ], reason: 'a one-page cap hides every customer past 50');
+      expect(paged.requestedPages, hasLength(2), reason: 'both pages fetched');
+    },
+  );
 
   test('stops at the last page', () async {
     paged = _PagedAdapter([
@@ -334,7 +336,11 @@ void _paginationTests() {
     final customers = await service.fetchCustomers();
 
     expect(customers, hasLength(1));
-    expect(paged.requestedPages, hasLength(1), reason: 'no pointless second request');
+    expect(
+      paged.requestedPages,
+      hasLength(1),
+      reason: 'no pointless second request',
+    );
   });
 
   test('a runaway next link is refused rather than looping forever', () async {
