@@ -133,7 +133,7 @@ Legend: 🟢 Live (real API) · 🟡 Partial · 🔴 Mock (hardcoded) · ⚫ Dea
 | Inventory reports | `reports/views/inventory_reports_page.dart` | reads `inventory_viewmodel` (was recorded as local state — wrong) | `GET /api/v1/reports/*` | 🟡 Partial |
 | Admin users | `admin/views/admin_user_management_page.dart` | `admin/viewmodels/admin_mock_data.dart` | `GET /api/v1/users/` | 🔴 Mock |
 | Admin audit logs | `admin/views/audit_logs_page.dart` | `admin_mock_data.dart` | `GET /api/v1/audit-logs/` | 🔴 Mock |
-| Admin requisitions | `admin/views/requisitions_page.dart` | `admin_mock_data.dart` (screen) · `data/services/requisition_service.dart` (transport, **built Phase 5 T1**) | `GET /api/v1/requisitions/` | 🔴 Mock |
+| Admin requisitions (approve/reject queue) | `admin/views/requisitions_page.dart` | `admin/viewmodels/admin_requisitions_viewmodel.dart` | `GET /api/v1/requisitions/` · `POST /{id}/approve/` · `POST /{id}/reject/` | 🟢 Live |
 | Admin reports | `admin/views/reports_page.dart` | `admin_mock_data.dart` | `GET /api/v1/reports/*` | 🔴 Mock |
 | Admin monitoring | `admin/views/{sales,inventory}_monitoring_page.dart` | `admin_mock_data.dart` | `GET /api/v1/reports/*` | 🔴 Mock |
 | Admin settings | `admin/views/settings_page.dart` | — (static) | — | 🔴 Mock |
@@ -146,7 +146,7 @@ Legend: 🟢 Live (real API) · 🟡 Partial · 🔴 Mock (hardcoded) · ⚫ Dea
 | Payments / receipts | **no UI** | — | `/payments/` `/receipts/` | ⚫ Dead |
 | Project entity | **no UI** | — | `/projects/` | ⚫ Dead |
 
-**Score: 8 live · 3 partial · 18 mock · 8 dead (37 rows).** Was 7 · 3 · 20 · 8 before Phase 4 task 7, and 6 · 4 · 20 · 8 before Phase 3.
+**Score: 9 live · 3 partial · 17 mock · 8 dead (37 rows).** Was 8 · 3 · 18 · 8 before Phase 5's approve queue, 7 · 3 · 20 · 8 before Phase 4 task 7, and 6 · 4 · 20 · 8 before Phase 3.
 
 Grading rule, so these are not vibes: 🟢 Live = the screen's *primary* data comes from an API response;
 🟡 Partial = some of what it renders is live and the row's Notes say which; ⚫ Dead = never called.
