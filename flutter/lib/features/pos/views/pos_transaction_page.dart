@@ -14,7 +14,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class PosTransactionPage extends StatefulWidget {
-  const PosTransactionPage({super.key});
+  const PosTransactionPage({super.key, this.viewmodel});
+
+  /// Injected by tests so the pay path can be driven WITHOUT a server.
+  ///
+  /// The page otherwise builds its own viewmodel, so no widget test could OBSERVE whether a
+  /// submit was sent - and the "nothing is submitted" invariant (decisions 06 + 14) was verified
+  /// only by reading. Same seam, and same reasoning, as SalesReceivablesPage.
+  final PosTransactionViewmodel? viewmodel;
 
   @override
   State<PosTransactionPage> createState() => _PosTransactionPageState();
@@ -34,7 +41,9 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (context) => PosTransactionViewmodel(
+      create: (context) => 
+            widget.viewmodel ??
+            PosTransactionViewmodel(
         context.read<InventoryViewmodel>(),
         context.read<ProductTrackingViewmodel>(),
       ),
