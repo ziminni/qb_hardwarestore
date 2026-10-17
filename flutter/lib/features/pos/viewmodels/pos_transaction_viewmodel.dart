@@ -156,11 +156,19 @@ class PosTransactionViewmodel extends ChangeNotifier {
 
     try {
       final summary = await _customerRepo.fetchLedgerSummary(customer.id);
-      // A response that lands after the cashier moved on belongs to the old customer.
-      if (_selectedCustomer?.id == customer.id) _ledgerSummary = summary;
+      // A response that lands after the cashier moved on belongs to the old customer - and
+      // that applies to a FAILURE as much as a success. Guarding only the success path meant
+      // a late failure for the previous customer could leave its message sitting over the
+      // new one, and the panel reads the error BEFORE the summary.
+      if (_selectedCustomer?.id == customer.id) {
+        _ledgerSummary = summary;
+        _ledgerError = null;
+      }
     } on CustomerServiceException catch (error) {
-      _ledgerError = error.message;
-      _ledgerSummary = null;
+      if (_selectedCustomer?.id == customer.id) {
+        _ledgerError = error.message;
+        _ledgerSummary = null;
+      }
     } finally {
       _isLoadingLedger = false;
       notifyListeners();
@@ -184,8 +192,12 @@ class PosTransactionViewmodel extends ChangeNotifier {
         name: name,
         type: type,
       );
-      _selectedCustomer = created;
-      notifyListeners();
+      // Routed through selectCustomer so the utang state is cleared by the SAME rule that
+      // clears it for a pick. Assigning the field directly left the previous customer's
+      // balance on screen under the new customer's name whenever the caller did not follow
+      // with loadLedgerForSelection - reachable because the picker's barrier is dismissible
+      // while the create is in flight, so the page can take its "cancelled" early return.
+      selectCustomer(created);
       return null;
     } on CustomerServiceException catch (error) {
       return error.message;

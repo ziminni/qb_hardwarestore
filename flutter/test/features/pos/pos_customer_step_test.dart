@@ -25,6 +25,11 @@ class _StubPosRepository extends PosRepository {
 
   int? sentCustomerId;
 
+  /// When set, `checkout` throws it - so a test can drive the FAILURE path. Without this the
+  /// stub always succeeded, which is how "the selection survives a failed submit" passed
+  /// without ever failing (review finding 3).
+  PosServiceException? failure;
+
   @override
   Future<int> walkInCustomerId() async => 1;
 
@@ -35,6 +40,8 @@ class _StubPosRepository extends PosRepository {
     required List<PosCheckoutPayment> payments,
     String source = 'WALK_IN',
   }) async {
+    final boom = failure;
+    if (boom != null) throw boom;
     sentCustomerId = customerId;
     return PosCheckoutResult(
       id: 18,
@@ -53,6 +60,8 @@ class _StubCustomerRepository extends CustomerRepository {
   String? failureMessage;
   CustomerLedgerSummary? summary;
   int ledgerCalls = 0;
+  int? lateFailureFor;
+  PosServiceException? failure;
   ({String name, CustomerType type})? created;
 
   @override
@@ -67,6 +76,9 @@ class _StubCustomerRepository extends CustomerRepository {
     ledgerCalls++;
     final failure = failureMessage;
     if (failure != null) throw CustomerServiceException(failure);
+    if (lateFailureFor != null && lateFailureFor != customerId) {
+      throw CustomerServiceException('latent');
+    }
     return summary ?? CustomerLedgerSummary.empty(customerId);
   }
 
@@ -85,6 +97,7 @@ class _StubCustomerRepository extends CustomerRepository {
 void main() {
   _loadCustomersTests();
   _utangPanelTests();
+  _reviewFixTests();
 
   late InventoryViewmodel inventory;
   late _StubPosRepository pos;
@@ -324,6 +337,115 @@ void _utangPanelTests() {
         isNull,
         reason: 'a zero balance would read as "this customer owes nothing"',
       );
+    });
+  });
+}
+
+// Review findings 1-3. Written BEFORE the fixes, so each one is watched failing.
+void _reviewFixTests() {
+  group('review findings', () {
+    late InventoryViewmodel inventory;
+    late _StubCustomerRepository customers;
+    late PosTransactionViewmodel cart;
+
+    setUp(() {
+      inventory = InventoryViewmodel();
+      customers = _StubCustomerRepository();
+      cart = PosTransactionViewmodel(
+        inventory,
+        ProductTrackingViewmodel(),
+        pos: _StubPosRepository(),
+        customers: customers,
+      );
+    });
+
+    test('F1: a stale FAILURE for the previous customer must not hide the new one\'s debt',
+        () async {
+      // The success path was guarded against a late response; the error path was not. So a
+      // late failure for A left A's message and a null summary sitting over B, and the panel
+      // checks the error BEFORE the summary - the cashier saw "cannot connect" where B's real
+      // balance had loaded fine.
+      customers.summary = const CustomerLedgerSummary(
+        customerId: 6,
+        customerName: 'B',
+        totalBalance: 250,
+        openCount: 1,
+        overdueCount: 0,
+      );
+      cart.selectCustomer(
+        const Customer(id: 6, name: 'B', customerType: 'REGULAR'),
+      );
+      await cart.loadLedgerForSelection();
+      expect(cart.ledgerSummary?.totalBalance, 250);
+
+      // A late failure arrives for a customer no longer selected.
+      customers.lateFailureFor = 5;
+      customers.failureMessage = 'Cannot connect to the BuildPro server.';
+      cart.selectCustomer(
+        const Customer(id: 5, name: 'A', customerType: 'REGULAR'),
+      );
+      await cart.loadLedgerForSelection();
+
+      // A's failure is A's business; B is gone, so the panel must show NO stale error over a
+      // customer it does not describe.
+      expect(
+        cart.ledgerError,
+        isNotNull,
+        reason: 'A DID fail, and A is the current selection - the error belongs to A',
+      );
+      expect(cart.ledgerSummary, isNull);
+    });
+
+    test('F2: a created customer must not inherit the previous one\'s debt', () async {
+      customers.summary = const CustomerLedgerSummary(
+        customerId: 5,
+        customerName: 'Maria Santos',
+        totalBalance: 4900,
+        openCount: 2,
+        overdueCount: 1,
+      );
+      cart.selectCustomer(
+        const Customer(id: 5, name: 'Maria Santos', customerType: 'REGULAR'),
+      );
+      await cart.loadLedgerForSelection();
+      expect(cart.ledgerSummary?.totalBalance, 4900);
+
+      await cart.createAndSelectCustomer(
+        name: 'Nena Reyes',
+        type: CustomerType.regular,
+      );
+
+      expect(
+        cart.ledgerSummary,
+        isNull,
+        reason: "Maria's 4900 must never render under Nena's name",
+      );
+      expect(cart.ledgerError, isNull);
+    });
+
+    test('F3: the selection must survive a genuinely FAILED submit', () async {
+      // The old test could not fail: the stub always returned success, so `submit` returned
+      // true, the cart cleared, and the assertion held no matter what. This drives the
+      // failure path the test claimed to cover.
+      final pos = _StubPosRepository()..failure = PosServiceException('The server broke.');
+      final cart2 = PosTransactionViewmodel(
+        inventory,
+        ProductTrackingViewmodel(),
+        pos: pos,
+        customers: customers,
+      );
+      final item = cart2.filteredProducts.first;
+      cart2.addLine(cart2.saleOptionsFor(item).first, 1);
+      cart2.selectCustomer(
+        const Customer(id: 5, name: 'Maria Santos', customerType: 'REGULAR'),
+      );
+
+      final confirmed = await cart2.submit(paymentMethod: 'CASH', amountPaid: 100);
+
+      expect(confirmed, isFalse, reason: 'the submit must really have failed');
+      expect(cart2.submitError, isNotNull);
+      expect(cart2.selectedCustomer?.id, 5);
+      expect(cart2.lines, hasLength(1), reason: 'a failed sale keeps the cart');
     });
   });
 }
