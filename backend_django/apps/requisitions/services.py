@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from django.db import transaction
+from common.numbering import generate_document_number
 from django.utils import timezone
 
 from apps.inventory.services import allocate_fifo
@@ -16,11 +17,8 @@ from .models import MaterialToken, Requisition, RequisitionItem
 
 
 def generate_req_number():
-    today = date.today().strftime('%Y%m%d')
-    last = Requisition.objects.filter(
-        req_number__startswith=f'REQ-{today}').order_by('-req_number').first()
-    seq = int(last.req_number.split('-')[-1]) + 1 if last else 1
-    return f'REQ-{today}-{seq:04d}'
+    """Kept as the Requisition-specific name; the pattern itself lives in common.numbering."""
+    return generate_document_number(Requisition, 'req_number', 'REQ')
 
 
 def submit_requisition(*, requisition: Requisition) -> None:

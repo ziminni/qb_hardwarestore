@@ -11,7 +11,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from apps.users.permissions import IsPOSOrReadOnly
 from .models import Customer, SalesTransaction, Payment, OfficialReceipt
+from .models import Quotation
 from .serializers import CustomerSerializer, SalesTransactionSerializer, PaymentSerializer, OfficialReceiptSerializer
+from .serializers import QuotationSerializer
 from .services import process_sale
 
 
@@ -82,3 +84,18 @@ class OfficialReceiptViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = OfficialReceipt.objects.select_related('transaction').all()
     serializer_class = OfficialReceiptSerializer
     permission_classes = [IsAuthenticated]
+
+
+class QuotationViewSet(BaseViewSet):
+    """Decision 05: quotations are a real backend resource.
+
+    Writes need a POS role (BaseViewSet -> IsPOSOrReadOnly); reads are open to any authenticated
+    user, which is what lets the sales screens list them for a Cashier.
+    """
+
+    queryset = Quotation.objects.select_related('customer').prefetch_related('items__variant_uom')
+    serializer_class = QuotationSerializer
+
+    def perform_create(self, serializer):
+        # created_by is never taken from the payload: the server records who actually asked.
+        serializer.save(created_by=self.request.user)

@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false
 """Reports app — read-only aggregation endpoints for the admin Reports page.
 
 No models: every view aggregates data from the other apps

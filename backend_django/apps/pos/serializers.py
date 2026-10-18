@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import (
+    Quotation, QuotationItem,
     Customer,
     OfficialReceipt,
     Payment,
@@ -56,3 +57,34 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
         # found here by POSTing a valid sale to the endpoint: HTTP 400
         # {"cashier": ["This field is required."]}.
         read_only_fields = ['id','transaction_no','trans_date','created_at','updated_at','cashier']
+
+
+class QuotationItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = QuotationItem
+        fields = ['id', 'quotation', 'variant_uom', 'qty', 'unit_price']
+        # `quotation` is READ-ONLY: the parent QuotationSerializer.create() sets it. Leaving it
+        # writable made it a required field on every nested item, so a legitimate payload was
+        # rejected with "quotation: This field is required." - which is what the first GREEN run hit.
+        read_only_fields = ['id', 'quotation']
+
+
+class QuotationSerializer(serializers.ModelSerializer):
+    items = QuotationItemSerializer(many=True, required=False)
+
+    class Meta:
+        model = Quotation
+        fields = [
+            'id', 'quotation_no', 'customer', 'status', 'valid_until', 'notes',
+            'items', 'created_at', 'updated_at',
+        ]
+        # quotation_no and created_by are the server's to decide; a client that could set
+        # either could forge a number or attribute a quotation to someone else.
+        read_only_fields = ['id', 'quotation_no', 'created_at', 'updated_at']
+
+    def create(self, validated_data):
+        items = validated_data.pop('items', [])
+        quotation = Quotation.objects.create(**validated_data)
+        for item in items:
+            QuotationItem.objects.create(quotation=quotation, **item)
+        return quotation

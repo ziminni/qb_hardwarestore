@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import models
+from apps.inventory.models import VariantUOM
 
 
 class Customer(models.Model):
@@ -106,3 +107,64 @@ class OfficialReceipt(models.Model):
 
     def __str__(self):
         return f'OR #{self.or_number}'
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 task 6A.1 — quotations (decision 05, Sales Stack Reconciliation).
+#
+# The sales role ships a quotations screen, and the client stack for it
+# (sales_module_viewmodel.dart + models/sales_module.dart) had no endpoint to call.
+# Decision 05 ruled that quotations get a real backend model rather than being dropped,
+# which is what superseded the epic's "no new endpoints, no model or migration changes"
+# invariant.
+# ---------------------------------------------------------------------------
+
+
+class Quotation(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = 'DRAFT', 'Draft'
+        SENT = 'SENT', 'Sent'
+        ACCEPTED = 'ACCEPTED', 'Accepted'
+        REJECTED = 'REJECTED', 'Rejected'
+
+    quotation_no = models.CharField(max_length=30, unique=True, db_index=True)
+    customer = models.ForeignKey(
+        Customer, on_delete=models.PROTECT, related_name='quotations')
+    status = models.CharField(
+        max_length=15, choices=Status.choices, default=Status.DRAFT, db_index=True)
+    valid_until = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True, default='')
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'pos_quotation'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.quotation_no} — {self.customer}'
+
+    def save(self, *args, **kwargs):
+        # Generated server-side, like Requisition.req_number: a client-supplied number would
+        # be a second source of truth for something the server must guarantee is unique.
+        if not self.quotation_no:
+            from common.numbering import generate_document_number
+            self.quotation_no = generate_document_number(Quotation, 'quotation_no', 'QT')
+        super().save(*args, **kwargs)
+
+
+class QuotationItem(models.Model):
+    quotation = models.ForeignKey(
+        Quotation, on_delete=models.CASCADE, related_name='items')
+    variant_uom = models.ForeignKey(
+        VariantUOM, on_delete=models.PROTECT, related_name='+')
+    qty = models.DecimalField(max_digits=12, decimal_places=2)
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        db_table = 'pos_quotation_item'
+
+    def __str__(self):
+        return f'{self.quotation.quotation_no} — {self.variant_uom} × {self.qty}'
