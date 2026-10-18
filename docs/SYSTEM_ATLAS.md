@@ -208,7 +208,9 @@ customers screen, which stays Mock.
   navigation. `PosTransactionViewmodel` is provided at `pos_transaction_page.dart:35` and `ProductsViewmodel` at
   `products_page.dart`. The old "only 6 of 8 viewmodels are wired" framing assumed absence from `main.dart`
   meant not provided at all; it did not.
-- `admin/viewmodels/admin_mock_data.dart` is consumed by **7** admin screens from one shared mock object.
+- `admin/viewmodels/admin_mock_data.dart` is consumed by **6** admin screens from one shared mock
+  object. (Was 7: the requisition queue went live in Phase 5 T2. Verified by grepping
+  `features/admin/views/` for `admin_mock_data` — a count is only a claim until it is counted.)
 
 ### Disconnected endpoints
 
