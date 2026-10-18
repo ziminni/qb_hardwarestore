@@ -1,7 +1,7 @@
 # planning/api-integration/MAP.md
 
 **Slug:** `api-integration` · **Opened:** 2026-10-15
-**Status:** 19 locked · **0 open** — the frontier was reopened on 2026-10-17 to clear two questions buried in closed decisions, and both are now resolved in those decisions. A later audit found one more deferred note in decision 09; it is now [Receivables Record Payment](./decisions/19-receivables-record-payment.md), so fog has no unrecorded items.**frontier, blocked and fog are ALL EMPTY.** The map is complete; the roadmap below is the hand-off. **Phase state lives in the phase table below, which is the single home for it** — per-row, with evidence. Phase 5 was unlocked by [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md), resolved 2026-10-17. Phase 0's 7 rows
+**Status:** 20 locked · **0 open** — the frontier was reopened on 2026-10-17 to clear two questions buried in closed decisions, and both are now resolved in those decisions. A later audit found one more deferred note in decision 09; it is now [Receivables Record Payment](./decisions/19-receivables-record-payment.md), so fog has no unrecorded items.**frontier, blocked and fog are ALL EMPTY.** The map is complete; the roadmap below is the hand-off. **Phase state lives in the phase table below, which is the single home for it** — per-row, with evidence. Phase 5 was unlocked by [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md), resolved 2026-10-17. Phase 0's 7 rows
 are built and were verified row-by-row against the code (the "Phase 0 — status" table below is the authority; it
 has been wrong twice in opposite directions, so it is stated with per-row evidence); Phase 1's products catalogue
 renders live API data (commits `6070442`…`557dfd3`); Phase 2 made the server the authority for inventory state
@@ -126,6 +126,7 @@ Rules every session on this map must respect. Facts that already have a home are
 - [Sales Stack Reconciliation](./decisions/05-sales-stack-reconciliation.md): **quotations and orders get REAL backend models** — the sales role ships all seven screens, and Phase 6 becomes a BACKEND phase (see its own cost note; the invariant below is superseded for it).
 - [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md): POS builds the DOWNSTREAM half — approve, reject, verify token, release materials; CPMS owns create and submit. A release is a SALE (`source=REQUISITION`, FIFO stock), and every approve/verify surface must show where the requisition came from, since POS did not originate it.
 - [Receivables Record Payment](./decisions/19-receivables-record-payment.md): BUILD Record payment for Cashier+ — `POST /api/v1/ledger-payments/` already permits Cashier writes, so the disabled button’s Admin-only comment is stale; this is the write half of the read-live receivables screen, owned by Phase 6C.
+- [Approve Queue Route Gate](./decisions/20-approve-queue-route-gate.md): exempt `/admin/requisitions` for the `sales` role (Store Manager), mirroring the reports exemption — the seeded approver is Store Manager and is otherwise bounced to the sales dashboard.
 
 ## Phase order (locked 2026-10-15 — from [First Vertical Slice & Ordering Lens](./decisions/01-first-vertical-slice.md))
 
@@ -186,7 +187,9 @@ items were removed because they described **completed** work, which a list of un
 One minor polish item is recorded here so no note hides in a closed file: the approve-queue
 project filter ([Requisition UI Ownership](./decisions/09-requisition-ui-ownership.md), "Not decided
 here") is undecided UI only — the service already follows pages. Too small to gate anything, so it
-stays fog, not frontier. A later audit found a third such note — decision 09’s receivables payment-posting UI — and it was resolved the same turn as [Receivables Record Payment](./decisions/19-receivables-record-payment.md), so it never became an open frontier item.
+stays fog, not frontier. A later audit found a third such note — decision 09’s receivables payment-posting UI — and it was resolved the same turn as [Receivables Record Payment](./decisions/19-receivables-record-payment.md), so it never became an open frontier item. A later fix-pass review found the same fence shape
+around the approve queue ([Approve Queue Route Gate](./decisions/20-approve-queue-route-gate.md));
+exempted the same turn, so it likewise never became an open frontier item.
 
 ## Out of Scope
 
