@@ -46,16 +46,18 @@ def process_goods_receipt(*, receipt: GoodsReceipt, user=None) -> list[Inventory
             # Check if we need a low-stock alert
             _check_low_stock(item.variant)
 
-        # Update PO status
-        all_received = not po.items.filter(
-            received_qty__lt=F('ordered_qty')
-        ).exists()
-        po.status = (
-            PurchaseOrder.Status.COMPLETE
-            if all_received
-            else PurchaseOrder.Status.PARTIAL
-        )
-        po.save(update_fields=['status'])
+        # Update PO status only when something was actually received: an
+        # empty process used to flip a DRAFT PO to PARTIAL with zero batches.
+        if batches:
+            all_received = not po.items.filter(
+                received_qty__lt=F('ordered_qty')
+            ).exists()
+            po.status = (
+                PurchaseOrder.Status.COMPLETE
+                if all_received
+                else PurchaseOrder.Status.PARTIAL
+            )
+            po.save(update_fields=['status'])
 
     return batches
 

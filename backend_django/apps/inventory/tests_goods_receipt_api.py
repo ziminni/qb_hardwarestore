@@ -53,6 +53,7 @@ class GoodsReceiptItemsApiTests(InventoryTestBase):
         })
 
         self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn('would exceed', response.data['detail'])
         self.item.refresh_from_db()
         self.assertEqual(self.item.received_qty, Decimal('0'))
 
@@ -70,6 +71,7 @@ class GoodsReceiptItemsApiTests(InventoryTestBase):
         })
 
         self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn('is not on this PO', response.data['detail'])
 
     def test_no_items_still_records_the_receipt(self):
         response = self._post({'po': self.po.id})
@@ -77,3 +79,89 @@ class GoodsReceiptItemsApiTests(InventoryTestBase):
         self.assertEqual(response.status_code, 201, response.data)
         self.item.refresh_from_db()
         self.assertEqual(self.item.received_qty, Decimal('0'))
+
+
+
+class ReceiptProcessGuardTests(GoodsReceiptItemsApiTests):
+    """Fix pass: re-processing, accumulation, closed POs, empty process.
+
+    Inherits the authenticated client plus a PO with one 10-unit item.
+    """
+
+    def _receive(self, qty, items=None):
+        payload = {'po': self.po.id}
+        if items is None:
+            items = [{'po_item': self.item.id, 'qty': str(qty)}]
+        payload['items'] = items
+        return self.client.post('/api/v1/goods-receipts/', payload,
+                               format='json')
+
+    def test_reprocessing_a_receipt_is_refused(self):
+        first = self._receive('4')
+        self.assertEqual(first.status_code, 201, first.data)
+        process = self.client.post(
+            f"/api/v1/goods-receipts/{first.data['id']}/process/", {},
+            format='json')
+        self.assertEqual(process.status_code, 200, process.data)
+        self.assertEqual(len(process.data), 1)
+
+        again = self.client.post(
+            f"/api/v1/goods-receipts/{first.data['id']}/process/", {},
+            format='json')
+
+        self.assertEqual(again.status_code, 400, again.data)
+        from apps.inventory.models import InventoryBatch
+        self.assertEqual(
+            InventoryBatch.objects.filter(variant=self.variant).count(), 1)
+
+    def test_a_second_receipt_accumulates_quantities(self):
+        self.assertEqual(self._receive('4').status_code, 201)
+        response = self._receive('6')
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.received_qty, Decimal('10'))
+
+    def test_accumulation_never_exceeds_ordered(self):
+        self.assertEqual(self._receive('7').status_code, 201)
+        response = self._receive('7')
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.received_qty, Decimal('7'))
+
+    def test_receipt_against_a_completed_po_is_refused(self):
+        from apps.inventory.models import PurchaseOrder
+        self.assertEqual(self._receive('10').status_code, 201)
+        po = PurchaseOrder.objects.get(pk=self.po.pk)
+        po.status = PurchaseOrder.Status.COMPLETE
+        po.save(update_fields=['status'])
+
+        response = self._receive('1')
+
+        self.assertEqual(response.status_code, 400, response.data)
+
+    def test_receipt_against_a_cancelled_po_is_refused(self):
+        from apps.inventory.models import PurchaseOrder
+        po = PurchaseOrder.objects.get(pk=self.po.pk)
+        po.status = PurchaseOrder.Status.CANCELLED
+        po.save(update_fields=['status'])
+
+        response = self._receive('1')
+
+        self.assertEqual(response.status_code, 400, response.data)
+
+    def test_processing_an_empty_receipt_leaves_the_po_draft(self):
+        from apps.inventory.models import PurchaseOrder
+        receipt = self._receive(None, items=[])
+        self.assertEqual(receipt.status_code, 201, receipt.data)
+
+        process = self.client.post(
+            f"/api/v1/goods-receipts/{receipt.data['id']}/process/", {},
+            format='json')
+
+        self.assertEqual(process.status_code, 200, process.data)
+        self.assertEqual(process.data, [])
+        self.assertEqual(
+            PurchaseOrder.objects.get(pk=self.po.pk).status,
+            PurchaseOrder.Status.DRAFT)

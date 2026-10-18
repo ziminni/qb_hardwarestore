@@ -38,7 +38,9 @@ class _StubInventoryService extends InventoryService {
   @override
   Future<List<InventoryBatch>> processReceipt(int receiptId) async {
     processCalls++;
-    return const [];
+    return const [
+      InventoryBatch(id: 21, variantId: 8, receiptId: 5, initialQty: 4, currentQty: 4, unitCostLanded: 50, markupPercentage: 0, batchSellingPrice: 50, expirationDate: null, createdAt: null),
+    ];
   }
 }
 
@@ -83,6 +85,21 @@ void main() {
 
     expect(service.recordCalls, 1);
     expect(find.textContaining('Receipt #5'), findsOneWidget);
+  });
+
+  testWidgets('after processing the button is gone, not re-tappable', (tester) async {
+    await _pump(tester);
+
+    await tester.tap(find.textContaining('PO-1'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('receiving-qty-11')), '4');
+    await tester.tap(find.text('Record receipt'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Process into stock'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Process into stock'), findsNothing);
+    expect(find.textContaining('batch'), findsWidgets);
   });
 
   testWidgets('processing a receipt offers the process action', (tester) async {

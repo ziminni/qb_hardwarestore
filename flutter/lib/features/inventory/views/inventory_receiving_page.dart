@@ -64,23 +64,16 @@ class _ReceivingView extends StatelessWidget {
                           children: [
                             for (final order in viewmodel.orders)
                               ListTile(
-                                selected:
-                                    viewmodel.selected?.id == order.id,
-                                title: Text(
-                                  'PO-${order.id} · ${order.status}',
-                                ),
-                                subtitle: Text(
-                                  '${order.items.length} line(s)',
-                                ),
+                                selected: viewmodel.selected?.id == order.id,
+                                title: Text('PO-${order.id} · ${order.status}'),
+                                subtitle: Text('${order.items.length} line(s)'),
                                 onTap: () => viewmodel.select(order),
                               ),
                           ],
                         ),
                       ),
                       const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: _OrderDetail(viewmodel: viewmodel),
-                      ),
+                      Expanded(child: _OrderDetail(viewmodel: viewmodel)),
                     ],
                   ),
                 ),
@@ -150,8 +143,9 @@ class _OrderDetailState extends State<_OrderDetail> {
                     child: TextField(
                       key: Key('receiving-qty-${item.id}'),
                       controller: _controllerFor(item.id),
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
                       decoration: const InputDecoration(
                         labelText: 'Received qty',
                       ),
@@ -159,6 +153,8 @@ class _OrderDetailState extends State<_OrderDetail> {
                         final parsed = double.tryParse(text.trim());
                         if (parsed != null) {
                           viewmodel.setQty(item.id, parsed);
+                        } else {
+                          viewmodel.clearQty(item.id);
                         }
                       },
                     ),
@@ -192,7 +188,7 @@ class _OrderDetailState extends State<_OrderDetail> {
                   : () => viewmodel.recordReceipt(),
               child: const Text('Record receipt'),
             )
-          else ...[
+          else if (!viewmodel.isProcessed) ...[
             Text('Receipt #${viewmodel.lastReceiptId} recorded.'),
             const SizedBox(height: AppSpacing.sm),
             FilledButton(
@@ -210,6 +206,11 @@ class _OrderDetailState extends State<_OrderDetail> {
                       );
                     },
               child: const Text('Process into stock'),
+            ),
+          ] else ...[
+            Text(
+              '${viewmodel.lastBatches.length} batch(es) created from receipt '
+              '#${viewmodel.lastReceiptId}.',
             ),
           ],
         ],

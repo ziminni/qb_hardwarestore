@@ -116,9 +116,7 @@ class GoodsReceiptViewSet(_CatalogBaseViewSet):
         """
         from decimal import Decimal
 
-        from django.db import transaction
         from rest_framework import status as drf_status
-        from rest_framework.response import Response
 
         from .models import POItem
 
@@ -135,6 +133,12 @@ class GoodsReceiptViewSet(_CatalogBaseViewSet):
         ser.is_valid(raise_exception=True)
 
         po = ser.validated_data['po']
+        if po.status in (
+                PurchaseOrder.Status.COMPLETE, PurchaseOrder.Status.CANCELLED):
+            return Response(
+                {'detail': f'PO {po.pk} is {po.status} and cannot receive more.'},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
         parsed = []
         for entry in raw_items:
             if not isinstance(entry, dict):
@@ -162,13 +166,22 @@ class GoodsReceiptViewSet(_CatalogBaseViewSet):
                     {'detail': f"qty for po_item {po_item.pk} is not a number."},
                     status=drf_status.HTTP_400_BAD_REQUEST,
                 )
-            if qty < 0 or qty > po_item.ordered_qty:
+            if qty < 0:
                 return Response(
-                    {'detail': f'qty for po_item {po_item.pk} must be between 0 '
-                               f'and {po_item.ordered_qty}.'},
+                    {'detail': f'qty for po_item {po_item.pk} must not be negative.'},
                     status=drf_status.HTTP_400_BAD_REQUEST,
                 )
-            parsed.append((po_item, qty))
+            # Accumulate: each delivery adds to what is already received, capped
+            # at ordered. Overwriting would silently under-count a split delivery.
+            total = po_item.received_qty + qty
+            if total > po_item.ordered_qty:
+                return Response(
+                    {'detail': f'qty for po_item {po_item.pk} would exceed the '
+                               f'ordered {po_item.ordered_qty} '
+                               f'({po_item.received_qty} already received).'},
+                    status=drf_status.HTTP_400_BAD_REQUEST,
+                )
+            parsed.append((po_item, total))
 
         with transaction.atomic():
             receipt = ser.save(received_by=request.user)
@@ -181,7 +194,17 @@ class GoodsReceiptViewSet(_CatalogBaseViewSet):
 
     @action(detail=True, methods=['post'])
     def process(self, request, pk=None):
+        from rest_framework import status as drf_status
+
         receipt = self.get_object()
+        if receipt.batches.exists():
+            # No receipt-level guard in process_goods_receipt: every call mints
+            # fresh batches, so a double-tap double-counts stock. Refuse here,
+            # where the receipt's history is visible.
+            return Response(
+                {'detail': f'Goods receipt {receipt.pk} was already processed.'},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
         batches = process_goods_receipt(receipt=receipt, user=request.user)
         return Response(
             InventoryBatchSerializer(batches, many=True).data)

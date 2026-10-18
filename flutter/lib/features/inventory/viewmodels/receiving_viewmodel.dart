@@ -42,6 +42,11 @@ class ReceivingViewmodel extends ChangeNotifier {
   int? get lastReceiptId => _lastReceiptId;
   List<InventoryBatch> get lastBatches => List.unmodifiable(_lastBatches);
 
+  /// True once a receipt has been processed: the Process button must go away,
+  /// because process/ has no receipt-level guard against a second run client-side.
+  bool get isProcessed =>
+      _lastReceiptId != null && _lastBatches.isNotEmpty;
+
   /// Loads every purchase order. A failed load keeps the rows already shown:
   /// emptying the table would read as "nothing on order".
   Future<void> load() async {
@@ -71,6 +76,12 @@ class ReceivingViewmodel extends ChangeNotifier {
 
   void setQty(int poItemId, double qty) {
     _quantities[poItemId] = qty;
+    notifyListeners();
+  }
+
+  /// Withdraws a line: clearing a field must not post the value it used to hold.
+  void clearQty(int poItemId) {
+    _quantities.remove(poItemId);
     notifyListeners();
   }
 
@@ -124,7 +135,7 @@ class ReceivingViewmodel extends ChangeNotifier {
     notifyListeners();
     try {
       _lastBatches = await _service.processReceipt(receiptId);
-      return true;
+      return _lastBatches.isNotEmpty;
     } on InventoryServiceException catch (error) {
       _actionError = error.message;
       return false;

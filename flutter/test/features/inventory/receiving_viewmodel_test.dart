@@ -84,6 +84,19 @@ void main() {
     expect(viewmodel.orders, hasLength(1));
   });
 
+  test('clearing a field withdraws its line instead of posting stale qty', () async {
+    service.orders = [_order()];
+    await viewmodel.load();
+    viewmodel.select(viewmodel.orders.single);
+    viewmodel.setQty(11, 4);
+
+    viewmodel.clearQty(11);
+    final ok = await viewmodel.recordReceipt();
+
+    expect(ok, isFalse);
+    expect(service.recordCalls, 0);
+  });
+
   test('recording posts one line per order item with the entered quantities', () async {
     service.orders = [_order()];
     await viewmodel.load();
