@@ -1,7 +1,7 @@
 # planning/api-integration/MAP.md
 
 **Slug:** `api-integration` · **Opened:** 2026-10-15
-**Status:** 18 locked · **0 open** — the frontier was reopened on 2026-10-17 to clear two questions buried in closed decisions, and both are now resolved in those decisions. Fog is empty of unrecorded items.**frontier, blocked and fog are ALL EMPTY.** The map is complete; the roadmap below is the hand-off. **Phase state lives in the phase table below, which is the single home for it** — per-row, with evidence. Phase 5 was unlocked by [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md), resolved 2026-10-17. Phase 0's 7 rows
+**Status:** 19 locked · **0 open** — the frontier was reopened on 2026-10-17 to clear two questions buried in closed decisions, and both are now resolved in those decisions. A later audit found one more deferred note in decision 09; it is now [Receivables Record Payment](./decisions/19-receivables-record-payment.md), so fog has no unrecorded items.**frontier, blocked and fog are ALL EMPTY.** The map is complete; the roadmap below is the hand-off. **Phase state lives in the phase table below, which is the single home for it** — per-row, with evidence. Phase 5 was unlocked by [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md), resolved 2026-10-17. Phase 0's 7 rows
 are built and were verified row-by-row against the code (the "Phase 0 — status" table below is the authority; it
 has been wrong twice in opposite directions, so it is stated with per-row evidence); Phase 1's products catalogue
 renders live API data (commits `6070442`…`557dfd3`); Phase 2 made the server the authority for inventory state
@@ -125,6 +125,7 @@ Rules every session on this map must respect. Facts that already have a home are
 - [Customer Returns](./decisions/15-customer-returns.md): a customer return is a `SalesTransaction` with `source='RETURN'` and NEGATIVE amounts plus an optional `original_transaction` FK; restock into the original batch when linked, else the newest active one. The reports need NO change because they already sum transactions and a negative one nets out.
 - [Sales Stack Reconciliation](./decisions/05-sales-stack-reconciliation.md): **quotations and orders get REAL backend models** — the sales role ships all seven screens, and Phase 6 becomes a BACKEND phase (see its own cost note; the invariant below is superseded for it).
 - [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md): POS builds the DOWNSTREAM half — approve, reject, verify token, release materials; CPMS owns create and submit. A release is a SALE (`source=REQUISITION`, FIFO stock), and every approve/verify surface must show where the requisition came from, since POS did not originate it.
+- [Receivables Record Payment](./decisions/19-receivables-record-payment.md): BUILD Record payment for Cashier+ — `POST /api/v1/ledger-payments/` already permits Cashier writes, so the disabled button’s Admin-only comment is stale; this is the write half of the read-live receivables screen, owned by Phase 6C.
 
 ## Phase order (locked 2026-10-15 — from [First Vertical Slice & Ordering Lens](./decisions/01-first-vertical-slice.md))
 
@@ -157,16 +158,10 @@ the POS needs" is now stateable). The one remaining decision gates Phase 6.
 
 ## Active Frontier (Open & Unblocked)
 
-**Both reopened items were resolved on 2026-10-17** and written back into the decisions that deferred
+**EMPTY.** The two reopened items were resolved on 2026-10-17 and written back into the decisions that deferred
 them: [Customer Returns](./decisions/15-customer-returns.md) now rules the two returns pages consolidate
 into ONE under Sales, and [The Reports Surface](./decisions/16-reports-surface.md) rules four tabs, one
-report each. **A closed decision's note is not a record** — that lesson is why they were found at all.
-
-  [Customer Returns](./decisions/15-customer-returns.md): `sales_returns_page.dart` (a sales view) and
-  `inventory_returns_page.dart` (an inventory view) both render mock over the same rows.
-  Deferred by [The Reports Surface](./decisions/16-reports-surface.md): four endpoints exist
-  (`sales-summary`, `inventory-valuation`, `stock-movements`, `requisition-history`) and two of them take
-  `from`/`to`, but the screen's default view is unspecified.
+report each. **A closed decision's note is not a record** — that lesson is why they were found at all. No open frontier items remain.
 
 
 Ordered by the locked phase order: define the entity, then the transport, then the presentation. Resolve one
@@ -181,13 +176,13 @@ when the slice order locked and is now simply sequenced at Phase 6.
 
 ## Fog of War (Not Yet Specified)
 
-**EMPTY of UNRECORDED items as of 2026-10-17** — but read this carefully. Every in-scope area is either
+**EMPTY of UNRECORDED items as of 2026-10-18** — but read this carefully. Every in-scope area is either
 a locked decision, an explicit Out of Scope entry, or built. **Two questions that were deferred inside
 closed decision files were found by an audit on 2026-10-17 and moved to the Active Frontier**, because a
 note inside a closed decision is not a record — it is a note nothing enforces. The last two items graduated here:
 [Receiving Stock Through the UI](./decisions/17-receiving-ui.md) (build it — no backend needed) and
 [Product Images](./decisions/18-product-images.md) (leave blank; the placeholder is honest). Two earlier
-items were removed because they described **completed** work, which a list of unknowns must not do.
+items were removed because they described **completed** work, which a list of unknowns must not do. A later audit found a third such note — decision 09’s receivables payment-posting UI — and it was resolved the same turn as [Receivables Record Payment](./decisions/19-receivables-record-payment.md), so it never became an open frontier item.
 
 ## Out of Scope
 
@@ -202,7 +197,7 @@ Ruled past the destination. Do not reopen without a new map.
 
 # Final Implementation Roadmap (Phase 6)
 
-The map is complete: **18 decisions locked, 0 open, nothing blocked, fog empty.** This is the hand-off —
+The map is complete: **19 decisions locked, 0 open, nothing blocked, fog empty.** This is the hand-off —
 what remains to be BUILT, in order, with the evidence each step must produce.
 
 **Phase 6 is a BACKEND-FIRST phase.** It was described as "Admin, reports, sales" — a UI phase — and
@@ -234,7 +229,7 @@ once — run it first, not last.
 
 ## 6C — Wire the surviving sales screens
 
-Dashboard · transactions · receivables (already live) · reports. The quotations and orders screens are
+Dashboard · transactions · receivables (read-live; plus [Receivables Record Payment](./decisions/19-receivables-record-payment.md)’s Record-payment write) · reports. The quotations and orders screens are
 wired in 6A.1/6A.2, and `sales_module_viewmodel.dart` + `models/sales_module.dart` are the **canonical**
 stack for them.
 
