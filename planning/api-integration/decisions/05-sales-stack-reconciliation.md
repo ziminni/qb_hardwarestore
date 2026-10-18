@@ -79,5 +79,9 @@ roadmap as an open question: either a returns endpoint joins the new backend wor
 pages (`sales_returns_page.dart`, `inventory_returns_page.dart`) are consolidated onto the transactions
 the server already exposes.
 
+**Superseded: [Customer Returns](./15-customer-returns.md) locked this 2026-10-17** — a return is a
+`SalesTransaction` with `source='RETURN'`, negative amounts and an optional `original_transaction` FK;
+the two pages consolidate into ONE under Sales; roadmap tasks 6A.3 (built) and 6A.4 own the rest.
+The "Unresolved" line below is history, not an open question — kept so the audit trail survives.
 
 _Unresolved — Phase 6. Both sales stacks are in scope, so one must be chosen before anything is wired._

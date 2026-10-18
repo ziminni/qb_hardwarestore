@@ -118,9 +118,12 @@ testable with no creation UI and no CPMS involvement.
 ### Not decided here
 
 - Whether the approve queue paginates or filters by project (a UI question once the screen exists).
+  Still open as minor polish; the service already follows pages, so this is filter UI only.
 - The payment-posting UI for receivables. `POST /ledger-payments/` was fixed on 2026-10-17 so it finally moves
   `balance_due` and refuses overpayment, which makes such a screen viable for the first time — but it is a
   collectibles question, not a requisition one, and it stays in the Fog of War.
+  **Resolved 2026-10-18 by [Receivables Record Payment](./19-receivables-record-payment.md): BUILD for Cashier+.**
+  The note above is history now, not an open item — kept so the audit trail survives.
 
 
 ---
