@@ -68,7 +68,7 @@ void main() {
       reason: 'every routed page should be discovered, or the checks below prove nothing',
     );
     expect(salesOrder.length, 6, reason: 'the sales sidebar has 6 destinations');
-    expect(inventoryOrder.length, greaterThanOrEqualTo(10));
+    expect(inventoryOrder.length, greaterThanOrEqualTo(11));
     expect(salesOrder.first, 'salesDashboard');
     expect(inventoryOrder[8], 'inventorySales');
     expect(inventoryOrder[9], 'inventoryReturns');

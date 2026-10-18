@@ -29,6 +29,7 @@ class ReceivingViewmodel extends ChangeNotifier {
 
   List<PurchaseOrderRecord> get orders => List.unmodifiable(_orders);
   bool get isLoading => _isLoading;
+  bool get hasOrders => _orders.isNotEmpty;
   String? get loadError => _loadError;
 
   PurchaseOrderRecord? get selected => _selected;

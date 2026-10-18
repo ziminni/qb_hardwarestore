@@ -23,6 +23,7 @@ import 'package:client/features/sales/views/sales_transactions_page.dart';
 import 'package:client/features/inventory/views/inventory_stock_movements_page.dart';
 import 'package:client/features/inventory/views/inventory_low_stock_page.dart';
 import 'package:client/features/inventory/views/inventory_stock_page.dart';
+import 'package:client/features/inventory/views/inventory_receiving_page.dart';
 import 'package:client/features/products/views/products_page.dart';
 import 'package:client/features/suppliers/views/purchases_page.dart';
 import 'package:client/features/suppliers/views/suppliers_page.dart';
@@ -57,6 +58,7 @@ class AppRoutes {
   static const String inventorySuppliers = '/inventory/suppliers';
   static const String inventorySales = '/inventory/sales';
   static const String inventoryReturns = '/inventory/returns';
+  static const String inventoryReceiving = '/inventory/receiving';
   static const String posDashboard = '/pos/dashboard';
   static const String posRelease = '/pos/release';
   static const String salesDashboard = '/sales/dashboard';
@@ -292,6 +294,12 @@ class AppRoutes {
           name: 'inventory_returns',
           pageBuilder: (context, state) =>
               _transitionPage(state, const InventoryReturnsPage()),
+        ),
+        GoRoute(
+          path: inventoryReceiving,
+          name: 'inventory_receiving',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const InventoryReceivingPage()),
         ),
         GoRoute(
           path: posDashboard,
