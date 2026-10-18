@@ -32,6 +32,9 @@ class SalesTransaction(models.Model):
     class Source(models.TextChoices):
         WALK_IN = 'WALK_IN', 'Walk-in'
         REQUISITION = 'REQUISITION', 'Requisition'
+        # Decision 15: a customer return is a transaction with NEGATIVE amounts, so it nets
+        # out of every total that already sums grand_total. The reports need no change for it.
+        RETURN = 'RETURN', 'Return'
 
     class Status(models.TextChoices):
         COMPLETED = 'COMPLETED', 'Completed'
@@ -47,6 +50,12 @@ class SalesTransaction(models.Model):
     discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     grand_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     source = models.CharField(max_length=15, choices=Source.choices, default=Source.WALK_IN)
+    # PROTECT, so a reversed sale cannot be deleted out from under its return. Nullable
+    # because a return is still valid when the original receipt is not to hand - decision
+    # 15's restock rule has a branch for exactly that case.
+    original_transaction = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='reversals')
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.COMPLETED)
     notes = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
