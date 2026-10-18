@@ -23,6 +23,10 @@ class AdminReportsViewmodel extends ChangeNotifier {
   final Set<int> _loading = {};
   final Map<int, String> _errors = {};
 
+  /// Bumped by every explicit reload. A load that started under an older
+  /// generation is stale the moment it lands: it discards instead of painting.
+  int _generation = 0;
+
   SalesSummary? sales;
   InventoryValuation? valuation;
   StockMovements? movements;
@@ -50,18 +54,21 @@ class AdminReportsViewmodel extends ChangeNotifier {
   Future<void> setRange(String? from, String? to) async {
     _from = from;
     _to = to;
+    _generation++;
     _loaded.removeAll({0, 2});
     await _loadTab(0);
     if (_selectedTab == 2) await _loadTab(2);
   }
 
   Future<void> reload() async {
+    _generation++;
     _loaded.remove(_selectedTab);
     await _loadTab(_selectedTab);
   }
 
   Future<void> _loadTab(int tab) async {
     if (_loaded.contains(tab) || _loading.contains(tab)) return;
+    final generation = _generation;
     _loading.add(tab);
     _errors.remove(tab);
     notifyListeners();
@@ -78,6 +85,15 @@ class AdminReportsViewmodel extends ChangeNotifier {
           );
         case 3:
           history = await _repository.fetchRequisitionHistory();
+      }
+      if (generation != _generation) {
+        // A newer range arrived mid-flight: this data belongs to the old
+        // bounds. Discard and load the current generation instead of painting
+        // month-A money under month-B fields.
+        _loading.remove(tab);
+        _loaded.remove(tab);
+        notifyListeners();
+        return _loadTab(tab);
       }
       _loaded.add(tab);
     } on ReportsServiceException catch (error) {

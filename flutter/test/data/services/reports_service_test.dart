@@ -79,6 +79,22 @@ void main() {
     expect(summary.days, isEmpty);
   });
 
+  test('float totals parse - the server sums Decimals to float', () async {
+    adapter.respond = (_) => _json({
+      'from': '2026-09-19',
+      'to': '2026-10-19',
+      'total_qty_in': 100.0,
+      'total_qty_out': 30.5,
+      'receipts_by_day': [],
+      'adjustments_by_type': [],
+    });
+
+    final movements = await service.fetchStockMovements();
+
+    expect(movements.totalIn, 100);
+    expect(movements.totalOut, 30.5);
+  });
+
   test('valuation parses grand totals and categories', () async {
     adapter.respond = (_) => _json({
       'totals': {'batch_count': 2, 'total_units': '10', 'total_cost_value': '500.00', 'total_retail_value': '800.00'},

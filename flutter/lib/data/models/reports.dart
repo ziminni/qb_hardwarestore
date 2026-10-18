@@ -170,8 +170,8 @@ class StockMovements {
 
   final String from;
   final String to;
-  final int totalIn;
-  final int totalOut;
+  final double totalIn;
+  final double totalOut;
   final List<MovementDay> receiptsByDay;
   final List<MovementType> adjustmentsByType;
 
@@ -189,8 +189,8 @@ class StockMovements {
     return StockMovements(
       from: stringField(json, 'from'),
       to: stringField(json, 'to'),
-      totalIn: intField(json, 'total_qty_in'),
-      totalOut: intField(json, 'total_qty_out'),
+      totalIn: optionalDecimalField(json, 'total_qty_in'),
+      totalOut: optionalDecimalField(json, 'total_qty_out'),
       receiptsByDay: days
           .map((d) => MovementDay.fromJson(d as Map<String, dynamic>))
           .toList(),
@@ -268,8 +268,10 @@ class RequisitionHistory {
       statusFilter: json['status_filter'] as String?,
       countByStatus: {
         for (final c in counts)
-          stringField(c as Map<String, dynamic>, 'status'):
-              intField(c, 'count'),
+          stringField(c as Map<String, dynamic>, 'status'): intField(
+            c,
+            'count',
+          ),
       },
       requisitions: rows
           .map((r) => RequisitionHistoryRow.fromJson(r as Map<String, dynamic>))

@@ -106,6 +106,17 @@ void main() {
     expect(find.textContaining('could not be loaded'), findsNothing);
   });
 
+  testWidgets('a bad date is refused without posting', (tester) async {
+    final repository = await _pump(tester);
+
+    await tester.enterText(find.byKey(const Key('reports-from')), 'not-a-date');
+    await tester.tap(find.text('Apply'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Enter dates as YYYY-MM-DD.'), findsOneWidget);
+    expect(repository.salesCalls, 1);
+  });
+
   testWidgets('a range change reloads sales with the new bounds', (tester) async {
     final repository = await _pump(tester);
 

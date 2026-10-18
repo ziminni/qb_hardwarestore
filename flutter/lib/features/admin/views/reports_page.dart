@@ -92,9 +92,9 @@ class _Tile extends StatelessWidget {
             children: [
               Text(
                 value,
-                style: Theme.of(
-                  context,
-                ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const SizedBox(height: AppSpacing.xs),
               Text(label),
@@ -107,6 +107,11 @@ class _Tile extends StatelessWidget {
 }
 
 String _money(double amount) => '₱${amount.toStringAsFixed(2)}';
+
+/// Quantities render without a trailing ".0" — a count that reads "10.0" looks
+/// estimated, and these come from exact batch arithmetic.
+String _qty(num amount) =>
+    amount % 1 == 0 ? '${amount.toInt()}' : '$amount';
 
 /// A failed tab names the failure. A loading tab spins. Anything else is the
 /// caller's content — an error must never read as an empty report.
@@ -150,6 +155,7 @@ class _RangeControls extends StatefulWidget {
 class _RangeControlsState extends State<_RangeControls> {
   final _from = TextEditingController();
   final _to = TextEditingController();
+  String? _error;
 
   @override
   void dispose() {
@@ -163,39 +169,69 @@ class _RangeControlsState extends State<_RangeControls> {
     return text.isEmpty ? null : text;
   }
 
+  static final _datePattern = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+
+  bool _valid(String? value) =>
+      value == null ||
+      (_datePattern.hasMatch(value) && DateTime.tryParse(value) != null);
+
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          width: 180,
-          child: TextField(
-            key: const Key('reports-from'),
-            controller: _from,
-            decoration: const InputDecoration(
-              labelText: 'From (YYYY-MM-DD)',
+        Row(
+          children: [
+            SizedBox(
+              width: 180,
+              child: TextField(
+                key: const Key('reports-from'),
+                controller: _from,
+                decoration: const InputDecoration(
+                  labelText: 'From (YYYY-MM-DD)',
+                ),
+              ),
             ),
+            const SizedBox(width: AppSpacing.sm),
+            SizedBox(
+              width: 180,
+              child: TextField(
+                key: const Key('reports-to'),
+                controller: _to,
+                decoration: const InputDecoration(
+                  labelText: 'To (YYYY-MM-DD)',
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            OutlinedButton(
+              // A bad date never reaches the server: the tab keeps its fields
+              // and names the format, so a typo cannot brick the money tabs.
+              onPressed: () {
+                final from = _clean(_from);
+                final to = _clean(_to);
+                if (!_valid(from) || !_valid(to)) {
+                  setState(() => _error = 'Enter dates as YYYY-MM-DD.');
+                  return;
+                }
+                setState(() => _error = null);
+                widget.onApply(from, to);
+              },
+              child: const Text('Apply'),
+            ),
+          ],
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            _error!,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        SizedBox(
-          width: 180,
-          child: TextField(
-            key: const Key('reports-to'),
-            controller: _to,
-            decoration: const InputDecoration(labelText: 'To (YYYY-MM-DD)'),
-          ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        OutlinedButton(
-          onPressed: () => widget.onApply(_clean(_from), _clean(_to)),
-          child: const Text('Apply'),
-        ),
+        ],
       ],
     );
   }
 }
-
 class _SalesTab extends StatelessWidget {
   const _SalesTab({required this.viewmodel});
 
@@ -210,9 +246,7 @@ class _SalesTab extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _RangeControls(
-              onApply: (from, to) => viewmodel.setRange(from, to),
-            ),
+            _RangeControls(onApply: (from, to) => viewmodel.setRange(from, to)),
             const SizedBox(height: AppSpacing.md),
             Wrap(
               spacing: AppSpacing.md,
@@ -238,7 +272,13 @@ class _SalesTab extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.md),
             SalesRecordsTable(
-              columns: const ['Day', 'Transactions', 'Gross', 'VAT', 'Discounts'],
+              columns: const [
+                'Day',
+                'Transactions',
+                'Gross',
+                'VAT',
+                'Discounts',
+              ],
               emptyMessage: 'No sales in this range.',
               rows: [
                 for (final day in viewmodel.sales?.days ?? [])
@@ -282,7 +322,7 @@ class _ValuationTab extends StatelessWidget {
                 ),
                 _Tile(
                   label: 'Units on hand',
-                  value: '${viewmodel.valuation?.totalUnits ?? 0}',
+                  value: _qty(viewmodel.valuation?.totalUnits ?? 0),
                 ),
                 _Tile(
                   label: 'Value at cost',
@@ -309,7 +349,7 @@ class _ValuationTab extends StatelessWidget {
                   [
                     Text(category.name),
                     Text('${category.batchCount}'),
-                    Text('${category.units}'),
+                    Text(_qty(category.units)),
                     Text(_money(category.cost)),
                     Text(_money(category.retail)),
                   ],
@@ -336,9 +376,7 @@ class _MovementsTab extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _RangeControls(
-              onApply: (from, to) => viewmodel.setRange(from, to),
-            ),
+            _RangeControls(onApply: (from, to) => viewmodel.setRange(from, to)),
             const SizedBox(height: AppSpacing.md),
             Wrap(
               spacing: AppSpacing.md,
@@ -346,11 +384,11 @@ class _MovementsTab extends StatelessWidget {
               children: [
                 _Tile(
                   label: 'Units in',
-                  value: '${viewmodel.movements?.totalIn ?? 0}',
+                  value: _qty(viewmodel.movements?.totalIn ?? 0),
                 ),
                 _Tile(
                   label: 'Units out',
-                  value: '${viewmodel.movements?.totalOut ?? 0}',
+                  value: _qty(viewmodel.movements?.totalOut ?? 0),
                 ),
               ],
             ),
@@ -363,7 +401,7 @@ class _MovementsTab extends StatelessWidget {
                   [
                     Text(day.date),
                     Text('${day.receipts}'),
-                    Text('${day.qtyIn}'),
+                    Text(_qty(day.qtyIn)),
                   ],
               ],
             ),
@@ -376,7 +414,7 @@ class _MovementsTab extends StatelessWidget {
                   [
                     Text(type.type),
                     Text('${type.movements}'),
-                    Text('${type.qtyOut}'),
+                    Text(_qty(type.qtyOut)),
                   ],
               ],
             ),

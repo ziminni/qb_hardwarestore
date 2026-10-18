@@ -34,10 +34,7 @@ class ReportsService {
     try {
       final response = await _client.get<Map<String, dynamic>>(
         salesSummaryPath,
-        queryParameters: {
-          'from': ?from,
-          'to': ?to,
-        },
+        queryParameters: {'from': ?from, 'to': ?to},
       );
       return SalesSummary.fromJson(response.data!);
     } on DioException catch (error) {
@@ -72,10 +69,7 @@ class ReportsService {
     try {
       final response = await _client.get<Map<String, dynamic>>(
         stockMovementsPath,
-        queryParameters: {
-          'from': ?from,
-          'to': ?to,
-        },
+        queryParameters: {'from': ?from, 'to': ?to},
       );
       return StockMovements.fromJson(response.data!);
     } on DioException catch (error) {
@@ -95,9 +89,7 @@ class ReportsService {
       );
       return RequisitionHistory.fromJson(response.data!);
     } on DioException catch (error) {
-      throw ReportsServiceException(
-        _messageFor(error, 'requisition history'),
-      );
+      throw ReportsServiceException(_messageFor(error, 'requisition history'));
     } on FormatException {
       throw const ReportsServiceException(
         'The requisition history could not be read. Try again.',

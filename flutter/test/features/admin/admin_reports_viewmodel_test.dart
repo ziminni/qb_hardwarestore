@@ -2,6 +2,8 @@ import 'package:client/data/models/reports.dart';
 import 'package:client/data/repositories/reports_repository.dart';
 import 'package:client/data/services/reports_service.dart';
 import 'package:client/features/admin/viewmodels/admin_reports_viewmodel.dart';
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 
 class _StubReportsRepository extends ReportsRepository {
@@ -14,6 +16,7 @@ class _StubReportsRepository extends ReportsRepository {
   String? lastFrom;
   String? lastTo;
   String? salesFailure;
+  Completer<void>? holdSales;
 
   SalesSummary summary = const SalesSummary(
     from: '', to: '', totalTransactions: 2, totalGross: 100,
@@ -37,6 +40,8 @@ class _StubReportsRepository extends ReportsRepository {
     salesCalls++;
     lastFrom = from;
     lastTo = to;
+    final gate = holdSales;
+    if (gate != null) await gate.future;
     final failure = salesFailure;
     if (failure != null) throw ReportsServiceException(failure);
     return summary;
@@ -102,6 +107,19 @@ void main() {
     expect(viewmodel.movements?.totalIn, 10);
   });
 
+  test('a range change while loading reloads with the new bounds', () async {
+    repository.holdSales = Completer<void>();
+    final first = viewmodel.load();
+
+    await viewmodel.setRange('2026-02-01', '2026-02-28');
+    repository.holdSales!.complete();
+    await first;
+
+    expect(repository.salesCalls, 2);
+    expect(repository.lastFrom, '2026-02-01');
+    expect(viewmodel.sales?.totalGross, 100);
+  });
+
   test('a range change reloads sales with the new bounds', () async {
     await viewmodel.load();
 
@@ -112,3 +130,4 @@ void main() {
     expect(repository.lastTo, '2026-01-31');
   });
 }
+
