@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false
 """Phase 6 task 6A.2 — the sales-order endpoint, and the quotation status vocabulary.
 
 Decision 05 (Sales Stack Reconciliation) made `sales_module_viewmodel.dart` + `models/sales_module.dart`

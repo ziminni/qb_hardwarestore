@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false
 """Phase 6 task 6A.3 — the return's shape on SalesTransaction.
 
 Decision 15 (Customer Returns) ruled a customer return is a SalesTransaction with source='RETURN' and

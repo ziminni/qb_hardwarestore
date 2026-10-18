@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false
 """Phase 6 task 6A.1 — the quotation endpoint.
 
 Decision 05 (Sales Stack Reconciliation) ruled that quotations get a REAL backend model, because the
