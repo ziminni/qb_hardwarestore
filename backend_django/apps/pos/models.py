@@ -125,7 +125,11 @@ class Quotation(models.Model):
         DRAFT = 'DRAFT', 'Draft'
         SENT = 'SENT', 'Sent'
         ACCEPTED = 'ACCEPTED', 'Accepted'
-        REJECTED = 'REJECTED', 'Rejected'
+        # The client's canonical enum (SalesQuoteStatus) says `expired`, not `rejected`.
+        # Decision 05 made that stack canonical, and a status the client cannot render shows
+        # as "Unknown" - avoidable here, unlike the requisition case where `unknown` exists
+        # because the server may add statuses the client was never taught.
+        EXPIRED = 'EXPIRED', 'Expired'
 
     quotation_no = models.CharField(max_length=30, unique=True, db_index=True)
     customer = models.ForeignKey(
@@ -168,3 +172,62 @@ class QuotationItem(models.Model):
 
     def __str__(self):
         return f'{self.quotation.quotation_no} — {self.variant_uom} × {self.qty}'
+
+
+class SalesOrder(models.Model):
+    """Phase 6 task 6A.2 (decision 05).
+
+    The second of the two models decision 05 ruled were missing. Like Quotation it is a DOCUMENT,
+    not a sale: no stock moves and no money is taken until it is fulfilled, which is why it does not
+    touch InventoryBatch or the ledger.
+    """
+
+    class Status(models.TextChoices):
+        # Matches the client's canonical SalesOrderStatus enum exactly.
+        CONFIRMED = 'CONFIRMED', 'Confirmed'
+        PROCESSING = 'PROCESSING', 'Processing'
+        READY = 'READY', 'Ready'
+        COMPLETED = 'COMPLETED', 'Completed'
+
+    order_no = models.CharField(max_length=30, unique=True, db_index=True)
+    customer = models.ForeignKey(
+        Customer, on_delete=models.PROTECT, related_name='sales_orders')
+    # SET_NULL, not PROTECT: an order may outlive the quotation it came from, and losing the order
+    # because a quotation was deleted would be the wrong trade. The order stands on its own.
+    quotation = models.ForeignKey(
+        Quotation, on_delete=models.SET_NULL, null=True, blank=True, related_name='orders')
+    status = models.CharField(
+        max_length=15, choices=Status.choices, default=Status.CONFIRMED, db_index=True)
+    notes = models.TextField(blank=True, default='')
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'pos_sales_order'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.order_no} — {self.customer}'
+
+    def save(self, *args, **kwargs):
+        if not self.order_no:
+            from common.numbering import generate_document_number
+            self.order_no = generate_document_number(SalesOrder, 'order_no', 'SO')
+        super().save(*args, **kwargs)
+
+
+class SalesOrderItem(models.Model):
+    order = models.ForeignKey(
+        SalesOrder, on_delete=models.CASCADE, related_name='items')
+    variant_uom = models.ForeignKey(
+        VariantUOM, on_delete=models.PROTECT, related_name='+')
+    qty = models.DecimalField(max_digits=12, decimal_places=2)
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        db_table = 'pos_sales_order_item'
+
+    def __str__(self):
+        return f'{self.order.order_no} — {self.variant_uom} × {self.qty}'

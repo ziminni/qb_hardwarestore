@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from .models import (
     Quotation, QuotationItem,
+    SalesOrder, SalesOrderItem,
     Customer,
     OfficialReceipt,
     Payment,
@@ -88,3 +89,32 @@ class QuotationSerializer(serializers.ModelSerializer):
         for item in items:
             QuotationItem.objects.create(quotation=quotation, **item)
         return quotation
+
+
+class SalesOrderItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SalesOrderItem
+        fields = ['id', 'order', 'variant_uom', 'qty', 'unit_price']
+        # `order` is read-only for the same reason `quotation` is on the item serializer above:
+        # the parent's create() sets it, and leaving it writable makes it REQUIRED on every nested
+        # item, rejecting a legitimate payload.
+        read_only_fields = ['id', 'order']
+
+
+class SalesOrderSerializer(serializers.ModelSerializer):
+    items = SalesOrderItemSerializer(many=True, required=False)
+
+    class Meta:
+        model = SalesOrder
+        fields = [
+            'id', 'order_no', 'customer', 'quotation', 'status', 'notes',
+            'items', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'order_no', 'created_at', 'updated_at']
+
+    def create(self, validated_data):
+        items = validated_data.pop('items', [])
+        order = SalesOrder.objects.create(**validated_data)
+        for item in items:
+            SalesOrderItem.objects.create(order=order, **item)
+        return order
