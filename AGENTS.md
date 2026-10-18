@@ -27,38 +27,26 @@ the same commit that breaks it.
 
 - **Active branch:** `feature/backend-integration`, **unpushed.** For how far ahead it is run
   `git rev-list --count origin/master..HEAD` — a count written into this file is stale the moment the
-  commit that writes it lands, which is how "114" survived four phases.
-- **Active plan:** `planning/api-integration/MAP.md` — the integration epic as a Wayfinder map. The
-  slice order is **locked** (Cashier journey) and the map reads **13 locked · 1 open** — 14 decision
-  files, with only
-  [Sales Stack Reconciliation](./planning/api-integration/decisions/05-sales-stack-reconciliation.md)
-  open (Phase 6).
+  commit that writes it lands.
+- **The Wayfinder map is COMPLETE.** `planning/api-integration/MAP.md` reads **18 locked · 0 open**, with
+  frontier, blocked and fog **all empty**, and the **Phase 6 roadmap** is written at its end.
 - **Phase state is NOT stated here** — it is owned by the phase table in the active map, per-row and with
-  evidence. Read that table; a copy here would be a second home, and this table's own rule forbids one.
-- **Phase 5, next step:**
-  [Requisition UI Ownership](./planning/api-integration/decisions/09-requisition-ui-ownership.md)
-  resolved 2026-10-17: POS builds the **downstream half** (approve · reject · verify token · release)
-  and CPMS owns create and submit. Task 1, the transport, is built with **no create or submit
-  method at all** — a service without `createRequisition` cannot grow a button needing a Site
-  Foreman. **The approve/reject queue and the release counter are BOTH built and routed.** What
-  remains for Phase 5 is the whole-branch review and a live end-to-end pass — not another screen.
-- **Last session:** `docs/sessions/2026-10-17-phase-5-requisitions.md` — built the requisition
-  lifecycle's downstream half, resolved #21, and verified the whole thing LIVE (including
-  `WALK_IN_CANNOT_OWE` firing from the till for the first time). Superseded note:
-  `docs/sessions/2026-10-17-phase-5-and-coverage.md` — resolved decision 09, built
-  Phase 5's transport, and paid down the Phase 4 test-coverage debt (flutter 235 → 291). **Verified
-  fresh at `a9f74ec`:** backend **46/46 OK**, `manage.py check` clean, `flutter analyze` clean,
-  flutter **291/291**, tree CLEAN. The live/mock tally is owned by `docs/SYSTEM_ATLAS.md`.
-- **THE DECISION WAITING FOR A HUMAN:** `#21` — `PosPaymentDialog` refuses any amount below the
-  total, so `_pay`'s underpayment branch can never run. Decision 06 §4's confirmation, the whole
-  three-way walk-in flow built as Phase 4 T6, and the server's `WALK_IN_CANNOT_OWE` path from the
-  till are **all unreachable**. Either the validator is wrong or that UI is. It also decides the
-  remaining test work.
-- **The standard this project now holds:** a test is not accepted as covering a fix until it has been
-  run against the code **without** the fix and seen to fail — and a mutation that breaks
-  **compilation** proves nothing, because Flutter reports it as `loading <file>`.
-- **Standing caveat:** `flutter run` has **never** been executed against the live backend. API
-  contracts are probed; the pixels are unverified — which is why an undefended `SystemBrand` row
-  took a widget test to find.
-- **`.superpowers/` is gitignored**, so the execution ledger and its ~80 ruled entries live only on
-  the machine that wrote them.
+  evidence. Read that table; a copy here would be a second home, and this file's own rule forbids one.
+- **Phase 6 has started and is BACKEND-FIRST.** Task **6A.1** (the `Quotation` model, endpoint and
+  migration) is built. **Next: 6A.2 — `SalesOrder` + `SalesOrderItem` + endpoint + migration**, the same
+  shape as the Quotation just built.
+- **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
+  the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
+  Notes & Invariants says so; do not treat the old rule as binding.
+- **Last session:** `docs/sessions/2026-10-17-wayfinder-complete-and-phase-6-start.md` — completed the
+  map (five decisions), wrote the Phase 6 roadmap, and built 6A.1. **Verified fresh at `6dee5c0`:**
+  backend **52/52 OK**, `manage.py check` clean, `flutter analyze` clean, flutter **314/314**, tree CLEAN,
+  and `GET /api/v1/quotations/` answering **200**.
+- **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
+  against the code **without** the fix and seen to fail — and a mutation or a test that breaks
+  **compilation/errors** proves nothing. **A claim not followed by its command output in the same message
+  is unverified.**
+- **Standing caveat:** `flutter run` has **never** been executed against the live backend. Contracts are
+  probed over HTTP; the pixels are unverified.
+- **`.superpowers/` is gitignored**, so the execution ledger's 82 ruled entries live only on this machine
+  — which is why the plan workspace was NOT deleted.
