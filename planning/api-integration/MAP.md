@@ -184,3 +184,59 @@ Ruled past the destination. Do not reopen without a new map.
 - Production hardening: env-based secrets, `settings.py` split, tightening `ALLOWED_HOSTS` and CORS.
 - An API-backed Settings page — agreed deferral, and it has no backend contract.
 - New backend endpoints or schema changes.
+
+---
+
+# Final Implementation Roadmap (Phase 6)
+
+The map is complete: **18 decisions locked, 0 open, nothing blocked, fog empty.** This is the hand-off —
+what remains to be BUILT, in order, with the evidence each step must produce.
+
+**Phase 6 is a BACKEND-FIRST phase.** It was described as "Admin, reports, sales" — a UI phase — and
+three decisions changed that. The old invariant ("no new endpoints, no model or migration changes") is
+superseded in three places, and Phase 6 is materially larger than the map implied when it opened.
+
+## 6A — Backend (must come first: the screens cannot be wired to endpoints that do not exist)
+
+| # | Work | Decisions | Ends when |
+| :--- | :--- | :--- | :--- |
+| 6A.1 | `Quotation` + `QuotationItem`, serializer, viewset, `/api/v1/quotations/*`, migration | [Sales Stack Reconciliation](./decisions/05-sales-stack-reconciliation.md) | a quotation can be created and read back over HTTP |
+| 6A.2 | `SalesOrder` + `SalesOrderItem`, serializer, viewset, `/api/v1/sales-orders/*`, migration | Sales Stack Reconciliation | an order can be created and read back over HTTP |
+| 6A.3 | `SalesTransaction.source` gains `RETURN`; a nullable `original_transaction` FK (PROTECT); migration | [Customer Returns](./decisions/15-customer-returns.md) | a return posts negative amounts and restocks the right batch |
+| 6A.4 | The restock rule: original batch when the FK is set, else the **newest active** batch | Customer Returns | both branches have a test each |
+
+**Verification for 6A:** `manage.py test` green, `manage.py check` clean, and a live HTTP probe per
+endpoint — the same discipline Phases 0–5 used. **Two migrations minimum.**
+
+## 6B — Screens on endpoints that already exist (no backend work)
+
+| # | Work | Decisions | Ends when |
+| :--- | :--- | :--- | :--- |
+| 6B.1 | ONE Reports screen (admin/manager) over the four `/reports/*` endpoints; delete `sales_reports_page.dart` and `inventory_reports_page.dart` + their routes and sidebar entries | [The Reports Surface](./decisions/16-reports-surface.md) | the screen renders live data; the two deleted routes are gone |
+| 6B.2 | Receiving screen: PO → goods receipt → process → FIFO batches. Inventory sidebar 11 → **12** entries | [Receiving Stock Through the UI](./decisions/17-receiving-ui.md) | stock can ENTER through the UI, not only via `seed_demo` |
+
+**6B.2 carries a known trap:** inserting a sidebar entry moves the index of every inventory page after
+it. `sidebar_index_consistency_test.dart` exists for exactly that regression and has already caught it
+once — run it first, not last.
+
+## 6C — Wire the surviving sales screens
+
+Dashboard · transactions · receivables (already live) · reports. The quotations and orders screens are
+wired in 6A.1/6A.2, and `sales_module_viewmodel.dart` + `models/sales_module.dart` are the **canonical**
+stack for them.
+
+## 6D — Owed from earlier phases, not part of Phase 6
+
+1. **A live end-to-end pass with `flutter run` against the live backend.** Every contract in Phases 0–5
+   is probed over HTTP; **the pixels are unverified**, and that is the last honest gap. It should start
+   by exercising the `#21` underpayment path, which is verified against a **stub**, not the server.
+2. **The branch is unpushed** (178+ commits). Pushing is a shared-branch side effect and needs a
+   decision, not a default.
+
+## The scope warning, kept here on purpose
+
+Four decisions in one session each answered "build it properly": quotations and orders got a backend,
+returns got a migration, receiving got a screen, and reports got two screens deleted. Only the images
+decision was a "don't build". **Phase 6 is now the largest phase in the epic**, and it is the one to
+sanity-check against the deadline before 6A starts — because 6A.1 and 6A.2 are the first backend models
+this project has added since the epic began.
