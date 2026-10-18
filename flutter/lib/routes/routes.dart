@@ -93,11 +93,15 @@ class AppRoutes {
     }
     if (isLogin || isUnsupported) return dashboard;
     if (location.startsWith('/admin/') && role != 'admin') {
-      // Decision 16: the Store Manager (client role 'sales') is the month-end
-      // actor and IsManagerRole admits them server-side — the fence opens for
-      // the reports screen only. User management, audit logs and settings stay
+      // Decisions 16 and 20: the Store Manager (client role 'sales') is the
+      // month-end actor and the requisition approver, and IsManagerRole admits
+      // them server-side — the fence opens for the reports screen and the
+      // approve queue only. User management, audit logs and settings stay
       // admin-only; Cashier ('pos') and Stock Manager ('inventory') still bounce.
-      if (location == adminReports && role == 'sales') return null;
+      if ((location == adminReports || location == adminRequisitions) &&
+          role == 'sales') {
+        return null;
+      }
       return dashboard;
     }
     if (location.startsWith('/inventory/') && role != 'inventory') {
