@@ -1,7 +1,7 @@
 # planning/api-integration/MAP.md
 
 **Slug:** `api-integration` · **Opened:** 2026-10-15
-**Status:** 18 locked · **2 open** — both reopened 2026-10-17 from notes buried inside closed decisions: the returns-page consolidation and the Reports screen's default view. Fog is empty of UNRECORDED items.**frontier, blocked and fog are ALL EMPTY.** The map is complete; the roadmap below is the hand-off. **Phase state lives in the phase table below, which is the single home for it** — per-row, with evidence. Phase 5 was unlocked by [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md), resolved 2026-10-17. Phase 0's 7 rows
+**Status:** 18 locked · **0 open** — the frontier was reopened on 2026-10-17 to clear two questions buried in closed decisions, and both are now resolved in those decisions. Fog is empty of unrecorded items.**frontier, blocked and fog are ALL EMPTY.** The map is complete; the roadmap below is the hand-off. **Phase state lives in the phase table below, which is the single home for it** — per-row, with evidence. Phase 5 was unlocked by [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md), resolved 2026-10-17. Phase 0's 7 rows
 are built and were verified row-by-row against the code (the "Phase 0 — status" table below is the authority; it
 has been wrong twice in opposite directions, so it is stated with per-row evidence); Phase 1's products catalogue
 renders live API data (commits `6070442`…`557dfd3`); Phase 2 made the server the authority for inventory state
@@ -157,15 +157,13 @@ the POS needs" is now stateable). The one remaining decision gates Phase 6.
 
 ## Active Frontier (Open & Unblocked)
 
-**Reopened 2026-10-17.** The section read "EMPTY", which was true only of *recorded* items: two questions
-had been deferred INSIDE closed decision files and recorded nowhere, so nothing would have stopped them
-being decided by whichever file was edited first — which is the exact danger
-[Customer Returns](./decisions/15-customer-returns.md) named when it wrote the note.
+**Both reopened items were resolved on 2026-10-17** and written back into the decisions that deferred
+them: [Customer Returns](./decisions/15-customer-returns.md) now rules the two returns pages consolidate
+into ONE under Sales, and [The Reports Surface](./decisions/16-reports-surface.md) rules four tabs, one
+report each. **A closed decision's note is not a record** — that lesson is why they were found at all.
 
-- [ ] **Do the two returns pages consolidate into one, or stay two?** — grill · Phase 6. Deferred by
   [Customer Returns](./decisions/15-customer-returns.md): `sales_returns_page.dart` (a sales view) and
   `inventory_returns_page.dart` (an inventory view) both render mock over the same rows.
-- [ ] **What does the manager Reports screen show, and does it take a date range?** — grill · Phase 6.
   Deferred by [The Reports Surface](./decisions/16-reports-surface.md): four endpoints exist
   (`sales-summary`, `inventory-valuation`, `stock-movements`, `requisition-history`) and two of them take
   `from`/`to`, but the screen's default view is unspecified.

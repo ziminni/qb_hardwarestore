@@ -64,3 +64,23 @@ along with their two routes and their two sidebar entries.
 
 Which of the four endpoints the screen shows by default, and whether it offers a date range picker
 (`sales-summary` and `stock-movements` take `from`/`to`). That is a UI question for Phase 6.
+
+
+---
+
+## Amendment — 2026-10-17: four tabs, one report each
+
+The "Not settled here" section above deferred the screen's default view and its date handling. An audit on
+2026-10-17 found that note recorded on neither the frontier nor the fog, while both read "EMPTY".
+
+**Ruling (user, 2026-10-17): four tabs — Sales · Valuation · Movements · Requisitions — one report
+loaded at a time,** each with its own controls where relevant (`sales-summary` and `stock-movements` take
+`from`/`to`; `inventory-valuation` and `requisition-history` do not).
+
+**Why:** only one report loads at a time, so the screen stays fast and each report gets the room its shape
+needs — the four endpoints return quite different payloads.
+
+**Cost, stated plainly:** a manager must click through four tabs to see the whole picture, and tab state
+plus per-tab loading is more UI to build and test than a single scrolling page. **The recommended option
+was the one-page version**; this ruling deliberately chose the tabbed one, and the reason is that the four
+payloads are dissimilar enough that one page would need four bespoke sections anyway.

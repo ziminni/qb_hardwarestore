@@ -62,3 +62,24 @@ live somewhere else anyway, splitting one business event across two features.
 once the endpoint exists. Whether they **consolidate into one** page or remain two (a sales view and an
 inventory view of the same rows) is a UI question for Phase 6, not a domain question — noted here so it
 is not silently decided by whichever file happens to be edited first.
+
+
+---
+
+## Amendment — 2026-10-17: the two returns pages consolidate into ONE
+
+This decision deferred the question above ("whether the two mock pages consolidate into one ... a UI
+question for Phase 6") and **warned that leaving it as a note risked it being decided by whichever file
+was edited first.** That warning was correct: an audit on 2026-10-17 found the note buried in a closed
+decision, recorded on neither the frontier nor the fog, while both sections read "EMPTY".
+
+**Ruling (user, 2026-10-17): ONE page, under Sales.** `inventory/views/inventory_returns_page.dart` is
+deleted along with its route and its inventory sidebar entry (11 → 10). `sales_returns_page.dart`
+survives and is wired over `GET /api/v1/transactions/?source=RETURN`.
+
+**Why:** decision 15 already made a return a `SalesTransaction` with `source='RETURN'`, so a return **is**
+a sales document. A second inventory view of the same rows would re-create, at the screen layer, exactly
+the duplicate-stack problem [Sales Stack Reconciliation](./05-sales-stack-reconciliation.md) spent a
+decision removing. The inventory role keeps **Stock Movements**, which already shows the stock side.
+
+**Cost:** the inventory sidebar loses a Returns entry.
