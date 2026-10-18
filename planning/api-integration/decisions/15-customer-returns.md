@@ -66,6 +66,15 @@ is not silently decided by whichever file happens to be edited first.
 
 ---
 
+## Amendment — 2026-10-18: repeat linked returns share one accounting (6A.4 fix pass)
+
+The linked branch is capped cumulatively, not per call: every linked return writes NEGATIVE
+deduction rows on its own items, so a second call sees what the first gave back. Partials and
+multi-line returns work; anything beyond what the original drew is refused (`INVALID_RETURN`,
+HTTP 400). Pre-linkage sales (no rows) still fall back to newest-active. Validity is enforced
+server-side: no return-of-return, no negative unit price, known payment method only, completed
+originals only, signs computed by the server. Collectibles remain untouched.
+
 ## Amendment — 2026-10-17: the two returns pages consolidate into ONE
 
 This decision deferred the question above ("whether the two mock pages consolidate into one ... a UI

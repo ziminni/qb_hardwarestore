@@ -14,6 +14,18 @@ from apps.inventory.exceptions import InsufficientStock
 from apps.collectibles.services import Overpayment
 
 
+class ReturnError(ValueError):
+    """A return the server refuses to record.
+
+    A ValueError subclass so it reads as a client error, with a stable code the
+    client branches on — the same shape as InsufficientStock and WalkInCannotOwe.
+    Raised for: return-of-return, more-than-drew (within or across calls), negative
+    unit price, unknown payment method, voided/non-completed original, no batches.
+    """
+
+    code = 'INVALID_RETURN'
+
+
 class WalkInCannotOwe(Exception):
     """An anonymous walk-in sale cannot go into utang (decision 14).
 
@@ -76,6 +88,14 @@ def handler(exc, context):
                 'code': exc.code,
                 'detail': str(exc),
                 'balance_due': f'{exc.balance_due:.2f}',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if isinstance(exc, ReturnError):
+        return Response(
+            {
+                'code': exc.code,
+                'detail': str(exc),
             },
             status=status.HTTP_400_BAD_REQUEST,
         )

@@ -8,6 +8,7 @@ or the linked branch is unimplementable.
 from decimal import Decimal
 
 from apps.pos.tests import POSTestBase
+from apps.pos.exceptions import ReturnError
 from apps.pos.services import process_return, process_sale
 from apps.pos.models import SalesItemDeduction
 
@@ -102,3 +103,123 @@ class ReturnEndpointTests(POSTestBase):
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(response.data['source'], 'RETURN')
         self.assertEqual(Decimal(response.data['grand_total']), Decimal('-20.00'))
+
+
+class ReturnGuardTests(POSTestBase):
+    """Validity holes the first pass left: repeats, signs, methods, states."""
+
+    def _sell_seven(self):
+        return process_sale(
+            customer_id=self.customer.id,
+            cashier=self.cashier,
+            items_data=[{'variant_id': self.vuom.id, 'qty': 7,
+                         'unit_price': Decimal('10')}],
+            payments_data=[{'method': 'CASH', 'amount_tendered': Decimal('70')}])
+
+    def _return(self, qty, original_id, unit_price=Decimal('10'),
+                method='CASH'):
+        return process_return(
+            customer_id=self.customer.id,
+            cashier=self.cashier,
+            items_data=[{'variant_id': self.vuom.id, 'qty': qty,
+                         'unit_price': unit_price}],
+            original_transaction_id=original_id,
+            payment_method=method)
+
+    def _batches(self):
+        from apps.inventory.models import InventoryBatch
+        return list(InventoryBatch.objects.filter(variant=self.variant)
+                    .order_by('receipt__receive_date'))
+
+    def test_a_second_linked_return_is_refused(self):
+        original = self._sell_seven()
+        self._return(Decimal('7'), original.id)
+
+        with self.assertRaises(ReturnError):
+            self._return(Decimal('7'), original.id)
+        oldest, newest = self._batches()
+        self.assertEqual((oldest.current_qty, newest.current_qty),
+                         (Decimal('5'), Decimal('5')))
+
+    def test_partial_then_remainder_is_allowed_but_a_third_is_not(self):
+        original = self._sell_seven()
+        self._return(Decimal('3'), original.id)
+        self._return(Decimal('4'), original.id)
+
+        with self.assertRaises(ReturnError):
+            self._return(Decimal('1'), original.id)
+        oldest, newest = self._batches()
+        self.assertEqual((oldest.current_qty, newest.current_qty),
+                         (Decimal('5'), Decimal('5')))
+
+    def test_two_lines_share_one_accounting_not_two(self):
+        original = self._sell_seven()
+
+        process_return(
+            customer_id=self.customer.id,
+            cashier=self.cashier,
+            items_data=[{'variant_id': self.vuom.id, 'qty': 4,
+                         'unit_price': Decimal('10')},
+                        {'variant_id': self.vuom.id, 'qty': 3,
+                         'unit_price': Decimal('10')}],
+            original_transaction_id=original.id)
+
+        oldest, newest = self._batches()
+        self.assertEqual((oldest.current_qty, newest.current_qty),
+                         (Decimal('5'), Decimal('5')),
+                         'row caps are per call, not per line: oldest takes 5, not 7')
+
+    def test_negative_unit_price_is_refused(self):
+        original = self._sell_seven()
+
+        with self.assertRaises(ReturnError):
+            self._return(Decimal('2'), original.id,
+                         unit_price=Decimal('-10'))
+
+    def test_unknown_payment_method_is_refused(self):
+        original = self._sell_seven()
+
+        with self.assertRaises(ReturnError):
+            self._return(Decimal('2'), original.id, method='BARTER')
+
+    def test_return_against_a_voided_original_is_refused(self):
+        original = self._sell_seven()
+        original.status = 'VOID'
+        original.save(update_fields=['status'])
+
+        with self.assertRaises(ReturnError):
+            self._return(Decimal('2'), original.id)
+
+    def test_restock_takes_row_locks_like_fifo(self):
+        from django.test.utils import CaptureQueriesContext
+        from django.db import connection
+        original = self._sell_seven()
+
+        with CaptureQueriesContext(connection) as ctx:
+            self._return(Decimal('2'), original.id)
+
+        self.assertTrue(
+            any('FOR UPDATE' in q['sql'] for q in ctx.captured_queries),
+            'restock reads its rows locked, matching allocate_fifo discipline')
+
+    def test_endpoint_maps_return_errors_to_400(self):
+        from rest_framework.test import APIClient
+        from django.contrib.auth import get_user_model
+        get_user_model().objects.create_superuser(
+            username='retmgr2', email='r2@x.com', password='pass12345')
+        client = APIClient()
+        login = client.post('/api/v1/auth/login/',
+                            {'username': 'retmgr2', 'password': 'pass12345'},
+                            format='json')
+        client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+
+        response = client.post('/api/v1/transactions/', {
+            'customer': self.customer.id,
+            'source': 'RETURN',
+            'items': [{'variant_id': self.vuom.id, 'qty': '2',
+                       'unit_price': '-10.00'}],
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(response.data['code'], 'INVALID_RETURN')
