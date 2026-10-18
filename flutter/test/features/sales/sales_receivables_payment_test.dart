@@ -117,6 +117,8 @@ void main() {
     // retry that double-posts a partial payment, while claiming success pops the
     // dialog over stale rows. The honest answer is neither: recorded, not refreshed.
     repository.rows = [_entry()];
+    await viewmodel.load();
+    expect(viewmodel.entries, hasLength(1));
     repository.loadFailure = 'The receivables could not be loaded.';
 
     final ok = await viewmodel.recordPayment(entry: _entry(), amount: 472);
