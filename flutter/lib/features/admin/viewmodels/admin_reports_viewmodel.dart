@@ -93,7 +93,8 @@ class AdminReportsViewmodel extends ChangeNotifier {
         _loading.remove(tab);
         _loaded.remove(tab);
         notifyListeners();
-        return _loadTab(tab);
+        await _loadTab(tab);
+        return;
       }
       _loaded.add(tab);
     } on ReportsServiceException catch (error) {
