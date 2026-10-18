@@ -1,7 +1,7 @@
 # planning/api-integration/MAP.md
 
 **Slug:** `api-integration` · **Opened:** 2026-10-15
-**Status:** 16 locked · 0 open — the Active Frontier is EMPTY. **Phase state lives in the phase table below, which is the single home for it** — per-row, with evidence. Phase 5 was unlocked by [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md), resolved 2026-10-17. Phase 0's 7 rows
+**Status:** 18 locked · 0 open — **frontier, blocked and fog are ALL EMPTY.** The map is complete; the roadmap below is the hand-off. **Phase state lives in the phase table below, which is the single home for it** — per-row, with evidence. Phase 5 was unlocked by [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md), resolved 2026-10-17. Phase 0's 7 rows
 are built and were verified row-by-row against the code (the "Phase 0 — status" table below is the authority; it
 has been wrong twice in opposite directions, so it is stated with per-row evidence); Phase 1's products catalogue
 renders live API data (commits `6070442`…`557dfd3`); Phase 2 made the server the authority for inventory state
@@ -119,6 +119,8 @@ Rules every session on this map must respect. Facts that already have a home are
 - [Inventory Data Authority for Phase 2](./decisions/13-inventory-data-authority.md): the **server is the single authority** for inventory state — the low-stock screen reads `GET /api/v1/alerts/` and the movements screen reads `GET /api/v1/adjustments/` (with adjustments POSTed, not invented locally). The client's `_movements` log is deleted, and the derived status column is aligned to the server's exact predicate (`<` with a `threshold > 0` guard) so the list and the alert screen cannot contradict each other. Requires **one backend change: `seed_demo` demo data** (2 below-threshold variants, ~5 adjustments), because both endpoints are empty and no seed command writes a `SystemAlert`. Built in `938547e`…`794e83a`.
 - [POS Checkout Client Contract](./decisions/06-checkout-client-contract.md): the POST response **is** the finished transaction (nested items, payments and receipt), so the receipt screen needs no second fetch; the cart is keyed by the **real `VariantUom.id`** (`variant_id` in the payload is a misnomer, and the cart's synthesized `variant.id * 100 + index` would target the wrong unit); a walk-in sale still **sends the Walk-in Customer's id**, because the FK is not nullable; the cart is cleared **only** on a 201; insufficient stock becomes a **400 with a stable `INSUFFICIENT_STOCK` code** rather than today's 500 (one backend change, approved); and an underpaid sale stops at a **confirmation step** before submitting, since creating a debt is consequential and the receipt prints after the fact. **Built** in `102c121`…`1415664`; verified live against the running server.
 - [Customer Master-Data Scope (POS side)](./decisions/14-customer-master-data-scope.md): the POS **selects AND creates** customers mid-sale on a **minimal record (name + type)** — no backend permission change is needed, because `CustomerViewSet` inherits `IsPOSOrReadOnly`, so a Cashier may already POST. **A walk-in is not a customer record**: anonymous sales reuse the seeded `Walk-in Customer` and **cannot go into utang**, because an anonymous walker is not collectable — the live database already carries **₱4,900 booked against Walk-in**, which is that old behaviour's consequence. If a walker wants to owe, the cashier names them on the spot. Utang (balance, aging, a **credit-limit warning that is advisory, never a hard block**) is shown in a **customer detail panel at the till**. `sales_customers_page.dart` is **deleted** and `sales_receivables_page.dart` **wired** to `/ledgers/`. Requires fixing **three real backend defects** — `Customer` has no `full_name` (one wrong assumption copied from `User`), which **500s `/ledgers/aging/`** and silently returns `customer_name: null` on every ledger row.
+- [Product Images](./decisions/18-product-images.md): leave `image_url` blank — the placeholder widget already exists, and a remote URL fails offline where a placeholder does not.
+- [Receiving Stock Through the UI](./decisions/17-receiving-ui.md): BUILD the receiving screen (PO -> receipt -> process -> FIFO batches). The only scope decision needing NO backend work; the inventory sidebar goes 11 -> 12 entries.
 - [The Reports Surface](./decisions/16-reports-surface.md): ONE admin/manager Reports screen over the four `/reports/*` endpoints; the sales and inventory report screens are deleted, because `/reports/*` is `IsManagerRole` and those two roles are refused.
 - [Customer Returns](./decisions/15-customer-returns.md): a customer return is a `SalesTransaction` with `source='RETURN'` and NEGATIVE amounts plus an optional `original_transaction` FK; restock into the original batch when linked, else the newest active one. The reports need NO change because they already sum transactions and a negative one nets out.
 - [Sales Stack Reconciliation](./decisions/05-sales-stack-reconciliation.md): **quotations and orders get REAL backend models** — the sales role ships all seven screens, and Phase 6 becomes a BACKEND phase (see its own cost note; the invariant below is superseded for it).
@@ -168,15 +170,11 @@ when the slice order locked and is now simply sequenced at Phase 6.
 
 ## Fog of War (Not Yet Specified)
 
-In scope, but not sharp enough to state until the frontier advances.
-
-- Goods receipt / receiving UI — Phase 2 is read-only stock; receiving is only required if the demo must create stock without `seed_demo`.
-- Product image handling — `image_url` is in the serializer, but whether the demo renders images at all is unspecified.
-
-> **Resolved fog, removed 2026-10-17:** the collectibles/utang screens and the customer
-> master-data screens are no longer unknowns — [Customer Master-Data Scope (POS side)](./decisions/14-customer-master-data-scope.md) is locked and Phase 4 shipped, including the
-> receivables screen. They were listed here as "partly graduated", which overstated what was
-> still unknown.
+**EMPTY as of 2026-10-17.** Every in-scope area is now either a locked decision, an explicit Out of
+Scope entry, or built. The last two items graduated here:
+[Receiving Stock Through the UI](./decisions/17-receiving-ui.md) (build it — no backend needed) and
+[Product Images](./decisions/18-product-images.md) (leave blank; the placeholder is honest). Two earlier
+items were removed because they described **completed** work, which a list of unknowns must not do.
 
 ## Out of Scope
 
