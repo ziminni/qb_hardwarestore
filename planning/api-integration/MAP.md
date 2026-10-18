@@ -182,7 +182,11 @@ closed decision files were found by an audit on 2026-10-17 and moved to the Acti
 note inside a closed decision is not a record — it is a note nothing enforces. The last two items graduated here:
 [Receiving Stock Through the UI](./decisions/17-receiving-ui.md) (build it — no backend needed) and
 [Product Images](./decisions/18-product-images.md) (leave blank; the placeholder is honest). Two earlier
-items were removed because they described **completed** work, which a list of unknowns must not do. A later audit found a third such note — decision 09’s receivables payment-posting UI — and it was resolved the same turn as [Receivables Record Payment](./decisions/19-receivables-record-payment.md), so it never became an open frontier item.
+items were removed because they described **completed** work, which a list of unknowns must not do.
+One minor polish item is recorded here so no note hides in a closed file: the approve-queue
+project filter ([Requisition UI Ownership](./decisions/09-requisition-ui-ownership.md), "Not decided
+here") is undecided UI only — the service already follows pages. Too small to gate anything, so it
+stays fog, not frontier. A later audit found a third such note — decision 09’s receivables payment-posting UI — and it was resolved the same turn as [Receivables Record Payment](./decisions/19-receivables-record-payment.md), so it never became an open frontier item.
 
 ## Out of Scope
 
