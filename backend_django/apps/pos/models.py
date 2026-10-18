@@ -84,6 +84,24 @@ class SalesItem(models.Model):
         return f'{self.transaction.transaction_no} — {self.variant_uom} × {self.qty}'
 
 
+class SalesItemDeduction(models.Model):
+    """Which batches one sale item drew from, and how much from each.
+
+    Task 6A.4: `allocate_fifo` returns (batch, qty) allocations and `process_sale`
+    used to discard them, so a return linked to its original sale could not know
+    "the original batch it left from" (decision 15's linked branch). One row per
+    batch touched — an item spanning two batches writes two rows.
+    """
+    sales_item = models.ForeignKey(
+        SalesItem, on_delete=models.CASCADE, related_name='deductions')
+    batch = models.ForeignKey(
+        'inventory.InventoryBatch', on_delete=models.PROTECT, related_name='+')
+    qty = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        db_table = 'pos_sales_item_deduction'
+
+
 class Payment(models.Model):
     class Method(models.TextChoices):
         CASH = 'CASH', 'Cash'

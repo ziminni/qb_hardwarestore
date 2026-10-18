@@ -62,7 +62,7 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
             unit_price = Decimal(str(item.get('unit_price', 0)))
             subtotal = qty * unit_price
 
-            SalesItem.objects.create(
+            item_row = SalesItem.objects.create(
                 transaction=txn,
                 variant_uom_id=item_id,
                 qty=qty,
@@ -79,7 +79,14 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
             if vuom is not None:
                 variant_id = vuom.variant_id
             # Raises ValueError on insufficient stock → whole sale rolls back.
-            allocate_fifo(variant_id=variant_id, qty_needed=qty)
+            allocations = allocate_fifo(variant_id=variant_id, qty_needed=qty)
+            # Task 6A.4: persist which batches this item drew from. Without these
+            # rows a linked return cannot know "the original batch it left from".
+            from .models import SalesItemDeduction
+            SalesItemDeduction.objects.bulk_create([
+                SalesItemDeduction(sales_item=item_row, batch=batch, qty=take)
+                for batch, take in allocations
+            ])
 
             vatable_sales += subtotal
 
@@ -131,4 +138,130 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
                 status=CollectibleLedger.Status.OPEN,
             )
 
+    return txn
+
+
+def _restock_returned(*, variant_id, qty_needed, original_id):
+    """Add returned stock back, per decision 15's two branches.
+
+    Linked (original_id set): back into the batches the original sale drew from,
+    oldest-drawn first; pre-linkage sales left no deduction rows, so those fall
+    back to the newest-active branch — the only honest answer when history was
+    never recorded. Unlinked: the newest active batch. No active batch at all
+    (variant fully depleted): the newest batch overall is reopened.
+    """
+    from apps.inventory.models import InventoryBatch
+    from .models import SalesItemDeduction
+
+    remaining = qty_needed
+    if original_id is not None:
+        rows = list(
+            SalesItemDeduction.objects
+            .select_related('batch')
+            .filter(sales_item__transaction_id=original_id,
+                    sales_item__variant_uom__variant_id=variant_id)
+            .order_by('batch__receipt__receive_date')
+        )
+        if rows:
+            touched = []
+            for row in rows:
+                if remaining <= 0:
+                    break
+                add = min(row.qty, remaining)
+                row.batch.current_qty += add
+                touched.append(row.batch)
+                remaining -= add
+            if touched:
+                InventoryBatch.objects.bulk_update(touched, ['current_qty'])
+            if remaining > 0:
+                raise ValueError(
+                    'Cannot return more than the original sale drew.')
+            return
+    newest = (
+        InventoryBatch.objects
+        .filter(variant_id=variant_id, current_qty__gt=0)
+        .order_by('-receipt__receive_date')
+        .first()
+    )
+    if newest is None:
+        newest = (
+            InventoryBatch.objects
+            .filter(variant_id=variant_id)
+            .order_by('-receipt__receive_date')
+            .first()
+        )
+    if newest is None:
+        raise ValueError('No batches exist for this variant.')
+    newest.current_qty += remaining
+    newest.save(update_fields=['current_qty'])
+
+
+def process_return(*, customer_id, cashier, items_data,
+                   original_transaction_id=None, payment_method='CASH'):
+    """Post a customer return: a RETURN transaction with negative amounts.
+
+    items_data mirrors process_sale but POSITIVE (what comes back):
+    [{'variant_id': 1, 'qty': 5, 'unit_price': Decimal('150')}].
+    Lines store negative qty (direction) at a positive unit price; the payment
+    is the negative refund. Validators do not run on objects.create(), and no
+    full_clean path creates sale items — see the 6A.4 ledger note.
+    Collectibles are deliberately untouched (decision 15 is silent on utang).
+    """
+    from apps.inventory.models import VariantUOM
+
+    with transaction.atomic():
+        original = None
+        if original_transaction_id is not None:
+            original = SalesTransaction.objects.get(pk=original_transaction_id)
+            if original.source == SalesTransaction.Source.RETURN:
+                raise ValueError('A return cannot reverse another return.')
+        txn = SalesTransaction.objects.create(
+            customer_id=customer_id,
+            cashier=cashier,
+            transaction_no=generate_transaction_no(),
+            source=SalesTransaction.Source.RETURN,
+            original_transaction=original,
+            vatable_sales=0,
+            vat_amount=0,
+            discount_amount=0,
+            grand_total=0,
+        )
+        total = Decimal('0')
+        for item in items_data:
+            item_id = item['variant_id']
+            qty = Decimal(str(item.get('qty', 0)))
+            unit_price = Decimal(str(item.get('unit_price', 0)))
+            if qty <= 0:
+                raise ValueError('Return lines carry the positive qty coming back.')
+            SalesItem.objects.create(
+                transaction=txn,
+                variant_uom_id=item_id,
+                qty=-qty,
+                unit_price=unit_price,
+                subtotal=-(qty * unit_price),
+            )
+            # Same vuom-or-variant resolution as process_sale.
+            variant_id = item_id
+            vuom = VariantUOM.objects.filter(
+                pk=item_id).select_related('variant').first()
+            if vuom is not None:
+                variant_id = vuom.variant_id
+            _restock_returned(
+                variant_id=variant_id, qty_needed=qty,
+                original_id=original.id if original else None)
+            total += -(qty * unit_price)
+        txn.vatable_sales = total
+        txn.grand_total = total
+        txn.save(update_fields=['vatable_sales', 'grand_total'])
+        Payment.objects.create(
+            transaction=txn,
+            method=payment_method,
+            amount_tendered=total,
+            reference_no='',
+        )
+        OfficialReceipt.objects.create(
+            transaction=txn,
+            or_number=generate_or_number(),
+            terminal_no='POS-01',
+        )
     return txn

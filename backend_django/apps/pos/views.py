@@ -35,13 +35,24 @@ class SalesTransactionViewSet(BaseViewSet):
     def create(self, request):
         ser = self.get_serializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        txn = process_sale(
-            customer_id=ser.validated_data['customer'].id,
-            cashier=request.user,
-            items_data=request.data.get('items',[]),
-            payments_data=request.data.get('payments',[]),
-            source=ser.validated_data.get('source','WALK_IN'),
-        )
+        source = ser.validated_data.get('source','WALK_IN')
+        if source == 'RETURN':
+            from .services import process_return
+            txn = process_return(
+                customer_id=ser.validated_data['customer'].id,
+                cashier=request.user,
+                items_data=request.data.get('items',[]),
+                original_transaction_id=request.data.get('original_transaction'),
+                payment_method=request.data.get('payment_method','CASH'),
+            )
+        else:
+            txn = process_sale(
+                customer_id=ser.validated_data['customer'].id,
+                cashier=request.user,
+                items_data=request.data.get('items',[]),
+                payments_data=request.data.get('payments',[]),
+                source=source,
+            )
         return Response(self.get_serializer(txn).data, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['get'])

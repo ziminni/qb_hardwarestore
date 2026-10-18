@@ -49,7 +49,7 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SalesTransaction
-        fields = ['id','customer','customer_name','cashier','cashier_name','transaction_no','trans_date','vatable_sales','vat_amount','discount_amount','grand_total','source','status','notes','items','payments','receipt','created_at','updated_at']
+        fields = ['id','customer','customer_name','cashier','cashier_name','transaction_no','trans_date','vatable_sales','vat_amount','discount_amount','grand_total','source','original_transaction','status','notes','items','payments','receipt','created_at','updated_at']
         # `cashier` is READ-ONLY because the actor is not the client's to choose. The view
         # already passes `cashier=request.user` into `process_sale`, so a writable
         # `cashier` was demanded by validation and then discarded -- every client had to
