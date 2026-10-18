@@ -157,6 +157,19 @@ the POS needs" is now stateable). The one remaining decision gates Phase 6.
 
 ## Active Frontier (Open & Unblocked)
 
+**Reopened 2026-10-17.** The section read "EMPTY", which was true only of *recorded* items: two questions
+had been deferred INSIDE closed decision files and recorded nowhere, so nothing would have stopped them
+being decided by whichever file was edited first — which is the exact danger
+[Customer Returns](./decisions/15-customer-returns.md) named when it wrote the note.
+
+- [ ] **Do the two returns pages consolidate into one, or stay two?** — grill · Phase 6. Deferred by
+  [Customer Returns](./decisions/15-customer-returns.md): `sales_returns_page.dart` (a sales view) and
+  `inventory_returns_page.dart` (an inventory view) both render mock over the same rows.
+- [ ] **What does the manager Reports screen show, and does it take a date range?** — grill · Phase 6.
+  Deferred by [The Reports Surface](./decisions/16-reports-surface.md): four endpoints exist
+  (`sales-summary`, `inventory-valuation`, `stock-movements`, `requisition-history`) and two of them take
+  `from`/`to`, but the screen's default view is unspecified.
+
 
 Ordered by the locked phase order: define the entity, then the transport, then the presentation. Resolve one
 per session. Phases 0-3 have their tickets and **Phase 4's and Phase 5's are now resolved too**; the one item below gates
@@ -170,8 +183,10 @@ when the slice order locked and is now simply sequenced at Phase 6.
 
 ## Fog of War (Not Yet Specified)
 
-**EMPTY as of 2026-10-17.** Every in-scope area is now either a locked decision, an explicit Out of
-Scope entry, or built. The last two items graduated here:
+**EMPTY of UNRECORDED items as of 2026-10-17** — but read this carefully. Every in-scope area is either
+a locked decision, an explicit Out of Scope entry, or built. **Two questions that were deferred inside
+closed decision files were found by an audit on 2026-10-17 and moved to the Active Frontier**, because a
+note inside a closed decision is not a record — it is a note nothing enforces. The last two items graduated here:
 [Receiving Stock Through the UI](./decisions/17-receiving-ui.md) (build it — no backend needed) and
 [Product Images](./decisions/18-product-images.md) (leave blank; the placeholder is honest). Two earlier
 items were removed because they described **completed** work, which a list of unknowns must not do.
