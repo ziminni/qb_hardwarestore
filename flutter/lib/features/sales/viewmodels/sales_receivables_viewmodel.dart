@@ -78,6 +78,15 @@ class SalesReceivablesViewmodel extends ChangeNotifier {
         amountPaid: amount,
       );
       await load();
+      if (_loadError != null) {
+        // The money moved but the rows did not refresh. Returning true would pop
+        // the dialog over stale balances; returning a plain failure would invite a
+        // retry that double-posts a partial payment. Neither claim is honest, so
+        // the dialog stays open naming exactly what happened.
+        _payError =
+            'Payment was recorded, but the list could not be refreshed. Close and check before posting again.';
+        return false;
+      }
       return true;
     } on LedgerServiceException catch (error) {
       _payError = error.message;

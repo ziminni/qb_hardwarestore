@@ -10,6 +10,7 @@ class _StubPayingRepository extends LedgerRepository {
   _StubPayingRepository() : super();
 
   List<LedgerEntry> rows = const [];
+  String? loadFailure;
   int fetchCalls = 0;
   int recordCalls = 0;
   int? lastCollectibleId;
@@ -20,6 +21,8 @@ class _StubPayingRepository extends LedgerRepository {
   @override
   Future<List<LedgerEntry>> fetchLedgers() async {
     fetchCalls++;
+    final failure = loadFailure;
+    if (failure != null) throw LedgerServiceException(failure);
     return rows;
   }
 
@@ -108,4 +111,21 @@ void main() {
     expect(await first, isTrue);
     expect(repository.recordCalls, 1);
   });
+
+  test('a posted payment with a failed reload says recorded, not failed', () async {
+    // The post went through; only the refresh failed. Claiming failure invites a
+    // retry that double-posts a partial payment, while claiming success pops the
+    // dialog over stale rows. The honest answer is neither: recorded, not refreshed.
+    repository.rows = [_entry()];
+    repository.loadFailure = 'The receivables could not be loaded.';
+
+    final ok = await viewmodel.recordPayment(entry: _entry(), amount: 472);
+
+    expect(ok, isFalse);
+    expect(repository.recordCalls, 1);
+    expect(viewmodel.payError, contains('recorded'));
+    expect(viewmodel.payError, contains('refresh'));
+    expect(viewmodel.entries, hasLength(1));
+  });
 }
+
