@@ -18,7 +18,6 @@ import 'package:client/features/sales/views/sales_dashboard_page.dart';
 import 'package:client/features/sales/views/sales_orders_page.dart';
 import 'package:client/features/sales/views/sales_quotations_page.dart';
 import 'package:client/features/sales/views/sales_receivables_page.dart';
-import 'package:client/features/sales/views/sales_reports_page.dart';
 import 'package:client/features/sales/views/sales_returns_page.dart';
 import 'package:client/features/sales/views/sales_transactions_page.dart';
 import 'package:client/features/inventory/views/inventory_stock_movements_page.dart';
@@ -29,7 +28,6 @@ import 'package:client/features/suppliers/views/purchases_page.dart';
 import 'package:client/features/suppliers/views/suppliers_page.dart';
 import 'package:client/features/sales/views/inventory_returns_page.dart';
 import 'package:client/features/sales/views/inventory_sales_page.dart';
-import 'package:client/features/reports/views/inventory_reports_page.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -59,7 +57,6 @@ class AppRoutes {
   static const String inventorySuppliers = '/inventory/suppliers';
   static const String inventorySales = '/inventory/sales';
   static const String inventoryReturns = '/inventory/returns';
-  static const String inventoryReports = '/inventory/reports';
   static const String posDashboard = '/pos/dashboard';
   static const String posRelease = '/pos/release';
   static const String salesDashboard = '/sales/dashboard';
@@ -68,7 +65,6 @@ class AppRoutes {
   static const String salesOrders = '/sales/orders';
   static const String salesReceivables = '/sales/receivables';
   static const String salesReturns = '/sales/returns';
-  static const String salesReports = '/sales/reports';
 
   /// The pure routing decision: where a request to [location] should go, or null
   /// to stay.
@@ -287,12 +283,6 @@ class AppRoutes {
               _transitionPage(state, const InventoryReturnsPage()),
         ),
         GoRoute(
-          path: inventoryReports,
-          name: 'inventory_reports',
-          pageBuilder: (context, state) =>
-              _transitionPage(state, const InventoryReportsPage()),
-        ),
-        GoRoute(
           path: posDashboard,
           name: 'pos_dashboard',
           pageBuilder: (context, state) =>
@@ -339,12 +329,6 @@ class AppRoutes {
           name: 'sales_returns',
           pageBuilder: (context, state) =>
               _transitionPage(state, const SalesReturnsPage()),
-        ),
-        GoRoute(
-          path: salesReports,
-          name: 'sales_reports',
-          pageBuilder: (context, state) =>
-              _transitionPage(state, const SalesReportsPage()),
         ),
       ],
     );

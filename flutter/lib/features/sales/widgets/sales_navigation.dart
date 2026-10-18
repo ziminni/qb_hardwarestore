@@ -10,7 +10,6 @@ void navigateSales(BuildContext context, int index) {
     AppRoutes.salesOrders,
     AppRoutes.salesReceivables,
     AppRoutes.salesReturns,
-    AppRoutes.salesReports,
   ];
   if (index >= 0 && index < paths.length) context.go(paths[index]);
 }
