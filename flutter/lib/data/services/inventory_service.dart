@@ -1,5 +1,7 @@
 import 'package:client/core/network/api_client.dart';
 import 'package:client/data/models/inventory.dart';
+import 'package:client/data/models/inventory_batch.dart';
+import 'package:client/data/models/receiving.dart';
 import 'package:client/data/models/system_alert.dart';
 import 'package:dio/dio.dart';
 
@@ -34,6 +36,8 @@ class InventoryService {
 
   static const alertsPath = '/api/v1/alerts/';
   static const adjustmentsPath = '/api/v1/adjustments/';
+  static const purchaseOrdersPath = '/api/v1/purchase-orders/';
+  static const goodsReceiptsPath = '/api/v1/goods-receipts/';
 
   /// Alerts the backend has raised — low stock, out of stock, expiring.
   ///
@@ -88,6 +92,74 @@ class InventoryService {
         );
       }
       return StockAdjustment.fromJson(data);
+    } on DioException catch (error) {
+      throw InventoryServiceException(_message(error));
+    }
+  }
+
+  /// Open purchase orders with their lines, for the receiving screen.
+  ///
+  /// Decision 17: a PO can be created through the UI and then never received —
+  /// this list is where receiving starts.
+  Future<List<PurchaseOrderRecord>> fetchPurchaseOrders() async {
+    final page = await _guard(
+      () => _client.getList<PurchaseOrderRecord>(
+        purchaseOrdersPath,
+        PurchaseOrderRecord.fromJson,
+      ),
+    );
+    return page.items;
+  }
+
+  /// Records a goods receipt, carrying the received quantities.
+  ///
+  /// The `items` payload sets POItem.received_qty server-side, which is what a
+  /// later process/ turns into FIFO batches. Returns the server's row.
+  Future<GoodsReceiptRecord> createReceipt({
+    required int poId,
+    required List<ReceiptLine> items,
+    String deliveryReceiptNo = '',
+  }) async {
+    try {
+      final response = await _client.post<Map<String, dynamic>>(
+        goodsReceiptsPath,
+        data: {
+          'po': poId,
+          'delivery_receipt_no': deliveryReceiptNo,
+          'items': [for (final line in items) line.toJson()],
+        },
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const InventoryServiceException(
+          'The server did not return the saved receipt.',
+        );
+      }
+      return GoodsReceiptRecord.fromJson(data);
+    } on DioException catch (error) {
+      throw InventoryServiceException(_message(error));
+    }
+  }
+
+  /// Processes a receipt into FIFO batches and returns the minted rows.
+  ///
+  /// The process endpoint answers with a bare list, not a paginated envelope —
+  /// there is exactly one receipt being processed, so paging it would be absurd.
+  Future<List<InventoryBatch>> processReceipt(int receiptId) async {
+    try {
+      final response = await _client.post<List<dynamic>>(
+        '$goodsReceiptsPath$receiptId/process/',
+        data: {},
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const InventoryServiceException(
+          'The server did not return the minted batches.',
+        );
+      }
+      return data
+          .map((b) => InventoryBatch.fromJson(b as Map<String, dynamic>))
+          .toList();
     } on DioException catch (error) {
       throw InventoryServiceException(_message(error));
     }

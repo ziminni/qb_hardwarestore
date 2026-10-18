@@ -118,7 +118,11 @@ class GoodsReceiptSerializer(serializers.ModelSerializer):
     class Meta:
         model = GoodsReceipt
         fields = ['id','po','received_by','received_by_name','receive_date','delivery_receipt_no','notes','batches','created_at']
-        read_only_fields = ['id','receive_date','created_at']
+        # `received_by` is READ-ONLY: the actor is not the client's to choose. The viewset
+        # already passes `request.user` into creation, so a writable `received_by` was
+        # demanded by validation and then had to be sent — every client had to supply a
+        # value that means nothing. Same invariant as the checkout's `cashier` field.
+        read_only_fields = ['id','received_by','receive_date','created_at']
 
 
 class StockAdjustmentSerializer(serializers.ModelSerializer):

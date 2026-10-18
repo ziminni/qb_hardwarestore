@@ -105,6 +105,80 @@ class GoodsReceiptViewSet(_CatalogBaseViewSet):
     ).prefetch_related('batches').all()
     serializer_class = GoodsReceiptSerializer
 
+    def create(self, request, *args, **kwargs):
+        """Record a receipt, optionally carrying received quantities.
+
+        `items: [{po_item, qty}]` sets POItem.received_qty so a later
+        POST /goods-receipts/{id}/process/ has something to turn into batches.
+        Without it the receipt is still recorded (backward compatible), but the
+        process step finds nothing to receive. Task 6B.2: received_qty has no
+        other API write path.
+        """
+        from decimal import Decimal
+
+        from django.db import transaction
+        from rest_framework import status as drf_status
+        from rest_framework.response import Response
+
+        from .models import POItem
+
+        data = dict(request.data)
+        raw_items = data.pop('items', [])
+        if raw_items is None:
+            raw_items = []
+        if not isinstance(raw_items, list):
+            return Response(
+                {'detail': 'items must be a list of {po_item, qty}.'},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+        ser = self.get_serializer(data=data)
+        ser.is_valid(raise_exception=True)
+
+        po = ser.validated_data['po']
+        parsed = []
+        for entry in raw_items:
+            if not isinstance(entry, dict):
+                return Response(
+                    {'detail': 'each item must be {po_item, qty}.'},
+                    status=drf_status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                po_item = POItem.objects.select_related('po').get(
+                    pk=entry.get('po_item'))
+            except (POItem.DoesNotExist, ValueError, TypeError):
+                return Response(
+                    {'detail': f"unknown po_item: {entry.get('po_item')!r}."},
+                    status=drf_status.HTTP_400_BAD_REQUEST,
+                )
+            if po_item.po_id != po.id:
+                return Response(
+                    {'detail': f'po_item {po_item.pk} is not on this PO.'},
+                    status=drf_status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                qty = Decimal(str(entry.get('qty', 0)))
+            except Exception:
+                return Response(
+                    {'detail': f"qty for po_item {po_item.pk} is not a number."},
+                    status=drf_status.HTTP_400_BAD_REQUEST,
+                )
+            if qty < 0 or qty > po_item.ordered_qty:
+                return Response(
+                    {'detail': f'qty for po_item {po_item.pk} must be between 0 '
+                               f'and {po_item.ordered_qty}.'},
+                    status=drf_status.HTTP_400_BAD_REQUEST,
+                )
+            parsed.append((po_item, qty))
+
+        with transaction.atomic():
+            receipt = ser.save(received_by=request.user)
+            for po_item, qty in parsed:
+                po_item.received_qty = qty
+                po_item.save(update_fields=['received_qty'])
+        return Response(
+            self.get_serializer(receipt).data,
+            status=drf_status.HTTP_201_CREATED)
+
     @action(detail=True, methods=['post'])
     def process(self, request, pk=None):
         receipt = self.get_object()
