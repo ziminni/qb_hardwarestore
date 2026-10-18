@@ -137,14 +137,134 @@ class _ReceivablesView extends StatelessWidget {
       Text('₱${entry.paidAmount.toStringAsFixed(2)}'),
       Text('₱${entry.balanceDue.toStringAsFixed(2)}'),
       SalesStatusBadge(label: status.label, tone: status.tone),
-      // Posting a payment writes to /ledger-payments/, which is Admin-only, so this stays
-      // unwired rather than pretending: the button is here because the column exists, and it
-      // is disabled so it cannot lie about having recorded anything.
-      const TextButton(
-        onPressed: null,
-        child: Text('Record payment'),
+      // Decision 19: POST /ledger-payments/ is IsPOSOrReadOnly, so a Cashier may post —
+      // the old "Admin-only" claim confused ledger-entry writes (staff-only) with payment
+      // writes. The button posts through the viewmodel and stays disabled only in flight.
+      Builder(
+        builder: (rowContext) {
+          final rowViewmodel = rowContext.read<SalesReceivablesViewmodel>();
+          final paying = rowViewmodel.isPaying(entry.id);
+          return TextButton(
+            // The dialog route builds ABOVE this page's provider, so the viewmodel
+            // travels as a constructor argument — a dialog-local context.read would
+            // throw ProviderNotFoundException instead of opening anything.
+            onPressed: paying
+                ? null
+                : () => _openPaymentDialog(rowContext, rowViewmodel, entry),
+            child: paying
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Record payment'),
+          );
+        },
       ),
     ];
+  }
+}
+
+Future<void> _openPaymentDialog(
+  BuildContext context,
+  SalesReceivablesViewmodel viewmodel,
+  LedgerEntry entry,
+) {
+  return showDialog<void>(
+    context: context,
+    builder: (_) => _RecordPaymentDialog(viewmodel: viewmodel, entry: entry),
+  );
+}
+
+/// Amount entry for one receivable. Prefilled with the full balance; the cashier may
+/// lower it for a partial payment. Over-amounts are refused before anything posts.
+class _RecordPaymentDialog extends StatefulWidget {
+  const _RecordPaymentDialog({required this.viewmodel, required this.entry});
+
+  final SalesReceivablesViewmodel viewmodel;
+  final LedgerEntry entry;
+
+  @override
+  State<_RecordPaymentDialog> createState() => _RecordPaymentDialogState();
+}
+
+class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
+  late final TextEditingController _amount = TextEditingController(
+    text: widget.entry.balanceDue.toStringAsFixed(2),
+  );
+  String? _error;
+  bool _posting = false;
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Reads widget.viewmodel, never context: this route sits above the page's
+    // provider and has no provider ancestor of its own.
+    final viewmodel = widget.viewmodel;
+    return AlertDialog(
+      title: Text('Record payment — ${widget.entry.transactionNo}'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _amount,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'Amount (₱)'),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _posting ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _posting
+              ? null
+              : () async {
+                  final parsed = double.tryParse(_amount.text.trim());
+                  if (parsed == null) {
+                    setState(() => _error = 'Enter a valid amount.');
+                    return;
+                  }
+                  // Captured before the await: the lint forbids carrying a
+                  // BuildContext across the async gap on a State.mounted guard.
+                  final navigator = Navigator.of(context);
+                  setState(() {
+                    _posting = true;
+                    _error = null;
+                  });
+                  final ok = await viewmodel.recordPayment(
+                    entry: widget.entry,
+                    amount: parsed,
+                  );
+                  if (!mounted) return;
+                  if (ok) {
+                    navigator.pop();
+                    return;
+                  }
+                  setState(() {
+                    _posting = false;
+                    _error =
+                        viewmodel.payError ?? 'The payment could not be recorded.';
+                  });
+                },
+          child: const Text('Record'),
+        ),
+      ],
+    );
   }
 }
 

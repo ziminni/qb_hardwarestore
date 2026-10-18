@@ -17,6 +17,8 @@ class SalesReceivablesViewmodel extends ChangeNotifier {
   List<LedgerEntry> _entries = const [];
   bool _isLoading = false;
   String? _loadError;
+  final Set<int> _payingIds = {};
+  String? _payError;
 
   List<LedgerEntry> get entries => List.unmodifiable(_entries);
   bool get isLoading => _isLoading;
@@ -38,6 +40,53 @@ class SalesReceivablesViewmodel extends ChangeNotifier {
   }
 
   bool get hasEntries => _entries.isNotEmpty;
+
+  /// Ledgers with a payment currently in flight — their row buttons stay disabled
+  /// so a double tap cannot post twice.
+  bool isPaying(int ledgerId) => _payingIds.contains(ledgerId);
+
+  /// Why the last payment failed; null when the last payment succeeded or none ran.
+  String? get payError => _payError;
+
+  /// Posts one payment against [entry], then reloads from the server.
+  ///
+  /// Reloads rather than subtracting locally: the server owns `balance_due` and the
+  /// refusal semantics, so the rows must show what it says, not what the till assumed.
+  /// Returns false without touching the repository when the amount is not payable.
+  Future<bool> recordPayment({
+    required LedgerEntry entry,
+    required double amount,
+  }) async {
+    if (_payingIds.contains(entry.id)) return false;
+    if (amount <= 0) {
+      _payError = 'Enter an amount greater than zero.';
+      notifyListeners();
+      return false;
+    }
+    if (amount > entry.balanceDue) {
+      _payError =
+          'That payment is more than the ${entry.balanceDue.toStringAsFixed(2)} still owed.';
+      notifyListeners();
+      return false;
+    }
+    _payingIds.add(entry.id);
+    _payError = null;
+    notifyListeners();
+    try {
+      await _repository.recordPayment(
+        collectibleId: entry.id,
+        amountPaid: amount,
+      );
+      await load();
+      return true;
+    } on LedgerServiceException catch (error) {
+      _payError = error.message;
+      return false;
+    } finally {
+      _payingIds.remove(entry.id);
+      notifyListeners();
+    }
+  }
 
   /// Loads every open receivable.
   ///

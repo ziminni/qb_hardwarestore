@@ -32,9 +32,9 @@ the same commit that breaks it.
   frontier, blocked and fog **all empty**, and the **Phase 6 roadmap** is written at its end.
 - **Phase state is NOT stated here** — it is owned by the phase table in the active map, per-row and with
   evidence. Read that table; a copy here would be a second home, and this file's own rule forbids one.
-- **Phase 6 has started and is BACKEND-FIRST.** Task **6A.1** (the `Quotation` model, endpoint and
-  migration) is built. **Next: 6A.2 — `SalesOrder` + `SalesOrderItem` + endpoint + migration**, the same
-  shape as the Quotation just built.
+- **Phase 6 is mid-build.** 6A.1 (Quotation), 6A.2 (SalesOrder), 6A.3 (return shape + migration 0004) and
+  decision 19 (receivables Record payment for Cashier+, service + viewmodel + page) are built.
+  **Next: 6A.4 — the restock rule** (original batch when linked, else newest active), then 6B screens.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.

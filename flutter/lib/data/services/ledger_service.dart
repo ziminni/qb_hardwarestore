@@ -13,17 +13,20 @@ class LedgerServiceException implements Exception {
   String toString() => message;
 }
 
-/// Reads the collectibles ledger — the real receivables behind the sales screen.
+/// Reads the collectibles ledger — the real receivables behind the sales screen — and posts
+/// payments against it.
 ///
 /// Decision 14 made the POS picker the single customer surface, so this service deliberately
-/// exposes NO customer operations: it reads receivables and nothing else. Customer reads and
-/// writes live in `CustomerService`.
+/// exposes NO customer operations: it reads receivables and posts payments, nothing else.
+/// Customer reads and writes live in `CustomerService`.
 class LedgerService {
   LedgerService({ApiClient? client}) : _client = client ?? ApiClient.instance;
 
   final ApiClient _client;
 
   static const String ledgersPath = '/api/v1/ledgers/';
+
+  static const String ledgerPaymentsPath = '/api/v1/ledger-payments/';
 
   /// Page size the server is configured with; the bound below is expressed in those units.
   static const int _maxPages = 40;
@@ -45,6 +48,29 @@ class LedgerService {
     throw const LedgerServiceException(
       'The receivables list did not finish loading. Try again.',
     );
+  }
+
+  /// Posts one payment against one open receivable.
+  ///
+  /// The server moves `balance_due` and refuses overpayment with the stable
+  /// `PAYMENT_EXCEEDS_BALANCE` code; that refusal is surfaced verbatim so the cashier
+  /// sees the owed remainder, not a generic failure.
+  Future<void> recordPayment({
+    required int collectibleId,
+    required double amountPaid,
+    String paymentMethod = 'CASH',
+    String? officialReceiptNo,
+  }) async {
+    try {
+      await _client.post<void>(ledgerPaymentsPath, data: {
+        'collectible': collectibleId,
+        'amount_paid': amountPaid,
+        'payment_method': paymentMethod,
+        'official_receipt_no': ?officialReceiptNo,
+      });
+    } on DioException catch (error) {
+      throw LedgerServiceException(_messageForPost(error));
+    }
   }
 
   Future<Paged<LedgerEntry>> _get(int page) async {
@@ -74,5 +100,35 @@ class LedgerService {
     if (status == 401) return 'Your session has expired. Sign in again.';
     if (status == 403) return 'You do not have access to receivables.';
     return 'The receivables could not be loaded.';
+  }
+
+  String _messageForPost(DioException error) {
+    if (error.type == DioExceptionType.connectionError ||
+        error.type == DioExceptionType.connectionTimeout) {
+      return 'Cannot connect to the BuildPro server.';
+    }
+    final data = error.response?.data;
+    if (error.response?.statusCode == 400 && data is Map<String, dynamic>) {
+      if (data['code'] == 'PAYMENT_EXCEEDS_BALANCE') {
+        final detail = data['detail'];
+        if (detail is String && detail.isNotEmpty) return detail;
+        return 'That payment is more than the balance still owed.';
+      }
+      final detail = data['detail'];
+      if (detail is String && detail.isNotEmpty) return detail;
+      for (final value in data.values) {
+        if (value is List && value.isNotEmpty && value.first is String) {
+          return value.first as String;
+        }
+      }
+      return 'The payment was refused. Check the amount and try again.';
+    }
+    if (error.response?.statusCode == 401) {
+      return 'Your session has expired. Sign in again.';
+    }
+    if (error.response?.statusCode == 403) {
+      return 'You do not have access to record payments.';
+    }
+    return 'The payment could not be recorded.';
   }
 }
