@@ -27,7 +27,6 @@ import 'package:client/features/inventory/views/inventory_receiving_page.dart';
 import 'package:client/features/products/views/products_page.dart';
 import 'package:client/features/suppliers/views/purchases_page.dart';
 import 'package:client/features/suppliers/views/suppliers_page.dart';
-import 'package:client/features/sales/views/inventory_returns_page.dart';
 import 'package:client/features/sales/views/inventory_sales_page.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -57,7 +56,6 @@ class AppRoutes {
   static const String inventoryPurchases = '/inventory/purchases';
   static const String inventorySuppliers = '/inventory/suppliers';
   static const String inventorySales = '/inventory/sales';
-  static const String inventoryReturns = '/inventory/returns';
   static const String inventoryReceiving = '/inventory/receiving';
   static const String posDashboard = '/pos/dashboard';
   static const String posRelease = '/pos/release';
@@ -288,12 +286,6 @@ class AppRoutes {
           name: 'inventory_sales',
           pageBuilder: (context, state) =>
               _transitionPage(state, const InventorySalesPage()),
-        ),
-        GoRoute(
-          path: inventoryReturns,
-          name: 'inventory_returns',
-          pageBuilder: (context, state) =>
-              _transitionPage(state, const InventoryReturnsPage()),
         ),
         GoRoute(
           path: inventoryReceiving,

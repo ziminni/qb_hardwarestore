@@ -33,7 +33,7 @@ class _ReceivingView extends StatelessWidget {
     return InventorySkeletonLayout(
       title: 'Receiving',
       subtitle: 'Receive purchase orders into FIFO stock.',
-      selectedNavigationIndex: 10,
+      selectedNavigationIndex: 9,
       onNavigationSelected: (index) => navigateInventory(context, index),
       child: viewmodel.isLoading && !viewmodel.hasOrders
           ? const Center(child: CircularProgressIndicator())
