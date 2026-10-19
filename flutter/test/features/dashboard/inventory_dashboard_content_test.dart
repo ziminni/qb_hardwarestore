@@ -10,6 +10,8 @@ import 'package:client/data/services/inventory_service.dart';
 import 'package:client/data/services/products_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/dashboard/views/inventory_dashboard.dart';
+import 'package:client/features/dashboard/widget/inventory_list_item.dart';
+import 'package:client/features/dashboard/widget/inventory_section.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -66,6 +68,30 @@ class _StubInventoryRepository extends InventoryRepository {
   }
 }
 
+ProductVariant _variant({
+  required int id,
+  required String name,
+  required double threshold,
+}) =>
+    ProductVariant(
+      id: id, productId: 100 + id, baseUomId: 1,
+      minStockThreshold: threshold, maxStockLevel: 0, variantName: name,
+      baseUomCode: 'PC', isActive: true,
+    );
+
+Product _stockProduct({required int id, required String name}) => Product(
+  id: 100 + id, categoryId: 1, categoryName: 'Cat', brandId: 1, brandName: 'QB',
+  baseName: name, description: '', imageUrl: '', isActive: true,
+  variants: [_variant(id: id, name: 'v$id', threshold: const {1: 50, 2: 50, 3: 20, 4: 50, 5: 50, 6: 50, 7: 20}[id]!.toDouble())],
+);
+
+InventoryBatch _stockBatch({required int id, required double qty}) =>
+    InventoryBatch(
+      id: id, variantId: id, receiptId: 1, initialQty: 100, currentQty: qty,
+      unitCostLanded: 200, markupPercentage: 0, batchSellingPrice: 260,
+      expirationDate: null, createdAt: DateTime(2026, 10, 19),
+    );
+
 Future<void> _pump(WidgetTester tester, InventoryViewmodel inventory) async {
   tester.view.physicalSize = const Size(1600, 1400);
   tester.view.devicePixelRatio = 1.0;
@@ -112,6 +138,59 @@ void main() {
 
     expect(find.text('1,248'), findsNothing);
     expect(find.textContaining('No products'), findsOneWidget);
+  });
+
+  testWidgets('restock queue leads with out-of-stock and signals overflow', (
+    tester,
+  ) async {
+    // Catalogue order is deliberately non-urgent: in-stock, then lows, then
+    // out-of-stock. The queue must re-rank: out first, lows by coverage, and
+    // say so when it cuts the list.
+    final products = [
+      _stockProduct(id: 1, name: 'In Stock Item'),
+      _stockProduct(id: 2, name: 'Low B'),
+      _stockProduct(id: 3, name: 'Out C'),
+      _stockProduct(id: 4, name: 'Low D'),
+      _stockProduct(id: 5, name: 'Low E'),
+      _stockProduct(id: 6, name: 'Low F'),
+      _stockProduct(id: 7, name: 'Out G'),
+    ];
+    final quantities = {1: 95.0, 2: 10.0, 3: 0.0, 4: 25.0, 5: 40.0, 6: 5.0, 7: 0.0};
+    final inventory = InventoryViewmodel(
+      products: _StubProductsRepository(
+        ProductsSnapshot(
+          products: products,
+          batches: [
+            for (final id in quantities.keys)
+              _stockBatch(id: id, qty: quantities[id]!),
+          ],
+        ),
+      ),
+      inventory: _StubInventoryRepository(),
+    );
+    await _pump(tester, inventory);
+
+    // Out-of-stock leads, lows follow by coverage (F 0.1, B 0.2, D 0.5):
+    // C, G, F, B, D shown; E (0.8) cut with an overflow signal. Scoped to
+    // the queue subtree — the table lists every variant, so bare text
+    // finders cannot tell the two apart.
+    final queue = find.descendant(
+      of: find.widgetWithText(InventorySection, 'Restock queue'),
+      matching: find.byType(InventoryListItem),
+    );
+    final titles = tester
+        .widgetList<InventoryListItem>(queue)
+        .map((item) => item.title)
+        .toList();
+    expect(titles, [
+      'Out C v3',
+      'Out G v7',
+      'Low F v6',
+      'Low B v2',
+      'Low D v4',
+      startsWith('+1 more'),
+    ]);
+    expect(find.textContaining('+1 more'), findsOneWidget);
   });
 
   testWidgets('live rows render product, stock and movement data', (

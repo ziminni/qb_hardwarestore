@@ -18,10 +18,9 @@ import 'package:provider/provider.dart';
 class InventoryDashboardContent extends StatelessWidget {
   const InventoryDashboardContent({super.key});
 
-  static String _qty(double value) =>
-      value == value.truncateToDouble()
-          ? value.toStringAsFixed(0)
-          : value.toStringAsFixed(2);
+  static String _qty(double value) => value == value.truncateToDouble()
+      ? value.toStringAsFixed(0)
+      : value.toStringAsFixed(2);
 
   @override
   Widget build(BuildContext context) {
@@ -95,17 +94,46 @@ class InventoryDashboardContent extends StatelessWidget {
       );
     }).toList();
 
-    final restock = [
+    // Most urgent first: zero stock before low stock, then lowest coverage
+    // (on-hand / reorder level). A silent take(5) once hid a zero-stock
+    // variant at position 6 while the manager restocked others — the queue
+    // says how many more need restocking instead.
+    final restockAll = [
       for (final product in viewmodel.products)
         for (final variant in product.variants)
           if (viewmodel.statusForVariant(variant.id).name != 'inStock')
-            InventoryListItem(
-              title: '${product.baseName} ${variant.variantName}',
-              subtitle:
-                  '${_qty(viewmodel.stockOnHandFor(variant.id))} on hand · reorder at ${_qty(variant.minStockThreshold)}',
-              trailing: viewmodel.statusForVariant(variant.id).label,
+            (
+              product: product,
+              variant: variant,
+              onHand: viewmodel.stockOnHandFor(variant.id),
             ),
-    ].take(5).toList();
+    ]..sort((a, b) {
+      final aOut = a.onHand <= 0;
+      final bOut = b.onHand <= 0;
+      if (aOut != bOut) return aOut ? -1 : 1;
+      double coverage(double onHand, double threshold) =>
+          threshold > 0 ? onHand / threshold : 0;
+      return coverage(
+        a.onHand,
+        a.variant.minStockThreshold,
+      ).compareTo(coverage(b.onHand, b.variant.minStockThreshold));
+    });
+    final restock = [
+      for (final entry in restockAll.take(5))
+        InventoryListItem(
+          title: '${entry.product.baseName} ${entry.variant.variantName}',
+          subtitle:
+              '${_qty(entry.onHand)} on hand · reorder at ${_qty(entry.variant.minStockThreshold)}',
+          trailing: viewmodel
+              .statusForVariant(entry.variant.id)
+              .label,
+        ),
+      if (restockAll.length > 5)
+        InventoryListItem(
+          title: '+${restockAll.length - 5} more need restocking',
+          subtitle: 'Open the stock list to see all',
+        ),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
