@@ -11,6 +11,7 @@
 //
 // Three of _pay's six paths are covered here; the other three are enumerated in the ledger.
 
+import 'package:client/core/network/api_client.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/services/auth_service.dart';
@@ -83,6 +84,12 @@ void _addOneLine() {
 }
 
 void main() {
+  // The till loads the live catalogue on open (6D), so the real transport must
+  // exist even though no test here touches the network: without init, Dio's
+  // late field throws and the failure is a crash, not the banner. The app
+  // always inits in main() before runApp; this mirrors that.
+  setUpAll(() => ApiClient.instance.init());
+
   setUp(() {
     _pos = _StubPosRepository();
     _cart = PosTransactionViewmodel(
