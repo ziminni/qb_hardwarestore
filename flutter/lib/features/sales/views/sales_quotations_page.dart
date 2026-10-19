@@ -2,17 +2,33 @@ import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/data/models/sales_module.dart';
 import 'package:client/features/sales/viewmodels/sales_module_viewmodel.dart';
+import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
 import 'package:client/features/sales/widgets/sales_records_table.dart';
 import 'package:client/features/sales/widgets/sales_status_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-class SalesQuotationsPage extends StatelessWidget {
+class SalesQuotationsPage extends StatefulWidget {
   const SalesQuotationsPage({super.key});
+
+  @override
+  State<SalesQuotationsPage> createState() => _SalesQuotationsPageState();
+}
+
+class _SalesQuotationsPageState extends State<SalesQuotationsPage> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<SalesModuleViewmodel>().load();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final records = context.watch<SalesModuleViewmodel>().quotations;
+    final viewmodel = context.watch<SalesModuleViewmodel>();
+    final records = viewmodel.quotations;
     String label(SalesQuoteStatus value) =>
         value.name[0].toUpperCase() + value.name.substring(1);
     String tone(SalesQuoteStatus value) => switch (value) {
@@ -29,6 +45,11 @@ class SalesQuotationsPage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (viewmodel.loadError != null)
+            LiveLoadErrorBanner(
+              message: viewmodel.loadError!,
+              onRetry: viewmodel.load,
+            ),
           Align(
             alignment: Alignment.centerRight,
             child: FilledButton.icon(

@@ -2,6 +2,7 @@ import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/widgets/inventory_sales_status_badge.dart';
+import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
 import 'package:client/features/sales/widgets/sales_records_table.dart';
 import 'package:flutter/material.dart';
@@ -15,12 +16,19 @@ class SalesTransactionsPage extends StatefulWidget {
 
 class _SalesTransactionsPageState extends State<SalesTransactionsPage> {
   String query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<InventorySalesViewmodel>().load();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final sales = context
-        .watch<InventorySalesViewmodel>()
-        .sales
-        .where(
+    final viewmodel = context.watch<InventorySalesViewmodel>();
+    final sales = viewmodel.sales.where(
           (sale) =>
               '${sale.transactionNo} ${sale.customer} ${sale.paymentMethod}'
                   .toLowerCase()
@@ -35,6 +43,11 @@ class _SalesTransactionsPageState extends State<SalesTransactionsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (viewmodel.loadError != null)
+            LiveLoadErrorBanner(
+              message: viewmodel.loadError!,
+              onRetry: viewmodel.load,
+            ),
           SizedBox(
             width: 360,
             child: TextField(

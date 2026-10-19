@@ -5,14 +5,28 @@ import 'package:client/data/models/sales.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/widgets/sales_dashboard_metric_card.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
+import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:client/features/sales/widgets/sales_recent_transactions.dart';
 import 'package:client/features/sales/widgets/sales_revenue_trend.dart';
 import 'package:client/features/sales/widgets/sales_top_products.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-class SalesDashboardPage extends StatelessWidget {
+class SalesDashboardPage extends StatefulWidget {
   const SalesDashboardPage({super.key});
+
+  @override
+  State<SalesDashboardPage> createState() => _SalesDashboardPageState();
+}
+
+class _SalesDashboardPageState extends State<SalesDashboardPage> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<InventorySalesViewmodel>().load();
+    });
+  }
 
   void _selectNavigation(BuildContext context, int index) {
     navigateSales(context, index);
@@ -24,7 +38,8 @@ class SalesDashboardPage extends StatelessWidget {
     final completed = salesState.sales
         .where((sale) => sale.status == InventorySaleStatus.completed)
         .toList();
-    final revenue = completed.fold<double>(0, (sum, sale) => sum + sale.total);
+    // Net of refunds: RETURN rows carry negative totals (see netRevenue).
+    final revenue = salesState.netRevenue;
     final average = completed.isEmpty ? 0.0 : revenue / completed.length;
     final pendingReturns = salesState.returns
         .where(
@@ -42,6 +57,11 @@ class SalesDashboardPage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (salesState.loadError != null)
+            LiveLoadErrorBanner(
+              message: salesState.loadError!,
+              onRetry: salesState.load,
+            ),
           Row(
             children: [
               Expanded(
@@ -54,7 +74,7 @@ class SalesDashboardPage extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const Text('Current mock sales activity'),
+                    const Text('Live sales activity'),
                   ],
                 ),
               ),

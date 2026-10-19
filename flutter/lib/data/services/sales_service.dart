@@ -40,10 +40,7 @@ class SalesService {
         () => _client.getList<TransactionRecord>(
           transactionsPath,
           TransactionRecord.fromJson,
-          queryParameters: {
-            'source': ?source,
-            'page': page,
-          },
+          queryParameters: {'source': ?source, 'page': page},
         ),
         'sales transactions',
       );

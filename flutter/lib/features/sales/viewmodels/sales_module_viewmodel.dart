@@ -62,10 +62,7 @@ class SalesModuleViewmodel extends ChangeNotifier {
             // No expiry on the wire means none set: fall back to creation.
             DateTime.tryParse(q.validUntil ?? '') ??
                 DateTime.parse(q.createdAt),
-            q.items.fold<double>(
-              0,
-              (sum, i) => sum + i.qty * i.unitPrice,
-            ),
+            q.items.fold<double>(0, (sum, i) => sum + i.qty * i.unitPrice),
             _quoteStatus(q.status),
           ),
       ];
@@ -83,6 +80,8 @@ class SalesModuleViewmodel extends ChangeNotifier {
     } on SalesServiceException catch (error) {
       _loadError = error.message;
     } on CustomerServiceException catch (error) {
+      _loadError = error.message;
+    } on FormatException catch (error) {
       _loadError = error.message;
     } finally {
       _isLoading = false;

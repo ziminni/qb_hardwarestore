@@ -3,6 +3,7 @@ import 'package:client/core/layout/inventory_skeleton_layout.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
+import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:client/features/sales/widgets/inventory_sale_details_dialog.dart';
 import 'package:client/features/sales/widgets/inventory_sales_table.dart';
 import 'package:flutter/material.dart';
@@ -17,6 +18,15 @@ class InventorySalesPage extends StatefulWidget {
 class _InventorySalesPageState extends State<InventorySalesPage> {
   String _query = '';
   InventorySaleStatus? _status;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<InventorySalesViewmodel>().load();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<InventorySalesViewmodel>();
@@ -37,6 +47,11 @@ class _InventorySalesPageState extends State<InventorySalesPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (state.loadError != null)
+            LiveLoadErrorBanner(
+              message: state.loadError!,
+              onRetry: state.load,
+            ),
           Wrap(
             spacing: AppSpacing.md,
             runSpacing: AppSpacing.md,

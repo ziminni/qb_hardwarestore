@@ -77,6 +77,7 @@ class InventoryReturn {
     required this.reason,
     required this.status,
     required this.processedBy,
+    required this.total,
   });
   final String reference;
   final DateTime date;
@@ -89,4 +90,5 @@ class InventoryReturn {
   final String reason;
   final InventoryReturnStatus status;
   final String processedBy;
+  final double total;
 }

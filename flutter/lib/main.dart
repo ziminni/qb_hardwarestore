@@ -40,12 +40,8 @@ Future<void> main() async {
         ChangeNotifierProvider.value(value: authViewmodel),
         ChangeNotifierProvider.value(value: inventoryViewmodel),
         ChangeNotifierProvider(create: (_) => SuppliersPurchasesViewmodel()),
-        ChangeNotifierProvider(
-          create: (_) => InventorySalesViewmodel()..load(),
-        ),
-        ChangeNotifierProvider(
-          create: (_) => SalesModuleViewmodel()..load(),
-        ),
+        ChangeNotifierProvider(create: (_) => InventorySalesViewmodel()),
+        ChangeNotifierProvider(create: (_) => SalesModuleViewmodel()),
         ChangeNotifierProvider(create: (_) => ProductTrackingViewmodel()),
       ],
       child: MyApp(auth: authViewmodel),

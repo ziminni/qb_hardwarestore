@@ -2,16 +2,32 @@ import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/widgets/inventory_sales_status_badge.dart';
+import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
 import 'package:client/features/sales/widgets/sales_records_table.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-class SalesReturnsPage extends StatelessWidget {
+class SalesReturnsPage extends StatefulWidget {
   const SalesReturnsPage({super.key});
+
+  @override
+  State<SalesReturnsPage> createState() => _SalesReturnsPageState();
+}
+
+class _SalesReturnsPageState extends State<SalesReturnsPage> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<InventorySalesViewmodel>().load();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final records = context.watch<InventorySalesViewmodel>().returns;
+    final viewmodel = context.watch<InventorySalesViewmodel>();
+    final records = viewmodel.returns;
     return SalesSkeletonLayout(
       title: 'Returns & Refunds',
       subtitle: 'Review customer returns, replacements, and refund outcomes.',
@@ -20,6 +36,11 @@ class SalesReturnsPage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (viewmodel.loadError != null)
+            LiveLoadErrorBanner(
+              message: viewmodel.loadError!,
+              onRetry: viewmodel.load,
+            ),
           Align(
             alignment: Alignment.centerRight,
             child: FilledButton.icon(

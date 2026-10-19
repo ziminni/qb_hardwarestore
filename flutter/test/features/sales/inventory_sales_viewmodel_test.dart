@@ -1,4 +1,5 @@
 import 'package:client/data/models/sale_transaction.dart';
+import 'package:client/data/models/sales.dart';
 import 'package:client/data/services/sales_service.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -45,6 +46,21 @@ TransactionRecord _return() => TransactionRecord(
   payments: const [TransactionPayment(method: 'CASH', amountTendered: -50)],
 );
 
+TransactionRecord _row({
+  required String source,
+  int? original,
+  double total = -50,
+  String status = 'COMPLETED',
+  String no = 'TRX-20261019-0002',
+}) => TransactionRecord(
+  id: 10, transactionNo: no, transDate: DateTime(2026, 10, 19, 9),
+  customerId: 3, customerName: 'Dela Cruz Construction', cashierName: 'Cashy Ir',
+  source: source, originalTransactionId: original, status: status,
+  grandTotal: total,
+  items: const [TransactionLineItem(variantUomId: 1, variantUomCode: 'BAG', qty: -1, unitPrice: 50, subtotal: -50)],
+  payments: const [TransactionPayment(method: 'CASH', amountTendered: -50)],
+);
+
 void main() {
   late _StubSalesService service;
   late InventorySalesViewmodel viewmodel;
@@ -76,5 +92,34 @@ void main() {
 
     expect(viewmodel.loadError, contains('Cannot connect'));
     expect(viewmodel.sales, hasLength(1));
+  });
+
+  group('fix pass: reviewer 43db5223', () {
+
+    test('a VOID return reads as rejected, not completed', () async {
+      service.rows = [_row(source: 'RETURN', original: 9, status: 'VOID')];
+
+      await viewmodel.load();
+
+      expect(viewmodel.returns.single.status, InventoryReturnStatus.rejected);
+    });
+
+    test('net revenue subtracts the refunded amounts', () async {
+      service.rows = [_sale(), _row(source: 'RETURN', original: 9)];
+
+      await viewmodel.load();
+
+      expect(viewmodel.completedRevenue, 100);
+      expect(viewmodel.netRevenue, 50);
+    });
+
+    test('an unknown source lands in loadError instead of escaping', () async {
+      service.rows = [_row(source: 'MYSTERY')];
+
+      await viewmodel.load();
+
+      expect(viewmodel.loadError, contains('MYSTERY'));
+      expect(viewmodel.sales, isEmpty);
+    });
   });
 }
