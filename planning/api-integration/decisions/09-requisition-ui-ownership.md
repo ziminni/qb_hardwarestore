@@ -119,6 +119,9 @@ testable with no creation UI and no CPMS involvement.
 
 - Whether the approve queue paginates or filters by project (a UI question once the screen exists).
   Still open as minor polish; the service already follows pages, so this is filter UI only.
+  **Resolved 2026-10-19 (wayfinder grill): leave unfiltered.** The queue stays newest-first with no
+  filter control — filtering gates nothing and even a client-side search would only cover fetched
+  rows. Reopen only with a concrete foreman complaint, not a hypothetical one.
 - The payment-posting UI for receivables. `POST /ledger-payments/` was fixed on 2026-10-17 so it finally moves
   `balance_due` and refuses overpayment, which makes such a screen viable for the first time — but it is a
   collectibles question, not a requisition one, and it stays in the Fog of War.

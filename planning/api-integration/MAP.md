@@ -1,7 +1,7 @@
 # planning/api-integration/MAP.md
 
 **Slug:** `api-integration` · **Opened:** 2026-10-15
-**Status:** 20 locked · **0 open** — the frontier was reopened on 2026-10-17 to clear two questions buried in closed decisions, and both are now resolved in those decisions. A later audit found one more deferred note in decision 09; it is now [Receivables Record Payment](./decisions/19-receivables-record-payment.md), so fog has no unrecorded items.**frontier, blocked and fog are ALL EMPTY.** The map is complete; the roadmap below is the hand-off. **Phase state lives in the phase table below, which is the single home for it** — per-row, with evidence. Phase 5 was unlocked by [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md), resolved 2026-10-17. Phase 0's 7 rows
+**Status:** 20 locked · **0 open** — the frontier was reopened on 2026-10-17 to clear two questions buried in closed decisions, and both are now resolved in those decisions. A later audit found one more deferred note in decision 09; it is now [Receivables Record Payment](./decisions/19-receivables-record-payment.md), so fog has no unrecorded items.** Frontier and blocked are EMPTY; fog holds only explicitly-recorded deferred items (audited 2026-10-19).** The map is complete; the roadmap below is the hand-off. **Phase state lives in the phase table below, which is the single home for it** — per-row, with evidence. Phase 5 was unlocked by [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md), resolved 2026-10-17. Phase 0's 7 rows
 are built and were verified row-by-row against the code (the "Phase 0 — status" table below is the authority; it
 has been wrong twice in opposite directions, so it is stated with per-row evidence); Phase 1's products catalogue
 renders live API data (commits `6070442`…`557dfd3`); Phase 2 made the server the authority for inventory state
@@ -184,16 +184,20 @@ note inside a closed decision is not a record — it is a note nothing enforces.
 [Receiving Stock Through the UI](./decisions/17-receiving-ui.md) (build it — no backend needed) and
 [Product Images](./decisions/18-product-images.md) (leave blank; the placeholder is honest). Two earlier
 items were removed because they described **completed** work, which a list of unknowns must not do.
-One minor polish item is recorded here so no note hides in a closed file: the approve-queue
-project filter ([Requisition UI Ownership](./decisions/09-requisition-ui-ownership.md), "Not decided
-here") is undecided UI only — the service already follows pages. Too small to gate anything, so it
-stays fog, not frontier. A later audit found a third such note — decision 09’s receivables payment-posting UI — and it was resolved the same turn as [Receivables Record Payment](./decisions/19-receivables-record-payment.md), so it never became an open frontier item. A later fix-pass review found the same fence shape
+The approve-queue project filter was resolved 2026-10-19 (leave unfiltered — see
+[Requisition UI Ownership](./decisions/09-requisition-ui-ownership.md), "Not decided here") and leaves
+fog. Remaining fog is the Walk-in row plus the three 6C deferrals below. A later audit found a third such note — decision 09’s receivables payment-posting UI — and it was resolved the same turn as [Receivables Record Payment](./decisions/19-receivables-record-payment.md), so it never became an open frontier item. A later fix-pass review found the same fence shape
 around the approve queue ([Approve Queue Route Gate](./decisions/20-approve-queue-route-gate.md));
 exempted the same turn, so it likewise never became an open frontier item. One more deferred note
 lives in a closed file with no other home: whether to reclassify or write off the pre-existing
 ₱4,900 Walk-in ledger row ([Customer Master-Data Scope](./decisions/14-customer-master-data-scope.md),
 "Deliberately not covered") — a seed-data question for the collectibles work, too coarse to decide
-yet, so it stays fog, not frontier.
+yet, so it stays fog, not frontier. Three 6C fix-pass deferrals graduated here 2026-10-19 (they lived
+only in the gitignored ledger, which is not a record): the 40-page / ~2,000-row lifetime bound on every
+list read (owned by [Pagination Envelope Strategy](./decisions/03-pagination-envelope-strategy.md), true
+page navigation still deferred there); the unparsed `discount_amount`/`vat_amount` wire fields (diverge
+from receipts only when a discount feature ships — no such feature is in scope); raw `CASH` payment-method
+text and the fixed "Customer return" reason on the sales screens (cosmetic polish, gates nothing).
 
 ## Out of Scope
 
