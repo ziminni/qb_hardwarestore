@@ -212,7 +212,7 @@ Ruled past the destination. Do not reopen without a new map.
 
 # Final Implementation Roadmap (Phase 6)
 
-The map is complete: **19 decisions locked, 0 open, nothing blocked, fog empty.** This is the hand-off —
+The map is complete: **20 decisions locked, 0 open, nothing blocked; fog holds 4 explicitly-recorded deferred items (see Fog of War).** This is the hand-off —
 what remains to be BUILT, in order, with the evidence each step must produce.
 
 **Phase 6 is a BACKEND-FIRST phase.** It was described as "Admin, reports, sales" — a UI phase — and
