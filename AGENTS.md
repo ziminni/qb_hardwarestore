@@ -28,13 +28,18 @@ the same commit that breaks it.
 - **Active branch:** `feature/backend-integration`, **unpushed.** For how far ahead it is run
   `git rev-list --count origin/master..HEAD` — a count written into this file is stale the moment the
   commit that writes it lands.
-- **The Wayfinder map is COMPLETE.** `planning/api-integration/MAP.md` reads **18 locked · 0 open**, with
-  frontier, blocked and fog **all empty**, and the **Phase 6 roadmap** is written at its end.
+- **The Wayfinder map is COMPLETE.** `planning/api-integration/MAP.md` reads **20 locked · 0 open**,
+  frontier and blocked empty, fog holding 4 owned deferrals, and the **Phase 6 roadmap** is written at its end.
 - **Phase state is NOT stated here** — it is owned by the phase table in the active map, per-row and with
   evidence. Read that table; a copy here would be a second home, and this file's own rule forbids one.
 - **Phase 6 is mid-build.** 6A.1 (Quotation), 6A.2 (SalesOrder), 6A.3 (return shape + migration 0004) and
   decision 19 (receivables Record payment for Cashier+, service + viewmodel + page) are built.
-  **Next: 6A.4 — the restock rule** (original batch when linked, else newest active), then 6B screens.
+  **Next: 6D — the live run pass**, plus the pending seed-data build below. 6A.4 (restock rule),
+  6B (reports + receiving) and 6C (live sales screens + review fix pass) are built.
+- **Pending seed-data build (wayfinder-resolved 2026-10-19, not yet built):** the underpaid demo
+  sale in `seed_demo.py` posts to Walk-in Customer; reclassify it to Maria Santos and reseed (see
+  [Customer Master-Data Scope](./planning/api-integration/decisions/14-customer-master-data-scope.md),
+  "Deliberately not covered"). Demo-only, no app code.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.

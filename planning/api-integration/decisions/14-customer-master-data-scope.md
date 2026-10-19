@@ -151,6 +151,11 @@ and they must not be conflated:
 - **Repairing the existing ₱4,900 Walk-in ledger row.** The rule changes future behaviour; whether to reclassify
   or write off that historical demo row is a data question, not a client-contract question, and it belongs with
   the collectibles/utang work.
+  **Resolved 2026-10-19 (wayfinder grill): reclassify in seed.** The underpaid `seed_demo.py` tuple moves from
+  Walk-in Customer to Maria Santos so the demo keeps its open-ledger example with data consistent with the
+  walk-in-cannot-owe rule. Writing it off via Record payment was rejected (demo would lose its open-utang
+  example); leaving it was rejected (the contradiction stays). **Pending build:** one-tuple seed edit + demo
+  reseed — demo-only, no app code, tracked in AGENTS.md until an executing-plans session takes it.
 - **Who owns customers across POS and CPMS.** Out of the map's scope entirely.
 
 ## File impact

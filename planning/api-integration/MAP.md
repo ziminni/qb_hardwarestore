@@ -188,11 +188,9 @@ The approve-queue project filter was resolved 2026-10-19 (leave unfiltered — s
 [Requisition UI Ownership](./decisions/09-requisition-ui-ownership.md), "Not decided here") and leaves
 fog. Remaining fog is the Walk-in row plus the three 6C deferrals below. A later audit found a third such note — decision 09’s receivables payment-posting UI — and it was resolved the same turn as [Receivables Record Payment](./decisions/19-receivables-record-payment.md), so it never became an open frontier item. A later fix-pass review found the same fence shape
 around the approve queue ([Approve Queue Route Gate](./decisions/20-approve-queue-route-gate.md));
-exempted the same turn, so it likewise never became an open frontier item. One more deferred note
-lives in a closed file with no other home: whether to reclassify or write off the pre-existing
-₱4,900 Walk-in ledger row ([Customer Master-Data Scope](./decisions/14-customer-master-data-scope.md),
-"Deliberately not covered") — a seed-data question for the collectibles work, too coarse to decide
-yet, so it stays fog, not frontier. Three 6C fix-pass deferrals graduated here 2026-10-19 (they lived
+exempted the same turn, so it likewise never became an open frontier item. The ₱4,900 Walk-in ledger row was resolved 2026-10-19 (reclassify in seed — see
+[Customer Master-Data Scope](./decisions/14-customer-master-data-scope.md)) and leaves fog; its one-tuple
+seed edit + reseed is a pending demo-only build tracked in AGENTS.md. Three 6C fix-pass deferrals graduated here 2026-10-19 (they lived
 only in the gitignored ledger, which is not a record): the 40-page / ~2,000-row lifetime bound on every
 list read (owned by [Pagination Envelope Strategy](./decisions/03-pagination-envelope-strategy.md) —
 confirmed deferred 2026-10-19, builds only on real volume or a revisit of that decision); the unparsed `discount_amount`/`vat_amount` wire fields (diverge
@@ -212,7 +210,7 @@ Ruled past the destination. Do not reopen without a new map.
 
 # Final Implementation Roadmap (Phase 6)
 
-The map is complete: **20 decisions locked, 0 open, nothing blocked; fog holds 4 explicitly-recorded deferred items (see Fog of War).** This is the hand-off —
+The map is complete: **20 decisions locked, 0 open, nothing blocked; fog holds 3 explicitly-recorded deferred items (see Fog of War).** This is the hand-off —
 what remains to be BUILT, in order, with the evidence each step must produce.
 
 **Phase 6 is a BACKEND-FIRST phase.** It was described as "Admin, reports, sales" — a UI phase — and
