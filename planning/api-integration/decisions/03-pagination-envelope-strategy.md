@@ -59,3 +59,7 @@ Why not the alternatives:
 
 Deferred: true page navigation. No seeded list exceeds one page, so nothing in Phases 1-6 reads `next`.
 `Paged.total` is the hook a paging UI would build on if the data grows.
+**Confirmed 2026-10-19 (wayfinder grill): the 40-page client cap (~2,000-row lifetime bound) stays as the
+documented limit.** Graduating it to a pagination build was offered and declined — true page navigation
+gets built only if real data volume nears the bound or this decision is revisited. Raising the cap
+without paging was rejected with it (slower starts, same wall).

@@ -194,8 +194,8 @@ lives in a closed file with no other home: whether to reclassify or write off th
 "Deliberately not covered") — a seed-data question for the collectibles work, too coarse to decide
 yet, so it stays fog, not frontier. Three 6C fix-pass deferrals graduated here 2026-10-19 (they lived
 only in the gitignored ledger, which is not a record): the 40-page / ~2,000-row lifetime bound on every
-list read (owned by [Pagination Envelope Strategy](./decisions/03-pagination-envelope-strategy.md), true
-page navigation still deferred there); the unparsed `discount_amount`/`vat_amount` wire fields (diverge
+list read (owned by [Pagination Envelope Strategy](./decisions/03-pagination-envelope-strategy.md) —
+confirmed deferred 2026-10-19, builds only on real volume or a revisit of that decision); the unparsed `discount_amount`/`vat_amount` wire fields (diverge
 from receipts only when a discount feature ships — no such feature is in scope); raw `CASH` payment-method
 text and the fixed "Customer return" reason on the sales screens (cosmetic polish, gates nothing).
 
