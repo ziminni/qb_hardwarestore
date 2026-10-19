@@ -32,6 +32,15 @@ class SalesTransactionViewSet(BaseViewSet):
     queryset = SalesTransaction.objects.select_related('customer','cashier').prefetch_related('items','payments','receipt').all()
     serializer_class = SalesTransactionSerializer
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # Decision 15's amendment wires the returns page over
+        # GET /transactions/?source=RETURN: the page must isolate returns.
+        source = self.request.query_params.get('source')
+        if source:
+            qs = qs.filter(source=source.upper())
+        return qs
+
     def create(self, request):
         ser = self.get_serializer(data=request.data)
         ser.is_valid(raise_exception=True)
