@@ -10,6 +10,7 @@ import 'package:client/features/pos/widgets/pos_receipt_dialog.dart';
 import 'package:client/features/pos/widgets/pos_sale_quantity_dialog.dart';
 import 'package:client/features/pos/widgets/pos_transaction_cart.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
+import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -32,6 +33,17 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
   final _scanFocusNode = FocusNode(debugLabel: 'POS barcode scanner');
 
   @override
+  void initState() {
+    super.initState();
+    // The catalogue boots as bundled rows (see InventoryViewmodel); the till
+    // must replace them with live data on open, or the cashier sells at stale
+    // prices. Found by the 6D live pass (mock 270 vs live 260 on Portland).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<InventoryViewmodel>().load();
+    });
+  }
+
+  @override
   void dispose() {
     _scanController.dispose();
     _scanFocusNode.dispose();
@@ -50,6 +62,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
       child: Builder(
         builder: (context) {
           final transaction = context.watch<PosTransactionViewmodel>();
+          final inventory = context.watch<InventoryViewmodel>();
           final products = transaction.filteredProducts;
           return DashboardShell(
             title: 'Point of Sale',
@@ -71,9 +84,19 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
               DashboardNavigationItem('Customers', Icons.people_outline),
               DashboardNavigationItem('End of shift', Icons.schedule_outlined),
             ],
-            child: SizedBox(
-              height: MediaQuery.sizeOf(context).height - 132,
-              child: Row(
+            child: Column(
+              children: [
+                if (inventory.loadError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: LiveLoadErrorBanner(
+                      message: inventory.loadError!,
+                      onRetry: inventory.load,
+                    ),
+                  ),
+                SizedBox(
+                  height: MediaQuery.sizeOf(context).height - 132,
+                  child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Expanded(
@@ -99,6 +122,8 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
                 ],
               ),
             ),
+        ],
+      ),
           );
         },
       ),
