@@ -11,11 +11,16 @@
 //
 // Three of _pay's six paths are covered here; the other three are enumerated in the ledger.
 
-import 'package:client/core/network/api_client.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/pos_service.dart';
+import 'package:client/data/services/products_service.dart';
+import 'package:client/data/services/inventory_service.dart';
+import 'package:client/data/repositories/products_repository.dart';
+import 'package:client/data/repositories/inventory_repository.dart';
+import 'package:client/data/models/inventory.dart';
+import 'package:client/data/models/system_alert.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
@@ -54,6 +59,29 @@ class _StubPosRepository extends PosRepository {
 late _StubPosRepository _pos;
 late PosTransactionViewmodel _cart;
 
+// The till loads the live catalogue on open (6D). These stubs fail
+// deterministically so the page never touches the network: with real
+// repositories the tests would pass against a dead server and behave
+// differently with a live one (mock rows swapped mid-test).
+class _FailingProductsRepository extends ProductsRepository {
+  _FailingProductsRepository() : super(ProductsService());
+
+  @override
+  Future<ProductsSnapshot> loadCatalogue() async =>
+      throw const ProductsServiceException('Cannot connect to the BuildPro server.');
+}
+
+class _FailingInventoryRepository extends InventoryRepository {
+  _FailingInventoryRepository() : super(InventoryService());
+
+  @override
+  Future<List<SystemAlert>> loadAlerts() async =>
+      throw const InventoryServiceException('Cannot connect.');
+
+  @override
+  Future<List<StockAdjustment>> loadAdjustments() async => [];
+}
+
 Future<void> _pump(WidgetTester tester) async {
   tester.view.physicalSize = const Size(1600, 1400);
   tester.view.devicePixelRatio = 1.0;
@@ -65,7 +93,12 @@ Future<void> _pump(WidgetTester tester) async {
       value: AuthViewmodel(AuthRepository(AuthService())),
       child: MultiProvider(
         providers: [
-          ChangeNotifierProvider<InventoryViewmodel>.value(value: InventoryViewmodel()),
+          ChangeNotifierProvider<InventoryViewmodel>.value(
+            value: InventoryViewmodel(
+              products: _FailingProductsRepository(),
+              inventory: _FailingInventoryRepository(),
+            ),
+          ),
           ChangeNotifierProvider<ProductTrackingViewmodel>.value(
             value: ProductTrackingViewmodel(),
           ),
@@ -84,12 +117,6 @@ void _addOneLine() {
 }
 
 void main() {
-  // The till loads the live catalogue on open (6D), so the real transport must
-  // exist even though no test here touches the network: without init, Dio's
-  // late field throws and the failure is a crash, not the banner. The app
-  // always inits in main() before runApp; this mirrors that.
-  setUpAll(() => ApiClient.instance.init());
-
   setUp(() {
     _pos = _StubPosRepository();
     _cart = PosTransactionViewmodel(
