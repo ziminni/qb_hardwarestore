@@ -1,16 +1,112 @@
-import 'package:client/features/dashboard/viewmodels/dashboard_mock_data.dart';
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/dashboard/widget/inventory_action_button.dart';
 import 'package:client/features/dashboard/widget/inventory_data_table.dart';
 import 'package:client/features/dashboard/widget/inventory_list_item.dart';
 import 'package:client/features/dashboard/widget/inventory_metric_card.dart';
 import 'package:client/features/dashboard/widget/inventory_section.dart';
+import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+/// Inventory home screen content, wired to live data.
+///
+/// Decision: every section reads `InventoryViewmodel` — the same derivation
+/// the stock screens use (not the alerts endpoint), so this screen can never
+/// contradict them about the same row. Mock rows are the viewmodel's initial
+/// state, so before the first successful load this shows loading/empty/error
+/// — never the bundled fixtures as if they were stock.
 class InventoryDashboardContent extends StatelessWidget {
   const InventoryDashboardContent({super.key});
 
+  static String _qty(double value) =>
+      value == value.truncateToDouble()
+          ? value.toStringAsFixed(0)
+          : value.toStringAsFixed(2);
+
   @override
   Widget build(BuildContext context) {
+    final viewmodel = context.watch<InventoryViewmodel>();
+
+    if (viewmodel.isLoading && !viewmodel.hasLoaded) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (!viewmodel.hasLoaded && viewmodel.loadError != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LiveLoadErrorBanner(
+            message: viewmodel.loadError!,
+            onRetry: viewmodel.load,
+          ),
+          const SizedBox(height: 16),
+          const Text('No products available.'),
+        ],
+      );
+    }
+    if (!viewmodel.hasLoaded) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    var lowStock = 0;
+    var outOfStock = 0;
+    for (final product in viewmodel.products) {
+      for (final variant in product.variants) {
+        final status = viewmodel.statusForVariant(variant.id);
+        if (status.name == 'lowStock') lowStock++;
+        if (status.name == 'outOfStock') outOfStock++;
+      }
+    }
+    final value = viewmodel.batches.fold<double>(
+      0,
+      (sum, batch) => sum + batch.currentQty * batch.unitCostLanded,
+    );
+    final metrics = [
+      ('Total products', '${viewmodel.products.length}'),
+      ('Inventory value', '₱${value.toStringAsFixed(2)}'),
+      ('Low stock', '$lowStock'),
+      ('Out of stock', '$outOfStock'),
+    ];
+
+    final tableRows = [
+      for (final record in viewmodel.stockRecords)
+        [
+          '${record.product.baseName} ${record.variant.variantName}',
+          record.product.categoryName,
+          _qty(viewmodel.stockOnHandFor(record.variant.id)),
+          _qty(record.variant.minStockThreshold),
+          viewmodel.statusForVariant(record.variant.id).label,
+        ],
+    ];
+
+    String movementTitle(int variantId) =>
+        viewmodel.variantFor(variantId)?.variantName ?? 'Unknown item';
+    final movements = viewmodel.movements.take(5).map((movement) {
+      final qty = movement.quantityChange;
+      final detail = movement.reason.isNotEmpty
+          ? movement.reason
+          : movement.reference.isNotEmpty
+          ? movement.reference
+          : movement.type.label;
+      return InventoryListItem(
+        title: movementTitle(movement.variantId),
+        subtitle:
+            '${movement.timestamp.month}/${movement.timestamp.day}/${movement.timestamp.year} · $detail',
+        trailing: '${qty >= 0 ? '+' : ''}${_qty(qty)}',
+      );
+    }).toList();
+
+    final restock = [
+      for (final product in viewmodel.products)
+        for (final variant in product.variants)
+          if (viewmodel.statusForVariant(variant.id).name != 'inStock')
+            InventoryListItem(
+              title: '${product.baseName} ${variant.variantName}',
+              subtitle:
+                  '${_qty(viewmodel.stockOnHandFor(variant.id))} on hand · reorder at ${_qty(variant.minStockThreshold)}',
+              trailing: viewmodel.statusForVariant(variant.id).label,
+            ),
+    ].take(5).toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -27,70 +123,73 @@ class InventoryDashboardContent extends StatelessWidget {
             InventoryActionButton(label: 'Add product'),
           ],
         ),
-        SizedBox(height: 16),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: DashboardMockData.inventoryMetrics
-              .map(
-                (metric) => SizedBox(
+        const SizedBox(height: 16),
+        if (viewmodel.loadError != null)
+          LiveLoadErrorBanner(
+            message: viewmodel.loadError!,
+            onRetry: viewmodel.load,
+          ),
+        if (viewmodel.loadError != null) const SizedBox(height: 16),
+        if (viewmodel.products.isEmpty)
+          const Text('No products available.')
+        else ...[
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              for (final metric in metrics)
+                SizedBox(
                   width: 190,
                   child: InventoryMetricCard(
-                    label: metric.label,
-                    value: metric.value,
+                    label: metric.$1,
+                    value: metric.$2,
                   ),
                 ),
-              )
-              .toList(),
-        ),
-        SizedBox(height: 16),
-        InventorySection(
-          title: 'Inventory table',
-          actionLabel: 'Search / Filter',
-          child: InventoryDataTable(
-            columns: DashboardMockData.inventoryTable.columns,
-            rows: DashboardMockData.inventoryTable.rows,
+            ],
           ),
-        ),
-        SizedBox(height: 16),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: InventorySection(
-                title: 'Recent stock movements',
-                child: Column(
-                  children: DashboardMockData.stockMovements
-                      .map(
-                        (item) => InventoryListItem(
-                          title: item.title,
-                          subtitle: item.subtitle,
-                          trailing: item.trailing,
-                        ),
-                      )
-                      .toList(),
+          const SizedBox(height: 16),
+          InventorySection(
+            title: 'Inventory table',
+            actionLabel: 'Search / Filter',
+            child: InventoryDataTable(
+              columns: const [
+                'Product',
+                'Category',
+                'On hand',
+                'Reorder level',
+                'Status',
+              ],
+              rows: tableRows,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: InventorySection(
+                  title: 'Recent stock movements',
+                  child: Column(
+                    children: movements.isEmpty
+                        ? [const Text('No movements recorded.')]
+                        : movements,
+                  ),
                 ),
               ),
-            ),
-            SizedBox(width: 16),
-            Expanded(
-              child: InventorySection(
-                title: 'Restock queue',
-                child: Column(
-                  children: DashboardMockData.restockQueue
-                      .map(
-                        (item) => InventoryListItem(
-                          title: item.title,
-                          subtitle: item.subtitle,
-                          trailing: item.trailing,
-                        ),
-                      )
-                      .toList(),
+              const SizedBox(width: 16),
+              Expanded(
+                child: InventorySection(
+                  title: 'Restock queue',
+                  child: Column(
+                    children: restock.isEmpty
+                        ? [const Text('Nothing to restock.')]
+                        : restock,
+                  ),
                 ),
               ),
-            ),
-          ],
-        ),
+            ],
+          ),
+        ],
       ],
     );
   }

@@ -65,6 +65,10 @@ class InventoryViewmodel extends ChangeNotifier {
   List<Category> get categories => List.unmodifiable(_categories);
   List<Product> get products => List.unmodifiable(_products);
 
+  /// Every live batch. The dashboard values inventory from these
+  /// (on-hand x landed cost), the same lots FIFO deducts from.
+  List<InventoryBatch> get batches => List.unmodifiable(_batches);
+
   /// Alerts the server has raised (low stock, out of stock, expiring).
   ///
   /// Read, not derived — decision 13. Note the consequence that decision
