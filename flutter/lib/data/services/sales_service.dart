@@ -79,14 +79,14 @@ class SalesService {
   }
 
   /// Every sales order.
-  Future<List<SalesOrderRecord>> fetchSalesOrders() async {
-    final rows = <SalesOrderRecord>[];
+  Future<List<SalesOrderRow>> fetchSalesOrders() async {
+    final rows = <SalesOrderRow>[];
     var page = 1;
     while (page <= _maxPages) {
       final response = await _guard(
-        () => _client.getList<SalesOrderRecord>(
+        () => _client.getList<SalesOrderRow>(
           salesOrdersPath,
-          SalesOrderRecord.fromJson,
+          SalesOrderRow.fromJson,
           queryParameters: {'page': page},
         ),
         'sales orders',

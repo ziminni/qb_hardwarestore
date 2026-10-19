@@ -134,6 +134,7 @@ class QuotationRecord {
     required this.customerId,
     required this.status,
     required this.validUntil,
+    required this.createdAt,
     required this.items,
   });
 
@@ -141,7 +142,10 @@ class QuotationRecord {
   final String number;
   final int customerId;
   final String status;
-  final String validUntil;
+
+  /// May be null — a quotation need not expire. See the viewmodel fallback.
+  final String? validUntil;
+  final String createdAt;
   final List<QuotationLineItem> items;
 
   factory QuotationRecord.fromJson(Map<String, dynamic> json) {
@@ -154,7 +158,8 @@ class QuotationRecord {
       number: stringField(json, 'quotation_no'),
       customerId: intField(json, 'customer'),
       status: stringField(json, 'status'),
-      validUntil: stringField(json, 'valid_until'),
+      validUntil: json['valid_until'] as String?,
+      createdAt: stringField(json, 'created_at'),
       items: items
           .map((i) => QuotationLineItem.fromJson(i as Map<String, dynamic>))
           .toList(),
@@ -164,13 +169,33 @@ class QuotationRecord {
 
 /// GET /api/v1/sales-orders/ rows. `quotationId` is the order's origin
 /// quotation when it has one — the quotation-to-order flow, made traceable.
-class SalesOrderRecord {
-  const SalesOrderRecord({
+class OrderLineItem {
+  const OrderLineItem({
+    required this.variantUomId,
+    required this.qty,
+    required this.unitPrice,
+  });
+
+  final int variantUomId;
+  final double qty;
+  final double unitPrice;
+
+  factory OrderLineItem.fromJson(Map<String, dynamic> json) => OrderLineItem(
+    variantUomId: intField(json, 'variant_uom'),
+    qty: decimalField(json, 'qty'),
+    unitPrice: decimalField(json, 'unit_price'),
+  );
+}
+
+class SalesOrderRow {
+  const SalesOrderRow({
     required this.id,
     required this.number,
     required this.customerId,
     required this.quotationId,
     required this.status,
+    required this.createdAt,
+    required this.items,
   });
 
   final int id;
@@ -178,13 +203,27 @@ class SalesOrderRecord {
   final int customerId;
   final int? quotationId;
   final String status;
+  final String createdAt;
+  final List<OrderLineItem> items;
 
-  factory SalesOrderRecord.fromJson(Map<String, dynamic> json) =>
-      SalesOrderRecord(
-        id: intField(json, 'id'),
-        number: stringField(json, 'order_no'),
-        customerId: intField(json, 'customer'),
-        quotationId: json['quotation'] as int?,
-        status: stringField(json, 'status'),
-      );
+  double get total =>
+      items.fold<double>(0, (sum, i) => sum + i.qty * i.unitPrice);
+
+  factory SalesOrderRow.fromJson(Map<String, dynamic> json) {
+    final items = json['items'];
+    if (items is! List) {
+      throw FormatException('Missing required list field "items"');
+    }
+    return SalesOrderRow(
+      id: intField(json, 'id'),
+      number: stringField(json, 'order_no'),
+      customerId: intField(json, 'customer'),
+      quotationId: json['quotation'] as int?,
+      status: stringField(json, 'status'),
+      createdAt: stringField(json, 'created_at'),
+      items: items
+          .map((i) => OrderLineItem.fromJson(i as Map<String, dynamic>))
+          .toList(),
+    );
+  }
 }
