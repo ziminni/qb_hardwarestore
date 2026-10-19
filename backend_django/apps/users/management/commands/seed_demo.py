@@ -4,7 +4,7 @@
 # WORKING DIRECTORY and does not run inside this repo here, so a pyrightconfig.json is
 # not found. This travels with the file. It disables the one rule that cannot model
 # Django's `Model.objects`/`BaseCommand.style` without django-stubs.
-﻿from datetime import timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib.auth.models import Group
@@ -265,7 +265,7 @@ class Command(BaseCommand):
             (walk_in, 1, 'GCASH', 6, None),
             (maria, 2, 'CASH', 3, None),
             (maria, 3, 'CARD', 8, None),
-            (walk_in, 4, 'CASH', 12, Decimal('500')),  # underpaid -> utang
+            (maria, 4, 'CASH', 12, Decimal('500')),  # underpaid -> utang (named customer: walk-ins cannot owe)
         ]
         for customer, idx, method, qty, tendered in sales_plan:
             info = variants[v_names[idx % len(v_names)]]
