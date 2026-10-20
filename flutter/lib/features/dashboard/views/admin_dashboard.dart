@@ -39,7 +39,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   void _go(String location) => context.go(location);
 
-
   @override
   Widget build(BuildContext context) {
     final overview = context.watch<AdminOverviewViewmodel>();
@@ -90,11 +89,19 @@ class _AdminDashboardState extends State<AdminDashboard> {
         if (status.name == 'outOfStock') outOfStock++;
       }
     }
+    // Stock counts are only true once the inventory load has succeeded: before
+    // that the viewmodel holds bundled rows (or nothing), and rendering their
+    // count as data would present invented zeros — the same defect the 6D pass
+    // found on the till. hasLoaded is set even on failure (the shared
+    // keep-rows contract), so a failed load must also unready the metrics —
+    // except after a successful load, where stale rows under the banner stand.
+    final stockReady =
+        inventory.hasLoaded && inventory.loadError == null;
     final metrics = [
       ('Today sales', '₱${today.totalGross.toStringAsFixed(2)}'),
-      ('Products', '${inventory.products.length}'),
-      ('Low stock', '$lowStock'),
-      ('Out of stock', '$outOfStock'),
+      if (stockReady) ('Products', '${inventory.products.length}'),
+      if (stockReady) ('Low stock', '$lowStock'),
+      if (stockReady) ('Out of stock', '$outOfStock'),
     ];
 
     return AdminSkeletonLayout(
@@ -117,21 +124,28 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ),
           if (overview.loadError != null || inventory.loadError != null)
             const SizedBox(height: 16),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              for (final metric in metrics)
+          if (!stockReady)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                inventory.isLoading
+                    ? 'Loading stock data…'
+                    : 'Stock data could not be loaded.',
+              ),
+            ),
+          if (stockReady)
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                for (final metric in metrics)
                 SizedBox(
                   width: 190,
-                  child: AdminMetricCard(
-                    label: metric.$1,
-                    value: metric.$2,
-                  ),
+                  child: AdminMetricCard(label: metric.$1, value: metric.$2),
                 ),
-            ],
-          ),
-          const SizedBox(height: 16),
+              ],
+            ),
+            const SizedBox(height: 16),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -219,8 +233,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                         : [
                             for (final alert in inventory.alerts)
                               AdminListItem(
-                                title:
-                                    alert.type.displayName,
+                                title: alert.type.displayName,
                                 subtitle: alert.message,
                                 trailing: alert.isResolved ? 'Resolved' : null,
                               ),
@@ -235,4 +248,3 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 }
-
