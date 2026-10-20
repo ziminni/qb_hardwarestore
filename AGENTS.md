@@ -29,8 +29,10 @@ the same commit that breaks it.
   of `origin/master` it is run `git rev-list --count origin/master..HEAD`; a count written here stales on
   the next commit.
 - **Active Wayfinder map: `planning/cashier-workflow/MAP.md`** (opened 2026-10-20): cashier login without a
-  keyring prompt, and every cashier sidebar tab live or removed. The **api-integration map is complete and
-  closed**; its invariants still bind.
+  keyring prompt, every cashier sidebar tab live. **4 decisions locked, 2 open (domain-model).**
+  **Phases 1 (Linux token storage) and 2 (POS navigation + reach, tabs 0–3) are READY TO BUILD** via
+  executing-plans; Phases 3 (held sale) and 4 (end of shift) wait on decisions 05/06. The **api-integration
+  map is complete and closed**; its invariants still bind.
 - **Phase state is NOT stated here** — it is owned by the phase table in the active map, per-row and with
   evidence. Read that table; a copy here would be a second home, and this file's own rule forbids one.
 - **Phase 6 is built and pushed.** 6A.1–6A.4, 6B (reports + receiving), 6C (live sales screens + review
@@ -53,9 +55,10 @@ the same commit that breaks it.
   **23 live · 2 partial · 5 mock · 7 dead**, branch pushed, and a full API-live QA pass across every live
   workflow (all refusal paths returned their specified code + message; no Critical/High/Medium findings).
   **Gate:** backend **89/89**, `flutter analyze` clean, flutter **395/395**, tree CLEAN.
-  **Next: wayfinder on `planning/cashier-workflow/MAP.md`.** Linux Token Storage is locked (ready to build); POS
-  Navigation Wiring and Cashier Tab Set are on the frontier. Manual testing found that the cashier sidebar
-  never navigated.
+  **Next: BUILD Phase 1 + Phase 2** of `planning/cashier-workflow/MAP.md` (roadmap at its end) via
+  executing-plans; or resolve decisions 05 (held sale) / 06 (shift) to unlock Phases 3–4. Root causes found:
+  the keyring prompt is `libsecret`/gnome-keyring with no keyring file on WSL; the cashier sidebar's `onTap`
+  is `() {}` and the release counter was never routed.
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message
