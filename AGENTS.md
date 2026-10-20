@@ -39,14 +39,16 @@ the same commit that breaks it.
   mock-purge follow-up below.
 - **Seed reclassification: BUILT 2026-10-20** (commit `5f1c52a`). The underpaid demo sale now
   posts to Maria Santos; Walk-in OPEN ledgers are zero.
-- **Inventory dashboard: BUILT 2026-10-2x** (`cff80c1` + ranked-queue fix `9e18505`; 4 dashboard
+- **Inventory dashboard: BUILT 2026-10-20** (`cff80c1` + ranked-queue fix `9e18505`; 4 dashboard
   tests green). The stocker's home screen reads the live viewmodel with urgency ranking + overflow
   signal.
-- **Pending mock-purge build (surfaced across the 6D/dashboard passes, not yet built):** Admin
-  Overview (`admin_dashboard.dart`: metrics, quick actions, recent activity, alerts — all
-  `DashboardMockData`), plus dead-code deletion (orphan `pos_dashboard`/`sales_dashboard` views and
-  their content widgets, referenced by nothing). Same established pattern: viewmodel-first,
-  load on open, banner + retry, RED-first tests.
+- **Mock-purge: BUILT 2026-10-20.** Admin Overview reads live sales/stock/alerts
+  (`7b47db3` + false-zero fix `2d7171d`); user management reads live staff/search/filters/create
+  (`9e15cd2` + fix pass `89ffb56`); orphan `pos_dashboard`/`sales_dashboard` views, their content
+  widgets, `dashboard_mock_data.dart`, and the 7 orphaned pos/sales atomic widgets are deleted
+  (zero consumers). **Next: push decision.**
+- **Pending mock-purge build:** NONE — the block above replaced it. If this line says otherwise,
+  this file is stale; the commits are the truth.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.

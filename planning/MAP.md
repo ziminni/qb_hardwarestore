@@ -24,7 +24,7 @@ Supporting material that is not itself on the map's frontier.
 | :--- | :--- | :--- |
 | [Lost work recovery](02-lost-work-recovery.md) | ~~Restore dropped files~~ **SUPERSEDED** — the POS stack was rebuilt (not recovered) across Phases 1–3; the lost commit's shape survives only as history | — |
 | [UI gaps](03-ui-gaps.md) | **LARGELY CONSUMED** — token release, utang, and receiving screens built (Phases 4–5, 6B.2); foreman routing settled by decision 04. Projects / payments / receipts screens were never adopted by the map and stay unplanned | — |
-| [Cleanup](04-cleanup.md) | **PARTIALLY CONSUMED** — reports consolidated (6B.1), widget_test compiles, sales stacks reconciled not deleted (decision 05). Remain: orphan dashboard views, skeleton-layout duplication, config debt | **P2** |
+| [Cleanup](04-cleanup.md) | **PARTIALLY CONSUMED** — reports consolidated (6B.1), widget_test compiles, sales stacks reconciled not deleted (decision 05). Remain: skeleton-layout duplication, config debt (orphan dashboard views + widgets deleted 2026-10-20) | **P2** |
 
 ## Priority reasoning (historical — Phases 0-4 are now DONE; kept for the why)
 
