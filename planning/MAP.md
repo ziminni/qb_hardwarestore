@@ -10,11 +10,14 @@ neither — it is an index, and a second home for a fact is how the two drift.
 
 ## Active plan
 
-The integration epic runs as a **Wayfinder map** — a low-resolution index plus one file per open decision,
-so it stays workable across many sessions without loading everything at once.
+Work runs as **Wayfinder maps** — a low-resolution index plus one file per open decision, so each stays
+workable across many sessions without loading everything at once.
 
-**[planning/api-integration/MAP.md](api-integration/MAP.md)** — destination, invariants, phase order
-(20 locked, 0 open; frontier and blocked empty; fog holds 3 owned deferrals).
+**[planning/cashier-workflow/MAP.md](cashier-workflow/MAP.md)** — **ACTIVE (opened 2026-10-20).** The cashier
+logs in with no keyring prompt and every cashier sidebar tab routes to a live screen or is removed.
+
+**[planning/api-integration/MAP.md](api-integration/MAP.md)** — **COMPLETE, closed.** The integration epic
+(Phases 0–6 built). Its invariants still bind new maps.
 
 ## Reference plans
 

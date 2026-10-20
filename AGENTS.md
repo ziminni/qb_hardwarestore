@@ -12,7 +12,7 @@ grepping the codebase, and never paste a copy of a fact that already has a home.
 | System architecture & Live/Mock matrix | `docs/SYSTEM_ATLAS.md` |
 | Interactive architecture cockpit | `docs/system-atlas.html` |
 | API contract: endpoints, auth, role matrix | `ENDPOINTS.md` |
-| Unbuilt work, decisions, roadmap | `planning/MAP.md` (index) → active map: `planning/api-integration/MAP.md` |
+| Unbuilt work, decisions, roadmap | `planning/MAP.md` (index) → active map: `planning/cashier-workflow/MAP.md` (api-integration map complete) |
 | Session history & gotchas | `docs/sessions/` — newest date first |
 | Branch, commit & review conventions | `CONTRIBUTING.md` |
 | Django backend (6 apps + `services.py`) | `backend_django/apps/{users,inventory,pos,collectibles,requisitions,reports}/` |
@@ -28,8 +28,9 @@ the same commit that breaks it.
 - **Active branch:** `feature/backend-integration` — **pushed, in sync with `origin/`.** For how far ahead
   of `origin/master` it is run `git rev-list --count origin/master..HEAD`; a count written here stales on
   the next commit.
-- **The Wayfinder map is COMPLETE.** `planning/api-integration/MAP.md` reads **20 locked · 0 open**,
-  frontier and blocked empty, fog holding 3 owned deferrals, and the **Phase 6 roadmap** is written at its end.
+- **Active Wayfinder map: `planning/cashier-workflow/MAP.md`** (opened 2026-10-20): cashier login without a
+  keyring prompt, and every cashier sidebar tab live or removed. The **api-integration map is complete and
+  closed**; its invariants still bind.
 - **Phase state is NOT stated here** — it is owned by the phase table in the active map, per-row and with
   evidence. Read that table; a copy here would be a second home, and this file's own rule forbids one.
 - **Phase 6 is built and pushed.** 6A.1–6A.4, 6B (reports + receiving), 6C (live sales screens + review
@@ -52,8 +53,9 @@ the same commit that breaks it.
   **23 live · 2 partial · 5 mock · 7 dead**, branch pushed, and a full API-live QA pass across every live
   workflow (all refusal paths returned their specified code + message; no Critical/High/Medium findings).
   **Gate:** backend **89/89**, `flutter analyze` clean, flutter **395/395**, tree CLEAN.
-  **Next: manual UI testing** of the pushed build, starting with the staged material-release token; then
-  **wayfinder** for the next scope decision — no build phase remains.
+  **Next: wayfinder on `planning/cashier-workflow/MAP.md`.** Linux Token Storage is locked (ready to build); POS
+  Navigation Wiring and Cashier Tab Set are on the frontier. Manual testing found that the cashier sidebar
+  never navigated.
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message
