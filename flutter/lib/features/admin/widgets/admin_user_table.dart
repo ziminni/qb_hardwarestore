@@ -17,7 +17,6 @@ class AdminUserTable extends StatelessWidget {
           DataColumn(label: Text('EMAIL')),
           DataColumn(label: Text('ROLE')),
           DataColumn(label: Text('STATUS')),
-          DataColumn(label: Text('ACTIONS')),
         ],
         rows: [
           for (final user in users)
@@ -28,27 +27,6 @@ class AdminUserTable extends StatelessWidget {
                 DataCell(Text(user.email)),
                 DataCell(Text(user.role.displayName)),
                 DataCell(Text(user.isActive ? 'Active' : 'Inactive')),
-                DataCell(
-                  Row(
-                    children: [
-                      IconButton(
-                        tooltip: 'View account',
-                        onPressed: () {},
-                        icon: const Icon(Icons.visibility_outlined, size: 18),
-                      ),
-                      IconButton(
-                        tooltip: 'Edit account',
-                        onPressed: () {},
-                        icon: const Icon(Icons.edit_outlined, size: 18),
-                      ),
-                      IconButton(
-                        tooltip: 'More actions',
-                        onPressed: () {},
-                        icon: const Icon(Icons.more_horiz, size: 18),
-                      ),
-                    ],
-                  ),
-                ),
               ],
             ),
         ],
