@@ -21,19 +21,18 @@ class _StubUsersService extends UserService {
     if (failure != null) throw UsersServiceException(failure);
     return const [
       User(
-        id: 2, username: 'manager', email: 'm@demo.ph', fullName: 'Mana Ger',
+        id: 2,
+        username: 'manager',
+        email: 'm@demo.ph',
+        fullName: 'Mana Ger',
         role: Role(id: 3, name: 'sales', displayName: 'Store Manager'),
       ),
     ];
   }
 
   @override
-  Future<UserStats> fetchUserStats() async => const UserStats(
-    total: 5,
-    active: 4,
-    inactive: 1,
-    rolesAssigned: 3,
-  );
+  Future<UserStats> fetchUserStats() async =>
+      const UserStats(total: 5, active: 4, inactive: 1, rolesAssigned: 3);
 
   @override
   Future<User> createUser({
@@ -43,7 +42,9 @@ class _StubUsersService extends UserService {
     required String password,
     required String groupName,
   }) async => const User(
-    id: 9, username: 'newcashier', email: 'new@demo.ph',
+    id: 9,
+    username: 'newcashier',
+    email: 'new@demo.ph',
     fullName: 'New Cashier',
     role: Role(id: 4, name: 'pos', displayName: 'Cashier'),
   );
@@ -88,9 +89,27 @@ void main() {
     expect(find.text('System Administrator'), findsNothing);
   });
 
-  testWidgets('create opens a dialog with the mandatory role', (
+  testWidgets('typed search text survives setting a role filter', (
     tester,
   ) async {
+    await _pump(tester);
+    await tester.enterText(find.byKey(const Key('userSearchField')), 'mana');
+
+    await tester.tap(find.text('All roles'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Store Manager').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('userSearchField')))
+          .controller!
+          .text,
+      'mana',
+    );
+  });
+
+  testWidgets('create opens a dialog with the mandatory role', (tester) async {
     await _pump(tester);
     await tester.tap(find.text('Create account'));
     await tester.pumpAndSettle();

@@ -38,7 +38,18 @@ class UserService {
       );
       return page.items.toList();
     } on DioException catch (error) {
-      throw UsersServiceException(_message(error, 'The staff list could not be loaded.'));
+      throw UsersServiceException(
+        _message(error, 'The staff list could not be loaded.'),
+      );
+    }
+    // getList parses rows eagerly, so a malformed row (e.g. a groupless
+    // account with a null role) throws HERE, not at items.toList(). It must
+    // read as a load error with a retry — never a raw crash that blanks
+    // the whole staff list with no message.
+    on FormatException catch (error) {
+      throw UsersServiceException(
+        'The staff list could not be read: ${error.message}',
+      );
     }
   }
 
@@ -49,7 +60,9 @@ class UserService {
       if (data == null) throw const FormatException('Empty stats response');
       return UserStats.fromJson(data);
     } on DioException catch (error) {
-      throw UsersServiceException(_message(error, 'The account summary could not be loaded.'));
+      throw UsersServiceException(
+        _message(error, 'The account summary could not be loaded.'),
+      );
     } on FormatException catch (error) {
       throw UsersServiceException(error.message);
     }
@@ -77,7 +90,9 @@ class UserService {
       if (data == null) throw const FormatException('Empty create response');
       return User.fromJson(data);
     } on DioException catch (error) {
-      throw UsersServiceException(_message(error, 'The account could not be created.'));
+      throw UsersServiceException(
+        _message(error, 'The account could not be created.'),
+      );
     } on FormatException catch (error) {
       throw UsersServiceException(error.message);
     }

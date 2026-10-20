@@ -90,7 +90,6 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
                   const SizedBox(height: 16),
                   AdminUserSection(
                     title: 'User accounts',
-                    actionLabel: 'Export',
                     child: viewmodel.users.isEmpty
                         ? const Text('No staff accounts found.')
                         : AdminUserTable(users: viewmodel.users),
@@ -171,12 +170,7 @@ class _CreateAccountDialogState extends State<_CreateAccountDialog> {
   String? _error;
   bool _saving = false;
 
-  static const _groups = [
-    'Admin',
-    'Stock Manager',
-    'Cashier',
-    'Store Manager',
-  ];
+  static const _groups = ['Admin', 'Stock Manager', 'Cashier', 'Store Manager'];
 
   @override
   void dispose() {
@@ -202,9 +196,14 @@ class _CreateAccountDialogState extends State<_CreateAccountDialog> {
     if (!mounted) return;
     setState(() => _saving = false);
     if (ok) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Account created.')),
+        );
+      }
       Navigator.of(context).pop();
     } else {
-      setState(() => _error = widget.viewmodel.loadError);
+      setState(() => _error = widget.viewmodel.createError);
     }
   }
 

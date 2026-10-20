@@ -25,7 +25,9 @@ class _FakeAdapter implements HttpClientAdapter {
 ResponseBody _json(Object body, {int status = 200}) => ResponseBody.fromString(
   jsonEncode(body),
   status,
-  headers: {Headers.contentTypeHeader: [Headers.jsonContentType]},
+  headers: {
+    Headers.contentTypeHeader: [Headers.jsonContentType],
+  },
 );
 
 Map<String, dynamic> _user({int id = 2, String username = 'manager'}) => {
@@ -93,19 +95,12 @@ void main() {
   test('a null role fails loudly instead of crashing later', () {
     final row = _user()..['role'] = null;
 
-    expect(
-      () => User.fromJson(row),
-      throwsA(isA<FormatException>()),
-    );
+    expect(() => User.fromJson(row), throwsA(isA<FormatException>()));
   });
 
   test('stats parse totals', () async {
-    adapter.respond = (_) => _json({
-      'total': 5,
-      'active': 4,
-      'inactive': 1,
-      'roles_assigned': 3,
-    });
+    adapter.respond = (_) =>
+        _json({'total': 5, 'active': 4, 'inactive': 1, 'roles_assigned': 3});
 
     final stats = await service.fetchUserStats();
 
@@ -135,11 +130,37 @@ void main() {
     expect(created.id, 9);
   });
 
-  test('a 403 refusal reads as a permission error, not a load error', () async {
-    adapter.respond = (_) => _json(
-      {'detail': 'You do not have permission to perform this action.'},
-      status: 403,
+  test('a groupless row fails as a load error, not a raw crash', () async {
+    adapter.respond = (_) => _json({
+      'count': 1,
+      'results': [
+        {
+          'id': 7,
+          'username': 'ghost',
+          'email': 'g@demo.ph',
+          'full_name': 'Ghost Account',
+          'is_active': true,
+          'role': null,
+        },
+      ],
+    });
+
+    await expectLater(
+      service.fetchUsers(),
+      throwsA(
+        isA<UsersServiceException>().having(
+          (e) => (e).message,
+          'message',
+          contains('staff'),
+        ),
+      ),
     );
+  });
+
+  test('a 403 refusal reads as a permission error, not a load error', () async {
+    adapter.respond = (_) => _json({
+      'detail': 'You do not have permission to perform this action.',
+    }, status: 403);
 
     expect(
       service.fetchUsers(),

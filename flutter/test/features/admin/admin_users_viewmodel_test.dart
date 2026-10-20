@@ -21,12 +21,8 @@ class _StubUsersService extends UserService {
   }
 
   @override
-  Future<UserStats> fetchUserStats() async => const UserStats(
-    total: 5,
-    active: 4,
-    inactive: 1,
-    rolesAssigned: 3,
-  );
+  Future<UserStats> fetchUserStats() async =>
+      const UserStats(total: 5, active: 4, inactive: 1, rolesAssigned: 3);
 
   @override
   Future<User> createUser({
@@ -59,7 +55,10 @@ void main() {
   test('users and stats load together', () async {
     service.users = const [
       User(
-        id: 2, username: 'manager', email: 'm@demo.ph', fullName: 'Mana Ger',
+        id: 2,
+        username: 'manager',
+        email: 'm@demo.ph',
+        fullName: 'Mana Ger',
         role: Role(id: 3, name: 'sales', displayName: 'Store Manager'),
       ),
     ];
@@ -74,7 +73,10 @@ void main() {
   test('a failed load keeps the rows it already had', () async {
     service.users = const [
       User(
-        id: 2, username: 'manager', email: 'm@demo.ph', fullName: 'Mana Ger',
+        id: 2,
+        username: 'manager',
+        email: 'm@demo.ph',
+        fullName: 'Mana Ger',
         role: Role(id: 3, name: 'sales', displayName: 'Store Manager'),
       ),
     ];
@@ -99,11 +101,17 @@ void main() {
   test('role and status narrow the loaded rows client-side', () async {
     service.users = const [
       User(
-        id: 2, username: 'manager', email: 'm@demo.ph', fullName: 'Mana Ger',
+        id: 2,
+        username: 'manager',
+        email: 'm@demo.ph',
+        fullName: 'Mana Ger',
         role: Role(id: 3, name: 'sales', displayName: 'Store Manager'),
       ),
       User(
-        id: 3, username: 'cashier', email: 'c@demo.ph', fullName: 'Cashy Ir',
+        id: 3,
+        username: 'cashier',
+        email: 'c@demo.ph',
+        fullName: 'Cashy Ir',
         role: Role(id: 4, name: 'pos', displayName: 'Cashier'),
         isActive: false,
       ),
@@ -121,7 +129,10 @@ void main() {
   test('clearFilters resets everything and reloads', () async {
     service.users = const [
       User(
-        id: 2, username: 'manager', email: 'm@demo.ph', fullName: 'Mana Ger',
+        id: 2,
+        username: 'manager',
+        email: 'm@demo.ph',
+        fullName: 'Mana Ger',
         role: Role(id: 3, name: 'sales', displayName: 'Store Manager'),
       ),
     ];
@@ -147,6 +158,8 @@ void main() {
 
     expect(ok, isFalse);
     expect(service.createCalls, 0);
-    expect(viewmodel.loadError, contains('8 characters'));
+    expect(viewmodel.createError, contains('8 characters'));
+    // A refused create never touches the page banner.
+    expect(viewmodel.loadError, isNull);
   });
 }

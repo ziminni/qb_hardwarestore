@@ -17,6 +17,7 @@ class AdminUsersViewmodel extends ChangeNotifier {
   UserStats? _stats;
   bool _isLoading = false;
   String? _loadError;
+  String? _createError;
 
   String _query = '';
   String? _roleFilter;
@@ -24,6 +25,10 @@ class AdminUsersViewmodel extends ChangeNotifier {
 
   /// Rows after the client-side role/status filters. Search itself runs
   /// server-side (`?search=`), so this only narrows what is already loaded.
+  /// The last account-creation refusal. Kept apart from [_loadError] so a
+  /// cancelled dialog never leaves a stale banner under a loaded table.
+  String? get createError => _createError;
+
   List<User> get users => List.unmodifiable(
     _rows.where((user) {
       if (_roleFilter != null && user.role.displayName != _roleFilter) {
@@ -112,15 +117,16 @@ class AdminUsersViewmodel extends ChangeNotifier {
     if (username.trim().isEmpty ||
         email.trim().isEmpty ||
         fullName.trim().isEmpty) {
-      _loadError = 'Name, username and email are required.';
+      _createError = 'Name, username and email are required.';
       notifyListeners();
       return false;
     }
     if (password.length < 8) {
-      _loadError = 'The password must be at least 8 characters.';
+      _createError = 'The password must be at least 8 characters.';
       notifyListeners();
       return false;
     }
+    _createError = null;
     try {
       await _users.createUser(
         username: username.trim(),
@@ -132,7 +138,7 @@ class AdminUsersViewmodel extends ChangeNotifier {
       await load();
       return _loadError == null;
     } on UsersServiceException catch (error) {
-      _loadError = error.message;
+      _createError = error.message;
       notifyListeners();
       return false;
     }

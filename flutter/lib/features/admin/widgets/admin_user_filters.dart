@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 /// Search runs server-side (`?search=`); role and status narrow the loaded
 /// rows client-side. All no-op controls from the mock era are gone — every
 /// control here calls its callback.
-class AdminUserFilters extends StatelessWidget {
+class AdminUserFilters extends StatefulWidget {
   const AdminUserFilters({
     super.key,
     required this.initialQuery,
@@ -28,6 +28,38 @@ class AdminUserFilters extends StatelessWidget {
   final VoidCallback onClear;
 
   @override
+  State<AdminUserFilters> createState() => _AdminUserFiltersState();
+}
+
+class _AdminUserFiltersState extends State<AdminUserFilters> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    // Owned once, not rebuilt: a controller built in `build` reverts the
+    // field to the last submitted query on every unrelated rebuild (e.g.
+    // setting a role filter discards what was just typed).
+    _controller = TextEditingController(text: widget.initialQuery);
+  }
+
+  @override
+  void didUpdateWidget(AdminUserFilters oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The query only changes from outside when it is submitted or cleared.
+    if (oldWidget.initialQuery != widget.initialQuery &&
+        _controller.text != widget.initialQuery) {
+      _controller.text = widget.initialQuery;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Row(
       children: [
@@ -35,7 +67,7 @@ class AdminUserFilters extends StatelessWidget {
           flex: 2,
           child: TextField(
             key: const Key('userSearchField'),
-            controller: TextEditingController(text: initialQuery),
+            controller: _controller,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
               isDense: true,
@@ -43,13 +75,13 @@ class AdminUserFilters extends StatelessWidget {
               hintText: 'Search name, username, or email',
             ),
             textInputAction: TextInputAction.search,
-            onSubmitted: onSearch,
+            onSubmitted: widget.onSearch,
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: DropdownButtonFormField<String?>(
-            initialValue: roleFilter,
+            initialValue: widget.roleFilter,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
               isDense: true,
@@ -60,16 +92,16 @@ class AdminUserFilters extends StatelessWidget {
                 value: null,
                 child: Text('All roles'),
               ),
-              for (final role in availableRoles)
+              for (final role in widget.availableRoles)
                 DropdownMenuItem<String?>(value: role, child: Text(role)),
             ],
-            onChanged: onRoleChanged,
+            onChanged: widget.onRoleChanged,
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: DropdownButtonFormField<bool?>(
-            initialValue: activeFilter,
+            initialValue: widget.activeFilter,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
               isDense: true,
@@ -80,11 +112,11 @@ class AdminUserFilters extends StatelessWidget {
               DropdownMenuItem<bool?>(value: true, child: Text('Active')),
               DropdownMenuItem<bool?>(value: false, child: Text('Inactive')),
             ],
-            onChanged: onActiveChanged,
+            onChanged: widget.onActiveChanged,
           ),
         ),
         const SizedBox(width: 12),
-        TextButton(onPressed: onClear, child: const Text('Clear')),
+        TextButton(onPressed: widget.onClear, child: const Text('Clear')),
       ],
     );
   }
