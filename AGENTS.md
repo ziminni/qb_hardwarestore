@@ -25,18 +25,16 @@ the same commit that breaks it.
 
 ## Current Status & Next Step
 
-- **Active branch:** `feature/backend-integration`, **unpushed.** For how far ahead it is run
-  `git rev-list --count origin/master..HEAD` — a count written into this file is stale the moment the
-  commit that writes it lands.
+- **Active branch:** `feature/backend-integration` — **pushed, in sync with `origin/`.** For how far ahead
+  of `origin/master` it is run `git rev-list --count origin/master..HEAD`; a count written here stales on
+  the next commit.
 - **The Wayfinder map is COMPLETE.** `planning/api-integration/MAP.md` reads **20 locked · 0 open**,
   frontier and blocked empty, fog holding 3 owned deferrals, and the **Phase 6 roadmap** is written at its end.
 - **Phase state is NOT stated here** — it is owned by the phase table in the active map, per-row and with
   evidence. Read that table; a copy here would be a second home, and this file's own rule forbids one.
-- **Phase 6 is built (branch unpushed).** 6A.1–6A.4, 6B (reports + receiving), 6C (live sales
-  screens + review fix pass), decision 19 (receivables Record payment), the seed reclassification,
-  and the 6D live end-to-end pass (boot hang + till mock catalogue fixed live, #21 verified against
-  the server, all Phase 6 screens proven live) are done. **Next: push decision**, then the
-  mock-purge follow-up below.
+- **Phase 6 is built and pushed.** 6A.1–6A.4, 6B (reports + receiving), 6C (live sales screens + review
+  fix pass), decision 19 (receivables Record payment), the seed reclassification, and the 6D live
+  end-to-end pass are done. **No build phase remains on this map.**
 - **Seed reclassification: BUILT 2026-10-20** (commit `5f1c52a`). The underpaid demo sale now
   posts to Maria Santos; Walk-in OPEN ledgers are zero.
 - **Inventory dashboard: BUILT 2026-10-20** (`cff80c1` + ranked-queue fix `9e18505`; 4 dashboard
@@ -46,16 +44,16 @@ the same commit that breaks it.
   (`7b47db3` + false-zero fix `2d7171d`); user management reads live staff/search/filters/create
   (`9e15cd2` + fix pass `89ffb56`); orphan `pos_dashboard`/`sales_dashboard` views, their content
   widgets, `dashboard_mock_data.dart`, and the 7 orphaned pos/sales atomic widgets are deleted
-  (zero consumers). **Next: push decision.**
-- **Pending mock-purge build:** NONE — the block above replaced it. If this line says otherwise,
-  this file is stale; the commits are the truth.
+  (zero consumers). The mock-purge epic is complete.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.
-- **Last session:** `docs/sessions/2026-10-20-mock-purge-and-map-cleanup.md` — mock-purge complete
-  (Admin Overview + user management live, orphans deleted), maps/atlas freshened to the completed
-  Phases 0–6 state. **Gate:** backend **89/89**, `manage.py check` clean, `flutter analyze` clean,
-  flutter **395/395**, tree CLEAN. **Next: wayfinder** — push decision, next build scope, CPMS repo.
+- **Last session:** `docs/sessions/2026-10-20-atlas-refresh-and-qa-pass.md` — atlas refreshed from source to
+  **23 live · 2 partial · 5 mock · 7 dead**, branch pushed, and a full API-live QA pass across every live
+  workflow (all refusal paths returned their specified code + message; no Critical/High/Medium findings).
+  **Gate:** backend **89/89**, `flutter analyze` clean, flutter **395/395**, tree CLEAN.
+  **Next: manual UI testing** of the pushed build, starting with the staged material-release token; then
+  **wayfinder** for the next scope decision — no build phase remains.
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message

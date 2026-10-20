@@ -254,8 +254,8 @@ stack for them.
 1. **Live end-to-end pass DONE** (`flutter run -d web-server` vs live backend): boot hang fixed
    (`kIsWeb` guard), till catalogue-load fixed, #21 underpayment verified live (walk-in 400 /
    Maria creates OPEN ledger). Two fixes landed from the pass.
-2. **The branch is unpushed** (standing decision; count via `git rev-list --count
-   origin/master..HEAD` — a written count stales on landing). Pushing needs a decision, not a default.
+2. **The branch is PUSHED** (2026-10-20; `feature/backend-integration` in sync with `origin/`). A later
+   push, or a merge to `master`, is still a decision — not a default.
 
 ## The scope warning, kept here on purpose
 
