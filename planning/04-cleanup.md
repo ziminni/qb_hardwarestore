@@ -7,14 +7,13 @@ it actively misleads (three report screens, two sales stacks, a broken test file
 
 | Path | Why it is dead |
 | :--- | :--- |
-| `flutter/lib/features/dashboard/views/pos_dashboard.dart` | Referenced by no other Dart file. `routes.dart` builds `features/pos/views/pos_transaction_page.dart` for the POS dashboard route. |
-| `flutter/lib/features/dashboard/views/sales_dashboard.dart` | Same — superseded by `features/sales/views/sales_dashboard_page.dart`. |
-| `flutter/lib/features/dashboard/viewmodels/dashboard_mock_data.dart` | Becomes fully dead once the two orphans above go. |
+| `flutter/lib/features/dashboard/views/pos_dashboard.dart` | Referenced by no other Dart file. `routes.dart` builds `features/pos/views/pos_transaction_page.dart` for the POS dashboard route. | **DELETED 2026-10-20** (`7b47db3`).
+| `flutter/lib/features/dashboard/views/sales_dashboard.dart` | Same — superseded by `features/sales/views/sales_dashboard_page.dart`. | **DELETED 2026-10-20** (`7b47db3`).
+| `flutter/lib/features/dashboard/viewmodels/dashboard_mock_data.dart` | Becomes fully dead once the two orphans above go. | **DELETED 2026-10-20** (`7b47db3`); the 7 orphaned pos/sales atomic widgets followed in `f9e7ceb`.
 | `flutter/test/widget_test.dart` | Flutter's default counter template. Calls `const MyApp()` with no argument, but `MyApp` requires an `auth` argument, so it does not compile. It is untracked and is the **one known error** in `flutter analyze`. |
 
-`widget_test.dart` is the one item here that is actively harmful: it is the only thing standing between
-this repo and a clean `flutter analyze`. Either rewrite it against the real `MyApp(auth: ...)` signature or
-delete it — leaving a non-compiling test in the tree invites someone to commit it.
+`widget_test.dart` — **STALE ROW, 2026-10-20:** the file is tracked, compiles against the real
+`MyApp(auth: ...)` signature, and `flutter analyze` is clean (395/395 green). No action needed.
 
 ## Duplicates to reconcile
 
