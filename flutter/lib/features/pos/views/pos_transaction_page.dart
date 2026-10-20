@@ -1,6 +1,7 @@
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
+import 'package:client/features/pos/widgets/pos_navigation.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_customer_picker_dialog.dart';
 import 'package:client/features/pos/widgets/pos_payment_dialog.dart';
@@ -66,24 +67,10 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
           final products = transaction.filteredProducts;
           return DashboardShell(
             title: 'Point of Sale',
-            subtitle: 'Frontend transaction and inventory simulation',
+            subtitle: 'New transaction',
             selectedNavigationIndex: 0,
-            navigationItems: const [
-              DashboardNavigationItem(
-                'New transaction',
-                Icons.point_of_sale_outlined,
-              ),
-              DashboardNavigationItem(
-                'Held transactions',
-                Icons.pause_circle_outline,
-              ),
-              DashboardNavigationItem(
-                'Transaction history',
-                Icons.receipt_long_outlined,
-              ),
-              DashboardNavigationItem('Customers', Icons.people_outline),
-              DashboardNavigationItem('End of shift', Icons.schedule_outlined),
-            ],
+            navigationItems: posNavigationItems,
+            onNavigationSelected: (i) => navigatePos(context, i),
             child: Column(
               children: [
                 if (inventory.loadError != null)

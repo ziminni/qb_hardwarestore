@@ -12,6 +12,8 @@ import 'package:client/features/auth/views/login_page.dart';
 import 'package:client/features/auth/views/unsupported_role_page.dart';
 import 'package:client/features/dashboard/views/admin_dashboard.dart';
 import 'package:client/features/dashboard/views/inventory_dashboard.dart';
+import 'package:client/features/pos/views/pos_receivables_page.dart';
+import 'package:client/features/pos/views/pos_transaction_history_page.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
 import 'package:client/features/pos/views/material_release_page.dart';
 import 'package:client/features/sales/views/sales_dashboard_page.dart';
@@ -58,7 +60,9 @@ class AppRoutes {
   static const String inventorySales = '/inventory/sales';
   static const String inventoryReceiving = '/inventory/receiving';
   static const String posDashboard = '/pos/dashboard';
+  static const String posHistory = '/pos/history';
   static const String posRelease = '/pos/release';
+  static const String posReceivables = '/pos/receivables';
   static const String salesDashboard = '/sales/dashboard';
   static const String salesTransactions = '/sales/transactions';
   static const String salesQuotations = '/sales/quotations';
@@ -300,10 +304,22 @@ class AppRoutes {
               _transitionPage(state, const PosTransactionPage()),
         ),
         GoRoute(
+          path: posHistory,
+          name: 'pos_history',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const PosTransactionHistoryPage()),
+        ),
+        GoRoute(
           path: posRelease,
           name: 'pos_release',
           pageBuilder: (context, state) =>
               _transitionPage(state, const MaterialReleasePage()),
+        ),
+        GoRoute(
+          path: posReceivables,
+          name: 'pos_receivables',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const PosReceivablesPage()),
         ),
         GoRoute(
           path: salesDashboard,

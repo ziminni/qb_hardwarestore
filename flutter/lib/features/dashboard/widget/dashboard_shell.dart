@@ -11,6 +11,7 @@ class DashboardShell extends StatelessWidget {
     required this.selectedNavigationIndex,
     required this.navigationItems,
     required this.child,
+    this.onNavigationSelected,
   });
 
   final String title;
@@ -18,6 +19,7 @@ class DashboardShell extends StatelessWidget {
   final int selectedNavigationIndex;
   final List<DashboardNavigationItem> navigationItems;
   final Widget child;
+  final ValueChanged<int>? onNavigationSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -65,7 +67,7 @@ class DashboardShell extends StatelessWidget {
                               : Colors.transparent,
                           child: ListTile(
                             dense: true,
-                            onTap: () {},
+                            onTap: () => onNavigationSelected?.call(index),
                             leading: Icon(item.icon, size: 19),
                             title: Text(item.label),
                           ),
@@ -121,11 +123,7 @@ class DashboardShell extends StatelessWidget {
                           ],
                         ),
                       ),
-                      OutlinedButton.icon(
-                        onPressed: () {},
-                        icon: const Icon(Icons.notifications_none, size: 17),
-                        label: const Text('Notifications'),
-                      ),
+
                     ],
                   ),
                 ),

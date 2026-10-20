@@ -1,6 +1,7 @@
 import 'package:client/data/models/requisition.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/viewmodels/material_release_viewmodel.dart';
+import 'package:client/features/pos/widgets/pos_navigation.dart';
 import 'package:flutter/material.dart';
 
 /// The material release counter — Phase 5's only **irreversible** screen (decision 09).
@@ -37,12 +38,9 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
     return DashboardShell(
       title: 'Release materials',
       subtitle: 'Verify a material token and release the stock it covers',
-      selectedNavigationIndex: 1,
-      navigationItems: const [
-        DashboardNavigationItem('New transaction', Icons.point_of_sale_outlined),
-        DashboardNavigationItem('Release materials', Icons.inventory_2_outlined),
-        DashboardNavigationItem('Customers', Icons.people_outline),
-      ],
+      selectedNavigationIndex: 2,
+      navigationItems: posNavigationItems,
+      onNavigationSelected: (i) => navigatePos(context, i),
       child: SizedBox(
         height: MediaQuery.sizeOf(context).height - 132,
         child: AnimatedBuilder(

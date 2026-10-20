@@ -58,30 +58,35 @@ void main() {
   final salesOrder = _salesNavOrder(_read('lib/features/sales/widgets/sales_navigation.dart'));
   final inventoryOrder =
       _inventoryNavOrder(_read('lib/features/inventory/widgets/inventory_navigation.dart'));
+  final posOrder =
+      _inventoryNavOrder(_read('lib/features/pos/widgets/pos_navigation.dart'));
 
-  test('the parser actually finds the pages and both sidebars', () {
+  test('the parser actually finds the pages and all three sidebars', () {
     // Without this, a regex that matched nothing makes every other assertion vacuous - the same
     // shape as the tests that could not fail earlier in this project.
     expect(
       pageRoutes.length,
-      greaterThanOrEqualTo(12),
+      greaterThanOrEqualTo(14),
       reason: 'every routed page should be discovered, or the checks below prove nothing',
     );
     expect(salesOrder.length, 6, reason: 'the sales sidebar has 6 destinations');
     expect(inventoryOrder.length, greaterThanOrEqualTo(10));
+    expect(posOrder.length, 4, reason: 'the POS sidebar has 4 destinations (tabs 0-3)');
     expect(salesOrder.first, 'salesDashboard');
     expect(inventoryOrder[8], 'inventorySales');
     expect(inventoryOrder[9], 'inventoryReceiving');
+    expect(posOrder[0], 'posDashboard');
+    expect(posOrder[2], 'posRelease');
   });
 
   group('every page highlights its own entry in its own sidebar', () {
-    final pages = Directory('lib/features/sales/views')
-        .listSync()
-        .whereType<File>()
-        .where((f) => f.path.endsWith('.dart'))
-        .toList();
+    final allPages = [
+      ...Directory('lib/features/sales/views').listSync().whereType<File>(),
+      ...Directory('lib/features/inventory/views').listSync().whereType<File>(),
+      ...Directory('lib/features/pos/views').listSync().whereType<File>(),
+    ].where((f) => f.path.endsWith('.dart')).toList();
 
-    for (final file in pages) {
+    for (final file in allPages) {
       final source = file.readAsStringSync();
       final className = RegExp(r'class (\w+) extends')
           .firstMatch(source)
@@ -93,10 +98,11 @@ void main() {
 
       final isSales = source.contains('SalesSkeletonLayout');
       final isInventory = source.contains('InventorySkeletonLayout');
-      if (!isSales && !isInventory) continue;
+      final isPos = source.contains('posNavigationItems');
+      if (!isSales && !isInventory && !isPos) continue;
 
-      final nav = isSales ? salesOrder : inventoryOrder;
-      final sidebar = isSales ? 'sales' : 'inventory';
+      final nav = isSales ? salesOrder : isInventory ? inventoryOrder : posOrder;
+      final sidebar = isSales ? 'sales' : isInventory ? 'inventory' : 'POS';
 
       test('$className points at itself in the $sidebar sidebar', () {
         final route = pageRoutes[className];
