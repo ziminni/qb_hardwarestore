@@ -52,11 +52,13 @@ the same commit that breaks it.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.
-- **Last session:** `docs/sessions/2026-10-20-atlas-refresh-and-qa-pass.md` — atlas refreshed from source to
-  **23 live · 2 partial · 5 mock · 7 dead**, branch pushed, and a full API-live QA pass across every live
-  workflow (all refusal paths returned their specified code + message; no Critical/High/Medium findings).
+- **Last session:** `docs/sessions/2026-10-21-cashier-workflow-phases-1-2.md` — built Phases 1 + 2 of the
+  cashier-workflow map. Phase 1 kills the gnome-keyring prompt on Linux (token store seam). Phase 2
+  makes all 4 POS sidebar tabs navigate to live screens (shared nav, POS-native history + receivables
+  pages, DashboardShell callback, dead Notifications deleted, consistency test extended). Both passed
+  fresh-context review with 0 Critical, 0 Important.
   **Gate:** backend **89/89**, `flutter analyze` clean, flutter **417/417** (Phase 1 +6, Phase 2 +10), tree CLEAN.
-  **Next: resolve decisions 05 (held sale) / 06 (shift)** to unlock Phases 3–4, or push the branch.
+  **Next: push the branch**, verify the live WSL check for Phase 1, then resolve decisions 05/06 or ship.
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message
