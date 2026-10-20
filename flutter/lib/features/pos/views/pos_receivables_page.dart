@@ -91,7 +91,8 @@ class _PosReceivablesView extends StatelessWidget {
                   color: AppColors.error.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(AppSpacing.sm),
                   border: Border.all(
-                      color: AppColors.error.withValues(alpha: 0.4)),
+                    color: AppColors.error.withValues(alpha: 0.4),
+                  ),
                 ),
                 child: Row(
                   children: [
@@ -132,8 +133,7 @@ class _PosReceivablesView extends StatelessWidget {
     );
   }
 
-  List<Widget> _row(
-      BuildContext context, LedgerEntry entry, DateTime now) {
+  List<Widget> _row(BuildContext context, LedgerEntry entry, DateTime now) {
     final status = entry.statusAt(now);
     return <Widget>[
       Text(entry.transactionNo),
@@ -250,7 +250,8 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
                   }
                   setState(() {
                     _posting = false;
-                    _error = widget.viewmodel.payError ??
+                    _error =
+                        widget.viewmodel.payError ??
                         'The payment could not be recorded.';
                   });
                 },

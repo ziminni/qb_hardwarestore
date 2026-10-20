@@ -31,35 +31,37 @@ Map<String, String> _pageRoutes(String routes) {
   final pattern = RegExp(
     r'path:\s*(\w+),[\s\S]{0,220}?_transitionPage\(state,\s*const\s+(\w+)\(\)\)',
   );
-  return {
-    for (final m in pattern.allMatches(routes)) m.group(2)!: m.group(1)!,
-  };
+  return {for (final m in pattern.allMatches(routes)) m.group(2)!: m.group(1)!};
 }
 
 /// The ordered route constants of a sidebar, from its own navigation file.
-List<String> _salesNavOrder(String nav) => RegExp(r'AppRoutes\.(\w+),')
-    .allMatches(nav)
-    .map((m) => m.group(1)!)
-    .toList();
+List<String> _salesNavOrder(String nav) => RegExp(
+  r'AppRoutes\.(\w+),',
+).allMatches(nav).map((m) => m.group(1)!).toList();
 
 /// The `N => AppRoutes.x` map, as an index -> route list.
 List<String> _inventoryNavOrder(String nav) {
-  final pairs = RegExp(r'(\d+) => AppRoutes\.(\w+),')
-      .allMatches(nav)
-      .map((m) => MapEntry(int.parse(m.group(1)!), m.group(2)!))
-      .toList()
-    ..sort((a, b) => a.key.compareTo(b.key));
+  final pairs =
+      RegExp(r'(\d+) => AppRoutes\.(\w+),')
+          .allMatches(nav)
+          .map((m) => MapEntry(int.parse(m.group(1)!), m.group(2)!))
+          .toList()
+        ..sort((a, b) => a.key.compareTo(b.key));
   return pairs.map((p) => p.value).toList();
 }
 
 void main() {
   final routes = _read('lib/routes/routes.dart');
   final pageRoutes = _pageRoutes(routes);
-  final salesOrder = _salesNavOrder(_read('lib/features/sales/widgets/sales_navigation.dart'));
-  final inventoryOrder =
-      _inventoryNavOrder(_read('lib/features/inventory/widgets/inventory_navigation.dart'));
-  final posOrder =
-      _inventoryNavOrder(_read('lib/features/pos/widgets/pos_navigation.dart'));
+  final salesOrder = _salesNavOrder(
+    _read('lib/features/sales/widgets/sales_navigation.dart'),
+  );
+  final inventoryOrder = _inventoryNavOrder(
+    _read('lib/features/inventory/widgets/inventory_navigation.dart'),
+  );
+  final posOrder = _inventoryNavOrder(
+    _read('lib/features/pos/widgets/pos_navigation.dart'),
+  );
 
   test('the parser actually finds the pages and all three sidebars', () {
     // Without this, a regex that matched nothing makes every other assertion vacuous - the same
@@ -67,11 +69,20 @@ void main() {
     expect(
       pageRoutes.length,
       greaterThanOrEqualTo(14),
-      reason: 'every routed page should be discovered, or the checks below prove nothing',
+      reason:
+          'every routed page should be discovered, or the checks below prove nothing',
     );
-    expect(salesOrder.length, 6, reason: 'the sales sidebar has 6 destinations');
+    expect(
+      salesOrder.length,
+      6,
+      reason: 'the sales sidebar has 6 destinations',
+    );
     expect(inventoryOrder.length, greaterThanOrEqualTo(10));
-    expect(posOrder.length, 4, reason: 'the POS sidebar has 4 destinations (tabs 0-3)');
+    expect(
+      posOrder.length,
+      4,
+      reason: 'the POS sidebar has 4 destinations (tabs 0-3)',
+    );
     expect(salesOrder.first, 'salesDashboard');
     expect(inventoryOrder[8], 'inventorySales');
     expect(inventoryOrder[9], 'inventoryReceiving');
@@ -88,12 +99,12 @@ void main() {
 
     for (final file in allPages) {
       final source = file.readAsStringSync();
-      final className = RegExp(r'class (\w+) extends')
-          .firstMatch(source)
-          ?.group(1);
-      final index = RegExp(r'selectedNavigationIndex:\s*(\d+)')
-          .firstMatch(source)
-          ?.group(1);
+      final className = RegExp(
+        r'class (\w+) extends',
+      ).firstMatch(source)?.group(1);
+      final index = RegExp(
+        r'selectedNavigationIndex:\s*(\d+)',
+      ).firstMatch(source)?.group(1);
       if (className == null || index == null) continue;
 
       final isSales = source.contains('SalesSkeletonLayout');
@@ -101,8 +112,16 @@ void main() {
       final isPos = source.contains('posNavigationItems');
       if (!isSales && !isInventory && !isPos) continue;
 
-      final nav = isSales ? salesOrder : isInventory ? inventoryOrder : posOrder;
-      final sidebar = isSales ? 'sales' : isInventory ? 'inventory' : 'POS';
+      final nav = isSales
+          ? salesOrder
+          : isInventory
+          ? inventoryOrder
+          : posOrder;
+      final sidebar = isSales
+          ? 'sales'
+          : isInventory
+          ? 'inventory'
+          : 'POS';
 
       test('$className points at itself in the $sidebar sidebar', () {
         final route = pageRoutes[className];
@@ -118,7 +137,8 @@ void main() {
         expect(
           int.parse(index),
           expected,
-          reason: '$className declares index $index, but $route sits at $expected in the '
+          reason:
+              '$className declares index $index, but $route sits at $expected in the '
               '$sidebar sidebar - so its own entry is not the one highlighted',
         );
       });

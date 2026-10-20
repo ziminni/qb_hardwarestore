@@ -20,8 +20,7 @@ class PosTransactionHistoryPage extends StatefulWidget {
       _PosTransactionHistoryPageState();
 }
 
-class _PosTransactionHistoryPageState
-    extends State<PosTransactionHistoryPage> {
+class _PosTransactionHistoryPageState extends State<PosTransactionHistoryPage> {
   String _query = '';
 
   @override
@@ -95,7 +94,9 @@ class _PosTransactionHistoryPageState
                   .map(
                     (sale) => <Widget>[
                       Text(sale.transactionNo),
-                      Text('${sale.date.month}/${sale.date.day}/${sale.date.year}'),
+                      Text(
+                        '${sale.date.month}/${sale.date.day}/${sale.date.year}',
+                      ),
                       Text(sale.customer),
                       Text(sale.paymentMethod),
                       Text('₱${sale.total.toStringAsFixed(2)}'),

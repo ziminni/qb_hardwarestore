@@ -44,67 +44,67 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
       child: SizedBox(
         height: MediaQuery.sizeOf(context).height - 132,
         child: AnimatedBuilder(
-        animation: _viewmodel,
-        builder: (context, _) => SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Verify the material token'),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _token,
-                      decoration: const InputDecoration(
-                        labelText: 'Token',
-                        border: OutlineInputBorder(),
+          animation: _viewmodel,
+          builder: (context, _) => SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Verify the material token'),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _token,
+                        decoration: const InputDecoration(
+                          labelText: 'Token',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    FilledButton(
+                      onPressed: _viewmodel.isBusy
+                          ? null
+                          : () => _viewmodel.verify(_token.text.trim()),
+                      child: const Text('Verify'),
+                    ),
+                  ],
+                ),
+                if (_viewmodel.isBusy)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: LinearProgressIndicator(),
+                  ),
+                if (_viewmodel.error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: Text(
+                      _viewmodel.error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  FilledButton(
-                    onPressed: _viewmodel.isBusy
+                if (_viewmodel.verification != null) ...[
+                  const SizedBox(height: 24),
+                  _VerificationCard(
+                    verification: _viewmodel.verification!,
+                    // The action appears only where the viewmodel would accept it: a released token
+                    // cannot be released again, and the server would refuse the second press.
+                    onRelease: _viewmodel.isReleased || _viewmodel.isBusy
                         ? null
-                        : () => _viewmodel.verify(_token.text.trim()),
-                    child: const Text('Verify'),
+                        : _viewmodel.release,
                   ),
                 ],
-              ),
-              if (_viewmodel.isBusy)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 24),
-                  child: LinearProgressIndicator(),
-                ),
-              if (_viewmodel.error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 16),
-                  child: Text(
-                    _viewmodel.error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ),
-              if (_viewmodel.verification != null) ...[
-                const SizedBox(height: 24),
-                _VerificationCard(
-                  verification: _viewmodel.verification!,
-                  // The action appears only where the viewmodel would accept it: a released token
-                  // cannot be released again, and the server would refuse the second press.
-                  onRelease: _viewmodel.isReleased || _viewmodel.isBusy
-                      ? null
-                      : _viewmodel.release,
-                ),
+                if (_viewmodel.result != null) ...[
+                  const SizedBox(height: 24),
+                  _ReceiptCard(result: _viewmodel.result!),
+                ],
               ],
-              if (_viewmodel.result != null) ...[
-                const SizedBox(height: 24),
-                _ReceiptCard(result: _viewmodel.result!),
-              ],
-            ],
+            ),
           ),
-        ),
         ),
       ),
     );

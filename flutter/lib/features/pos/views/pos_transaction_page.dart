@@ -54,12 +54,12 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (context) => 
-            widget.viewmodel ??
-            PosTransactionViewmodel(
-        context.read<InventoryViewmodel>(),
-        context.read<ProductTrackingViewmodel>(),
-      ),
+      create: (context) =>
+          widget.viewmodel ??
+          PosTransactionViewmodel(
+            context.read<InventoryViewmodel>(),
+            context.read<ProductTrackingViewmodel>(),
+          ),
       child: Builder(
         builder: (context) {
           final transaction = context.watch<PosTransactionViewmodel>();
@@ -84,33 +84,33 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
                 SizedBox(
                   height: MediaQuery.sizeOf(context).height - 132,
                   child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: PosProductBrowser(
-                      products: products,
-                      searchController: _scanController,
-                      searchFocusNode: _scanFocusNode,
-                      onSubmitted: (value) => _handleScan(context, value),
-                      onSearch: transaction.setQuery,
-                      onSelect: (product) => _addProduct(context, product),
-                    ),
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: PosProductBrowser(
+                          products: products,
+                          searchController: _scanController,
+                          searchFocusNode: _scanFocusNode,
+                          onSubmitted: (value) => _handleScan(context, value),
+                          onSearch: transaction.setQuery,
+                          onSelect: (product) => _addProduct(context, product),
+                        ),
+                      ),
+                      const SizedBox(width: 18),
+                      Expanded(
+                        flex: 2,
+                        child: PosTransactionCart(
+                          onPayment: () => _pay(context),
+                          onClear: transaction.clear,
+                          onChangeCustomer: () => _changeCustomer(context),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 18),
-                  Expanded(
-                    flex: 2,
-                    child: PosTransactionCart(
-                      onPayment: () => _pay(context),
-                      onClear: transaction.clear,
-                      onChangeCustomer: () => _changeCustomer(context),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
-        ],
-      ),
           );
         },
       ),
