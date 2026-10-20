@@ -35,15 +35,18 @@ the same commit that breaks it.
 - **Phase 6 is built (branch unpushed).** 6A.1–6A.4, 6B (reports + receiving), 6C (live sales
   screens + review fix pass), decision 19 (receivables Record payment), the seed reclassification,
   and the 6D live end-to-end pass (boot hang + till mock catalogue fixed live, #21 verified against
-  the server, all Phase 6 screens proven live) are done. **Next: push decision**, then the follow-up
-  wiring of the inventory dashboard (below).
+  the server, all Phase 6 screens proven live) are done. **Next: push decision**, then the
+  mock-purge follow-up below.
 - **Seed reclassification: BUILT 2026-10-20** (commit `5f1c52a`). The underpaid demo sale now
   posts to Maria Santos; Walk-in OPEN ledgers are zero.
-- **Pending follow-up build (found in the 6D live pass, not yet built):** the inventory dashboard
-  (`flutter/lib/features/dashboard/widget/inventory_dashboard_content.dart`) renders entirely from
-  `DashboardMockData` — 1,248/₱3.84M-style mock aggregates over live stock. Wire its four sections
-  (metrics, table, movements, restock queue) to `InventoryViewmodel` with load-on-open + error
-  banner, same pattern as the sales screens. Surfaced live as the stocker home screen.
+- **Inventory dashboard: BUILT 2026-10-2x** (`cff80c1` + ranked-queue fix `9e18505`; 4 dashboard
+  tests green). The stocker's home screen reads the live viewmodel with urgency ranking + overflow
+  signal.
+- **Pending mock-purge build (surfaced across the 6D/dashboard passes, not yet built):** Admin
+  Overview (`admin_dashboard.dart`: metrics, quick actions, recent activity, alerts — all
+  `DashboardMockData`), plus dead-code deletion (orphan `pos_dashboard`/`sales_dashboard` views and
+  their content widgets, referenced by nothing). Same established pattern: viewmodel-first,
+  load on open, banner + retry, RED-first tests.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.
