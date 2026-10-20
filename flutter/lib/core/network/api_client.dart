@@ -1,7 +1,8 @@
 import 'package:client/core/config/api_config.dart';
 import 'package:client/core/network/paged.dart';
+import 'package:client/core/network/token_store.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter/foundation.dart';
 
 /// Shared Django API client with persistent JWT authentication.
 class ApiClient {
@@ -12,9 +13,13 @@ class ApiClient {
   static const _accessTokenKey = 'auth_access_token';
   static const _refreshTokenKey = 'auth_refresh_token';
 
-  final FlutterSecureStorage _storage = const FlutterSecureStorage(
-    mOptions: MacOsOptions(usesDataProtectionKeychain: false),
-  );
+  // Linux (non-web) uses shared_preferences to avoid the gnome-keyring prompt;
+  // every other platform keeps the OS secret store. Injectable for tests.
+  // See planning/cashier-workflow/decisions/01-linux-token-storage.md.
+  TokenStore _store = tokenStoreForPlatform();
+
+  @visibleForTesting
+  set tokenStore(TokenStore store) => _store = store;
   late final Dio dio;
   String? _accessToken;
   String? _refreshToken;
@@ -72,8 +77,8 @@ class ApiClient {
 
   Future<void> restoreTokens() async {
     try {
-      _accessToken = await _storage.read(key: _accessTokenKey);
-      _refreshToken = await _storage.read(key: _refreshTokenKey);
+      _accessToken = await _store.read(_accessTokenKey);
+      _refreshToken = await _store.read(_refreshTokenKey);
     } catch (_) {
       _accessToken = null;
       _refreshToken = null;
@@ -88,8 +93,8 @@ class ApiClient {
     _refreshToken = refreshToken;
     try {
       await Future.wait([
-        _storage.write(key: _accessTokenKey, value: accessToken),
-        _storage.write(key: _refreshTokenKey, value: refreshToken),
+        _store.write(_accessTokenKey, accessToken),
+        _store.write(_refreshTokenKey, refreshToken),
       ]);
     } catch (_) {
       // Keep tokens in memory even if secure storage fails
@@ -101,8 +106,8 @@ class ApiClient {
     _refreshToken = null;
     try {
       await Future.wait([
-        _storage.delete(key: _accessTokenKey),
-        _storage.delete(key: _refreshTokenKey),
+        _store.delete(_accessTokenKey),
+        _store.delete(_refreshTokenKey),
       ]);
     } catch (_) {
       // Ignored
@@ -128,7 +133,7 @@ class ApiClient {
       final accessToken = response.data?['access'] as String?;
       if (accessToken == null) return false;
       _accessToken = accessToken;
-      await _storage.write(key: _accessTokenKey, value: accessToken);
+      await _store.write(_accessTokenKey, accessToken);
       return true;
     } on DioException {
       await clearTokens();

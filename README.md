@@ -179,12 +179,15 @@ client at the new port with `--dart-define=API_BASE_URL=...`.
 **`flutter` cannot find a device.** Enable the desktop target once:
 `flutter config --enable-linux-desktop`, then `flutter devices`.
 
-**Repeated "unlock keyring" prompt on Linux.** `flutter_secure_storage` reads tokens via
-`libsecret` → `gnome-keyring`. If the default keyring is password-protected it starts locked, and on
-WSL/headless sessions nothing unlocks it at login, so the prompt returns every run. Fixes: give the
-keyring an **empty password** (`seahorse`, or delete `~/.local/share/keyrings/Default_keyring.keyring`
-and re-create it with both password fields blank), or switch the Linux build to `shared_preferences`.
-An empty-password keyring is effectively unencrypted — fine for a demo machine, not for production.
+**Repeated "unlock keyring" prompt on Linux — FIXED in code (2026-10-20).** On Linux (not web) the client
+now stores its JWTs in `shared_preferences` instead of `flutter_secure_storage`, so there is no
+`libsecret`/gnome-keyring prompt. macOS (Keychain), Windows (DPAPI), mobile and web are unchanged. The
+selection lives in `flutter/lib/core/network/token_store.dart` (`tokenStoreForPlatform`), keyed on
+`defaultTargetPlatform`. Trade-off: on Linux the tokens sit in a plaintext prefs file — acceptable for a
+demo machine, not for production (production hardening is out of scope). See
+`planning/cashier-workflow/decisions/01-linux-token-storage.md`. If you prefer the keyring anyway, give it
+an **empty password** (`seahorse`, or delete `~/.local/share/keyrings/Default_keyring.keyring` and
+re-create it with both password fields blank).
 
 ## Repository layout
 
