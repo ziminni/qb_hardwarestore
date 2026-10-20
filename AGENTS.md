@@ -52,10 +52,10 @@ the same commit that breaks it.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.
-- **Last session:** `docs/sessions/2026-10-17-wayfinder-complete-and-phase-6-start.md` — completed the
-  map (five decisions), wrote the Phase 6 roadmap, and built 6A.1. **Verified fresh at `6dee5c0`:**
-  backend **52/52 OK**, `manage.py check` clean, `flutter analyze` clean, flutter **314/314**, tree CLEAN,
-  and `GET /api/v1/quotations/` answering **200**.
+- **Last session:** `docs/sessions/2026-10-20-mock-purge-and-map-cleanup.md` — mock-purge complete
+  (Admin Overview + user management live, orphans deleted), maps/atlas freshened to the completed
+  Phases 0–6 state. **Gate:** backend **89/89**, `manage.py check` clean, `flutter analyze` clean,
+  flutter **395/395**, tree CLEAN. **Next: wayfinder** — push decision, next build scope, CPMS repo.
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message

@@ -1,13 +1,12 @@
 # planning/api-integration/MAP.md
 
 **Slug:** `api-integration` · **Opened:** 2026-10-15
-**Status:** 20 locked · **0 open** — the frontier was reopened on 2026-10-17 to clear two questions buried in closed decisions, and both are now resolved in those decisions. A later audit found one more deferred note in decision 09; it is now [Receivables Record Payment](./decisions/19-receivables-record-payment.md), so fog has no unrecorded items.** Frontier and blocked are EMPTY; fog holds only explicitly-recorded deferred items (audited 2026-10-19).** The map is complete; the roadmap below is the hand-off. **Phase state lives in the phase table below, which is the single home for it** — per-row, with evidence. Phase 5 was unlocked by [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md), resolved 2026-10-17. Phase 0's 7 rows
+**Status:** 20 locked · **0 open** (fog holds 4 explicitly-recorded deferred items) — the frontier was reopened on 2026-10-17 to clear two questions buried in closed decisions, and both are now resolved in those decisions. A later audit found one more deferred note in decision 09; it is now [Receivables Record Payment](./decisions/19-receivables-record-payment.md), so fog has no unrecorded items.** Frontier and blocked are EMPTY; fog holds only explicitly-recorded deferred items (audited 2026-10-19).** The map is complete; the roadmap below is the hand-off. **Phase state lives in the phase table below, which is the single home for it** — per-row, with evidence. Phase 5 was unlocked by [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md), resolved 2026-10-17. Phase 0's 7 rows
 are built and were verified row-by-row against the code (the "Phase 0 — status" table below is the authority; it
 has been wrong twice in opposite directions, so it is stated with per-row evidence); Phase 1's products catalogue
 renders live API data (commits `6070442`…`557dfd3`); Phase 2 made the server the authority for inventory state
 (commits `938547e`…`794e83a`), which required the backend changes the old "client-side only" invariant forbade — see
-that row's correction. [POS Checkout Client Contract](./decisions/06-checkout-client-contract.md) was resolved
-2026-10-16, so **Phase 3 is ready to build**. The two open decisions gate Phases 5 and 6.
+that row's correction. All six phases are built — the phase table below is the current state. No open decisions remain.
 
 ## Destination
 
@@ -150,7 +149,7 @@ end-to-end pass that earned its keep: POSTing the Flutter client's real request 
 **two defects that reading and widget tests had both missed** — an HTTP 400 (the serializer demanded a `user` it
 then overwrote with `request.user`) and an HTTP 500 plus a **partial write** (`allocate_fifo` used
 `select_for_update` outside a transaction, so the adjustment row committed while the stock never moved). Both are
-fixed. Everything from Phase 3 up waits on a frontier decision.
+fixed. Phases 3–6 followed against their locked tickets; the phase table above is the current state.
 
 **Phases 0-3 are complete.** Phase 3 was built in `102c121`…`1415664`: the POS now completes a real sale against
 `POST /api/v1/transactions/`. Resolving decision 06 also **sharpened the Phase 4 question**, which has graduated
@@ -195,7 +194,9 @@ only in the gitignored ledger, which is not a record): the 40-page / ~2,000-row 
 list read (owned by [Pagination Envelope Strategy](./decisions/03-pagination-envelope-strategy.md) —
 confirmed deferred 2026-10-19, builds only on real volume or a revisit of that decision); the unparsed `discount_amount`/`vat_amount` wire fields (diverge
 from receipts only when a discount feature ships — no such feature is in scope); raw `CASH` payment-method
-text and the fixed "Customer return" reason on the sales screens (cosmetic polish, gates nothing).
+text and the fixed "Customer return" reason on the sales screens (cosmetic polish, gates nothing);
+the staff list takes backend page 1 of 50 (server `PAGE_SIZE`, owned by decision 03 like the 40-page
+bound — paged follow-up only if staff grows).
 
 ## Out of Scope
 
@@ -210,8 +211,10 @@ Ruled past the destination. Do not reopen without a new map.
 
 # Final Implementation Roadmap (Phase 6)
 
-The map is complete: **20 decisions locked, 0 open, nothing blocked; fog holds 3 explicitly-recorded deferred items (see Fog of War).** This is the hand-off —
-what remains to be BUILT, in order, with the evidence each step must produce.
+The map is complete: **20 decisions locked, 0 open, nothing blocked; fog holds 4 explicitly-recorded deferred items (see Fog of War).** This is the hand-off —
+what WAS built, in order, with the evidence each step produced. **Every item below is done
+(6A.1–6A.4, 6B reports + receiving, 6C live sales + fix passes, decision 19, 6D live pass);**
+the roadmap is kept as the hand-off record, not re-planned.
 
 **Phase 6 is a BACKEND-FIRST phase.** It was described as "Admin, reports, sales" — a UI phase — and
 three decisions changed that. The old invariant ("no new endpoints, no model or migration changes") is
@@ -246,18 +249,17 @@ Dashboard · transactions · receivables (read-live; plus [Receivables Record Pa
 wired in 6A.1/6A.2, and `sales_module_viewmodel.dart` + `models/sales_module.dart` are the **canonical**
 stack for them.
 
-## 6D — Owed from earlier phases, not part of Phase 6
+## 6D — Owed from earlier phases, not part of Phase 6 — BUILT 2026-10-20
 
-1. **A live end-to-end pass with `flutter run` against the live backend.** Every contract in Phases 0–5
-   is probed over HTTP; **the pixels are unverified**, and that is the last honest gap. It should start
-   by exercising the `#21` underpayment path, which is verified against a **stub**, not the server.
-2. **The branch is unpushed** (178+ commits). Pushing is a shared-branch side effect and needs a
-   decision, not a default.
+1. **Live end-to-end pass DONE** (`flutter run -d web-server` vs live backend): boot hang fixed
+   (`kIsWeb` guard), till catalogue-load fixed, #21 underpayment verified live (walk-in 400 /
+   Maria creates OPEN ledger). Two fixes landed from the pass.
+2. **The branch is unpushed** (standing decision; count via `git rev-list --count
+   origin/master..HEAD` — a written count stales on landing). Pushing needs a decision, not a default.
 
 ## The scope warning, kept here on purpose
 
 Four decisions in one session each answered "build it properly": quotations and orders got a backend,
 returns got a migration, receiving got a screen, and reports got two screens deleted. Only the images
-decision was a "don't build". **Phase 6 is now the largest phase in the epic**, and it is the one to
-sanity-check against the deadline before 6A starts — because 6A.1 and 6A.2 are the first backend models
-this project has added since the epic began.
+decision was a "don't build". **Phase 6 was the largest phase in the epic** — it added the first
+backend models since the epic began (quotations, orders, return linkage) — and it is built.
