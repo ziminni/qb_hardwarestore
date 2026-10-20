@@ -13,8 +13,8 @@ neither — it is an index, and a second home for a fact is how the two drift.
 The integration epic runs as a **Wayfinder map** — a low-resolution index plus one file per open decision,
 so it stays workable across many sessions without loading everything at once.
 
-**[planning/api-integration/MAP.md](api-integration/MAP.md)** — destination, invariants, one open decision
-and the phase order.
+**[planning/api-integration/MAP.md](api-integration/MAP.md)** — destination, invariants, phase order
+(20 locked, 0 open; frontier and blocked empty; fog holds 3 owned deferrals).
 
 ## Reference plans
 
@@ -22,9 +22,9 @@ Supporting material that is not itself on the map's frontier.
 
 | Plan | Scope | Priority |
 | :--- | :--- | :--- |
-| [Lost work recovery](02-lost-work-recovery.md) | Restore `pos_service.dart` / `pos_repository.dart` dropped by a bad merge — feeds Phase 1 | **P1** |
-| [UI gaps](03-ui-gaps.md) | Screens that do not exist for endpoints that do (token flow, utang, receipts) — feeds Phase 5 | **P1** |
-| [Cleanup](04-cleanup.md) | Dead files, duplicate stacks, stale branches, config debt | **P2** |
+| [Lost work recovery](02-lost-work-recovery.md) | ~~Restore dropped files~~ **SUPERSEDED** — the POS stack was rebuilt (not recovered) across Phases 1–3; the lost commit's shape survives only as history | — |
+| [UI gaps](03-ui-gaps.md) | **LARGELY CONSUMED** — token release, utang, and receiving screens built (Phases 4–5, 6B.2); foreman routing settled by decision 04. Projects / payments / receipts screens were never adopted by the map and stay unplanned | — |
+| [Cleanup](04-cleanup.md) | **PARTIALLY CONSUMED** — reports consolidated (6B.1), widget_test compiles, sales stacks reconciled not deleted (decision 05). Remain: orphan dashboard views, skeleton-layout duplication, config debt | **P2** |
 
 ## Priority reasoning (historical — Phases 0-4 are now DONE; kept for the why)
 
@@ -44,7 +44,7 @@ Supporting material that is not itself on the map's frontier.
 | Item | Why |
 | :--- | :--- |
 | Settings page backed by the API | Agreed deferral; it is static UI with no backend contract. |
-| Reports consolidation (3 screens → 1) | Cosmetic; tracked in `04-cleanup.md`, not a functional gap. |
+| Reports consolidation (3 screens → 1) | ~~Deferred~~ **BUILT 6B.1** — one four-tab screen. |
 | Production hardening of secrets | Real, but out of scope for a capstone demo. Listed in `04-cleanup.md`. |
 
 ## Verification rule

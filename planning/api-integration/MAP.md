@@ -143,7 +143,7 @@ phase table and tracked in neither the frontier nor the fog.
 | 3 | POS checkout + receipt (the money path) | ✅ **done** | [POS Checkout Client Contract](./decisions/06-checkout-client-contract.md) — resolved 2026-10-16; built in `102c121`…`1415664` |
 | 4 | Customers master data (the `Customer` hub) | ✅ **done** (8 of 8 tasks) | [Customer Master-Data Scope (POS side)](./decisions/14-customer-master-data-scope.md) — **decision** resolved 2026-10-16; Task 1 (the three `full_name` defects) built in `df908a9` |
 | 5 | Requisitions + material-token release | ✅ **done** (transport, approve/reject queue and the routed release counter; reviewed (Critical none, 3 Important fixed) and verified LIVE) | [Requisition UI Ownership (POS side vs CPMS side)](./decisions/09-requisition-ui-ownership.md) — **locked** 2026-10-17 |
-| 6 | Admin, reports, sales | ❓ **gated** | [Sales Stack Reconciliation](./decisions/05-sales-stack-reconciliation.md) — open |
+| 6 | Admin, reports, sales | ✅ **done** (6A.1–6A.4, 6B reports + receiving, 6C live sales screens + review fix passes, decision 19, 6D live pass with two fixes; backend 89/89, flutter 371/371 at the time) | [Sales Stack Reconciliation](./decisions/05-sales-stack-reconciliation.md) — **locked** |
 
 **Phases 0, 1 and 2 are complete.** Phase 2 was built in `938547e`…`794e83a` and finished with the live
 end-to-end pass that earned its keep: POSTing the Flutter client's real request body to the running server found
@@ -155,7 +155,8 @@ fixed. Everything from Phase 3 up waits on a frontier decision.
 **Phases 0-3 are complete.** Phase 3 was built in `102c121`…`1415664`: the POS now completes a real sale against
 `POST /api/v1/transactions/`. Resolving decision 06 also **sharpened the Phase 4 question**, which has graduated
 out of the fog into the frontier below (checkout cannot run without a customer, so "which slice of customer CRUD
-the POS needs" is now stateable). The one remaining decision gates Phase 6.
+the POS needs" is now stateable). No open decisions remain; Phases 4–6 built against
+their locked tickets.
 
 ## Active Frontier (Open & Unblocked)
 
@@ -166,8 +167,7 @@ report each. **A closed decision's note is not a record** — that lesson is why
 
 
 Ordered by the locked phase order: define the entity, then the transport, then the presentation. Resolve one
-per session. Phases 0-3 have their tickets and **Phase 4's and Phase 5's are now resolved too**; the one item below gates
-Phase 6.
+per session. Phases 0-3 have their tickets and **Phase 4's, Phase 5's and Phase 6's are now resolved and built too**.
 
 
 ## Blocked
@@ -186,11 +186,11 @@ note inside a closed decision is not a record — it is a note nothing enforces.
 items were removed because they described **completed** work, which a list of unknowns must not do.
 The approve-queue project filter was resolved 2026-10-19 (leave unfiltered — see
 [Requisition UI Ownership](./decisions/09-requisition-ui-ownership.md), "Not decided here") and leaves
-fog. Remaining fog is the Walk-in row plus the three 6C deferrals below. A later audit found a third such note — decision 09’s receivables payment-posting UI — and it was resolved the same turn as [Receivables Record Payment](./decisions/19-receivables-record-payment.md), so it never became an open frontier item. A later fix-pass review found the same fence shape
+fog. Remaining fog is the three 6C deferrals below. A later audit found a third such note — decision 09’s receivables payment-posting UI — and it was resolved the same turn as [Receivables Record Payment](./decisions/19-receivables-record-payment.md), so it never became an open frontier item. A later fix-pass review found the same fence shape
 around the approve queue ([Approve Queue Route Gate](./decisions/20-approve-queue-route-gate.md));
 exempted the same turn, so it likewise never became an open frontier item. The ₱4,900 Walk-in ledger row was resolved 2026-10-19 (reclassify in seed — see
 [Customer Master-Data Scope](./decisions/14-customer-master-data-scope.md)) and leaves fog; its one-tuple
-seed edit + reseed is a pending demo-only build tracked in AGENTS.md. Three 6C fix-pass deferrals graduated here 2026-10-19 (they lived
+seed edit + reseed was built as `5f1c52a` (Maria Santos holds the OPEN row, Walk-in zero). Three 6C fix-pass deferrals graduated here 2026-10-19 (they lived
 only in the gitignored ledger, which is not a record): the 40-page / ~2,000-row lifetime bound on every
 list read (owned by [Pagination Envelope Strategy](./decisions/03-pagination-envelope-strategy.md) —
 confirmed deferred 2026-10-19, builds only on real volume or a revisit of that decision); the unparsed `discount_amount`/`vat_amount` wire fields (diverge
