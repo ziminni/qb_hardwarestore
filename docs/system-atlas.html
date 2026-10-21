@@ -35,7 +35,7 @@
       <div>
         <h1 class="text-2xl font-bold tracking-tight text-white">System Atlas — BuildPro POS / Inventory</h1>
         <p class="text-sm text-slate-400 mt-1">
-          Reverse-engineered from source · branch <span class="mdcode">feature/backend-integration</span> · refreshed 2026-10-20 (Phases 0–6 + mock-purge re-verified)
+          Reverse-engineered from source · branch <span class="mdcode">feature/backend-integration</span> · refreshed 2026-10-21 (cashier-workflow Phases 1–4 + admin provider fix)
         </p>
         <div class="flex flex-wrap gap-2 mt-3 text-xs">
           <span class="px-2 py-1 rounded bg-sky-500/10 text-sky-300 border border-sky-500/30">Django 5.2 LTS</span>
@@ -60,15 +60,15 @@
     <div class="card rounded-xl p-5">
       <div class="text-3xl font-bold text-white">10</div>
       <div class="text-sm text-slate-400 mt-1">Frontend Modules</div>
-      <div class="text-xs text-slate-500 mt-1">28 screens · 28 routes · 17 viewmodels</div>
+      <div class="text-xs text-slate-500 mt-1">32 screens · 32 routes · 17 viewmodels</div>
     </div>
     <div class="card rounded-xl p-5 border-l-4 border-l-emerald-500">
-      <div class="text-3xl font-bold text-emerald-400">23<span class="text-lg text-slate-500"> / 37</span></div>
+      <div class="text-3xl font-bold text-emerald-400">25<span class="text-lg text-slate-500"> / 39</span></div>
       <div class="text-sm text-slate-400 mt-1">🟢 Live &amp; API-wired</div>
       <div class="text-xs text-slate-500 mt-1">every screen except suppliers, audit, monitoring, settings</div>
     </div>
     <div class="card rounded-xl p-5 border-l-4 border-l-rose-500">
-      <div class="text-3xl font-bold text-rose-400">7<span class="text-lg text-slate-500"> / 37</span></div>
+      <div class="text-3xl font-bold text-rose-400">7<span class="text-lg text-slate-500"> / 39</span></div>
       <div class="text-sm text-slate-400 mt-1">🔴 Mock or 🟡 partial</div>
       <div class="text-xs text-slate-500 mt-1">suppliers + purchases + audit + monitoring + settings (partial: movements, categories)</div>
     </div>
@@ -80,11 +80,11 @@
   </div>
   <div class="card rounded-xl mt-4 px-5 py-3 text-xs text-slate-400 flex flex-wrap gap-x-8 gap-y-1">
     <span>Backend: <strong class="text-slate-200">6 apps</strong></span>
-    <span><strong class="text-slate-200">31</strong> models</span>
-    <span><strong class="text-slate-200">39</strong> backend routes</span>
+    <span><strong class="text-slate-200">34</strong> models</span>
+    <span><strong class="text-slate-200">44</strong> backend routes</span>
     <span><strong class="text-slate-200">4</strong> report paths</span>
     <span><strong class="text-slate-200">5</strong> auth routes</span>
-    <span class="text-rose-300">12 of 39 endpoints unreachable from the client</span>
+    <span class="text-rose-300">10 of 44 endpoints unreachable from the client</span>
   </div>
 </section>
 
@@ -102,12 +102,12 @@
 
 <section data-panel="architecture">
   <h2 class="text-lg font-semibold text-white mb-1">Container architecture</h2>
-  <p class="text-sm text-slate-400 mb-4">Two processes, one database. The API owns all business logic; as of the 2026-10-20 mock-purge every screen reads live data except suppliers, audit logs, monitoring and settings.</p>
+  <p class="text-sm text-slate-400 mb-4">Two processes, one database. The API owns all business logic; as of 2026-10-21 every screen reads live data except suppliers, audit logs, monitoring and settings; cashier-workflow added held carts + shifts.</p>
   <div class="card rounded-xl p-6 overflow-x-auto">
 <pre class="mermaid">
 flowchart LR
   subgraph Client["Flutter client - flutter/"]
-    UI["28 screens in features/views"]
+    UI["32 screens in features/views"]
     VM["17 viewmodels"]
     NET["api_client.dart - Dio + JWT refresh"]
     SEC["flutter_secure_storage"]
@@ -120,7 +120,7 @@ flowchart LR
     SVC["services.py - process_sale, approve_requisition, verify_token, release_materials"]
     URLS --&gt; APPS --&gt; SVC
   end
-  DB[("PostgreSQL 15 - 31 models")]
+  DB[("PostgreSQL 15 - 34 models")]
   NET -- "HTTP :8000" --&gt; URLS
   SVC --&gt; DB
 </pre>
@@ -171,6 +171,11 @@ erDiagram
   Requisition    ||--o| MaterialToken : "1 to 1"
   ProductVariant ||--o{ RequisitionItem : variant
   User           ||--o{ AuditLog : user
+  User           ||--o{ HeldCart : cashier
+  Customer       ||--o{ HeldCart : customer
+  HeldCart       ||--o{ HeldCartItem : items
+  User           ||--o{ Shift : cashier
+  Shift          ||--o{ SalesTransaction : shift
 </pre>
   </div>
 
@@ -317,12 +322,14 @@ const MATRIX = [
   { f:'Admin settings', ui:'admin/views/settings_page.dart', vm:'(static)', ep:'—', s:'mock', n:'Agreed deferral.' },
   { f:'Sales dashboard (legacy)', ui:'(deleted)', vm:'—', ep:'—', s:'dead', n:'Deleted mock-purge (7b47db3).' },
   { f:'POS dashboard (legacy)', ui:'(deleted)', vm:'—', ep:'—', s:'dead', n:'Deleted mock-purge (7b47db3).' },
-  { f:'Requisition token flow (release counter)', ui:'pos/views/material_release_page.dart', vm:'pos/viewmodels/material_release_viewmodel.dart', ep:'/tokens/verify/ + /tokens/release/', s:'live', n:'LIVE data, but UNREACHABLE from the UI (found 2026-10-20): no sidebar entry routes to /pos/release because the POS shell’s onTap is an empty closure. The 2026-10-18 clickable-nav-entry claim was wrong. FIFO-deducts real stock, writes a SalesTransaction and always leaves a receivable. Owned by planning/cashier-workflow/MAP.md.' },
+  { f:'Requisition token flow (release counter)', ui:'pos/views/material_release_page.dart', vm:'pos/viewmodels/material_release_viewmodel.dart', ep:'/tokens/verify/ + /tokens/release/', s:'live', n:'LIVE and reachable since cashier-workflow Phase 2 (posNavigation tab 2 → /pos/release). FIFO-deducts real stock, writes a SalesTransaction and always leaves a receivable.' },
   { f:'Collectibles writes (Record payment)', ui:'sales/views/sales_receivables_page.dart', vm:'sales_receivables_viewmodel', ep:'POST /ledger-payments/', s:'live', n:'Live since decision 19: 201 moves balance_due; ledger flips PAID at zero.' },
   { f:'Goods receipts (receiving)', ui:'inventory/views/inventory_receiving_page.dart', vm:'receiving_viewmodel', ep:'GET /purchase-orders/ + POST /goods-receipts/ + POST /:id/process/', s:'live', n:'Live since 6B.2: record-then-process, FIFO batches, no re-process, capped accumulation.' },
   { f:'Brands / UOMs / variant-UOMs', ui:'— no UI', vm:'—', ep:'/brands/ · /uoms/ · /variant-uoms/', s:'dead', n:'' },
   { f:'Payments / receipts', ui:'— no UI', vm:'—', ep:'/payments/ · /receipts/', s:'dead', n:'' },
-  { f:'Project entity', ui:'— no UI', vm:'—', ep:'/projects/', s:'dead', n:'Used by the CPMS integration contract.' }
+  { f:'Project entity', ui:'— no UI', vm:'—', ep:'/projects/', s:'dead', n:'Used by the CPMS integration contract.' },
+  { f:'POS held transactions', ui:'pos/views/pos_held_transactions_page.dart', vm:'pos/viewmodels/held_cart_viewmodel.dart', ep:'GET /held-carts/ + hold/complete/void', s:'live', n:'Cashier-workflow Phase 3: park a sale mid-ring, resume into the till. Walk-in carts resolve to the Walk-in Customer.' },
+  { f:'POS shifts + Z-reading', ui:'pos/views/pos_shift_page.dart', vm:'pos/viewmodels/shift_viewmodel.dart', ep:'GET /shifts/ + open/close/current', s:'live', n:'Cashier-workflow Phase 4: one-open-per-cashier, required-shift gate (400 NO_OPEN_SHIFT), record-and-warn variance.' }
 ];
 
 const FLOW = [
@@ -330,7 +337,7 @@ const FLOW = [
   { k:'ViewModel', body:'17 viewmodels across 10 features. `PosTransactionViewmodel` and `ProductsViewmodel` are absent from `main.dart` **by design** (decision 11) — screen-scoped, provided by their own pages. Page-scoped VMs load in provider `create:` (the reports pattern), never from `initState` below their own provider.' },
   { k:'ApiClient', body:'`core/network/api_client.dart` (~175 L) — Dio instance, base URL from `api_config.dart`, JWT in `flutter_secure_storage`, single refresh-on-401 retry. The *only* egress point. `init()` is **not idempotent**.' },
   { k:'paged.dart', body:'`core/network/paged.dart` — unwraps `{count,next,previous,results}` in exactly one place (decision 03). `hasMore` comes from the `next` link, NOT the row count.' },
-  { k:'Django routing', body:'`config/urls.py` mounts 6 apps under `/api/v1/` plus `/api/health/` — 39 backend routes. The client calls 26 paths; 28 `GoRoute`s exist client-side with role gates (`redirectFor`: admin-only overview, sales admitted to reports + requisitions, inventory fence on stock screens).' },
+  { k:'Django routing', body:'`config/urls.py` mounts 6 apps under `/api/v1/` plus `/api/health/` — 44 backend routes (28 router + 16 plain). The client calls 30 paths; 32 `GoRoute`s exist client-side with role gates (`redirectFor`: admin-only overview, sales admitted to reports + requisitions, inventory fence on stock screens).' },
   { k:'ViewSet / Serializer', body:'DRF ModelViewSets with per-role permission classes. The **serializers** define the true field contract — not the docs.' },
   { k:'services.py', body:'The real logic: `process_sale` + `process_return` (FIFO, payments, receipt, ledger, cumulative return accounting), `approve_requisition` → `verify_token` → `release_materials`. **All of it is exercised by the client** — observed through the app, not just read.' }
 ];
@@ -373,7 +380,7 @@ const DEBT = [
       { k:'⚠️ NEW: products toolbar overflow', v:'`A RenderFlex overflowed by 9.7 pixels` from `products/widgets/products_toolbar.dart:113` and `products_catalog_overview.dart:156`, visible at ~1600px widths. Found while testing Phase 1; deliberately not fixed (UI work outside that phase).' }
   ]},
   { title:'Disconnected endpoints', tone:'sky', items:[
-    { k:'12 of 39 endpoints unreachable', v:'Client calls 26 paths (count-verified 2026-10-20). Uncalled: brands, uoms, variants, variant-uoms, suppliers, receipts, payments, req-items, tokens (list), projects, audit-logs, categories. No screen needs them today.' },
+    { k:'10 of 44 endpoints unreachable', v:'Client calls 30 paths (count-verified 2026-10-21: +held-carts, +shifts, +variants, +variant-uoms). Uncalled: brands, uoms, suppliers, receipts, payments, req-items, tokens (list), projects, audit-logs, categories. No screen needs them today.' },
     { k:'Lost integration code — superseded', v:'Commit `22c7c26` added `data/services/pos_service.dart` calling `/api/v1/products/` and `/api/v1/batches/`; merge `27a853e` dropped it. Phase 1 has since delivered this properly (`products_service.dart`, commit `b308717`). Read the old file as a REFERENCE only: it hand-rolled `data["results"]` instead of using `parsePaged`, and filtered to `availableBaseStock > 0` — wrong for a catalogue.' }
   ]},
   { title:'Critical business logic (backend)', tone:'violet', items:[
@@ -387,7 +394,7 @@ const DEBT = [
 
 const STUDY = [
   { id:'s1', t:'flutter/lib/main.dart', l:'~90 L — whole file', w:'Bootstrap and the `MultiProvider` list. Six providers — and knowing **why** the other two are deliberately absent (decision 11) is what stops someone re-adding them.', p:'/skill:codebase-xray Walk me through flutter/lib/main.dart line by line: the startup sequence, window_manager setup, and exactly which viewmodels are registered in MultiProvider — and why the other two must NOT be.' },
-  { id:'s2', t:'flutter/lib/routes/routes.dart', l:'~360 L — `redirectFor`, role map, 28 routes', w:'Single source of truth for navigation. `redirectFor` is PURE so the routing rules are testable without rendering. Role gates: admin-only overview, sales admitted to `/admin/reports` + `/admin/requisitions` (decision 20), inventory fence on stock screens.', p:'/skill:codebase-xray Walk me through flutter/lib/routes/routes.dart: the redirect/role map, all 28 routes, and how the inventory and sales guards work.' },
+  { id:'s2', t:'flutter/lib/routes/routes.dart', l:'~360 L — `redirectFor`, role map, 32 routes', w:'Single source of truth for navigation. `redirectFor` is PURE so the routing rules are testable without rendering. Role gates: admin-only overview, sales admitted to `/admin/reports` + `/admin/requisitions` (decision 20), inventory fence on stock screens. Cashier-workflow added `/pos/history`, `/pos/receivables`, `/pos/held`, `/pos/shifts`.', p:'/skill:codebase-xray Walk me through flutter/lib/routes/routes.dart: the redirect/role map, all 28 routes, and how the inventory and sales guards work.' },
   { id:'s3', t:'flutter/lib/core/network/api_client.dart', l:'~175 L — init, interceptors, get/post/getList', w:'The only network layer: Dio setup, JWT persistence, single refresh-on-401 retry. Note `init()` is **not idempotent** — `dio` is `late final`.', p:'/skill:codebase-xray Walk me through flutter/lib/core/network/api_client.dart: base URL resolution, token storage, the 401 refresh interceptor, and failure modes.' },
   { id:'s4', t:'flutter/lib/core/network/paged.dart', l:'~70 L — whole file', w:'**NEW (Phase 0).** Unwraps the DRF `{count,next,previous,results}` envelope in exactly one place (decision 03). `hasMore` comes from the `next` link, NOT the row count — the exact bug a review caught.', p:'/skill:codebase-xray Walk me through flutter/lib/core/network/paged.dart: the Paged type, parsePaged strictness, and why hasMore is derived from the next link rather than the row count.' },
   { id:'s5', t:'flutter/lib/features/inventory/viewmodels/inventory_viewmodel.dart', l:'~250 L — load, isLoading/loadError/hasLoaded, batchesFor, stockOnHandFor', w:'**NEW (Phase 1).** The product list’s ONLY home, and so the hinge of the whole integration: loading it lights up products, inventory AND POS at once. `load()` mutates in place (`_products`/`_batches` are `final List`) and on failure KEEPS the catalogue rather than emptying it.', p:'/skill:codebase-xray Walk me through InventoryViewmodel: the constructor, why products and batches are the single store, how load() replaces them in place, and the failure path that deliberately leaves the catalogue intact.' },

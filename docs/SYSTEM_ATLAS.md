@@ -1,6 +1,6 @@
 # SYSTEM ATLAS — BuildPro POS / Inventory System
 
-> **Generated:** 2026-10-15 · **Refreshed:** 2026-10-20 (full — Phases 0–6 + dashboard mock-purge re-verified in source; Truth Matrix now 100% live-or-deleted) · **Branch:** `feature/backend-integration` (unpushed, standing decision)
+> **Generated:** 2026-10-15 · **Refreshed:** 2026-10-21 (incremental — cashier-workflow Phases 1–4 + admin provider fix re-verified in source; stocker gaps confirmed unbuilt) · **Branch:** `feature/backend-integration` (pushed, in sync with origin)
 > **Method:** every claim below was verified against source — imports, route tables, model FKs, serializer fields, viewmodel bodies. `README.md`, `PHASE_*.md` and `ENDPOINTS.md` were **not** trusted.
 > **Companion:** [`docs/system-atlas.html`](./system-atlas.html) — interactive cockpit (KPIs, filterable Truth Matrix, guided study path).
 
@@ -8,15 +8,15 @@
 
 ## 1. Architecture
 
-Two processes, one database. A Flutter client talks to a Django REST API; the API owns **all** business logic and persists to PostgreSQL 15. As of the mock-purge (2026-10-20) every client screen reads live API data except the suppliers pages, audit logs, monitoring pages and settings — and no `*MockData` file backs a live screen.
+Two processes, one database. A Flutter client talks to a Django REST API; the API owns **all** business logic and persists to PostgreSQL 15. As of 2026-10-21 every client screen reads live API data except the suppliers pages, audit logs, monitoring pages and settings — and no `*MockData` file backs a live screen. Cashier-workflow (Phases 1–4) added HeldCart/Shift models + Linux token storage; stocker Returns/Reports/Settings tabs still have no routes (MAP ready, unbuilt).
 
 ```mermaid
 flowchart LR
   subgraph Client["Flutter client — flutter/"]
-    UI["features/*/views<br/>28 screens"]
+    UI["features/*/views<br/>32 screens"]
     VM["features/*/viewmodels<br/>17 viewmodels"]
     NET["core/network/api_client.dart<br/>Dio + JWT refresh"]
-    SEC["flutter_secure_storage<br/>libsecret / Keychain"]
+    SEC["TokenStore seam<br/>secure / prefs-per-platform"]
     UI --> VM --> NET
     NET -. tokens .-> SEC
   end
@@ -26,7 +26,7 @@ flowchart LR
     SVC["services.py<br/>process_sale · approve_requisition<br/>verify_token · release_materials"]
     URLS --> APPS --> SVC
   end
-  DB[("PostgreSQL 15<br/>31 models")]
+  DB[("PostgreSQL 15<br/>34 models")]
   NET -- "HTTP :8000" --> URLS
   SVC --> DB
 ```
@@ -34,17 +34,11 @@ flowchart LR
 **Request lifecycle.** Every feature below now completes the round trip end to end. The two oldest paths:
 
 ```text
-login_page     → AuthViewmodel → AuthRepository → AuthService → ApiClient
-               → POST /api/v1/auth/login/ → apps.users.views.login_view → SimpleJWT
-
-products_page  → ProductsViewmodel → InventoryViewmodel.load()
-               → ProductsRepository → ProductsService → ApiClient
-               → GET /api/v1/products/ + GET /api/v1/batches/ → assembleCatalogue → CatalogueItem
+login_page → AuthViewmodel → AuthService → POST /api/v1/auth/login/ → SimpleJWT
+products_page → ProductsViewmodel → InventoryViewmodel.load() → GET /products/ + /batches/
 ```
 
-The products path's *shape*: `InventoryViewmodel` is the product list's **only** home, so loading that one store lit catalogue + inventory + POS in a single move (decisions 11/12). Hardcoded screens left: suppliers, audit logs, monitoring, settings (§3).
-
-**Runtime topology** (`docker-compose.yml`): `buildpro_db` (postgres:15-alpine, host `5435`→`5432`) and `buildpro_backend` (runserver `:8000`, code bind-mounted from `backend_django/`).
+`InventoryViewmodel` is the product list's **only** home (decisions 11/12). Hardcoded screens left: suppliers, audit logs, monitoring, settings (§3).
 
 ---
 
@@ -88,14 +82,19 @@ erDiagram
   Requisition    ||--o| MaterialToken : "requisition (1:1)"
   ProductVariant ||--o{ RequisitionItem : "variant"
   User           ||--o{ AuditLog : "user"
+  User           ||--o{ HeldCart : cashier
+  Customer       ||--o{ HeldCart : customer
+  HeldCart       ||--o{ HeldCartItem : items
+  User           ||--o{ Shift : cashier
+  Shift          ||--o{ SalesTransaction : shift
 ```
 
-**Backbone tables** (31 models, 6 apps — reports has views, no models):
+**Backbone tables** (34 models, 6 apps — reports has views, no models):
 
 | App | Models | Notes |
 | --- | --- | --- |
 | `inventory` | 13 | Category, Brand, UnitOfMeasure, Product, ProductVariant, VariantUOM, Supplier, PurchaseOrder, POItem, GoodsReceipt, InventoryBatch, StockAdjustment, SystemAlert |
-| `pos` | 10 | Customer, SalesTransaction, SalesItem, **SalesItemDeduction**, Payment, OfficialReceipt, **Quotation, QuotationItem, SalesOrder, SalesOrderItem** |
+| `pos` | 13 | Customer, SalesTransaction, SalesItem, **SalesItemDeduction**, Payment, OfficialReceipt, **Quotation, QuotationItem, SalesOrder, SalesOrderItem, HeldCart, HeldCartItem, Shift** |
 | `requisitions` | 4 | Project, Requisition, RequisitionItem, MaterialToken |
 | `collectibles` | 2 | CollectibleLedger, CollectiblePayment |
 | `users` | 2 | User (+ role), AuditLog |
@@ -141,14 +140,16 @@ Legend: 🟢 Live (screen's *primary* data comes from an API response) · 🟡 P
 | Admin settings | `admin/views/settings_page.dart` | — (static) | — | 🔴 Mock |
 | Sales dashboard (legacy) | ~~`dashboard/views/sales_dashboard.dart`~~ | — | — | ⚫ Deleted (`7b47db3`) |
 | POS dashboard (legacy) | ~~`dashboard/views/pos_dashboard.dart`~~ | — | — | ⚫ Deleted (`7b47db3`) |
-| Requisition token flow (release counter) | `pos/views/material_release_page.dart` | `pos/viewmodels/material_release_viewmodel.dart` | `/tokens/verify/` `/tokens/release/` | 🟢 Live — **but unreachable from the UI:** no sidebar entry routes to `/pos/release` (the POS shell's `onTap` is `() {}`); see `planning/cashier-workflow/MAP.md` |
+| Requisition token flow (release counter) | `pos/views/material_release_page.dart` | `pos/viewmodels/material_release_viewmodel.dart` | `/tokens/verify/` `/tokens/release/` | 🟢 Live — reachable since cashier-workflow Phase 2 (`posNavigation` tab 2 → `/pos/release`) |
 | Collectibles writes (Record payment) | `sales/views/sales_receivables_page.dart` | `sales_receivables_viewmodel` | `POST /api/v1/ledger-payments/` | 🟢 Live |
 | Goods receipts (receiving) | `inventory/views/inventory_receiving_page.dart` | `receiving_viewmodel` | `GET /purchase-orders/` + `POST /goods-receipts/` + `POST /:id/process/` | 🟢 Live |
 | Brands / UOMs / variant-UOMs | **no UI** | — | `/brands/` `/uoms/` `/variant-uoms/` | ⚫ Dead |
 | Payments / receipts | **no UI** | — | `/payments/` `/receipts/` | ⚫ Dead |
 | Project entity | **no UI** | — | `/projects/` | ⚫ Dead |
+| POS held transactions | `pos/views/pos_held_transactions_page.dart` | `pos/viewmodels/held_cart_viewmodel.dart` | `GET /held-carts/` + hold/complete/void | 🟢 Live |
+| POS shifts + Z-reading | `pos/views/pos_shift_page.dart` | `pos/viewmodels/shift_viewmodel.dart` | `GET /shifts/` + open/close/current | 🟢 Live |
 
-**Score: 23 live · 2 partial · 5 mock · 7 dead (37 rows).** Was 10 · 3 · 17 · 7 before the mock-purge; 9 · 3 · 17 · 8 before the release counter was routed, 8 · 3 · 18 · 8 before Phase 5's approve queue, and 7 · 3 · 20 · 8 before Phase 4 task 7.
+**Score: 25 live · 2 partial · 5 mock · 7 dead (39 rows).** +2 since 2026-10-20 (held carts, shifts). History: 23 · 2 · 5 · 7 (mock-purge) ← 10 · 3 · 17 · 7 ← 9 · 3 · 17 · 8 ← 8 · 3 · 18 · 8 ← 7 · 3 · 20 · 8.
 
 Grade history (full story in git log + `docs/sessions/`): Phase 1 lit the catalogue/stock/low-stock together off one `InventoryViewmodel.load()` — the two Partial rows are those whose **own** data stays local (mock-seeded categories; movements render server adjustments but sale/opening rows are local, and the serializer carries a delta with no before/after pair). Phase 2 deleted 190 lines of invented movement history and reads `alerts/` exactly as alerted. Phase 3 took POS 🟡→🟢 (real `VariantUom.id` keys, server receipt, `InsufficientStock`→400, `cashier` read-only). Phase 6 + mock-purge (above) moved every remaining grade; what stays red is honest scope (suppliers, audit logs, monitoring, settings), not debt. `InventoryViewmodel` still seeds its constructor from `InventoryMockData` (first paint never empty; 46 tests pin it) — replaced on load.
 
@@ -165,9 +166,7 @@ Grade history (full story in git log + `docs/sessions/`): Phase 1 lit the catalo
 | ~~`reports/views/inventory_reports_page.dart` · `sales/views/sales_reports_page.dart`~~ · `admin/views/reports_page.dart` | **Consolidated 6B.1** (`a037cef`): one four-tab Admin screen; the two legacy screens deleted with routes, nav entries and tests updated. |
 | `core/layout/{admin,inventory,sales}_skeleton_layout.dart` | Three near-clone shells; diff is mostly nav labels. Still duplicated — owned by cleanup plan 04, not a phase. |
 
-### Naming inconsistency
-
-- `features/dashboard/widget/` and `features/auth/widget/` are **singular**; the other 8 features use `widgets/`.
+- Naming: `dashboard/widget/` + `auth/widget/` stay **singular**; 8 others use `widgets/` (cosmetic).
 
 ### Wiring gaps
 
@@ -184,9 +183,8 @@ Grade history (full story in git log + `docs/sessions/`): Phase 1 lit the catalo
 
 ### Disconnected endpoints
 
-- **Wired 2026-10-20** (verified by grepping `lib/` for `/api/v1/` paths): **26 distinct paths** — adjustments, alerts, auth login/logout/me/register, batches, customers, goods-receipts, ledger-payments, ledgers (+ aging), products, purchase-orders, quotations, the four reports, requisitions, sales-orders, tokens verify/release, transactions, users (+ stats). Uncalled by the client: brands, uoms, variants, variant-uoms, suppliers, receipts, payments, req-items, tokens (list), projects, audit-logs, categories (names arrive nested in products).
-- Counts refreshed 2026-10-20: **28 `GoRoute`s** in `routes.dart` (was 30; the two legacy report routes were deleted in 6B.1). 6 providers in `main.dart` (auth, inventory, suppliers-purchases, inventory-sales, sales-module, product-tracking); `ProductsViewmodel` and `PosTransactionViewmodel` stay screen-scoped per decision 11.
-- **Superseded reference:** `git show 22c7c26 -- flutter/lib/data/services/pos_service.dart` — pre-Phase-1 POS fetch, dropped by a merge; Phase 1 rebuilt it properly (`products_service.dart`, decision-03 `parsePaged`). Read, don't lift (wrong DTO, `availableBaseStock > 0` filter).
+- **Wired 2026-10-21** (`grep lib/ /api/v1/`): **30 distinct paths** — adjustments, alerts, auth login/logout/me/register, batches, customers, goods-receipts, ledger-payments, ledgers (+ aging), products, purchase-orders, quotations, the four reports, requisitions, sales-orders, tokens verify/release, transactions, users (+ stats). Uncalled by the client: brands, uoms, suppliers, receipts, payments, req-items, tokens (list), projects, audit-logs, categories (names arrive nested in products).
+- Counts refreshed 2026-10-21: **32 `GoRoute`s** in `routes.dart` (+4: `/pos/history`, `/pos/receivables`, `/pos/held`, `/pos/shifts`; `token_store.dart` seam added, `HeldCartViewmodel` app-scoped in `main.dart`). Screen-scoped rule (decision 11) still holds for `Products`/`PosTransaction` VMs.
 
 ### Critical business logic (backend)
 
@@ -237,6 +235,7 @@ they sit on, then the new paths top-down.
 - The backend **was** re-scanned in this refresh: Phase 6 added `Quotation/QuotationItem`,
   `SalesOrder/SalesOrderItem` and `SalesItemDeduction` (erDiagram + backbone table updated above), and every
   service in the business-logic table now has a client consumer observed through the app.
+- ✅ **2026-10-21 incremental refresh:** cashier-workflow Phases 1–4 verified in source (HeldCart + Shift models, `held-carts`/`shifts` router entries, `pos_held`/`pos_shifts` routes + pages + VMs, `token_store.dart` Linux-prefs seam, `navigatePos` 6-tab order); admin provider fix verified (`routes.dart` wraps `AdminDashboard` in route-scoped `AdminOverviewViewmodel` provider, RED→GREEN proven). Client now calls **30 distinct `/api/v1/` paths** (+held-carts, +shifts, +variants, +variant-uoms). Stocker tabs confirmed: Returns/Reports/Settings have no route constants and `navigateInventory` falls through at index 9 — MAP ready, unbuilt.
 - ✅ **Corrected 2026-10-20 — 6D ran the app live.** `flutter run -d web-server` against the live backend:
   login as cashier/manager, till cart add, all sales screens, receiving flow, hash-navigated verification
   (auth is lost on full navigation, so pages were reached via location hash). Found and fixed two defects:
