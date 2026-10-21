@@ -11,6 +11,7 @@ const List<DashboardNavigationItem> posNavigationItems = [
   DashboardNavigationItem('Transaction history', Icons.receipt_long_outlined),
   DashboardNavigationItem('Release materials', Icons.inventory_2_outlined),
   DashboardNavigationItem('Record payment', Icons.payments_outlined),
+  DashboardNavigationItem('Held transactions', Icons.pause_circle_outline),
 ];
 
 /// Routes the POS shell sidebar tap to the matching page.
@@ -21,6 +22,7 @@ void navigatePos(BuildContext context, int index) {
     1 => AppRoutes.posHistory,
     2 => AppRoutes.posRelease,
     3 => AppRoutes.posReceivables,
+    4 => AppRoutes.posHeld,
     _ => null,
   };
   if (path != null) context.go(path);

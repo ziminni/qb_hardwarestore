@@ -80,14 +80,15 @@ void main() {
     expect(inventoryOrder.length, greaterThanOrEqualTo(10));
     expect(
       posOrder.length,
-      4,
-      reason: 'the POS sidebar has 4 destinations (tabs 0-3)',
+      5,
+      reason: 'the POS sidebar has 5 destinations (tabs 0-4)',
     );
     expect(salesOrder.first, 'salesDashboard');
     expect(inventoryOrder[8], 'inventorySales');
     expect(inventoryOrder[9], 'inventoryReceiving');
     expect(posOrder[0], 'posDashboard');
     expect(posOrder[2], 'posRelease');
+    expect(posOrder[4], 'posHeld');
   });
 
   group('every page highlights its own entry in its own sidebar', () {
