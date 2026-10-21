@@ -1,9 +1,12 @@
-# pyright: reportAttributeAccessIssue=false
+# pyright: reportAttributeAccessIssue=false, reportGeneralTypeIssues=false
 #
 # Same reason as apps/inventory/views.py: the checker resolves its config from its
 # WORKING DIRECTORY and does not run inside this repo here, so a pyrightconfig.json is
 # not found. This travels with the file. It disables the one rule that cannot model
 # Django's `Model.objects`/`BaseCommand.style` without django-stubs.
+#
+# `reportGeneralTypeIssues` covers `with db_txn.atomic():`, which reads as a function
+# call rather than a context manager for the same missing-stubs reason.
 from datetime import timedelta
 from decimal import Decimal
 
@@ -252,10 +255,26 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS('Customers seeded'))
 
     def _seed_sales(self, cashier, variants, customers):
-        from apps.pos.models import SalesTransaction
+        from django.utils import timezone
+
+        from apps.pos.models import SalesTransaction, Shift
+        from apps.pos.services import compute_z_reading
+
         if SalesTransaction.objects.exists():
             self.stdout.write(self.style.WARNING('Sales already seeded - skipping'))
             return
+        # Phase 4 (decision 06, ruling 2): `process_sale` now REFUSES to record a sale
+        # unless the cashier has an open shift, so the seed must open one first - the
+        # demo is a real cashier workflow, not a shortcut around the gate. Reused if one
+        # is already open, so re-running the command cannot trip the unique constraint.
+        shift = Shift.objects.filter(
+            cashier=cashier, status=Shift.Status.OPEN).first()
+        if shift is None:
+            shift = Shift.objects.create(
+                cashier=cashier, opening_float=Decimal('5000'))
+            self.stdout.write(
+                f'  + shift {shift.id} opened for {cashier.username} '
+                f'(float {shift.opening_float})')
         walk_in = customers.get('Walk-in Customer')
         maria = customers.get('Maria Santos')
         v_names = list(variants.keys())
@@ -278,6 +297,25 @@ class Command(BaseCommand):
                              'unit_price': vuom.default_selling_price}],
                 payments_data=payments)
         self.stdout.write(self.style.SUCCESS(f'{len(sales_plan)} sales seeded'))
+
+        # Close the shift, so the demo carries a finished Z-reading instead of an open
+        # shift that the end-of-shift screen has to close by hand before it shows
+        # anything. The count is deliberately 50.00 SHORT of the expected drawer: with a
+        # clean count the variance report would always read 0.00 and prove nothing, the
+        # same reason `_seed_stock` forces one variant below its threshold. Ruling 3 says
+        # a variance is recorded, never blocking - this is that recorded variance.
+        z = compute_z_reading(shift)
+        shift.closing_count = Decimal(z['expected_drawer']) - Decimal('50')
+        shift.status = Shift.Status.CLOSED
+        shift.closed_at = timezone.now()
+        shift.notes = 'Seeded demo shift, closed 50.00 short on purpose.'
+        shift.save(update_fields=[
+            'closing_count', 'status', 'closed_at', 'notes'])
+        z = compute_z_reading(shift)
+        self.stdout.write(self.style.SUCCESS(
+            f'Shift {shift.id} closed: gross {z["gross_sales"]}, '
+            f'cash {z["cash_sales"]}, expected drawer {z["expected_drawer"]}, '
+            f'variance {z["variance"]}'))
 
     def _seed_requisitions(self, users, variants, customers):
         if Requisition.objects.exists():

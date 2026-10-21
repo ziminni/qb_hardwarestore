@@ -1,3 +1,11 @@
+# pyright: reportAttributeAccessIssue=false, reportGeneralTypeIssues=false
+#
+# Same directive and reason as apps/pos/tests.py and seed_demo.py: this checker runs
+# with a working directory outside the repo, so the root pyrightconfig.json (which
+# already sets both rules to "warning") is not found and they escalate to errors.
+# Without django-stubs, `Model.objects`, FK-attribute assignment and
+# `transaction.atomic()` are all false positives on valid Django. The test run is the
+# authority.
 """Requisitions services â€” approval, token generation, material release."""
 
 from datetime import date, datetime

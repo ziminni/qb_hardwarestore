@@ -1,3 +1,9 @@
+# pyright: reportAttributeAccessIssue=false, reportIndexIssue=false, reportOptionalSubscript=false, reportInvalidTypeArguments=false
+#
+# Same reason as apps/requisitions/services.py: the root pyrightconfig.json is not
+# found from this checker's working directory, and DRF serializer `validated_data`
+# / Django choice enums resolve to `empty`/`None` without django-stubs. The test run
+# is the authority.
 """Requisitions app — ViewSets for project management and material release."""
 
 from rest_framework import status, viewsets

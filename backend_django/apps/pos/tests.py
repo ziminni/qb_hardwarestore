@@ -1,11 +1,17 @@
 #!/usr/bin/env python
-# pyright: reportAttributeAccessIssue=false
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false
 #
 # The same directive, with the same reason, as apps/inventory/views.py and seed_demo.py:
 # this checker is run by a client whose working directory is outside the repo, so it
 # resolves no config and cannot be silenced by pyrightconfig.json, and every
 # `Model.objects` access and `self.client.post(...).status_code` is a false positive on
 # valid Django. Django's own `manage.py check` and the test run remain the authority.
+#
+# `reportArgumentType` was added for the `**self.auth` pattern: Django's test client puts
+# unknown call kwargs straight into the WSGI environ (that is HOW you set an
+# Authorization header), so pyright reads the splatted `HTTP_AUTHORIZATION` string as
+# `follow=`/`secure=`. Without the directive every authenticated call in this file is a
+# blocking error on code that the test run proves correct.
 
 """POS app tests — process_sale, FIFO deduction, receipts, underpayment."""
 
@@ -22,7 +28,7 @@ from apps.inventory.models import (
 )
 from apps.inventory.services import process_goods_receipt
 
-from .models import Customer, OfficialReceipt, Payment, SalesTransaction
+from .models import Customer, OfficialReceipt, Payment, SalesTransaction, Shift
 from .services import process_sale
 # Absolute, not relative: the project imports apps.<app> absolutely everywhere else
 # (see the imports above), and a relative import is what this checker cannot resolve
@@ -43,6 +49,13 @@ class POSTestBase(TestCase):
             username='cashier1', email='c@x.com', password='pass12345',
             full_name='Cashy Ir',
         )
+        # Phase 4 (decision 06, ruling 2): `process_sale` now REFUSES to ring a sale
+        # outside an open shift, so every test that sells needs one. Opened here in the
+        # shared base for the same reason the stock fixture lives here - a per-test copy
+        # would be five copies of the same three lines, and the gate is a precondition of
+        # selling, not the subject of these tests.
+        self.shift = Shift.objects.create(
+            cashier=self.cashier, opening_float=Decimal('5000'))
         self.customer = Customer.objects.create(name='Juan Dela Cruz')
         category = Category.objects.create(name='Cement')
         brand = Brand.objects.create(name='Rhino')
@@ -389,3 +402,186 @@ class HeldCartTests(POSTestBase):
         self.assertEqual(resp.status_code, 400)
         from .models import HeldCart
         self.assertTrue(HeldCart.objects.filter(id=cart_id).exists())
+
+
+SHIFTS_URL = '/api/v1/shifts/'
+
+
+class ShiftTests(POSTestBase):
+    """Phase 4 (decision 06): the shift gate, open/close, and the Z-reading.
+
+    The gate is the part that changes other people's code: `process_sale` now REFUSES a
+    sale with no open shift, so POSTestBase.setUp opens one for every test in this app.
+    A test here that needs the gate to fire deletes it; a test that needs a FRESH shift
+    closes the inherited one first, because the DB enforces one open shift per cashier.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.cashier.groups.add(Group.objects.get_or_create(name='Cashier')[0])
+        login = self.client.post(
+            LOGIN_URL,
+            {'username': 'cashier1', 'password': 'pass12345'},
+            content_type='application/json',
+        )
+        self.assertEqual(login.status_code, 200, 'the cashier must be able to log in')
+        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {login.json()["access"]}'}
+
+    def _close_inherited_shift(self):
+        """Close POSTestBase's shift directly, so `open_shift` has a clean slate.
+
+        Not through the endpoint: this is fixture setup, and a failure here should be
+        reported as "the fixture is wrong", not as "close is broken".
+        """
+        self.shift.status = Shift.Status.CLOSED
+        self.shift.closing_count = self.shift.opening_float
+        self.shift.save(update_fields=['status', 'closing_count'])
+
+    def _sale_payload(self, qty=2, amount='20.00'):
+        return {
+            'customer': self.customer.id,
+            'source': 'WALK_IN',
+            'items': [{'variant_id': self.vuom.id, 'qty': qty,
+                       'unit_price': '10.00'}],
+            'payments': [{'method': 'CASH', 'amount_tendered': amount}],
+        }
+
+    def _ring_cash_sale(self, qty=2):
+        """Ring a real sale through the service, so the shift has transactions to sum."""
+        return process_sale(
+            customer_id=self.customer.id,
+            cashier=self.cashier,
+            items_data=[{'variant_id': self.vuom.id, 'qty': qty,
+                         'unit_price': Decimal('10')}],
+            payments_data=[{'method': 'CASH',
+                            'amount_tendered': Decimal('10') * qty}],
+        )
+
+    def test_opening_a_shift_returns_201_and_the_open_shift(self):
+        self._close_inherited_shift()
+        resp = self.client.post(
+            f'{SHIFTS_URL}open/', {'opening_float': '3000.00'},
+            content_type='application/json', **self.auth)
+        self.assertEqual(resp.status_code, 201, resp.data)
+        self.assertEqual(resp.data['status'], 'OPEN')
+        self.assertEqual(resp.data['opening_float'], '3000.00')
+        self.assertEqual(
+            Shift.objects.filter(cashier=self.cashier,
+                                 status=Shift.Status.OPEN).count(), 1)
+
+    def test_a_second_open_shift_is_a_400(self):
+        # The inherited shift is already open, which is exactly the state the gate exists
+        # to make impossible - two open shifts would mean a sale could belong to neither.
+        resp = self.client.post(
+            f'{SHIFTS_URL}open/', {'opening_float': '100.00'},
+            content_type='application/json', **self.auth)
+        self.assertEqual(resp.status_code, 400, resp.data)
+        self.assertEqual(resp.data['code'], 'SHIFT_ALREADY_OPEN')
+        self.assertEqual(
+            Shift.objects.filter(cashier=self.cashier,
+                                 status=Shift.Status.OPEN).count(), 1)
+
+    def test_a_sale_without_an_open_shift_is_refused_with_a_stable_code(self):
+        Shift.objects.all().delete()
+        resp = self.client.post(
+            TRANSACTIONS_URL, self._sale_payload(),
+            content_type='application/json', **self.auth)
+        self.assertEqual(resp.status_code, 400, resp.data)
+        self.assertEqual(resp.data['code'], 'NO_OPEN_SHIFT')
+        self.assertFalse(SalesTransaction.objects.exists(),
+                         'the refused sale must not be recorded')
+
+    def test_a_sale_records_the_open_shift(self):
+        resp = self.client.post(
+            TRANSACTIONS_URL, self._sale_payload(),
+            content_type='application/json', **self.auth)
+        self.assertEqual(resp.status_code, 201, resp.data)
+        txn = SalesTransaction.objects.get(pk=resp.data['id'])
+        self.assertEqual(txn.shift, self.shift)
+
+    def test_close_records_the_count_and_returns_the_z_reading(self):
+        self._ring_cash_sale(qty=2)   # 20.00 cash into the drawer
+        resp = self.client.post(
+            f'{SHIFTS_URL}{self.shift.id}/close/', {'closing_count': '5200.00'},
+            content_type='application/json', **self.auth)
+        self.assertEqual(resp.status_code, 200, resp.data)
+
+        self.shift.refresh_from_db()
+        self.assertEqual(self.shift.status, Shift.Status.CLOSED)
+        self.assertEqual(self.shift.closing_count, Decimal('5200.00'))
+        self.assertIsNotNone(self.shift.closed_at)
+
+        z = resp.data['z_reading']
+        self.assertEqual(z['transaction_count'], 1)
+        self.assertEqual(Decimal(z['gross_sales']), Decimal('20.00'))
+        self.assertEqual(Decimal(z['cash_sales']), Decimal('20.00'))
+        self.assertEqual(Decimal(z['card_sales']), Decimal('0.00'))
+        # opening_float 5000 + cash 20 = 5020 expected; 5200 counted -> 180 over.
+        self.assertEqual(Decimal(z['expected_drawer']), Decimal('5020.00'))
+        self.assertEqual(Decimal(z['variance']), Decimal('180.00'))
+
+    def test_the_z_reading_matches_a_manual_sum_of_the_shifts_transactions(self):
+        self._ring_cash_sale(qty=2)
+        self._ring_cash_sale(qty=3)
+        resp = self.client.post(
+            f'{SHIFTS_URL}{self.shift.id}/close/', {'closing_count': '5000.00'},
+            content_type='application/json', **self.auth)
+        self.assertEqual(resp.status_code, 200, resp.data)
+        manual = sum(
+            (t.grand_total for t in self.shift.transactions.filter(
+                status=SalesTransaction.Status.COMPLETED)),
+            Decimal('0'))
+        self.assertEqual(Decimal(resp.data['z_reading']['gross_sales']), manual)
+        self.assertEqual(Decimal(resp.data['z_reading']['gross_sales']),
+                         Decimal('50.00'))
+
+    def test_variance_is_negative_when_the_drawer_is_short(self):
+        # Ruling 3: a short drawer is RECORDED, not blocked. Nothing about the count
+        # should refuse the close.
+        resp = self.client.post(
+            f'{SHIFTS_URL}{self.shift.id}/close/', {'closing_count': '4900.00'},
+            content_type='application/json', **self.auth)
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertEqual(Decimal(resp.data['z_reading']['variance']),
+                         Decimal('-100.00'))
+
+    def test_current_returns_the_open_shift(self):
+        resp = self.client.get(f'{SHIFTS_URL}current/', **self.auth)
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertEqual(resp.data['id'], self.shift.id)
+        self.assertEqual(resp.data['status'], 'OPEN')
+
+    def test_current_without_an_open_shift_is_a_404(self):
+        Shift.objects.all().delete()
+        resp = self.client.get(f'{SHIFTS_URL}current/', **self.auth)
+        self.assertEqual(resp.status_code, 404)
+
+    def test_a_refund_is_paid_out_of_the_shift_that_paid_it(self):
+        # Decision 06 says refunds appear in the Z-reading and net out. That is only true
+        # if the RETURN row carries the shift FK: without it the refund is invisible to
+        # the drawer arithmetic and the shift looks 20.00 richer than the till is.
+        self._ring_cash_sale(qty=4)          # 40.00 in
+        from .services import process_return
+        ret = process_return(
+            customer_id=self.customer.id,
+            cashier=self.cashier,
+            items_data=[{'variant_id': self.vuom.id, 'qty': 2,
+                         'unit_price': Decimal('10')}],
+            original_transaction_id=self.shift.transactions.filter(
+                source=SalesTransaction.Source.WALK_IN).first().id,
+        )
+        self.assertEqual(ret.shift, self.shift,
+                         'a refund must belong to the shift that paid it')
+
+        resp = self.client.post(
+            f'{SHIFTS_URL}{self.shift.id}/close/', {'closing_count': '5000.00'},
+            content_type='application/json', **self.auth)
+        self.assertEqual(resp.status_code, 200, resp.data)
+        z = resp.data['z_reading']
+        # 40 in, 20 back out: gross nets to 20.00, and the drawer expects
+        # 5000 + 40 - 20 = 5020.00, so a 5000.00 count is a 20.00 shortfall.
+        self.assertEqual(Decimal(z['gross_sales']), Decimal('20.00'))
+        self.assertEqual(Decimal(z['cash_sales']), Decimal('40.00'))
+        self.assertEqual(Decimal(z['cash_refunds']), Decimal('20.00'))
+        self.assertEqual(Decimal(z['expected_drawer']), Decimal('5020.00'))
+        self.assertEqual(Decimal(z['variance']), Decimal('-20.00'))

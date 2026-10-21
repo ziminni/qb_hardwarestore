@@ -1,3 +1,8 @@
+# pyright: reportAttributeAccessIssue=false
+#
+# Same directive and reason as apps/pos/models.py and apps/pos/services.py: the checker
+# resolves its config from its WORKING DIRECTORY, so no pyrightconfig.json is found, and
+# `Model.objects` is a false positive on valid Django without django-stubs.
 from rest_framework import serializers
 from .models import (
     Quotation, QuotationItem,
@@ -8,6 +13,7 @@ from .models import (
     Payment,
     SalesItem,
     SalesTransaction,
+    Shift,
 )
 
 
@@ -59,6 +65,39 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
         # found here by POSTing a valid sale to the endpoint: HTTP 400
         # {"cashier": ["This field is required."]}.
         read_only_fields = ['id','transaction_no','trans_date','created_at','updated_at','cashier']
+
+
+class ShiftSerializer(serializers.ModelSerializer):
+    """Phase 4 (decision 06).
+
+    `cashier` is read-only because the actor is never the client's to choose - the view
+    takes `request.user`, the same invariant as SalesTransactionSerializer.cashier.
+    `status` and `closed_at` are read-only because only the open/close ACTIONS may move
+    them: a writable status would let a client reopen a closed shift, which decision 06
+    forbids (OPEN -> CLOSED, never back).
+
+    `z_reading` is derived on read from the shift's own transactions, so a closed shift
+    prints identical numbers every time and no second table can drift from the sales.
+    """
+
+    cashier_name = serializers.CharField(
+        source='cashier.full_name', read_only=True)
+    z_reading = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Shift
+        fields = [
+            'id', 'cashier', 'cashier_name', 'status', 'opening_float',
+            'closing_count', 'opened_at', 'closed_at', 'notes', 'z_reading',
+        ]
+        read_only_fields = [
+            'id', 'cashier', 'status', 'opened_at', 'closed_at']
+
+    def get_z_reading(self, obj):
+        # Imported here, not at module level: services imports these models, and a
+        # module-level import in both directions is a cycle waiting for the next edit.
+        from .services import compute_z_reading
+        return compute_z_reading(obj)
 
 
 class QuotationItemSerializer(serializers.ModelSerializer):

@@ -50,6 +50,27 @@ class WalkInCannotOwe(Exception):
             'customer for it.')
 
 
+class NoOpenShift(Exception):
+    """A sale was rung by a cashier who has no open shift (decision 06, ruling 2).
+
+    The gate exists so every sale lands inside a Z-reading: an orphan sale is money the
+    cashier is accountable for that the close-out never asks about. Raised from
+    `process_sale` INSIDE its `transaction.atomic()`, so the refused sale leaves no
+    transaction, no moved stock and no receipt behind - the client may keep its cart.
+
+    Deliberately NOT a `ValueError`, for the same reason as `WalkInCannotOwe`: this is a
+    workflow precondition, not a failed computation, and no `except ValueError` call site
+    should swallow it.
+    """
+
+    code = 'NO_OPEN_SHIFT'
+
+    def __init__(self, message=None):
+        super().__init__(
+            message
+            or 'You have no open shift. Open a shift before ringing a sale.')
+
+
 def handler(exc, context):
     """Return DRF's own response, except for a short-stock sale.
 
@@ -110,6 +131,16 @@ def handler(exc, context):
                 'shortfall': None
                 if exc.shortfall is None
                 else str(exc.shortfall),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if isinstance(exc, NoOpenShift):
+        # Same shape as the other two business-rule rejections: a stable `code` the
+        # client branches on (open the shift prompt), and `detail` for the human.
+        return Response(
+            {
+                'code': NoOpenShift.code,
+                'detail': str(exc),
             },
             status=status.HTTP_400_BAD_REQUEST,
         )

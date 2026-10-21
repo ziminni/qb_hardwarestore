@@ -1,4 +1,8 @@
-# pyright: reportAttributeAccessIssue=false
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false
+#
+# reportArgumentType is disabled for the `**self.auth` splat: Django's test client
+# forwards unknown kwargs into the WSGI environ, and pyright reads the header string
+# as `follow=`/`secure=`. Same note as apps/pos/tests.py.
 #
 # The same directive, with the same reason, as apps/pos/tests.py, apps/inventory/views.py
 # and seed_demo.py: this checker is run by a client whose working directory is outside the

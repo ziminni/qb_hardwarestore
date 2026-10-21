@@ -1,10 +1,14 @@
-# pyright: reportAttributeAccessIssue=false
+# pyright: reportAttributeAccessIssue=false, reportGeneralTypeIssues=false
 #
 # Same directive and reason as apps/pos/tests.py, apps/inventory/views.py and
 # seed_demo.py: the checker runs with a working directory outside the repo, so it
 # resolves no config, and `Model.objects` is a false positive on valid Django.
 # `transaction.atomic()` and relative imports are flagged for the same class of
 # reason and are settled by the test run, which is the authority.
+#
+# `reportGeneralTypeIssues` is named explicitly because `with transaction.atomic():`
+# reads as a function instead of a context manager without django-stubs - the exact
+# false positive this comment has described since the file was written.
 
 """POS services — checkout, FIFO allocation, receipt generation."""
 from datetime import date, timedelta
@@ -45,9 +49,24 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
     discount = Decimal('0')
 
     with transaction.atomic():
+        # Decision 06, ruling 2: a sale belongs to a shift, and there is no such thing as
+        # a sale outside one - an orphan sale is money the cashier is accountable for that
+        # the Z-reading never counts. Looked up INSIDE the atomic block and before the
+        # transaction row is written, so a cashier with no open shift leaves nothing behind
+        # (the enclosing rollback covers the whole sale).
+        from .exceptions import NoOpenShift
+        from .models import Shift
+        try:
+            shift = Shift.objects.get(cashier=cashier, status=Shift.Status.OPEN)
+        except Shift.DoesNotExist:
+            # `from None`: the DoesNotExist is the EXPECTED miss, not context worth
+            # chaining. A client reading the error should see "no open shift", not a
+            # traceback about a lookup that did exactly what it was asked to.
+            raise NoOpenShift() from None
         txn = SalesTransaction.objects.create(
             customer_id=customer_id,
             cashier=cashier,
+            shift=shift,
             transaction_no=generate_transaction_no(),
             source=source,
             vatable_sales=0,
@@ -221,6 +240,97 @@ def _restock_returned(*, variant_id, qty_needed, original_id, return_item):
     newest.save(update_fields=['current_qty'])
 
 
+def _money(value):
+    """Render a total as the two-decimal string the API has always used.
+
+    `None` from an empty aggregate becomes '0.00' - a shift with no sales has a zero
+    drawer total, not a missing one. Strings, never floats: this is money.
+    """
+    return f'{value or Decimal("0"):.2f}'
+
+
+def compute_z_reading(shift):
+    """The end-of-shift (Z) summary for one shift, derived - never stored.
+
+    Decision 06 specifies the shape and the arithmetic:
+
+        gross_sales      sum of the shift's COMPLETED transactions' grand_total
+        vat, discounts   likewise, summed
+        *_sales          payments taken in each method, for SALES only
+        cash_refunds     cash paid back on the shift's COMPLETED returns (positive)
+        expected_drawer  opening_float + cash_sales - cash_refunds
+        variance         closing_count - expected_drawer
+
+    Two deliberate details:
+
+    * Returns are already negative rows (decision 15), so they NET OUT of gross_sales -
+      the shift's takings are what it actually took, not the sum of its receipts.
+    * `cash_sales` here is money IN (sales only) and `cash_refunds` is money OUT, i.e. the
+      two halves the formula names. A single netted cash figure would double-count if it
+      were also subtracted; splitting them keeps each number meaningful on the printout
+      and leaves the drawer arithmetic identical.
+
+    Recomputed from the same query on every call, so a closed shift's Z-reading is
+    idempotent - asking twice can never show two different days.
+
+    Everything comes back as a string: it lands straight in JSON, and a client that gets
+    a JSON number for money loses the trailing zero and rounds badly.
+    """
+    from django.db.models import Count, Sum
+
+    completed = shift.transactions.filter(
+        status=SalesTransaction.Status.COMPLETED)
+    sales = completed.exclude(source=SalesTransaction.Source.RETURN)
+    returns = completed.filter(source=SalesTransaction.Source.RETURN)
+
+    totals = completed.aggregate(
+        transaction_count=Count('id'),
+        gross_sales=Sum('grand_total'),
+        vat=Sum('vat_amount'),
+        discounts=Sum('discount_amount'),
+    )
+
+    # One query for every method, then read the four the till knows. A method the client
+    # invents later shows up in neither total and the drawer still balances on cash.
+    by_method = {
+        row['method']: row['total'] or Decimal('0')
+        for row in (
+            Payment.objects
+            .filter(transaction__in=sales)
+            .values('method')
+            .annotate(total=Sum('amount_tendered')))
+    }
+    cash_refunds = (
+        Payment.objects
+        .filter(transaction__in=returns, method=Payment.Method.CASH)
+        .aggregate(total=Sum('amount_tendered'))['total']
+        or Decimal('0'))
+
+    cash_sales = by_method.get(Payment.Method.CASH, Decimal('0'))
+    expected_drawer = shift.opening_float + cash_sales - abs(cash_refunds)
+    variance = (
+        None if shift.closing_count is None
+        else shift.closing_count - expected_drawer)
+
+    return {
+        'shift_id': shift.id,
+        'opening_float': _money(shift.opening_float),
+        'closing_count': (
+            None if shift.closing_count is None else _money(shift.closing_count)),
+        'transaction_count': totals['transaction_count'] or 0,
+        'gross_sales': _money(totals['gross_sales']),
+        'vat': _money(totals['vat']),
+        'discounts': _money(totals['discounts']),
+        'cash_sales': _money(cash_sales),
+        'card_sales': _money(by_method.get(Payment.Method.CARD)),
+        'gcash_sales': _money(by_method.get(Payment.Method.GCASH)),
+        'bank_sales': _money(by_method.get(Payment.Method.BANK_TRANSFER)),
+        'cash_refunds': _money(abs(cash_refunds)),
+        'expected_drawer': _money(expected_drawer),
+        'variance': None if variance is None else _money(variance),
+    }
+
+
 def process_return(*, customer_id, cashier, items_data,
                    original_transaction_id=None, payment_method='CASH'):
     """Post a customer return: a RETURN transaction with negative amounts.
@@ -244,9 +354,20 @@ def process_return(*, customer_id, cashier, items_data,
             if original.status != SalesTransaction.Status.COMPLETED:
                 raise ReturnError(
                     'Only a completed sale can be reversed.')
+        # Phase 4 (decision 06): a refund is cash OUT OF THE DRAWER, so it has to belong
+        # to the shift that paid it or the Z-reading never sees the money leave and its
+        # "expected drawer" is overstated by every refund of the day.
+        #
+        # ATTACHED, not required, unlike process_sale. The gate ruling is about ringing
+        # sales; a return recorded without an open shift still has to be storable, so a
+        # missing shift leaves the FK null rather than refusing the refund.
+        from .models import Shift
+        open_shift = Shift.objects.filter(
+            cashier=cashier, status=Shift.Status.OPEN).first()
         txn = SalesTransaction.objects.create(
             customer_id=customer_id,
             cashier=cashier,
+            shift=open_shift,
             transaction_no=generate_transaction_no(),
             source=SalesTransaction.Source.RETURN,
             original_transaction=original,

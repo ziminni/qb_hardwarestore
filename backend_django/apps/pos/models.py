@@ -1,3 +1,12 @@
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportIncompatibleMethodOverride=false
+#
+# Same directive and reason as apps/pos/services.py, apps/pos/tests.py and seed_demo.py:
+# the checker resolves its config from its WORKING DIRECTORY and does not run inside this
+# repo here, so pyrightconfig.json is not found and this travels with the file. Without
+# django-stubs every `Model.objects`, FK-attribute read (`self.customer.name`) and
+# `BooleanField(default=True)` is a false positive on valid Django. Django's own
+# `manage.py check` and the test run remain the authority.
+
 from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import models
@@ -58,6 +67,13 @@ class SalesTransaction(models.Model):
         related_name='reversals')
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.COMPLETED)
     notes = models.TextField(blank=True, default='')
+    # Phase 4 (decision 06): which shift this sale was rung during. SET_NULL, not
+    # PROTECT: a shift is a reporting period, and deleting one must not be blocked by
+    # - or destroy - the sale history inside it. Nullable so the rows that predate the
+    # shift gate stay valid rather than needing a backfill that would be a guess.
+    shift = models.ForeignKey(
+        'Shift', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='transactions')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -288,3 +304,46 @@ class HeldCartItem(models.Model):
 
     def __str__(self):
         return f'HeldCartItem {self.id} — {self.variant_uom} × {self.qty}'
+
+
+class Shift(models.Model):
+    """A cashier's working period: from an opening float to a counted close.
+
+    Phase 4 (decision 06). Owns its transactions by explicit FK rather than deriving
+    membership from a time window, because a midnight boundary or two overlapping
+    cashiers makes a window ambiguous and unstorable. The Z-reading is NOT stored - it
+    is recomputed from `transactions` on demand, so it cannot drift from the sales it
+    summarises and a closed shift's numbers are identical every time they are asked for.
+    """
+
+    class Status(models.TextChoices):
+        OPEN = 'OPEN', 'Open'
+        CLOSED = 'CLOSED', 'Closed'
+
+    cashier = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='shifts')
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.OPEN, db_index=True)
+    opening_float = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Nullable because it does not exist until the cashier counts the drawer. A zero
+    # default would be indistinguishable from "counted and found empty".
+    closing_count = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True)
+    opened_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    notes = models.TextField(blank=True, default='')
+
+    class Meta:
+        db_table = 'pos_shift'
+        ordering = ['-opened_at']
+        constraints = [
+            # "One open shift per cashier" is enforced by the DATABASE, not by the view:
+            # a view-level check races two concurrent opens and lets both through.
+            models.UniqueConstraint(
+                fields=['cashier'],
+                condition=models.Q(status='OPEN'),
+                name='one_open_shift_per_cashier'),
+        ]
+
+    def __str__(self):
+        return f'Shift {self.id} — {self.cashier} ({self.status})'

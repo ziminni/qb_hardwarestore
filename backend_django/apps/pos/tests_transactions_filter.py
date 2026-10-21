@@ -1,4 +1,8 @@
-# pyright: reportAttributeAccessIssue=false
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false
+#
+# reportArgumentType is disabled for the same reason as apps/pos/tests.py: `**self.auth`
+# splats HTTP_AUTHORIZATION into Django's test client, which forwards unknown kwargs into
+# the WSGI environ. Pyright reads that string as `follow=`/`secure=`.
 """Phase 6 task 6C.1 — GET /transactions/ filters by source.
 
 Decision 15's amendment wires the returns page over

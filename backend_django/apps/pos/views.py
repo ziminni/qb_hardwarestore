@@ -5,17 +5,24 @@
 # pyrightconfig.json is not found. This travels with the file. It disables the one
 # rule that cannot model Django's `Model.objects` without django-stubs.
 from django.db.models import Sum
+from decimal import Decimal
+from decimal import InvalidOperation
+from django.db import IntegrityError
+from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from apps.users.permissions import IsPOSOrReadOnly
+from apps.users.permissions import IsPOSOrReadOnly, IsManagerRole
 from .models import Customer, SalesTransaction, Payment, OfficialReceipt
 from .models import Quotation, SalesOrder
 from .models import HeldCart
+from .models import Shift
 from .serializers import CustomerSerializer, SalesTransactionSerializer, PaymentSerializer, OfficialReceiptSerializer
 from .serializers import QuotationSerializer, SalesOrderSerializer
 from .serializers import HeldCartSerializer
+from .serializers import ShiftSerializer
 from .services import process_sale
 
 
@@ -94,6 +101,135 @@ class SalesTransactionViewSet(BaseViewSet):
             'count': qs.count(),
             'total_sales': total,
         })
+
+
+class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
+    """Cashier shifts and their Z-readings (Phase 4, decision 06).
+
+    ReadOnlyModelViewSet, not ModelViewSet: the router then registers no create/update/
+    destroy route at all, so `POST /shifts/` and `DELETE /shifts/{id}/` are 405 by
+    construction rather than by a hand-written guard. A shift opens and closes only
+    through the two actions below, which is what makes "OPEN never goes back to CLOSED"
+    and "exactly one open shift" enforceable in one place.
+
+    `post` is still in `http_method_names` because the ACTION routes are POSTs; the
+    collection and detail routes simply do not exist for it.
+    """
+
+    queryset = Shift.objects.select_related('cashier').all()
+    serializer_class = ShiftSerializer
+    permission_classes = [IsPOSOrReadOnly]
+    http_method_names = ['get', 'head', 'options', 'post']
+
+    def get_queryset(self):
+        """Cashier sees only their own shifts; a manager sees everyone's.
+
+        Decision 06: "Cashier sees their own; manager sees all." Filtering here rather
+        than in a permission class keeps it one rule - a cashier CAN read shifts, just
+        not other people's - instead of a 403 that leaks whose shift a URL is.
+        """
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.is_superuser or user.groups.filter(
+                name__in=IsManagerRole.required_roles).exists():
+            return qs
+        return qs.filter(cashier=user)
+
+    @action(detail=False, methods=['post'], url_path='open')
+    def open_shift(self, request):
+        """POST /shifts/open/ {opening_float} -> 201 with the new open shift."""
+        raw_float = request.data.get('opening_float', '0')
+        try:
+            opening_float = Decimal(str(raw_float))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response(
+                {'code': 'INVALID_OPENING_FLOAT',
+                 'detail': 'opening_float must be a number.'},
+                status=status.HTTP_400_BAD_REQUEST)
+        if opening_float < 0:
+            return Response(
+                {'code': 'INVALID_OPENING_FLOAT',
+                 'detail': 'opening_float cannot be negative.'},
+                status=status.HTTP_400_BAD_REQUEST)
+
+        if Shift.objects.filter(cashier=request.user,
+                                status=Shift.Status.OPEN).exists():
+            return Response(
+                {'code': 'SHIFT_ALREADY_OPEN',
+                 'detail': 'You already have an open shift. Close it first.'},
+                status=status.HTTP_400_BAD_REQUEST)
+        try:
+            shift = Shift.objects.create(
+                cashier=request.user,
+                opening_float=opening_float,
+                notes=request.data.get('notes', ''),
+            )
+        except IntegrityError:
+            # The partial unique index is the real guard: two concurrent opens both pass
+            # the check above, and only the database can refuse the second. Same 400, so
+            # the client sees one answer whichever layer caught it.
+            return Response(
+                {'code': 'SHIFT_ALREADY_OPEN',
+                 'detail': 'You already have an open shift. Close it first.'},
+                status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            self.get_serializer(shift).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='close')
+    def close_shift(self, request, pk=None):
+        """POST /shifts/{id}/close/ {closing_count} -> the closed shift + Z-reading.
+
+        Ruling 3: a variance is RECORDED, never blocking. Management reviews it later;
+        a cashier stuck at a closed till because the drawer is 20 pesos off is a worse
+        outcome than a logged discrepancy.
+        """
+        shift = self.get_object()
+        if shift.status == Shift.Status.CLOSED:
+            return Response(
+                {'code': 'SHIFT_ALREADY_CLOSED',
+                 'detail': 'This shift is already closed.'},
+                status=status.HTTP_400_BAD_REQUEST)
+        raw_count = request.data.get('closing_count')
+        if raw_count is None:
+            return Response(
+                {'code': 'CLOSING_COUNT_REQUIRED',
+                 'detail': 'closing_count is required to close a shift.'},
+                status=status.HTTP_400_BAD_REQUEST)
+        try:
+            closing_count = Decimal(str(raw_count))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response(
+                {'code': 'INVALID_CLOSING_COUNT',
+                 'detail': 'closing_count must be a number.'},
+                status=status.HTTP_400_BAD_REQUEST)
+        if closing_count < 0:
+            return Response(
+                {'code': 'INVALID_CLOSING_COUNT',
+                 'detail': 'closing_count cannot be negative.'},
+                status=status.HTTP_400_BAD_REQUEST)
+
+        shift.closing_count = closing_count
+        shift.status = Shift.Status.CLOSED
+        shift.closed_at = timezone.now()
+        if request.data.get('notes'):
+            shift.notes = request.data['notes']
+        shift.save(update_fields=[
+            'closing_count', 'status', 'closed_at', 'notes'])
+        return Response(self.get_serializer(shift).data)
+
+    @action(detail=False, methods=['get'])
+    def current(self, request):
+        """GET /shifts/current/ -> the caller's open shift, or 404.
+
+        404 and not 200-with-null: the POS shell gates the till on this call, and "no
+        shift" is the absence of the resource it asked for. The client branches on the
+        status code it already knows how to read.
+        """
+        shift = self.get_queryset().filter(
+            cashier=request.user, status=Shift.Status.OPEN).first()
+        if shift is None:
+            raise NotFound('No open shift for this cashier.')
+        return Response(self.get_serializer(shift).data)
 
 
 class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
