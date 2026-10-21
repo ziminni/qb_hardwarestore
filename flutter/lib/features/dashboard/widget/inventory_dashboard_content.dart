@@ -100,35 +100,34 @@ class InventoryDashboardContent extends StatelessWidget {
     // (on-hand / reorder level). A silent take(5) once hid a zero-stock
     // variant at position 6 while the manager restocked others — the queue
     // says how many more need restocking instead.
-    final restockAll = [
-      for (final product in viewmodel.products)
-        for (final variant in product.variants)
-          if (viewmodel.statusForVariant(variant.id).name != 'inStock')
-            (
-              product: product,
-              variant: variant,
-              onHand: viewmodel.stockOnHandFor(variant.id),
-            ),
-    ]..sort((a, b) {
-      final aOut = a.onHand <= 0;
-      final bOut = b.onHand <= 0;
-      if (aOut != bOut) return aOut ? -1 : 1;
-      double coverage(double onHand, double threshold) =>
-          threshold > 0 ? onHand / threshold : 0;
-      return coverage(
-        a.onHand,
-        a.variant.minStockThreshold,
-      ).compareTo(coverage(b.onHand, b.variant.minStockThreshold));
-    });
+    final restockAll =
+        [
+          for (final product in viewmodel.products)
+            for (final variant in product.variants)
+              if (viewmodel.statusForVariant(variant.id).name != 'inStock')
+                (
+                  product: product,
+                  variant: variant,
+                  onHand: viewmodel.stockOnHandFor(variant.id),
+                ),
+        ]..sort((a, b) {
+          final aOut = a.onHand <= 0;
+          final bOut = b.onHand <= 0;
+          if (aOut != bOut) return aOut ? -1 : 1;
+          double coverage(double onHand, double threshold) =>
+              threshold > 0 ? onHand / threshold : 0;
+          return coverage(
+            a.onHand,
+            a.variant.minStockThreshold,
+          ).compareTo(coverage(b.onHand, b.variant.minStockThreshold));
+        });
     final restock = [
       for (final entry in restockAll.take(5))
         InventoryListItem(
           title: '${entry.product.baseName} ${entry.variant.variantName}',
           subtitle:
               '${_qty(entry.onHand)} on hand · reorder at ${_qty(entry.variant.minStockThreshold)}',
-          trailing: viewmodel
-              .statusForVariant(entry.variant.id)
-              .label,
+          trailing: viewmodel.statusForVariant(entry.variant.id).label,
         ),
       if (restockAll.length > 5)
         InventoryListItem(
