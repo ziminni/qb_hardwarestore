@@ -403,6 +403,20 @@ class HeldCartTests(POSTestBase):
         from .models import HeldCart
         self.assertTrue(HeldCart.objects.filter(id=cart_id).exists())
 
+    def test_complete_walk_in_cart_uses_walk_in_customer(self):
+        hold_resp = self._hold(customer=None)
+        cart_id = hold_resp.data['id']
+        resp = self.client.post(
+            f'{HELD_CARTS_URL}{cart_id}/complete/',
+            {'payments': [{'method': 'CASH', 'amount_tendered': '20.00'}]},
+            content_type='application/json', **self.auth,
+        )
+        self.assertEqual(resp.status_code, 201)
+        from .models import Customer, HeldCart
+        self.assertFalse(HeldCart.objects.filter(id=cart_id).exists())
+        txn = SalesTransaction.objects.get(id=resp.data['id'])
+        self.assertEqual(txn.customer.customer_type, Customer.Type.WALK_IN)
+
 
 SHIFTS_URL = '/api/v1/shifts/'
 

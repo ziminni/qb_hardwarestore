@@ -297,6 +297,10 @@ class HeldCartViewSet(BaseViewSet):
         ]
         payments_data = request.data.get('payments', [])
         customer_id = cart.customer_id or request.data.get('customer')
+        if not customer_id:
+            from apps.pos.models import Customer
+            customer_id = Customer.objects.filter(
+                customer_type=Customer.Type.WALK_IN).values_list('id', flat=True).first()
         from django.db import transaction as db_transaction
         with db_transaction.atomic():
             txn = process_sale(

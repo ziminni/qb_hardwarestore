@@ -145,4 +145,3 @@ def handler(exc, context):
             status=status.HTTP_400_BAD_REQUEST,
         )
     return drf_exception_handler(exc, context)
-    return drf_exception_handler(exc, context)

@@ -36,7 +36,7 @@ This document maps every **frontend feature** (`flutter/lib/features/`) to the *
 | `features/products` | `apps/inventory` | `/api/v1/products/*`, `/api/v1/variants/*`, `/api/v1/variant-uoms/*` |
 | `features/inventory` | `apps/inventory` | `/api/v1/purchase-orders/*`, `/api/v1/goods-receipts/*`, `/api/v1/batches/*`, `/api/v1/adjustments/*`, `/api/v1/alerts/*` |
 | `features/suppliers` | `apps/inventory` | `/api/v1/suppliers/*` |
-| `features/pos` | `apps/pos` | `/api/v1/transactions/*`, `/api/v1/customers/*`, `/api/v1/receipts/*` |
+| `features/pos` | `apps/pos` | `/api/v1/transactions/*`, `/api/v1/customers/*`, `/api/v1/receipts/*`, `/api/v1/held-carts/*`, `/api/v1/shifts/*` |
 | `features/sales` | `apps/pos` | `/api/v1/transactions/*`, `/api/v1/transactions/daily_report/` |
 | `features/reports` | `apps/pos` + `apps/collectibles` | `/api/v1/transactions/daily_report/`, `/api/v1/ledgers/aging/` |
 | *(collectibles / utang)* | `apps/collectibles` | `/api/v1/ledgers/*` |
@@ -101,6 +101,15 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 | GET | `/api/v1/transactions/daily_report/` | Today's totals: `{date, count, total_sales}` | Authenticated |
 | GET | `/api/v1/payments/` | POS payments (read-only) | Authenticated |
 | GET | `/api/v1/receipts/` | Official receipts (read-only) | Authenticated |
+| GET | `/api/v1/held-carts/` | List held (parked) carts for the current cashier | Authenticated |
+| POST | `/api/v1/held-carts/` | **Hold** — body: `{customer, notes, items[{variant_uom, qty, unit_price}]}`; parks the cart without touching stock | Authenticated |
+| GET | `/api/v1/held-carts/{id}/` | Retrieve a single held cart with items | Authenticated |
+| DELETE | `/api/v1/held-carts/{id}/` | **Void** a held cart — permanent delete, no stock change | Authenticated |
+| POST | `/api/v1/held-carts/{id}/complete/` | **Complete** — body: `{customer?, payments[]}`; feeds items into `process_sale` (requires open shift) then deletes the cart | Authenticated |
+| POST | `/api/v1/shifts/open/` | **Open shift** — body: `{opening_float}`; one open shift per cashier enforced at DB level (400 `SHIFT_ALREADY_OPEN` if already open) | Authenticated |
+| POST | `/api/v1/shifts/{id}/close/` | **Close shift** — body: `{closing_count}`; sets status=CLOSED, returns Z-reading (transaction_count, gross_sales, cash_sales, card_sales, gcash_sales, expected_drawer, variance) | Authenticated |
+| GET | `/api/v1/shifts/current/` | Current cashier's open shift, or 404 `No open shift` | Authenticated |
+| GET | `/api/v1/shifts/` | Shift list (own shifts for cashier, all for manager/admin) | Authenticated |
 
 ### 3.5 `apps/collectibles` — utang / accounts receivable
 

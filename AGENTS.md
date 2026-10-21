@@ -30,9 +30,8 @@ the same commit that breaks it.
   the next commit.
 - **Active Wayfinder map: `planning/cashier-workflow/MAP.md`** (opened 2026-10-20): cashier login without a
   keyring prompt, every cashier sidebar tab live. **6 decisions locked, 0 open.** All decisions resolved.
-  **Phases 1 + 2 BUILT** (see phase table). **Phases 3 (held sale) and 4 (shift/Z-reading) are READY
-  TO BUILD** — full roadmap at the end of `MAP.md`. Phase 3 first (shift close advisory needs held carts).
-  The **api-integration map is complete and closed**; its invariants still bind.
+  **All 4 phases BUILT 2026-10-21** (see phase table in the active map). The
+  **api-integration map is complete and closed**; its invariants still bind.
 - **Phase state is NOT stated here** — it is owned by the phase table in the active map, per-row and with
   evidence. Read that table; a copy here would be a second home, and this file's own rule forbids one.
 - **Phase 6 is built and pushed.** 6A.1–6A.4, 6B (reports + receiving), 6C (live sales screens + review
@@ -51,14 +50,12 @@ the same commit that breaks it.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.
-- **Last session:** `docs/sessions/2026-10-21-cashier-workflow-phases-1-2.md` — built Phases 1 + 2 of the
-  cashier-workflow map. Phase 1 kills the gnome-keyring prompt on Linux (token store seam). Phase 2
-  makes all 4 POS sidebar tabs navigate to live screens (shared nav, POS-native history + receivables
-  pages, DashboardShell callback, dead Notifications deleted, consistency test extended). Both passed
-  fresh-context review with 0 Critical, 0 Important.
-  **Gate:** backend **89/89**, `flutter analyze` clean, flutter **417/417** (Phase 1 +6, Phase 2 +10), tree CLEAN.
-  **Next: BUILD Phase 3** (held sale) then **Phase 4** (shift/Z-reading) via executing-plans, or push
-  and ship with tabs 0–3 if the timeline is tight.
+- **Last session:** `docs/sessions/2026-10-21-cashier-workflow-phases-3-4.md` — built Phases 3 + 4 of the
+  cashier-workflow map. Phase 3: HeldCart backend + Flutter (hold, list, void, complete with shift gate;
+  walk-in null-customer bug fixed after QA). Phase 4: Shift model, process_sale gate, Z-reading at close,
+  Flutter shift gate on till + shift history page. Reviewed by hygiene-reviewer + qa-tester.
+  **Gate:** backend **107/107**, `flutter analyze` clean, flutter **457/457**, tree CLEAN.
+  **Next:** push branch; run Wayfinder on cashier-workflow to record fog and decide next epic.
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message
