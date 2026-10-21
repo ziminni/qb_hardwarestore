@@ -4,9 +4,9 @@
 
 | Phase | Scope | Blocking Decisions | Status |
 |---|---|---|---|
-| 1 | Audit logs — live paginated list replacing mock rows | ✅ D-01 locked | [ ] Pending |
-| 2 | Suppliers + Purchase Orders — live read-only list | ✅ D-02 locked | [ ] Pending |
-| 3 | Admin Settings — inline constants, delete AdminMockData | ✅ D-03 locked | [ ] Pending |
+| 1 | Audit logs — live paginated list replacing mock rows | ✅ D-01 locked | ✅ Done |
+| 2 | Suppliers + Purchase Orders — live read-only list | ✅ D-02 locked | ✅ Done |
+| 3 | Admin Settings — inline constants, delete AdminMockData | ✅ D-03 locked | ✅ Done |
 
 ## Destination
 

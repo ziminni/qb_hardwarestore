@@ -14,6 +14,8 @@ class AdminSettingsForm extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Read-only: no settings endpoint exists (D-03). Fields disabled, no Save
+    // button — an editable form with a dead Save would lie to the admin.
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 640),
       child: Column(
@@ -21,6 +23,7 @@ class AdminSettingsForm extends StatelessWidget {
         children: [
           TextFormField(
             initialValue: storeName,
+            enabled: false,
             decoration: const InputDecoration(
               labelText: 'Store name',
               border: OutlineInputBorder(),
@@ -29,6 +32,7 @@ class AdminSettingsForm extends StatelessWidget {
           const SizedBox(height: 16),
           TextFormField(
             initialValue: email,
+            enabled: false,
             decoration: const InputDecoration(
               labelText: 'Contact email',
               border: OutlineInputBorder(),
@@ -37,17 +41,10 @@ class AdminSettingsForm extends StatelessWidget {
           const SizedBox(height: 16),
           TextFormField(
             initialValue: phone,
+            enabled: false,
             decoration: const InputDecoration(
               labelText: 'Contact number',
               border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton(
-              onPressed: () {},
-              child: const Text('Save settings'),
             ),
           ),
         ],

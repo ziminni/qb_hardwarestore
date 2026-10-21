@@ -154,9 +154,12 @@ void main() {
           .widgetList<TextFormField>(find.byType(TextFormField))
           .toList();
       expect(fields.map((field) => field.initialValue).toList(), [
-        'Queen Builders',
-        'admin@queenbuilders.local',
-        '+63 900 000 0000',
+        // D-03 (admin-workflow) moved these off `AdminMockData` and onto the
+        // inlined constants both Settings screens share, so the expected
+        // literals moved with them.
+        'QB Hardware & Construction Supplies',
+        'contact@qbhardware.com',
+        '+63 912 345 6789',
       ]);
       expect(fields.every((field) => field.enabled == false), isTrue);
       expect(find.text('Save settings'), findsNothing);

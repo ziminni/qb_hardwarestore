@@ -1,8 +1,15 @@
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
-import 'package:client/features/admin/viewmodels/admin_mock_data.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:flutter/material.dart';
+
+/// The same store details the admin Settings screen shows (decision D-03).
+///
+/// Inlined instead of read from `AdminMockData`: that bag was deleted in this
+/// phase, and these three values are static facts rather than mock data.
+const _storeName = 'QB Hardware & Construction Supplies';
+const _storeEmail = 'contact@qbhardware.com';
+const _storePhone = '+63 912 345 6789';
 
 /// The stocker's Settings tab (decision D-03): store details, read-only.
 ///
@@ -39,7 +46,7 @@ class InventorySettingsPage extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.md),
             TextFormField(
-              initialValue: AdminMockData.storeName,
+              initialValue: _storeName,
               enabled: false,
               decoration: const InputDecoration(
                 labelText: 'Store name',
@@ -48,7 +55,7 @@ class InventorySettingsPage extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.md),
             TextFormField(
-              initialValue: AdminMockData.storeEmail,
+              initialValue: _storeEmail,
               enabled: false,
               decoration: const InputDecoration(
                 labelText: 'Contact email',
@@ -57,7 +64,7 @@ class InventorySettingsPage extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.md),
             TextFormField(
-              initialValue: AdminMockData.storePhone,
+              initialValue: _storePhone,
               enabled: false,
               decoration: const InputDecoration(
                 labelText: 'Contact number',
