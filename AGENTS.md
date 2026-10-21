@@ -50,14 +50,13 @@ the same commit that breaks it.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.
-- **Last session:** `docs/sessions/2026-10-21-cashier-workflow-phases-3-4.md` — built Phases 3 + 4 of the
-  cashier-workflow map. Phase 3: HeldCart backend + Flutter (hold, list, void, complete; Hold button +
-  Resume-into-till wired after hygiene review; walk-in null-customer 500 fixed after QA). Phase 4: Shift
-  model, process_sale gate, Z-reading at close, Flutter shift gate on till + shift history page. All 6
-  cashier-workflow decisions satisfied; reviewed by hygiene-reviewer (glm-5.3-flash) + qa-tester (gpt-6-luna).
-  **Gate:** backend **107/107**, `flutter analyze` clean, flutter **468/468**, tree CLEAN.
-  **Next:** push branch (`git push`); run Wayfinder on `planning/cashier-workflow/MAP.md` to record fog
-  items (close advisory, held-cart count on shift close) and decide the next epic.
+- **Last session:** `docs/sessions/2026-10-21-admin-provider-fix.md` — fixed admin-dashboard crash via qa-tester +
+  systematic-debugging (root cause: route built `AdminDashboard` bare, no ancestor provided
+  `AdminOverviewViewmodel`) then expressive-dev + executing-plans (route-scoped provider in `routes.dart`,
+  RED→GREEN proven with exact `ProviderNotFoundException` on pre-fix code).
+  **Gate:** backend **107/107**, `flutter analyze` clean, flutter **469/469**, tree CLEAN.
+  **Next:** `git push` branch; run Wayfinder on `planning/cashier-workflow/MAP.md` to record fog
+  (held-cart close advisory, shift close advisory) and decide the next epic.
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message
