@@ -42,7 +42,7 @@ class _InventorySalesPageState extends State<InventorySalesPage> {
     return InventorySkeletonLayout(
       title: 'Sales',
       subtitle: 'Review inventory deducted through completed sales.',
-      selectedNavigationIndex: 8,
+      selectedNavigationIndex: 9,
       onNavigationSelected: (index) => navigateInventory(context, index),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

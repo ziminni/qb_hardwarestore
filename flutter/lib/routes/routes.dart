@@ -29,6 +29,9 @@ import 'package:client/features/inventory/views/inventory_stock_movements_page.d
 import 'package:client/features/inventory/views/inventory_low_stock_page.dart';
 import 'package:client/features/inventory/views/inventory_stock_page.dart';
 import 'package:client/features/inventory/views/inventory_receiving_page.dart';
+import 'package:client/features/inventory/views/inventory_reports_page.dart';
+import 'package:client/features/inventory/views/inventory_returns_page.dart';
+import 'package:client/features/inventory/views/inventory_settings_page.dart';
 import 'package:client/features/products/views/products_page.dart';
 import 'package:client/features/suppliers/views/purchases_page.dart';
 import 'package:client/features/suppliers/views/suppliers_page.dart';
@@ -63,6 +66,9 @@ class AppRoutes {
   static const String inventorySuppliers = '/inventory/suppliers';
   static const String inventorySales = '/inventory/sales';
   static const String inventoryReceiving = '/inventory/receiving';
+  static const String inventoryReturns = '/inventory/returns';
+  static const String inventoryReports = '/inventory/reports';
+  static const String inventorySettings = '/inventory/settings';
   static const String posDashboard = '/pos/dashboard';
   static const String posHistory = '/pos/history';
   static const String posRelease = '/pos/release';
@@ -311,6 +317,24 @@ class AppRoutes {
           name: 'inventory_receiving',
           pageBuilder: (context, state) =>
               _transitionPage(state, const InventoryReceivingPage()),
+        ),
+        GoRoute(
+          path: inventoryReturns,
+          name: 'inventory_returns',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const InventoryReturnsPage()),
+        ),
+        GoRoute(
+          path: inventoryReports,
+          name: 'inventory_reports',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const InventoryReportsPage()),
+        ),
+        GoRoute(
+          path: inventorySettings,
+          name: 'inventory_settings',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const InventorySettingsPage()),
         ),
         GoRoute(
           path: posDashboard,

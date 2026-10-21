@@ -77,15 +77,20 @@ void main() {
       6,
       reason: 'the sales sidebar has 6 destinations',
     );
-    expect(inventoryOrder.length, greaterThanOrEqualTo(10));
+    expect(inventoryOrder.length, 13);
     expect(
       posOrder.length,
       6,
       reason: 'the POS sidebar has 6 destinations (tabs 0-5)',
     );
     expect(salesOrder.first, 'salesDashboard');
-    expect(inventoryOrder[8], 'inventorySales');
-    expect(inventoryOrder[9], 'inventoryReceiving');
+    // Receiving must sit at 8, not 9: the sidebar's index 9 is "Returns".
+    // When this was the other way round the Returns tab opened Receiving.
+    expect(inventoryOrder[8], 'inventoryReceiving');
+    expect(inventoryOrder[9], 'inventorySales');
+    expect(inventoryOrder[10], 'inventoryReturns');
+    expect(inventoryOrder[11], 'inventoryReports');
+    expect(inventoryOrder[12], 'inventorySettings');
     expect(posOrder[0], 'posDashboard');
     expect(posOrder[2], 'posRelease');
     expect(posOrder[4], 'posHeld');

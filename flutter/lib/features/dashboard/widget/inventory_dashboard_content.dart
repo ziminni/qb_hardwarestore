@@ -5,7 +5,9 @@ import 'package:client/features/dashboard/widget/inventory_list_item.dart';
 import 'package:client/features/dashboard/widget/inventory_metric_card.dart';
 import 'package:client/features/dashboard/widget/inventory_section.dart';
 import 'package:client/features/sales/widgets/live_load_error_banner.dart';
+import 'package:client/routes/routes.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 /// Inventory home screen content, wired to live data.
@@ -138,17 +140,23 @@ class InventoryDashboardContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Row(
+        Row(
           children: [
-            Expanded(
+            const Expanded(
               child: Text(
                 'Inventory overview',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
             ),
-            InventoryActionButton(label: 'Export', icon: Icons.download),
-            SizedBox(width: 8),
-            InventoryActionButton(label: 'Add product'),
+            // Decision D-04: "Export" is GONE. No export endpoint exists in the
+            // client or the API, so the button could never work — and
+            // `InventoryActionButton` defaults `onPressed` to `() {}`, which
+            // rendered it as a live-looking dead control. "Add product" goes to
+            // the live Products page instead of doing nothing.
+            InventoryActionButton(
+              label: 'Add product',
+              onPressed: () => context.go(AppRoutes.inventoryProducts),
+            ),
           ],
         ),
         const SizedBox(height: 16),

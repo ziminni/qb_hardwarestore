@@ -68,6 +68,14 @@ class InventorySkeletonLayout extends StatelessWidget {
           label: 'Suppliers',
           icon: Icons.local_shipping_outlined,
         ),
+        // Receiving belongs to the purchasing flow (goods arrive against a PO),
+        // and it needs its OWN destination: it used to occupy index 9, which
+        // the sidebar renders as "Returns", so the Returns tab opened Receiving
+        // and the three tabs after it were unreachable.
+        SharedSidebarDestination(
+          label: 'Receiving',
+          icon: Icons.move_to_inbox_outlined,
+        ),
       ],
     ),
     SharedSidebarSection(
