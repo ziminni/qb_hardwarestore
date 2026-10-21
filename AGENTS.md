@@ -28,7 +28,7 @@ the same commit that breaks it.
 - **Active branch:** `feature/backend-integration` — **pushed, in sync with `origin/`.** For how far ahead
   of `origin/master` it is run `git rev-list --count origin/master..HEAD`; a count written here stales on
   the next commit.
-- **Active Wayfinder map: `planning/admin-workflow/MAP.md`** (opened 2026-10-22): Admin (`admin` role) — audit logs live, suppliers/POs live, AdminMockData deleted. **3 decisions locked, 0 open. 3 phases READY TO BUILD.** Sales-manager-workflow map complete and archived. Stocker-workflow map complete and archived. Cashier-workflow map complete and archived.
+- **Active Wayfinder map: `planning/admin-workflow/MAP.md`** — Admin (`admin` role) audit logs + suppliers/POs + settings. **3 decisions locked, 3 phases BUILT 2026-10-22** (`b5c72c2` + `34b421b` + `02f82de`). Prior maps archived (sales-manager, stocker, cashier).
 - **Phase state is NOT stated here** — it is owned by the phase table in the active map, per-row and with
   evidence. Read that table; a copy here would be a second home, and this file's own rule forbids one.
 - **Phase 6 is built and pushed.** 6A.1–6A.4, 6B (reports + receiving), 6C (live sales screens + review
@@ -47,7 +47,7 @@ the same commit that breaks it.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.
-- **Last session:** `docs/sessions/2026-10-21-stocker-workflow-build.md` — BUILT stocker-workflow Phases 1–4 (`4a8e778` + docs `93dee71` + format `e738046`/`30976b7`): Returns/Reports/Settings tabs routed + paged, dashboard Export cut + Add-product wired, sidebar index bug fixed (Receiving=8, Sales=9, Returns=10, Reports=11, Settings=12). **Gate:** flutter **485/485**, analyze clean, backend untouched, tree clean.
+- **Last session:** `docs/sessions/2026-10-22-admin-workflow-build.md` — BUILT admin-workflow Phases 1–3 (`b5c72c2` audit logs + `34b421b` suppliers/POs + `02f82de` settings/AdminMockData deleted). Fix-pass: admin Save removed (read-only), toggle persists session-local. **Gate:** flutter **532/532**, analyze clean, backend untouched, tree clean.
   **Next:** user runs `git push` (assistant shell has no SSH key); then Wayfinder next epic (Sales role, Admin monitoring, CPMS repo).
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
