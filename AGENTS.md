@@ -47,12 +47,9 @@ the same commit that breaks it.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.
-- **Last session:** `docs/sessions/2026-10-21-admin-provider-fix.md` — fixed admin-dashboard crash via qa-tester +
-  systematic-debugging (root cause: route built `AdminDashboard` bare, no ancestor provided
-  `AdminOverviewViewmodel`) then expressive-dev + executing-plans (route-scoped provider in `routes.dart`,
-  RED→GREEN proven with exact `ProviderNotFoundException` on pre-fix code).
-  **Gate:** backend **107/107**, `flutter analyze` clean, flutter **469/469**, tree CLEAN.
-  **Next:** Stocker-workflow Phase 1–4 BUILD (all decisions locked, roadmap in `planning/stocker-workflow/MAP.md`).
+- **Last session:** `docs/sessions/2026-10-21-stocker-workflow-wayfinder.md` — opened stocker-workflow MAP (4 decisions locked: Returns read-only list, Reports access banner, Settings static form, dashboard buttons wired/cut; 4 phases READY TO BUILD) + teammate-structure audit (165/165 orig files present, +42 added, 19 orphans deleted).
+  **Gate:** docs-only commit `a57d21b`, tree CLEAN (no test gate — no app code touched).
+  **Next:** `executing-plans BUILD` stocker-workflow Phases 1–4; gate each phase with full `flutter test` + `flutter analyze` clean.
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message
