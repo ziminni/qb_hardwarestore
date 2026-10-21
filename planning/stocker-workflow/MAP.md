@@ -4,10 +4,10 @@
 
 | Phase | Scope | Blocking Decisions | Status |
 |---|---|---|---|
-| 1 | Returns tab — read-only RETURN transactions | ✅ D-01 locked | [ ] Pending |
-| 2 | Reports tab — inventory-role view (Valuation + Movements) | ✅ D-02 locked | [ ] Pending |
-| 3 | Settings tab — non-crashing static form | ✅ D-03 locked | [ ] Pending |
-| 4 | Dashboard action buttons — Add product & Export | ✅ D-04 locked | [ ] Pending |
+| 1 | Returns tab — read-only RETURN transactions | ✅ D-01 locked | ✅ Done (`4a8e778`) |
+| 2 | Reports tab — static access banner | ✅ D-02 locked | ✅ Done (`4a8e778`) |
+| 3 | Settings tab — non-crashing static form | ✅ D-03 locked | ✅ Done (`4a8e778`) |
+| 4 | Dashboard action buttons — Add product & Export | ✅ D-04 locked | ✅ Done (`4a8e778`) |
 
 ---
 
@@ -48,8 +48,8 @@ and minor UI wiring defects on the Flutter side.
 ## Decisions So Far
 
 - [D-01 Stocker Returns scope](./decisions/01-returns-scope.md): Read-only list of RETURN-source transactions reusing `SalesTransactionViewSet` (already readable by `inventory` role via `IsPOSOrReadOnly`). Option C (initiate return form) deferred to fog.
-- [D-02 Stocker Reports scope](./decisions/02-reports-scope.md): Show **Valuation** and **Movements** tabs only (both `IsManagerRole`-gated 403 for stocker), surfacing a friendly "Manager access required" banner inside the inventory shell — no new backend endpoint needed.
-- [D-03 Stocker Settings](./decisions/03-settings-scope.md): Static read-only form reusing `AdminSettingsForm` with hardcoded store info inside `InventorySkeletonLayout`; "Save" button removed (stocker cannot change store settings); no backend needed.
+- [D-02 Stocker Reports scope](./decisions/02-reports-scope.md): Static "Manager access required" banner page inside `InventorySkeletonLayout`. No API call. All `/reports/*` is `IsManagerRole`-gated; no endpoint is accessible to stocker. (Decision doc updated: "Valuation + Movements tabs" wording was stale — a banner is the implementation.)
+- [D-03 Stocker Settings](./decisions/03-settings-scope.md): Static read-only form — three `enabled: false` TextFormFields with `AdminMockData` values inside `InventorySkeletonLayout`. `AdminSettingsForm` was NOT reused because it renders a Save button that cannot be removed without re-implementing; fields inlined directly. No backend needed.
 - [D-04 Dashboard action buttons](./decisions/04-dashboard-buttons.md): "Add product" navigates to `/inventory/products` (Products page already live). "Export" is removed — no export endpoint exists and the Products page has no export either.
 
 ---

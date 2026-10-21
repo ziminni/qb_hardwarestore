@@ -28,7 +28,7 @@ the same commit that breaks it.
 - **Active branch:** `feature/backend-integration` — **pushed, in sync with `origin/`.** For how far ahead
   of `origin/master` it is run `git rev-list --count origin/master..HEAD`; a count written here stales on
   the next commit.
-- **Active Wayfinder map: `planning/stocker-workflow/MAP.md`** (opened 2026-10-21): every stocker (`inventory` role) sidebar tab opens a working screen. **4 decisions locked, 0 open. 4 phases READY TO BUILD.** Cashier-workflow map is complete and archived (`planning/cashier-workflow/MAP.md`).
+- **Active Wayfinder map: `planning/stocker-workflow/MAP.md`** (opened 2026-10-21): every stocker (`inventory` role) sidebar tab opens a working screen. **4 decisions locked, 0 open. All 4 phases BUILT 2026-10-21** (`4a8e778`). Cashier-workflow map is complete and archived (`planning/cashier-workflow/MAP.md`).
 - **Phase state is NOT stated here** — it is owned by the phase table in the active map, per-row and with
   evidence. Read that table; a copy here would be a second home, and this file's own rule forbids one.
 - **Phase 6 is built and pushed.** 6A.1–6A.4, 6B (reports + receiving), 6C (live sales screens + review
@@ -47,9 +47,8 @@ the same commit that breaks it.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.
-- **Last session:** `docs/sessions/2026-10-21-stocker-workflow-wayfinder.md` — opened stocker-workflow MAP (4 decisions locked: Returns read-only list, Reports access banner, Settings static form, dashboard buttons wired/cut; 4 phases READY TO BUILD) + teammate-structure audit (165/165 orig files present, +42 added, 19 orphans deleted).
-  **Gate:** docs-only commit `a57d21b`, tree CLEAN (no test gate — no app code touched).
-  **Next:** `executing-plans BUILD` stocker-workflow Phases 1–4; gate each phase with full `flutter test` + `flutter analyze` clean.
+- **Last session:** stocker-workflow Phases 1–4 BUILT (`4a8e778`): inventory Returns/Reports/Settings tabs all routed + paged, dashboard Export removed and Add-product wired, sidebar index bug fixed (Receiving was at wrong index). Also: sidebar index ordering correction (Receiving=8, Sales=9, Returns=10, Reports=11, Settings=12). **Gate:** flutter **485/485**, analyze clean, backend untouched.
+  **Next:** `git push`; Wayfinder or next role epic (Sales role, Admin monitoring, CPMS repo).
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message
