@@ -51,11 +51,13 @@ the same commit that breaks it.
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.
 - **Last session:** `docs/sessions/2026-10-21-cashier-workflow-phases-3-4.md` — built Phases 3 + 4 of the
-  cashier-workflow map. Phase 3: HeldCart backend + Flutter (hold, list, void, complete with shift gate;
-  walk-in null-customer bug fixed after QA). Phase 4: Shift model, process_sale gate, Z-reading at close,
-  Flutter shift gate on till + shift history page. Reviewed by hygiene-reviewer + qa-tester.
-  **Gate:** backend **107/107**, `flutter analyze` clean, flutter **457/457**, tree CLEAN.
-  **Next:** push branch; run Wayfinder on cashier-workflow to record fog and decide next epic.
+  cashier-workflow map. Phase 3: HeldCart backend + Flutter (hold, list, void, complete; Hold button +
+  Resume-into-till wired after hygiene review; walk-in null-customer 500 fixed after QA). Phase 4: Shift
+  model, process_sale gate, Z-reading at close, Flutter shift gate on till + shift history page. All 6
+  cashier-workflow decisions satisfied; reviewed by hygiene-reviewer (glm-5.3-flash) + qa-tester (gpt-6-luna).
+  **Gate:** backend **107/107**, `flutter analyze` clean, flutter **468/468**, tree CLEAN.
+  **Next:** push branch (`git push`); run Wayfinder on `planning/cashier-workflow/MAP.md` to record fog
+  items (close advisory, held-cart count on shift close) and decide the next epic.
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message

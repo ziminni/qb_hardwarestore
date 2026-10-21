@@ -56,7 +56,7 @@ qa-tester (gpt-6-luna).
 | Suite | Before | After |
 | :--- | :--- | :--- |
 | Backend Django | 96/96 | **107/107** (+7 HeldCart +1 walk-in complete fix +10 Shift −7 that merged) |
-| Flutter tests | 417/417 | **457/457** (+12 HeldCart +27 Shift +3 format) |
+| Flutter tests | 417/417 | **468/468** (+12 HeldCart +27 Shift +3 format +11 Hold/Resume) |
 | `flutter analyze` | clean | **clean** |
 | `manage.py check` | clean | **clean** |
 
@@ -70,10 +70,12 @@ qa-tester (gpt-6-luna).
 | `48217b1` | feat(pos): Shift gate, shift page, Z-reading display (phase 4 flutter) |
 | `54359c1` | docs(icm): all 4 cashier-workflow phases built; MAP + progress updated |
 | `f0b9a6b` | style: pi-lens auto-format on Phase 3-4 flutter files |
-| follow-up | fix(pos): complete walk-in held cart; duplicate return in exceptions.py |
+| `3415368` | fix(pos): complete walk-in held cart uses walk-in customer; rm duplicate return; ICM docs |
+| `ff61454` | feat(pos): Hold button + Resume-into-till wiring (cashier-workflow phase 3 complete) |
 
 ## Deferred to Fog
 
 - Close-out shows no advisory listing held carts (decision 06 says advisory, not blocker)
 - Shift close advisory in `showShiftCloseDialog` (cosmetic warning)
-- Hold/Resume full wiring (till Hold button + resume populates cart) — dispatched as follow-up
+- Close-out shows no advisory listing held carts (decision 06 says advisory, not blocker)
+- Shift close advisory in `showShiftCloseDialog` (cosmetic warning only)

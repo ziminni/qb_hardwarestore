@@ -8,7 +8,7 @@
 | :--- | :--- | :--- | :--- |
 | 1 | Linux token storage — no keyring prompt | [Linux Token Storage](./decisions/01-linux-token-storage.md) ✅ | ✅ Done — `3bd0fdb` 2026-10-20 (live WSL check user-pending) |
 | 2 | POS shell navigation + reach (tabs 0–3 live) | [POS Navigation Wiring](./decisions/02-pos-navigation-wiring.md) ✅ · [Cashier Tab Set](./decisions/03-cashier-tab-set.md) ✅ · [Cashier Reach](./decisions/04-cashier-reach.md) ✅ | ✅ Done — `95358c1` 2026-10-21 |
-| 3 | Held sale (tab 4) | [Held Sale Model](./decisions/05-held-sale-model.md) ✅ | ✅ Done — `19cd912` + `a92baf2` 2026-10-21 |
+| 3 | Held sale (tab 4) | [Held Sale Model](./decisions/05-held-sale-model.md) ✅ | ✅ Done — `19cd912` + `a92baf2` + `ff61454` (Hold+Resume) 2026-10-21 |
 | 4 | End of shift / Z-reading (tab 5) | [Shift / Z-Reading Model](./decisions/06-shift-z-reading.md) ✅ | ✅ Done — `38b7077` + `48217b1` 2026-10-21 |
 
 ## Destination
