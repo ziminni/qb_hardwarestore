@@ -12,8 +12,10 @@ from rest_framework.response import Response
 from apps.users.permissions import IsPOSOrReadOnly
 from .models import Customer, SalesTransaction, Payment, OfficialReceipt
 from .models import Quotation, SalesOrder
+from .models import HeldCart
 from .serializers import CustomerSerializer, SalesTransactionSerializer, PaymentSerializer, OfficialReceiptSerializer
 from .serializers import QuotationSerializer, SalesOrderSerializer
+from .serializers import HeldCartSerializer
 from .services import process_sale
 
 
@@ -130,3 +132,45 @@ class SalesOrderViewSet(BaseViewSet):
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+
+class HeldCartViewSet(BaseViewSet):
+    """Held/parked carts — Phase 3 of cashier-workflow."""
+    queryset = HeldCart.objects.select_related('cashier', 'customer').prefetch_related('items__variant_uom')
+    serializer_class = HeldCartSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(cashier=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        instance = self.get_queryset().get(pk=serializer.instance.pk)
+        return Response(
+            self.get_serializer(instance).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=['post'])
+    def complete(self, request, pk=None):
+        cart = self.get_object()
+        items_data = [
+            {'variant_id': item.variant_uom_id, 'qty': item.qty, 'unit_price': item.unit_price}
+            for item in cart.items.all()
+        ]
+        payments_data = request.data.get('payments', [])
+        customer_id = cart.customer_id or request.data.get('customer')
+        from django.db import transaction as db_transaction
+        with db_transaction.atomic():
+            txn = process_sale(
+                customer_id=customer_id,
+                cashier=request.user,
+                items_data=items_data,
+                payments_data=payments_data,
+            )
+            cart.delete()
+        return Response(
+            SalesTransactionSerializer(txn).data,
+            status=status.HTTP_201_CREATED,
+        )

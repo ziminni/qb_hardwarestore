@@ -299,3 +299,93 @@ class CheckoutApiTests(POSTestBase):
         self.assertIn('payments', body)
         self.assertIn('receipt', body)
         self.assertEqual(body['grand_total'], '20.00')
+
+
+HELD_CARTS_URL = '/api/v1/held-carts/'
+
+
+class HeldCartTests(POSTestBase):
+    """Phase 3: HeldCart CRUD + complete action."""
+
+    def setUp(self):
+        super().setUp()
+        self.cashier.groups.add(Group.objects.get_or_create(name='Cashier')[0])
+        login = self.client.post(
+            LOGIN_URL,
+            {'username': 'cashier1', 'password': 'pass12345'},
+            content_type='application/json',
+        )
+        self.assertEqual(login.status_code, 200, 'cashier must log in')
+        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {login.json()["access"]}'}
+
+    def _hold(self, customer=None, items=None):
+        payload = {
+            'notes': 'test hold',
+            'items': items or [{'variant_uom': self.vuom.id, 'qty': '2', 'unit_price': '10.00'}],
+        }
+        if customer is not None:
+            payload['customer'] = customer
+        return self.client.post(
+            HELD_CARTS_URL, payload,
+            content_type='application/json', **self.auth)
+
+    def test_hold_creates_cart(self):
+        resp = self._hold(customer=self.customer.id)
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['notes'], 'test hold')
+        self.assertEqual(len(resp.data['items']), 1)
+
+    def test_list_shows_held_carts(self):
+        self._hold(customer=self.customer.id)
+        resp = self.client.get(HELD_CARTS_URL, **self.auth)
+        self.assertEqual(resp.status_code, 200)
+        self.assertGreaterEqual(resp.data['count'], 1)
+
+    def test_resume_returns_cart_with_items(self):
+        hold_resp = self._hold(customer=self.customer.id)
+        cart_id = hold_resp.data['id']
+        resp = self.client.get(f'{HELD_CARTS_URL}{cart_id}/', **self.auth)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data['items']), 1)
+        self.assertEqual(resp.data['items'][0]['qty'], '2.00')
+
+    def test_complete_creates_transaction_and_deletes_cart(self):
+        hold_resp = self._hold(customer=self.customer.id)
+        cart_id = hold_resp.data['id']
+        resp = self.client.post(
+            f'{HELD_CARTS_URL}{cart_id}/complete/',
+            {'payments': [{'method': 'CASH', 'amount_tendered': '20.00'}]},
+            content_type='application/json', **self.auth,
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertTrue(SalesTransaction.objects.filter(id=resp.data['id']).exists())
+        from .models import HeldCart
+        self.assertFalse(HeldCart.objects.filter(id=cart_id).exists())
+
+    def test_void_deletes_cart(self):
+        hold_resp = self._hold(customer=self.customer.id)
+        cart_id = hold_resp.data['id']
+        resp = self.client.delete(f'{HELD_CARTS_URL}{cart_id}/', **self.auth)
+        self.assertEqual(resp.status_code, 204)
+        from .models import HeldCart
+        self.assertFalse(HeldCart.objects.filter(id=cart_id).exists())
+
+    def test_walk_in_hold_no_customer(self):
+        resp = self._hold(customer=None)
+        self.assertEqual(resp.status_code, 201)
+        self.assertIsNone(resp.data['customer'])
+
+    def test_complete_insufficient_stock_keeps_cart(self):
+        hold_resp = self._hold(
+            customer=self.customer.id,
+            items=[{'variant_uom': self.vuom.id, 'qty': '99999', 'unit_price': '10.00'}],
+        )
+        cart_id = hold_resp.data['id']
+        resp = self.client.post(
+            f'{HELD_CARTS_URL}{cart_id}/complete/',
+            {'payments': [{'method': 'CASH', 'amount_tendered': '999990.00'}]},
+            content_type='application/json', **self.auth,
+        )
+        self.assertEqual(resp.status_code, 400)
+        from .models import HeldCart
+        self.assertTrue(HeldCart.objects.filter(id=cart_id).exists())

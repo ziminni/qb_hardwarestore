@@ -2,6 +2,7 @@ from rest_framework import serializers
 from .models import (
     Quotation, QuotationItem,
     SalesOrder, SalesOrderItem,
+    HeldCart, HeldCartItem,
     Customer,
     OfficialReceipt,
     Payment,
@@ -118,3 +119,28 @@ class SalesOrderSerializer(serializers.ModelSerializer):
         for item in items:
             SalesOrderItem.objects.create(order=order, **item)
         return order
+
+
+class HeldCartItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = HeldCartItem
+        fields = ['id', 'cart', 'variant_uom', 'qty', 'unit_price']
+        read_only_fields = ['id', 'cart']
+
+
+class HeldCartSerializer(serializers.ModelSerializer):
+    items = HeldCartItemSerializer(many=True, required=False)
+    customer_name = serializers.CharField(source='customer.name', read_only=True, default=None)
+    cashier_name = serializers.CharField(source='cashier.full_name', read_only=True)
+
+    class Meta:
+        model = HeldCart
+        fields = ['id', 'cashier', 'cashier_name', 'customer', 'customer_name', 'notes', 'items', 'created_at']
+        read_only_fields = ['id', 'cashier', 'created_at']
+
+    def create(self, validated_data):
+        items_data = validated_data.pop('items', [])
+        cart = HeldCart.objects.create(**validated_data)
+        for item in items_data:
+            HeldCartItem.objects.create(cart=cart, **item)
+        return cart

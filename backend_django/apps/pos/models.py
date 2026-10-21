@@ -258,3 +258,33 @@ class SalesOrderItem(models.Model):
 
     def __str__(self):
         return f'{self.order.order_no} — {self.variant_uom} × {self.qty}'
+
+
+class HeldCart(models.Model):
+    cashier = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='held_carts')
+    customer = models.ForeignKey(
+        Customer, on_delete=models.SET_NULL, null=True, blank=True, related_name='held_carts')
+    notes = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'pos_held_cart'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'HeldCart {self.id} by {self.cashier}'
+
+
+class HeldCartItem(models.Model):
+    cart = models.ForeignKey(HeldCart, on_delete=models.CASCADE, related_name='items')
+    variant_uom = models.ForeignKey(
+        'inventory.VariantUOM', on_delete=models.PROTECT, related_name='+')
+    qty = models.DecimalField(max_digits=12, decimal_places=2)
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        db_table = 'pos_held_cart_item'
+
+    def __str__(self):
+        return f'HeldCartItem {self.id} — {self.variant_uom} × {self.qty}'
