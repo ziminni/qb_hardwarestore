@@ -158,7 +158,9 @@ class SalesDocumentSheet extends StatelessWidget {
                     children: [
                       Expanded(child: Text(line.name)),
                       const SizedBox(width: AppSpacing.sm),
-                      Text('${salesQty(line.qty)} × ${salesMoney(line.unitPrice)}'),
+                      Text(
+                        '${salesQty(line.qty)} × ${salesMoney(line.unitPrice)}',
+                      ),
                       SizedBox(
                         width: 120,
                         child: Text(

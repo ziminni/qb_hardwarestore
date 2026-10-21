@@ -126,8 +126,7 @@ String _money(double amount) => '₱${amount.toStringAsFixed(2)}';
 
 /// Quantities render without a trailing ".0" — a count that reads "10.0" looks
 /// estimated, and these come from exact batch arithmetic.
-String _qty(num amount) =>
-    amount % 1 == 0 ? '${amount.toInt()}' : '$amount';
+String _qty(num amount) => amount % 1 == 0 ? '${amount.toInt()}' : '$amount';
 
 /// A failed tab names the failure. A loading tab spins. Anything else is the
 /// caller's content — an error must never read as an empty report.
@@ -214,9 +213,7 @@ class _RangeControlsState extends State<_RangeControls> {
               child: TextField(
                 key: const Key('reports-to'),
                 controller: _to,
-                decoration: const InputDecoration(
-                  labelText: 'To (YYYY-MM-DD)',
-                ),
+                decoration: const InputDecoration(labelText: 'To (YYYY-MM-DD)'),
               ),
             ),
             const SizedBox(width: AppSpacing.sm),
@@ -248,6 +245,7 @@ class _RangeControlsState extends State<_RangeControls> {
     );
   }
 }
+
 class _SalesTab extends StatelessWidget {
   const _SalesTab({required this.viewmodel});
 

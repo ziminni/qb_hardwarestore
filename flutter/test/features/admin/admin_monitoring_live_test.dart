@@ -145,7 +145,9 @@ void main() {
 
       expect(
         tester
-            .widget<Text>(find.byKey(const Key('sales-monitoring-transactions')))
+            .widget<Text>(
+              find.byKey(const Key('sales-monitoring-transactions')),
+            )
             .data,
         '12',
       );
@@ -190,7 +192,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(LiveLoadErrorBanner), findsOneWidget);
-      expect(find.text('The sales summary could not be loaded.'), findsOneWidget);
+      expect(
+        find.text('The sales summary could not be loaded.'),
+        findsOneWidget,
+      );
       expect(
         find.byType(AdminSalesChart),
         findsNothing,
@@ -240,9 +245,7 @@ void main() {
     ) async {
       _sizeUp(tester);
       await tester.pumpWidget(
-        _app(
-          InventoryMonitoringPage(repository: _StubReportsRepository()),
-        ),
+        _app(InventoryMonitoringPage(repository: _StubReportsRepository())),
       );
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
@@ -255,9 +258,7 @@ void main() {
     ) async {
       _sizeUp(tester);
       await tester.pumpWidget(
-        _app(
-          InventoryMonitoringPage(repository: _StubReportsRepository()),
-        ),
+        _app(InventoryMonitoringPage(repository: _StubReportsRepository())),
       );
       await tester.pumpAndSettle();
 

@@ -51,4 +51,3 @@ class SalesOrderRecord {
   final List<OrderLineItem> items;
   final String? notes;
 }
-

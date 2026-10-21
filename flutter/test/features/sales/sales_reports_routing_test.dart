@@ -75,10 +75,7 @@ class _StubReportsRepository extends ReportsRepository {
   }
 
   @override
-  Future<StockMovements> fetchStockMovements({
-    String? from,
-    String? to,
-  }) async {
+  Future<StockMovements> fetchStockMovements({String? from, String? to}) async {
     return const StockMovements(
       from: '',
       to: '',
