@@ -10,6 +10,7 @@ import 'package:client/features/categories/views/categories_page.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/auth/views/login_page.dart';
 import 'package:client/features/auth/views/unsupported_role_page.dart';
+import 'package:client/features/dashboard/viewmodels/admin_overview_viewmodel.dart';
 import 'package:client/features/dashboard/views/admin_dashboard.dart';
 import 'package:client/features/dashboard/views/inventory_dashboard.dart';
 import 'package:client/features/pos/views/pos_receivables_page.dart';
@@ -34,6 +35,7 @@ import 'package:client/features/suppliers/views/suppliers_page.dart';
 import 'package:client/features/sales/views/inventory_sales_page.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
 class AppRoutes {
   AppRoutes._();
@@ -196,8 +198,17 @@ class AppRoutes {
         GoRoute(
           path: adminDashboard,
           name: 'admin_dashboard',
-          pageBuilder: (context, state) =>
-              _transitionPage(state, const AdminDashboard()),
+          // Route-scoped viewmodel, matching AdminUserManagementPage: the
+          // dashboard loads fresh data on every open, and nothing else reads
+          // an overview. Without this provider the page threw
+          // ProviderNotFoundException before rendering a single metric.
+          pageBuilder: (context, state) => _transitionPage(
+            state,
+            ChangeNotifierProvider(
+              create: (_) => AdminOverviewViewmodel(),
+              child: const AdminDashboard(),
+            ),
+          ),
         ),
         GoRoute(
           path: adminUserManagement,

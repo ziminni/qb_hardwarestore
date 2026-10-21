@@ -1,9 +1,15 @@
+import 'dart:typed_data';
+
+import 'package:client/app.dart';
+import 'package:client/core/network/api_client.dart';
 import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/reports.dart';
+import 'package:client/data/models/role.dart';
 import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/models/system_alert.dart';
+import 'package:client/data/models/user.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/repositories/inventory_repository.dart';
 import 'package:client/data/repositories/products_repository.dart';
@@ -16,6 +22,7 @@ import 'package:client/features/dashboard/views/admin_dashboard.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/dashboard/viewmodels/admin_overview_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -209,7 +216,75 @@ Future<void> _pumpInventoryFailing(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// Answers every request the way an unreachable backend does. The route-level
+/// test renders the REAL `AdminOverviewViewmodel`, and its load must fail into
+/// the screen's error path rather than hang the fake clock.
+class _OfflineAdapter implements HttpClientAdapter {
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    throw DioException(
+      requestOptions: options,
+      type: DioExceptionType.connectionError,
+      error: 'offline',
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 void main() {
+  // The defect this pins: `routes.dart` built `const AdminDashboard()` with no
+  // provider above it, and `main.dart` never registered
+  // `AdminOverviewViewmodel`, so opening /admin/dashboard threw a
+  // ProviderException before a single metric could render. Every test above
+  // injects the viewmodel by hand, which is exactly why none of them caught it.
+  testWidgets('the admin dashboard route provides its own overview viewmodel', (
+    tester,
+  ) async {
+    ApiClient.instance.init();
+    ApiClient.instance.dio.httpClientAdapter = _OfflineAdapter();
+
+    tester.view.physicalSize = const Size(1600, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final auth = AuthViewmodel(AuthRepository(AuthService()))
+      ..user = const User(
+        id: 1,
+        username: 'admin',
+        email: 'admin@example.com',
+        fullName: 'Admin User',
+        role: Role(id: 1, name: 'admin', displayName: 'Admin'),
+        isActive: true,
+      );
+
+    // Only the APP-ROOT providers are supplied here, and deliberately NOT
+    // `AdminOverviewViewmodel`: the route itself must own that one. A global
+    // registration would make this test pass while leaving the route broken.
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthViewmodel>.value(
+        value: auth,
+        child: ChangeNotifierProvider<InventoryViewmodel>.value(
+          value: InventoryViewmodel(
+            products: _StubProductsRepository(),
+            inventory: _StubInventoryRepository(),
+          ),
+          child: MyApp(auth: auth),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(AdminDashboard), findsOneWidget);
+  });
+
   testWidgets('a failed inventory load never renders zero-as-data metrics', (
     tester,
   ) async {
