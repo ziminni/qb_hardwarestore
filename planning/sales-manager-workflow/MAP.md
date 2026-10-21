@@ -4,9 +4,9 @@
 
 | Phase | Scope | Blocking Decisions | Status |
 |---|---|---|---|
-| 1 | Sales Reports tab — wrap ReportsPage in SalesSkeletonLayout | ✅ D-01 locked | [ ] Pending |
-| 2 | View buttons — read-only bottom sheet for quotations, orders, transactions | ✅ D-02 locked | [ ] Pending |
-| 3 | Admin monitoring pages — wire live SalesSummary + InventoryValuation | ✅ D-03 locked | [ ] Pending |
+| 1 | Sales Reports tab — wrap ReportsPage in SalesSkeletonLayout | ✅ D-01 locked | ✅ Done (`9cbeb9a`) |
+| 2 | View buttons — read-only bottom sheet for quotations, orders, transactions | ✅ D-02 locked | ✅ Done (`9cbeb9a`) |
+| 3 | Admin monitoring pages — wire live SalesSummary + InventoryValuation | ✅ D-03 locked | ✅ Done (`9cbeb9a`) |
 
 ## Destination
 
