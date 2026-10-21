@@ -1,8 +1,10 @@
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
+import 'package:client/data/models/sales.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/widgets/inventory_sales_status_badge.dart';
 import 'package:client/features/sales/widgets/live_load_error_banner.dart';
+import 'package:client/features/sales/widgets/sales_document_sheet.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
 import 'package:client/features/sales/widgets/sales_records_table.dart';
 import 'package:flutter/material.dart';
@@ -23,6 +25,39 @@ class _SalesTransactionsPageState extends State<SalesTransactionsPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) context.read<InventorySalesViewmodel>().load();
     });
+  }
+
+  /// Opens the read-only document sheet (decision D-02).
+  ///
+  /// The transaction already carries its lines and payments, so nothing is
+  /// fetched here. Payments show method and amount; a row with none falls back
+  /// to the method name rather than inventing an amount.
+  void _showTransactionSheet(BuildContext context, InventorySale sale) {
+    showSalesDocumentSheet(
+      context,
+      title: sale.transactionNo,
+      fields: [
+        ('Date', '${sale.date.month}/${sale.date.day}/${sale.date.year}'),
+        ('Customer', sale.customer),
+        ('Cashier', sale.cashier),
+        ('Source', sale.source),
+        ('Status', sale.status.label),
+        if (sale.payments.isEmpty)
+          ('Payment', sale.paymentMethod)
+        else
+          for (final payment in sale.payments)
+            ('Payment (${payment.method})', salesMoney(payment.amount)),
+      ],
+      lines: [
+        for (final line in sale.lines)
+          SalesDocumentLine(
+            name: line.productName,
+            qty: line.quantity,
+            unitPrice: line.unitPrice,
+          ),
+      ],
+      total: salesMoney(sale.total),
+    );
   }
 
   @override
@@ -83,7 +118,10 @@ class _SalesTransactionsPageState extends State<SalesTransactionsPage> {
                     Text(sale.paymentMethod),
                     Text('₱${sale.total.toStringAsFixed(2)}'),
                     InventorySalesStatusBadge.sale(status: sale.status),
-                    TextButton(onPressed: () {}, child: const Text('View')),
+                    TextButton(
+                      onPressed: () => _showTransactionSheet(context, sale),
+                      child: const Text('View'),
+                    ),
                   ],
                 )
                 .toList(),

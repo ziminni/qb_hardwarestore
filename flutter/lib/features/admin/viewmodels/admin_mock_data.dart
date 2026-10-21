@@ -4,13 +4,6 @@ import 'package:client/data/models/user.dart';
 class AdminMockData {
   const AdminMockData._();
 
-  static const inventoryMetrics = [
-    ('Total products', '1,248'),
-    ('Low stock', '23'),
-    ('Out of stock', '7'),
-    ('Inventory value', '₱3.84M'),
-  ];
-
   static const users = [
     User(
       id: 1,
@@ -35,9 +28,6 @@ class AdminMockData {
       isActive: false,
     ),
   ];
-
-  static const salesValues = [42.0, 58.0, 48.0, 78.0, 65.0, 92.0, 74.0];
-  static const salesLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   static const requisitions = [
     ['REQ-1048', 'Site A', 'Maria Santos', '12 items', 'Pending'],

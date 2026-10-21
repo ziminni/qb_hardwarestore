@@ -1,8 +1,10 @@
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/data/models/sales_module.dart';
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/sales_module_viewmodel.dart';
 import 'package:client/features/sales/widgets/live_load_error_banner.dart';
+import 'package:client/features/sales/widgets/sales_document_sheet.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
 import 'package:client/features/sales/widgets/sales_records_table.dart';
 import 'package:client/features/sales/widgets/sales_status_badge.dart';
@@ -25,12 +27,35 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
     });
   }
 
+  /// Opens the read-only document sheet (decision D-02). Same seam as the
+  /// quotations page: catalogue names when loaded, ids when not.
+  void _showOrderSheet(BuildContext context, SalesOrderRecord item) {
+    final inventory = context.read<InventoryViewmodel?>();
+    showSalesDocumentSheet(
+      context,
+      title: item.number,
+      fields: [
+        ('Customer', item.customer),
+        ('Status', _orderStatusLabel(item.status)),
+        ('Order date', _shortDate(item.date)),
+        if ((item.notes ?? '').isNotEmpty) ('Notes', item.notes!),
+      ],
+      lines: [
+        for (final line in item.items)
+          SalesDocumentLine(
+            name: variantUomName(inventory, line.variantUomId),
+            qty: line.qty,
+            unitPrice: line.unitPrice,
+          ),
+      ],
+      total: salesMoney(item.total),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final viewmodel = context.watch<SalesModuleViewmodel>();
     final records = viewmodel.orders;
-    String label(SalesOrderStatus value) =>
-        value.name[0].toUpperCase() + value.name.substring(1);
     String tone(SalesOrderStatus value) => switch (value) {
       SalesOrderStatus.completed => 'success',
       SalesOrderStatus.ready => 'info',
@@ -79,10 +104,13 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
                     ),
                     Text('₱${item.total.toStringAsFixed(2)}'),
                     SalesStatusBadge(
-                      label: label(item.status),
+                      label: _orderStatusLabel(item.status),
                       tone: tone(item.status),
                     ),
-                    TextButton(onPressed: () {}, child: const Text('View')),
+                    TextButton(
+                      onPressed: () => _showOrderSheet(context, item),
+                      child: const Text('View'),
+                    ),
                   ],
                 )
                 .toList(),
@@ -92,3 +120,9 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
     );
   }
 }
+
+String _orderStatusLabel(SalesOrderStatus value) =>
+    value.name[0].toUpperCase() + value.name.substring(1);
+
+String _shortDate(DateTime date) =>
+    '${date.month}/${date.day}/${date.year}';

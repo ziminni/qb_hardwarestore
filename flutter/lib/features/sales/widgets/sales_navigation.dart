@@ -10,6 +10,9 @@ void navigateSales(BuildContext context, int index) {
     AppRoutes.salesOrders,
     AppRoutes.salesReceivables,
     AppRoutes.salesReturns,
+    // Index 6 — Reports. Omitting it made the sidebar's Reports tab a silent
+    // no-op: the index fell outside this list and nothing happened (D-01).
+    AppRoutes.salesReports,
   ];
   if (index >= 0 && index < paths.length) context.go(paths[index]);
 }

@@ -32,41 +32,57 @@ class ReportsPage extends StatelessWidget {
 class _ReportsView extends StatelessWidget {
   const _ReportsView();
 
+  @override
+  Widget build(BuildContext context) {
+    return const AdminSkeletonLayout(
+      title: 'Reports',
+      subtitle: 'Managerial reports over live operations data.',
+      selectedNavigationIndex: 5,
+      child: ReportsContent(),
+    );
+  }
+}
+
+/// The four-tab report body, **layout-agnostic on purpose**.
+///
+/// It reads the `AdminReportsViewmodel` its host provides and renders nothing
+/// else — no shell, no sidebar. Two shells show these reports: the admin one
+/// ([ReportsPage]) and the sales one (`SalesReportsPage`, decision D-01).
+/// Keeping the body here is what stops the second shell from becoming a copy
+/// of four tabs that drifts the first time a report changes.
+class ReportsContent extends StatelessWidget {
+  const ReportsContent({super.key});
+
   static const _tabs = ['Sales', 'Valuation', 'Movements', 'Requisitions'];
 
   @override
   Widget build(BuildContext context) {
     final viewmodel = context.watch<AdminReportsViewmodel>();
-    return AdminSkeletonLayout(
-      title: 'Reports',
-      subtitle: 'Managerial reports over live operations data.',
-      selectedNavigationIndex: 5,
-      child: DefaultTabController(
-        length: _tabs.length,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TabBar(
-              isScrollable: true,
-              onTap: (index) => viewmodel.selectTab(index),
-              tabs: [for (final tab in _tabs) Tab(text: tab)],
+    return DefaultTabController(
+      length: _tabs.length,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TabBar(
+            isScrollable: true,
+            onTap: (index) => viewmodel.selectTab(index),
+            tabs: [for (final tab in _tabs) Tab(text: tab)],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          // Fixed height, not Expanded: both shells lay their content out in an
+          // unbounded vertical scrollable, where flex has no meaning.
+          SizedBox(
+            height: 900,
+            child: TabBarView(
+              children: [
+                _SalesTab(viewmodel: viewmodel),
+                _ValuationTab(viewmodel: viewmodel),
+                _MovementsTab(viewmodel: viewmodel),
+                _RequisitionsTab(viewmodel: viewmodel),
+              ],
             ),
-            const SizedBox(height: AppSpacing.md),
-            // Fixed height, not Expanded: the admin shell lays its content out
-            // in an unbounded vertical scrollable, where flex has no meaning.
-            SizedBox(
-              height: 900,
-              child: TabBarView(
-                children: [
-                  _SalesTab(viewmodel: viewmodel),
-                  _ValuationTab(viewmodel: viewmodel),
-                  _MovementsTab(viewmodel: viewmodel),
-                  _RequisitionsTab(viewmodel: viewmodel),
-                ],
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

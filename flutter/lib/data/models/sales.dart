@@ -41,6 +41,16 @@ class InventorySaleLine {
   double get subtotal => quantity * unitPrice;
 }
 
+/// One payment against a sale: the method and what was tendered.
+///
+/// Mirrors `pos.serializers.TransactionPaymentSerializer` as the View sheet
+/// (decision D-02) needs it: how it was paid, and how much.
+class InventorySalePayment {
+  const InventorySalePayment({required this.method, required this.amount});
+  final String method;
+  final double amount;
+}
+
 class InventorySale {
   const InventorySale({
     required this.transactionNo,
@@ -51,6 +61,7 @@ class InventorySale {
     required this.source,
     required this.status,
     required this.lines,
+    this.payments = const [],
   });
   final String transactionNo;
   final DateTime date;
@@ -60,6 +71,11 @@ class InventorySale {
   final String source;
   final InventorySaleStatus status;
   final List<InventorySaleLine> lines;
+
+  /// How the customer paid, when the server sent payment rows. Empty is a real
+  /// state (older rows, or a voided sale); the View sheet then falls back to
+  /// [paymentMethod] rather than inventing amounts.
+  final List<InventorySalePayment> payments;
   double get total => lines.fold(0, (sum, line) => sum + line.subtotal);
   double get totalQuantity => lines.fold(0, (sum, line) => sum + line.quantity);
 }

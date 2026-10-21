@@ -23,6 +23,7 @@ import 'package:client/features/sales/views/sales_dashboard_page.dart';
 import 'package:client/features/sales/views/sales_orders_page.dart';
 import 'package:client/features/sales/views/sales_quotations_page.dart';
 import 'package:client/features/sales/views/sales_receivables_page.dart';
+import 'package:client/features/sales/views/sales_reports_page.dart';
 import 'package:client/features/sales/views/sales_returns_page.dart';
 import 'package:client/features/sales/views/sales_transactions_page.dart';
 import 'package:client/features/inventory/views/inventory_stock_movements_page.dart';
@@ -81,6 +82,12 @@ class AppRoutes {
   static const String salesOrders = '/sales/orders';
   static const String salesReceivables = '/sales/receivables';
   static const String salesReturns = '/sales/returns';
+
+  /// The Store Manager's Reports tab (sales sidebar index 6, decision D-01).
+  ///
+  /// Separate from [adminReports] on purpose: the same report content, but in
+  /// the SALES shell, so the manager's sidebar does not swap out.
+  static const String salesReports = '/sales/reports';
 
   /// The pure routing decision: where a request to [location] should go, or null
   /// to stay.
@@ -407,6 +414,12 @@ class AppRoutes {
           name: 'sales_returns',
           pageBuilder: (context, state) =>
               _transitionPage(state, const SalesReturnsPage()),
+        ),
+        GoRoute(
+          path: salesReports,
+          name: 'sales_reports',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const SalesReportsPage()),
         ),
       ],
     );

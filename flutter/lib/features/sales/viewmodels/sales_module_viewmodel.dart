@@ -64,6 +64,10 @@ class SalesModuleViewmodel extends ChangeNotifier {
                 DateTime.parse(q.createdAt),
             q.items.fold<double>(0, (sum, i) => sum + i.qty * i.unitPrice),
             _quoteStatus(q.status),
+            // The list endpoint already carries the lines; the View sheet needs
+            // no second fetch (decision D-02).
+            items: q.items,
+            notes: q.notes,
           ),
       ];
       _orders = [
@@ -74,6 +78,8 @@ class SalesModuleViewmodel extends ChangeNotifier {
             DateTime.parse(o.createdAt),
             o.total,
             _orderStatus(o.status),
+            items: o.items,
+            notes: o.notes,
           ),
       ];
       _loadError = null;

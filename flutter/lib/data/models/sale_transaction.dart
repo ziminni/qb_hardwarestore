@@ -136,6 +136,7 @@ class QuotationRecord {
     required this.validUntil,
     required this.createdAt,
     required this.items,
+    this.notes,
   });
 
   final int id;
@@ -147,6 +148,10 @@ class QuotationRecord {
   final String? validUntil;
   final String createdAt;
   final List<QuotationLineItem> items;
+
+  /// Free-text note the customer asked for. Optional on the wire; the View
+  /// sheet (decision D-02) shows it when present and omits the row otherwise.
+  final String? notes;
 
   factory QuotationRecord.fromJson(Map<String, dynamic> json) {
     final items = json['items'];
@@ -160,6 +165,7 @@ class QuotationRecord {
       status: stringField(json, 'status'),
       validUntil: json['valid_until'] as String?,
       createdAt: stringField(json, 'created_at'),
+      notes: json['notes'] as String?,
       items: items
           .map((i) => QuotationLineItem.fromJson(i as Map<String, dynamic>))
           .toList(),
@@ -196,6 +202,7 @@ class SalesOrderRow {
     required this.status,
     required this.createdAt,
     required this.items,
+    this.notes,
   });
 
   final int id;
@@ -205,6 +212,10 @@ class SalesOrderRow {
   final String status;
   final String createdAt;
   final List<OrderLineItem> items;
+
+  /// Free-text note from the order. Optional on the wire — the View sheet
+  /// shows it when present and omits the row otherwise.
+  final String? notes;
 
   double get total =>
       items.fold<double>(0, (sum, i) => sum + i.qty * i.unitPrice);
@@ -221,6 +232,7 @@ class SalesOrderRow {
       quotationId: json['quotation'] as int?,
       status: stringField(json, 'status'),
       createdAt: stringField(json, 'created_at'),
+      notes: json['notes'] as String?,
       items: items
           .map((i) => OrderLineItem.fromJson(i as Map<String, dynamic>))
           .toList(),

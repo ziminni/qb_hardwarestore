@@ -77,6 +77,12 @@ class InventorySalesViewmodel extends ChangeNotifier {
     paymentMethod: r.payments.isEmpty ? '—' : r.payments.first.method,
     source: _sourceLabel(r.source),
     status: _saleStatus(r.status),
+    // The View sheet shows how it was paid and how much, so the payment rows
+    // ride along instead of being reduced to their first method name.
+    payments: [
+      for (final p in r.payments)
+        InventorySalePayment(method: p.method, amount: p.amountTendered),
+    ],
     lines: [
       // The wire carries no product names — only the selling-unit code — and
       // line details render nowhere today, so the code stands in for both the
