@@ -26,17 +26,18 @@ const _sidebarFile = 'lib/core/layout/inventory_skeleton_layout.dart';
 const _navFile = 'lib/features/inventory/widgets/inventory_navigation.dart';
 
 /// Destination labels in the order the stocker sidebar renders them.
-List<String> _sidebarLabels() => RegExp(
-  r"SharedSidebarDestination\(\s*label: '([^']+)'",
-).allMatches(File(_sidebarFile).readAsStringSync()).map((m) => m.group(1)!).toList();
+List<String> _sidebarLabels() =>
+    RegExp(r"SharedSidebarDestination\(\s*label: '([^']+)'")
+        .allMatches(File(_sidebarFile).readAsStringSync())
+        .map((m) => m.group(1)!)
+        .toList();
 
 /// `Returns` -> `inventoryReturns`, `Stock movements` -> `inventoryStockMovements`.
 String _routeForLabel(String label) {
   final words = label.split(' ');
   final camel = [
     words.first,
-    for (final word in words.skip(1))
-      word[0].toUpperCase() + word.substring(1),
+    for (final word in words.skip(1)) word[0].toUpperCase() + word.substring(1),
   ].join();
   return 'inventory${camel[0].toUpperCase()}${camel.substring(1)}';
 }
@@ -44,9 +45,7 @@ String _routeForLabel(String label) {
 /// The `N => AppRoutes.x` map as an index-ordered list of route names.
 List<String> _navOrder() {
   final pairs =
-      RegExp(
-            r'(\d+) => AppRoutes\.(\w+),',
-          )
+      RegExp(r'(\d+) => AppRoutes\.(\w+),')
           .allMatches(File(_navFile).readAsStringSync())
           .map((m) => MapEntry(int.parse(m.group(1)!), m.group(2)!))
           .toList()

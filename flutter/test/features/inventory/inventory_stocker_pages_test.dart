@@ -60,12 +60,14 @@ TransactionRecord _returnRow() => TransactionRecord(
       subtotal: -50,
     ),
   ],
-  payments: const [
-    TransactionPayment(method: 'CASH', amountTendered: -50),
-  ],
+  payments: const [TransactionPayment(method: 'CASH', amountTendered: -50)],
 );
 
-Future<void> _pump(WidgetTester tester, Widget page, {SalesService? sales}) async {
+Future<void> _pump(
+  WidgetTester tester,
+  Widget page, {
+  SalesService? sales,
+}) async {
   tester.view.physicalSize = const Size(1600, 1200);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
@@ -78,7 +80,8 @@ Future<void> _pump(WidgetTester tester, Widget page, {SalesService? sales}) asyn
           create: (_) => AuthViewmodel(AuthRepository(AuthService())),
         ),
         ChangeNotifierProvider<InventorySalesViewmodel>(
-          create: (_) => InventorySalesViewmodel(service: sales ?? _StubSalesService()),
+          create: (_) =>
+              InventorySalesViewmodel(service: sales ?? _StubSalesService()),
         ),
       ],
       child: MaterialApp(home: page),
@@ -112,7 +115,9 @@ void main() {
       await _pump(
         tester,
         const InventoryReturnsPage(),
-        sales: _StubSalesService(failure: 'Cannot connect to the BuildPro server.'),
+        sales: _StubSalesService(
+          failure: 'Cannot connect to the BuildPro server.',
+        ),
       );
 
       expect(find.textContaining('Cannot connect'), findsOneWidget);
@@ -148,10 +153,11 @@ void main() {
       final fields = tester
           .widgetList<TextFormField>(find.byType(TextFormField))
           .toList();
-      expect(
-        fields.map((field) => field.initialValue).toList(),
-        ['Queen Builders', 'admin@queenbuilders.local', '+63 900 000 0000'],
-      );
+      expect(fields.map((field) => field.initialValue).toList(), [
+        'Queen Builders',
+        'admin@queenbuilders.local',
+        '+63 900 000 0000',
+      ]);
       expect(fields.every((field) => field.enabled == false), isTrue);
       expect(find.text('Save settings'), findsNothing);
       expect(find.byType(FilledButton), findsNothing);

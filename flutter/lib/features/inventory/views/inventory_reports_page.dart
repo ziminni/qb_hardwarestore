@@ -29,7 +29,11 @@ class InventoryReportsPage extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.lock_outline, size: 64, color: AppColors.textSecondary),
+              const Icon(
+                Icons.lock_outline,
+                size: 64,
+                color: AppColors.textSecondary,
+              ),
               const SizedBox(height: 16),
               Text(
                 'Reports are available to Store Managers and above.',
