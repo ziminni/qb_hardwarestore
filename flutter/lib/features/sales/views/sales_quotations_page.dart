@@ -132,5 +132,4 @@ class _SalesQuotationsPageState extends State<SalesQuotationsPage> {
 String _quoteStatusLabel(SalesQuoteStatus value) =>
     value.name[0].toUpperCase() + value.name.substring(1);
 
-String _shortDate(DateTime date) =>
-    '${date.month}/${date.day}/${date.year}';
+String _shortDate(DateTime date) => '${date.month}/${date.day}/${date.year}';

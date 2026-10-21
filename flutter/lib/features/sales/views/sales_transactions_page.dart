@@ -63,7 +63,8 @@ class _SalesTransactionsPageState extends State<SalesTransactionsPage> {
   @override
   Widget build(BuildContext context) {
     final viewmodel = context.watch<InventorySalesViewmodel>();
-    final sales = viewmodel.sales.where(
+    final sales = viewmodel.sales
+        .where(
           (sale) =>
               '${sale.transactionNo} ${sale.customer} ${sale.paymentMethod}'
                   .toLowerCase()

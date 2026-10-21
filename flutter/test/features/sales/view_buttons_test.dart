@@ -282,7 +282,8 @@ void main() {
       expect(
         _inSheet('Variant unit #42'),
         findsOneWidget,
-        reason: 'a manager who opened the sheet before the catalogue loaded '
+        reason:
+            'a manager who opened the sheet before the catalogue loaded '
             'must still see what was ordered',
       );
     });

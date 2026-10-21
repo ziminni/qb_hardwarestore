@@ -124,5 +124,4 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
 String _orderStatusLabel(SalesOrderStatus value) =>
     value.name[0].toUpperCase() + value.name.substring(1);
 
-String _shortDate(DateTime date) =>
-    '${date.month}/${date.day}/${date.year}';
+String _shortDate(DateTime date) => '${date.month}/${date.day}/${date.year}';
