@@ -112,7 +112,9 @@ class HeldCartViewmodel extends ChangeNotifier {
     actionError = null;
     try {
       await _service.voidCart(cartId);
-      _carts = _carts.where((cart) => cart.id != cartId).toList(growable: false);
+      _carts = _carts
+          .where((cart) => cart.id != cartId)
+          .toList(growable: false);
       notifyListeners();
       return true;
     } on HeldCartServiceException catch (failure) {
@@ -134,7 +136,9 @@ class HeldCartViewmodel extends ChangeNotifier {
     actionError = null;
     try {
       final sale = await _service.complete(cartId, payments: payments);
-      _carts = _carts.where((cart) => cart.id != cartId).toList(growable: false);
+      _carts = _carts
+          .where((cart) => cart.id != cartId)
+          .toList(growable: false);
       notifyListeners();
       return sale;
     } on HeldCartServiceException catch (failure) {

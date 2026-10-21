@@ -103,13 +103,7 @@ class _PosHeldTransactionsView extends StatelessWidget {
             )
           else
             SalesRecordsTable(
-              columns: const [
-                'Customer',
-                'Items',
-                'Held',
-                'Notes',
-                'Action',
-              ],
+              columns: const ['Customer', 'Items', 'Held', 'Notes', 'Action'],
               emptyMessage: viewmodel.loadError != null
                   ? 'Held transactions could not be loaded.'
                   : 'No held transactions.',

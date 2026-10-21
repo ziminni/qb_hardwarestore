@@ -35,8 +35,8 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 class _StubHeldCarts extends HeldCartService {
-  final List<({int? customerId, String notes, List<HeldCartItem> items})> holds =
-      [];
+  final List<({int? customerId, String notes, List<HeldCartItem> items})>
+  holds = [];
   Object? failHold;
   List<HeldCart> carts = const [];
 
@@ -241,7 +241,10 @@ void main() {
       await tester.tap(find.text('Hold transaction'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Cannot connect to the BuildPro server.'), findsOneWidget);
+      expect(
+        find.text('Cannot connect to the BuildPro server.'),
+        findsOneWidget,
+      );
       expect(
         cart.lines,
         hasLength(1),
@@ -327,20 +330,24 @@ void main() {
       );
     });
 
-    test('a line the catalogue no longer sells is KEPT, so validate names it', () {
-      cart.loadHeldCart(
-        heldWith([
-          const HeldCartItem(id: 1, variantUom: 999999, qty: 1, unitPrice: 5),
-        ]),
-      );
+    test(
+      'a line the catalogue no longer sells is KEPT, so validate names it',
+      () {
+        cart.loadHeldCart(
+          heldWith([
+            const HeldCartItem(id: 1, variantUom: 999999, qty: 1, unitPrice: 5),
+          ]),
+        );
 
-      expect(
-        cart.lines,
-        hasLength(1),
-        reason: 'dropping it would silently shorten the customer\u2019s order',
-      );
-      expect(cart.validate(), contains('no longer available'));
-    });
+        expect(
+          cart.lines,
+          hasLength(1),
+          reason:
+              'dropping it would silently shorten the customer\u2019s order',
+        );
+        expect(cart.validate(), contains('no longer available'));
+      },
+    );
 
     test('REPLACES the cart, and keeps the basket account', () {
       expect(cart.addLine(cart.filteredProducts.first, 1), isNull);

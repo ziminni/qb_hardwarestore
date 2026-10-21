@@ -412,9 +412,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     if (held == null) {
       messenger.showSnackBar(
         SnackBar(
-          content: Text(
-            heldCarts.actionError ?? 'The cart could not be held.',
-          ),
+          content: Text(heldCarts.actionError ?? 'The cart could not be held.'),
         ),
       );
       _restoreScannerFocus();
@@ -426,7 +424,8 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     _restoreScannerFocus();
   }
 
-  Future<void> _pay(BuildContext context) async {    final transaction = context.read<PosTransactionViewmodel>();
+  Future<void> _pay(BuildContext context) async {
+    final transaction = context.read<PosTransactionViewmodel>();
     // A sale is one atomic server operation, so a double submit would be two sales.
     if (transaction.isSubmitting) return;
     final error = transaction.validate();

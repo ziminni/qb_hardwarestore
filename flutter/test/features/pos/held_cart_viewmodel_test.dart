@@ -64,9 +64,7 @@ HeldCart _cart(int id, {String? customerName, String notes = ''}) {
     customerName: customerName,
     cashierName: 'Ana Cruz',
     notes: notes,
-    items: [
-      HeldCartItem(id: id * 10, variantUom: 5, qty: 2, unitPrice: 99.5),
-    ],
+    items: [HeldCartItem(id: id * 10, variantUom: 5, qty: 2, unitPrice: 99.5)],
     createdAt: DateTime(2026, 10, 20, 9),
   );
 }
@@ -140,7 +138,9 @@ void main() {
     test('a failed void KEEPS the row and reports why', () async {
       final service = _StubHeldCarts()
         ..carts = [_cart(1), _cart(2)]
-        ..failVoid = const HeldCartServiceException('The cart is already gone.');
+        ..failVoid = const HeldCartServiceException(
+          'The cart is already gone.',
+        );
       final vm = HeldCartViewmodel(service: service);
       await vm.load();
 
@@ -185,7 +185,9 @@ void main() {
 
       final sale = await vm.completeCart(
         1,
-        payments: const [PosCheckoutPayment(method: 'CASH', amountTendered: 199)],
+        payments: const [
+          PosCheckoutPayment(method: 'CASH', amountTendered: 199),
+        ],
       );
 
       expect(sale?['id'], 77);
