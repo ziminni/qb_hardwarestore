@@ -28,13 +28,14 @@ class PosZReadingSummary extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Z-READING',
-            style: Theme.of(context).textTheme.labelSmall,
-          ),
+          Text('Z-READING', style: Theme.of(context).textTheme.labelSmall),
           const SizedBox(height: AppSpacing.md),
           _line(context, 'Transactions', '${reading.transactionCount}'),
-          _line(context, 'Gross sales', '₱${reading.grossSales.toStringAsFixed(2)}'),
+          _line(
+            context,
+            'Gross sales',
+            '₱${reading.grossSales.toStringAsFixed(2)}',
+          ),
           _line(context, 'Cash', '₱${reading.cashSales.toStringAsFixed(2)}'),
           _line(context, 'Card', '₱${reading.cardSales.toStringAsFixed(2)}'),
           _line(context, 'GCash', '₱${reading.gcashSales.toStringAsFixed(2)}'),

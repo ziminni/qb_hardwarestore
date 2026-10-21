@@ -15,7 +15,8 @@ import 'package:flutter/foundation.dart';
 /// Collapsing the last two would tell a cashier with a live shift that they have
 /// none, which is how a second shift gets opened on top of a real drawer.
 class ShiftViewmodel extends ChangeNotifier {
-  ShiftViewmodel({ShiftService? service}) : _service = service ?? ShiftService();
+  ShiftViewmodel({ShiftService? service})
+    : _service = service ?? ShiftService();
 
   final ShiftService _service;
 

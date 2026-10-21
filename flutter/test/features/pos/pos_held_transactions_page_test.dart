@@ -103,7 +103,9 @@ void main() {
       expect(find.text('Void'), findsNWidgets(2));
     });
 
-    testWidgets('a failed load is VISIBLE with a working retry', (tester) async {
+    testWidgets('a failed load is VISIBLE with a working retry', (
+      tester,
+    ) async {
       final service = _StubHeldCarts()
         ..failFetch = const HeldCartServiceException('Cannot connect.');
       await _pump(tester, HeldCartViewmodel(service: service));

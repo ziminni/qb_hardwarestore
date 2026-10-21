@@ -86,7 +86,9 @@ Future<void> _pump(WidgetTester tester, ShiftViewmodel vm) async {
 
 void main() {
   group('PosShiftPage', () {
-    testWidgets('an open shift is shown as open with its float', (tester) async {
+    testWidgets('an open shift is shown as open with its float', (
+      tester,
+    ) async {
       final service = _StubShifts()..current = _shift();
       await _pump(tester, ShiftViewmodel(service: service));
 

@@ -133,37 +133,43 @@ void main() {
   });
 
   group('ShiftViewmodel.openShift', () {
-    test('opens with the counted float and becomes the current shift', () async {
-      final service = _StubShifts()..opened = _shift(openingFloat: 5000);
-      final vm = ShiftViewmodel(service: service);
+    test(
+      'opens with the counted float and becomes the current shift',
+      () async {
+        final service = _StubShifts()..opened = _shift(openingFloat: 5000);
+        final vm = ShiftViewmodel(service: service);
 
-      final opened = await vm.openShift(5000);
+        final opened = await vm.openShift(5000);
 
-      expect(service.openedWith, 5000);
-      expect(opened?.id, 1);
-      expect(vm.currentShift?.id, 1);
-      expect(vm.hasOpenShift, isTrue);
-      expect(vm.actionError, isNull);
-    });
+        expect(service.openedWith, 5000);
+        expect(opened?.id, 1);
+        expect(vm.currentShift?.id, 1);
+        expect(vm.hasOpenShift, isTrue);
+        expect(vm.actionError, isNull);
+      },
+    );
 
-    test('a refused open leaves the cashier with no shift and a message', () async {
-      final service = _StubShifts()
-        ..failOpen = const ShiftServiceException(
+    test(
+      'a refused open leaves the cashier with no shift and a message',
+      () async {
+        final service = _StubShifts()
+          ..failOpen = const ShiftServiceException(
+            'You already have an open shift. Close it first.',
+          );
+        final vm = ShiftViewmodel(service: service);
+
+        final opened = await vm.openShift(5000);
+
+        expect(opened, isNull);
+        expect(vm.currentShift, isNull);
+        expect(vm.hasOpenShift, isFalse);
+        expect(
+          vm.actionError,
           'You already have an open shift. Close it first.',
+          reason: 'the server detail is what tells the cashier what to do next',
         );
-      final vm = ShiftViewmodel(service: service);
-
-      final opened = await vm.openShift(5000);
-
-      expect(opened, isNull);
-      expect(vm.currentShift, isNull);
-      expect(vm.hasOpenShift, isFalse);
-      expect(
-        vm.actionError,
-        'You already have an open shift. Close it first.',
-        reason: 'the server detail is what tells the cashier what to do next',
-      );
-    });
+      },
+    );
   });
 
   group('ShiftViewmodel.closeShift', () {
@@ -228,7 +234,12 @@ void main() {
     test('loads the shift list for the management page', () async {
       final service = _StubShifts()
         ..history = [
-          _shift(id: 2, status: Shift.closedStatus, closingCount: 9350, zReading: _z),
+          _shift(
+            id: 2,
+            status: Shift.closedStatus,
+            closingCount: 9350,
+            zReading: _z,
+          ),
           _shift(),
         ];
       final vm = ShiftViewmodel(service: service);
@@ -240,14 +251,17 @@ void main() {
       expect(vm.loadError, isNull);
     });
 
-    test('a failed history load is reported, not shown as an empty table', () async {
-      final service = _StubShifts()
-        ..failList = const ShiftServiceException('Cannot connect.');
-      final vm = ShiftViewmodel(service: service);
+    test(
+      'a failed history load is reported, not shown as an empty table',
+      () async {
+        final service = _StubShifts()
+          ..failList = const ShiftServiceException('Cannot connect.');
+        final vm = ShiftViewmodel(service: service);
 
-      await vm.loadHistory();
+        await vm.loadHistory();
 
-      expect(vm.loadError, 'Cannot connect.');
-    });
+        expect(vm.loadError, 'Cannot connect.');
+      },
+    );
   });
 }

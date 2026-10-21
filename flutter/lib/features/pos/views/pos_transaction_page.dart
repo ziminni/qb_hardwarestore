@@ -428,9 +428,7 @@ class _OpenShiftGateState extends State<_OpenShiftGate> {
     if (opened == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            shift.actionError ?? 'The shift could not be opened.',
-          ),
+          content: Text(shift.actionError ?? 'The shift could not be opened.'),
         ),
       );
     }

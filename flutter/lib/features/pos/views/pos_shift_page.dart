@@ -65,7 +65,8 @@ class _PosShiftView extends StatelessWidget {
 
     return DashboardShell(
       title: 'Shifts',
-      subtitle: 'Your open shift, end-of-shift readings and past shifts.',      selectedNavigationIndex: 5,
+      subtitle: 'Your open shift, end-of-shift readings and past shifts.',
+      selectedNavigationIndex: 5,
       navigationItems: posNavigationItems,
       onNavigationSelected: (i) => navigatePos(context, i),
       child: Column(

@@ -28,7 +28,11 @@ Future<Shift?> showShiftCloseDialog(
   if (!context.mounted) return closed;
   if (closed == null) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(viewmodel.actionError ?? 'The shift could not be closed.')),
+      SnackBar(
+        content: Text(
+          viewmodel.actionError ?? 'The shift could not be closed.',
+        ),
+      ),
     );
     return null;
   }
@@ -112,7 +116,9 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: count == null ? null : () => Navigator.of(context).pop(count),
+          onPressed: count == null
+              ? null
+              : () => Navigator.of(context).pop(count),
           child: const Text('Close shift'),
         ),
       ],
