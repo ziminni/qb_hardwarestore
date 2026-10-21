@@ -29,11 +29,10 @@ the same commit that breaks it.
   of `origin/master` it is run `git rev-list --count origin/master..HEAD`; a count written here stales on
   the next commit.
 - **Active Wayfinder map: `planning/cashier-workflow/MAP.md`** (opened 2026-10-20): cashier login without a
-  keyring prompt, every cashier sidebar tab live. **4 decisions locked, 2 open (domain-model).**
-  **Phase 1 (Linux token storage) is BUILT** (`3bd0fdb` 2026-10-20; live WSL check user-pending).
-  **Phase 2 (POS navigation + reach, tabs 0–3) is BUILT** (`95358c1` 2026-10-21).
-  Phases 3 (held sale) and 4 (end of shift) wait on decisions 05/06. The **api-integration
-  map is complete and closed**; its invariants still bind.
+  keyring prompt, every cashier sidebar tab live. **6 decisions locked, 0 open.** All decisions resolved.
+  **Phases 1 + 2 BUILT** (see phase table). **Phases 3 (held sale) and 4 (shift/Z-reading) are READY
+  TO BUILD** — full roadmap at the end of `MAP.md`. Phase 3 first (shift close advisory needs held carts).
+  The **api-integration map is complete and closed**; its invariants still bind.
 - **Phase state is NOT stated here** — it is owned by the phase table in the active map, per-row and with
   evidence. Read that table; a copy here would be a second home, and this file's own rule forbids one.
 - **Phase 6 is built and pushed.** 6A.1–6A.4, 6B (reports + receiving), 6C (live sales screens + review
@@ -58,7 +57,8 @@ the same commit that breaks it.
   pages, DashboardShell callback, dead Notifications deleted, consistency test extended). Both passed
   fresh-context review with 0 Critical, 0 Important.
   **Gate:** backend **89/89**, `flutter analyze` clean, flutter **417/417** (Phase 1 +6, Phase 2 +10), tree CLEAN.
-  **Next: push the branch**, verify the live WSL check for Phase 1, then resolve decisions 05/06 or ship.
+  **Next: BUILD Phase 3** (held sale) then **Phase 4** (shift/Z-reading) via executing-plans, or push
+  and ship with tabs 0–3 if the timeline is tight.
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message

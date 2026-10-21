@@ -1,6 +1,6 @@
 # planning/cashier-workflow/MAP.md
 
-**Slug:** `cashier-workflow` · **Opened:** 2026-10-20 · **Status:** 4 locked · 2 open (both domain-model)
+**Slug:** `cashier-workflow` · **Opened:** 2026-10-20 · **Status:** 6 locked · 0 open
 
 ## Phase Progress
 
@@ -8,8 +8,8 @@
 | :--- | :--- | :--- | :--- |
 | 1 | Linux token storage — no keyring prompt | [Linux Token Storage](./decisions/01-linux-token-storage.md) ✅ | ✅ Done — `3bd0fdb` 2026-10-20 (live WSL check user-pending) |
 | 2 | POS shell navigation + reach (tabs 0–3 live) | [POS Navigation Wiring](./decisions/02-pos-navigation-wiring.md) ✅ · [Cashier Tab Set](./decisions/03-cashier-tab-set.md) ✅ · [Cashier Reach](./decisions/04-cashier-reach.md) ✅ | ✅ Done — `95358c1` 2026-10-21 |
-| 3 | Held sale (tab 4) | [Held Sale Model](./decisions/05-held-sale-model.md) — OPEN | [ ] Pending (blocked on decision) |
-| 4 | End of shift / Z-reading (tab 5) | [Shift / Z-Reading Model](./decisions/06-shift-z-reading.md) — OPEN | [ ] Pending (blocked on decision) |
+| 3 | Held sale (tab 4) | [Held Sale Model](./decisions/05-held-sale-model.md) ✅ | [ ] Pending — **READY TO BUILD** |
+| 4 | End of shift / Z-reading (tab 5) | [Shift / Z-Reading Model](./decisions/06-shift-z-reading.md) ✅ | [ ] Pending — **READY TO BUILD** (depends on Phase 3 for held-cart interlock in close advisory) |
 
 ## Destination
 
@@ -21,17 +21,16 @@ screen. No tab does nothing.
 - **Inherited from the [api-integration map](../api-integration/MAP.md)** (complete, closed): one data path
   `View → ViewModel → Repository → Service → ApiClient`; loading/error/empty per decision 07; RED-first
   tests (a test counts only after it is seen failing without the fix); the POS shell is its own skeleton.
-- **The cashier shell has never navigated** — `dashboard_shell.dart:68` `onTap: () {}`, and
-  `DashboardNavigationItem` carries no route. [POS Navigation Wiring](./decisions/02-pos-navigation-wiring.md)
-  fixes this.
 - **Canonical POS tab order (append-only)** from [Cashier Tab Set](./decisions/03-cashier-tab-set.md):
   0 New transaction · 1 Transaction history · 2 Release materials · 3 Record payment · 4 Held transactions ·
-  5 End of shift. Tabs 0–3 ship in Phase 2; 4 and 5 are appended by Phases 3 and 4 so no index renumbers.
+  5 End of shift. Tabs 0–3 shipped in Phase 2; 4 appends in Phase 3; 5 appends in Phase 4.
 - **Server cashier powers** (`backend_django/apps/users/permissions.py`): transactions + customers R/W
-  (`IsPOSOrReadOnly`), ledgers read, ledger-payments write, material release (`IsPOSRole`). There is **no**
-  held/parked status (`SalesTransaction.Status` = COMPLETED · VOID · REFUNDED) and **no** shift model.
+  (`IsPOSOrReadOnly`), ledgers read, ledger-payments write, material release (`IsPOSRole`). Phases 3 and 4
+  add held-cart and shift endpoints under the same permissions.
 - **Customers is not a cashier tab** — [Customer Master-Data Scope](../api-integration/decisions/14-customer-master-data-scope.md)
   deleted the screen; utang shows in the checkout panel. Not reopened.
+- **Phase 4 changes `process_sale`'s contract** — it now requires an open shift. Existing tests must open a
+  shift in setUp or the gate rejects with `NO_OPEN_SHIFT`. `seed_demo.py` must open/close a shift too.
 - Run harness: `flutter run -d linux` (WSLg) or `-d web-server --web-port 8080` vs `http://127.0.0.1:8000`;
   cashier `cashier` / `demo1234`.
 
@@ -46,23 +45,24 @@ screen. No tab does nothing.
   backend-ready, 4 and 5 are new backend.
 - [Cashier Reach](./decisions/04-cashier-reach.md): build POS-native `/pos/history` and `/pos/receivables`
   reusing the existing viewmodels — the cashier never leaves the POS shell (no fence exemption).
+- [Held Sale Model](./decisions/05-held-sale-model.md): separate `HeldCart` + `HeldCartItem` tables; no
+  stock reservation; any cashier resumes; walk-in allowed; persists across shifts. Completion feeds items
+  into `process_sale` and deletes the cart. 5 new API endpoints.
+- [Shift / Z-Reading Model](./decisions/06-shift-z-reading.md): new `Shift` entity (OPEN/CLOSED), FK on
+  `SalesTransaction`; `process_sale` requires an open shift; Z-reading is computed at close (not stored);
+  variance = counted − expected, record-and-warn (no block). 5 new + 1 modified API endpoint.
 
 ## Active Frontier (Open & Unblocked)
 
-- [ ] [Held Sale Model](./decisions/05-held-sale-model.md) — **domain-model.** Server shape behind tab 4: a
-  new `HELD` status on `SalesTransaction` vs a separate parked-cart entity; how a held sale serializes,
-  resumes into the till, voids, and whether it reserves stock.
-- [ ] [Shift / Z-Reading Model](./decisions/06-shift-z-reading.md) — **domain-model.** New Shift entity:
-  open/close, cash-drawer count, end-of-day Z-reading totals, which transactions a shift owns.
+_Empty._ All 6 decisions are locked.
 
 ## Blocked
 
-_None._ Both open decisions are independent (different backend areas, different tabs).
+_None._
 
 ## Fog of War (Not Yet Specified)
 
-- The till subtitle "Frontend transaction and inventory simulation" (`pos_transaction_page.dart:69`) is stale
-  copy on a live screen. Cosmetic; rides along with the Phase 2 build that touches the till.
+_Empty._ The stale till subtitle was fixed in Phase 2.
 
 ## Out of Scope
 
@@ -72,44 +72,71 @@ _None._ Both open decisions are independent (different backend areas, different 
 
 ---
 
-# Implementation Roadmap — READY PHASES (1 & 2)
+# Implementation Roadmap — ALL PHASES
 
-Phases 3 and 4 wait on [Held Sale Model](./decisions/05-held-sale-model.md) and
-[Shift / Z-Reading Model](./decisions/06-shift-z-reading.md); their roadmap is written when those decisions
-lock. Phases 1 and 2 are fully specified now. Each task's detail lives in its decision's **Build contract**.
+Phases 1 and 2 are built. Phases 3 and 4 are fully specified. Build Phase 3 before Phase 4 because the
+shift close-out advisory lists held carts.
 
-## Phase 1 — Linux Token Storage (independent; can build first or in parallel)
+## Phase 1 — Linux Token Storage ✅
 
-Source: [Linux Token Storage](./decisions/01-linux-token-storage.md).
+Built as `3bd0fdb` (2026-10-20). See [Linux Token Storage](./decisions/01-linux-token-storage.md).
 
-1. **Token-store seam.** Extract an injectable token store behind `ApiClient` over the two existing keys
-   (`auth_access_token`, `auth_refresh_token`); selector is `!kIsWeb && Platform.isLinux` → prefs store,
-   else secure store. Guard `dart:io` so web still compiles.
-   - RED: round-trip test (prefs store injected) for save/restore/clear; selector test driven by an injected
-     platform flag. Both fail before the seam exists.
-2. **README + live check.** Update README.md:182-187 (prompt fixed in code, why). Verify on WSL:
-   `flutter run -d linux`, log in `cashier` → no keyring dialog; restart → still signed in.
-   - Ends when: no prompt, session persists, `flutter test` + `flutter analyze` green.
+## Phase 2 — POS Navigation + Reach ✅
 
-## Phase 2 — POS Navigation + Reach (tabs 0–3 live)
+Built as `95358c1` (2026-10-21). See decisions [02](./decisions/02-pos-navigation-wiring.md),
+[03](./decisions/03-cashier-tab-set.md), [04](./decisions/04-cashier-reach.md).
 
-Sources: [POS Navigation Wiring](./decisions/02-pos-navigation-wiring.md),
-[Cashier Tab Set](./decisions/03-cashier-tab-set.md), [Cashier Reach](./decisions/04-cashier-reach.md).
+## Phase 3 — Held Sale (tab 4)
 
-1. **`pos_navigation.dart`** — `navigatePos(context, index)` + the shared 4-item list (indices 0–3:
-   New transaction → `/pos/dashboard`, Transaction history → `/pos/history`, Release materials →
-   `/pos/release`, Record payment → `/pos/receivables`). Single source of POS nav order.
-2. **`DashboardShell`** — add `ValueChanged<int>? onNavigationSelected`, call it from the ListTile `onTap`,
-   **delete the dead Notifications button**.
-3. **POS-native pages** — `PosTransactionHistoryPage` (`/pos/history`, global `InventorySalesViewmodel`) and
-   `PosReceivablesPage` (`/pos/receivables`, self-scoped `SalesReceivablesViewmodel()..load()`, Record
-   payment per decision 19). Both wrap `DashboardShell`; load-on-open + `LiveLoadErrorBanner` + retry.
-4. **Routes** — register `/pos/history`, `/pos/receivables` in the POS-reachable set (not behind `/sales/`);
-   both POS pages render the shared 4-item list and pass `navigatePos`; `material_release_page.dart` →
-   `selectedNavigationIndex: 2`.
-5. **Fix the stale till subtitle** (Fog item) while the till is open.
-   - RED-first: extend `sidebar_index_consistency_test.dart` for POS (order ↔ `navigatePos` ↔ `routes.dart`);
-     routing test — `pos` reaches `/pos/*`, still bounced from `/sales/*` and `/admin/*`; widget test —
-     tapping tab N calls `onNavigationSelected(N)` and the POS receivables page shows live rows + Record
-     payment. All fail against today's `() {}` and missing routes.
-   - Ends when: as `cashier`, tabs 0–3 each open a live POS-shell screen, none inert; suite green.
+Source: [Held Sale Model](./decisions/05-held-sale-model.md).
+
+### Backend
+1. **Models + migration.** `HeldCart` + `HeldCartItem` in `apps/pos/models.py`. New migration.
+2. **Serializer + ViewSet.** `HeldCartSerializer` (nested items), `HeldCartViewSet` with CRUD + a
+   `@action complete` that calls `process_sale` atomically and deletes the cart.
+3. **Router.** `/api/v1/held-carts/` in `apps/pos/urls.py`.
+4. **RED-first backend tests.** Hold (201), list, resume (GET with items), complete (201 + cart deleted),
+   void (DELETE 204), walk-in hold (no customer), complete when insufficient stock (400 + cart persists).
+
+### Flutter
+5. **Data models.** `HeldCart` + `HeldCartItem` in a new `lib/data/models/held_cart.dart`.
+6. **Service.** `HeldCartService` (CRUD + complete) in `lib/data/services/held_cart_service.dart`.
+7. **Viewmodel.** `HeldCartViewmodel` (load list, hold from till, resume, void, complete).
+8. **Page.** `PosHeldTransactionsPage` at `/pos/held` (tab 4). Lists held carts; tap → resume or void.
+9. **Till integration.** "Hold" button on `PosTransactionPage` → POST + clear till.
+10. **Nav + routes.** Append tab 4 to `posNavigationItems` + `navigatePos` + route + consistency test.
+11. **RED-first Flutter tests.** Viewmodel hold/resume/void/complete; widget test for the held list page;
+    consistency test extension.
+- **Commit:** `feat(pos): held-sale model, endpoints, and till integration (cashier-workflow phase 3)`
+- **Gate:** backend suite + flutter suite + analyze clean.
+
+## Phase 4 — End of Shift / Z-Reading (tab 5)
+
+Source: [Shift / Z-Reading Model](./decisions/06-shift-z-reading.md).
+
+### Backend
+1. **Models + migration.** `Shift` in `apps/pos/models.py` + `SalesTransaction.shift` FK. One migration.
+2. **`NoOpenShift` exception** in `apps/pos/exceptions.py`.
+3. **`process_sale` gate.** Look up the cashier's open shift; attach FK; raise `NoOpenShift` if none.
+4. **`compute_z_reading(shift)`** in `apps/pos/services.py`.
+5. **Serializer + ViewSet.** `ShiftSerializer`, `ShiftViewSet` with `open`, `close`, `current` actions +
+   list/retrieve.
+6. **Router.** `/api/v1/shifts/` in `apps/pos/urls.py`.
+7. **`seed_demo.py` update.** Open a shift before seeding transactions; close it after.
+8. **Existing test fix.** Add a `setUp` helper that opens a shift for the cashier in every test that calls
+   `process_sale`, so the gate doesn't break them.
+9. **RED-first backend tests.** Open (201), double-open (400), sale-without-shift (400), sale-with-shift
+   (201 + FK set), close (shift CLOSED + Z-reading), Z totals match, variance computation.
+
+### Flutter
+10. **Data model.** `Shift` in `lib/data/models/shift.dart`.
+11. **Service.** `ShiftService` (open, close, current, list).
+12. **Viewmodel.** `ShiftViewmodel` (open/close flow, current state, Z-reading display).
+13. **Page.** `PosEndOfShiftPage` at `/pos/shift` (tab 5). Shows current shift, close form, Z-reading.
+14. **Shift gate.** POS shell checks for an open shift on mount. If none → "Open shift" prompt (opening
+    float field) before the till activates.
+15. **Nav + routes.** Append tab 5 to `posNavigationItems` + `navigatePos` + route + consistency test.
+16. **RED-first Flutter tests.** Viewmodel open/close; widget test for the page; gate test (till blocked);
+    consistency test extension.
+- **Commit:** `feat(pos): shift model, Z-reading, and process_sale gate (cashier-workflow phase 4)`
+- **Gate:** backend suite + flutter suite + analyze clean.
