@@ -28,7 +28,7 @@ the same commit that breaks it.
 - **Active branch:** `feature/backend-integration` — **pushed, in sync with `origin/`.** For how far ahead
   of `origin/master` it is run `git rev-list --count origin/master..HEAD`; a count written here stales on
   the next commit.
-- **Active Wayfinder map: `planning/stocker-workflow/MAP.md`** (opened 2026-10-21): every stocker (`inventory` role) sidebar tab opens a working screen. **4 decisions locked, 0 open. All 4 phases BUILT 2026-10-21** (`4a8e778`). Cashier-workflow map is complete and archived (`planning/cashier-workflow/MAP.md`).
+- **Active Wayfinder map: `planning/sales-manager-workflow/MAP.md`** (opened 2026-10-22): Store Manager (`sales` role) — Reports tab, View buttons, monitoring pages. **3 decisions locked, 0 open. 3 phases READY TO BUILD.** Stocker-workflow map is complete and archived (`planning/stocker-workflow/MAP.md`). Cashier-workflow map is complete and archived (`planning/cashier-workflow/MAP.md`).
 - **Phase state is NOT stated here** — it is owned by the phase table in the active map, per-row and with
   evidence. Read that table; a copy here would be a second home, and this file's own rule forbids one.
 - **Phase 6 is built and pushed.** 6A.1–6A.4, 6B (reports + receiving), 6C (live sales screens + review
