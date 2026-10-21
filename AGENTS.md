@@ -47,8 +47,8 @@ the same commit that breaks it.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.
-- **Last session:** stocker-workflow Phases 1–4 BUILT (`4a8e778`): inventory Returns/Reports/Settings tabs all routed + paged, dashboard Export removed and Add-product wired, sidebar index bug fixed (Receiving was at wrong index). Also: sidebar index ordering correction (Receiving=8, Sales=9, Returns=10, Reports=11, Settings=12). **Gate:** flutter **485/485**, analyze clean, backend untouched.
-  **Next:** `git push`; Wayfinder or next role epic (Sales role, Admin monitoring, CPMS repo).
+- **Last session:** `docs/sessions/2026-10-21-stocker-workflow-build.md` — BUILT stocker-workflow Phases 1–4 (`4a8e778` + docs `93dee71` + format `e738046`/`30976b7`): Returns/Reports/Settings tabs routed + paged, dashboard Export cut + Add-product wired, sidebar index bug fixed (Receiving=8, Sales=9, Returns=10, Reports=11, Settings=12). **Gate:** flutter **485/485**, analyze clean, backend untouched, tree clean.
+  **Next:** user runs `git push` (assistant shell has no SSH key); then Wayfinder next epic (Sales role, Admin monitoring, CPMS repo).
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message
