@@ -1,9 +1,11 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/data/models/held_cart.dart';
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
+import 'package:client/features/pos/viewmodels/held_cart_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_shift_close_dialog.dart';
@@ -20,7 +22,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class PosTransactionPage extends StatefulWidget {
-  const PosTransactionPage({super.key, this.viewmodel, this.shiftViewmodel});
+  const PosTransactionPage({
+    super.key,
+    this.viewmodel,
+    this.shiftViewmodel,
+    this.heldCartViewmodel,
+  });
 
   /// Injected by tests so the pay path can be driven WITHOUT a server.
   ///
@@ -34,6 +41,12 @@ class PosTransactionPage extends StatefulWidget {
   /// permanently stuck at the open-shift prompt.
   final ShiftViewmodel? shiftViewmodel;
 
+  /// The parked-cart queue the Hold action writes to, and the source of a
+  /// resumed basket. Injectable for tests; in the app it is the SAME instance the
+  /// held-transactions tab uses, provided at the POS shell (see [main.dart]),
+  /// which is what lets Resume hand a basket to this page.
+  final HeldCartViewmodel? heldCartViewmodel;
+
   @override
   State<PosTransactionPage> createState() => _PosTransactionPageState();
 }
@@ -43,6 +56,40 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
   final _scanFocusNode = FocusNode(debugLabel: 'POS barcode scanner');
   late final ShiftViewmodel _shiftViewmodel =
       widget.shiftViewmodel ?? ShiftViewmodel();
+
+  /// The cart, owned here rather than created inside the provider tree.
+  ///
+  /// It lives on the State because TWO things drive it before the first frame's
+  /// providers exist: [initState]'s pending-resume hand-off, which fills the cart
+  /// from a parked basket. Reading it from the page's own context would look ABOVE
+  /// the MultiProvider this widget builds and throw `ProviderNotFoundException`
+  /// (reproduced by the resume test).
+  late final PosTransactionViewmodel _transaction =
+      widget.viewmodel ??
+      PosTransactionViewmodel(
+        context.read<InventoryViewmodel>(),
+        context.read<ProductTrackingViewmodel>(),
+      );
+
+  late final HeldCartViewmodel _heldCarts = _resolveHeldCarts();
+
+  /// Only set when this page had to create its own held-cart queue.
+  HeldCartViewmodel? _ownedHeldCarts;
+
+  /// Injected, else the app-level instance, else one of our own.
+  ///
+  /// The order matters: the shared instance is what makes Resume work at all, so
+  /// a provided one is always preferred. The owned fallback only exists so a bare
+  /// page (a widget test, or a route mounted without the shell) still renders.
+  HeldCartViewmodel _resolveHeldCarts() {
+    final injected = widget.heldCartViewmodel;
+    if (injected != null) return injected;
+    try {
+      return context.read<HeldCartViewmodel>();
+    } on ProviderNotFoundException {
+      return _ownedHeldCarts = HeldCartViewmodel();
+    }
+  }
 
   @override
   void initState() {
@@ -54,15 +101,44 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
       if (!mounted) return;
       context.read<InventoryViewmodel>().load();
       _shiftViewmodel.loadCurrent();
+      _resumePendingCart();
     });
+  }
+
+  /// Picks up a basket the held-transactions tab handed over, if any.
+  ///
+  /// Runs once, on open, and CONSUMES the hand-off: the cashier sees the parked
+  /// basket in the till instead of being told it exists. The cart is loaded after
+  /// the first frame because the catalogue it is named from is read from the
+  /// inventory viewmodel's provider, and because a resumed basket must not be
+  /// loaded from inside initState where the widget tree is not ready.
+  void _resumePendingCart() {
+    final pending = _heldCarts.takePendingResume();
+    if (pending == null) return;
+    final restored = _transaction.loadHeldCart(pending);
+    if (restored == 0) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Resumed ${pending.customerLabel} · '
+          '$restored line${restored == 1 ? '' : 's'}',
+        ),
+      ),
+    );
+    // The parked basket's balance is re-read for whoever it was held for, so the
+    // utang panel is not blank on a basket that has one.
+    _transaction.loadLedgerForSelection();
   }
 
   @override
   void dispose() {
     _scanController.dispose();
     _scanFocusNode.dispose();
-    // Only dispose the one we own; an injected viewmodel belongs to the caller.
+    // Only dispose the ones we own; an injected or provided viewmodel belongs to
+    // the caller / the shell.
     if (widget.shiftViewmodel == null) _shiftViewmodel.dispose();
+    if (widget.viewmodel == null) _transaction.dispose();
+    _ownedHeldCarts?.dispose();
     super.dispose();
   }
 
@@ -71,13 +147,11 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider<ShiftViewmodel>.value(value: _shiftViewmodel),
-        ChangeNotifierProvider<PosTransactionViewmodel>(
-          create: (context) =>
-              widget.viewmodel ??
-              PosTransactionViewmodel(
-                context.read<InventoryViewmodel>(),
-                context.read<ProductTrackingViewmodel>(),
-              ),
+        // Provided at the till so the SAME queue the Hold action writes to is
+        // the one the held-transactions tab lists.
+        ChangeNotifierProvider<HeldCartViewmodel>.value(value: _heldCarts),
+        ChangeNotifierProvider<PosTransactionViewmodel>.value(
+          value: _transaction,
         ),
       ],
       child: Builder(
@@ -171,6 +245,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
             child: PosTransactionCart(
               onPayment: () => _pay(context),
               onClear: transaction.clear,
+              onHold: () => _hold(context),
               onChangeCustomer: () => _changeCustomer(context),
             ),
           ),
@@ -300,8 +375,58 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     _restoreScannerFocus();
   }
 
-  Future<void> _pay(BuildContext context) async {
+  /// Parks the basket on the server without taking money (Phase 3).
+  ///
+  /// Two rules, both about what is on the server afterwards:
+  ///
+  /// * **The till is cleared ONLY after the hold is accepted.** The basket now
+  ///   lives on the server, so keeping it here would let the same items be held
+  ///   twice (or sold after being parked). A failure is the opposite case: the
+  ///   basket was NOT parked, so clearing would lose the customer's order.
+  /// * **The account is carried across.** A basket held for a named customer is
+  ///   parked against that customer, so resuming it knows who owes what.
+  Future<void> _hold(BuildContext context) async {
     final transaction = context.read<PosTransactionViewmodel>();
+    final heldCarts = context.read<HeldCartViewmodel>();
+    // A hold with no lines would park an empty basket that resumes to nothing.
+    if (transaction.lines.isEmpty) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final held = await heldCarts.holdCart(
+      customerId: transaction.selectedCustomer?.id,
+      items: [
+        for (final line in transaction.lines)
+          HeldCartItem(
+            // `id` is read-only on the server, so a fresh line has none yet.
+            id: 0,
+            // A VariantUOM id, the same unit contract as checkout - see
+            // decision 06 section 2 and HeldCartItemSerializer.
+            variantUom: line.variantUomId,
+            qty: line.quantity,
+            unitPrice: line.unitPrice,
+          ),
+      ],
+    );
+    if (!context.mounted) return;
+
+    if (held == null) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            heldCarts.actionError ?? 'The cart could not be held.',
+          ),
+        ),
+      );
+      _restoreScannerFocus();
+      return;
+    }
+
+    transaction.clear();
+    messenger.showSnackBar(const SnackBar(content: Text('Cart held')));
+    _restoreScannerFocus();
+  }
+
+  Future<void> _pay(BuildContext context) async {    final transaction = context.read<PosTransactionViewmodel>();
     // A sale is one atomic server operation, so a double submit would be two sales.
     if (transaction.isSubmitting) return;
     final error = transaction.validate();

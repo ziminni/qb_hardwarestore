@@ -4,6 +4,7 @@ import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
+import 'package:client/features/pos/viewmodels/held_cart_viewmodel.dart';
 import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/sales_module_viewmodel.dart';
@@ -48,6 +49,11 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (_) => InventorySalesViewmodel()),
         ChangeNotifierProvider(create: (_) => SalesModuleViewmodel()),
         ChangeNotifierProvider(create: (_) => ProductTrackingViewmodel()),
+        // The parked-cart queue is app-scoped because two POS tabs share it: the
+        // till writes holds into it, and Resume on the held-transactions tab
+        // hands a basket back through it. A per-page instance would silently
+        // break that hand-off - the resumed basket would arrive nowhere.
+        ChangeNotifierProvider(create: (_) => HeldCartViewmodel()),
       ],
       child: MyApp(auth: authViewmodel),
     ),

@@ -1,4 +1,5 @@
 import 'package:client/data/models/customer.dart';
+import 'package:client/data/models/held_cart.dart';
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/data/models/product_tracking.dart';
 import 'package:client/data/models/variant_uom.dart';
@@ -377,6 +378,68 @@ class PosTransactionViewmodel extends ChangeNotifier {
   void clear() {
     _lines.clear();
     notifyListeners();
+  }
+
+  /// Restores a PARKED basket into the till (Phase 3 resume).
+  ///
+  /// Three rules, each of which the counter depends on:
+  ///
+  /// * **The held prices are the quoted prices.** The cart is rebuilt with the
+  ///   prices the customer was told when the basket was parked, not today's
+  ///   catalogue price — a resumed basket that silently re-prices is a different
+  ///   sale from the one the customer agreed to.
+  /// * **A line whose catalogue row is gone is KEPT, not dropped.** Dropping it
+  ///   would silently shorten the customer's order; keeping it makes
+  ///   [validate] name the row and refuse the sale until the cashier removes it.
+  /// * **The cart is REPLACED.** Resume means "this basket", so the till holds
+  ///   exactly what was parked.
+  ///
+  /// Names and units come from the catalogue because a held line carries only
+  /// ids, a quantity and a price (`HeldCartItem`); the catalogue is the only
+  /// place that knows a `variant_uom` id sells kilograms or pieces.
+  ///
+  /// Returns how many lines were restored.
+  int loadHeldCart(HeldCart cart) {
+    _lines.clear();
+    for (final item in cart.items) {
+      // One lookup per line: the row supplies names and unit, and null means the
+      // catalogue no longer sells that unit (kept anyway, see above).
+      final row = _catalogRowFor(item.variantUom);
+      _lines.add(
+        PosCartLine(
+          variantUomId: item.variantUom,
+          productName: row?.productName ?? 'Held item',
+          variantName: row?.variantName ?? '',
+          quantity: item.qty,
+          unit: row?.unit ?? '',
+          unitPrice: item.unitPrice,
+          availableQuantity: row?.availableSaleQuantity ?? 0,
+        ),
+      );
+    }
+    // A parked cart keeps its account: a basket held for a named customer must
+    // come back addressed to them, or the resumed sale would post to nobody and
+    // any utang with it would land nowhere.
+    final customerId = cart.customerId;
+    if (customerId != null && cart.customerName != null) {
+      selectCustomer(
+        Customer(id: customerId, name: cart.customerName!, customerType: ''),
+      );
+    }
+    notifyListeners();
+    return _lines.length;
+  }
+
+  /// The catalogue row selling [variantUomId], or null when it no longer exists.
+  ///
+  /// Looked up by `variantUomId` rather than by line, because a held line has no
+  /// [PosCartLine] to look up yet. Nullable on purpose: the same reasoning as
+  /// [_rowFor] — a missing row must not throw inside a resume.
+  PosCatalogItem? _catalogRowFor(int variantUomId) {
+    for (final item in _catalog) {
+      if (item.variantUomId == variantUomId) return item;
+    }
+    return null;
   }
 
   String? validate() {

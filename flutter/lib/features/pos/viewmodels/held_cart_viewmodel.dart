@@ -35,6 +35,36 @@ class HeldCartViewmodel extends ChangeNotifier {
 
   bool get hasCarts => _carts.isNotEmpty;
 
+  /// The basket the held-transactions tab has asked the till to pick back up.
+  ///
+  /// A parked basket lives on the server, so "resume" is two steps that happen
+  /// on two screens: the row records the hand-off here, then navigates, and the
+  /// till consumes it on open. Put on the shared viewmodel rather than passed
+  /// through the route so both screens read one value with one meaning — and so
+  /// a resumed basket cannot be re-loaded by a rebuild.
+  HeldCart? _pendingResume;
+  HeldCart? get pendingResume => _pendingResume;
+
+  /// Hands [cart] to the till. The caller navigates immediately after.
+  void resumeCart(HeldCart cart) {
+    _pendingResume = cart;
+    notifyListeners();
+  }
+
+  /// Takes the pending basket, or null when there is none.
+  ///
+  /// Consuming it is deliberate: it is a one-shot hand-off, not a state the UI
+  /// renders. Leaving it set would re-fill the till on every rebuild that
+  /// re-runs the read, resurrecting a basket the cashier may since have paid for.
+  ///
+  /// No [notifyListeners] here — nothing on screen displays this value; the till
+  /// immediately renders the basket itself.
+  HeldCart? takePendingResume() {
+    final cart = _pendingResume;
+    _pendingResume = null;
+    return cart;
+  }
+
   Future<void> load() async {
     isLoading = true;
     notifyListeners();

@@ -28,8 +28,26 @@ class PosHeldTransactionsPage extends StatefulWidget {
 }
 
 class _PosHeldTransactionsPageState extends State<PosHeldTransactionsPage> {
-  late final HeldCartViewmodel _viewmodel =
-      widget.viewmodel ?? HeldCartViewmodel();
+  late final HeldCartViewmodel _viewmodel = _resolveViewmodel();
+
+  /// Only set when this page had to create its own queue.
+  HeldCartViewmodel? _ownedViewmodel;
+
+  /// Injected, else the app-level instance, else one of our own.
+  ///
+  /// The shared instance is what makes Resume work: the till is a different
+  /// route, so the parked basket it must pick up is handed over through this
+  /// viewmodel (see [HeldCartViewmodel.resumeCart]). The owned fallback only
+  /// keeps a bare page (a widget test) rendering.
+  HeldCartViewmodel _resolveViewmodel() {
+    final injected = widget.viewmodel;
+    if (injected != null) return injected;
+    try {
+      return context.read<HeldCartViewmodel>();
+    } on ProviderNotFoundException {
+      return _ownedViewmodel = HeldCartViewmodel();
+    }
+  }
 
   @override
   void initState() {
@@ -41,8 +59,9 @@ class _PosHeldTransactionsPageState extends State<PosHeldTransactionsPage> {
 
   @override
   void dispose() {
-    // Only dispose the one we own; an injected viewmodel belongs to the caller.
-    if (widget.viewmodel == null) _viewmodel.dispose();
+    // Only dispose the one we own; an injected or shell-provided viewmodel
+    // belongs to the caller / the shell.
+    _ownedViewmodel?.dispose();
     super.dispose();
   }
 
@@ -119,9 +138,16 @@ class _PosHeldTransactionsView extends StatelessWidget {
         children: [
           TextButton(
             // A parked basket is only useful if it can be picked back up, so
-            // Resume returns to the till. Decision 03 keeps the cashier inside
-            // the POS shell for every step.
-            onPressed: () => context.go(AppRoutes.posDashboard),
+            // Resume hands the basket to the till and returns there. Decision 03
+            // keeps the cashier inside the POS shell for every step.
+            //
+            // The basket is recorded on the SHARED viewmodel before navigating:
+            // the till is another route with its own state, so this hand-off is
+            // the only thing that survives the hop.
+            onPressed: () {
+              viewmodel.resumeCart(cart);
+              context.go(AppRoutes.posDashboard);
+            },
             child: const Text('Resume'),
           ),
           TextButton(

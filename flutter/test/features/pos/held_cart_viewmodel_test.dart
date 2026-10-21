@@ -193,4 +193,38 @@ void main() {
       expect(vm.carts.map((c) => c.id), [2]);
     });
   });
+
+  group('HeldCartViewmodel resume hand-off', () {
+    test('resumeCart records the basket the till must pick up', () {
+      final vm = HeldCartViewmodel(service: _StubHeldCarts());
+      var notified = 0;
+      vm.addListener(() => notified++);
+
+      vm.resumeCart(_cart(7, customerName: 'Maria Santos'));
+
+      expect(vm.pendingResume?.id, 7);
+      expect(notified, 1, reason: 'the tab shows the hand-off as it happens');
+    });
+
+    test('takePendingResume CONSUMES it, so a rebuild cannot re-load it', () {
+      final vm = HeldCartViewmodel(service: _StubHeldCarts());
+      vm.resumeCart(_cart(7));
+
+      expect(vm.takePendingResume()?.id, 7);
+      expect(
+        vm.pendingResume,
+        isNull,
+        reason:
+            'a basket left pending would be re-filled into the till after the '
+            'cashier had already paid for it',
+      );
+      expect(vm.takePendingResume(), isNull);
+    });
+
+    test('there is no pending basket until something is resumed', () {
+      final vm = HeldCartViewmodel(service: _StubHeldCarts());
+      expect(vm.pendingResume, isNull);
+      expect(vm.takePendingResume(), isNull);
+    });
+  });
 }

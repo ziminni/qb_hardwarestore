@@ -192,7 +192,9 @@ void main() {
     // A message the catalogue banner cannot also produce: both banners are on
     // screen at once, and the assertion has to name the shift one.
     final service = _StubShifts()
-      ..failCurrent = const ShiftServiceException('The shift could not be read.');
+      ..failCurrent = const ShiftServiceException(
+        'The shift could not be read.',
+      );
     await _pump(tester, ShiftViewmodel(service: service));
 
     expect(find.text('The shift could not be read.'), findsOneWidget);

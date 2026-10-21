@@ -10,10 +10,17 @@ class PosTransactionCart extends StatelessWidget {
     required this.onPayment,
     required this.onClear,
     required this.onChangeCustomer,
+    this.onHold,
   });
 
   final VoidCallback onPayment;
   final VoidCallback onClear;
+
+  /// Parks the basket without taking money (Phase 3 held sale).
+  ///
+  /// Optional because the cart is built by tests and screens with no held-cart
+  /// queue behind them; when null the action is absent rather than shown dead.
+  final VoidCallback? onHold;
 
   /// Opens the customer picker. The sale's account is [PosTransactionViewmodel]
   /// state, so this row only reports the selection and asks to change it.
@@ -164,6 +171,17 @@ class PosTransactionCart extends StatelessWidget {
               label: const Text('Proceed to payment'),
             ),
             const SizedBox(height: 8),
+            // Decision 03: a cashier must be able to park a half-rung basket when
+            // the customer walks away. Disabled on an empty cart for the same
+            // reason Pay is: a hold with no lines leaves a row that resumes to
+            // nothing.
+            if (onHold != null) ...[
+              OutlinedButton(
+                onPressed: state.lines.isEmpty ? null : onHold,
+                child: const Text('Hold transaction'),
+              ),
+              const SizedBox(height: 8),
+            ],
             OutlinedButton(
               onPressed: state.lines.isEmpty ? null : onClear,
               child: const Text('Clear transaction'),

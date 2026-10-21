@@ -92,7 +92,9 @@ void main() {
   });
 
   test('404 is null, not an error', () async {
-    serve((_) => _json({'detail': 'No open shift for this cashier.'}, status: 404));
+    serve(
+      (_) => _json({'detail': 'No open shift for this cashier.'}, status: 404),
+    );
 
     final shift = await ShiftService(client: client).fetchCurrent();
 
@@ -129,48 +131,51 @@ void main() {
     );
   });
 
-  test('closing posts the count to the shift id and reads the Z-reading', () async {
-    String? sentPath;
-    serve((options) {
-      sentPath = options.path;
-      return _json(
-        _shiftJson(
-          status: 'CLOSED',
-          closingCount: '9350.00',
-          zReading: {
-            'shift_id': 1,
-            'opening_float': '5000.00',
-            'closing_count': '9350.00',
-            'transaction_count': 12,
-            'gross_sales': '8400.00',
-            'vat': '0.00',
-            'discounts': '0.00',
-            'cash_sales': '4400.00',
-            'card_sales': '2500.00',
-            'gcash_sales': '1500.00',
-            'bank_sales': '0.00',
-            'cash_refunds': '0.00',
-            'expected_drawer': '9400.00',
-            'variance': '-50.00',
-          },
-        ),
-      );
-    });
+  test(
+    'closing posts the count to the shift id and reads the Z-reading',
+    () async {
+      String? sentPath;
+      serve((options) {
+        sentPath = options.path;
+        return _json(
+          _shiftJson(
+            status: 'CLOSED',
+            closingCount: '9350.00',
+            zReading: {
+              'shift_id': 1,
+              'opening_float': '5000.00',
+              'closing_count': '9350.00',
+              'transaction_count': 12,
+              'gross_sales': '8400.00',
+              'vat': '0.00',
+              'discounts': '0.00',
+              'cash_sales': '4400.00',
+              'card_sales': '2500.00',
+              'gcash_sales': '1500.00',
+              'bank_sales': '0.00',
+              'cash_refunds': '0.00',
+              'expected_drawer': '9400.00',
+              'variance': '-50.00',
+            },
+          ),
+        );
+      });
 
-    final closed = await ShiftService(client: client).closeShift(1, 9350);
+      final closed = await ShiftService(client: client).closeShift(1, 9350);
 
-    expect(sentPath, '/api/v1/shifts/1/close/');
-    final reading = closed.zReading;
-    expect(reading, isNotNull);
-    expect(reading!.transactionCount, 12);
-    expect(reading.grossSales, 8400);
-    expect(reading.cashSales, 4400);
-    expect(reading.cardSales, 2500);
-    expect(reading.gcashSales, 1500);
-    expect(reading.expectedDrawer, 9400);
-    expect(reading.variance, -50);
-    expect(closed.isOpen, isFalse);
-  });
+      expect(sentPath, '/api/v1/shifts/1/close/');
+      final reading = closed.zReading;
+      expect(reading, isNotNull);
+      expect(reading!.transactionCount, 12);
+      expect(reading.grossSales, 8400);
+      expect(reading.cashSales, 4400);
+      expect(reading.cardSales, 2500);
+      expect(reading.gcashSales, 1500);
+      expect(reading.expectedDrawer, 9400);
+      expect(reading.variance, -50);
+      expect(closed.isOpen, isFalse);
+    },
+  );
 
   test('an open shift\'s z_reading parses with a null variance', () async {
     serve(
@@ -211,9 +216,7 @@ void main() {
         'count': 2,
         'next': page == 1 ? 'http://x/api/v1/shifts/?page=2' : null,
         'results': [
-          page == 1
-              ? _shiftJson(id: 1, status: 'CLOSED')
-              : _shiftJson(id: 2),
+          page == 1 ? _shiftJson(id: 1, status: 'CLOSED') : _shiftJson(id: 2),
         ],
       });
     });
@@ -224,10 +227,13 @@ void main() {
     expect(pages, ['1', '2']);
   });
 
-  test('a shift with no cashier_name fails loudly instead of rendering blank', () {
-    expect(
-      () => Shift.fromJson({..._shiftJson()}..remove('cashier_name')),
-      throwsA(isA<FormatException>()),
-    );
-  });
+  test(
+    'a shift with no cashier_name fails loudly instead of rendering blank',
+    () {
+      expect(
+        () => Shift.fromJson({..._shiftJson()}..remove('cashier_name')),
+        throwsA(isA<FormatException>()),
+      );
+    },
+  );
 }
