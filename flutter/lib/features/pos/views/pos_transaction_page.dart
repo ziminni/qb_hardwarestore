@@ -1,8 +1,12 @@
+import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
+import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
+import 'package:client/features/pos/widgets/pos_shift_close_dialog.dart';
 import 'package:client/features/pos/widgets/pos_customer_picker_dialog.dart';
 import 'package:client/features/pos/widgets/pos_payment_dialog.dart';
 import 'package:client/features/pos/widgets/pos_underpayment_dialog.dart';
@@ -16,7 +20,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class PosTransactionPage extends StatefulWidget {
-  const PosTransactionPage({super.key, this.viewmodel});
+  const PosTransactionPage({super.key, this.viewmodel, this.shiftViewmodel});
 
   /// Injected by tests so the pay path can be driven WITHOUT a server.
   ///
@@ -25,6 +29,11 @@ class PosTransactionPage extends StatefulWidget {
   /// only by reading. Same seam, and same reasoning, as SalesReceivablesPage.
   final PosTransactionViewmodel? viewmodel;
 
+  /// The shift gate's viewmodel, injectable for the same reason: a test that
+  /// pumped the till with the real one would either hit the network or be
+  /// permanently stuck at the open-shift prompt.
+  final ShiftViewmodel? shiftViewmodel;
+
   @override
   State<PosTransactionPage> createState() => _PosTransactionPageState();
 }
@@ -32,6 +41,8 @@ class PosTransactionPage extends StatefulWidget {
 class _PosTransactionPageState extends State<PosTransactionPage> {
   final _scanController = TextEditingController();
   final _scanFocusNode = FocusNode(debugLabel: 'POS barcode scanner');
+  late final ShiftViewmodel _shiftViewmodel =
+      widget.shiftViewmodel ?? ShiftViewmodel();
 
   @override
   void initState() {
@@ -40,7 +51,9 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     // must replace them with live data on open, or the cashier sells at stale
     // prices. Found by the 6D live pass (mock 270 vs live 260 on Portland).
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<InventoryViewmodel>().load();
+      if (!mounted) return;
+      context.read<InventoryViewmodel>().load();
+      _shiftViewmodel.loadCurrent();
     });
   }
 
@@ -48,20 +61,28 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
   void dispose() {
     _scanController.dispose();
     _scanFocusNode.dispose();
+    // Only dispose the one we own; an injected viewmodel belongs to the caller.
+    if (widget.shiftViewmodel == null) _shiftViewmodel.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (context) =>
-          widget.viewmodel ??
-          PosTransactionViewmodel(
-            context.read<InventoryViewmodel>(),
-            context.read<ProductTrackingViewmodel>(),
-          ),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider<ShiftViewmodel>.value(value: _shiftViewmodel),
+        ChangeNotifierProvider<PosTransactionViewmodel>(
+          create: (context) =>
+              widget.viewmodel ??
+              PosTransactionViewmodel(
+                context.read<InventoryViewmodel>(),
+                context.read<ProductTrackingViewmodel>(),
+              ),
+        ),
+      ],
       child: Builder(
         builder: (context) {
+          final shift = context.watch<ShiftViewmodel>();
           final transaction = context.watch<PosTransactionViewmodel>();
           final inventory = context.watch<InventoryViewmodel>();
           final products = transaction.filteredProducts;
@@ -81,38 +102,105 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
                       onRetry: inventory.load,
                     ),
                   ),
-                SizedBox(
-                  height: MediaQuery.sizeOf(context).height - 132,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(
-                        flex: 3,
-                        child: PosProductBrowser(
-                          products: products,
-                          searchController: _scanController,
-                          searchFocusNode: _scanFocusNode,
-                          onSubmitted: (value) => _handleScan(context, value),
-                          onSearch: transaction.setQuery,
-                          onSelect: (product) => _addProduct(context, product),
-                        ),
-                      ),
-                      const SizedBox(width: 18),
-                      Expanded(
-                        flex: 2,
-                        child: PosTransactionCart(
-                          onPayment: () => _pay(context),
-                          onClear: transaction.clear,
-                          onChangeCustomer: () => _changeCustomer(context),
-                        ),
-                      ),
-                    ],
+                if (shift.loadError != null)
+                  LiveLoadErrorBanner(
+                    message: shift.loadError!,
+                    onRetry: shift.loadCurrent,
                   ),
-                ),
+                if (shift.currentShift != null) _shiftStrip(context, shift),
+                _till(context, shift, transaction, products),
               ],
             ),
           );
         },
+      ),
+    );
+  }
+
+  /// The till, or the reason there is no till yet.
+  ///
+  /// A sale rung outside a shift is refused by `process_sale` and would belong
+  /// to no Z-reading (decision 06), so the gate is not a suggestion: with no
+  /// open shift the product browser and cart are never built at all.
+  Widget _till(
+    BuildContext context,
+    ShiftViewmodel shift,
+    PosTransactionViewmodel transaction,
+    List<PosCatalogItem> products,
+  ) {
+    if (shift.isLoading && shift.currentShift == null) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: AppSpacing.xxl),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    // A failed check is NOT "no shift": the banner above offers the retry, and
+    // the open-shift form stays hidden so a second shift cannot be opened on
+    // top of one that may still be running.
+    if (shift.loadError != null && shift.currentShift == null) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: AppSpacing.xxl),
+        child: Center(child: Text('The shift could not be checked.')),
+      );
+    }
+    if (!shift.hasOpenShift) return const _OpenShiftGate();
+
+    // The shift strip above the till eats its own height; without subtracting it
+    // the cart's Pay button lands below the viewport, where a tap misses it.
+    final stripHeight = shift.currentShift == null ? 0.0 : 48.0;
+
+    return SizedBox(
+      height: MediaQuery.sizeOf(context).height - 132 - stripHeight,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            flex: 3,
+            child: PosProductBrowser(
+              products: products,
+              searchController: _scanController,
+              searchFocusNode: _scanFocusNode,
+              onSubmitted: (value) => _handleScan(context, value),
+              onSearch: transaction.setQuery,
+              onSelect: (product) => _addProduct(context, product),
+            ),
+          ),
+          const SizedBox(width: 18),
+          Expanded(
+            flex: 2,
+            child: PosTransactionCart(
+              onPayment: () => _pay(context),
+              onClear: transaction.clear,
+              onChangeCustomer: () => _changeCustomer(context),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Which shift the sales below are being counted in, and the way out of it.
+  Widget _shiftStrip(BuildContext context, ShiftViewmodel shift) {
+    final current = shift.currentShift!;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: Row(
+        children: [
+          const Icon(Icons.access_time, size: 16),
+          const SizedBox(width: AppSpacing.xs),
+          Expanded(
+            child: Text(
+              'Shift open · opening float '
+              '₱${current.openingFloat.toStringAsFixed(2)}',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          TextButton.icon(
+            onPressed: () => showShiftCloseDialog(context, shift),
+            icon: const Icon(Icons.lock_outline, size: 16),
+            label: const Text('Close shift'),
+          ),
+        ],
       ),
     );
   }
@@ -296,5 +384,117 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
       builder: (_) => PosReceiptDialog(receipt: transaction.receipts.first),
     );
     _restoreScannerFocus();
+  }
+}
+
+/// The shift gate: no open shift, no till.
+///
+/// The opening float is required because it is the only number the Z-reading
+/// cannot reconstruct — every other figure comes from the shift's own sales.
+class _OpenShiftGate extends StatefulWidget {
+  const _OpenShiftGate();
+
+  @override
+  State<_OpenShiftGate> createState() => _OpenShiftGateState();
+}
+
+class _OpenShiftGateState extends State<_OpenShiftGate> {
+  final _floatController = TextEditingController();
+  bool _opening = false;
+
+  @override
+  void dispose() {
+    _floatController.dispose();
+    super.dispose();
+  }
+
+  /// A negative float is refused here as well as on the server: cash that cannot
+  /// be in a drawer is a typo, and catching it keeps the form up instead of
+  /// posting a shift whose drawer arithmetic is already wrong.
+  double? get _openingFloat {
+    final parsed = double.tryParse(_floatController.text.trim());
+    if (parsed == null || parsed < 0) return null;
+    return parsed;
+  }
+
+  Future<void> _open() async {
+    final openingFloat = _openingFloat;
+    if (openingFloat == null || _opening) return;
+    final shift = context.read<ShiftViewmodel>();
+    setState(() => _opening = true);
+    final opened = await shift.openShift(openingFloat);
+    if (!mounted) return;
+    setState(() => _opening = false);
+    if (opened == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            shift.actionError ?? 'The shift could not be opened.',
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final openingFloat = _openingFloat;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xxl),
+      child: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 440),
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            border: Border.all(color: AppColors.border),
+            borderRadius: BorderRadius.circular(AppSpacing.sm),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Open a shift to start selling',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              const Text(
+                'Every sale is counted in a shift. Count the cash in the '
+                'drawer and enter it as the opening float.',
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              TextField(
+                controller: _floatController,
+                autofocus: true,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Opening float',
+                  prefixText: '₱ ',
+                ),
+                onChanged: (_) => setState(() {}),
+                onSubmitted: (_) => _open(),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton(
+                  onPressed: openingFloat == null || _opening ? null : _open,
+                  child: _opening
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Open shift'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

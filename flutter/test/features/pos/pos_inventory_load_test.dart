@@ -8,7 +8,10 @@ import 'package:client/data/services/inventory_service.dart';
 import 'package:client/data/services/products_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
+import 'package:client/data/models/shift.dart';
+import 'package:client/data/services/shift_service.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
+import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:flutter/material.dart';
@@ -35,6 +38,23 @@ class _FailingInventoryRepository extends InventoryRepository {
       [];
 }
 
+/// The till only renders inside an open shift (decision 06), so the catalogue
+/// error below would otherwise be hidden behind the open-shift prompt.
+class _OpenShift extends ShiftService {
+  @override
+  Future<Shift?> fetchCurrent() async => Shift(
+    id: 1,
+    cashierName: 'Ana Cruz',
+    status: Shift.openStatus,
+    openingFloat: 5000,
+    closingCount: null,
+    openedAt: DateTime(2026, 10, 21, 8),
+    closedAt: null,
+    notes: '',
+    zReading: null,
+  );
+}
+
 void main() {
   testWidgets('a failed catalogue load shows the error with a retry', (tester) async {
     tester.view.physicalSize = const Size(1600, 1400);
@@ -56,7 +76,15 @@ void main() {
               value: ProductTrackingViewmodel(),
             ),
           ],
-          child: MaterialApp(home: PosTransactionPage(viewmodel: PosTransactionViewmodel(inventory, ProductTrackingViewmodel()))),
+          child: MaterialApp(
+            home: PosTransactionPage(
+              viewmodel: PosTransactionViewmodel(
+                inventory,
+                ProductTrackingViewmodel(),
+              ),
+              shiftViewmodel: ShiftViewmodel(service: _OpenShift()),
+            ),
+          ),
         ),
       ),
     );

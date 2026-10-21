@@ -23,7 +23,10 @@ import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/system_alert.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
+import 'package:client/data/models/shift.dart';
+import 'package:client/data/services/shift_service.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
+import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:flutter/material.dart';
@@ -54,6 +57,24 @@ class _StubPosRepository extends PosRepository {
       grandTotal: 0,
     );
   }
+}
+
+/// The till is gated on an open shift (decision 06: `process_sale` refuses a
+/// sale with none), so every pay test needs one open or `_pay` is never
+/// reachable — the gate would be the only thing on screen.
+class _OpenShift extends ShiftService {
+  @override
+  Future<Shift?> fetchCurrent() async => Shift(
+    id: 1,
+    cashierName: 'Ana Cruz',
+    status: Shift.openStatus,
+    openingFloat: 5000,
+    closingCount: null,
+    openedAt: DateTime(2026, 10, 21, 8),
+    closedAt: null,
+    notes: '',
+    zReading: null,
+  );
 }
 
 late _StubPosRepository _pos;
@@ -103,7 +124,12 @@ Future<void> _pump(WidgetTester tester) async {
             value: ProductTrackingViewmodel(),
           ),
         ],
-        child: MaterialApp(home: PosTransactionPage(viewmodel: _cart)),
+        child: MaterialApp(
+          home: PosTransactionPage(
+            viewmodel: _cart,
+            shiftViewmodel: ShiftViewmodel(service: _OpenShift()),
+          ),
+        ),
       ),
     ),
   );
