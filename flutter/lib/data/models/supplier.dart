@@ -1,3 +1,12 @@
+import 'package:client/data/models/json_field.dart';
+
+/// A vendor (decision D-02).
+///
+/// Shape verified against `apps/inventory/serializers.py::SupplierSerializer`
+/// (2026-10-22): `id, company_name, contact_person, phone, email, address,
+/// is_active, created_at, updated_at`. Every descriptive field is nullable on
+/// the model, so only `id` and `company_name` are required here — a supplier
+/// with no phone number is a real row, not a contract break.
 class Supplier {
   const Supplier({
     required this.id,
@@ -31,6 +40,16 @@ class Supplier {
     address: address ?? this.address,
     isActive: isActive ?? this.isActive,
   );
+
+  factory Supplier.fromJson(Map<String, dynamic> json) => Supplier(
+    id: intField(json, 'id'),
+    companyName: stringField(json, 'company_name'),
+    contactPerson: json['contact_person'] as String? ?? '',
+    phone: json['phone'] as String? ?? '',
+    email: json['email'] as String? ?? '',
+    address: json['address'] as String? ?? '',
+    isActive: boolFieldOr(json, 'is_active', or: true),
+  );
 }
 
 enum PurchaseStatus {
@@ -60,7 +79,38 @@ class PurchaseItem {
   final double receivedQuantity;
   final double unitCost;
   double get subtotal => quantity * unitCost;
+
+  /// One PO line from `POItemSerializer` (decision D-02).
+  ///
+  /// The serializer sends `id, po, variant, variant_name, ordered_qty,
+  /// unit_cost, received_qty` — it carries **no product name and no SKU**, only
+  /// the variant's name. Those two fields therefore come back empty and the
+  /// details dialog renders the variant name alone. Inventing a product name
+  /// out of the variant name would be a guess shown as if the server said it.
+  factory PurchaseItem.fromJson(Map<String, dynamic> json) => PurchaseItem(
+    productName: '',
+    variantName: stringField(json, 'variant_name'),
+    sku: '',
+    quantity: decimalField(json, 'ordered_qty'),
+    receivedQuantity: decimalField(json, 'received_qty'),
+    unitCost: decimalField(json, 'unit_cost'),
+  );
 }
+
+/// Maps the server's `PurchaseOrder.Status` choice to the UI enum.
+///
+/// Uppercase `DRAFT|ORDERED|PARTIAL|COMPLETE|CANCELLED` server-side versus the
+/// Flutter enum's lowercase names — mapped explicitly rather than by
+/// `toLowerCase`, so an unknown status fails loudly instead of silently
+/// rendering as Draft ("not yet sent") on a PO that was actually cancelled.
+PurchaseStatus _statusFromString(String value) => switch (value) {
+  'DRAFT' => PurchaseStatus.draft,
+  'ORDERED' => PurchaseStatus.ordered,
+  'PARTIAL' => PurchaseStatus.partial,
+  'COMPLETE' => PurchaseStatus.complete,
+  'CANCELLED' => PurchaseStatus.cancelled,
+  _ => throw FormatException('Unknown purchase order status "$value"'),
+};
 
 class PurchaseOrder {
   const PurchaseOrder({
@@ -88,4 +138,38 @@ class PurchaseOrder {
       items.fold(0, (sum, item) => sum + item.quantity);
   double get receivedQuantity =>
       items.fold(0, (sum, item) => sum + item.receivedQuantity);
+
+  /// A purchase order from `PurchaseOrderSerializer` (decision D-02).
+  ///
+  /// `supplier` is an **id** and the serializer exposes no `supplier_name`, so
+  /// [supplierName] starts empty and the viewmodel fills it from the suppliers
+  /// it has already loaded. D-02 chose that join over a one-line backend
+  /// change, so this file must not pretend the name arrived here.
+  factory PurchaseOrder.fromJson(Map<String, dynamic> json) => PurchaseOrder(
+    id: intField(json, 'id'),
+    supplierId: intField(json, 'supplier'),
+    supplierName: '',
+    orderDate: DateTime.parse(stringField(json, 'order_date')),
+    expectedDelivery: nullableDateField(json, 'expected_delivery'),
+    status: _statusFromString(stringField(json, 'status')),
+    createdBy: json['created_by_name'] as String? ?? '',
+    notes: json['notes'] as String? ?? '',
+    items: nestedList(json, 'items', PurchaseItem.fromJson),
+  );
+
+  /// Returns this order with its supplier's name attached.
+  ///
+  /// A value copy rather than a mutable field: the resolved name is derived
+  /// state the viewmodel owns, so the wire model stays immutable.
+  PurchaseOrder withSupplierName(String name) => PurchaseOrder(
+    id: id,
+    supplierId: supplierId,
+    supplierName: name,
+    orderDate: orderDate,
+    expectedDelivery: expectedDelivery,
+    status: status,
+    createdBy: createdBy,
+    notes: notes,
+    items: items,
+  );
 }

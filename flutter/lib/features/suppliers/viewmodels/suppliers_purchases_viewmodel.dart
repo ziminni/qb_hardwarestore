@@ -1,171 +1,44 @@
-import 'dart:math';
 import 'package:client/data/models/supplier.dart';
+import 'package:client/data/repositories/supplier_repository.dart';
+import 'package:client/data/services/supplier_service.dart';
 import 'package:flutter/foundation.dart';
 
+/// Suppliers and their purchase orders, read from the API (decision D-02).
+///
+/// Replaces the hardcoded `_suppliers`/`_purchases` fixtures this class used to
+/// hold. Those fixtures were the reason the Stocker Purchasing tabs showed six
+/// vendors no server had ever heard of.
+///
+/// Deliberately NOT present any more: `saveSupplier` and `addPurchase`. Both
+/// mutated local lists that no server knew about, behind dialogs whose Save
+/// button therefore lied. D-02 scoped this pass to reads only; when writes are
+/// specified they will go through [SupplierRepository] and re-load, not through
+/// a memory-only mutation.
 class SuppliersPurchasesViewmodel extends ChangeNotifier {
-  final List<Supplier> _suppliers = [
-    const Supplier(
-      id: 1,
-      companyName: 'Cebu Oversea Hardware Co.',
-      contactPerson: 'Maria Santos',
-      phone: '0917 812 4401',
-      email: 'orders@cebuoversea.ph',
-      address: 'Mandaue City, Cebu',
-    ),
-    const Supplier(
-      id: 2,
-      companyName: 'Philcement Trading',
-      contactPerson: 'Ramon Cruz',
-      phone: '0918 225 1034',
-      email: 'sales@philcement.ph',
-      address: 'Talisay City, Cebu',
-    ),
-    const Supplier(
-      id: 3,
-      companyName: 'Neltex Distribution Cebu',
-      contactPerson: 'Janine Lim',
-      phone: '0917 330 8821',
-      email: 'cebu@neltex.com.ph',
-      address: 'Consolacion, Cebu',
-    ),
-    const Supplier(
-      id: 4,
-      companyName: 'VisMin Steel Supply',
-      contactPerson: 'Eduardo Tan',
-      phone: '0920 445 7720',
-      email: 'orders@visminsteel.ph',
-      address: 'Lapu-Lapu City, Cebu',
-    ),
-    const Supplier(
-      id: 5,
-      companyName: 'Metro Electrical Depot',
-      contactPerson: 'Angela Uy',
-      phone: '0916 780 2255',
-      email: 'sales@metroelectrical.ph',
-      address: 'Cebu City, Cebu',
-    ),
-    const Supplier(
-      id: 6,
-      companyName: 'Builders Wood Centre',
-      contactPerson: 'Carlo Reyes',
-      phone: '0919 622 1188',
-      email: 'supply@builderswood.ph',
-      address: 'Minglanilla, Cebu',
-    ),
-  ];
-  final List<PurchaseOrder> _purchases = [
-    PurchaseOrder(
-      id: 1008,
-      supplierId: 1,
-      supplierName: 'Cebu Oversea Hardware Co.',
-      orderDate: DateTime(2026, 9, 12),
-      expectedDelivery: DateTime(2026, 9, 17),
-      status: PurchaseStatus.ordered,
-      createdBy: 'Inventory Staff',
-      notes: 'Regular replenishment',
-      items: const [
-        PurchaseItem(
-          productName: 'Common Nail',
-          variantName: '2 inch × 1 kg',
-          sku: 'NAIL-COM-02',
-          quantity: 40,
-          receivedQuantity: 0,
-          unitCost: 72,
-        ),
-      ],
-    ),
-    PurchaseOrder(
-      id: 1007,
-      supplierId: 3,
-      supplierName: 'Neltex Distribution Cebu',
-      orderDate: DateTime(2026, 9, 11),
-      expectedDelivery: DateTime(2026, 9, 15),
-      status: PurchaseStatus.partial,
-      createdBy: 'Inventory Staff',
-      notes: 'Urgent PVC restock',
-      items: const [
-        PurchaseItem(
-          productName: 'PVC Pipe',
-          variantName: '1 inch × 3 m',
-          sku: 'PVC-NEL-100',
-          quantity: 50,
-          receivedQuantity: 25,
-          unitCost: 230,
-        ),
-        PurchaseItem(
-          productName: 'PVC Elbow',
-          variantName: '1 inch',
-          sku: 'ELB-NEL-100',
-          quantity: 40,
-          receivedQuantity: 20,
-          unitCost: 32,
-        ),
-      ],
-    ),
-    PurchaseOrder(
-      id: 1006,
-      supplierId: 4,
-      supplierName: 'VisMin Steel Supply',
-      orderDate: DateTime(2026, 9, 9),
-      expectedDelivery: DateTime(2026, 9, 13),
-      status: PurchaseStatus.complete,
-      createdBy: 'Admin',
-      notes: '',
-      items: const [
-        PurchaseItem(
-          productName: 'Deformed Steel Bar',
-          variantName: '12 mm × 6 m',
-          sku: 'BAR-SA-12',
-          quantity: 100,
-          receivedQuantity: 100,
-          unitCost: 220,
-        ),
-      ],
-    ),
-    PurchaseOrder(
-      id: 1005,
-      supplierId: 2,
-      supplierName: 'Philcement Trading',
-      orderDate: DateTime(2026, 9, 8),
-      expectedDelivery: DateTime(2026, 9, 12),
-      status: PurchaseStatus.complete,
-      createdBy: 'Admin',
-      notes: 'Monthly cement order',
-      items: const [
-        PurchaseItem(
-          productName: 'Portland Cement',
-          variantName: '40 kg Bag',
-          sku: 'CEM-HOL-40',
-          quantity: 150,
-          receivedQuantity: 150,
-          unitCost: 235,
-        ),
-      ],
-    ),
-    PurchaseOrder(
-      id: 1004,
-      supplierId: 5,
-      supplierName: 'Metro Electrical Depot',
-      orderDate: DateTime(2026, 9, 7),
-      expectedDelivery: DateTime(2026, 9, 14),
-      status: PurchaseStatus.draft,
-      createdBy: 'Inventory Staff',
-      notes: 'For approval',
-      items: const [
-        PurchaseItem(
-          productName: 'Electrical Wire',
-          variantName: '3.5 mm² × 150 m',
-          sku: 'WIR-PD-350',
-          quantity: 10,
-          receivedQuantity: 0,
-          unitCost: 3400,
-        ),
-      ],
-    ),
-  ];
+  SuppliersPurchasesViewmodel({SupplierRepository? repository})
+    : _repository = repository ?? SupplierRepository();
+
+  final SupplierRepository _repository;
+
+  List<Supplier> _suppliers = const [];
+  List<PurchaseOrder> _purchases = const [];
+  bool _isLoading = false;
+  String? _loadError;
+
   List<Supplier> get suppliers => List.unmodifiable(_suppliers);
   List<PurchaseOrder> get purchases => List.unmodifiable(_purchases);
+
+  /// A load is in flight. The pages show a spinner rather than an empty table:
+  /// "no suppliers" and "not loaded yet" are different things, and a purchasing
+  /// screen that reads as empty is a screen someone orders against wrongly.
+  bool get isLoading => _isLoading;
+
+  /// The last load's failure, or null. Set means the lists are as the last
+  /// successful load left them — never cleared by a failed refresh.
+  String? get loadError => _loadError;
+
   int get activeSuppliers => _suppliers.where((item) => item.isActive).length;
+
   double get openPurchaseValue => _purchases
       .where(
         (item) =>
@@ -174,51 +47,105 @@ class SuppliersPurchasesViewmodel extends ChangeNotifier {
             item.status == PurchaseStatus.partial,
       )
       .fold(0, (sum, item) => sum + item.total);
-  void saveSupplier(Supplier supplier) {
-    final index = _suppliers.indexWhere((item) => item.id == supplier.id);
-    if (index < 0) {
-      final id =
-          _suppliers.fold<int>(0, (value, item) => max(value, item.id)) + 1;
-      _suppliers.add(
-        Supplier(
-          id: id,
-          companyName: supplier.companyName,
-          contactPerson: supplier.contactPerson,
-          phone: supplier.phone,
-          email: supplier.email,
-          address: supplier.address,
-        ),
-      );
-    } else {
-      _suppliers[index] = supplier;
-    }
-    notifyListeners();
+
+  /// Purchases matching a PO/supplier [query] and an optional [status].
+  ///
+  /// Kept as a viewmodel helper (rather than inline in the page) so the same
+  /// filtering rule is testable without a widget tree.
+  List<PurchaseOrder> filteredPurchases({
+    String query = '',
+    PurchaseStatus? status,
+  }) {
+    final needle = query.toLowerCase();
+    return _purchases
+        .where(
+          (item) =>
+              ('PO-${item.id} ${item.supplierName}').toLowerCase().contains(
+                needle,
+              ) &&
+              (status == null || item.status == status),
+        )
+        .toList();
   }
 
+  /// Suppliers whose company, contact person or email match [query].
+  List<Supplier> filteredSuppliers({String query = ''}) {
+    final needle = query.toLowerCase();
+    return _suppliers
+        .where(
+          (item) => '${item.companyName} ${item.contactPerson} ${item.email}'
+              .toLowerCase()
+              .contains(needle),
+        )
+        .toList();
+  }
+
+  /// Loads suppliers, then purchase orders.
+  ///
+  /// Suppliers first because each PO's `supplierName` is resolved from them:
+  /// `PurchaseOrderSerializer` sends the supplier **id** only, and D-02 chose
+  /// this join over a backend change. A PO whose supplier is not in the list
+  /// (deleted upstream, or a permission-filtered row) keeps an empty name
+  /// rather than a guessed one.
+  Future<void> load() async {
+    _isLoading = true;
+    _loadError = null;
+    notifyListeners();
+    try {
+      final suppliers = await _repository.fetchSuppliers();
+      final purchases = await _repository.fetchPurchaseOrders();
+      _suppliers = [
+        for (final s in suppliers)
+          _activeOverrides.containsKey(s.id)
+              ? s.copyWith(isActive: _activeOverrides[s.id]!)
+              : s,
+      ];
+      _purchases = _withSupplierNames(purchases, suppliers);
+    } on SupplierServiceException catch (error) {
+      _loadError = error.message;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Attaches each PO's supplier name, looked up by id in [suppliers].
+  ///
+  /// An id with no match keeps `''` rather than a placeholder: D-02 chose the
+  /// client-side join over a backend change, so an unmatched id means the
+  /// supplier was deleted or filtered — and "No supplier" invented text would
+  /// hide that.
+  List<PurchaseOrder> _withSupplierNames(
+    List<PurchaseOrder> purchases,
+    List<Supplier> suppliers,
+  ) {
+    final names = {
+      for (final supplier in suppliers) supplier.id: supplier.companyName,
+    };
+    return [
+      for (final purchase in purchases)
+        purchase.withSupplierName(names[purchase.supplierId] ?? ''),
+    ];
+  }
+
+  /// Session-local active-flag overrides, keyed by supplier id.
+  ///
+  /// Re-applied after every load so a toggle survives tab switches: without
+  /// this, each page open re-runs load() and silently reverts the switch.
+  /// Memory-only — PATCH wiring is Fog of War.
+  final Map<int, bool> _activeOverrides = {};
+
+  /// Flips a supplier's active flag **locally**.
   void toggleSupplier(Supplier supplier) {
     final index = _suppliers.indexWhere((item) => item.id == supplier.id);
     if (index < 0) return;
-    _suppliers[index] = supplier.copyWith(isActive: !supplier.isActive);
-    notifyListeners();
-  }
-
-  void addPurchase(PurchaseOrder order) {
-    final id =
-        _purchases.fold<int>(1000, (value, item) => max(value, item.id)) + 1;
-    _purchases.insert(
-      0,
-      PurchaseOrder(
-        id: id,
-        supplierId: order.supplierId,
-        supplierName: order.supplierName,
-        orderDate: DateTime.now(),
-        expectedDelivery: order.expectedDelivery,
-        status: PurchaseStatus.draft,
-        createdBy: order.createdBy,
-        notes: order.notes,
-        items: order.items,
-      ),
-    );
+    final next = !supplier.isActive;
+    _activeOverrides[supplier.id] = next;
+    _suppliers = [
+      ..._suppliers.sublist(0, index),
+      _suppliers[index].copyWith(isActive: next),
+      ..._suppliers.sublist(index + 1),
+    ];
     notifyListeners();
   }
 }

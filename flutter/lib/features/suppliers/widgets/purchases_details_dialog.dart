@@ -39,9 +39,22 @@ class PurchasesDetailsDialog extends StatelessWidget {
             ...order.items.map(
               (item) => ListTile(
                 contentPadding: EdgeInsets.zero,
-                title: Text('${item.productName} — ${item.variantName}'),
+                // A live PO line carries only the variant name: `POItemSerializer`
+                // sends no product name and no SKU (decision D-02). Joining an
+                // empty product name would render " — Portland Cement 40kg" and
+                // an empty SKU a leading " · ", so both are dropped when absent
+                // instead of inventing a label the server never sent.
+                title: Text(
+                  item.productName.isEmpty
+                      ? item.variantName
+                      : '${item.productName} — ${item.variantName}',
+                ),
                 subtitle: Text(
-                  '${item.sku} · Ordered ${item.quantity.toStringAsFixed(0)} · Received ${item.receivedQuantity.toStringAsFixed(0)}',
+                  [
+                    if (item.sku.isNotEmpty) item.sku,
+                    'Ordered ${item.quantity.toStringAsFixed(0)}',
+                    'Received ${item.receivedQuantity.toStringAsFixed(0)}',
+                  ].join(' · '),
                 ),
                 trailing: Text('₱${item.subtotal.toStringAsFixed(2)}'),
               ),

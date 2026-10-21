@@ -1,13 +1,24 @@
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
-import 'package:client/data/models/supplier.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmodel.dart';
-import 'package:client/features/suppliers/widgets/suppliers_form_dialog.dart';
 import 'package:client/features/suppliers/widgets/suppliers_table.dart';
+import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+/// The Suppliers screen (decision D-02).
+///
+/// Reads the live vendor list. Two things are gone rather than greyed:
+///
+///  * the **Add Supplier** button — the repository has no write method this
+///    pass, so the button would open a dialog whose Save did nothing;
+///  * the **Edit** action on each row, for the same reason. Deactivate stays
+///    because the viewmodel still owns that flag locally and the chip visibly
+///    changes.
+///
+/// The search box still filters client-side: `SupplierViewSet` configures no
+/// `SearchFilter`, so a server-side search would silently match nothing.
 class SuppliersPage extends StatefulWidget {
   const SuppliersPage({super.key});
   @override
@@ -16,28 +27,21 @@ class SuppliersPage extends StatefulWidget {
 
 class _SuppliersPageState extends State<SuppliersPage> {
   String _query = '';
-  Future<void> _form([Supplier? supplier]) async {
-    final result = await showDialog<Supplier>(
-      context: context,
-      builder: (_) => SuppliersFormDialog(supplier: supplier),
-    );
-    if (result == null || !mounted) return;
-    context.read<SuppliersPurchasesViewmodel>().saveSupplier(result);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Supplier saved in mock data.')),
-    );
+
+  @override
+  void initState() {
+    super.initState();
+    // Load on open. The viewmodel is app-scoped (shared with the Purchases tab),
+    // so this also refreshes a list another tab may have left stale.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<SuppliersPurchasesViewmodel>().load();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<SuppliersPurchasesViewmodel>();
-    final suppliers = state.suppliers
-        .where(
-          (item) => '${item.companyName} ${item.contactPerson} ${item.email}'
-              .toLowerCase()
-              .contains(_query.toLowerCase()),
-        )
-        .toList();
+    final suppliers = state.filteredSuppliers(query: _query);
     return InventorySkeletonLayout(
       title: 'Suppliers',
       subtitle: 'Manage vendors connected to purchase orders.',
@@ -60,22 +64,21 @@ class _SuppliersPageState extends State<SuppliersPage> {
                   ),
                 ),
               ),
-              const SizedBox(width: AppSpacing.md),
-              FilledButton.icon(
-                onPressed: _form,
-                icon: const Icon(Icons.add),
-                label: const Text('Add Supplier'),
-              ),
             ],
           ),
           const SizedBox(height: AppSpacing.xl),
-          SuppliersTable(
-            suppliers: suppliers,
-            purchaseCount: (id) =>
-                state.purchases.where((item) => item.supplierId == id).length,
-            onEdit: _form,
-            onToggle: state.toggleSupplier,
-          ),
+          if (state.isLoading)
+            const Center(child: CircularProgressIndicator())
+          else if (state.loadError case final error?)
+            LiveLoadErrorBanner(message: error, onRetry: state.load)
+          else
+            SuppliersTable(
+              suppliers: suppliers,
+              purchaseCount: (id) =>
+                  state.purchases.where((item) => item.supplierId == id).length,
+              onEdit: null,
+              onToggle: state.toggleSupplier,
+            ),
         ],
       ),
     );

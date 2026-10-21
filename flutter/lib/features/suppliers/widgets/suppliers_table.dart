@@ -13,7 +13,14 @@ class SuppliersTable extends StatelessWidget {
   });
   final List<Supplier> suppliers;
   final int Function(int supplierId) purchaseCount;
-  final ValueChanged<Supplier> onEdit;
+
+  /// Opens the edit dialog, or null when no write scope exists.
+  ///
+  /// D-02 scoped this pass to reads, so the page passes null and the Edit
+  /// action is not rendered at all. A greyed icon or an icon that opens a
+  /// dialog whose Save button cannot save would be a control that lies — the
+  /// same reason `saveSupplier` was deleted from the viewmodel.
+  final ValueChanged<Supplier>? onEdit;
   final ValueChanged<Supplier> onToggle;
   @override
   Widget build(BuildContext context) {
@@ -34,6 +41,11 @@ class SuppliersTable extends StatelessWidget {
           : SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
+                // The Company cell is two lines (name + address). The default
+                // 48px row overflows it by ~12px, so rows are given room here
+                // rather than squeezed.
+                dataRowMinHeight: 64,
+                dataRowMaxHeight: 64,
                 headingRowColor: WidgetStatePropertyAll(
                   colors.secondaryContainer,
                 ),
@@ -54,6 +66,12 @@ class SuppliersTable extends StatelessWidget {
                             SizedBox(
                               width: 230,
                               child: Column(
+                                // Two lines inside a 48px DataRow cell: without
+                                // `min` the Column claims the full cell height
+                                // and overflows by ~12px, which is a rendering
+                                // error the table never showed while it was fed
+                                // fixtures that no widget test rendered.
+                                mainAxisSize: MainAxisSize.min,
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -86,14 +104,15 @@ class SuppliersTable extends StatelessWidget {
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                IconButton(
-                                  tooltip: 'Edit supplier',
-                                  onPressed: () => onEdit(supplier),
-                                  icon: const Icon(
-                                    Icons.edit_outlined,
-                                    size: 18,
+                                if (onEdit case final edit?)
+                                  IconButton(
+                                    tooltip: 'Edit supplier',
+                                    onPressed: () => edit(supplier),
+                                    icon: const Icon(
+                                      Icons.edit_outlined,
+                                      size: 18,
+                                    ),
                                   ),
-                                ),
                                 IconButton(
                                   tooltip: supplier.isActive
                                       ? 'Deactivate supplier'
