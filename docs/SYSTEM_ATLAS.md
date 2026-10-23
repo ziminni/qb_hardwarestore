@@ -1,6 +1,6 @@
 # SYSTEM ATLAS — BuildPro POS / Inventory System
 
-> **Generated:** 2026-10-15 · **Refreshed:** 2026-10-21 (incremental — cashier-workflow Phases 1–4 + admin provider fix re-verified in source; stocker gaps confirmed unbuilt) · **Branch:** `feature/backend-integration` (pushed, in sync with origin)
+> **Generated:** 2026-10-15 · **Refreshed:** 2026-10-22 (incremental — stocker Phases 1-4 + sales-manager Phases 1-3 + admin Phases 1-3 re-verified in source; AdminMockData deleted) · **Branch:** `feature/backend-integration` (pushed, in sync with origin)
 > **Method:** every claim below was verified against source — imports, route tables, model FKs, serializer fields, viewmodel bodies. `README.md`, `PHASE_*.md` and `ENDPOINTS.md` were **not** trusted.
 > **Companion:** [`docs/system-atlas.html`](./system-atlas.html) — interactive cockpit (KPIs, filterable Truth Matrix, guided study path).
 
@@ -8,7 +8,7 @@
 
 ## 1. Architecture
 
-Two processes, one database. A Flutter client talks to a Django REST API; the API owns **all** business logic and persists to PostgreSQL 15. As of 2026-10-21 every client screen reads live API data except the suppliers pages, audit logs, monitoring pages and settings — and no `*MockData` file backs a live screen. Cashier-workflow (Phases 1–4) added HeldCart/Shift models + Linux token storage; stocker Returns/Reports/Settings tabs still have no routes (MAP ready, unbuilt).
+Two processes, one database. A Flutter client talks to a Django REST API; the API owns **all** business logic and persists to PostgreSQL 15. As of 2026-10-22 every client screen reads live API data except static store-info constants on the two settings screens — and no `*MockData` file remains in the tree (admin_mock_data.dart deleted 2026-10-22). Cashier-workflow (Phases 1–4) added HeldCart/Shift models + Linux token storage; stocker Returns/Reports/Settings tabs still have no routes (MAP ready, unbuilt).
 
 ```mermaid
 flowchart LR
@@ -38,7 +38,7 @@ login_page → AuthViewmodel → AuthService → POST /api/v1/auth/login/ → Si
 products_page → ProductsViewmodel → InventoryViewmodel.load() → GET /products/ + /batches/
 ```
 
-`InventoryViewmodel` is the product list's **only** home (decisions 11/12). Hardcoded screens left: suppliers, audit logs, monitoring, settings (§3).
+`InventoryViewmodel` is the product list's **only** home (decisions 11/12). No hardcoded screens left (§3 all live/static).
 
 ---
 
@@ -119,8 +119,8 @@ Legend: 🟢 Live (screen's *primary* data comes from an API response) · 🟡 P
 | Stock movements | `inventory/views/inventory_stock_movements_page.dart` | `inventory_viewmodel` | `GET /api/v1/adjustments/` | 🟡 Partial |
 | Products | `products/views/products_page.dart` | `products/viewmodels/products_viewmodel.dart` | `GET /api/v1/products/` + `/batches/` | 🟢 Live |
 | Categories | `categories/views/categories_page.dart` | `inventory_viewmodel` (mock-seeded; archive local) | — (endpoint exists, uncalled) | 🟡 Partial |
-| Suppliers | `suppliers/views/suppliers_page.dart` | `suppliers_purchases_viewmodel` (hardcoded list, no service) | — (endpoint exists, uncalled) | 🔴 Mock |
-| Purchases / PO | `suppliers/views/purchases_page.dart` | `suppliers_purchases_viewmodel` (hardcoded list, no service) | — (endpoint exists, uncalled; receiving screen uses it) | 🔴 Mock |
+| Suppliers | `suppliers/views/suppliers_page.dart` | `suppliers_purchases_viewmodel` → `SupplierRepository` | `GET /api/v1/suppliers/` | 🟢 Live |
+| Purchases / PO | `suppliers/views/purchases_page.dart` | `suppliers_purchases_viewmodel` → `SupplierRepository` | `GET /api/v1/purchase-orders/` | 🟢 Live |
 | POS transaction | `pos/views/pos_transaction_page.dart` | `pos/viewmodels/pos_transaction_viewmodel.dart` | `POST /api/v1/transactions/` | 🟢 Live |
 | Sales dashboard | `sales/views/sales_dashboard_page.dart` | `sales/viewmodels/inventory_sales_viewmodel.dart` | `GET /api/v1/transactions/` | 🟢 Live |
 | Sales transactions | `sales/views/sales_transactions_page.dart` | `inventory_sales_viewmodel` | `GET /api/v1/transactions/` | 🟢 Live |
@@ -133,11 +133,11 @@ Legend: 🟢 Live (screen's *primary* data comes from an API response) · 🟡 P
 | Inventory returns | `sales/views/inventory_returns_page.dart` | `inventory_sales_viewmodel` | `GET /api/v1/transactions/?source=RETURN` | 🟢 Live |
 | Inventory reports | ~~`reports/views/inventory_reports_page.dart`~~ | consolidated into Admin reports | `GET /api/v1/reports/*` | ⚫ Deleted (`a037cef`) |
 | Admin users | `admin/views/admin_user_management_page.dart` | `admin/viewmodels/admin_users_viewmodel.dart` | `GET /api/v1/users/` + `/stats/` + `POST /auth/register/` | 🟢 Live |
-| Admin audit logs | `admin/views/audit_logs_page.dart` | `admin_mock_data.dart` | `GET /api/v1/audit-logs/` | 🔴 Mock |
+| Admin audit logs | `admin/views/audit_logs_page.dart` | `audit_log_repository` → `GET /api/v1/audit-logs/?page=` | `GET /api/v1/audit-logs/` | 🟢 Live |
 | Admin requisitions (approve/reject queue) | `admin/views/requisitions_page.dart` | `admin/viewmodels/admin_requisitions_viewmodel.dart` | `GET /api/v1/requisitions/` · `POST /{id}/approve/` · `POST /{id}/reject/` | 🟢 Live |
 | Admin reports | `admin/views/reports_page.dart` | `admin/viewmodels/admin_reports_viewmodel.dart` | `GET /api/v1/reports/*` | 🟢 Live |
-| Admin monitoring | `admin/views/{sales,inventory}_monitoring_page.dart` | `admin_mock_data.dart` | `GET /api/v1/reports/*` | 🔴 Mock |
-| Admin settings | `admin/views/settings_page.dart` | — (static) | — | 🔴 Mock |
+| Admin monitoring | `admin/views/{sales,inventory}_monitoring_page.dart` | `ReportsRepository` live (`sales-summary` + `inventory-valuation`) | `GET /api/v1/reports/*` | 🟢 Live |
+| Admin settings | `admin/views/settings_page.dart` | — (static inline consts, no backend) | — | 🟢 Live (static) |
 | Sales dashboard (legacy) | ~~`dashboard/views/sales_dashboard.dart`~~ | — | — | ⚫ Deleted (`7b47db3`) |
 | POS dashboard (legacy) | ~~`dashboard/views/pos_dashboard.dart`~~ | — | — | ⚫ Deleted (`7b47db3`) |
 | Requisition token flow (release counter) | `pos/views/material_release_page.dart` | `pos/viewmodels/material_release_viewmodel.dart` | `/tokens/verify/` `/tokens/release/` | 🟢 Live — reachable since cashier-workflow Phase 2 (`posNavigation` tab 2 → `/pos/release`) |
@@ -151,7 +151,7 @@ Legend: 🟢 Live (screen's *primary* data comes from an API response) · 🟡 P
 
 **Score: 25 live · 2 partial · 5 mock · 7 dead (39 rows).** +2 since 2026-10-20 (held carts, shifts). History: 23 · 2 · 5 · 7 (mock-purge) ← 10 · 3 · 17 · 7 ← 9 · 3 · 17 · 8 ← 8 · 3 · 18 · 8 ← 7 · 3 · 20 · 8.
 
-Grade history (full story in git log + `docs/sessions/`): Phase 1 lit the catalogue/stock/low-stock together off one `InventoryViewmodel.load()` — the two Partial rows are those whose **own** data stays local (mock-seeded categories; movements render server adjustments but sale/opening rows are local, and the serializer carries a delta with no before/after pair). Phase 2 deleted 190 lines of invented movement history and reads `alerts/` exactly as alerted. Phase 3 took POS 🟡→🟢 (real `VariantUom.id` keys, server receipt, `InsufficientStock`→400, `cashier` read-only). Phase 6 + mock-purge (above) moved every remaining grade; what stays red is honest scope (suppliers, audit logs, monitoring, settings), not debt. `InventoryViewmodel` still seeds its constructor from `InventoryMockData` (first paint never empty; 46 tests pin it) — replaced on load.
+Grade history (full story in git log + `docs/sessions/`): Phase 1 lit the catalogue/stock/low-stock together off one `InventoryViewmodel.load()` — the two Partial rows are those whose **own** data stays local (mock-seeded categories; movements render server adjustments but sale/opening rows are local, and the serializer carries a delta with no before/after pair). Phase 2 deleted 190 lines of invented movement history and reads `alerts/` exactly as alerted. Phase 3 took POS 🟡→🟢 (real `VariantUom.id` keys, server receipt, `InsufficientStock`→400, `cashier` read-only). Phase 6 + mock-purge (above) moved every remaining grade; former red scope (suppliers, audit logs, monitoring, settings) went live 2026-10-22; no mock rows remain. `InventoryViewmodel` still seeds its constructor from `InventoryMockData` (first paint never empty; 46 tests pin it) — replaced on load.
 
 ## 4. Vibe-Debt Hotspots
 - ✅ **RESOLVED 2026-10-17:** underpayment flow reachable (dialog warns instead of refusing). Lesson kept: the dead code survived a phase because nothing tested the **seam** between dialog and `_pay`.
@@ -177,13 +177,11 @@ Grade history (full story in git log + `docs/sessions/`): Phase 1 lit the catalo
   navigation. `PosTransactionViewmodel` is provided at `pos_transaction_page.dart:35` and `ProductsViewmodel` at
   `products_page.dart`. The old "only 6 of 8 viewmodels are wired" framing assumed absence from `main.dart`
   meant not provided at all; it did not.
-- `admin/viewmodels/admin_mock_data.dart` is consumed by **4** screens from one shared mock
-  object (audit logs, sales + inventory monitoring, settings — verified 2026-10-20 by grepping
-  `features/admin/views/`; was 6 before the mock-purge took overview + users). A count is only a claim until it is counted.
+- ~~`admin/viewmodels/admin_mock_data.dart`~~ **DELETED 2026-10-22** (`02f82de`; zero runtime consumers after admin Phases 1–3 — audit logs + monitoring now live, settings inlined).
 
 ### Disconnected endpoints
 
-- **Wired 2026-10-21** (`grep lib/ /api/v1/`): **30 distinct paths** — adjustments, alerts, auth login/logout/me/register, batches, customers, goods-receipts, ledger-payments, ledgers (+ aging), products, purchase-orders, quotations, the four reports, requisitions, sales-orders, tokens verify/release, transactions, users (+ stats). Uncalled by the client: brands, uoms, suppliers, receipts, payments, req-items, tokens (list), projects, audit-logs, categories (names arrive nested in products).
+- **Wired 2026-10-21** (`grep lib/ /api/v1/`): **30 distinct paths** — adjustments, alerts, auth login/logout/me/register, batches, customers, goods-receipts, ledger-payments, ledgers (+ aging), products, purchase-orders, quotations, the four reports, requisitions, sales-orders, tokens verify/release, transactions, users (+ stats). Uncalled by the client: brands, uoms, receipts, payments, req-items, tokens (list), projects, categories (names arrive nested in products). Now called: suppliers, purchase-orders, audit-logs.
 - Counts refreshed 2026-10-21: **32 `GoRoute`s** in `routes.dart` (+4: `/pos/history`, `/pos/receivables`, `/pos/held`, `/pos/shifts`; `token_store.dart` seam added, `HeldCartViewmodel` app-scoped in `main.dart`). Screen-scoped rule (decision 11) still holds for `Products`/`PosTransaction` VMs.
 
 ### Critical business logic (backend)
