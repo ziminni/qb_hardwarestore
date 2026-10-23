@@ -47,8 +47,8 @@ the same commit that breaks it.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.
-- **Last session:** `docs/sessions/2026-10-22-admin-workflow-build.md` — BUILT admin-workflow Phases 1–3 (`b5c72c2` audit logs + `34b421b` suppliers/POs + `02f82de` settings/AdminMockData deleted). Fix-pass: admin Save removed (read-only), toggle persists session-local. **Gate:** flutter **532/532**, analyze clean, backend untouched, tree clean.
-  **Next:** user runs `git push` (assistant shell has no SSH key); then Wayfinder next epic (Sales role, Admin monitoring, CPMS repo).
+- **Last session:** `docs/sessions/2026-10-23-wayfinder-audit-and-verification.md` — audit of admin build + ATLAS refresh `f893950` (suppliers/audit/monitoring/settings → live, mock file deleted). **Gate re-proven fresh:** flutter **532/532**, analyze clean, tree clean.
+  **Next:** user runs `git push` (assistant shell has no SSH key); then Wayfinder next epic (CPMS repo #2 vs Fog: supplier writes, audit filter, settings API).
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message
