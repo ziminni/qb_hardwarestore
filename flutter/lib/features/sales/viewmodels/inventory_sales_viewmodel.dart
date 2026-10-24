@@ -1,5 +1,6 @@
 import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/models/sales.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/services/sales_service.dart';
 import 'package:flutter/foundation.dart';
 
@@ -74,14 +75,20 @@ class InventorySalesViewmodel extends ChangeNotifier {
     date: r.transDate,
     customer: r.customerName,
     cashier: r.cashierName,
-    paymentMethod: r.payments.isEmpty ? '—' : r.payments.first.method,
+    // A row built for the screen shows the LABEL; the code stays on the wire (C1).
+    paymentMethod: r.payments.isEmpty
+        ? '—'
+        : TenderMethod.labelFor(r.payments.first.method),
     source: _sourceLabel(r.source),
     status: _saleStatus(r.status),
     // The View sheet shows how it was paid and how much, so the payment rows
     // ride along instead of being reduced to their first method name.
     payments: [
       for (final p in r.payments)
-        InventorySalePayment(method: p.method, amount: p.amountTendered),
+        InventorySalePayment(
+          method: TenderMethod.labelFor(p.method),
+          amount: p.amountTendered,
+        ),
     ],
     lines: [
       // The wire carries no product names — only the selling-unit code — and

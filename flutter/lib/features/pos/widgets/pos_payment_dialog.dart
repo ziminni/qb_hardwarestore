@@ -1,8 +1,15 @@
+import 'package:client/data/models/tender_method.dart';
 import 'package:flutter/material.dart';
 
+/// What the payment dialog hands back: the method the cashier PICKED, and what they took.
+///
+/// [method] is a [TenderMethod], not a string, because the two meanings a string let
+/// share one type are exactly the C1 bug: the dialog shows a LABEL and the server takes a
+/// CODE, and a `String` let the label be posted as the method. Carrying the enum means the
+/// only way to reach the wire is [TenderMethod.code].
 class PosPaymentDetails {
   const PosPaymentDetails(this.method, this.amountPaid);
-  final String method;
+  final TenderMethod method;
   final double amountPaid;
 }
 
@@ -19,7 +26,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
   late final TextEditingController _amount = TextEditingController(
     text: widget.total.toStringAsFixed(2),
   );
-  String _method = 'Cash';
+  TenderMethod _method = TenderMethod.cash;
 
   @override
   void dispose() {
@@ -45,22 +52,25 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
                 const SizedBox(height: 18),
-                DropdownButtonFormField<String>(
+                DropdownButtonFormField<TenderMethod>(
                   initialValue: _method,
                   decoration: const InputDecoration(
                     labelText: 'Payment method',
                   ),
-                  items: const ['Cash', 'GCash', 'Card']
-                      .map(
-                        (method) => DropdownMenuItem(
-                          value: method,
-                          child: Text(method),
-                        ),
-                      )
-                      .toList(),
+                  // The dropdown shows LABELS and carries the enum: the wire code is
+                  // [TenderMethod.code] and is never the text on screen (C1).
+                  items: [
+                    for (final method in TenderMethod.tillTenders)
+                      DropdownMenuItem(
+                        value: method,
+                        child: Text(method.label),
+                      ),
+                  ],
                   onChanged: (value) => setState(() {
-                    _method = value!;
-                    if (_method != 'Cash') {
+                    _method = value ?? _method;
+                    // Only cash is counted back: an e-payment settles exactly, so the
+                    // amount is not the cashier's to type.
+                    if (_method != TenderMethod.cash) {
                       _amount.text = widget.total.toStringAsFixed(2);
                     }
                   }),
@@ -68,7 +78,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                 const SizedBox(height: 14),
                 TextFormField(
                   controller: _amount,
-                  enabled: _method == 'Cash',
+                  enabled: _method == TenderMethod.cash,
                   onChanged: (_) => setState(() {}),
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,

@@ -12,6 +12,7 @@
 //    figures are the server's arithmetic, not the till's.
 
 import 'package:client/data/models/returns.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/repositories/returns_repository.dart';
 import 'package:client/data/services/returns_service.dart';
@@ -386,7 +387,7 @@ void main() {
         await h.viewmodel.search('OR-1');
         h.viewmodel.setQuantity(8, 8);
         h.viewmodel.setReason(' cracked sacks between layers ');
-        h.viewmodel.setRefundMethod('GCASH');
+        h.viewmodel.setRefundMethod(TenderMethod.gcash);
 
         expect(await h.viewmodel.submit(), isTrue);
 
@@ -509,7 +510,7 @@ void main() {
       expect(h.viewmodel.reason, isEmpty);
       expect(h.viewmodel.result, isNull);
       expect(h.viewmodel.hasQuantity, isFalse);
-      expect(h.viewmodel.refundMethod, 'CASH');
+      expect(h.viewmodel.refundMethod, TenderMethod.cash);
     });
   });
 }

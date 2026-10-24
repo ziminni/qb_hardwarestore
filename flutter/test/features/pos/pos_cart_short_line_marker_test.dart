@@ -4,6 +4,7 @@
 // found - a marker nothing reads.
 
 import 'package:client/data/repositories/pos_repository.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
@@ -98,7 +99,7 @@ void main() {
       code: 'INSUFFICIENT_STOCK',
       variantId: target.variantId,
     );
-    await cart.submit(paymentMethod: 'CASH', amountPaid: 1);
+    await cart.submit(method: TenderMethod.cash, amountPaid: 1);
     await pumpCart(tester);
 
     // Exactly one row carries the marker, and it is the right one.
@@ -132,7 +133,7 @@ void main() {
   testWidgets('a terminal failure marks nothing', (tester) async {
     addTwoLines();
     repository.failure = PosServiceException('The server broke.');
-    await cart.submit(paymentMethod: 'CASH', amountPaid: 1);
+    await cart.submit(method: TenderMethod.cash, amountPaid: 1);
     await pumpCart(tester);
 
     expect(

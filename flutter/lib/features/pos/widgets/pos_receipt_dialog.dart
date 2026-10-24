@@ -1,4 +1,5 @@
 import 'package:client/data/models/pos_transaction.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:flutter/material.dart';
 
 class PosReceiptDialog extends StatelessWidget {
@@ -23,7 +24,9 @@ class PosReceiptDialog extends StatelessWidget {
             children: [
               Text('Reference: ${receipt.reference}'),
               Text('Receipt: ${receipt.officialReceiptNumber}'),
-              Text('Payment: ${receipt.paymentMethod}'),
+              // The receipt carries the wire CODE; the cashier reads the label.
+              // A legacy row holds the label already, and labelFor returns it as-is.
+              Text('Payment: ${TenderMethod.labelFor(receipt.paymentMethod)}'),
               const Divider(height: 28),
               ...receipt.lines.map(
                 (line) => Padding(

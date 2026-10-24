@@ -1,6 +1,7 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/models/returns.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/viewmodels/pos_returns_viewmodel.dart';
@@ -304,14 +305,16 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
     children: [
       const Text('Refund the excess by'),
       const SizedBox(width: AppSpacing.md),
-      DropdownButton<String>(
+      DropdownButton<TenderMethod>(
         value: returns.refundMethod,
         onChanged: (value) {
           if (value != null) returns.setRefundMethod(value);
         },
+        // Labels on screen, codes on the wire (C1): the refund POST carries
+        // `payment_method: 'CASH'`, never the word the cashier read.
         items: [
           for (final method in PosReturnsViewmodel.refundMethods)
-            DropdownMenuItem(value: method, child: Text(method)),
+            DropdownMenuItem(value: method, child: Text(method.label)),
         ],
       ),
     ],

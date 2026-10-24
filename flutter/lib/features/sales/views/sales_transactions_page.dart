@@ -1,6 +1,7 @@
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/data/models/sales.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/widgets/inventory_sales_status_badge.dart';
 import 'package:client/features/sales/widgets/live_load_error_banner.dart';
@@ -43,10 +44,13 @@ class _SalesTransactionsPageState extends State<SalesTransactionsPage> {
         ('Source', sale.source),
         ('Status', sale.status.label),
         if (sale.payments.isEmpty)
-          ('Payment', sale.paymentMethod)
+          ('Payment', TenderMethod.labelFor(sale.paymentMethod))
         else
           for (final payment in sale.payments)
-            ('Payment (${payment.method})', salesMoney(payment.amount)),
+            (
+              'Payment (${TenderMethod.labelFor(payment.method)})',
+              salesMoney(payment.amount),
+            ),
       ],
       lines: [
         for (final line in sale.lines)

@@ -2,6 +2,7 @@
 // not sit disabled beside a stale "Admin-only" comment.
 
 import 'package:client/data/models/ledger_entry.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
@@ -30,7 +31,7 @@ class _StubPayingRepository extends LedgerRepository {
   Future<void> recordPayment({
     required int collectibleId,
     required double amountPaid,
-    String paymentMethod = 'CASH',
+    TenderMethod method = TenderMethod.cash,
     String? officialReceiptNo,
   }) async {
     recordCalls++;

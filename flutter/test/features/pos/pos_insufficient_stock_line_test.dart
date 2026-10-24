@@ -10,6 +10,7 @@
 // published it. That key is now in the 400 body, so the cart can point AT the row.
 
 import 'package:client/data/repositories/pos_repository.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
@@ -83,7 +84,7 @@ void main() {
       variantId: line.variantId,
     );
 
-    final confirmed = await cart.submit(paymentMethod: 'CASH', amountPaid: 1);
+    final confirmed = await cart.submit(method: TenderMethod.cash, amountPaid: 1);
 
     expect(confirmed, isFalse);
     expect(
@@ -97,7 +98,7 @@ void main() {
     addFirstLine();
     repository.failure = PosServiceException('The server broke.');
 
-    await cart.submit(paymentMethod: 'CASH', amountPaid: 1);
+    await cart.submit(method: TenderMethod.cash, amountPaid: 1);
 
     expect(
       cart.insufficientStockLineId,
@@ -114,11 +115,11 @@ void main() {
       code: 'INSUFFICIENT_STOCK',
       variantId: line.variantId,
     );
-    await cart.submit(paymentMethod: 'CASH', amountPaid: 1);
+    await cart.submit(method: TenderMethod.cash, amountPaid: 1);
     expect(cart.insufficientStockLineId, line.lineId);
 
     repository.failure = PosServiceException('The server broke.');
-    await cart.submit(paymentMethod: 'CASH', amountPaid: 1);
+    await cart.submit(method: TenderMethod.cash, amountPaid: 1);
 
     expect(
       cart.insufficientStockLineId,
@@ -131,7 +132,7 @@ void main() {
   test('a successful sale leaves no marker behind', () async {
     addFirstLine();
 
-    final confirmed = await cart.submit(paymentMethod: 'CASH', amountPaid: 100);
+    final confirmed = await cart.submit(method: TenderMethod.cash, amountPaid: 100);
 
     expect(confirmed, isTrue);
     expect(cart.insufficientStockLineId, isNull);
@@ -149,7 +150,7 @@ void main() {
         variantId: 999999,
       );
 
-      await cart.submit(paymentMethod: 'CASH', amountPaid: 1);
+      await cart.submit(method: TenderMethod.cash, amountPaid: 1);
 
       expect(cart.insufficientStockLineId, isNull);
     },

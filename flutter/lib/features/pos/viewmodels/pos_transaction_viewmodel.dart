@@ -2,8 +2,12 @@ import 'dart:math';
 
 import 'package:client/data/models/customer.dart';
 import 'package:client/data/models/held_cart.dart';
-import 'package:client/data/models/pos_transaction.dart';
+// `PosCheckoutResult` lives in TWO libraries (the model file kept the old
+// response shape, pos_service.dart owns the checkout one). The checkout path uses
+// the service's, so the stale duplicate is hidden rather than left ambiguous.
+import 'package:client/data/models/pos_transaction.dart' hide PosCheckoutResult;
 import 'package:client/data/models/product_tracking.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/repositories/customer_repository.dart';
 import 'package:client/data/repositories/pos_repository.dart';
@@ -546,7 +550,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
   /// Returns whether the sale was confirmed, so a caller cannot announce success
   /// unconditionally.
   Future<bool> submit({
-    required String paymentMethod,
+    required TenderMethod method,
     required double amountPaid,
   }) async {
     if (_lines.isEmpty) return false;
@@ -557,18 +561,18 @@ class PosTransactionViewmodel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // The buyer is the SELECTED customer when the cashier picked or created one, and the
-      // seeded Walk-in Customer otherwise - a walk-in sale still cannot omit the customer,
-      // because the FK is not nullable (decision 06 section 2).
-      final buyer =
-          _selectedCustomer?.id ??
-          (_walkInCustomerId ??= await _pos.walkInCustomerId());
       // Snapshot the lines being sold: the receipt must describe THIS sale, not
       // whatever the cart holds when the response lands.
       final sold = List<PosCartLine>.of(_lines);
       // One key per ATTEMPT: created on the first press and reused by a retry, so
       // a dropped response cannot turn one basket into two sales.
       final attemptKey = _attemptKey ??= _newAttemptKey();
+      // The buyer is the SELECTED customer when the cashier picked or created one, and the
+      // seeded Walk-in Customer otherwise - a walk-in sale still cannot omit the customer,
+      // because the FK is not nullable (decision 06 section 2).
+      final buyer =
+          _selectedCustomer?.id ??
+          (_walkInCustomerId ??= await _pos.walkInCustomerId());
       final result = await _pos.checkout(
         customerId: buyer,
         items: [
@@ -579,8 +583,9 @@ class PosTransactionViewmodel extends ChangeNotifier {
               unitPrice: line.unitPrice,
             ),
         ],
+        // The tender goes on the wire as a CODE, never as the label the cashier read.
         payments: [
-          PosCheckoutPayment(method: paymentMethod, amountTendered: amountPaid),
+          PosCheckoutPayment(method: method.code, amountTendered: amountPaid),
         ],
         idempotencyKey: attemptKey,
       );
@@ -597,7 +602,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
           officialReceiptNumber: result.orNumber,
           createdAt: result.transDate,
           lines: List.unmodifiable(_serverLines(result.lines, sold)),
-          paymentMethod: paymentMethod,
+          paymentMethod: method.code,
           amountPaid: amountPaid,
           total: result.grandTotal,
         ),

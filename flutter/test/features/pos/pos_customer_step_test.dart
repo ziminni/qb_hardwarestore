@@ -12,6 +12,7 @@ import 'dart:async';
 //   * the sale goes to the SELECTED customer, not to whatever submit() used to resolve.
 
 import 'package:client/data/models/customer.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/repositories/customer_repository.dart';
 import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/services/customer_service.dart';
@@ -167,7 +168,7 @@ void main() {
       );
 
       expect(cart.customerLabel, 'Maria Santos');
-      await cart.submit(paymentMethod: 'CASH', amountPaid: 100);
+      await cart.submit(method: TenderMethod.cash, amountPaid: 100);
       expect(
         pos.sentCustomerId,
         5,
@@ -180,7 +181,7 @@ void main() {
   test('an anonymous sale still resolves the walk-in id itself', () async {
     await addOneLine();
 
-    await cart.submit(paymentMethod: 'CASH', amountPaid: 100);
+    await cart.submit(method: TenderMethod.cash, amountPaid: 100);
 
     expect(pos.sentCustomerId, 1, reason: 'the seeded Walk-in Customer');
   });
@@ -229,7 +230,7 @@ void main() {
       );
       pos.sentCustomerId = null;
 
-      await cart.submit(paymentMethod: 'CASH', amountPaid: 100);
+      await cart.submit(method: TenderMethod.cash, amountPaid: 100);
 
       expect(cart.selectedCustomer?.id, 5);
     },
@@ -490,7 +491,7 @@ void _reviewFixTests() {
       );
 
       final confirmed = await cart2.submit(
-        paymentMethod: 'CASH',
+        method: TenderMethod.cash,
         amountPaid: 100,
       );
 

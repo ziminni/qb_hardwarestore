@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:client/data/models/returns.dart';
 import 'package:client/data/models/sale_transaction.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/repositories/returns_repository.dart';
 import 'package:client/data/services/returns_service.dart';
 import 'package:flutter/foundation.dart';
@@ -36,14 +37,10 @@ class PosReturnsViewmodel extends ChangeNotifier {
 
   final ReturnsRepository _repository;
 
-  /// Methods the server accepts on a refund (`Payment.Method`). Cash first, and
-  /// the default: only cash moves the expected drawer.
-  static const List<String> refundMethods = [
-    'CASH',
-    'CARD',
-    'GCASH',
-    'BANK_TRANSFER',
-  ];
+  /// Methods the server accepts on a refund, from the ONE tender-method table
+  /// ([TenderMethod.refundTenders]). Cash first, and the default: only cash moves the
+  /// expected drawer.
+  static const List<TenderMethod> refundMethods = TenderMethod.refundTenders;
 
   // ---- search state -------------------------------------------------------
 
@@ -75,10 +72,10 @@ class PosReturnsViewmodel extends ChangeNotifier {
   /// requires one and this viewmodel refuses to submit without it.
   String get reason => _reason;
 
-  String _refundMethod = refundMethods.first;
+  TenderMethod _refundMethod = refundMethods.first;
 
   /// Which method the EXCESS is refunded in (`CASH` by default).
-  String get refundMethod => _refundMethod;
+  TenderMethod get refundMethod => _refundMethod;
 
   // ---- submit state -------------------------------------------------------
 
@@ -233,7 +230,7 @@ class PosReturnsViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setRefundMethod(String method) {
+  void setRefundMethod(TenderMethod method) {
     if (!refundMethods.contains(method)) return;
     _refundMethod = method;
     notifyListeners();
@@ -279,7 +276,8 @@ class PosReturnsViewmodel extends ChangeNotifier {
         customerId: found.customerId,
         originalTransactionId: found.id,
         reason: _reason,
-        paymentMethod: _refundMethod,
+        // The wire takes the CODE; the dropdown showed the label (C1).
+        paymentMethod: _refundMethod.code,
         lines: lines,
       );
       return true;

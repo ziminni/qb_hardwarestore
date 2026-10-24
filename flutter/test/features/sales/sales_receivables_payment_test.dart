@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:client/data/models/ledger_entry.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/repositories/ledger_repository.dart';
 import 'package:client/data/services/ledger_service.dart';
 import 'package:client/features/sales/viewmodels/sales_receivables_viewmodel.dart';
@@ -30,7 +31,7 @@ class _StubPayingRepository extends LedgerRepository {
   Future<void> recordPayment({
     required int collectibleId,
     required double amountPaid,
-    String paymentMethod = 'CASH',
+    TenderMethod method = TenderMethod.cash,
     String? officialReceiptNo,
   }) async {
     recordCalls++;

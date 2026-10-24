@@ -483,7 +483,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
 
     final messenger = ScaffoldMessenger.of(context);
     final confirmed = await transaction.submit(
-      paymentMethod: payment.method,
+      method: payment.method,
       amountPaid: payment.amountPaid,
     );
     if (!context.mounted) return;

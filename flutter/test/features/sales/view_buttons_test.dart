@@ -358,7 +358,9 @@ void main() {
       expect(_inSheet('Dela Cruz Construction'), findsOneWidget);
       expect(_inSheet('2 × ₱250.00'), findsOneWidget);
       expect(
-        _inSheet('CASH'),
+        // The sheet shows the LABEL; the wire code is what the row carries (C1).
+        // ('Cashier' also contains 'Cash', so the line is matched in full.)
+        _inSheet('Payment (Cash)'),
         findsOneWidget,
         reason: 'how it was paid is part of the document',
       );

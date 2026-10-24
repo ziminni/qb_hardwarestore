@@ -13,6 +13,7 @@
 //     list and would happily mint a zero-value receipt.
 
 import 'package:client/data/models/customer.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
@@ -87,7 +88,7 @@ void main() {
     cart.selectCustomer(
       const Customer(id: 2, name: 'Maria Santos', customerType: 'REGULAR'),
     );
-    return cart.submit(paymentMethod: 'CASH', amountPaid: 20);
+    return cart.submit(method: TenderMethod.cash, amountPaid: 20);
   }
 
   test(

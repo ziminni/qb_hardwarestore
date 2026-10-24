@@ -18,6 +18,7 @@
 // on success — never in the view, which is rebuilt freely.
 
 import 'package:client/data/models/customer.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
@@ -78,7 +79,7 @@ void main() {
     expect(cart.addLine(option, 2), isNull);
   }
 
-  Future<bool> submit() => cart.submit(paymentMethod: 'CASH', amountPaid: 20);
+  Future<bool> submit() => cart.submit(method: TenderMethod.cash, amountPaid: 20);
 
   test('a payment attempt is sent under a 32-hex-character key', () async {
     addOne();

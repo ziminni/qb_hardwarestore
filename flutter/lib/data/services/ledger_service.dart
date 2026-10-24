@@ -1,4 +1,5 @@
 import 'package:client/core/network/api_client.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:client/core/network/paged.dart';
 import 'package:client/data/models/ledger_entry.dart';
 import 'package:dio/dio.dart';
@@ -58,14 +59,15 @@ class LedgerService {
   Future<void> recordPayment({
     required int collectibleId,
     required double amountPaid,
-    String paymentMethod = 'CASH',
+    TenderMethod method = TenderMethod.cash,
     String? officialReceiptNo,
   }) async {
     try {
       await _client.post<void>(ledgerPaymentsPath, data: {
         'collectible': collectibleId,
         'amount_paid': amountPaid,
-        'payment_method': paymentMethod,
+        // The wire carries the code from the one tender-method table (C1).
+        'payment_method': method.code,
         'official_receipt_no': ?officialReceiptNo,
       });
     } on DioException catch (error) {
