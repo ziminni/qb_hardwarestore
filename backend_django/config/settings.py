@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 
 from pathlib import Path
 
+from corsheaders.defaults import default_headers
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -214,3 +216,11 @@ CACHES = {
 # Dev-only convenience; switch to CORS_ALLOWED_ORIGINS in production.
 # =============================================
 CORS_ALLOW_ALL_ORIGINS = True
+
+# `Idempotency-Key` is a CUSTOM header (ENDPOINTS.md, *Idempotency*), so it is not in
+# django-cors-headers' default allow-list. A browser will not send a header the preflight
+# did not allow: checkout failed on web with "Cannot connect to the BuildPro server"
+# while desktop worked, because CORS never applies to Dio's native client. Extend the
+# defaults rather than replace them - dropping `authorization` or `content-type` would
+# break every other browser call.
+CORS_ALLOW_HEADERS = (*default_headers, 'idempotency-key')
