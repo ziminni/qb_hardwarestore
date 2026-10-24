@@ -22,7 +22,9 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'username', 'email', 'full_name', 'is_active', 'is_staff',
             'role', 'role_names', 'last_login', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'last_login', 'created_at', 'updated_at']
+        read_only_fields = [
+            'id', 'is_staff', 'last_login', 'created_at', 'updated_at',
+        ]
 
     @staticmethod
     def get_role_names(obj):

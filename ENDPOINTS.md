@@ -62,14 +62,18 @@ This document maps every **frontend feature** (`flutter/lib/features/`) to the *
 | --- | --- | --- | --- |
 | POST | `/api/v1/auth/login/` | Login (username or email + password) → JWT pair | Public |
 | POST | `/api/v1/auth/refresh/` | Refresh access token | Public (refresh token in body) |
-| POST | `/api/v1/auth/register/` | Create account — **`group_name` is required**, one of the six roles in `apps/users/permissions.py`: `Admin`, `System Administrator`, `Store Manager`, `Stock Manager`, `Cashier`, `Site Foreman` (`seed_demo` creates five, omitting `Admin`); guarantees every account has a non-null `role` | Admin |
+| POST | `/api/v1/auth/register/` | Create account — **`group_name` is required**, one of the six roles in `apps/users/permissions.py`: `Admin`, `System Administrator`, `Store Manager`, `Stock Manager`, `Cashier`, `Site Foreman` (`seed_demo` creates five, omitting `Admin`); guarantees every account has a non-null `role` | Admin **group** (`Admin` / `System Administrator`) or superuser |
 | POST | `/api/v1/auth/logout/` | Logout (blacklists refresh token, writes audit log) | Authenticated |
 | GET | `/api/v1/auth/me/` | Current user profile + roles | Authenticated |
-| GET/POST/PATCH/DELETE | `/api/v1/users/` | User CRUD (admin). Query param: `?search=<term>` matches **username**, full name, or email | Admin |
+| GET/POST/PUT/PATCH | `/api/v1/users/` | User CRUD (admin). Query param: `?search=<term>` matches **username**, full name, or email. **No `DELETE`** — the route answers **405**; accounts are deactivated (`is_active: false`), never deleted (audit rows will `PROTECT` their user). `is_staff` is **read-only over the API**: it only grants Django `/admin` login, never application authority | Admin **group** |
 | GET | `/api/v1/users/stats/` | Account summary for dashboard cards: `{total, active, inactive, roles_assigned}` | Admin |
-| POST | `/api/v1/users/{id}/assign_role/` | Assign Group — body: `{"group_name": "Cashier"}` | Admin |
-| POST | `/api/v1/users/{id}/remove_role/` | Remove Group — body: `{"group_name": "Cashier"}` | Admin |
-| GET | `/api/v1/audit-logs/` | Immutable audit trail (read-only) | Admin |
+| POST | `/api/v1/users/{id}/assign_role/` | Assign Group — body: `{"group_name": "Cashier"}`; replaces the existing groups. Refused **400 `LAST_ADMIN`** when it would demote the last active admin | Admin **group** |
+| POST | `/api/v1/users/{id}/remove_role/` | Remove Group — body: `{"group_name": "Cashier"}`. Refused **400 `LAST_ADMIN`** when it would demote the last active admin | Admin **group** |
+| GET | `/api/v1/audit-logs/` | Immutable audit trail (read-only) | Admin **group** |
+
+**Authority is the Admin group, not `is_staff`** (decision 04): `is_staff` keeps one meaning — it may log into Django's `/admin` site. API authority comes from `Admin` / `System Administrator` group membership; superusers bypass role checks.
+
+**Last-admin guard:** any `PUT`/`PATCH` setting `is_active: false`, or any `assign_role` / `remove_role` that drops admin authority, is refused with `400 {"code": "LAST_ADMIN", "detail": "..."}` when that account is the last one that is active **and** is a superuser or a member of `Admin` / `System Administrator`. Deactivating a non-admin, or one of two admins, is allowed.
 
 Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` ERD mapping: USER → `apps_users.User`, ROLE → `auth.Group`).
 
@@ -169,7 +173,7 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
    | Endpoint group | Write access | Read access |
    | --- | --- | --- |
    | Auth (`login/`, `verify/`, `refresh/`) | Public / Authenticated | — |
-   | Users CRUD, roles, audit logs, register | Django staff (`IsAdminUser`) | Django staff |
+   | Users CRUD, roles, audit logs, register | Admin **group** (`IsAdminRole`) | Admin **group** |
    | Inventory catalog & stock (products, categories, brands, UOMs, suppliers, POs, goods receipts + `process`, stock adjustments) | Stock Manager / Store Manager / Admin | Any authenticated |
    | System alerts (incl. `resolve`) | Admin | Any authenticated |
    | POS (transactions, customers) | Cashier / Store Manager / Admin | Any authenticated |
@@ -182,7 +186,7 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
    | Token `verify` | Any authenticated | — |
    | Token `release` | Cashier / Store Manager / Admin | — |
 
-   Superusers bypass all role checks. Frontend role route guards (`/admin/*` etc.) are now backed by matching API enforcement.
+   Superusers bypass all role checks. Frontend role route guards (`/admin/*` etc.) are now backed by matching API enforcement. `is_staff` is **not** API authority (decision 04); `/users/` has no `DELETE` (405) and `is_staff` is read-only via the API — see §3.2.
 3. ~~**`tests.py` are still empty stubs**~~ — **FIXED**: 546 lines of real tests across all 5 apps (`users` 140, `requisitions` 128, `inventory` 121, `pos` 95, `collectibles` 62). Run with `docker compose exec backend python manage.py test`.
 4. ~~No dedicated `reports` aggregation endpoints yet~~ — **FIXED**: new read-only `apps/reports` (§4b) with `sales-summary`, `inventory-valuation`, `stock-movements`, `requisition-history`; `daily_report` now accepts `?date=`.
 

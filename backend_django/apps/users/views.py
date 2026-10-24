@@ -1,21 +1,53 @@
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportIndexIssue=false, reportOptionalSubscript=false, reportInvalidTypeArguments=false
 """Users app — ViewSets and auth views."""
 
 from django.contrib.auth.models import Group
 from django.db.models import Q
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
-from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import AuditLog, User
+from .permissions import STAFF_ROLES, IsAdminRole
 from .serializers import (
     AuditLogSerializer,
     LoginSerializer,
     RegisterSerializer,
     UserSerializer,
 )
-from .services import log_audit, update_last_login
+from .services import (
+    is_active_admin,
+    log_audit,
+    other_active_admin_exists,
+    update_last_login,
+)
+
+
+LAST_ADMIN_DETAIL = (
+    'This change would leave no active admin. Promote or activate another '
+    'admin account first.'
+)
+
+
+def last_admin_refusal(target, *, keeps_admin_authority):
+    """400 LAST_ADMIN when a change would strip the only active admin.
+
+    ``keeps_admin_authority`` is the *post-change* answer to "is this account
+    still an active admin?" — callers compute it from the fields they are about
+    to write (``is_active`` or group membership). The guard only fires when the
+    target is today an active admin and nobody else is: accounts without
+    authority can always be changed, because that removes no admin.
+    """
+    if keeps_admin_authority or not is_active_admin(target):
+        return None
+    if other_active_admin_exists(target):
+        return None
+    return Response(
+        {'code': 'LAST_ADMIN', 'detail': LAST_ADMIN_DETAIL},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -23,9 +55,13 @@ from .services import log_audit, update_last_login
 # ---------------------------------------------------------------------------
 
 @api_view(['POST'])
-@permission_classes([IsAdminUser])
+@permission_classes([IsAdminRole])
 def register_view(request):
-    """Create an account; public registration is intentionally disabled."""
+    """Create an account; public registration is intentionally disabled.
+
+    Authority is the Admin *group* (decision 04) — ``is_staff`` only decides who
+    may open Django's ``/admin`` site.
+    """
     serializer = RegisterSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     user = serializer.save()
@@ -82,10 +118,15 @@ def login_view(request):
 # ---------------------------------------------------------------------------
 
 class UserViewSet(viewsets.ModelViewSet):
-    """Admin CRUD for user accounts."""
+    """Admin CRUD for user accounts.
+
+    Accounts are deactivated, never deleted: audit rows will PROTECT their user
+    (decision 07), so ``DELETE`` is not routed at all — it answers 405.
+    """
     queryset = User.objects.prefetch_related('groups').all()
     serializer_class = UserSerializer
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdminRole]
+    http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -97,6 +138,22 @@ class UserViewSet(viewsets.ModelViewSet):
                 | Q(username__icontains=search),
             )
         return qs
+
+    def update(self, request, *args, **kwargs):
+        """PATCH / PUT, guarded so the last active admin cannot be disabled."""
+        instance = self.get_object()
+        serializer = self.get_serializer(
+            instance, data=request.data, partial=kwargs.get('partial', False))
+        serializer.is_valid(raise_exception=True)
+        is_active_after = serializer.validated_data.get(
+            'is_active', instance.is_active)
+        refusal = last_admin_refusal(
+            instance,
+            keeps_admin_authority=is_active_after and is_active_admin(instance),
+        )
+        if refusal is not None:
+            return refusal
+        return super().update(request, *args, **kwargs)
 
     @action(detail=False, methods=['get'])
     def stats(self, request):
@@ -118,7 +175,11 @@ class UserViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def assign_role(self, request, pk=None):
-        """POST /api/users/{id}/assign_role/  { "group_name": "Cashier" }"""
+        """POST /api/users/{id}/assign_role/  { "group_name": "Cashier" }
+
+        Membership is replaced, so assigning a non-admin group demotes the
+        account — refused when that account is the last active admin.
+        """
         user = self.get_object()
         group_name = request.data.get('group_name')
         if not group_name:
@@ -133,6 +194,13 @@ class UserViewSet(viewsets.ModelViewSet):
                 {'detail': f'Group "{group_name}" does not exist.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        refusal = last_admin_refusal(
+            user,
+            keeps_admin_authority=user.is_active and (
+                user.is_superuser or group.name in STAFF_ROLES),
+        )
+        if refusal is not None:
+            return refusal
         user.groups.set([group])
         return Response({'detail': f'{user.username} assigned to {group_name}.'})
 
@@ -153,6 +221,18 @@ class UserViewSet(viewsets.ModelViewSet):
                 {'detail': f'Group "{group_name}" does not exist.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        still_has_admin_group = (
+            user.groups.filter(name__in=STAFF_ROLES)
+            .exclude(pk=group.pk)
+            .exists()
+        )
+        refusal = last_admin_refusal(
+            user,
+            keeps_admin_authority=user.is_active and (
+                user.is_superuser or still_has_admin_group),
+        )
+        if refusal is not None:
+            return refusal
         user.groups.remove(group)
         return Response({'detail': f'{group_name} removed from {user.username}.'})
 
@@ -164,4 +244,4 @@ class UserViewSet(viewsets.ModelViewSet):
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = AuditLog.objects.select_related('user').all()
     serializer_class = AuditLogSerializer
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdminRole]
