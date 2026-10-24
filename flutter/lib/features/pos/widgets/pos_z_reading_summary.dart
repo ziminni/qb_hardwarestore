@@ -9,10 +9,21 @@ import 'package:flutter/material.dart';
 /// after closing from the till — so the two can never disagree about what a
 /// Z-reading says. Variance is called out on its own line because it is the one
 /// number that means "count the drawer again".
+///
+/// [title] says WHICH shift the figures belong to. The Shifts tab shows a live
+/// shift's running totals or the last closed shift's, and an unlabelled block of
+/// money was read as the live drawer.
 class PosZReadingSummary extends StatelessWidget {
-  const PosZReadingSummary({super.key, required this.reading});
+  const PosZReadingSummary({
+    super.key,
+    required this.reading,
+    this.title = 'Z-READING',
+  });
 
   final ZReading reading;
+
+  /// The heading above the figures, e.g. `This shift so far`.
+  final String title;
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +39,7 @@ class PosZReadingSummary extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Z-READING', style: Theme.of(context).textTheme.labelSmall),
+          Text(title, style: Theme.of(context).textTheme.labelSmall),
           const SizedBox(height: AppSpacing.md),
           _line(context, 'Transactions', '${reading.transactionCount}'),
           _line(

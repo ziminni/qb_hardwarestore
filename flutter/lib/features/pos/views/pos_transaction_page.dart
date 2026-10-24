@@ -8,6 +8,7 @@ import 'package:client/features/pos/widgets/pos_navigation.dart';
 import 'package:client/features/pos/viewmodels/held_cart_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
+import 'package:client/features/pos/widgets/pos_opening_float_form.dart';
 import 'package:client/features/pos/widgets/pos_shift_close_dialog.dart';
 import 'package:client/features/pos/widgets/pos_customer_picker_dialog.dart';
 import 'package:client/features/pos/widgets/pos_payment_dialog.dart';
@@ -515,52 +516,14 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
 ///
 /// The opening float is required because it is the only number the Z-reading
 /// cannot reconstruct — every other figure comes from the shift's own sales.
-class _OpenShiftGate extends StatefulWidget {
+/// The FIELD and the open call come from [PosOpeningFloatForm], shared with the
+/// Shifts tab's dialog: two copies of "count the drawer" would eventually
+/// disagree about what a valid float is.
+class _OpenShiftGate extends StatelessWidget {
   const _OpenShiftGate();
 
   @override
-  State<_OpenShiftGate> createState() => _OpenShiftGateState();
-}
-
-class _OpenShiftGateState extends State<_OpenShiftGate> {
-  final _floatController = TextEditingController();
-  bool _opening = false;
-
-  @override
-  void dispose() {
-    _floatController.dispose();
-    super.dispose();
-  }
-
-  /// A negative float is refused here as well as on the server: cash that cannot
-  /// be in a drawer is a typo, and catching it keeps the form up instead of
-  /// posting a shift whose drawer arithmetic is already wrong.
-  double? get _openingFloat {
-    final parsed = double.tryParse(_floatController.text.trim());
-    if (parsed == null || parsed < 0) return null;
-    return parsed;
-  }
-
-  Future<void> _open() async {
-    final openingFloat = _openingFloat;
-    if (openingFloat == null || _opening) return;
-    final shift = context.read<ShiftViewmodel>();
-    setState(() => _opening = true);
-    final opened = await shift.openShift(openingFloat);
-    if (!mounted) return;
-    setState(() => _opening = false);
-    if (opened == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(shift.actionError ?? 'The shift could not be opened.'),
-        ),
-      );
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final openingFloat = _openingFloat;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.xxl),
       child: Center(
@@ -586,33 +549,9 @@ class _OpenShiftGateState extends State<_OpenShiftGate> {
                 'drawer and enter it as the opening float.',
               ),
               const SizedBox(height: AppSpacing.lg),
-              TextField(
-                controller: _floatController,
-                autofocus: true,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Opening float',
-                  prefixText: '₱ ',
-                ),
-                onChanged: (_) => setState(() {}),
-                onSubmitted: (_) => _open(),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton(
-                  onPressed: openingFloat == null || _opening ? null : _open,
-                  child: _opening
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Open shift'),
-                ),
-              ),
+              // No onOpened: the opened shift arrives through the viewmodel,
+              // and the till rebuilds into the sale screen on its own.
+              const PosOpeningFloatForm(),
             ],
           ),
         ),

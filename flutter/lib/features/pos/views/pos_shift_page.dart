@@ -4,6 +4,7 @@ import 'package:client/data/models/shift.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
+import 'package:client/features/pos/widgets/pos_open_shift_dialog.dart';
 import 'package:client/features/pos/widgets/pos_shift_close_dialog.dart';
 import 'package:client/features/pos/widgets/pos_z_reading_summary.dart';
 import 'package:client/features/sales/widgets/live_load_error_banner.dart';
@@ -63,6 +64,18 @@ class _PosShiftView extends StatelessWidget {
         .firstOrNull;
     final nothingLoaded = current == null && viewmodel.history.isEmpty;
 
+    // A running reading belongs to the OPEN shift: `GET /shifts/current/` returns
+    // the same derived summary with no variance yet (there is no closing count).
+    final runningReading = current?.zReading;
+    // The previous shift's reading is shown ONLY when nothing is open. Showing
+    // it under a live drawer made a cashier read stale money as "now" (live QA).
+    final previousReading = current == null ? lastClosed?.zReading : null;
+
+    // "Open a shift" is offered only for a REAL "none": a failed current-shift
+    // read says nothing either way, and opening a second shift on top of a live
+    // drawer is what the server refuses.
+    final canOpen = current == null && viewmodel.currentShiftError == null;
+
     return DashboardShell(
       title: 'Shifts',
       subtitle: 'Your open shift, end-of-shift readings and past shifts.',
@@ -93,7 +106,9 @@ class _PosShiftView extends StatelessWidget {
                     label: 'Shift status',
                     value: current == null ? 'CLOSED' : current.status,
                     caption: current == null
-                        ? 'Open a shift at the till to start selling'
+                        ? (canOpen
+                              ? 'No shift open — open one to start selling'
+                              : 'The open shift could not be checked')
                         : 'Opened ${_timestamp(current.openedAt)}',
                     icon: Icons.access_time,
                     color: current == null
@@ -114,6 +129,15 @@ class _PosShiftView extends StatelessWidget {
                   ),
               ],
             ),
+            if (canOpen) ...[
+              const SizedBox(height: AppSpacing.lg),
+              FilledButton(
+                // The SAME flow the till gate uses - one shared form, so the
+                // float rule and the server's refusal messages cannot drift.
+                onPressed: () => showOpenShiftDialog(context),
+                child: const Text('Open shift'),
+              ),
+            ],
             if (current != null) ...[
               const SizedBox(height: AppSpacing.lg),
               FilledButton.icon(
@@ -122,9 +146,18 @@ class _PosShiftView extends StatelessWidget {
                 label: const Text('Close shift'),
               ),
             ],
-            if (lastClosed?.zReading case final reading?) ...[
+            if (runningReading != null) ...[
               const SizedBox(height: AppSpacing.xl),
-              PosZReadingSummary(reading: reading),
+              PosZReadingSummary(
+                reading: runningReading,
+                title: 'This shift so far',
+              ),
+            ] else if (previousReading != null && lastClosed != null) ...[
+              const SizedBox(height: AppSpacing.xl),
+              PosZReadingSummary(
+                reading: previousReading,
+                title: 'Last closed shift (${_timestamp(lastClosed.openedAt)})',
+              ),
             ],
             const SizedBox(height: AppSpacing.xl),
             SalesRecordsTable(

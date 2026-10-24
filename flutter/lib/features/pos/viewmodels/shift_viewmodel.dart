@@ -38,6 +38,14 @@ class ShiftViewmodel extends ChangeNotifier {
   /// shift".
   String? get loadError => _currentError ?? _historyError;
 
+  /// Why the last CURRENT-shift read failed, or null.
+  ///
+  /// Exposed apart from [loadError] because the Shifts tab may only offer "open
+  /// a shift" when the current-shift answer is a real "none" — a failed history
+  /// load says nothing about whether a drawer is open, and a failed current load
+  /// says nothing either way.
+  String? get currentShiftError => _currentError;
+
   /// Why the last open/close failed, or null.
   String? actionError;
 
