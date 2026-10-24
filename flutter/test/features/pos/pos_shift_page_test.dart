@@ -100,14 +100,22 @@ Shift _shift({
   );
 }
 
+/// Mirrors `lib/main.dart`: the auth viewmodel is app-scoped and therefore an
+/// ANCESTOR of the Navigator, while [ShiftViewmodel] is NOT — it is created by
+/// [PosShiftPage] itself and provided inside the page.
+///
+/// The old harness provided [ShiftViewmodel] above `MaterialApp` too, which put
+/// it above the Navigator and hid a live-QA break: the open-shift DIALOG pushes
+/// a route above the page, so `context.read<ShiftViewmodel>()` inside the dialog
+/// looked for a provider the real app does not have and threw
+/// ProviderNotFoundException into an async callback (swallowed — nothing
+/// happened on screen). Anything the dialog needs must now be passed in, so a
+/// test that pumps this harness fails if that regresses.
 Future<void> _pumpPage(WidgetTester tester, ShiftViewmodel vm) async {
   await tester.pumpWidget(
     ChangeNotifierProvider<AuthViewmodel>.value(
       value: AuthViewmodel(AuthRepository(AuthService())),
-      child: ChangeNotifierProvider<ShiftViewmodel>.value(
-        value: vm,
-        child: MaterialApp(home: PosShiftPage(viewmodel: vm)),
-      ),
+      child: MaterialApp(home: PosShiftPage(viewmodel: vm)),
     ),
   );
   await tester.pumpAndSettle();
@@ -219,6 +227,40 @@ void main() {
         findsNothing,
         reason: 'unknown state must not offer to open a shift',
       );
+    });
+
+    testWidgets('the open-shift DIALOG carries the viewmodel above the page', (
+      tester,
+    ) async {
+      // The dialog route sits ABOVE PosShiftPage's own provider, exactly like the
+      // real app (see _pumpPage). The form inside it reads ShiftViewmodel, so the
+      // dialog must re-provide the one it was handed.
+      final service = _StubShifts();
+      await _pump(tester, ShiftViewmodel(service: service));
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Open shift'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), '500');
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.widgetWithText(FilledButton, 'Open shift'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        service.openCalls,
+        1,
+        reason:
+            'the dialog\'s form must reach the viewmodel — a route above the '
+            'page cannot read a page-scoped provider',
+      );
+      expect(service.openedWith, 500);
+      expect(find.text('OPEN'), findsWidgets);
     });
 
     testWidgets('with no open shift the tab OPENS one instead of dead-ending', (

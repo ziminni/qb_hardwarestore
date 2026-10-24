@@ -134,7 +134,7 @@ class _PosShiftView extends StatelessWidget {
               FilledButton(
                 // The SAME flow the till gate uses - one shared form, so the
                 // float rule and the server's refusal messages cannot drift.
-                onPressed: () => showOpenShiftDialog(context),
+                onPressed: () => showOpenShiftDialog(context, viewmodel),
                 child: const Text('Open shift'),
               ),
             ],
