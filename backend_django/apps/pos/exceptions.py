@@ -27,9 +27,93 @@ class ReturnError(ValueError):
     NOT raised for a bad client `unit_price` any more: since decision 01 the server prices
     the refund from the original sale line, so a client price is ignored rather than
     refused (see `InvalidSale` for the payload shapes that ARE refused).
+
+    `INVALID_RETURN` is the fallback code. Phase 3 (decision 05) gave each REFUSAL its own
+    stable code below, because the till has to tell a clerk what to do next: "link the
+    original sale" (`UNLINKED_RETURN_FORBIDDEN`, a 403), "you cannot return that much"
+    (`RETURN_QTY_EXCEEDED`, with the numbers), "this was a material release"
+    (`RELEASE_NOT_RETURNABLE`), "write why" (`RETURN_REASON_REQUIRED`). One catch-all code
+    would force the client to match on English prose.
     """
 
     code = 'INVALID_RETURN'
+
+
+class ReturnOfReturn(ReturnError):
+    """The original is itself a RETURN. Reversing a reversal has no meaning."""
+
+    code = 'RETURN_OF_RETURN'
+
+
+class OriginalNotCompleted(ReturnError):
+    """The original is VOID or REFUNDED - only a COMPLETED sale can be reversed."""
+
+    code = 'ORIGINAL_NOT_COMPLETED'
+
+
+class ReleaseNotReturnable(ReturnError):
+    """The original is a REQUISITION release, which is out of scope for returns.
+
+    A release issues materials against a material token and books a collectible against
+    the project; returning it is a requisition workflow (Phase 5+), not a till refund.
+    Refused explicitly so the clerk is not told "return the original sale" about a
+    document that is not a sale.
+    """
+
+    code = 'RELEASE_NOT_RETURNABLE'
+
+
+class ReturnReasonRequired(ReturnError):
+    """A return arrived with no reason (Phase 3, decision 05).
+
+    Every refund leaves the shop with less money or less stock than a receipt says, so
+    the audit trail must answer WHY without asking the cashier afterwards. Blank is not a
+    reason, and neither is 300 characters pasted from somewhere: `MAX_RETURN_REASON_LENGTH`
+    (255) is the contract, and HTTP carries no useful message above it.
+    """
+
+    code = 'RETURN_REASON_REQUIRED'
+
+
+class ReturnQtyExceeded(ReturnError):
+    """A line asks for more of a selling unit than the original sale still has (F5).
+
+    The cap is by SELLING UNIT against what was SOLD, not against `SalesItemDeduction`
+    rows: a sale rung before those rows existed had no cap at all, so a hand-written
+    request could return 100 bags against a sale of 10, restock 100 and refund 100.
+
+    Carries the four numbers so the till can say which line and by how much, instead of
+    making the cashier re-count by hand.
+    """
+
+    code = 'RETURN_QTY_EXCEEDED'
+
+    def __init__(self, variant_uom, sold, already_returned, requested):
+        self.variant_uom = variant_uom
+        self.sold = sold
+        self.already_returned = already_returned
+        self.requested = requested
+        super().__init__(
+            f'Selling unit {variant_uom} sold {sold} on this sale, '
+            f'{already_returned} already returned, and {requested} is being asked for.')
+
+
+class UnlinkedReturnForbidden(PermissionDenied):
+    """A non-manager posted a return with no `original_transaction` (decision 05).
+
+    A cashier returns against the receipt in their hand: the linked original is what
+    prices the line, caps the quantity and finds the utang to settle. An unlinked refund
+    is a manager's correction (their screen is Phase 5), so a till account cannot ring one.
+
+    403, not 400: the endpoint is theirs to use and the body is well formed - what they
+    may not do is refund money with nothing to refund it against. Same `{code, detail}`
+    shape as `CreditLimitForbidden`, so the client branches on `code`.
+    """
+
+    code = 'UNLINKED_RETURN_FORBIDDEN'
+    default_detail = (
+        'A cashier must return against the original sale. Ask a Store Manager for an '
+        'unlinked return.')
 
 
 class InvalidSale(ValueError):
@@ -236,6 +320,22 @@ def handler(exc, context):
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
+    if isinstance(exc, ReturnQtyExceeded):
+        # Quantity refusals carry the four numbers the till needs to correct the line:
+        # which selling unit, what was sold, what came back already, what was asked for.
+        # 2-decimal strings for the same reason money is: `SalesItem.qty` is a Decimal,
+        # and a JSON float loses both the scale and the exactness.
+        return Response(
+            {
+                'code': exc.code,
+                'detail': str(exc),
+                'variant_uom': exc.variant_uom,
+                'sold': f'{exc.sold:.2f}',
+                'already_returned': f'{exc.already_returned:.2f}',
+                'requested': f'{exc.requested:.2f}',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     if isinstance(exc, ReturnError):
         return Response(
             {
@@ -243,6 +343,16 @@ def handler(exc, context):
                 'detail': str(exc),
             },
             status=status.HTTP_400_BAD_REQUEST,
+        )
+    if isinstance(exc, UnlinkedReturnForbidden):
+        # 403 for the same reason as CreditLimitForbidden, and answered HERE rather than
+        # by DRF's default handler so the payload keeps the project's {code, detail} shape.
+        return Response(
+            {
+                'code': UnlinkedReturnForbidden.code,
+                'detail': str(exc.detail),
+            },
+            status=status.HTTP_403_FORBIDDEN,
         )
     if isinstance(exc, WalkInCannotOwe):
         # The same shape as a short-stock rejection, and deliberately so: the client

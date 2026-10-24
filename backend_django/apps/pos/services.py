@@ -50,6 +50,11 @@ OUTSTANDING_LEDGER_STATUSES = (
 # both directions by `_validated_sale_lines`.
 MAX_SALE_LINES = 200
 
+# Decision 05 (Phase 3): a return has to say why. Long enough for a sentence a cashier
+# would actually type ("3 bags soaked in the rain, customer brought them back"), short
+# enough that the audit trail stays a note and not a document.
+MAX_RETURN_REASON_LENGTH = 255
+
 # Decision 09 item 2, and the width of `SalesTransaction.idempotency_key`. A longer key
 # would be truncated by the database and stop identifying the attempt it names.
 MAX_IDEMPOTENCY_KEY_LENGTH = 64
@@ -684,16 +689,120 @@ def _return_unit_price(*, original, vuom):
     return original_line.unit_price
 
 
+def _returned_so_far(original, vuom):
+    """(sold, already_returned) for ONE selling unit on `original` (Phase 3, decision 05).
+
+    Read from `SalesItem` rows, NOT from `SalesItemDeduction`: a sale rung before those
+    rows existed has none, and the cap that used to rely on them was therefore blind - a
+    hand-written request could return 100 bags against a sale of 10.
+
+    Only COMPLETED returns are counted: a voided return gave nothing back, so its
+    quantity must be returnable again. `SalesItem.qty` is negative on a return row
+    (direction), hence the sign flip.
+    """
+    from django.db.models import Sum
+
+    def _sum(queryset):
+        return queryset.aggregate(total=Sum('qty'))['total'] or Decimal('0')
+
+    sold = _sum(SalesItem.objects.filter(
+        transaction=original, variant_uom=vuom))
+    returned = _sum(SalesItem.objects.filter(
+        transaction__original_transaction=original,
+        transaction__source=SalesTransaction.Source.RETURN,
+        transaction__status=SalesTransaction.Status.COMPLETED,
+        variant_uom=vuom))
+    return sold, -returned
+
+
+def _requested_by_selling_unit(lines):
+    """Total requested per `VariantUOM`, keyed by the selling unit itself.
+
+    Two lines of the same selling unit in one request are ONE quantity as far as the cap
+    is concerned: checking them separately would let 6 + 6 pass a cap of 10.
+    """
+    totals = {}
+    for vuom, qty in lines:
+        totals[vuom] = totals.get(vuom, Decimal('0')) + qty
+    return totals
+
+
+def _settle_return_money(*, txn, original, cashier, payment_method, total):
+    """DEBT FIRST, then the drawer (decision 05). Returns the refund summary.
+
+    A return against a credit sale is not cash back - the customer still owes money.
+    Reducing the ledger first is what makes the till honest: the sale's utang drops by
+    the return value, the ledger history explains the drop as a `RETURN_CREDIT` payment,
+    and only the EXCESS leaves the drawer. Without this the shop hands over cash for
+    goods the customer never paid for, and the receivable stays on the books forever.
+
+    The ledger is locked before it is read: two returns against the same sale must
+    serialize, or both read the same stale balance and one reduction vanishes.
+
+    `apply_payment_to_ledger` owns the arithmetic (balance and status, PAID at zero) so
+    there is one rule for "what a payment does to a ledger" rather than a second copy.
+    """
+    from apps.collectibles.models import CollectiblePayment
+    from apps.collectibles.services import apply_payment_to_ledger
+
+    return_value = -total
+    ledger = None
+    if original is not None:
+        ledger = (
+            CollectibleLedger.objects
+            .select_for_update()
+            .filter(transaction=original,
+                    status__in=OUTSTANDING_LEDGER_STATUSES,
+                    balance_due__gt=0)
+            .order_by('due_date', 'id')
+            .first()
+        )
+
+    debt_reduced = Decimal('0')
+    if ledger is not None:
+        # A partial return can only settle what is still owed; the rest is cash.
+        debt_reduced = min(return_value, ledger.balance_due)
+        apply_payment_to_ledger(ledger, debt_reduced)
+        CollectiblePayment.objects.create(
+            collectible=ledger,
+            processed_by=cashier,
+            amount_paid=debt_reduced,
+            payment_method='RETURN_CREDIT',
+            # The RETURN's own number, not an OR: the document for this movement is the
+            # return transaction the audit trail already names.
+            official_receipt_no=txn.transaction_no,
+        )
+
+    cash_refund = return_value - debt_reduced
+    if cash_refund > 0:
+        # NO Payment row at all when the debt absorbed the whole return: a zero row would
+        # put a zero into the Z-reading's cash_refunds and print a refund nobody made.
+        Payment.objects.create(
+            transaction=txn,
+            method=payment_method,
+            amount_tendered=-cash_refund,
+            reference_no='',
+        )
+
+    return {
+        'return_value': _money(return_value),
+        'debt_reduced': _money(debt_reduced),
+        'cash_refund': _money(cash_refund),
+        'refund_method': payment_method,
+        'ledger_id': None if ledger is None else ledger.id,
+        'ledger_balance': None if ledger is None else _money(ledger.balance_due),
+    }
+
+
 def process_return(*, customer_id, cashier, items_data,
-                   original_transaction_id=None, payment_method='CASH'):
+                   original_transaction_id=None, payment_method='CASH',
+                   reason=''):
     """Post a customer return: a RETURN transaction with negative amounts.
 
     items_data mirrors process_sale but POSITIVE (what comes back):
     [{'variant_id': <VariantUOM id>, 'qty': 5}].
-    Lines store negative qty (direction) at a positive unit price; the payment
-    is the negative refund. Validators do not run on objects.create(), and no
-    full_clean path creates sale items — see the 6A.4 ledger note.
-    Collectibles are deliberately untouched (decision 15 is silent on utang).
+    Lines store negative qty (direction) at a positive unit price. Validators do not run
+    on objects.create(), and no full_clean path creates sale items — see the 6A.4 note.
 
     Phase 1 task 1 (decision 01, plus the ledger ruling that returns are converted and
     server-priced too):
@@ -707,37 +816,90 @@ def process_return(*, customer_id, cashier, items_data,
       linked (and the UOM must have been on that sale), else the selling unit's
       `default_selling_price`. A client `unit_price` is ignored - a forgeable refund is
       money out of the drawer.
+
+    Phase 3 task 2 (decision 05) added the policy, ALL of it before the first write:
+
+    * an OPEN SHIFT is required, exactly as for a sale. A refund is money out of a
+      drawer, and a drawer is a shift: an orphan refund makes the Z-reading's expected
+      drawer too high by the amount paid out;
+    * a REASON is required - every refund has to explain itself in the audit trail, and
+      it is stored in `notes`;
+    * a return from a non-manager must be LINKED to its original sale, because the link
+      is what prices the line, caps the quantity and finds the utang to settle;
+    * the ORIGINAL is row-locked and refused when it is a return, a requisition release,
+      or not COMPLETED;
+    * the returned qty per selling unit is capped by what the original SOLD;
+    * the money is settled DEBT FIRST (`_settle_return_money`), and the summary of that
+      settlement is attached to the returned row as `txn.refund_summary` - a transient
+      attribute, NOT a model field, so the 201 body can explain the refund without a
+      second table to drift.
     """
-    from .exceptions import ReturnError
+    from apps.users.permissions import IsManagerRole, has_role
+
+    from .exceptions import (
+        OriginalNotCompleted,
+        ReleaseNotReturnable,
+        ReturnError,
+        ReturnOfReturn,
+        ReturnQtyExceeded,
+        ReturnReasonRequired,
+        UnlinkedReturnForbidden,
+        NoOpenShift,
+    )
+    from .models import Shift
 
     lines = _validated_sale_lines(items_data)
     if payment_method not in dict(Payment.Method.choices):
-        raise ReturnError(
-            f'Unknown payment method: {payment_method}.')
+        raise ReturnError(f'Unknown payment method: {payment_method}.')
+
+    reason = reason.strip() if isinstance(reason, str) else ''
 
     with transaction.atomic():
+        # The gate first, and INSIDE the atomic block so a refusal leaves nothing behind:
+        # no RETURN row, no restocked batch, no refund, no audit row.
+        try:
+            shift = Shift.objects.get(cashier=cashier, status=Shift.Status.OPEN)
+        except Shift.DoesNotExist:
+            raise NoOpenShift(
+                'You have no open shift. Open a shift before posting a return.'
+            ) from None
+
+        if not reason or len(reason) > MAX_RETURN_REASON_LENGTH:
+            raise ReturnReasonRequired(
+                'A return needs a reason of 1 to '
+                f'{MAX_RETURN_REASON_LENGTH} characters.')
+
         original = None
         if original_transaction_id is not None:
-            original = SalesTransaction.objects.get(pk=original_transaction_id)
+            # Locked for the whole block: two concurrent returns against one sale must
+            # serialize, or both pass the quantity cap and the shop refunds twice.
+            original = SalesTransaction.objects.select_for_update().get(
+                pk=original_transaction_id)
             if original.source == SalesTransaction.Source.RETURN:
-                raise ReturnError('A return cannot reverse another return.')
+                raise ReturnOfReturn('A return cannot reverse another return.')
+            if original.source == SalesTransaction.Source.REQUISITION:
+                raise ReleaseNotReturnable(
+                    'A material release is not a sale and cannot be returned at the '
+                    'till.')
             if original.status != SalesTransaction.Status.COMPLETED:
-                raise ReturnError(
+                raise OriginalNotCompleted(
                     'Only a completed sale can be reversed.')
-        # Phase 4 (decision 06): a refund is cash OUT OF THE DRAWER, so it has to belong
-        # to the shift that paid it or the Z-reading never sees the money leave and its
-        # "expected drawer" is overstated by every refund of the day.
-        #
-        # ATTACHED, not required, unlike process_sale. The gate ruling is about ringing
-        # sales; a return recorded without an open shift still has to be storable, so a
-        # missing shift leaves the FK null rather than refusing the refund.
-        from .models import Shift
-        open_shift = Shift.objects.filter(
-            cashier=cashier, status=Shift.Status.OPEN).first()
+        elif not has_role(cashier, IsManagerRole.required_roles):
+            raise UnlinkedReturnForbidden()
+
+        requested = _requested_by_selling_unit(lines)
+        if original is not None:
+            for vuom, want in requested.items():
+                sold, already_returned = _returned_so_far(original, vuom)
+                if already_returned + want > sold:
+                    raise ReturnQtyExceeded(
+                        variant_uom=vuom.id, sold=sold,
+                        already_returned=already_returned, requested=want)
+
         txn = SalesTransaction.objects.create(
             customer_id=customer_id,
             cashier=cashier,
-            shift=open_shift,
+            shift=shift,
             transaction_no=generate_transaction_no(),
             source=SalesTransaction.Source.RETURN,
             original_transaction=original,
@@ -745,10 +907,8 @@ def process_return(*, customer_id, cashier, items_data,
             vat_amount=0,
             discount_amount=0,
             grand_total=0,
+            notes=reason,
         )
-        if payment_method not in dict(Payment.Method.choices):
-            raise ReturnError(
-                f'Unknown payment method: {payment_method}.')
         total = Decimal('0')
         for vuom, qty in lines:
             unit_price = _return_unit_price(original=original, vuom=vuom)
@@ -772,15 +932,75 @@ def process_return(*, customer_id, cashier, items_data,
         txn.vatable_sales = total
         txn.grand_total = total
         txn.save(update_fields=['vatable_sales', 'grand_total'])
-        Payment.objects.create(
-            transaction=txn,
-            method=payment_method,
-            amount_tendered=total,
-            reference_no='',
-        )
+
+        txn.refund_summary = _settle_return_money(
+            txn=txn, original=original, cashier=cashier,
+            payment_method=payment_method, total=total)
+
         OfficialReceipt.objects.create(
             transaction=txn,
             or_number=generate_or_number(),
             terminal_no='POS-01',
         )
     return txn
+
+
+def returnable_payload(txn):
+    """What the till must know before it lets a return through (Phase 3, decision 05).
+
+    Three customers of the same rules, so the arithmetic lives here and not in the view:
+    the `returnable/` endpoint, and - through `_returned_so_far` - `process_return`'s
+    quantity cap. A screen that said "70 left" while the server refused 70 would be a
+    support call, so the numbers come from one place.
+
+    `reason_if_not` is the SAME stable code `process_return` refuses with, or None when
+    the original is reversible: the client maps one set of codes, not two.
+    """
+    from django.db.models import Sum
+
+    reason_if_not = None
+    if txn.source == SalesTransaction.Source.RETURN:
+        reason_if_not = 'RETURN_OF_RETURN'
+    elif txn.source == SalesTransaction.Source.REQUISITION:
+        reason_if_not = 'RELEASE_NOT_RETURNABLE'
+    elif txn.status != SalesTransaction.Status.COMPLETED:
+        reason_if_not = 'ORIGINAL_NOT_COMPLETED'
+
+    # One entry per SELLING UNIT, not per line: a sale may name the same bag twice, and
+    # the cap counts them together.
+    lines = {}
+    rows = (
+        SalesItem.objects
+        .filter(transaction=txn)
+        .select_related('variant_uom__variant__product', 'variant_uom__uom')
+        .order_by('id'))
+    for row in rows:
+        vuom = row.variant_uom
+        if vuom.pk in lines:
+            continue
+        sold, returned = _returned_so_far(txn, vuom)
+        lines[vuom.pk] = {
+            'variant_uom': vuom.pk,
+            'name': str(vuom.variant),
+            'uom': vuom.uom.code,
+            'sold_qty': _money(sold),
+            'returned_qty': _money(returned),
+            'remaining_qty': _money(max(sold - returned, Decimal('0'))),
+            'unit_price': _money(row.unit_price),
+        }
+
+    open_debt = (
+        CollectibleLedger.objects
+        .filter(transaction=txn, status__in=OUTSTANDING_LEDGER_STATUSES)
+        .aggregate(total=Sum('balance_due'))['total']
+        or Decimal('0'))
+
+    return {
+        'transaction_no': txn.transaction_no,
+        'customer': txn.customer.name,
+        'source': txn.source,
+        'returnable': reason_if_not is None,
+        'reason_if_not': reason_if_not,
+        'lines': list(lines.values()),
+        'open_debt': _money(open_debt),
+    }

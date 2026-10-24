@@ -583,6 +583,8 @@ class ShiftTests(POSTestBase):
                          'unit_price': Decimal('10')}],
             original_transaction_id=self.shift.transactions.filter(
                 source=SalesTransaction.Source.WALK_IN).first().id,
+            # Phase 3 task 2: a return now needs a reason (decision 05).
+            reason='two bags back',
         )
         self.assertEqual(ret.shift, self.shift,
                          'a refund must belong to the shift that paid it')

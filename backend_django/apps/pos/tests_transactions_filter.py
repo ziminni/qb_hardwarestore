@@ -44,7 +44,9 @@ class TransactionSourceFilterTests(POSTestBase):
             cashier=self.cashier,
             items_data=[{'variant_id': self.vuom.id, 'qty': 1,
                          'unit_price': Decimal('10')}],
-            original_transaction_id=sale.id)
+            original_transaction_id=sale.id,
+            # Phase 3 task 2: a reason is required on every return (decision 05).
+            reason='one bag back')
         return sale
 
     def test_source_filter_isolates_returns(self):

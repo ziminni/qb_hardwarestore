@@ -7,10 +7,33 @@ or the linked branch is unimplementable.
 """
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
+
 from apps.pos.tests import POSTestBase
 from apps.pos.exceptions import ReturnError
 from apps.pos.services import process_return, process_sale
-from apps.pos.models import SalesItemDeduction, SalesTransaction
+from apps.pos.models import SalesItemDeduction, SalesTransaction, Shift
+
+User = get_user_model()
+
+# Phase 3 task 2 (decision 05): every return now needs a reason, and an UNLINKED return
+# is a manager's alone. The literal below is what a clerk would type; it is test data.
+RETURN_REASON = 'customer brought the bags back'
+
+
+def make_manager_with_shift(username='ret_unlinked_mgr'):
+    """A Store Manager who may post an UNLINKED return, with an open shift.
+
+    Both halves are new in Phase 3: decision 05 bounds the till to linked returns, and
+    the shift gate now applies to refunds as it does to sales (a refund is money out of
+    a drawer, and a drawer is a shift).
+    """
+    manager = User.objects.create_user(
+        username=username, email=f'{username}@x.com', password='pass12345')
+    manager.groups.add(Group.objects.get_or_create(name='Store Manager')[0])
+    Shift.objects.create(cashier=manager, opening_float=Decimal('5000'))
+    return manager
 
 
 class SaleDeductionTests(POSTestBase):
@@ -52,7 +75,8 @@ class LinkedReturnTests(POSTestBase):
             cashier=self.cashier,
             items_data=[{'variant_id': self.vuom.id, 'qty': 7,
                          'unit_price': Decimal('10')}],
-            original_transaction_id=original.id)
+            original_transaction_id=original.id,
+            reason=RETURN_REASON)
 
         oldest, newest = self._batches()
         self.assertEqual((oldest.current_qty, newest.current_qty),
@@ -63,12 +87,15 @@ class LinkedReturnTests(POSTestBase):
 
     def test_unlinked_return_increments_the_newest_active_batch(self):
         self._sell_seven()
+        # Phase 3 task 2: only a Store Manager / Admin may post an unlinked return.
+        manager = make_manager_with_shift()
 
         ret = process_return(
             customer_id=self.customer.id,
-            cashier=self.cashier,
+            cashier=manager,
             items_data=[{'variant_id': self.vuom.id, 'qty': 4,
-                         'unit_price': Decimal('10')}])
+                         'unit_price': Decimal('10')}],
+            reason=RETURN_REASON)
 
         oldest, newest = self._batches()
         self.assertEqual((oldest.current_qty, newest.current_qty),
@@ -86,6 +113,9 @@ class ReturnEndpointTests(POSTestBase):
         from django.contrib.auth import get_user_model
         manager = get_user_model().objects.create_superuser(
             username='retmgr', email='r@x.com', password='pass12345')
+        # Phase 3 task 2 (decision 05): a return needs an open shift, and this one is
+        # UNLINKED, which only a manager may post - hence the superuser above.
+        Shift.objects.create(cashier=manager, opening_float=Decimal('5000'))
         client = APIClient()
         login = client.post('/api/v1/auth/login/',
                             {'username': 'retmgr', 'password': 'pass12345'},
@@ -98,6 +128,7 @@ class ReturnEndpointTests(POSTestBase):
             'source': 'RETURN',
             'items': [{'variant_id': self.vuom.id, 'qty': '2',
                        'unit_price': '10.00'}],
+            'reason': RETURN_REASON,
         }, format='json')
 
         self.assertEqual(response.status_code, 201, response.data)
@@ -128,7 +159,8 @@ class ReturnGuardTests(POSTestBase):
             items_data=[{'variant_id': self.vuom.id, 'qty': qty,
                          'unit_price': unit_price}],
             original_transaction_id=original_id,
-            payment_method=method)
+            payment_method=method,
+            reason=RETURN_REASON)
 
     def _batches(self):
         from apps.inventory.models import InventoryBatch
@@ -166,7 +198,8 @@ class ReturnGuardTests(POSTestBase):
                          'unit_price': Decimal('10')},
                         {'variant_id': self.vuom.id, 'qty': 3,
                          'unit_price': Decimal('10')}],
-            original_transaction_id=original.id)
+            original_transaction_id=original.id,
+            reason=RETURN_REASON)
 
         oldest, newest = self._batches()
         self.assertEqual((oldest.current_qty, newest.current_qty),
@@ -222,8 +255,9 @@ class ReturnGuardTests(POSTestBase):
         # with a real violation instead: returning more than the original sale drew.
         from rest_framework.test import APIClient
         from django.contrib.auth import get_user_model
-        get_user_model().objects.create_superuser(
+        retmgr2 = get_user_model().objects.create_superuser(
             username='retmgr2', email='r2@x.com', password='pass12345')
+        Shift.objects.create(cashier=retmgr2, opening_float=Decimal('5000'))
         client = APIClient()
         login = client.post('/api/v1/auth/login/',
                             {'username': 'retmgr2', 'password': 'pass12345'},
@@ -237,10 +271,14 @@ class ReturnGuardTests(POSTestBase):
             'source': 'RETURN',
             'original_transaction': original.id,
             'items': [{'variant_id': self.vuom.id, 'qty': '10'}],
+            'reason': RETURN_REASON,
         }, format='json')
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data['code'], 'INVALID_RETURN')
+        # UPDATED by phase 3 task 2: the over-draw refusal has its own stable code now
+        # (decision 05), which is what lets the till say how many are left. A NARROWER
+        # assertion than the old catch-all `INVALID_RETURN`, not a weaker one.
+        self.assertEqual(response.data['code'], 'RETURN_QTY_EXCEEDED')
         self.assertFalse(
             SalesTransaction.objects.filter(
                 source=SalesTransaction.Source.RETURN).exists(),

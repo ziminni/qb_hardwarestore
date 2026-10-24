@@ -29,6 +29,7 @@ HTTP 400 `{code, detail}`, never 500.
 from datetime import date
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 
 from apps.collectibles.models import CollectibleLedger
@@ -48,11 +49,17 @@ from apps.pos.models import (
     OfficialReceipt,
     SalesItem,
     SalesTransaction,
+    Shift,
 )
 from apps.pos.services import generate_transaction_no, process_return, process_sale
 from apps.pos.tests import LOGIN_URL, TRANSACTIONS_URL, POSTestBase
 
 HELD_CARTS_URL = '/api/v1/held-carts/'
+
+# Phase 3 task 2 (decision 05): every return carries a reason.
+RETURN_REASON = 'customer brought the box back'
+
+User = get_user_model()
 
 
 class SaleIntegrityBase(POSTestBase):
@@ -93,6 +100,18 @@ class SaleIntegrityBase(POSTestBase):
     def _total_stock(self):
         return sum(self.variant.batches.values_list('current_qty', flat=True),
                    Decimal('0'))
+
+    def _unlinked_return_manager(self):
+        """A Store Manager with an open shift: unlinked returns are theirs alone.
+
+        Both are Phase 3 rules (decision 05): a cashier may not post an unlinked return,
+        and no return may be recorded outside an open shift.
+        """
+        manager = User.objects.create_user(
+            username='ret_integrity_mgr', email='m@x.com', password='pass12345')
+        manager.groups.add(Group.objects.get_or_create(name='Store Manager')[0])
+        Shift.objects.create(cashier=manager, opening_float=Decimal('0'))
+        return manager
 
     # -- HTTP helpers ------------------------------------------------------
     def _post_sale(self, items, payments=None, customer=None):
@@ -298,6 +317,7 @@ class ReturnConversionTests(SaleIntegrityBase):
             items_data=[{'variant_id': box.id, 'qty': Decimal('1'),
                          'unit_price': Decimal('0.01')}],
             original_transaction_id=sale.id,
+            reason=RETURN_REASON,
         )
 
         self.assertEqual(self._total_stock(), Decimal('34'),
@@ -324,6 +344,7 @@ class ReturnConversionTests(SaleIntegrityBase):
                 cashier=self.cashier,
                 items_data=[{'variant_id': box.id, 'qty': Decimal('1')}],
                 original_transaction_id=sale.id,
+                reason=RETURN_REASON,
             )
         self.assertEqual(self._total_stock(), Decimal('8'),
                          'a refused return must not restock anything')
@@ -331,12 +352,14 @@ class ReturnConversionTests(SaleIntegrityBase):
     def test_an_unlinked_return_restocks_base_units_at_the_server_price(self):
         self._stock_up('24')
         box = self._box_uom(conversion_factor='12', price='120.00')
+        manager = self._unlinked_return_manager()
 
         ret = process_return(
             customer_id=self.customer.id,
-            cashier=self.cashier,
+            cashier=manager,
             items_data=[{'variant_id': box.id, 'qty': Decimal('1'),
                          'unit_price': Decimal('0.01')}],
+            reason=RETURN_REASON,
         )
 
         self.assertEqual(self._total_stock(), Decimal('46'),

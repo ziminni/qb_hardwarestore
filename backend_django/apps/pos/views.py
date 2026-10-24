@@ -6,7 +6,7 @@
 # rule that cannot model Django's `Model.objects` without django-stubs, plus the same
 # `transaction.atomic()` context-manager false positive documented in
 # apps/collectibles/views.py (Phase 2 task 5 wraps events in explicit atomic blocks).
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from decimal import Decimal
 from decimal import InvalidOperation
 from django.db import IntegrityError
@@ -32,7 +32,7 @@ from .serializers import CustomerSerializer, SalesTransactionSerializer, Payment
 from .serializers import QuotationSerializer, SalesOrderSerializer
 from .serializers import HeldCartSerializer
 from .serializers import ShiftSerializer
-from .services import process_sale
+from .services import process_sale, returnable_payload
 from .services import (
     parse_idempotency_key, request_body_hash, replayed_transaction,
 )
@@ -195,13 +195,24 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
 
     def get_queryset(self):
         # `super()` reaches `OwnSalesScopeMixin.get_queryset`, so the cashier-only scope
-        # is applied BEFORE the source filter below (both apply, in either order).
+        # is applied BEFORE the source and `q` filters below (both apply, in either order).
         qs = super().get_queryset()
         # Decision 15's amendment wires the returns page over
         # GET /transactions/?source=RETURN: the page must isolate returns.
         source = self.request.query_params.get('source')
         if source:
             qs = qs.filter(source=source.upper())
+        # Phase 3 task 2 (decision 05): the till's returns tab searches by what the
+        # customer is holding - the transaction number on the slip or the OR number on
+        # the receipt. EXACT (case-insensitive) and applied AFTER the scope, so a cashier
+        # who types another till's number gets an empty page, not a hint that it exists.
+        # A substring match would turn the endpoint into a search box over the shop's
+        # whole sales history, which is not what "find this receipt" means.
+        query = (self.request.query_params.get('q') or '').strip()
+        if query:
+            qs = qs.filter(
+                Q(transaction_no__iexact=query)
+                | Q(receipt__or_number__iexact=query))
         return qs
 
     def create(self, request):
@@ -227,14 +238,29 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
                     items_data=request.data.get('items',[]),
                     original_transaction_id=request.data.get('original_transaction'),
                     payment_method=request.data.get('payment_method','CASH'),
+                    # Decision 05: mandatory, and stored on the row by the service.
+                    reason=request.data.get('reason', ''),
                 )
+                # Decision 05: the audit line has to answer "which sale, how much went
+                # to the utang, how much left the drawer" without opening three screens.
+                original_no = (
+                    txn.original_transaction.transaction_no
+                    if txn.original_transaction_id else 'unlinked')
                 audit_request(
                     request,
                     AuditLog.ActionType.RETURN,
-                    f'Return {txn.transaction_no} posted for '
-                    f'{txn.grand_total} by {request.user.username}.',
+                    f'Return {txn.transaction_no} against {original_no} for '
+                    f'{txn.grand_total}: debt reduced '
+                    f'{txn.refund_summary["debt_reduced"]}, cash refunded '
+                    f'{txn.refund_summary["cash_refund"]} '
+                    f'by {request.user.username}.',
                 )
-            return Response(self.get_serializer(txn).data, status=status.HTTP_201_CREATED)
+            body = self.get_serializer(txn).data
+            # The 201 explains the refund (decision 05): what the return was worth, how
+            # much of it settled utang, how much cash left, and what is still owed. The
+            # client must not have to recompute it - that arithmetic is the server's.
+            body['refund_summary'] = txn.refund_summary
+            return Response(body, status=status.HTTP_201_CREATED)
 
         # Decision 09 item 2: replay BEFORE ringing anything. The common retry is a
         # client that never saw the 201, and answering it from the recorded row is what
@@ -312,6 +338,22 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
             'count': qs.count(),
             'total_sales': total,
         })
+
+    @action(detail=True, methods=['get'])
+    def returnable(self, request, pk=None):
+        """GET /transactions/{id}/returnable/ -> what is left to return (decision 05).
+
+        A GET, so it needs nothing beyond the viewset's own read permission
+        (`SalesReadPOSWrite` lets every SALES READER through, which is exactly the set
+        that may read `/transactions/`). Resolved through `self.get_object()`, i.e. the
+        SCOPED queryset: another till's sale is a plain 404, the same hidden-not-forbidden
+        rule as the detail endpoint - a cashier must not be able to probe whose sale a
+        guessed id is by watching this answer change.
+
+        The payload is built by `services.returnable_payload`, so the numbers on the
+        confirm screen are the numbers `process_return` will enforce.
+        """
+        return Response(returnable_payload(self.get_object()))
 
 
 class ShiftViewSet(viewsets.ReadOnlyModelViewSet):

@@ -204,13 +204,22 @@ class SaleAuditTests(AuditAssertions, _RoleUsersMixin, POSTestBase):
         self.assertEqual(rows.get().ip_address, '10.9.9.9')
 
     def test_return_writes_one_return_row(self):
+        # UPDATED by phase 3 task 2 (decision 05): a cashier returns against the ORIGINAL
+        # sale and must give a reason, so this test rings a sale first and reverses it.
+        # The sale writes its own SALE row, so "the return wrote no SALE row" is now
+        # asserted as "the log still holds exactly the one SALE".
+        sale = self._sell()
+        self.assertEqual(sale.status_code, 201, sale.data)
+
         response = self.client.post(
             TRANSACTIONS_URL,
             {
                 'customer': self.customer.id,
                 'source': 'RETURN',
+                'original_transaction': sale.data['id'],
                 'items': [{'variant_id': self.vuom.id, 'qty': '2',
                            'unit_price': '10.00'}],
+                'reason': 'two bags came back',
             },
             format='json', **self.auth,
         )
@@ -218,7 +227,8 @@ class SaleAuditTests(AuditAssertions, _RoleUsersMixin, POSTestBase):
         self.assert_one_row(
             'RETURN', actor=self.cashier,
             contains=[response.data['transaction_no']])
-        self.assert_no_rows('SALE')
+        self.assertEqual(self.rows('SALE').count(), 1,
+                         'the return must not write a SALE row of its own')
 
 
 class HeldCartAuditTests(AuditAssertions, _RoleUsersMixin, POSTestBase):

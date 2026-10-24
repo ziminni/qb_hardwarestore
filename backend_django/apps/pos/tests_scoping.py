@@ -448,6 +448,15 @@ class ReturnScopeTests(ScopingTestBase):
             InventoryBatch.objects.filter(variant=self.variant)
             .order_by('pk').values_list('pk', 'current_qty'))
 
+    def _open_shift(self, user):
+        """Phase 3 task 2 (decision 05): a refund needs an open shift, whatever the role.
+
+        A refund is money out of a drawer and a drawer is a shift; recording one outside
+        a shift leaves the Z-reading's expected drawer too high by the amount paid out.
+        """
+        return Shift.objects.create(
+            cashier=user, opening_float=Decimal('5000'))
+
     def _return_payload(self, original):
         return {
             'customer': self.customer.id,
@@ -455,6 +464,8 @@ class ReturnScopeTests(ScopingTestBase):
             'original_transaction': original.id,
             'items': [{'variant_id': self.vuom.id, 'qty': 1}],
             'payment_method': 'CASH',
+            # Phase 3 task 2: mandatory on every return, stored in `notes`.
+            'reason': 'one bag back',
         }
 
     def _returns_posted(self):
@@ -483,6 +494,10 @@ class ReturnScopeTests(ScopingTestBase):
         self.assertEqual(response.data['original_transaction'], self.txn_a.id)
 
     def test_a_manager_can_return_any_cashiers_sale(self):
+        # The manager needs an open shift of their own (decision 05): the return is
+        # recorded against the shift that paid it out, not the sale's shift.
+        self._open_shift(self.manager)
+
         response = self.client.post(
             TRANSACTIONS_URL, self._return_payload(self.txn_b),
             format='json', **self._auth(self.manager))
