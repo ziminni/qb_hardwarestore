@@ -246,9 +246,19 @@ class Command(BaseCommand):
 
     def _seed_customers(self):
         Customer.objects.get_or_create(name='Walk-in Customer')
-        Customer.objects.get_or_create(
+        # Decision 08: an explicit limit for the demo debtor, because NULL now means
+        # UNLIMITED and 0 means NO credit - the seed has to say which it wants instead
+        # of inheriting the old `default=0`. Migration 0008 turned the legacy zeros into
+        # NULL, so the update branch below also teaches an EXISTING row its limit,
+        # which keeps re-running the seed idempotent rather than a silent no-op.
+        maria, _ = Customer.objects.get_or_create(
             name='Maria Santos',
-            defaults={'customer_type': 'REGULAR', 'contact_details': '0918-333-4444'})
+            defaults={'customer_type': 'REGULAR',
+                      'contact_details': '0918-333-4444',
+                      'total_credit_limit': Decimal('10000.00')})
+        if maria.total_credit_limit != Decimal('10000.00'):
+            maria.total_credit_limit = Decimal('10000.00')
+            maria.save(update_fields=['total_credit_limit'])
         Customer.objects.get_or_create(
             name='Dela Cruz Construction',
             defaults={'customer_type': 'CONSTRUCTION_FIRM', 'contact_details': '0917-555-6666'})

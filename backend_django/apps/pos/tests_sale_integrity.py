@@ -26,10 +26,12 @@ Everything here exercises the contract the client sees: business-rule rejections
 HTTP 400 `{code, detail}`, never 500.
 """
 
+from datetime import date
 from decimal import Decimal
 
 from django.contrib.auth.models import Group
 
+from apps.collectibles.models import CollectibleLedger
 from apps.inventory.models import (
     GoodsReceipt,
     POItem,
@@ -40,8 +42,14 @@ from apps.inventory.models import (
 )
 from apps.inventory.services import process_goods_receipt
 from apps.pos.exceptions import ReturnError
-from apps.pos.models import HeldCart, SalesItem, SalesTransaction
-from apps.pos.services import process_return, process_sale
+from apps.pos.models import (
+    Customer,
+    HeldCart,
+    OfficialReceipt,
+    SalesItem,
+    SalesTransaction,
+)
+from apps.pos.services import generate_transaction_no, process_return, process_sale
 from apps.pos.tests import LOGIN_URL, TRANSACTIONS_URL, POSTestBase
 
 HELD_CARTS_URL = '/api/v1/held-carts/'
@@ -87,9 +95,9 @@ class SaleIntegrityBase(POSTestBase):
                    Decimal('0'))
 
     # -- HTTP helpers ------------------------------------------------------
-    def _post_sale(self, items, payments=None):
+    def _post_sale(self, items, payments=None, customer=None):
         payload = {
-            'customer': self.customer.id,
+            'customer': (customer or self.customer).id,
             'source': 'WALK_IN',
             'items': items,
             'payments': payments if payments is not None
@@ -256,7 +264,7 @@ class SaleValidationTests(SaleIntegrityBase):
         self._assert_invalid_sale(self._post_sale(lines))
 
     def test_a_rejected_sale_leaves_no_receipt_and_no_payment(self):
-        from apps.pos.models import OfficialReceipt, Payment
+        from apps.pos.models import Payment
         self._post_sale([{'variant_id': self.vuom.id, 'qty': 'abc'}],
                         payments=[{'method': 'CASH',
                                    'amount_tendered': '10.00'}])
@@ -385,3 +393,161 @@ class HeldCartPriceTests(SaleIntegrityBase):
         self.assertEqual(response.status_code, 400, response.content)
         self.assertEqual(response.json()['code'], 'INSUFFICIENT_STOCK')
         self.assertTrue(HeldCart.objects.filter(id=cart_id).exists())
+
+
+class CreditLimitTests(SaleIntegrityBase):
+    """Phase 1 task 2 — decision 08: the server enforces the credit limit.
+
+    `Customer.total_credit_limit` is nullable on purpose: **NULL means unlimited**, `0`
+    means **no credit at all**. Before this the field defaulted to 0 for every row and
+    nothing ever set it, so hard-blocking 0 would have refused utang at the till for
+    every existing customer; the data migration turns those legacy zeros into NULL.
+
+    The block runs INSIDE `process_sale`'s atomic block, with the customer row locked,
+    so a refused credit sale leaves no transaction, no ledger and no moved stock - and
+    two tills cannot both pass on the same stale outstanding balance.
+    """
+
+    def _named(self, limit):
+        return Customer.objects.create(
+            name=f'Named {limit}', customer_type=Customer.Type.REGULAR,
+            total_credit_limit=limit)
+
+    def _owed(self, customer, balance, status=CollectibleLedger.Status.OPEN):
+        """An existing utang row for the customer, as a real past sale would leave."""
+        txn = SalesTransaction.objects.create(
+            customer=customer, cashier=self.cashier,
+            transaction_no=generate_transaction_no(),
+            vatable_sales=Decimal(balance), grand_total=Decimal(balance))
+        return CollectibleLedger.objects.create(
+            customer=customer, transaction=txn,
+            original_amount=Decimal(balance), balance_due=Decimal(balance),
+            due_date=date.today(), status=status)
+
+    def _credit_sale(self, customer, tendered='400.00'):
+        """60 x 10.00 = 600.00 grand total, 400.00 tendered, 200.00 shortfall."""
+        return self._post_sale(
+            [{'variant_id': self.vuom.id, 'qty': '60'}],
+            payments=[{'method': 'CASH', 'amount_tendered': tendered}],
+            customer=customer)
+
+    def test_a_sale_over_the_limit_is_a_400_and_writes_nothing(self):
+        self._stock_up('100')
+        customer = self._named(Decimal('500.00'))
+        self._owed(customer, '400.00')
+        sales_before = SalesTransaction.objects.count()
+        ledgers_before = CollectibleLedger.objects.count()
+        receipts_before = OfficialReceipt.objects.count()
+
+        response = self._credit_sale(customer)
+
+        self.assertEqual(
+            response.status_code, 400,
+            f'a credit limit is a business rule, not a crash: {response.content!r}')
+        self.assertEqual(response.json()['code'], 'CREDIT_LIMIT_EXCEEDED')
+        self.assertEqual(SalesTransaction.objects.count(), sales_before,
+                         'a refused credit sale must leave no transaction')
+        self.assertEqual(CollectibleLedger.objects.count(), ledgers_before,
+                         'a refused credit sale must leave no ledger')
+        self.assertEqual(OfficialReceipt.objects.count(), receipts_before)
+        self.assertEqual(self._total_stock(), Decimal('110'),
+                         'a refused credit sale must not move stock')
+
+    def test_the_rejection_names_limit_outstanding_and_shortfall(self):
+        self._stock_up('100')
+        customer = self._named(Decimal('500.00'))
+        self._owed(customer, '400.00')
+
+        body = self._credit_sale(customer).json()
+
+        self.assertEqual(body['code'], 'CREDIT_LIMIT_EXCEEDED', body)
+        self.assertEqual(body['limit'], '500.00',
+                         'money in the payload is a 2-decimal string')
+        self.assertEqual(body['outstanding'], '400.00')
+        self.assertEqual(body['shortfall'], '200.00')
+        self.assertIn('detail', body, 'the cashier needs a sentence')
+
+    def test_exactly_at_the_limit_is_allowed(self):
+        # 400 outstanding + this 200 shortfall = 600, the limit exactly. The rule is
+        # `> limit`, so the boundary sale is accepted - refusing it would make the
+        # number the cashier sees unusable.
+        self._stock_up('100')
+        customer = self._named(Decimal('600.00'))
+        self._owed(customer, '400.00')
+
+        response = self._credit_sale(customer)
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertTrue(
+            CollectibleLedger.objects.filter(
+                customer=customer, balance_due=Decimal('200.00')).exists(),
+            'the boundary sale posts its own ledger')
+
+    def test_a_null_limit_means_unlimited(self):
+        self._stock_up('100')
+        customer = self._named(None)
+
+        response = self._credit_sale(customer)
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(
+            CollectibleLedger.objects.filter(
+                customer=customer).get().balance_due, Decimal('200.00'))
+
+    def test_a_zero_limit_refuses_any_shortfall(self):
+        self._stock_up('100')
+        customer = self._named(Decimal('0.00'))
+
+        response = self._credit_sale(customer)
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()['code'], 'CREDIT_LIMIT_EXCEEDED')
+        self.assertEqual(response.json()['outstanding'], '0.00')
+
+    def test_a_fully_paid_sale_is_allowed_even_at_a_zero_limit(self):
+        # The limit is about CREDIT. A sale paid in full owes nothing, so a customer
+        # with no credit at all can still buy over the counter.
+        customer = self._named(Decimal('0.00'))
+        response = self._post_sale(
+            [{'variant_id': self.vuom.id, 'qty': '10'}],
+            payments=[{'method': 'CASH', 'amount_tendered': '100.00'}],
+            customer=customer)
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertFalse(CollectibleLedger.objects.filter(customer=customer).exists())
+
+    def test_a_paid_ledger_is_not_counted_as_outstanding(self):
+        self._stock_up('100')
+        customer = self._named(Decimal('500.00'))
+        self._owed(customer, '400.00', status=CollectibleLedger.Status.PAID)
+
+        response = self._credit_sale(customer)
+
+        self.assertEqual(response.status_code, 201, response.content)
+
+    def test_partial_and_overdue_ledgers_count(self):
+        # Outstanding means money still owed, whatever the row's stage: 100 open plus
+        # 100 partial plus 200 overdue is 400, and 400 + 200 breaks a 500 limit.
+        self._stock_up('100')
+        customer = self._named(Decimal('500.00'))
+        self._owed(customer, '100.00', status=CollectibleLedger.Status.OPEN)
+        self._owed(customer, '100.00', status=CollectibleLedger.Status.PARTIAL)
+        self._owed(customer, '200.00', status=CollectibleLedger.Status.OVERDUE)
+
+        response = self._credit_sale(customer)
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()['outstanding'], '400.00')
+
+    def test_the_walk_in_rule_still_wins_over_a_generous_limit(self):
+        # Decision 14 is checked FIRST: the placeholder walk-in cannot owe no matter
+        # how much credit headroom it is given, and the client sees that code.
+        self._stock_up('100')
+        walk_in = Customer.objects.create(
+            name='Walk-in Customer', customer_type=Customer.Type.WALK_IN,
+            total_credit_limit=Decimal('10000.00'))
+
+        response = self._credit_sale(walk_in)
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()['code'], 'WALK_IN_CANNOT_OWE')

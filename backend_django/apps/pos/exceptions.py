@@ -72,6 +72,39 @@ class WalkInCannotOwe(Exception):
             'customer for it.')
 
 
+class CreditLimitExceeded(Exception):
+    """A credit sale that would push the customer past their limit (decision 08).
+
+    The limit is a hard block on the SERVER, not a warning on the client: a client-side
+    check is advisory and this one is about money, so a hand-written request would
+    otherwise be free to book unlimited utang against a named customer.
+
+    Raised from `process_sale` INSIDE its `transaction.atomic()`, after the shortfall is
+    known and with the customer row locked, so the refused sale rolls back wholesale -
+    no transaction, no ledger, no moved stock - and two tills cannot both pass the same
+    stale outstanding balance.
+
+    Carries the three numbers the till needs to explain the refusal (limit, outstanding,
+    shortfall) so the cashier can see how much to collect rather than just "no".
+    Deliberately NOT a `ValueError`, for the same reason as `WalkInCannotOwe`: this is a
+    business rule, not a failed computation, and no `except ValueError` may swallow it.
+    """
+
+    code = 'CREDIT_LIMIT_EXCEEDED'
+
+    def __init__(self, limit, outstanding, shortfall,
+                 customer_name='This customer'):
+        self.limit = limit
+        self.outstanding = outstanding
+        self.shortfall = shortfall
+        self.customer_name = customer_name
+        super().__init__(
+            f'{customer_name} is over the credit limit of {limit:.2f}: already owed '
+            f'{outstanding:.2f} plus this sale\'s {shortfall:.2f} comes to '
+            f'{outstanding + shortfall:.2f}. Collect the difference, or ring the sale '
+            'in full.')
+
+
 class NoOpenShift(Exception):
     """A sale was rung by a cashier who has no open shift (decision 06, ruling 2).
 
@@ -153,6 +186,20 @@ def handler(exc, context):
                 'shortfall': None
                 if exc.shortfall is None
                 else str(exc.shortfall),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if isinstance(exc, CreditLimitExceeded):
+        # Decision 08's payload: the stable `code` the client branches on, a sentence
+        # for the cashier, and the three money figures as 2-decimal strings (never
+        # floats - a float in a money field is how 0.1 + 0.2 happens at a till).
+        return Response(
+            {
+                'code': CreditLimitExceeded.code,
+                'detail': str(exc),
+                'limit': f'{exc.limit:.2f}',
+                'outstanding': f'{exc.outstanding:.2f}',
+                'shortfall': f'{exc.shortfall:.2f}',
             },
             status=status.HTTP_400_BAD_REQUEST,
         )

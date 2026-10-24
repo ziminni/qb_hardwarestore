@@ -17,8 +17,17 @@ from django.db import transaction
 from apps.collectibles.models import CollectibleLedger
 from apps.inventory.services import allocate_fifo
 
-from .exceptions import InvalidSale, WalkInCannotOwe
+from .exceptions import CreditLimitExceeded, InvalidSale, WalkInCannotOwe
 from .models import Customer, SalesTransaction, SalesItem, Payment, OfficialReceipt
+
+# Decision 08: a ledger in one of these states is credit still in use. PAID is not -
+# summing settled rows too would count history instead of debt, and the customer's
+# available headroom would ratchet down forever with every past sale.
+OUTSTANDING_LEDGER_STATUSES = (
+    CollectibleLedger.Status.OPEN,
+    CollectibleLedger.Status.PARTIAL,
+    CollectibleLedger.Status.OVERDUE,
+)
 
 # A cart this long is not a cart, it is a mistake (or a probe). One number, checked in
 # both directions by `_validated_sale_lines`.
@@ -145,6 +154,24 @@ def _validated_payments(payments_data):
     return payments
 
 
+def _outstanding_credit(customer_id):
+    """What the customer already owes, as the credit limit counts it (decision 08).
+
+    Only OPEN/PARTIAL/OVERDUE balances_due count - a PAID ledger is settled, so summing
+    it would count history instead of debt. Read AFTER the caller has locked the
+    customer row, so concurrent credit sales see each other's ledgers rather than both
+    reading the same total and both passing the check.
+    """
+    from django.db.models import Sum
+
+    total = (
+        CollectibleLedger.objects
+        .filter(customer_id=customer_id, status__in=OUTSTANDING_LEDGER_STATUSES)
+        .aggregate(total=Sum('balance_due'))['total']
+    )
+    return total or Decimal('0')
+
+
 def process_sale(*, customer_id, cashier, items_data, payments_data, source='WALK_IN'):
     """Process a complete walk-in sale or requisition release.
 
@@ -261,10 +288,30 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
         # walk-in leaves no transaction, no ledger and no moved stock.
         shortfall = grand_total - total_paid
         if shortfall > 0 and customer_id:
-            customer = Customer.objects.only('customer_type', 'name').get(
-                pk=customer_id)
+            # Decision 08: lock the customer row BEFORE reading their outstanding
+            # balances. Two tills ringing credit sales for the same customer at the
+            # same moment would otherwise both read the same outstanding, both pass
+            # the check and both write - and the customer ends up over the limit by a
+            # whole sale. The lock serializes them; the second one re-reads the first
+            # one's ledger. Released by the enclosing atomic block.
+            customer = (
+                Customer.objects.select_for_update()
+                .only('customer_type', 'name', 'total_credit_limit')
+                .get(pk=customer_id)
+            )
             if customer.customer_type == Customer.Type.WALK_IN:
                 raise WalkInCannotOwe(shortfall, customer.name)
+            # Decision 08: NULL limit = unlimited (the legacy rows the data migration
+            # converted), 0 = no credit at all. Only a real number is enforced.
+            if customer.total_credit_limit is not None:
+                outstanding = _outstanding_credit(customer_id)
+                if outstanding + shortfall > customer.total_credit_limit:
+                    raise CreditLimitExceeded(
+                        limit=customer.total_credit_limit,
+                        outstanding=outstanding,
+                        shortfall=shortfall,
+                        customer_name=customer.name,
+                    )
             CollectibleLedger.objects.create(
                 customer_id=customer_id,
                 transaction=txn,

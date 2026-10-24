@@ -24,7 +24,13 @@ class Customer(models.Model):
     customer_type = models.CharField(max_length=20, choices=Type.choices, default=Type.WALK_IN)
     contact_details = models.CharField(max_length=255, blank=True, default='')
     tin_no = models.CharField(max_length=50, blank=True, default='')
-    total_credit_limit = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Decision 08: NULL means UNLIMITED credit, 0 means NO credit at all. The field
+    # used to default to 0 on every row and nothing ever set it, so hard-blocking 0
+    # would have refused utang at the till for every existing customer - which is why
+    # it is nullable and the data migration turns those legacy zeros into NULL.
+    total_credit_limit = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True, default=None,
+        help_text='NULL = unlimited, 0 = no credit allowed.')
     is_active = models.BooleanField(default=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
