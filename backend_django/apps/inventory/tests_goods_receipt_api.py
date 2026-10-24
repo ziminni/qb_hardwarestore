@@ -165,3 +165,87 @@ class ReceiptProcessGuardTests(GoodsReceiptItemsApiTests):
         self.assertEqual(
             PurchaseOrder.objects.get(pk=self.po.pk).status,
             PurchaseOrder.Status.DRAFT)
+
+
+class SplitReceiptLineTests(GoodsReceiptItemsApiTests):
+    """Phase 1 task 4 — a receipt batches ONLY the quantities it delivered.
+
+    The bug this pins: `create` accumulates POItem.received_qty across receipts and
+    `process_goods_receipt` used to mint a batch from the FULL cumulative figure every
+    time. Receipt of 5 then 2 therefore stocked 5 + 7 = 12 units for 7 delivered.
+    """
+
+    def _receive(self, qty):
+        return self._post({
+            'po': self.po.id,
+            'items': [{'po_item': self.item.id, 'qty': str(qty)}],
+        })
+
+    def _process(self, receipt_id):
+        return self.client.post(
+            f'/api/v1/goods-receipts/{receipt_id}/process/', {}, format='json')
+
+    def test_split_receipts_batch_only_what_each_delivered(self):
+        from apps.inventory.models import InventoryBatch
+
+        first = self._receive('5')
+        self.assertEqual(first.status_code, 201, first.data)
+        self.assertEqual(self._process(first.data['id']).status_code, 200)
+
+        second = self._receive('2')
+        self.assertEqual(second.status_code, 201, second.data)
+        self.assertEqual(self._process(second.data['id']).status_code, 200)
+
+        total = sum(
+            InventoryBatch.objects
+            .filter(variant=self.variant)
+            .values_list('initial_qty', flat=True),
+            Decimal('0'),
+        )
+        self.assertEqual(total, Decimal('7'))
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.received_qty, Decimal('7'))
+
+    def test_create_records_one_line_per_delivered_entry(self):
+        response = self._receive('5')
+
+        self.assertEqual(response.status_code, 201, response.data)
+        lines = response.data.get('lines') or []
+        self.assertEqual(len(lines), 1, response.data)
+        self.assertEqual(lines[0]['qty'], '5.00')
+        self.assertEqual(lines[0]['po_item'], self.item.id)
+        self.assertEqual(lines[0]['variant'], self.variant.id)
+        self.assertEqual(lines[0]['variant_name'], self.variant.variant_name)
+
+    def test_a_second_receipt_records_only_its_own_line(self):
+        self.assertEqual(self._receive('5').status_code, 201)
+        second = self._receive('2')
+
+        self.assertEqual(second.status_code, 201, second.data)
+        self.assertEqual(len(second.data.get('lines') or []), 1, second.data)
+        self.assertEqual(second.data['lines'][0]['qty'], '2.00')
+
+    def test_processing_marks_the_receipt_and_refuses_a_second_process(self):
+        first = self._receive('4')
+        processed = self._process(first.data['id'])
+
+        self.assertEqual(processed.status_code, 200, processed.data)
+        detail = self.client.get(
+            f"/api/v1/goods-receipts/{first.data['id']}/")
+        self.assertIsNotNone(detail.data.get('processed_at'), detail.data)
+
+        again = self._process(first.data['id'])
+        self.assertEqual(again.status_code, 400, again.data)
+        self.assertEqual(again.data.get('code'), 'RECEIPT_ALREADY_PROCESSED')
+        self.assertEqual(
+            again.data.get('detail'),
+            f"Goods receipt {first.data['id']} was already processed.")
+
+    def test_zero_qty_entry_creates_no_line(self):
+        response = self._post({
+            'po': self.po.id,
+            'items': [{'po_item': self.item.id, 'qty': '0'}],
+        })
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data.get('lines') or [], [])

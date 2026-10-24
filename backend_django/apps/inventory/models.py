@@ -1,3 +1,12 @@
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportIncompatibleMethodOverride=false
+#
+# Same directive and reason as apps/pos/models.py: the checker resolves its config from
+# its WORKING DIRECTORY and does not run inside this repo here, so pyrightconfig.json is
+# not found and this travels with the file. Without django-stubs every
+# `Model.objects`, FK-attribute read (`self.po_item.variant`) and
+# `BooleanField(default=True)` is a false positive on valid Django, and so is an
+# `__str__` whose return type pyright reads off a `CharField`. Django's own
+# `manage.py check` and the test run remain the authority.
 """Inventory Module — Product Catalog, Purchasing & Stock (Phase 2).
 
 ERD mapping:
@@ -11,6 +20,7 @@ ERD mapping:
     PURCHASE_ORDER    → PurchaseOrder
     PO_ITEM           → POItem
     GOODS_RECEIPT     → GoodsReceipt
+    GOODS_RECEIPT_ITEM → GoodsReceiptItem
     INVENTORY_BATCH   → InventoryBatch
     STOCK_ADJUSTMENT  → StockAdjustment
     SYSTEM_ALERT      → SystemAlert
@@ -233,6 +243,11 @@ class GoodsReceipt(models.Model):
     receive_date = models.DateField(auto_now_add=True)
     delivery_receipt_no = models.CharField(max_length=100, blank=True, default='')
     notes = models.TextField(blank=True, default='')
+    # Set by process_goods_receipt, inside the same transaction that mints the
+    # batches. NULL = never processed. This is the double-process guard: it lives
+    # on the row that is locked, so two concurrent process/ calls cannot both pass
+    # it (the previous guard read `batches.exists()` outside any lock).
+    processed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -241,6 +256,37 @@ class GoodsReceipt(models.Model):
 
     def __str__(self):
         return f'GR #{self.pk} ← PO #{self.po_id} ({self.receive_date})'
+
+
+class GoodsReceiptItem(models.Model):
+    """One delivered quantity on ONE goods receipt (decision 09 item 4).
+
+    `POItem.received_qty` is a running total across every receipt of the PO, so it
+    cannot answer "what did THIS delivery contain". Before this table existed the
+    process step minted a batch from the running total on every receipt, which
+    stocked 12 units for two deliveries of 5 and 2. A batch is now built from these
+    lines, and `received_qty` stays what it always was: the cap the next delivery is
+    checked against.
+    """
+
+    receipt = models.ForeignKey(
+        GoodsReceipt, on_delete=models.CASCADE, related_name='lines')
+    # PROTECT: a line is stock evidence, so a PO item that has been delivered
+    # cannot be deleted out from under the batches it explains.
+    po_item = models.ForeignKey(
+        POItem, on_delete=models.PROTECT, related_name='receipt_lines')
+    qty = models.DecimalField(
+        max_digits=12, decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))])
+
+    class Meta:
+        db_table = 'inventory_goods_receipt_item'
+        ordering = ['id']
+
+    def __str__(self):
+        return f'GR #{self.receipt_id} line: {self.po_item.variant} × {self.qty}'
+
+
 class InventoryBatch(models.Model):
     variant = models.ForeignKey(
         ProductVariant, on_delete=models.PROTECT, related_name='batches')

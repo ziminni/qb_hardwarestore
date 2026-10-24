@@ -6,6 +6,7 @@ from .models import (
     Brand,
     Category,
     GoodsReceipt,
+    GoodsReceiptItem,
     InventoryBatch,
     POItem,
     Product,
@@ -112,17 +113,39 @@ class InventoryBatchSerializer(serializers.ModelSerializer):
         read_only_fields = ['id','created_at']
 
 
+class GoodsReceiptItemSerializer(serializers.ModelSerializer):
+    """One delivered line. Read-only: lines are created by the receipt POST itself.
+
+    `variant`/`variant_name` are here because a receiving screen has to label the line
+    without a second request per po_item, and the po_item id alone does not say what was
+    delivered. `qty` is the quantity THIS receipt delivered, not the running total.
+    """
+
+    variant = serializers.IntegerField(source='po_item.variant_id', read_only=True)
+    variant_name = serializers.CharField(
+        source='po_item.variant.variant_name', read_only=True)
+
+    class Meta:
+        model = GoodsReceiptItem
+        fields = ['id', 'po_item', 'variant', 'variant_name', 'qty']
+        read_only_fields = fields
+
+
 class GoodsReceiptSerializer(serializers.ModelSerializer):
     batches = InventoryBatchSerializer(many=True, read_only=True)
+    lines = GoodsReceiptItemSerializer(many=True, read_only=True)
     received_by_name = serializers.CharField(source='received_by.full_name', read_only=True)
     class Meta:
         model = GoodsReceipt
-        fields = ['id','po','received_by','received_by_name','receive_date','delivery_receipt_no','notes','batches','created_at']
+        fields = ['id','po','received_by','received_by_name','receive_date','delivery_receipt_no','notes','lines','batches','processed_at','created_at']
         # `received_by` is READ-ONLY: the actor is not the client's to choose. The viewset
         # already passes `request.user` into creation, so a writable `received_by` was
         # demanded by validation and then had to be sent — every client had to supply a
         # value that means nothing. Same invariant as the checkout's `cashier` field.
-        read_only_fields = ['id','received_by','receive_date','created_at']
+        # `processed_at` is read-only for the same reason the timestamp is: the server's
+        # process/ call sets it, and a client-writable one would let a caller mark a
+        # receipt done (or un-done) without any stock moving.
+        read_only_fields = ['id','received_by','receive_date','processed_at','created_at']
 
 
 class StockAdjustmentSerializer(serializers.ModelSerializer):

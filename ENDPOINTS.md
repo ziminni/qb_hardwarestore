@@ -85,8 +85,8 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 | GET/POST/PATCH/DELETE | `/api/v1/variant-uoms/` | Variant selling-UOM CRUD | Authenticated |
 | GET/POST/PATCH/DELETE | `/api/v1/suppliers/` | Supplier CRUD | Authenticated |
 | GET/POST/PATCH/DELETE | `/api/v1/purchase-orders/` | Purchase order CRUD (nested items) | Authenticated |
-| GET/POST/PATCH/DELETE | `/api/v1/goods-receipts/` | Goods receipt CRUD | Authenticated |
-| POST | `/api/v1/goods-receipts/{id}/process/` | Process a receipt → FIFO `InventoryBatch` creation | Authenticated |
+| GET/POST/PATCH/DELETE | `/api/v1/goods-receipts/` | Goods receipt CRUD. `POST` accepts `items: [{po_item, qty}]`; each entry adds to `POItem.received_qty` (capped at `ordered_qty`, else 400) **and** stores one `lines` row — the quantity that receipt delivered. Response carries `lines: [{id, po_item, variant, variant_name, qty}]` and read-only `processed_at` (null until processed). | Authenticated |
+| POST | `/api/v1/goods-receipts/{id}/process/` | Turn **this receipt's own** lines into FIFO `InventoryBatch` rows and set `processed_at`. Batches use `line.qty`, `po_item.unit_cost`, `po_item.variant`. Receipts with no `lines` (legacy/`seed_demo`, which set `received_qty` directly) batch the delta vs. what the PO already put in stock, and answer `[]` when there is none. Re-processing → **400** `{"code": "RECEIPT_ALREADY_PROCESSED", "detail": "Goods receipt N was already processed."}`; the guard runs under a `select_for_update` lock on the receipt row, so concurrent calls cannot double-count. | Authenticated |
 | GET | `/api/v1/batches/` | Inventory batches (stock on hand) — read-only | Authenticated |
 | GET/POST/PATCH/DELETE | `/api/v1/adjustments/` | Stock adjustment CRUD | Authenticated |
 | GET | `/api/v1/alerts/` | System alerts (low stock, expiring, etc.) | Authenticated (admin to write) |
@@ -145,7 +145,7 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 | --- | --- |
 | Login | `POST /auth/login/` → store tokens → `GET /auth/me/` → route to role dashboard |
 | Product catalog page | `GET /products/` (+ `GET /categories/`, `GET /brands/` for filters) |
-| Receiving stock | `POST /purchase-orders/` → `POST /goods-receipts/` → `POST /goods-receipts/{id}/process/` |
+| Receiving stock | `POST /purchase-orders/` → `POST /goods-receipts/` (carries the delivered `items` as `lines`) → `POST /goods-receipts/{id}/process/` (batches only that receipt's lines, once) |
 | POS checkout | `GET /products/` → `POST /transactions/` (one call does stock deduction + payments + OR) |
 | Utang monitoring | `GET /ledgers/` → `GET /ledgers/aging/` → `POST /ledger-payments/` |
 | Foreman requisition | `POST /requisitions/` → `POST /requisitions/{id}/submit/` → approver: `POST /requisitions/{id}/approve/` → POS: `POST /tokens/verify/` → `POST /tokens/release/` |

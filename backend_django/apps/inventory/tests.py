@@ -1,3 +1,9 @@
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false
+#
+# Same directive and reason as apps/pos/tests.py: without django-stubs every
+# `Model.objects` is a false positive on valid Django, and the checker does not find this
+# repo's pyrightconfig.json from its own working directory, so the directive travels with
+# the file. `manage.py test` remains the authority on what these tests prove.
 """Inventory app tests — goods receipts, FIFO allocation, adjustments."""
 
 from decimal import Decimal

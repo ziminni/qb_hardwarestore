@@ -22,7 +22,7 @@ from apps.users.permissions import (
 )
 from .models import (
     Brand, Category, Product, ProductVariant, UnitOfMeasure, VariantUOM,
-    Supplier, PurchaseOrder, GoodsReceipt,
+    Supplier, PurchaseOrder, GoodsReceipt, GoodsReceiptItem,
     InventoryBatch, StockAdjustment, SystemAlert,
 )
 from .serializers import (
@@ -99,20 +99,39 @@ class PurchaseOrderViewSet(_CatalogBaseViewSet):
     serializer_class = PurchaseOrderSerializer
 
 
+class _ReceiptRefused(Exception):
+    """A receipt the server refuses to record; `str(exc)` is the client's detail.
+
+    Exists so the over-order cap can be raised FROM INSIDE the atomic block — where the
+    POItem row is locked and `received_qty` is trustworthy — and still leave as a plain
+    400. Returning a Response from inside the block would commit it; raising rolls back
+    the receipt row and every accumulated quantity first, and this class is caught one
+    line later. Deliberately not a `ValueError`: nothing outside this view catches it.
+    """
+
+
 class GoodsReceiptViewSet(_CatalogBaseViewSet):
     queryset = GoodsReceipt.objects.select_related(
         'po', 'received_by',
-    ).prefetch_related('batches').all()
+    ).prefetch_related(
+        'batches', 'lines__po_item__variant').all()
     serializer_class = GoodsReceiptSerializer
 
     def create(self, request, *args, **kwargs):
         """Record a receipt, optionally carrying received quantities.
 
-        `items: [{po_item, qty}]` sets POItem.received_qty so a later
-        POST /goods-receipts/{id}/process/ has something to turn into batches.
-        Without it the receipt is still recorded (backward compatible), but the
-        process step finds nothing to receive. Task 6B.2: received_qty has no
-        other API write path.
+        `items: [{po_item, qty}]` does two things, and both matter:
+
+        * adds `qty` to `POItem.received_qty` — the running total across every receipt of
+          the PO, and the cap the next delivery is checked against; and
+        * writes one `GoodsReceiptItem` per entry, so `process/` can batch THIS delivery
+          instead of the running total (decision 09 item 4).
+
+        The two are deliberately not the same field. Before the lines existed, process/
+        had only `received_qty` to work from and minted a batch from it on every receipt —
+        deliveries of 5 then 2 stocked 12 units for 7 received.
+
+        `received_qty` has no other API write path (Task 6B.2).
         """
         from decimal import Decimal
 
@@ -139,7 +158,9 @@ class GoodsReceiptViewSet(_CatalogBaseViewSet):
                 {'detail': f'PO {po.pk} is {po.status} and cannot receive more.'},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
-        parsed = []
+        # Shape checks first, outside the transaction: they need no lock, and answering
+        # them before the atomic block keeps the block to the part that must be atomic.
+        parsed = []  # (po_item_id, qty) — one entry per delivered line, in payload order
         for entry in raw_items:
             if not isinstance(entry, dict):
                 return Response(
@@ -171,41 +192,63 @@ class GoodsReceiptViewSet(_CatalogBaseViewSet):
                     {'detail': f'qty for po_item {po_item.pk} must not be negative.'},
                     status=drf_status.HTTP_400_BAD_REQUEST,
                 )
-            # Accumulate: each delivery adds to what is already received, capped
-            # at ordered. Overwriting would silently under-count a split delivery.
-            total = po_item.received_qty + qty
-            if total > po_item.ordered_qty:
-                return Response(
-                    {'detail': f'qty for po_item {po_item.pk} would exceed the '
-                               f'ordered {po_item.ordered_qty} '
-                               f'({po_item.received_qty} already received).'},
-                    status=drf_status.HTTP_400_BAD_REQUEST,
-                )
-            parsed.append((po_item, total))
+            parsed.append((po_item.pk, qty))
 
-        with transaction.atomic():
-            receipt = ser.save(received_by=request.user)
-            for po_item, qty in parsed:
-                po_item.received_qty = qty
-                po_item.save(update_fields=['received_qty'])
+        try:
+            with transaction.atomic():
+                receipt = ser.save(received_by=request.user)
+                for po_item_pk, qty in parsed:
+                    # LOCKED before accumulating: two deliveries recorded at the same
+                    # moment would otherwise both read the same `received_qty` and the
+                    # loser's quantity would vanish (or the over-order cap would be
+                    # waved through twice). Re-read here, inside the lock, so a second
+                    # entry for the SAME po_item also sees the first one's write.
+                    locked = POItem.objects.select_for_update().get(pk=po_item_pk)
+                    # Accumulate: each delivery adds to what is already received, capped
+                    # at ordered. Overwriting would silently under-count a split delivery.
+                    total = locked.received_qty + qty
+                    if total > locked.ordered_qty:
+                        raise _ReceiptRefused(
+                            f'qty for po_item {locked.pk} would exceed the '
+                            f'ordered {locked.ordered_qty} '
+                            f'({locked.received_qty} already received).')
+                    locked.received_qty = total
+                    locked.save(update_fields=['received_qty'])
+                    if qty > 0:
+                        GoodsReceiptItem.objects.create(
+                            receipt=receipt, po_item=locked, qty=qty)
+        except _ReceiptRefused as exc:
+            # Raised inside the atomic block, so the receipt row and every accumulated
+            # quantity are rolled back with it — a refused delivery leaves no trace.
+            return Response(
+                {'detail': str(exc)}, status=drf_status.HTTP_400_BAD_REQUEST)
         return Response(
             self.get_serializer(receipt).data,
             status=drf_status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'])
     def process(self, request, pk=None):
+        """Turn THIS receipt's lines into FIFO batches.
+
+        The double-process guard is `process_goods_receipt`'s job now (decision 09 item
+        4): it checks `processed_at` with the receipt row locked, so two concurrent calls
+        serialize and the second one is refused. The old guard sat here as
+        `receipt.batches.exists()` — an unlocked read — and both callers could pass it.
+        """
         from rest_framework import status as drf_status
 
+        from .exceptions import ReceiptAlreadyProcessed
+
         receipt = self.get_object()
-        if receipt.batches.exists():
-            # No receipt-level guard in process_goods_receipt: every call mints
-            # fresh batches, so a double-tap double-counts stock. Refuse here,
-            # where the receipt's history is visible.
+        try:
+            batches = process_goods_receipt(receipt=receipt, user=request.user)
+        except ReceiptAlreadyProcessed as exc:
+            # Same 400 and same sentence the view-level guard used to answer with; the
+            # added `code` is what lets a client tell this apart from a bad payload.
             return Response(
-                {'detail': f'Goods receipt {receipt.pk} was already processed.'},
+                {'code': exc.code, 'detail': str(exc)},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
-        batches = process_goods_receipt(receipt=receipt, user=request.user)
         return Response(
             InventoryBatchSerializer(batches, many=True).data)
 
