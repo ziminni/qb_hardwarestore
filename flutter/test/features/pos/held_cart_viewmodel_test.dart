@@ -15,6 +15,8 @@ class _StubHeldCarts extends HeldCartService {
   int fetchCalls = 0;
   final List<int> voided = [];
   final List<int> completed = [];
+  /// The `Idempotency-Key` each completion was sent under (Phase 1 Task 6).
+  final List<String?> completedKeys = [];
   Object? failFetch;
   Object? failVoid;
   Object? failComplete;
@@ -50,9 +52,11 @@ class _StubHeldCarts extends HeldCartService {
   Future<Map<String, dynamic>> complete(
     int cartId, {
     required List<PosCheckoutPayment> payments,
+    String? idempotencyKey,
   }) async {
     if (failComplete != null) throw failComplete!;
     completed.add(cartId);
+    completedKeys.add(idempotencyKey);
     return completedSale;
   }
 }
@@ -193,6 +197,41 @@ void main() {
       expect(sale?['id'], 77);
       expect(service.completed, [1]);
       expect(vm.carts.map((c) => c.id), [2]);
+    });
+
+    // Phase 1 Task 6: `complete` deletes the cart, so a retry after a dropped
+    // response has nothing to resolve by id. The key is what makes the replay
+    // answer 200 with the original sale instead of 404.
+    test('forwards the attempt key to the service', () async {
+      final service = _StubHeldCarts()..carts = [_cart(1)];
+      final vm = HeldCartViewmodel(service: service);
+      await vm.load();
+
+      await vm.completeCart(
+        1,
+        payments: const [
+          PosCheckoutPayment(method: 'CASH', amountTendered: 199),
+        ],
+        idempotencyKey: '0123456789abcdef0123456789abcdef',
+      );
+
+      expect(service.completedKeys, ['0123456789abcdef0123456789abcdef']);
+    });
+
+    test('a completion with no key sends none, so the call stays optional',
+        () async {
+      final service = _StubHeldCarts()..carts = [_cart(1)];
+      final vm = HeldCartViewmodel(service: service);
+      await vm.load();
+
+      await vm.completeCart(
+        1,
+        payments: const [
+          PosCheckoutPayment(method: 'CASH', amountTendered: 199),
+        ],
+      );
+
+      expect(service.completedKeys, [null]);
     });
   });
 

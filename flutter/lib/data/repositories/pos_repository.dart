@@ -21,11 +21,13 @@ class PosRepository {
     required List<PosCheckoutItem> items,
     required List<PosCheckoutPayment> payments,
     String source = 'WALK_IN',
+    String? idempotencyKey,
   }) => service.checkout(
     customerId: customerId,
     items: items,
     payments: payments,
     source: source,
+    idempotencyKey: idempotencyKey,
   );
 
   /// The customer id an anonymous sale must still send (decision 06 section 2).

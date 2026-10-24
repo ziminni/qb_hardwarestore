@@ -129,13 +129,22 @@ class HeldCartViewmodel extends ChangeNotifier {
   /// Returns the written sale, or null after setting [actionError]. The cart is
   /// removed only on success: the server deletes it inside the same
   /// transaction that writes the sale, so a failed call means it still exists.
+  ///
+  /// [idempotencyKey] belongs to the completion ATTEMPT and must be reused when
+  /// retrying one: the successful call deletes the cart, so replaying the key is
+  /// the only way to learn that the sale already happened.
   Future<Map<String, dynamic>?> completeCart(
     int cartId, {
     required List<PosCheckoutPayment> payments,
+    String? idempotencyKey,
   }) async {
     actionError = null;
     try {
-      final sale = await _service.complete(cartId, payments: payments);
+      final sale = await _service.complete(
+        cartId,
+        payments: payments,
+        idempotencyKey: idempotencyKey,
+      );
       _carts = _carts
           .where((cart) => cart.id != cartId)
           .toList(growable: false);

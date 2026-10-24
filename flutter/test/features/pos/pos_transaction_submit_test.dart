@@ -36,6 +36,7 @@ class _FakePosRepository extends PosRepository {
     required List<PosCheckoutItem> items,
     required List<PosCheckoutPayment> payments,
     String source = 'WALK_IN',
+    String? idempotencyKey,
   }) async {
     calls++;
     sentCustomerId = customerId;

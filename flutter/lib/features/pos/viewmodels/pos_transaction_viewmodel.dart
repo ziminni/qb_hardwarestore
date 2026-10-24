@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:client/data/models/customer.dart';
 import 'package:client/data/models/held_cart.dart';
 import 'package:client/data/models/pos_transaction.dart';
@@ -41,6 +43,17 @@ class PosTransactionViewmodel extends ChangeNotifier {
   String _query = '';
   bool _isSubmitting = false;
   String? _submitError;
+
+  /// The `Idempotency-Key` of the payment attempt in progress, or null when no
+  /// attempt is pending.
+  ///
+  /// The server answers a repeat of (cashier, key) with the ORIGINAL transaction
+  /// instead of writing a second one, so this value is the difference between a
+  /// retry and a double sale. It is created on the FIRST submit of an attempt and
+  /// reused by every retry of it, then dropped on success - or whenever the body
+  /// could differ (cart edited, customer changed), because a changed body under a
+  /// spent key earns a 409 `IDEMPOTENCY_KEY_REUSED` instead of ringing the sale.
+  String? _attemptKey;
   int? _walkInCustomerId;
   int? _insufficientStockLineId;
   Customer? _selectedCustomer;
@@ -62,6 +75,29 @@ class PosTransactionViewmodel extends ChangeNotifier {
 
   /// The last submit failure, safe to show a cashier. Null after a success.
   String? get submitError => _submitError;
+
+  /// The key the next submit will send, once an attempt has started.
+  ///
+  /// Null before the first press and after a success; tests and the error message
+  /// for `IDEMPOTENCY_KEY_REUSED` both need to see which attempt is in flight.
+  String? get idempotencyKey => _attemptKey;
+
+  /// 32 hex characters from a CSPRNG.
+  ///
+  /// Well inside the server's 64-character cap, and NOT a UUID dependency: the
+  /// server only requires uniqueness per cashier, and `Random.secure()` gives that
+  /// without adding a package.
+  static String _newAttemptKey() {
+    final random = Random.secure();
+    final buffer = StringBuffer();
+    for (var i = 0; i < 32; i++) {
+      buffer.write(random.nextInt(16).toRadixString(16));
+    }
+    return buffer.toString();
+  }
+
+  /// Forgets the attempt key because the next submit will sell a DIFFERENT body.
+  void _dropAttemptKey() => _attemptKey = null;
 
   /// The cart line the server rejected for stock, or null.
   ///
@@ -135,6 +171,9 @@ class PosTransactionViewmodel extends ChangeNotifier {
     if (_selectedCustomer?.id != customer?.id) {
       _ledgerSummary = null;
       _ledgerError = null;
+      // A different buyer is a different sale body, so a key spent on the previous
+      // attempt must not be replayed against this one.
+      _dropAttemptKey();
     }
     _selectedCustomer = customer;
     notifyListeners();
@@ -366,17 +405,21 @@ class PosTransactionViewmodel extends ChangeNotifier {
     } else {
       _lines[index] = _lines[index].copyWith(quantity: cartQuantity + quantity);
     }
+    // The payload changed, so any attempt already started is no longer this sale.
+    _dropAttemptKey();
     notifyListeners();
     return null;
   }
 
   void removeLine(int index) {
     _lines.removeAt(index);
+    _dropAttemptKey();
     notifyListeners();
   }
 
   void clear() {
     _lines.clear();
+    _dropAttemptKey();
     notifyListeners();
   }
 
@@ -401,6 +444,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
   /// Returns how many lines were restored.
   int loadHeldCart(HeldCart cart) {
     _lines.clear();
+    // A resumed basket is a new body, so the parked till starts a new attempt.
+    _dropAttemptKey();
     for (final item in cart.items) {
       // One lookup per line: the row supplies names and unit, and null means the
       // catalogue no longer sells that unit (kept anyway, see above).
@@ -521,6 +566,9 @@ class PosTransactionViewmodel extends ChangeNotifier {
       // Snapshot the lines being sold: the receipt must describe THIS sale, not
       // whatever the cart holds when the response lands.
       final sold = List<PosCartLine>.of(_lines);
+      // One key per ATTEMPT: created on the first press and reused by a retry, so
+      // a dropped response cannot turn one basket into two sales.
+      final attemptKey = _attemptKey ??= _newAttemptKey();
       final result = await _pos.checkout(
         customerId: buyer,
         items: [
@@ -534,23 +582,29 @@ class PosTransactionViewmodel extends ChangeNotifier {
         payments: [
           PosCheckoutPayment(method: paymentMethod, amountTendered: amountPaid),
         ],
+        idempotencyKey: attemptKey,
       );
 
       // The receipt's numbers are the SERVER's, not the cart's arithmetic: decision
-      // 06 section 1 says the response is the finished transaction.
+      // 06 section 1 says the response is the finished transaction. That now covers
+      // the LINES too - the server prices from VariantUOM.default_selling_price and
+      // ignores the client's `unit_price`, so a receipt printed from the cart could
+      // print a price the customer was never charged.
       _receipts.insert(
         0,
         PosReceipt(
           reference: result.transactionNo,
           officialReceiptNumber: result.orNumber,
           createdAt: result.transDate,
-          lines: List.unmodifiable(sold),
+          lines: List.unmodifiable(_serverLines(result.lines, sold)),
           paymentMethod: paymentMethod,
           amountPaid: amountPaid,
           total: result.grandTotal,
         ),
       );
       _lines.clear();
+      // The sale is written, so this attempt is finished and its key is spent.
+      _dropAttemptKey();
       return true;
     } on PosServiceException catch (error) {
       _submitError = error.message;
@@ -570,6 +624,43 @@ class PosTransactionViewmodel extends ChangeNotifier {
   String _quantity(double value) => value == value.roundToDouble()
       ? value.toStringAsFixed(0)
       : value.toStringAsFixed(2);
+
+  /// The receipt's lines, priced by the SERVER.
+  ///
+  /// The response carries ids, quantities and money but no product names, so each
+  /// server line borrows the NAME and UNIT of the cart line it belongs to and takes
+  /// its quantity and price from the server. Falls back to the cart snapshot when
+  /// the response omitted `items`, so a cosmetic omission still prints a receipt
+  /// for a sale that really happened.
+  List<PosCartLine> _serverLines(
+    List<PosCheckoutLine> serverLines,
+    List<PosCartLine> sold,
+  ) {
+    if (serverLines.isEmpty) return sold;
+    return [
+      for (final line in serverLines)
+        PosCartLine(
+          variantUomId: line.variantUomId,
+          productName: _soldLine(line.variantUomId, sold)?.productName ??
+              'Sale line',
+          variantName: _soldLine(line.variantUomId, sold)?.variantName ?? '',
+          quantity: line.quantity,
+          unit: _soldLine(line.variantUomId, sold)?.unit ?? '',
+          unitPrice: line.unitPrice,
+          availableQuantity:
+              _soldLine(line.variantUomId, sold)?.availableQuantity ?? 0,
+        ),
+    ];
+  }
+
+  /// The sold cart line for [variantUomId], or null when the server wrote a line
+  /// the cart no longer names.
+  PosCartLine? _soldLine(int variantUomId, List<PosCartLine> sold) {
+    for (final line in sold) {
+      if (line.variantUomId == variantUomId) return line;
+    }
+    return null;
+  }
 
   double _conversionFactor(ProductTrackingConfiguration tracking, String unit) {
     if (unit.toLowerCase() == tracking.packageType.toLowerCase()) {

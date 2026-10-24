@@ -111,13 +111,22 @@ class HeldCartService {
 
   /// Sells a parked basket: the server deducts stock, writes the sale, prints an
   /// official receipt and deletes the cart, all inside one transaction.
+  ///
+  /// [idempotencyKey] makes a retry SAFE. The cart is deleted by the successful
+  /// call, so after a dropped response there is nothing left to resolve by id —
+  /// replaying the same key is the only way to find out whether the sale happened
+  /// (200 with the original) instead of guessing (404).
   Future<Map<String, dynamic>> complete(
     int cartId, {
     required List<PosCheckoutPayment> payments,
+    String? idempotencyKey,
   }) async {
     try {
       final response = await _client.post<Map<String, dynamic>>(
         '$heldCartsPath$cartId/complete/',
+        headers: idempotencyKey == null || idempotencyKey.isEmpty
+            ? null
+            : {'Idempotency-Key': idempotencyKey},
         data: {
           'payments': [for (final payment in payments) payment.toJson()],
         },

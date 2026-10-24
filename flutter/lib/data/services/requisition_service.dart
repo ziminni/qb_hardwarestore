@@ -146,6 +146,18 @@ class RequisitionService {
   }
 
   String _messageFor(DioException error) {
+    if (_serverCode(error) == 'NO_BASE_UOM') {
+      // Phase 1 Task 5: `release_materials` refuses a variant with no
+      // conversion-factor-1 selling unit BEFORE any write, because the old fallback
+      // priced it at zero and killed the sale halfway through. A clerk needs the
+      // instruction that unblocks the counter, not 'The requisitions could not be
+      // loaded.' — so the server's own detail is kept, prefixed with what it means.
+      const intro =
+          'The release was refused: this material has no base unit in the '
+          'catalogue.';
+      final detail = _serverDetail(error);
+      return detail == null ? intro : '$intro $detail';
+    }
     final detail = _serverDetail(error);
     if (detail != null) return detail;
     if (error.type == DioExceptionType.connectionError ||
@@ -156,6 +168,14 @@ class RequisitionService {
     if (status == 401) return 'Your session has expired. Sign in again.';
     if (status == 403) return 'You do not have access to requisitions.';
     return 'The requisitions could not be loaded.';
+  }
+
+  /// The stable machine-readable `code` a business-rule refusal carries, if any.
+  String? _serverCode(DioException error) {
+    final data = error.response?.data;
+    if (data is! Map) return null;
+    final code = data['code'];
+    return code is String ? code : null;
   }
 
   /// The `detail` string a DRF error response carries, when it sent one.

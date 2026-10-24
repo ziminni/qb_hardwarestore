@@ -209,6 +209,127 @@ void main() {
     );
   });
 
+  // Phase 1 Task 6 (audit remediation): the idempotent checkout contract.
+  //
+  // The server accepts an optional `Idempotency-Key` on POST /transactions/ and
+  // POST /held-carts/{id}/complete/. Same key + same body answers 200 with the
+  // ORIGINAL transaction instead of 201 with a new one, which is the only thing
+  // that stops a retried timeout from ringing a second sale. So the client must
+  // (a) send the header, and (b) parse a 200 replay exactly like a 201.
+  group('idempotency', () {
+    Future<PosCheckoutResult> submitWithKey(String? key) => service.checkout(
+      customerId: 2,
+      items: const [
+        PosCheckoutItem(variantUomId: 8, quantity: 2, unitPrice: 10),
+      ],
+      payments: const [
+        PosCheckoutPayment(method: 'CASH', amountTendered: 20),
+      ],
+      idempotencyKey: key,
+    );
+
+    test('sends the Idempotency-Key header when given one', () async {
+      service = serviceReturning(_transaction(), 201);
+      await submitWithKey('0123456789abcdef0123456789abcdef');
+
+      expect(
+        adapter.requests.single.headers['Idempotency-Key'],
+        '0123456789abcdef0123456789abcdef',
+      );
+    });
+
+    test('omits the header when there is no key', () async {
+      // The header is optional on the server, so an unkeyed checkout must keep
+      // behaving exactly as it did before.
+      service = serviceReturning(_transaction(), 201);
+      await submitWithKey(null);
+
+      expect(
+        adapter.requests.single.headers.containsKey('Idempotency-Key'),
+        isFalse,
+      );
+    });
+
+    test('a 200 replay parses exactly like a 201', () async {
+      service = serviceReturning(_transaction(), 200);
+      final result = await submitWithKey('0123456789abcdef0123456789abcdef');
+
+      expect(result.id, 18);
+      expect(result.transactionNo, 'TRX-20261016-0007');
+      expect(result.orNumber, 'OR-20261016-0007');
+      expect(result.grandTotal, 20);
+    });
+
+    test('carries the SERVER line prices, not the client\'s', () async {
+      // The server now ignores a client `unit_price` and prices each line from
+      // VariantUOM.default_selling_price, so the response is the only truthful
+      // source for what the receipt must print.
+      service = serviceReturning(_transaction(), 201);
+      final result = await submitWithKey(null);
+
+      expect(result.lines, hasLength(1));
+      expect(result.lines.single.variantUomId, 8);
+      expect(result.lines.single.quantity, 2);
+      expect(result.lines.single.unitPrice, 10);
+      expect(result.lines.single.subtotal, 20);
+    });
+  });
+
+  // Phase 1 Task 6: the new 400/409 codes must reach a cashier as words, not as
+  // 'The sale could not be completed.'
+  group('new sale error codes', () {
+    Future<PosServiceException> failureFor(
+      Map<String, dynamic> body,
+      int status,
+    ) async {
+      service = serviceReturning(body, status);
+      final error = await submit().then<Object?>((_) => null, onError: (e) => e);
+      expect(error, isA<PosServiceException>());
+      return error! as PosServiceException;
+    }
+
+    test('INVALID_SALE surfaces the server detail', () async {
+      final failure = await failureFor({
+        'code': 'INVALID_SALE',
+        'detail': 'Item 1 has an invalid quantity.',
+      }, 400);
+
+      expect(failure.code, 'INVALID_SALE');
+      expect(failure.message, 'Item 1 has an invalid quantity.');
+      expect(failure.isInsufficientStock, isFalse);
+    });
+
+    test('CREDIT_LIMIT_EXCEEDED spells out the arithmetic', () async {
+      final failure = await failureFor({
+        'code': 'CREDIT_LIMIT_EXCEEDED',
+        'detail': 'Credit limit exceeded.',
+        'limit': '500.00',
+        'outstanding': '400.00',
+        'shortfall': '200.00',
+      }, 400);
+
+      expect(failure.code, 'CREDIT_LIMIT_EXCEEDED');
+      expect(
+        failure.message,
+        'Credit limit exceeded: outstanding 400.00 + this sale 200.00 > '
+        'limit 500.00.',
+      );
+      expect(failure.limit, 500);
+      expect(failure.outstanding, 400);
+      expect(failure.isInsufficientStock, isFalse);
+    });
+
+    test('IDEMPOTENCY_KEY_REUSED says the sale was NOT rung twice', () async {
+      final failure = await failureFor({
+        'code': 'IDEMPOTENCY_KEY_REUSED',
+        'detail': 'Idempotency key already used with a different body.',
+      }, 409);
+
+      expect(failure.code, 'IDEMPOTENCY_KEY_REUSED');
+      expect(failure.message, contains('different sale'));
+    });
+  });
+
   // Task 4 (decision 06 section 2): a walk-in sale CANNOT omit the customer.
   // SalesTransaction.customer is FK(PROTECT) with no null=True and the view reads
   // validated_data['customer'].id, so an anonymous sale still sends an id - the

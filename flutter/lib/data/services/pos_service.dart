@@ -60,6 +60,7 @@ class PosCheckoutResult {
     required this.orNumber,
     required this.transDate,
     required this.grandTotal,
+    this.lines = const [],
   });
 
   factory PosCheckoutResult.fromJson(Map<String, dynamic> json) {
@@ -79,7 +80,33 @@ class PosCheckoutResult {
             )),
       transDate: DateTime.parse(json['trans_date'] as String),
       grandTotal: double.parse('${json['grand_total']}'),
+      lines: _linesFrom(json['items']),
     );
+  }
+
+  /// Reads the written lines, tolerating a response that omits `items`.
+  ///
+  /// A missing list is NOT a contract break worth throwing on: the receipt has
+  /// the server's grand total either way, and the cart's snapshot is a faithful
+  /// fallback for names and quantities. Throwing here would turn a cosmetic
+  /// omission into a lost sale that DID happen.
+  static List<PosCheckoutLine> _linesFrom(Object? items) {
+    if (items is! List) return const [];
+    final lines = <PosCheckoutLine>[];
+    for (final item in items) {
+      if (item is! Map) continue;
+      final variantUomId = item['variant_uom'];
+      if (variantUomId is! int) continue;
+      lines.add(
+        PosCheckoutLine(
+          variantUomId: variantUomId,
+          quantity: double.parse('${item['qty']}'),
+          unitPrice: double.parse('${item['unit_price']}'),
+          subtotal: double.parse('${item['subtotal']}'),
+        ),
+      );
+    }
+    return lines;
   }
 
   final int id;
@@ -87,6 +114,28 @@ class PosCheckoutResult {
   final String orNumber;
   final DateTime transDate;
   final double grandTotal;
+
+  /// The sale's lines exactly as the SERVER wrote them.
+  ///
+  /// The server prices every line from `VariantUOM.default_selling_price` and
+  /// converts the selling quantity by `conversion_factor`, so a client-computed
+  /// line total is only a preview. The receipt prints from here.
+  final List<PosCheckoutLine> lines;
+}
+
+/// One written sale line, read back from the transaction response.
+class PosCheckoutLine {
+  const PosCheckoutLine({
+    required this.variantUomId,
+    required this.quantity,
+    required this.unitPrice,
+    required this.subtotal,
+  });
+
+  final int variantUomId;
+  final double quantity;
+  final double unitPrice;
+  final double subtotal;
 }
 
 /// Raised when a sale cannot be completed. [message] is safe to show a cashier.
@@ -96,6 +145,8 @@ class PosServiceException implements Exception {
     this.code,
     this.shortfall,
     this.variantId,
+    this.limit,
+    this.outstanding,
   });
 
   final String message;
@@ -113,6 +164,12 @@ class PosServiceException implements Exception {
   /// what the viewmodel maps onto a cart row. Null when the server did not say - and
   /// a caller must then point at nothing rather than guess.
   final int? variantId;
+
+  /// The customer's credit limit, when the server refused the sale for credit.
+  final double? limit;
+
+  /// What that customer already owed, when the server refused for credit.
+  final double? outstanding;
 
   /// True only when the server explicitly said stock was short.
   ///
@@ -182,10 +239,12 @@ class PosService {
     required List<PosCheckoutItem> items,
     required List<PosCheckoutPayment> payments,
     String source = 'WALK_IN',
+    String? idempotencyKey,
   }) async {
     try {
       final response = await _client.post<Map<String, dynamic>>(
         transactionsPath,
+        headers: _idempotencyHeaders(idempotencyKey),
         data: {
           'customer': customerId,
           // `cashier` is deliberately absent: the serializer is read-only for it and
@@ -206,6 +265,17 @@ class PosService {
     } on DioException catch (error) {
       throw _failureFor(error);
     }
+  }
+
+  /// The `Idempotency-Key` header, or null when this attempt carries no key.
+  ///
+  /// ENDPOINTS.md *Idempotency*: a repeat of (cashier, key) with the same body
+  /// answers 200 and the ORIGINAL transaction; the same key with a different body
+  /// answers 409. The header is therefore per ATTEMPT - the viewmodel owns the
+  /// key and reuses it across retries - never a per-client constant.
+  static Map<String, String>? _idempotencyHeaders(String? key) {
+    if (key == null || key.isEmpty) return null;
+    return {'Idempotency-Key': key};
   }
 
   /// Maps a transport failure onto something a cashier can act on.
@@ -233,6 +303,32 @@ class PosService {
             variantId: variantId is int ? variantId : null,
           );
         }
+        if (code is String && code == 'CREDIT_LIMIT_EXCEEDED') {
+          // Phase 1 Task 2 answers with three Decimal strings and no prose worth
+          // printing, so the cashier's instruction is assembled here: what the
+          // customer owes, what this sale adds, and the ceiling it breaks.
+          final limit = _amount(body['limit']);
+          final outstanding = _amount(body['outstanding']);
+          final shortfall = _amount(body['shortfall']);
+          return PosServiceException(
+            'Credit limit exceeded: outstanding ${_money(outstanding)} + this '
+            'sale ${_money(shortfall)} > limit ${_money(limit)}.',
+            code: code,
+            limit: limit,
+            outstanding: outstanding,
+            shortfall: shortfall,
+          );
+        }
+        if (code is String && code == 'IDEMPOTENCY_KEY_REUSED') {
+          // A 409 means this key was already spent on a DIFFERENT sale. Saying so
+          // plainly stops a cashier retrying into the same wall - and stops them
+          // believing the basket in front of them was rung up.
+          return const PosServiceException(
+            'This attempt was already used for a different sale. Start the '
+            'payment again.',
+            code: 'IDEMPOTENCY_KEY_REUSED',
+          );
+        }
         final detail = body['detail'];
         if (detail is String && detail.isNotEmpty) {
           return PosServiceException(
@@ -255,4 +351,12 @@ class PosService {
         );
     }
   }
+
+  /// A money field from the server (Decimal is serialized as a string), or null.
+  static double? _amount(Object? value) =>
+      value == null ? null : double.tryParse('$value');
+
+  /// Two decimals, or a visible gap rather than a made-up zero.
+  static String _money(double? value) =>
+      value == null ? '(unknown)' : value.toStringAsFixed(2);
 }

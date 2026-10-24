@@ -172,7 +172,20 @@ class ApiClient {
     return parsePaged<T>(response.data, fromJson);
   }
 
-  Future<Response<T>> post<T>(String path, {Object? data}) {
-    return dio.post<T>(path, data: data);
+  /// POSTs [data], optionally with per-request [headers].
+  ///
+  /// [headers] exists for the `Idempotency-Key` the checkout contract requires
+  /// (ENDPOINTS.md, *Idempotency*): it is per REQUEST, not per client, because a
+  /// new sale must carry a new key while a retry of the same sale reuses one.
+  Future<Response<T>> post<T>(
+    String path, {
+    Object? data,
+    Map<String, String>? headers,
+  }) {
+    return dio.post<T>(
+      path,
+      data: data,
+      options: headers == null ? null : Options(headers: headers),
+    );
   }
 }

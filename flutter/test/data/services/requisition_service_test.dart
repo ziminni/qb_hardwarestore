@@ -236,6 +236,29 @@ void main() {
     );
   });
 
+  // Phase 1 Task 6 (audit remediation): `release_materials` now refuses a variant that has no
+  // conversion-factor-1 selling unit, because the old fallback priced the line at zero and
+  // handed `variant_uom=None` to a non-null FK — a half-written sale. The 400 carries
+  // `{code: NO_BASE_UOM, detail: "Variant ... has no base-unit selling price ..."}`, which a
+  // clerk can only act on if the screen says WHAT to fix, so the detail must survive.
+  test('NO_BASE_UOM tells the clerk which catalogue gap blocks the release', () async {
+    serve((_) => _json({
+      'code': 'NO_BASE_UOM',
+      'detail': 'Variant 12 - 1/2 inch x 3m has no base-unit selling price: add a '
+          'selling unit with conversion factor 1 before releasing it.',
+    }, status: 400));
+
+    await expectLater(
+      service().release('d5a4eb1f-0e88-497d-bc3b-688b14a6a867'),
+      throwsA(isA<RequisitionServiceException>().having(
+        (e) => e.message,
+        'message',
+        startsWith('The release was refused: this material has no base unit in '
+            'the catalogue.'),
+      )),
+    );
+  });
+
   test('an unreachable server says so in words a cashier can act on', () async {
     serve((options) => throw DioException(
       requestOptions: options, type: DioExceptionType.connectionError));
