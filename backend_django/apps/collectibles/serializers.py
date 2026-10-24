@@ -34,6 +34,25 @@ class CollectiblePaymentSerializer(serializers.ModelSerializer):
             'processed_by',
         ]
 
+    def validate_payment_method(self, value):
+        """Accept the four tender CODES, nothing else (C2, 2026-10-24).
+
+        `payment_method` used to be free text, so a client could post the label it shows
+        ('Cash') or the server's own `RETURN_CREDIT` marker. Both are refused here, BEFORE
+        `perform_create` moves a balance: the allowed set is `Payment.Method` — the same
+        home the till's checkout validation reads — so a code the server starts taking is
+        taken here too, with no second list to keep in step.
+
+        A refusal writes nothing: the exception is raised during validation, which is
+        before the atomic block that saves the payment and moves `balance_due`.
+        """
+        from apps.pos.exceptions import InvalidPaymentMethod
+        from apps.pos.models import Payment
+
+        if value not in dict(Payment.Method.choices):
+            raise InvalidPaymentMethod(value)
+        return value
+
 
 class CollectibleLedgerSerializer(serializers.ModelSerializer):
     """Collectible ledger entry with nested recent payments."""

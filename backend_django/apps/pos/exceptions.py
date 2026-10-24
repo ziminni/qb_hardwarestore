@@ -246,6 +246,30 @@ class NoOpenShift(Exception):
             or 'You have no open shift. Open a shift before ringing a sale.')
 
 
+class InvalidPaymentMethod(ValueError):
+    """A payment method a client may not write (C2, 2026-10-24).
+
+    `Payment.method` and `CollectiblePayment.payment_method` hold the WIRE CODES
+    (`CASH`, `CARD`, `GCASH`, `BANK_TRANSFER`); the labels (`'Cash'`) belong to the
+    screens. Nothing on the server enforced that for a hand-written request, so a client
+    could post a label — which every consumer that branches on the code then misses,
+    `compute_z_reading`'s `by_method` among them — or `RETURN_CREDIT`, the marker
+    `process_return` writes itself to explain a debt settled by goods coming back. A
+    client that can post that can erase a receivable with no money and no goods.
+
+    A `ValueError` subclass, like `InvalidSale`: it is a wrongly built request, and the
+    client's answer is to send the code it already has in its tender-method table.
+    """
+
+    code = 'INVALID_PAYMENT_METHOD'
+
+    def __init__(self, method=''):
+        self.method = method
+        super().__init__(
+            f'{method!r} is not a payment method this server records. Send one of '
+            'CASH, CARD, GCASH or BANK_TRANSFER.')
+
+
 class CreditLimitForbidden(PermissionDenied):
     """A non-manager tried to set `Customer.total_credit_limit` (Phase 2 Task 2).
 
@@ -418,6 +442,17 @@ def handler(exc, context):
         return Response(
             {
                 'code': InvalidSale.code,
+                'detail': str(exc),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if isinstance(exc, InvalidPaymentMethod):
+        # The {code, detail} shape the client branches on, for the same reason as
+        # InvalidSale: a label is a client bug, not a server fault, and the message
+        # names the four codes so the answer is obvious.
+        return Response(
+            {
+                'code': InvalidPaymentMethod.code,
                 'detail': str(exc),
             },
             status=status.HTTP_400_BAD_REQUEST,
