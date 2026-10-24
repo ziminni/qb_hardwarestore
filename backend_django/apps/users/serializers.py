@@ -110,12 +110,25 @@ class LoginSerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 
 class AuditLogSerializer(serializers.ModelSerializer):
-    user_email = serializers.EmailField(source='user.email', read_only=True)
+    """Read-only view of one audit row.
+
+    ``user_email`` goes through a method field so a row whose actor is NULL (a failed
+    login by an unknown identifier) still serializes: a ``source='user.email'`` chain
+    cannot walk a null FK. ``username_snapshot`` is the row's own copy of the actor's
+    name and is never writable here — the viewset is read-only and the model refuses
+    updates anyway.
+    """
+
+    user_email = serializers.SerializerMethodField()
 
     class Meta:
         model = AuditLog
         fields = [
-            'id', 'user', 'user_email', 'action_type',
+            'id', 'user', 'user_email', 'username_snapshot', 'action_type',
             'description', 'ip_address', 'timestamp',
         ]
         read_only_fields = fields
+
+    @staticmethod
+    def get_user_email(obj):
+        return obj.user.email if obj.user_id else None

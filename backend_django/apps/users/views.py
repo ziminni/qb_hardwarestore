@@ -1,7 +1,12 @@
-# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportIndexIssue=false, reportOptionalSubscript=false, reportInvalidTypeArguments=false
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportIndexIssue=false, reportOptionalSubscript=false, reportInvalidTypeArguments=false, reportGeneralTypeIssues=false
+#
+# The second half of that directive list is the same false-positive class documented in
+# apps/collectibles/views.py: without django-stubs this checker cannot see that
+# `transaction.atomic()` is a context manager.
 """Users app — ViewSets and auth views."""
 
 from django.contrib.auth.models import Group
+from django.db import transaction
 from django.db.models import Q
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
@@ -18,8 +23,8 @@ from .serializers import (
     UserSerializer,
 )
 from .services import (
+    audit_request,
     is_active_admin,
-    log_audit,
     other_active_admin_exists,
     update_last_login,
 )
@@ -64,7 +69,15 @@ def register_view(request):
     """
     serializer = RegisterSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
-    user = serializer.save()
+    # One atomic block: the account and the row that records who created it commit or
+    # roll back together (decision 07).
+    with transaction.atomic():
+        user = serializer.save()
+        audit_request(
+            request,
+            AuditLog.ActionType.CREATE,
+            f'User {user.username} created.',
+        )
     return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
 
 
@@ -77,11 +90,10 @@ def me_view(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def logout_view(request):
-    log_audit(
-        user=request.user,
-        action_type=AuditLog.ActionType.LOGOUT,
-        description=f'{request.user.username} logged out.',
-        ip_address=request.META.get('REMOTE_ADDR', ''),
+    audit_request(
+        request,
+        AuditLog.ActionType.LOGOUT,
+        f'{request.user.username} logged out.',
     )
     return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -98,11 +110,12 @@ def login_view(request):
     user = serializer.validated_data['user']
 
     update_last_login(user)
-    log_audit(
+    # `user=user`: this endpoint is AllowAny, so `request.user` is still anonymous.
+    audit_request(
+        request,
+        AuditLog.ActionType.LOGIN,
+        f'{user.username} logged in.',
         user=user,
-        action_type=AuditLog.ActionType.LOGIN,
-        description=f'{user.username} logged in.',
-        ip_address=request.META.get('REMOTE_ADDR', ''),
     )
 
     refresh = RefreshToken.for_user(user)
@@ -142,6 +155,7 @@ class UserViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         """PATCH / PUT, guarded so the last active admin cannot be disabled."""
         instance = self.get_object()
+        was_active = instance.is_active
         serializer = self.get_serializer(
             instance, data=request.data, partial=kwargs.get('partial', False))
         serializer.is_valid(raise_exception=True)
@@ -153,7 +167,24 @@ class UserViewSet(viewsets.ModelViewSet):
         )
         if refusal is not None:
             return refusal
-        return super().update(request, *args, **kwargs)
+        # The write and its audit row are one transaction (decision 07): a refused or
+        # rolled-back update leaves no row claiming the change happened.
+        with transaction.atomic():
+            response = super().update(request, *args, **kwargs)
+            instance.refresh_from_db()
+            if was_active and not instance.is_active:
+                audit_request(
+                    request,
+                    AuditLog.ActionType.USER_DEACTIVATE,
+                    f'User {instance.username} deactivated.',
+                )
+            else:
+                audit_request(
+                    request,
+                    AuditLog.ActionType.UPDATE,
+                    f'User {instance.username} updated.',
+                )
+        return response
 
     @action(detail=False, methods=['get'])
     def stats(self, request):
@@ -201,7 +232,13 @@ class UserViewSet(viewsets.ModelViewSet):
         )
         if refusal is not None:
             return refusal
-        user.groups.set([group])
+        with transaction.atomic():
+            user.groups.set([group])
+            audit_request(
+                request,
+                AuditLog.ActionType.ROLE_CHANGE,
+                f'{user.username} assigned to {group_name}.',
+            )
         return Response({'detail': f'{user.username} assigned to {group_name}.'})
 
     @action(detail=True, methods=['post'])
@@ -233,7 +270,13 @@ class UserViewSet(viewsets.ModelViewSet):
         )
         if refusal is not None:
             return refusal
-        user.groups.remove(group)
+        with transaction.atomic():
+            user.groups.remove(group)
+            audit_request(
+                request,
+                AuditLog.ActionType.ROLE_CHANGE,
+                f'{group_name} removed from {user.username}.',
+            )
         return Response({'detail': f'{group_name} removed from {user.username}.'})
 
 

@@ -1,23 +1,28 @@
-# pyright: reportAttributeAccessIssue=false
+# pyright: reportAttributeAccessIssue=false, reportGeneralTypeIssues=false
 #
 # Same reason as apps/inventory/views.py and seed_demo.py: the checker resolves its
 # config from its WORKING DIRECTORY and does not run inside this repo here, so a
 # pyrightconfig.json is not found. This travels with the file. It disables the one
-# rule that cannot model Django's `Model.objects` without django-stubs.
+# rule that cannot model Django's `Model.objects` without django-stubs, plus the same
+# `transaction.atomic()` context-manager false positive documented in
+# apps/collectibles/views.py (Phase 2 task 5 wraps events in explicit atomic blocks).
 from django.db.models import Sum
 from decimal import Decimal
 from decimal import InvalidOperation
 from django.db import IntegrityError
+from django.db import transaction as db_transaction
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
+from apps.users.models import AuditLog
 from apps.users.permissions import (
     IsManagerRole, IsPOSOrReadOnly, IsPOSRole, SalesReadPOSWrite,
     has_role, is_cashier_only,
 )
+from apps.users.services import audit_request
 from .exceptions import CreditLimitForbidden
 from .models import Customer, SalesTransaction, Payment, OfficialReceipt
 from .models import Quotation, SalesOrder
@@ -177,13 +182,24 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
             # Ledger ruling: this phase protects CHECKOUT with idempotency, not returns.
             # A refund is already re-checkable against the original sale it reverses.
             from .services import process_return
-            txn = process_return(
-                customer_id=ser.validated_data['customer'].id,
-                cashier=request.user,
-                items_data=request.data.get('items',[]),
-                original_transaction_id=request.data.get('original_transaction'),
-                payment_method=request.data.get('payment_method','CASH'),
-            )
+            # Phase 2 task 5 (decision 07): the return and its audit row are one
+            # transaction. `process_return` owns its own atomic block, so this is a
+            # savepoint nested in the outer one - the row commits or rolls back with the
+            # refund it describes.
+            with db_transaction.atomic():
+                txn = process_return(
+                    customer_id=ser.validated_data['customer'].id,
+                    cashier=request.user,
+                    items_data=request.data.get('items',[]),
+                    original_transaction_id=request.data.get('original_transaction'),
+                    payment_method=request.data.get('payment_method','CASH'),
+                )
+                audit_request(
+                    request,
+                    AuditLog.ActionType.RETURN,
+                    f'Return {txn.transaction_no} posted for '
+                    f'{txn.grand_total} by {request.user.username}.',
+                )
             return Response(self.get_serializer(txn).data, status=status.HTTP_201_CREATED)
 
         # Decision 09 item 2: replay BEFORE ringing anything. The common retry is a
@@ -197,15 +213,26 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
                 return _replayed_response(replayed)
 
         try:
-            txn = process_sale(
-                customer_id=ser.validated_data['customer'].id,
-                cashier=request.user,
-                items_data=request.data.get('items',[]),
-                payments_data=request.data.get('payments',[]),
-                source=source,
-                idempotency_key=idempotency_key,
-                request_hash=body_hash,
-            )
+            # The sale and its audit row are ONE transaction (decision 07). The replay
+            # branch above returns before this block, so an idempotent 200 writes no row;
+            # the `except IntegrityError` below deliberately sits OUTSIDE it, because
+            # that handler has to re-read the database after the block rolled back.
+            with db_transaction.atomic():
+                txn = process_sale(
+                    customer_id=ser.validated_data['customer'].id,
+                    cashier=request.user,
+                    items_data=request.data.get('items',[]),
+                    payments_data=request.data.get('payments',[]),
+                    source=source,
+                    idempotency_key=idempotency_key,
+                    request_hash=body_hash,
+                )
+                audit_request(
+                    request,
+                    AuditLog.ActionType.SALE,
+                    f'Sale {txn.transaction_no} rung for {txn.grand_total} '
+                    f'({source}) by {request.user.username}.',
+                )
         except IntegrityError:
             # The race the pre-check cannot win: two retries both read "no such key" and
             # both insert, and only the unique constraint on (cashier, idempotency_key)
@@ -309,11 +336,20 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
                  'detail': 'You already have an open shift. Close it first.'},
                 status=status.HTTP_400_BAD_REQUEST)
         try:
-            shift = Shift.objects.create(
-                cashier=request.user,
-                opening_float=opening_float,
-                notes=request.data.get('notes', ''),
-            )
+            # The shift and its audit row are one transaction (decision 07): the
+            # IntegrityError handler below has to sit outside it, because it re-reads
+            # the state the block just rolled back.
+            with db_transaction.atomic():
+                shift = Shift.objects.create(
+                    cashier=request.user,
+                    opening_float=opening_float,
+                    notes=request.data.get('notes', ''),
+                )
+                audit_request(
+                    request,
+                    AuditLog.ActionType.SHIFT_OPEN,
+                    f'Shift #{shift.pk} opened with float {opening_float}.',
+                )
         except IntegrityError:
             # The partial unique index is the real guard: two concurrent opens both pass
             # the check above, and only the database can refuse the second. Same 400, so
@@ -363,8 +399,16 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
         shift.closed_at = timezone.now()
         if request.data.get('notes'):
             shift.notes = request.data['notes']
-        shift.save(update_fields=[
-            'closing_count', 'status', 'closed_at', 'notes'])
+        # The close and its audit row are one transaction (decision 07).
+        with db_transaction.atomic():
+            shift.save(update_fields=[
+                'closing_count', 'status', 'closed_at', 'notes'])
+            audit_request(
+                request,
+                AuditLog.ActionType.SHIFT_CLOSE,
+                f'Shift #{shift.pk} closed with count {closing_count} '
+                f'(float {shift.opening_float}).',
+            )
         return Response(self.get_serializer(shift).data)
 
     @action(detail=False, methods=['get'])
@@ -460,6 +504,25 @@ class HeldCartViewSet(BaseViewSet):
             status=status.HTTP_201_CREATED,
         )
 
+    def destroy(self, request, *args, **kwargs):
+        """DELETE /held-carts/{id}/ — voiding a parked cart is a business event.
+
+        A cart is thrown away for a reason (customer walked out, rang it at another
+        till), so the removal is recorded with its id and line count. The row and the
+        delete are one transaction: a refused delete writes nothing.
+        """
+        cart = self.get_object()
+        cart_pk = cart.pk
+        line_count = cart.items.count()
+        with db_transaction.atomic():
+            cart.delete()
+            audit_request(
+                request,
+                AuditLog.ActionType.CART_VOID,
+                f'Held cart #{cart_pk} voided ({line_count} line(s)).',
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     @action(detail=True, methods=['post'])
     def complete(self, request, pk=None):
         # Scope names THIS cart: completing cart B with cart A's key is a 409, not a
@@ -506,6 +569,15 @@ class HeldCartViewSet(BaseViewSet):
                     request_hash=body_hash,
                 )
                 cart.delete()
+                # Inside THIS block (decision 07): the sale, the deleted cart and the
+                # audit row commit together. A refused completion (insufficient stock)
+                # rolls back and leaves no row claiming a sale happened.
+                audit_request(
+                    request,
+                    AuditLog.ActionType.SALE,
+                    f'Sale {txn.transaction_no} rung for {txn.grand_total} from held '
+                    f'cart #{cart.pk} by {request.user.username}.',
+                )
         except IntegrityError:
             # Same race as `SalesTransactionViewSet.create`, and handled the same way:
             # the atomic block above has rolled back (cart still held), so re-reading is

@@ -228,6 +228,10 @@ def release_materials(*, token_value: str, cashier) -> dict:
     return {
         'transaction_id': txn.id,
         'transaction_no': txn.transaction_no,
+        # The audit row (written by the view, inside this same transaction) names the
+        # requisition by its DOCUMENT NUMBER - never by the token UUID, which is a bearer
+        # credential (decision 07).
+        'req_number': req.req_number,
         'grand_total': str(grand_total),
         'ledger_id': ledger.id,
         'balance_due': str(ledger.balance_due),

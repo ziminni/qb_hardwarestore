@@ -1,15 +1,19 @@
-# pyright: reportAttributeAccessIssue=false, reportIndexIssue=false, reportOptionalSubscript=false, reportInvalidTypeArguments=false
+# pyright: reportAttributeAccessIssue=false, reportIndexIssue=false, reportOptionalSubscript=false, reportInvalidTypeArguments=false, reportGeneralTypeIssues=false
 #
 # Same reason as apps/requisitions/services.py: the root pyrightconfig.json is not
 # found from this checker's working directory, and DRF serializer `validated_data`
-# / Django choice enums resolve to `empty`/`None` without django-stubs. The test run
+# / Django choice enums resolve to `empty`/`None` without django-stubs.
+# `reportGeneralTypeIssues` covers the same false positive one level down (the checker
+# cannot see that `transaction.atomic()` is a context manager). The test run
 # is the authority.
 """Requisitions app — ViewSets for project management and material release."""
 
+from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 
+from apps.users.models import AuditLog
 from apps.users.permissions import (
     IsForemanOrManager,
     IsForemanOrManagerOrReadOnly,
@@ -17,6 +21,7 @@ from apps.users.permissions import (
     IsPOSRole,
     has_role,
 )
+from apps.users.services import audit_request
 
 from .exceptions import NoBaseUom, RequisitionLocked
 from .models import (
@@ -173,7 +178,16 @@ class RequisitionViewSet(viewsets.ModelViewSet):
         """Approve a SUBMITTED requisition and generate a MaterialToken."""
         req = self.get_object()
         try:
-            token = approve_requisition(requisition=req, approver=request.user)
+            # Approving, minting the token and recording who approved are ONE
+            # transaction (decision 07). `SelfApproval` is raised before the first write,
+            # so a refused self-approval writes no audit row either.
+            with transaction.atomic():
+                token = approve_requisition(requisition=req, approver=request.user)
+                audit_request(
+                    request,
+                    AuditLog.ActionType.REQ_APPROVE,
+                    f'Requisition {req.req_number} approved.',
+                )
         except ValueError as e:
             # Includes `SelfApproval` (400 SELF_APPROVAL): separation of duties, nothing
             # written and no token minted.
@@ -188,7 +202,13 @@ class RequisitionViewSet(viewsets.ModelViewSet):
         """Reject a SUBMITTED requisition."""
         req = self.get_object()
         try:
-            reject_requisition(requisition=req, approver=request.user)
+            with transaction.atomic():
+                reject_requisition(requisition=req, approver=request.user)
+                audit_request(
+                    request,
+                    AuditLog.ActionType.REQ_REJECT,
+                    f'Requisition {req.req_number} rejected.',
+                )
         except ValueError as e:
             return _refusal(e)
         return Response({'detail': f'{req.req_number} rejected.'})
@@ -228,10 +248,22 @@ def material_release_view(request):
     serializer.is_valid(raise_exception=True)
     token_value = str(serializer.validated_data['token'])
     try:
-        result = release_materials(
-            token_value=token_value,
-            cashier=request.user,
-        )
+        # The release and its audit row are one transaction (decision 07). The
+        # description names the requisition and the resulting sale by DOCUMENT NUMBER;
+        # the token UUID never appears, because it is a bearer credential that releases
+        # goods on credit and an audit trail is readable by admins.
+        with transaction.atomic():
+            result = release_materials(
+                token_value=token_value,
+                cashier=request.user,
+            )
+            audit_request(
+                request,
+                AuditLog.ActionType.RELEASE,
+                f'Materials released for requisition {result["req_number"]} '
+                f'on transaction {result["transaction_no"]} '
+                f'(total {result["grand_total"]}).',
+            )
     except NoBaseUom as e:
         # Decision 09 item 6: a release the catalog cannot price for a base unit is a 400
         # with a stable `code`, not the 500 the IntegrityError used to produce. Raised

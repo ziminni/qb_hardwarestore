@@ -1,3 +1,8 @@
+# pyright: reportAttributeAccessIssue=false
+#
+# Same directive and reason as apps/users/models.py: the checker runs without
+# django-stubs from a working directory outside the repo, so `Model._meta` and the
+# `admin.ModelAdmin` hook calls are false positives on valid Django.
 """Django Admin registration for the Users app."""
 
 from django.contrib import admin
@@ -43,8 +48,25 @@ class UserAdmin(BaseUserAdmin):
 
 @admin.register(AuditLog)
 class AuditLogAdmin(admin.ModelAdmin):
-    list_display = ('action_type', 'user', 'ip_address', 'timestamp')
+    """Read-only by construction (decision 07): the trail is append-only.
+
+    Add / change / delete are refused even for a Django superuser. The row-level guards
+    in the model are the real protection; this stops the admin UI from offering a button
+    that could only fail.
+    """
+
+    list_display = (
+        'action_type', 'username_snapshot', 'user', 'ip_address', 'timestamp')
     list_filter = ('action_type',)
-    search_fields = ('description', 'user__email')
+    search_fields = ('description', 'username_snapshot', 'user__email')
     readonly_fields = [f.name for f in AuditLog._meta.fields]
     ordering = ('-timestamp',)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

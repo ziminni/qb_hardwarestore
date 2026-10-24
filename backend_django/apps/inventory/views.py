@@ -18,9 +18,11 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from apps.users.models import AuditLog
 from apps.users.permissions import (
     IsInventoryRole,
 )
+from apps.users.services import audit_request
 from .models import (
     Brand, Category, Product, ProductVariant, UnitOfMeasure, VariantUOM,
     Supplier, PurchaseOrder, GoodsReceipt, GoodsReceiptItem,
@@ -242,7 +244,17 @@ class GoodsReceiptViewSet(_CatalogBaseViewSet):
 
         receipt = self.get_object()
         try:
-            batches = process_goods_receipt(receipt=receipt, user=request.user)
+            # The batches and the audit row are one transaction (decision 07).
+            # `process_goods_receipt` owns its own atomic block and the receipt row lock,
+            # so this wraps it rather than re-implementing the lock.
+            with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+                batches = process_goods_receipt(receipt=receipt, user=request.user)
+                audit_request(
+                    request,
+                    AuditLog.ActionType.RECEIPT,
+                    f'Goods receipt #{receipt.pk} processed into '
+                    f'{len(batches)} batch(es) for PO #{receipt.po_id}.',
+                )
         except ReceiptAlreadyProcessed as exc:
             # Same 400 and same sentence the view-level guard used to answer with; the
             # added `code` is what lets a client tell this apart from a bad payload.
@@ -290,6 +302,14 @@ class StockAdjustmentViewSet(_CatalogBaseViewSet):
         with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
             adj = serializer.save(user=self.request.user)
             apply_stock_adjustment(adjustment=adj)
+            # Same block, so a refused adjustment (no batch history, negative beyond
+            # stock) writes no audit row (decision 07).
+            audit_request(
+                self.request,
+                AuditLog.ActionType.STOCK_ADJUST,
+                f'Stock adjustment #{adj.pk} {adj.adjustment_type} '
+                f'{adj.qty_adjusted} on {adj.variant}.',
+            )
 
 
 class SystemAlertViewSet(viewsets.ReadOnlyModelViewSet):
@@ -355,6 +375,13 @@ class SystemAlertViewSet(viewsets.ReadOnlyModelViewSet):
             alert.resolved_at = timezone.now()
             alert.save(
                 update_fields=['is_resolved', 'resolved_by', 'resolved_at'])
+            # Inside the same block as the write (decision 07): the refused second
+            # resolve returns above, so it writes no second row.
+            audit_request(
+                request,
+                AuditLog.ActionType.ALERT_RESOLVE,
+                f'Alert #{alert.pk} ({alert.alert_type}) resolved.',
+            )
 
         # `dict(...)` copy, not the ReturnDict itself: the serializer's `.data` is typed
         # as index-only by pyright without django-stubs, but a plain dict accepts the

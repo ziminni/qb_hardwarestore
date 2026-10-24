@@ -14,7 +14,9 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from apps.users.models import AuditLog
 from apps.users.permissions import IsReceivablesReader, ReceivablesReadPOSWrite
+from apps.users.services import audit_request
 
 from .models import CollectibleLedger, CollectiblePayment
 from .services import apply_payment_to_ledger
@@ -134,4 +136,12 @@ class CollectiblePaymentViewSet(viewsets.ModelViewSet):
                 ledger,
                 serializer.validated_data['amount_paid'],
             )
-            serializer.save(processed_by=self.request.user)
+            payment = serializer.save(processed_by=self.request.user)
+            # The payment, the moved balance and the audit row are ONE transaction
+            # (decision 07). The description names the sale by its document number.
+            audit_request(
+                self.request,
+                AuditLog.ActionType.PAYMENT,
+                f'Payment of {payment.amount_paid} posted against ledger '
+                f'#{ledger.pk} for transaction {ledger.transaction.transaction_no}.',
+            )

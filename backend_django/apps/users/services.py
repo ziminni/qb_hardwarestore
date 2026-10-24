@@ -8,13 +8,56 @@ from .models import AuditLog, User
 from .permissions import STAFF_ROLES
 
 
-def log_audit(*, user, action_type, description, ip_address=None):
-    """Create an immutable audit log entry."""
-    AuditLog.objects.create(
+def log_audit(*, user, action_type, description, ip_address=None, username=None):
+    """Append one immutable audit row and return it.
+
+    ``username`` overrides the snapshot for a row whose actor is unknown (a failed login
+    against a username that matches no account) — that is why the column exists rather
+    than the FK alone.
+
+    ``ip_address`` is stored as NULL when absent: the column is a
+    ``GenericIPAddressField``, and an empty string is not a valid address.
+
+    Callers pass document numbers, never credentials: no password, JWT or material-token
+    UUID may appear in ``description`` (decision 07).
+    """
+    if username is None:
+        username = getattr(user, 'username', '') or ''
+    return AuditLog.objects.create(
+        user=user,
+        username_snapshot=str(username)[:150],
+        action_type=action_type,
+        description=description,
+        ip_address=ip_address or None,
+    )
+
+
+def audit_request(request, action_type, description, user=None):
+    """``log_audit`` from a request: actor and IP plumbing in one place.
+
+    The actor is ``request.user`` unless ``user`` is passed explicitly. The one caller
+    that needs the override is LOGIN: the endpoint is ``AllowAny`` and the request's
+    user is still anonymous at the moment the row is written, while the account that
+    logged in is known from the validated credentials. Getting this wrong silently wrote
+    LOGIN rows with a blank actor — the trail's most-read event.
+
+    The IP is ``REMOTE_ADDR`` only. ``X-Forwarded-For`` is client-controlled, and an
+    audit trail that records what the caller claims about itself is not evidence.
+
+    **The caller owns the transaction.** Call this inside the same ``atomic()`` block as
+    the event it describes, so a refused or rolled-back event leaves no row claiming it
+    happened.
+    """
+    if user is None:
+        candidate = getattr(request, 'user', None)
+        if candidate is not None and getattr(candidate, 'is_authenticated', False):
+            user = candidate
+    ip_address = request.META.get('REMOTE_ADDR') if request is not None else None
+    return log_audit(
         user=user,
         action_type=action_type,
         description=description,
-        ip_address=ip_address or '',
+        ip_address=ip_address,
     )
 
 
