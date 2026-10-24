@@ -106,15 +106,17 @@ void main() {
     );
   });
 
-  test('a 200 replay of an already-completed cart returns the same sale',
-      () async {
-    // The cart is gone by then, so anything but a parse here would surface as a
-    // "held carts could not be loaded" failure for a sale that DID happen.
-    final service = serviceReturning(200);
+  test(
+    'a 200 replay of an already-completed cart returns the same sale',
+    () async {
+      // The cart is gone by then, so anything but a parse here would surface as a
+      // "held carts could not be loaded" failure for a sale that DID happen.
+      final service = serviceReturning(200);
 
-    final sale = await complete(service, '0123456789abcdef0123456789abcdef');
+      final sale = await complete(service, '0123456789abcdef0123456789abcdef');
 
-    expect(sale['id'], 18);
-    expect(sale['transaction_no'], 'TRX-20261016-0007');
-  });
+      expect(sale['id'], 18);
+      expect(sale['transaction_no'], 'TRX-20261016-0007');
+    },
+  );
 }

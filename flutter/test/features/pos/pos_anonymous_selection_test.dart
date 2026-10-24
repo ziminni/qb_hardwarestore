@@ -70,20 +70,25 @@ void main() {
     expect(cart.isAnonymousSelection, isTrue);
   });
 
-  test('a customer TYPED walk-in is STILL anonymous, because the server says so', () {
-    cart.selectCustomer(_customer('WALK_IN'));
+  test(
+    'a customer TYPED walk-in is STILL anonymous, because the server says so',
+    () {
+      cart.selectCustomer(_customer('WALK_IN'));
 
-    expect(
-      cart.selectedCustomer,
-      isNotNull,
-      reason: 'it IS selected - which is exactly why a null check was the wrong test',
-    );
-    expect(
-      cart.isAnonymousSelection,
-      isTrue,
-      reason: 'the server refuses on customer_type == WALK_IN, so this cannot owe',
-    );
-  });
+      expect(
+        cart.selectedCustomer,
+        isNotNull,
+        reason:
+            'it IS selected - which is exactly why a null check was the wrong test',
+      );
+      expect(
+        cart.isAnonymousSelection,
+        isTrue,
+        reason:
+            'the server refuses on customer_type == WALK_IN, so this cannot owe',
+      );
+    },
+  );
 
   test('a MIS-CASED type is not recognised, and so is NOT treated as walk-in', () {
     // `CustomerType.fromApiValue` matches the server's exact values; anything else falls back

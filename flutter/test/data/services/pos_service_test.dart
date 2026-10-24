@@ -222,9 +222,7 @@ void main() {
       items: const [
         PosCheckoutItem(variantUomId: 8, quantity: 2, unitPrice: 10),
       ],
-      payments: const [
-        PosCheckoutPayment(method: 'CASH', amountTendered: 20),
-      ],
+      payments: const [PosCheckoutPayment(method: 'CASH', amountTendered: 20)],
       idempotencyKey: key,
     );
 
@@ -283,7 +281,10 @@ void main() {
       int status,
     ) async {
       service = serviceReturning(body, status);
-      final error = await submit().then<Object?>((_) => null, onError: (e) => e);
+      final error = await submit().then<Object?>(
+        (_) => null,
+        onError: (e) => e,
+      );
       expect(error, isA<PosServiceException>());
       return error! as PosServiceException;
     }

@@ -15,6 +15,7 @@ class _StubHeldCarts extends HeldCartService {
   int fetchCalls = 0;
   final List<int> voided = [];
   final List<int> completed = [];
+
   /// The `Idempotency-Key` each completion was sent under (Phase 1 Task 6).
   final List<String?> completedKeys = [];
   Object? failFetch;
@@ -218,21 +219,23 @@ void main() {
       expect(service.completedKeys, ['0123456789abcdef0123456789abcdef']);
     });
 
-    test('a completion with no key sends none, so the call stays optional',
-        () async {
-      final service = _StubHeldCarts()..carts = [_cart(1)];
-      final vm = HeldCartViewmodel(service: service);
-      await vm.load();
+    test(
+      'a completion with no key sends none, so the call stays optional',
+      () async {
+        final service = _StubHeldCarts()..carts = [_cart(1)];
+        final vm = HeldCartViewmodel(service: service);
+        await vm.load();
 
-      await vm.completeCart(
-        1,
-        payments: const [
-          PosCheckoutPayment(method: 'CASH', amountTendered: 199),
-        ],
-      );
+        await vm.completeCart(
+          1,
+          payments: const [
+            PosCheckoutPayment(method: 'CASH', amountTendered: 199),
+          ],
+        );
 
-      expect(service.completedKeys, [null]);
-    });
+        expect(service.completedKeys, [null]);
+      },
+    );
   });
 
   group('HeldCartViewmodel resume hand-off', () {

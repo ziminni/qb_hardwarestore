@@ -24,7 +24,8 @@ class RequisitionServiceException implements Exception {
 /// a Site Foreman, which is a CPMS identity that never logs into POS, so building them here would
 /// duplicate CPMS and demand a role this client does not have.
 class RequisitionService {
-  RequisitionService({ApiClient? client}) : _client = client ?? ApiClient.instance;
+  RequisitionService({ApiClient? client})
+    : _client = client ?? ApiClient.instance;
 
   final ApiClient _client;
 
@@ -113,7 +114,10 @@ class RequisitionService {
     Map<String, dynamic> body = const {},
   ]) async {
     try {
-      final response = await _client.post<Map<String, dynamic>>(path, data: body);
+      final response = await _client.post<Map<String, dynamic>>(
+        path,
+        data: body,
+      );
       final data = response.data;
       if (data == null) {
         throw const RequisitionServiceException(
@@ -135,7 +139,10 @@ class RequisitionService {
   /// The parsers used to run OUTSIDE the guarded conversion, so a 200 whose shape moved threw a bare
   /// `FormatException`. `verify` swallowed it silently (no error, nothing on screen) and `release`
   /// propagated it out of the button callback - leaving the one irreversible screen on its spinner.
-  T _decode<T>(T Function(Map<String, dynamic> json) parse, Map<String, dynamic> body) {
+  T _decode<T>(
+    T Function(Map<String, dynamic> json) parse,
+    Map<String, dynamic> body,
+  ) {
     try {
       return parse(body);
     } on FormatException {

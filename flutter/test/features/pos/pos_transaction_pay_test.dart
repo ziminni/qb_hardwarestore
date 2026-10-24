@@ -90,7 +90,9 @@ class _FailingProductsRepository extends ProductsRepository {
 
   @override
   Future<ProductsSnapshot> loadCatalogue() async =>
-      throw const ProductsServiceException('Cannot connect to the BuildPro server.');
+      throw const ProductsServiceException(
+        'Cannot connect to the BuildPro server.',
+      );
 }
 
 class _FailingInventoryRepository extends InventoryRepository {
@@ -176,40 +178,48 @@ void main() {
     expect(_cart.lines, hasLength(1), reason: 'and the cart is untouched');
   });
 
-  testWidgets(
-    'a SHORT amount is ACCEPTED and reaches decision 06 section 4',
-    (tester) async {
-      // #21, resolved 2026-10-17: the validator was wrong, not the flow. A short amount records an
-      // utang, so the dialog must WARN rather than block - and _pay's section 4 confirmation, the
-      // three-way walk-in flow, and the server's WALK_IN_CANNOT_OWE guard all become reachable.
-      //
-      // This REPLACES the test that pinned the old refusal. That test said of itself: "it FAILS the
-      // moment someone lets a short amount through - at which point it must be replaced with a real
-      // underpayment test rather than deleted." This is that test.
-      _addOneLine();
-      await _pump(tester);
-      final total = _cart.total;
+  testWidgets('a SHORT amount is ACCEPTED and reaches decision 06 section 4', (
+    tester,
+  ) async {
+    // #21, resolved 2026-10-17: the validator was wrong, not the flow. A short amount records an
+    // utang, so the dialog must WARN rather than block - and _pay's section 4 confirmation, the
+    // three-way walk-in flow, and the server's WALK_IN_CANNOT_OWE guard all become reachable.
+    //
+    // This REPLACES the test that pinned the old refusal. That test said of itself: "it FAILS the
+    // moment someone lets a short amount through - at which point it must be replaced with a real
+    // underpayment test rather than deleted." This is that test.
+    _addOneLine();
+    await _pump(tester);
+    final total = _cart.total;
 
-      await tester.tap(find.text('Proceed to payment'));
-      await tester.pumpAndSettle();
-      await tester.enterText(
-        find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextField)).first,
-        (total - 70).toStringAsFixed(2),
-      );
-      await tester.pumpAndSettle();
+    await tester.tap(find.text('Proceed to payment'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find
+          .descendant(
+            of: find.byType(AlertDialog),
+            matching: find.byType(TextField),
+          )
+          .first,
+      (total - 70).toStringAsFixed(2),
+    );
+    await tester.pumpAndSettle();
 
-      // The warning must name what is unpaid: it is the only thing between a mistyped amount and an
-      // unintended receivable.
-      expect(find.textContaining('will be left unpaid'), findsOneWidget);
-      expect(find.text('Amount is below the total'), findsNothing);
+    // The warning must name what is unpaid: it is the only thing between a mistyped amount and an
+    // unintended receivable.
+    expect(find.textContaining('will be left unpaid'), findsOneWidget);
+    expect(find.text('Amount is below the total'), findsNothing);
 
-      await tester.tap(find.text('Complete sale'));
-      await tester.pumpAndSettle();
+    await tester.tap(find.text('Complete sale'));
+    await tester.pumpAndSettle();
 
-      // The seam: the short amount got through, so section 4 opened instead of the sale posting.
-      expect(find.text('Underpayment'), findsOneWidget);
-      expect(_pos.calls, 0, reason: 'section 4 confirms BEFORE anything is submitted');
-      expect(_cart.lines, hasLength(1), reason: 'the cart stays intact');
-    },
-  );
+    // The seam: the short amount got through, so section 4 opened instead of the sale posting.
+    expect(find.text('Underpayment'), findsOneWidget);
+    expect(
+      _pos.calls,
+      0,
+      reason: 'section 4 confirms BEFORE anything is submitted',
+    );
+    expect(_cart.lines, hasLength(1), reason: 'the cart stays intact');
+  });
 }

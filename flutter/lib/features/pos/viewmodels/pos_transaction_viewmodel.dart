@@ -641,8 +641,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
       for (final line in serverLines)
         PosCartLine(
           variantUomId: line.variantUomId,
-          productName: _soldLine(line.variantUomId, sold)?.productName ??
-              'Sale line',
+          productName:
+              _soldLine(line.variantUomId, sold)?.productName ?? 'Sale line',
           variantName: _soldLine(line.variantUomId, sold)?.variantName ?? '',
           quantity: line.quantity,
           unit: _soldLine(line.variantUomId, sold)?.unit ?? '',

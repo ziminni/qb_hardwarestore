@@ -8,21 +8,25 @@ creation, an API-recorded receipt always processes into zero batches.
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.utils.crypto import get_random_string
 from rest_framework.test import APIClient
 
-from apps.inventory.tests import InventoryTestBase
 from apps.inventory.models import POItem, PurchaseOrder, Supplier
+from apps.inventory.tests import InventoryTestBase
 
 
 class GoodsReceiptItemsApiTests(InventoryTestBase):
     def setUp(self):
         super().setUp()
         User = get_user_model()
+        receiver_password = get_random_string(16)
         User.objects.create_superuser(
-            username='receivermgr', email='r@x.com', password='pass12345')
+            username='receivermgr', email='r@x.com',
+            password=receiver_password)
         self.client = APIClient()
         login = self.client.post('/api/v1/auth/login/', {
-            'username': 'receivermgr', 'password': 'pass12345'}, format='json')
+            'username': 'receivermgr',
+            'password': receiver_password}, format='json')
         token = login.data.get('access') or login.data.get('token')
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
         supplier = Supplier.objects.create(company_name='Acme Supply')
@@ -88,7 +92,7 @@ class ReceiptProcessGuardTests(GoodsReceiptItemsApiTests):
     Inherits the authenticated client plus a PO with one 10-unit item.
     """
 
-    def _receive(self, qty, items=None):
+    def _post_receipt(self, qty, items=None):
         payload = {'po': self.po.id}
         if items is None:
             items = [{'po_item': self.item.id, 'qty': str(qty)}]
@@ -97,7 +101,7 @@ class ReceiptProcessGuardTests(GoodsReceiptItemsApiTests):
                                format='json')
 
     def test_reprocessing_a_receipt_is_refused(self):
-        first = self._receive('4')
+        first = self._post_receipt('4')
         self.assertEqual(first.status_code, 201, first.data)
         process = self.client.post(
             f"/api/v1/goods-receipts/{first.data['id']}/process/", {},
@@ -115,16 +119,16 @@ class ReceiptProcessGuardTests(GoodsReceiptItemsApiTests):
             InventoryBatch.objects.filter(variant=self.variant).count(), 1)
 
     def test_a_second_receipt_accumulates_quantities(self):
-        self.assertEqual(self._receive('4').status_code, 201)
-        response = self._receive('6')
+        self.assertEqual(self._post_receipt('4').status_code, 201)
+        response = self._post_receipt('6')
 
         self.assertEqual(response.status_code, 201, response.data)
         self.item.refresh_from_db()
         self.assertEqual(self.item.received_qty, Decimal('10'))
 
     def test_accumulation_never_exceeds_ordered(self):
-        self.assertEqual(self._receive('7').status_code, 201)
-        response = self._receive('7')
+        self.assertEqual(self._post_receipt('7').status_code, 201)
+        response = self._post_receipt('7')
 
         self.assertEqual(response.status_code, 400, response.data)
         self.item.refresh_from_db()
@@ -132,12 +136,12 @@ class ReceiptProcessGuardTests(GoodsReceiptItemsApiTests):
 
     def test_receipt_against_a_completed_po_is_refused(self):
         from apps.inventory.models import PurchaseOrder
-        self.assertEqual(self._receive('10').status_code, 201)
+        self.assertEqual(self._post_receipt('10').status_code, 201)
         po = PurchaseOrder.objects.get(pk=self.po.pk)
         po.status = PurchaseOrder.Status.COMPLETE
         po.save(update_fields=['status'])
 
-        response = self._receive('1')
+        response = self._post_receipt('1')
 
         self.assertEqual(response.status_code, 400, response.data)
 
@@ -147,13 +151,13 @@ class ReceiptProcessGuardTests(GoodsReceiptItemsApiTests):
         po.status = PurchaseOrder.Status.CANCELLED
         po.save(update_fields=['status'])
 
-        response = self._receive('1')
+        response = self._post_receipt('1')
 
         self.assertEqual(response.status_code, 400, response.data)
 
     def test_processing_an_empty_receipt_leaves_the_po_draft(self):
         from apps.inventory.models import PurchaseOrder
-        receipt = self._receive(None, items=[])
+        receipt = self._post_receipt(None, items=[])
         self.assertEqual(receipt.status_code, 201, receipt.data)
 
         process = self.client.post(
@@ -175,7 +179,7 @@ class SplitReceiptLineTests(GoodsReceiptItemsApiTests):
     time. Receipt of 5 then 2 therefore stocked 5 + 7 = 12 units for 7 delivered.
     """
 
-    def _receive(self, qty):
+    def _post_receipt(self, qty):
         return self._post({
             'po': self.po.id,
             'items': [{'po_item': self.item.id, 'qty': str(qty)}],
@@ -188,11 +192,11 @@ class SplitReceiptLineTests(GoodsReceiptItemsApiTests):
     def test_split_receipts_batch_only_what_each_delivered(self):
         from apps.inventory.models import InventoryBatch
 
-        first = self._receive('5')
+        first = self._post_receipt('5')
         self.assertEqual(first.status_code, 201, first.data)
         self.assertEqual(self._process(first.data['id']).status_code, 200)
 
-        second = self._receive('2')
+        second = self._post_receipt('2')
         self.assertEqual(second.status_code, 201, second.data)
         self.assertEqual(self._process(second.data['id']).status_code, 200)
 
@@ -207,7 +211,7 @@ class SplitReceiptLineTests(GoodsReceiptItemsApiTests):
         self.assertEqual(self.item.received_qty, Decimal('7'))
 
     def test_create_records_one_line_per_delivered_entry(self):
-        response = self._receive('5')
+        response = self._post_receipt('5')
 
         self.assertEqual(response.status_code, 201, response.data)
         lines = response.data.get('lines') or []
@@ -218,15 +222,15 @@ class SplitReceiptLineTests(GoodsReceiptItemsApiTests):
         self.assertEqual(lines[0]['variant_name'], self.variant.variant_name)
 
     def test_a_second_receipt_records_only_its_own_line(self):
-        self.assertEqual(self._receive('5').status_code, 201)
-        second = self._receive('2')
+        self.assertEqual(self._post_receipt('5').status_code, 201)
+        second = self._post_receipt('2')
 
         self.assertEqual(second.status_code, 201, second.data)
         self.assertEqual(len(second.data.get('lines') or []), 1, second.data)
         self.assertEqual(second.data['lines'][0]['qty'], '2.00')
 
     def test_processing_marks_the_receipt_and_refuses_a_second_process(self):
-        first = self._receive('4')
+        first = self._post_receipt('4')
         processed = self._process(first.data['id'])
 
         self.assertEqual(processed.status_code, 200, processed.data)

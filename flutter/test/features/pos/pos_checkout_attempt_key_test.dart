@@ -78,8 +78,7 @@ void main() {
     expect(cart.addLine(option, 2), isNull);
   }
 
-  Future<bool> submit() =>
-      cart.submit(paymentMethod: 'CASH', amountPaid: 20);
+  Future<bool> submit() => cart.submit(paymentMethod: 'CASH', amountPaid: 20);
 
   test('a payment attempt is sent under a 32-hex-character key', () async {
     addOne();
@@ -90,7 +89,8 @@ void main() {
     expect(
       RegExp(r'^[0-9a-f]{32}$').hasMatch(key!),
       isTrue,
-      reason: 'Random.secure() hex: no dashes, 32 chars, well under the '
+      reason:
+          'Random.secure() hex: no dashes, 32 chars, well under the '
           'server\'s 64-char cap',
     );
   });
@@ -124,7 +124,8 @@ void main() {
     expect(
       repository.sentKeys[1],
       isNot(repository.sentKeys[0]),
-      reason: 'reusing it would replay the first sale instead of ringing this '
+      reason:
+          'reusing it would replay the first sale instead of ringing this '
           'one',
     );
   });
