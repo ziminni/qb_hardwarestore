@@ -33,17 +33,26 @@ from .services import (
 IDEMPOTENCY_HEADER = 'Idempotency-Key'
 
 
-def _idempotency_inputs(request):
-    """(key, body hash) for this request, or (None, '') when no header was sent.
+def _idempotency_inputs(request, scope):
+    """(key, request hash) for this request, or (None, '') when no header was sent.
 
     Read from `request.headers`, which is case-insensitive - a client sending
     `idempotency-key` is not making an error. The hash is computed over the parsed body
     (not the raw stream) so a pretty-printed re-send still matches its own retry.
+
+    `scope` names WHAT this key was spent on (`transactions.create`, or
+    `held-carts.<pk>.complete`) and is hashed alongside the body, because the body alone
+    does not identify a request: two different held carts of the same size with the same
+    tender POST identical `{"payments": [...]}` bodies, and an unscoped hash made the
+    second one replay the first one's receipt - cart B was never sold, and its money was
+    never taken. Same reasoning across endpoints: a key spent on checkout must not
+    complete a cart. The scope is only folded in when a key IS sent, so an unkeyed
+    request stays exactly as cheap as it was.
     """
     key = parse_idempotency_key(request.headers.get(IDEMPOTENCY_HEADER))
     if key is None:
         return None, ''
-    return key, request_body_hash(request.data)
+    return key, request_body_hash({'scope': scope, 'body': request.data})
 
 
 def _replayed_response(transaction):
@@ -79,7 +88,7 @@ class SalesTransactionViewSet(BaseViewSet):
         return qs
 
     def create(self, request):
-        idempotency_key, body_hash = _idempotency_inputs(request)
+        idempotency_key, body_hash = _idempotency_inputs(request, 'transactions.create')
         ser = self.get_serializer(data=request.data)
         ser.is_valid(raise_exception=True)
         source = ser.validated_data.get('source','WALK_IN')
@@ -350,7 +359,10 @@ class HeldCartViewSet(BaseViewSet):
 
     @action(detail=True, methods=['post'])
     def complete(self, request, pk=None):
-        idempotency_key, body_hash = _idempotency_inputs(request)
+        # Scope names THIS cart: completing cart B with cart A's key is a 409, not a
+        # replay of A (a body-only hash cannot tell the two carts apart).
+        idempotency_key, body_hash = _idempotency_inputs(
+            request, f'held-carts.{pk}.complete')
         # Decision 09 item 4, and the ruling that made it necessary: the first successful
         # completion DELETES the cart, so this check must run BEFORE `get_object()`.
         # Otherwise a retry of a sale that already rang answers 404 about a cart whose

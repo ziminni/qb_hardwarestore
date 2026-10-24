@@ -44,7 +44,11 @@ from apps.pos.models import (
     SalesTransaction,
     Shift,
 )
-from apps.pos.services import generate_transaction_no, replayed_transaction
+from apps.pos.services import (
+    generate_transaction_no,
+    replayed_transaction,
+    request_body_hash,
+)
 from apps.pos.tests import LOGIN_URL, TRANSACTIONS_URL, POSTestBase
 
 User = get_user_model()
@@ -263,6 +267,69 @@ class HeldCartIdempotencyTests(IdempotencyBase):
                          response.json())
         self.assertEqual(SalesTransaction.objects.count(), 1)
 
+    def test_the_same_key_on_a_second_held_cart_is_a_409_and_leaves_it_held(self):
+        # The key is scoped per CART, not just per body: two carts of the same size with
+        # the same tender produce an identical `{"payments": [...]}` body, so a body-only
+        # hash treats cart B as a retry of cart A - it replays A's receipt with 200 and
+        # cart B is never sold. The money in cart B would silently never be rung.
+        first_cart = self._hold()
+        second_cart = self._hold()
+        key = 'held-cross-cart'
+
+        first = self._complete(first_cart, key=key)
+        response = self._complete(second_cart, key=key)
+
+        self.assertEqual(first.status_code, 201, first.content)
+        self.assertEqual(response.status_code, 409, response.content)
+        self.assertEqual(response.json().get('code'), 'IDEMPOTENCY_KEY_REUSED',
+                         response.json())
+        self.assertEqual(SalesTransaction.objects.count(), 1,
+                         'cart A was rung once; cart B must not be rung as a replay')
+        self.assertTrue(HeldCart.objects.filter(id=second_cart).exists(),
+                        'the refused cart must still be on the shelf, not deleted')
+        self.assertEqual(self._total_stock(), Decimal('8'),
+                         'the refused cart must not deduct any stock')
+
+    def test_a_key_spent_on_checkout_cannot_complete_a_cart(self):
+        # Same key across ENDPOINTS is the same bug one step up: the two endpoints agree
+        # on nothing except the body, so the endpoint has to be part of what is hashed.
+        key = 'cross-endpoint-1'
+        checkout = self._post(self._payload(), key=key)
+        cart_id = self._hold()
+
+        response = self._complete(cart_id, key=key)
+
+        self.assertEqual(checkout.status_code, 201, checkout.content)
+        self.assertEqual(response.status_code, 409, response.content)
+        self.assertEqual(response.json().get('code'), 'IDEMPOTENCY_KEY_REUSED',
+                         response.json())
+        self.assertTrue(HeldCart.objects.filter(id=cart_id).exists())
+        self.assertEqual(SalesTransaction.objects.count(), 1)
+
+    def test_the_hash_covers_the_endpoint_and_the_cart(self):
+        # Direct look at what the view hashes: the scope is folded into the fingerprint,
+        # so "same request" means same endpoint, same cart AND same body.
+        seen = []
+
+        def record(data):
+            seen.append(data)
+            return request_body_hash(data)
+
+        payload = self._payload()
+        with mock.patch('apps.pos.views.request_body_hash', side_effect=record):
+            self._post(payload, key='scope-0001')
+        self.assertEqual(seen[0].get('scope'), 'transactions.create', seen)
+        self.assertEqual(seen[0].get('body'), payload, seen)
+
+        cart_id = self._hold()
+        seen.clear()
+        with mock.patch('apps.pos.views.request_body_hash', side_effect=record):
+            self._complete(cart_id, key='scope-0002')
+        self.assertEqual(seen[0].get('scope'), f'held-carts.{cart_id}.complete', seen)
+        self.assertEqual(seen[0].get('body'),
+                         {'payments': [{'method': 'CASH',
+                                        'amount_tendered': '20.00'}]}, seen)
+
 
 class DocumentNumberingTests(IdempotencyBase):
     """Decision 09 item 3: the sequence is a locked counter row, not read-latest+1."""
@@ -315,10 +382,11 @@ class RequestHashTests(IdempotencyBase):
         txn = SalesTransaction.objects.get(pk=response.json()['id'])
         self.assertEqual(txn.idempotency_key, 'hashed-0001')
         expected = hashlib.sha256(
-            json.dumps(payload, sort_keys=True, default=str).encode('utf-8')
+            json.dumps({'scope': 'transactions.create', 'body': payload},
+                       sort_keys=True, default=str).encode('utf-8')
         ).hexdigest()
         self.assertEqual(txn.request_hash, expected,
-                         'the hash must be the canonical JSON of the body')
+                         'the hash must be the canonical JSON of scope + body')
 
     def test_a_key_is_not_stored_when_the_client_sends_none(self):
         response = self._post(self._payload())
