@@ -79,14 +79,9 @@ class _SalesQuotationsPageState extends State<SalesQuotationsPage> {
               message: viewmodel.loadError!,
               onRetry: viewmodel.load,
             ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton.icon(
-              onPressed: () {},
-              icon: const Icon(Icons.add),
-              label: const Text('New quotation'),
-            ),
-          ),
+          // "New quotation" is GONE (Phase 3 Task 0): the sales-manager
+          // decision makes this screen read-only and no create screen or
+          // endpoint exists, so the button could only ever do nothing.
           const SizedBox(height: AppSpacing.xl),
           SalesRecordsTable(
             columns: const [

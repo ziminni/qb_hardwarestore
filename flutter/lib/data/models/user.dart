@@ -1,6 +1,11 @@
 import 'role.dart';
 
 class User {
+  /// What an account with no group is called on screen. `GET /users/` really
+  /// does return `role: null` for one (a superuser, or an account whose group
+  /// was removed), and a blank ROLE cell reads as a rendering bug.
+  static const String noRoleLabel = 'No role';
+
   const User({
     required this.id,
     required this.username,
@@ -14,8 +19,11 @@ class User {
   final String username;
   final String email;
   final String fullName;
-  final Role role;
+  final Role? role;
   final bool isActive;
+
+  /// The label to show for this account's role, or [noRoleLabel].
+  String get roleLabel => role?.displayName ?? noRoleLabel;
 
   factory User.fromJson(Map<String, dynamic> json) {
     return User(
@@ -29,10 +37,16 @@ class User {
   }
 }
 
-Role _roleFromJson(Object? raw) {
-  // The register endpoint mandates a group precisely because a groupless
-  // account carries a null role that the old `as Map` cast turned into a
-  // TypeError far from the wire. Fail here, loudly, at the boundary.
+Role? _roleFromJson(Object? raw) {
+  // A groupless account is a REAL state, not a contract break: `GET /users/`
+  // returns `role: null` for a Django superuser or an account whose group was
+  // removed (Phase 3 Task 0). Throwing here failed the entire staff list —
+  // one row took the whole screen down with it.
+  //
+  // Anything present that is not an object is still a break and still throws
+  // at the boundary, far from the wire, rather than being flattened into "no
+  // role".
+  if (raw == null) return null;
   if (raw is! Map<String, dynamic>) {
     throw FormatException('Missing required object field "role"');
   }

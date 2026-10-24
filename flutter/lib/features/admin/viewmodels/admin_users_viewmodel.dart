@@ -31,7 +31,7 @@ class AdminUsersViewmodel extends ChangeNotifier {
 
   List<User> get users => List.unmodifiable(
     _rows.where((user) {
-      if (_roleFilter != null && user.role.displayName != _roleFilter) {
+      if (_roleFilter != null && user.roleLabel != _roleFilter) {
         return false;
       }
       if (_activeFilter != null && user.isActive != _activeFilter) {
@@ -46,9 +46,11 @@ class AdminUsersViewmodel extends ChangeNotifier {
   bool? get activeFilter => _activeFilter;
 
   /// Distinct role names present in the loaded rows, for the filter control.
-  /// No invented roles: the control can only offer what the server sent.
+  /// No invented roles: the control can only offer what the server sent —
+  /// which includes [User.noRoleLabel], because a groupless account is a real
+  /// row and filtering to it is how an admin finds one to fix.
   List<String> get availableRoles => {
-    for (final user in _rows) user.role.displayName,
+    for (final user in _rows) user.roleLabel,
   }.toList()..sort();
   UserStats? get stats => _stats;
   bool get isLoading => _isLoading;

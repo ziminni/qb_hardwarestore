@@ -94,6 +94,7 @@ class InventoryReturn {
     required this.status,
     required this.processedBy,
     required this.total,
+    this.lines = const [],
   });
   final String reference;
   final DateTime date;
@@ -107,4 +108,11 @@ class InventoryReturn {
   final InventoryReturnStatus status;
   final String processedBy;
   final double total;
+
+  /// Every line of the return, for the read-only details sheet.
+  ///
+  /// [productName] and [quantity] stay as the single-line summary the table
+  /// needs; the sheet shows the full document, so a multi-line return is not
+  /// flattened into its first item.
+  final List<InventorySaleLine> lines;
 }

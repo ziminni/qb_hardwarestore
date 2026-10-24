@@ -34,6 +34,7 @@ class _SalesDashboardPageState extends State<SalesDashboardPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final salesState = context.watch<InventorySalesViewmodel>();
     final completed = salesState.sales
         .where((sale) => sale.status == InventorySaleStatus.completed)
@@ -78,10 +79,26 @@ class _SalesDashboardPageState extends State<SalesDashboardPage> {
                   ],
                 ),
               ),
-              OutlinedButton.icon(
-                onPressed: () {},
-                icon: const Icon(Icons.calendar_today_outlined, size: 17),
-                label: const Text('This month'),
+              // A statement, not a control: the dashboard reads EVERY
+              // recorded transaction (no date parameter exists on the load),
+              // so a "This month" button that changed nothing was a lie with a
+              // border. It now says what is actually on screen.
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.receipt_long_outlined,
+                    size: 15,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  Text(
+                    'All recorded transactions',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

@@ -16,8 +16,10 @@ class UsersServiceException implements Exception {
 /// The list and the stats are both admin-only server-side
 /// (`IsAdminUser`); a non-admin caller gets a 403, which surfaces as a
 /// permission error rather than a load error. Creation posts the register
-/// shape, which mandates a group: the frontend `User.fromJson` expects a
-/// non-null `role` object, so a groupless account would brick the list.
+/// shape, which mandates a group. The LIST can still contain a role-less
+/// account (`createsuperuser`, a group removed in the Django admin), so
+/// `User.role` is nullable and such a row renders "No role" instead of
+/// failing the whole list (Phase 3 Task 0).
 class UserService {
   UserService({ApiClient? client}) : _client = client ?? ApiClient.instance;
 
@@ -42,10 +44,10 @@ class UserService {
         _message(error, 'The staff list could not be loaded.'),
       );
     }
-    // getList parses rows eagerly, so a malformed row (e.g. a groupless
-    // account with a null role) throws HERE, not at items.toList(). It must
-    // read as a load error with a retry — never a raw crash that blanks
-    // the whole staff list with no message.
+    // getList parses rows eagerly, so a malformed row throws HERE, not at
+    // items.toList(). It must read as a load error with a retry — never a raw
+    // crash that blanks the whole staff list with no message. A NULL role is
+    // no longer malformed (see [User.role]); a non-object role still is.
     on FormatException catch (error) {
       throw UsersServiceException(
         'The staff list could not be read: ${error.message}',

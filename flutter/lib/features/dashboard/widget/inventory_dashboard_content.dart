@@ -148,10 +148,11 @@ class InventoryDashboardContent extends StatelessWidget {
               ),
             ),
             // Decision D-04: "Export" is GONE. No export endpoint exists in the
-            // client or the API, so the button could never work — and
-            // `InventoryActionButton` defaults `onPressed` to `() {}`, which
-            // rendered it as a live-looking dead control. "Add product" goes to
-            // the live Products page instead of doing nothing.
+            // client or the API, so the button could never work. (It also used
+            // to render enabled with an empty callback; `InventoryActionButton`
+            // now passes a missing callback through as `null`, so such a button
+            // can only appear disabled.) "Add product" goes to the live
+            // Products page instead of doing nothing.
             InventoryActionButton(
               label: 'Add product',
               onPressed: () => context.go(AppRoutes.inventoryProducts),
@@ -185,7 +186,6 @@ class InventoryDashboardContent extends StatelessWidget {
           const SizedBox(height: 16),
           InventorySection(
             title: 'Inventory table',
-            actionLabel: 'Search / Filter',
             child: InventoryDataTable(
               columns: const [
                 'Product',

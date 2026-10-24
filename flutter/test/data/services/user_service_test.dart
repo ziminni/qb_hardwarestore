@@ -82,7 +82,7 @@ void main() {
     final users = await service.fetchUsers();
 
     expect(users.single.username, 'manager');
-    expect(users.single.role.displayName, 'Store Manager');
+    expect(users.single.roleLabel, 'Store Manager');
     expect(users.single.isActive, isTrue);
   });
 
@@ -92,10 +92,16 @@ void main() {
     expect(lastRequest?.queryParameters['search'], 'mana');
   });
 
-  test('a null role fails loudly instead of crashing later', () {
+  test('a role-less row parses as a null role, not a failure', () {
+    // `GET /users/` really returns `role: null` for a groupless account (a
+    // superuser, an account whose group was removed). Phase 3 Task 0: that row
+    // parses; it must not fail the whole staff list.
     final row = _user()..['role'] = null;
 
-    expect(() => User.fromJson(row), throwsA(isA<FormatException>()));
+    final user = User.fromJson(row);
+
+    expect(user.role, isNull);
+    expect(user.roleLabel, User.noRoleLabel);
   });
 
   test('stats parse totals', () async {
@@ -130,10 +136,11 @@ void main() {
     expect(created.id, 9);
   });
 
-  test('a groupless row fails as a load error, not a raw crash', () async {
+  test('a groupless row does not fail the staff list', () async {
     adapter.respond = (_) => _json({
-      'count': 1,
+      'count': 2,
       'results': [
+        _user(),
         {
           'id': 7,
           'username': 'ghost',
@@ -145,15 +152,33 @@ void main() {
       ],
     });
 
+    final users = await service.fetchUsers();
+
+    expect(users, hasLength(2));
+    expect(users.first.roleLabel, 'Store Manager');
+    expect(users.last.role, isNull);
+    expect(users.last.fullName, 'Ghost Account');
+  });
+
+  test('a row with a non-object role is still a load error', () async {
+    // A string where an object belongs is a contract break — not the
+    // groupless case. It keeps failing as a load error with a retry.
+    adapter.respond = (_) => _json({
+      'count': 1,
+      'results': [
+        {
+          'id': 7,
+          'username': 'ghost',
+          'email': 'g@demo.ph',
+          'full_name': 'Ghost Account',
+          'role': 'Store Manager',
+        },
+      ],
+    });
+
     await expectLater(
       service.fetchUsers(),
-      throwsA(
-        isA<UsersServiceException>().having(
-          (e) => (e).message,
-          'message',
-          contains('staff'),
-        ),
-      ),
+      throwsA(isA<UsersServiceException>()),
     );
   });
 

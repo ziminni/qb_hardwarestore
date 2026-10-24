@@ -1,4 +1,5 @@
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
+import 'package:client/shared/widgets/notifications_button.dart';
 import 'package:client/shared/widgets/system_brand.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -94,7 +95,7 @@ class AdminSkeletonLayout extends StatelessWidget {
                 const Divider(height: 1),
                 ListTile(
                   title: Text(auth.user?.fullName ?? 'Administrator'),
-                  subtitle: Text(auth.user?.role.displayName ?? 'Admin'),
+                  subtitle: Text(auth.user?.roleLabel ?? 'Admin'),
                   trailing: IconButton(
                     tooltip: 'Log out',
                     onPressed: auth.logout,
@@ -138,11 +139,7 @@ class AdminSkeletonLayout extends StatelessWidget {
                           ],
                         ),
                       ),
-                      OutlinedButton.icon(
-                        onPressed: () {},
-                        icon: const Icon(Icons.notifications_none, size: 17),
-                        label: const Text('Notifications'),
-                      ),
+                      const NotificationsButton(),
                     ],
                   ),
                 ),

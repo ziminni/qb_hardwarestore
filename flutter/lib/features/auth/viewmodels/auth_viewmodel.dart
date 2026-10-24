@@ -14,7 +14,14 @@ class AuthViewmodel extends ChangeNotifier {
   String? error;
 
   bool get isAuthenticated => user != null;
-  String? get roleName => user?.role.name;
+
+  /// The server role name, or null for a role-less account.
+  ///
+  /// Nullable on purpose: `GET /auth/me/` really answers `role: null` for a
+  /// groupless account, and [AppRoutes.redirectFor] turns that into the
+  /// unsupported-role screen — never a dashboard and never a silent bounce to
+  /// the login form (decision 04).
+  String? get roleName => user?.role?.name;
 
   Future<void> initialize() async {
     user = await repository.restoreSession();

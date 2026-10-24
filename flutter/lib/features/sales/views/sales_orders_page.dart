@@ -75,14 +75,8 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
               message: viewmodel.loadError!,
               onRetry: viewmodel.load,
             ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton.icon(
-              onPressed: () {},
-              icon: const Icon(Icons.add),
-              label: const Text('New sales order'),
-            ),
-          ),
+          // "New sales order" is GONE (Phase 3 Task 0): same reason as
+          // "New quotation" — the view is read-only by decision.
           const SizedBox(height: AppSpacing.xl),
           SalesRecordsTable(
             columns: const [

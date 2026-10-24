@@ -1,5 +1,11 @@
 import 'package:flutter/material.dart';
 
+/// A secondary action, driven entirely by its callback.
+///
+/// `onPressed` is passed straight through: a caller who supplies no callback
+/// gets a **disabled** button, which Flutter renders as such. The old
+/// `onPressed ?? () {}` default produced an enabled button that swallowed the
+/// press and did nothing — the dead-control shape removed in Phase 3 Task 0.
 class AdminUserActionButton extends StatelessWidget {
   const AdminUserActionButton({
     super.key,
@@ -15,7 +21,7 @@ class AdminUserActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return OutlinedButton.icon(
-      onPressed: onPressed ?? () {},
+      onPressed: onPressed,
       icon: Icon(icon, size: 16),
       label: Text(label),
     );

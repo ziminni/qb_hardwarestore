@@ -118,6 +118,16 @@ class InventorySalesViewmodel extends ChangeNotifier {
       status: _returnStatus(r.status),
       processedBy: r.cashierName,
       total: r.grandTotal,
+      lines: [
+        for (final i in r.items)
+          InventorySaleLine(
+            productName: i.variantUomCode,
+            variantName: i.variantUomCode,
+            sku: i.variantUomCode,
+            quantity: i.qty,
+            unitPrice: i.unitPrice,
+          ),
+      ],
     );
   }
 

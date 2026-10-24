@@ -151,7 +151,8 @@ class _Metrics extends StatelessWidget {
 }
 
 /// Account creation. The group is mandatory: the register endpoint rejects a
-/// groupless account, and the client `User` requires a non-null role.
+/// groupless account. (An account can still LOSE its group later — the list
+/// shows those as "No role"; see [User.noRoleLabel].)
 class _CreateAccountDialog extends StatefulWidget {
   const _CreateAccountDialog({required this.viewmodel});
 

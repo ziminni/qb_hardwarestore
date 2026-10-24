@@ -317,6 +317,73 @@ void main() {
       expect(auth.user, isNull);
     });
   });
+
+  group('a role-less account from the wire (Phase 3 Task 0)', () {
+    // The live staff list broke on `role: null`, and the same payload reaches
+    // `/auth/me/` for a superuser or an account whose group was removed. The
+    // nullable role must NOT weaken authentication: a signed-in account with
+    // no role still lands on the unsupported-role screen, never on a dashboard
+    // and never silently back on the login form.
+    const payload = {
+      'id': 8,
+      'username': 'root',
+      'email': 'root@demo.ph',
+      'full_name': 'Root Operator',
+      'is_active': true,
+      'role': null,
+    };
+
+    test('parses, and routes to the unsupported screen', () {
+      User? parsed;
+      Object? failure;
+      try {
+        parsed = User.fromJson(payload);
+      } catch (error) {
+        failure = error;
+      }
+      expect(
+        failure,
+        isNull,
+        reason:
+            'a null role is a real state (groupless account), not a contract '
+            'break: $failure',
+      );
+
+      final auth = AuthViewmodel(AuthRepository(AuthService()))
+        ..user = parsed;
+
+      expect(auth.isAuthenticated, isTrue, reason: 'they ARE signed in');
+      expect(auth.roleName, isNull);
+      expect(
+        _redirectFor(auth.roleName, AppRoutes.login),
+        AppRoutes.unsupportedRole,
+      );
+      expect(
+        _redirectFor(auth.roleName, AppRoutes.unsupportedRole),
+        isNull,
+        reason: 'no redirect loop on the screen they were sent to',
+      );
+    });
+
+    testWidgets('the real router shows them the unsupported screen', (
+      tester,
+    ) async {
+      final auth = AuthViewmodel(AuthRepository(AuthService()))
+        ..user = User.fromJson(payload);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AuthViewmodel>.value(
+          value: auth,
+          child: MyApp(auth: auth),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(UnsupportedRolePage), findsOneWidget);
+      expect(find.byType(LoginPage), findsNothing);
+      expect(find.textContaining('no role assigned'), findsOneWidget);
+    });
+  });
 }
 
 /// Answers every request the way an unreachable backend does, so sign-out is

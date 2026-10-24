@@ -79,7 +79,7 @@ class DashboardShell extends StatelessWidget {
                 const Divider(height: 1),
                 ListTile(
                   title: Text(auth.user?.fullName ?? '[ USER NAME ]'),
-                  subtitle: Text(auth.user?.role.displayName ?? '[ ROLE ]'),
+                  subtitle: Text(auth.user?.roleLabel ?? '[ ROLE ]'),
                   trailing: IconButton(
                     tooltip: 'Log out',
                     onPressed: auth.logout,

@@ -75,6 +75,30 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  /// No self-service reset exists: there is no reset endpoint, and passwords
+  /// are changed in User Management or the Django admin. The old control was a
+  /// `TextButton` with an empty callback; a dialog that names the only actor who
+  /// can help is more useful than a mailto: nothing answers.
+  Future<void> _showForgotPasswordDialog(BuildContext context) {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Forgot password'),
+        content: const Text(
+          'Passwords are reset by a System Administrator. Ask an administrator '
+          'to reset your password from User Management, then sign in with the '
+          'new one.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -251,7 +275,7 @@ class _LoginPageState extends State<LoginPage> {
                 ],
               ),
               TextButton(
-                onPressed: () {},
+                onPressed: () => _showForgotPasswordDialog(context),
                 style: TextButton.styleFrom(
                   foregroundColor: colors.primary,
                   padding: EdgeInsets.zero,

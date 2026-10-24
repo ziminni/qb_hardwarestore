@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 
+/// A titled card whose header may carry one action.
+///
+/// `onAction` is passed straight through, so a header with a label but no
+/// callback renders the button **disabled** rather than enabled and inert
+/// (Phase 3 Task 0). If a label has nothing behind it, delete the label.
 class AdminSection extends StatelessWidget {
   const AdminSection({
     super.key,
@@ -36,7 +41,7 @@ class AdminSection extends StatelessWidget {
               ),
               if (actionLabel != null)
                 TextButton(
-                  onPressed: onAction ?? () {},
+                  onPressed: onAction,
                   child: Text(actionLabel!),
                 ),
             ],

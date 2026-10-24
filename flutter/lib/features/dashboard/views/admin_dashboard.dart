@@ -206,6 +206,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 child: AdminSection(
                   title: 'Recent activity',
                   actionLabel: 'View all',
+                  onAction: () => _go(AppRoutes.adminSales),
                   child: Column(
                     children: overview.recentTransactions.isEmpty
                         ? [const Text('No recent sales.')]

@@ -1,6 +1,7 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
+import 'package:client/shared/widgets/notifications_button.dart';
 import 'package:client/shared/widgets/shared_sidebar.dart';
 import 'package:client/shared/widgets/system_brand.dart';
 import 'package:flutter/material.dart';
@@ -116,7 +117,7 @@ class SalesSkeletonLayout extends StatelessWidget {
                 const Divider(height: 1),
                 ListTile(
                   title: Text(auth.user?.fullName ?? 'Sales Staff'),
-                  subtitle: Text(auth.user?.role.displayName ?? 'Sales Staff'),
+                  subtitle: Text(auth.user?.roleLabel ?? 'Sales Staff'),
                   trailing: IconButton(
                     tooltip: 'Log out',
                     onPressed: auth.logout,
@@ -162,11 +163,7 @@ class SalesSkeletonLayout extends StatelessWidget {
                           ],
                         ),
                       ),
-                      OutlinedButton.icon(
-                        onPressed: () {},
-                        icon: const Icon(Icons.notifications_none, size: 17),
-                        label: const Text('Notifications'),
-                      ),
+                      const NotificationsButton(),
                     ],
                   ),
                 ),
