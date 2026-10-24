@@ -209,7 +209,9 @@ void main() {
 
     Future<void> pumpReceipt(WidgetTester tester, String method) async {
       await tester.pumpWidget(
-        MaterialApp(home: Scaffold(body: PosReceiptDialog(receipt: receipt(method)))),
+        MaterialApp(
+          home: Scaffold(body: PosReceiptDialog(receipt: receipt(method))),
+        ),
       );
       await tester.pumpAndSettle();
     }
@@ -219,7 +221,9 @@ void main() {
       expect(find.text('Payment: Cash'), findsOneWidget);
     });
 
-    testWidgets('a legacy label row does not crash the receipt', (tester) async {
+    testWidgets('a legacy label row does not crash the receipt', (
+      tester,
+    ) async {
       // Pre-Phase-1 sales stored 'Cash' in the database. Display must tolerate them.
       await pumpReceipt(tester, 'Cash');
       expect(find.text('Payment: Cash'), findsOneWidget);

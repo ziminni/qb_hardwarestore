@@ -331,13 +331,15 @@ void main() {
     expect(
       flagged,
       isEmpty,
-      reason: 'False positives make the guard untrustworthy:\n'
+      reason:
+          'False positives make the guard untrustworthy:\n'
           '${flagged.join('\n')}',
     );
   });
 
   test('violations are reported with the line they are on', () {
-    const source = "class W extends Widget {\n"
+    const source =
+        "class W extends Widget {\n"
         "  final button = TextButton(\n"
         "    onPressed: () {\n"
         "      // TODO\n"
@@ -352,7 +354,8 @@ void main() {
   });
 
   test('comment stripping keeps every offset and every string intact', () {
-    const source = "// a\n"
+    const source =
+        "// a\n"
         "final a = 'http://x//y';\n"
         "final b = \"/* not a comment */\";\n"
         'final c = r"\\d+ // raw";\n'

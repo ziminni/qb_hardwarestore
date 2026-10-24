@@ -14,11 +14,12 @@ PosReceipt _receipt({required double paid, required double total}) =>
       total: total,
     );
 
-Future<void> _pump(WidgetTester tester, PosReceipt receipt) => tester.pumpWidget(
-  MaterialApp(
-    home: Scaffold(body: PosReceiptDialog(receipt: receipt)),
-  ),
-);
+Future<void> _pump(WidgetTester tester, PosReceipt receipt) =>
+    tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: PosReceiptDialog(receipt: receipt)),
+      ),
+    );
 
 void main() {
   testWidgets('an underpaid receipt shows the utang, not negative change', (

@@ -208,8 +208,16 @@ void main() {
           'POST /transactions/ would leave the parked cart behind - that is the '
           'double-sale defect',
     );
-    expect(heldService.voids, isEmpty, reason: 'complete deletes the cart itself');
-    expect(cart.lines, isEmpty, reason: 'the sale is written, so the till frees up');
+    expect(
+      heldService.voids,
+      isEmpty,
+      reason: 'complete deletes the cart itself',
+    );
+    expect(
+      cart.lines,
+      isEmpty,
+      reason: 'the sale is written, so the till frees up',
+    );
     expect(cart.receipts.single.officialReceiptNumber, 'OR-19');
     expect(cart.receipts.single.paymentMethod, 'CASH');
   });
@@ -220,7 +228,10 @@ void main() {
 
     final sent = heldService.completes.single;
     expect(sent.payments.single.method, 'CASH');
-    expect(sent.payments.single.amountTendered, cart.receipts.single.amountPaid);
+    expect(
+      sent.payments.single.amountTendered,
+      cart.receipts.single.amountPaid,
+    );
     expect(
       sent.key,
       isNotNull,
@@ -230,24 +241,31 @@ void main() {
     );
   });
 
-  test('a RETRY reuses the same key, so one basket cannot become two sales', () async {
-    resumeOne();
-    heldService.failComplete = const HeldCartServiceException(
-      'Cannot connect to the BuildPro server.',
-    );
+  test(
+    'a RETRY reuses the same key, so one basket cannot become two sales',
+    () async {
+      resumeOne();
+      heldService.failComplete = const HeldCartServiceException(
+        'Cannot connect to the BuildPro server.',
+      );
 
-    expect(await submit(), isFalse);
-    expect(cart.submitError, isNotNull);
-    expect(cart.lines, hasLength(1), reason: 'the cart is untouched on failure');
-    final firstKey = cart.idempotencyKey;
+      expect(await submit(), isFalse);
+      expect(cart.submitError, isNotNull);
+      expect(
+        cart.lines,
+        hasLength(1),
+        reason: 'the cart is untouched on failure',
+      );
+      final firstKey = cart.idempotencyKey;
 
-    heldService.failComplete = null;
-    expect(await submit(), isTrue);
+      heldService.failComplete = null;
+      expect(await submit(), isTrue);
 
-    expect(heldService.completes, hasLength(2));
-    expect(heldService.completes.last.key, firstKey);
-    expect(heldService.completes.last.cartId, 7);
-  });
+      expect(heldService.completes, hasLength(2));
+      expect(heldService.completes.last.key, firstKey);
+      expect(heldService.completes.last.cartId, 7);
+    },
+  );
 
   test('a FAILED completion keeps the cart AND the parked row', () async {
     resumeOne();
@@ -266,101 +284,125 @@ void main() {
     );
   });
 
-  test('an EDITED resumed basket sells through checkout, then voids the cart', () async {
-    resumeOne();
-    // The cashier changes the parked basket: the server's copy is now stale, so
-    // completing it would sell what they removed.
-    final option = cart.saleOptionsFor(cart.filteredProducts.first).first;
-    expect(cart.addLine(option, 1), isNull);
-
-    expect(await submit(), isTrue);
-
-    expect(pos.calls, 1, reason: 'the edited basket is the one that must be sold');
-    expect(heldService.completes, isEmpty, reason: 'the parked copy is stale');
-    expect(heldService.voids, [7], reason: 'the cart must not survive the sale');
-    expect(cart.completedHeldCartId, 7);
-  });
-
-  test('a plain (never resumed) basket never touches the held-cart API', () async {
-    final option = cart.saleOptionsFor(cart.filteredProducts.first).first;
-    expect(cart.addLine(option, 1), isNull);
-
-    expect(await submit(), isTrue);
-
-    expect(pos.calls, 1);
-    expect(heldService.completes, isEmpty);
-    expect(heldService.voids, isEmpty);
-    expect(cart.completedHeldCartId, isNull);
-  });
-
-
-  group('the till REMOVES the completed cart from the Held transactions list', () {
-    testWidgets('after a resumed sale the row is gone', (tester) async {
-      tester.view.physicalSize = const Size(1600, 1400);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.reset);
-
+  test(
+    'an EDITED resumed basket sells through checkout, then voids the cart',
+    () async {
+      resumeOne();
+      // The cashier changes the parked basket: the server's copy is now stale, so
+      // completing it would sell what they removed.
       final option = cart.saleOptionsFor(cart.filteredProducts.first).first;
-      final held = HeldCart(
-        id: 7,
-        customerId: null,
-        customerName: null,
-        cashierName: 'Ana Cruz',
-        notes: '',
-        items: [
-          HeldCartItem(
-            id: 70,
-            variantUom: option.variantUomId,
-            qty: 2,
-            unitPrice: option.unitPrice,
-          ),
-        ],
-        createdAt: DateTime(2026, 10, 24, 9),
-      );
-      heldService.carts = [held];
-      final heldCarts = HeldCartViewmodel(service: heldService);
-      await heldCarts.load();
-      heldCarts.resumeCart(held);
+      expect(cart.addLine(option, 1), isNull);
 
-      await tester.pumpWidget(
-        ChangeNotifierProvider<AuthViewmodel>.value(
-          value: AuthViewmodel(AuthRepository(AuthService())),
-          child: MultiProvider(
-            providers: [
-              ChangeNotifierProvider<InventoryViewmodel>.value(value: inventory),
-              ChangeNotifierProvider<ProductTrackingViewmodel>.value(
-                value: ProductTrackingViewmodel(),
-              ),
-            ],
-            child: MaterialApp(
-              home: PosTransactionPage(
-                viewmodel: cart,
-                shiftViewmodel: ShiftViewmodel(service: _OpenShift()),
-                heldCartViewmodel: heldCarts,
+      expect(await submit(), isTrue);
+
+      expect(
+        pos.calls,
+        1,
+        reason: 'the edited basket is the one that must be sold',
+      );
+      expect(
+        heldService.completes,
+        isEmpty,
+        reason: 'the parked copy is stale',
+      );
+      expect(heldService.voids, [
+        7,
+      ], reason: 'the cart must not survive the sale');
+      expect(cart.completedHeldCartId, 7);
+    },
+  );
+
+  test(
+    'a plain (never resumed) basket never touches the held-cart API',
+    () async {
+      final option = cart.saleOptionsFor(cart.filteredProducts.first).first;
+      expect(cart.addLine(option, 1), isNull);
+
+      expect(await submit(), isTrue);
+
+      expect(pos.calls, 1);
+      expect(heldService.completes, isEmpty);
+      expect(heldService.voids, isEmpty);
+      expect(cart.completedHeldCartId, isNull);
+    },
+  );
+
+  group(
+    'the till REMOVES the completed cart from the Held transactions list',
+    () {
+      testWidgets('after a resumed sale the row is gone', (tester) async {
+        tester.view.physicalSize = const Size(1600, 1400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+
+        final option = cart.saleOptionsFor(cart.filteredProducts.first).first;
+        final held = HeldCart(
+          id: 7,
+          customerId: null,
+          customerName: null,
+          cashierName: 'Ana Cruz',
+          notes: '',
+          items: [
+            HeldCartItem(
+              id: 70,
+              variantUom: option.variantUomId,
+              qty: 2,
+              unitPrice: option.unitPrice,
+            ),
+          ],
+          createdAt: DateTime(2026, 10, 24, 9),
+        );
+        heldService.carts = [held];
+        final heldCarts = HeldCartViewmodel(service: heldService);
+        await heldCarts.load();
+        heldCarts.resumeCart(held);
+
+        await tester.pumpWidget(
+          ChangeNotifierProvider<AuthViewmodel>.value(
+            value: AuthViewmodel(AuthRepository(AuthService())),
+            child: MultiProvider(
+              providers: [
+                ChangeNotifierProvider<InventoryViewmodel>.value(
+                  value: inventory,
+                ),
+                ChangeNotifierProvider<ProductTrackingViewmodel>.value(
+                  value: ProductTrackingViewmodel(),
+                ),
+              ],
+              child: MaterialApp(
+                home: PosTransactionPage(
+                  viewmodel: cart,
+                  shiftViewmodel: ShiftViewmodel(service: _OpenShift()),
+                  heldCartViewmodel: heldCarts,
+                ),
               ),
             ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(cart.lines, hasLength(1), reason: 'the parked basket is in the till');
-      expect(heldCarts.carts, hasLength(1));
+        );
+        await tester.pumpAndSettle();
+        expect(
+          cart.lines,
+          hasLength(1),
+          reason: 'the parked basket is in the till',
+        );
+        expect(heldCarts.carts, hasLength(1));
 
-      await tester.tap(find.text('Proceed to payment'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Complete sale'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Proceed to payment'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Complete sale'));
+        await tester.pumpAndSettle();
 
-      expect(heldService.completes, hasLength(1));
-      expect(
-        heldCarts.carts,
-        isEmpty,
-        reason:
-            'a cart the server no longer holds must not sit in the queue '
-            'inviting a second resume',
-      );
-    });
-  });
+        expect(heldService.completes, hasLength(1));
+        expect(
+          heldCarts.carts,
+          isEmpty,
+          reason:
+              'a cart the server no longer holds must not sit in the queue '
+              'inviting a second resume',
+        );
+      });
+    },
+  );
 
   test('a sale made after a completed cart starts clean', () async {
     resumeOne();
