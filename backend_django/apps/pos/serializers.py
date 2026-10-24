@@ -4,14 +4,18 @@
 # resolves its config from its WORKING DIRECTORY, so no pyrightconfig.json is found, and
 # `Model.objects` is a false positive on valid Django without django-stubs.
 from rest_framework import serializers
+
 from .models import (
-    Quotation, QuotationItem,
-    SalesOrder, SalesOrderItem,
-    HeldCart, HeldCartItem,
     Customer,
+    HeldCart,
+    HeldCartItem,
     OfficialReceipt,
     Payment,
+    Quotation,
+    QuotationItem,
     SalesItem,
+    SalesOrder,
+    SalesOrderItem,
     SalesTransaction,
     Shift,
 )
@@ -78,26 +82,38 @@ class ShiftSerializer(serializers.ModelSerializer):
 
     `z_reading` is derived on read from the shift's own transactions, so a closed shift
     prints identical numbers every time and no second table can drift from the sales.
+
+    `held_cart_count` (Phase 3 Task 3) is derived and READ-ONLY for the same reason: a
+    client that could write it would be able to silence the close advisory. It is the
+    number of parked carts belonging to this shift's cashier - advisory only, because
+    decision 06 makes the close record-and-warn rather than block.
     """
 
     cashier_name = serializers.CharField(
         source='cashier.full_name', read_only=True)
     z_reading = serializers.SerializerMethodField()
+    held_cart_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Shift
         fields = [
             'id', 'cashier', 'cashier_name', 'status', 'opening_float',
             'closing_count', 'opened_at', 'closed_at', 'notes', 'z_reading',
+            'held_cart_count',
         ]
         read_only_fields = [
-            'id', 'cashier', 'status', 'opened_at', 'closed_at']
+            'id', 'cashier', 'status', 'opened_at', 'closed_at',
+            'held_cart_count']
 
     def get_z_reading(self, obj):
         # Imported here, not at module level: services imports these models, and a
         # module-level import in both directions is a cycle waiting for the next edit.
         from .services import compute_z_reading
         return compute_z_reading(obj)
+
+    def get_held_cart_count(self, obj):
+        from .services import held_cart_count
+        return held_cart_count(obj)
 
 
 class QuotationItemSerializer(serializers.ModelSerializer):

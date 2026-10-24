@@ -552,6 +552,24 @@ def _money(value):
     return f'{value or Decimal("0"):.2f}'
 
 
+def held_cart_count(shift):
+    """How many parked carts still belong to this shift's cashier (Phase 3 Task 3).
+
+    A held cart is a sale the cashier parked, not one the shift owns: `HeldCart` has a
+    `cashier` FK and no shift FK, because a cart can be resumed on a later shift. So the
+    count is per CASHIER, and it is ADVISORY - decision 06 record-and-warn. Refusing the
+    close over a parked cart would strand the till open over a sale somebody may settle
+    tomorrow, and deleting the carts would destroy a cart the cashier still wants.
+
+    One helper rather than two copies: the shift serializer and the Z-reading both
+    publish this number, and a printout that disagrees with the screen is worse than no
+    number at all.
+    """
+    from .models import HeldCart
+
+    return HeldCart.objects.filter(cashier_id=shift.cashier_id).count()
+
+
 def compute_z_reading(shift):
     """The end-of-shift (Z) summary for one shift, derived - never stored.
 
@@ -631,6 +649,8 @@ def compute_z_reading(shift):
         'cash_refunds': _money(abs(cash_refunds)),
         'expected_drawer': _money(expected_drawer),
         'variance': None if variance is None else _money(variance),
+        # Advisory, not a blocker: `close_shift` records the count and closes anyway.
+        'held_cart_count': held_cart_count(shift),
     }
 
 
