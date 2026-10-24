@@ -360,6 +360,19 @@ class Command(BaseCommand):
             requisition=released, variant=variants[v_names[3]]['variant'], quantity=Decimal('4'))
         submit_requisition(requisition=released)
         rel_token = approve_requisition(requisition=released, approver=users['manager'])
+        # Phase 3 (decision 03): a release needs the cashier's OPEN shift, and `_seed_sales`
+        # already closed the one it sold through. Reopen (or reuse) here and leave it open:
+        # the release belongs inside a shift's Z-reading, and an open shift is also what the
+        # advertised "token ready for POS release" needs for a live demo.
+        from apps.pos.models import Shift
+        shift = Shift.objects.filter(
+            cashier=users['cashier'], status=Shift.Status.OPEN).first()
+        if shift is None:
+            shift = Shift.objects.create(
+                cashier=users['cashier'], opening_float=Decimal('0'))
+            self.stdout.write(
+                f'  + shift {shift.id} opened for {users["cashier"].username} '
+                '(release shift, left open for the demo)')
         release_materials(token_value=str(rel_token.token), cashier=users['cashier'])
 
         self.stdout.write(self.style.SUCCESS(

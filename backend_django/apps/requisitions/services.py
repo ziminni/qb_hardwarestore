@@ -12,14 +12,15 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from django.db import transaction
 from common.numbering import generate_document_number
+from django.db import transaction
 from django.utils import timezone
 
-from apps.inventory.services import allocate_fifo
-from apps.pos.models import SalesTransaction, SalesItem, OfficialReceipt
-from apps.pos.services import generate_transaction_no, generate_or_number
 from apps.collectibles.models import CollectibleLedger
+from apps.inventory.services import allocate_fifo
+from apps.pos.exceptions import NoOpenShift
+from apps.pos.models import OfficialReceipt, SalesItem, SalesTransaction, Shift
+from apps.pos.services import generate_or_number, generate_transaction_no
 
 from .exceptions import NoBaseUom, SelfApproval
 from .models import MaterialToken, Requisition, RequisitionItem
@@ -147,6 +148,14 @@ def release_materials(*, token_value: str, cashier) -> dict:
     Quantities stay in BASE units: `RequisitionItem.quantity` is already base-unit (the
     requisition is written against `variant`, not a selling unit), so the factor-1 price
     applies to it directly and is NOT multiplied by a conversion factor.
+
+    Decision 03: a release is a SALE for accountability purposes — it moves stock and
+    books money owed — so the releasing cashier needs their OPEN shift, exactly like
+    `process_sale`. The gate sits inside the atomic block, after the token row lock and
+    BEFORE the first write, so a refused release leaves no transaction, no receipt, no
+    ledger, no moved stock, no consumed token and no RELEASE audit row (the view writes
+    that row in the same transaction). The shift is then attached to the resulting
+    `SalesTransaction`, which is what puts the release inside the Z-reading.
     """
     info = verify_token(token_value=token_value)
     token_obj = (
@@ -167,9 +176,19 @@ def release_materials(*, token_value: str, cashier) -> dict:
         if token_obj.is_used:
             raise ValueError('Token has already been used.')
 
+        # Decision 03: the same gate `process_sale` applies, and for the same reason —
+        # an orphan release is a receivable the end-of-shift close never asks about.
+        # Read before the first write so the refusal is total.
+        shift = Shift.objects.filter(
+            cashier=cashier, status=Shift.Status.OPEN).first()
+        if shift is None:
+            raise NoOpenShift(
+                'You have no open shift. Open a shift before releasing materials.')
+
         txn = SalesTransaction.objects.create(
             customer=customer,
             cashier=cashier,
+            shift=shift,
             transaction_no=generate_transaction_no(),
             source=SalesTransaction.Source.REQUISITION,
             vatable_sales=Decimal('0'),

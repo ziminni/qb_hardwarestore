@@ -14,6 +14,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 
+from apps.pos.exceptions import NoOpenShift
 from apps.users.models import AuditLog
 from apps.users.permissions import (
     IsForemanOrManager,
@@ -290,6 +291,12 @@ def material_release_view(request):
         # Decision 09 item 6: a release the catalog cannot price for a base unit is a 400
         # with a stable `code`, not the 500 the IntegrityError used to produce. Raised
         # before the first write, so the token is still usable once the catalog is fixed.
+        return _refusal(e)
+    except NoOpenShift as e:
+        # Decision 03: mirrors `POST /transactions/`, which the POS exception handler
+        # already maps to 400 `NO_OPEN_SHIFT`. Named explicitly because NoOpenShift is
+        # deliberately NOT a ValueError, so the handler below would let it through as a
+        # 500. Raised inside the block, so this refusal leaves no RELEASE audit row.
         return _refusal(e)
     except ValueError as e:
         return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)

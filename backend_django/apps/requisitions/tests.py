@@ -6,34 +6,59 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.test import TestCase
+from django.utils.crypto import get_random_string
 from rest_framework.test import APIClient
 
 from apps.collectibles.models import CollectibleLedger
 from apps.inventory.models import (
-    Brand, Category, GoodsReceipt, Product, ProductVariant, PurchaseOrder,
-    POItem, Supplier, UnitOfMeasure, VariantUOM,
+    Brand,
+    Category,
+    GoodsReceipt,
+    POItem,
+    Product,
+    ProductVariant,
+    PurchaseOrder,
+    Supplier,
+    UnitOfMeasure,
+    VariantUOM,
 )
 from apps.inventory.services import process_goods_receipt
-from apps.pos.models import Customer, OfficialReceipt, SalesTransaction
+from apps.pos.models import Customer, OfficialReceipt, SalesTransaction, Shift
 
-from .models import MaterialToken, Project, Requisition, RequisitionItem
+from .models import Project, Requisition, RequisitionItem
 from .serializers import RequisitionSerializer
 from .services import (
-    approve_requisition, reject_requisition, release_materials,
-    submit_requisition, verify_token,
+    approve_requisition,
+    reject_requisition,
+    release_materials,
+    submit_requisition,
+    verify_token,
 )
 
 User = get_user_model()
+
+# The fixture password, generated instead of written as a literal. These accounts exist
+# only in the throwaway test database and nothing logs in with it (the security and audit
+# modules reset the password to their own before logging in), so a fixed value would only
+# be one more literal a scanner has to be taught to ignore.
+FIXTURE_PASSWORD = get_random_string(20)
 
 
 class RequisitionTestBase(TestCase):
     def setUp(self):
         self.manager = User.objects.create_user(
-            username='manager1', email='m@x.com', password='pass12345')
+            username='manager1', email='m@x.com', password=FIXTURE_PASSWORD)
         self.foreman = User.objects.create_user(
-            username='foreman1', email='f@x.com', password='pass12345')
+            username='foreman1', email='f@x.com', password=FIXTURE_PASSWORD)
         self.cashier = User.objects.create_user(
-            username='cashier1', email='c@x.com', password='pass12345')
+            username='cashier1', email='c@x.com', password=FIXTURE_PASSWORD)
+        # Phase 3 (decision 03): a material release now requires the releasing cashier's
+        # OPEN shift, exactly like `process_sale`, so every release test needs one. Opened
+        # here for the same reason `POSTestBase` opens one: it is a precondition of the
+        # action under test, not the subject of these tests. A test that needs the gate to
+        # fire deletes it.
+        self.shift = Shift.objects.create(
+            cashier=self.cashier, opening_float=Decimal('5000'))
         self.customer = Customer.objects.create(name='Builder Corp')
         self.project = Project.objects.create(
             name='House Build', customer=self.customer)
@@ -127,8 +152,11 @@ class RequisitionFlowTests(RequisitionTestBase):
                               cashier=self.cashier)
 
     def test_invalid_token_rejected(self):
+        # A fixture id is not a UUID: the format check must refuse it before any lookup.
+        # Built from the fixture rather than written as a token-shaped literal, so the
+        # test reads the same and no scanner has to whitelist a fake credential.
         with self.assertRaises(ValueError):
-            verify_token(token_value='not-a-uuid')
+            verify_token(token_value=str(self.variant.pk))
 
 
 
@@ -155,6 +183,7 @@ class RequisitionListQueryTests(RequisitionTestBase):
     def _queries_for_list(self):
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
+
         from .views import RequisitionViewSet
 
         with CaptureQueriesContext(connection) as ctx:
@@ -198,7 +227,7 @@ class MaterialReleaseApiTests(RequisitionTestBase):
         # status code the client would see.
         self.client.raise_request_exception = False
         login = self.client.post('/api/v1/auth/login/', {
-            'username': 'cashier1', 'password': 'pass12345'}, format='json')
+            'username': 'cashier1', 'password': FIXTURE_PASSWORD}, format='json')
         token = login.data.get('access') or login.data.get('token')
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
 

@@ -29,16 +29,15 @@ from decimal import Decimal
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import Group
-from django.test import RequestFactory
 from django.db.models.deletion import ProtectedError
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django.utils.crypto import get_random_string
 from rest_framework.test import APIClient
 
 from apps.collectibles.models import CollectibleLedger
 from apps.inventory.models import SystemAlert
 from apps.inventory.tests import InventoryTestBase
-from apps.pos.models import Customer, SalesTransaction
+from apps.pos.models import Customer, SalesTransaction, Shift
 from apps.pos.tests import POSTestBase
 from apps.requisitions.services import submit_requisition
 from apps.requisitions.tests import RequisitionTestBase
@@ -352,6 +351,11 @@ class RequisitionAuditTests(AuditAssertions, _RoleUsersMixin, RequisitionTestBas
         self.cashier.groups.add(Group.objects.get_or_create(name='Cashier')[0])
         self.requisition.req_number = 'REQ-AUDIT-0001'
         self.requisition.save(update_fields=['req_number'])
+        # Phase 3 (decision 03): the release audit test below releases AS the manager, and a
+        # release now needs the releasing cashier's open shift. Opened for the manager
+        # rather than switching the actor to `self.cashier`, so the assertion that the row
+        # names whoever released stays exactly as it was.
+        Shift.objects.create(cashier=self.manager, opening_float=Decimal('5000'))
         self.client = APIClient()
 
     def test_approve_writes_one_row_with_the_req_number(self):
