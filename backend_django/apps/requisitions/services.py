@@ -21,7 +21,7 @@ from apps.pos.models import SalesTransaction, SalesItem, OfficialReceipt
 from apps.pos.services import generate_transaction_no, generate_or_number
 from apps.collectibles.models import CollectibleLedger
 
-from .exceptions import NoBaseUom
+from .exceptions import NoBaseUom, SelfApproval
 from .models import MaterialToken, Requisition, RequisitionItem
 
 
@@ -38,8 +38,21 @@ def submit_requisition(*, requisition: Requisition) -> None:
 
 
 def approve_requisition(*, requisition: Requisition, approver) -> MaterialToken:
+    """Approve a SUBMITTED requisition and mint its one-time material token.
+
+    Separation of duties (decision 04 / NFR): the approver may not be the requester,
+    superusers included. Without the guard a Site Foreman who also holds Store Manager
+    could approve their own request and the bearer token would release goods on credit
+    with no second person involved. Refused before the first write, so the requisition
+    stays SUBMITTED and no token row exists (a token row is a credential).
+
+    Rejection is deliberately NOT guarded — P2 ruling: a requester withdrawing their own
+    request harms nobody.
+    """
     if requisition.status != Requisition.Status.SUBMITTED:
         raise ValueError(f'Cannot approve a {requisition.status} requisition.')
+    if requisition.requested_by_id == getattr(approver, 'pk', approver):
+        raise SelfApproval()
     with transaction.atomic():
         requisition.status = Requisition.Status.APPROVED
         requisition.approved_by = approver

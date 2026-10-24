@@ -138,14 +138,21 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 
 | Method | Path | Purpose | Auth |
 | --- | --- | --- | --- |
-| GET/POST/PATCH/DELETE | `/api/v1/projects/` | Construction project CRUD | Authenticated |
-| GET/POST/PATCH/DELETE | `/api/v1/requisitions/` | Requisition CRUD (auto `req_number`, `requested_by` = current user) | Authenticated |
-| POST | `/api/v1/requisitions/{id}/submit/` | DRAFT → SUBMITTED | Authenticated |
-| POST | `/api/v1/requisitions/{id}/approve/` | SUBMITTED → APPROVED, generates `MaterialToken` (returns token UUID) | Authenticated |
-| POST | `/api/v1/requisitions/{id}/reject/` | SUBMITTED → REJECTED | Authenticated |
-| GET | `/api/v1/req-items/` | Requisition line items | Authenticated |
-| GET | `/api/v1/tokens/` | Material tokens (read-only) | Authenticated |
-| POST | `/api/v1/tokens/verify/` | Verify token — body: `{"token": "<uuid>"}` (UC-20) | Authenticated |
+| GET/POST/PATCH/DELETE | `/api/v1/projects/` | Construction project CRUD | Read: any authenticated · Write: Site Foreman / Store Manager / Admin |
+| GET/POST | `/api/v1/requisitions/` | Create a requisition (auto `req_number`, `requested_by` = current user, always starts `DRAFT`) / list them | Site Foreman / Store Manager / Admin — **read scope**: Store Manager / Admin see all, Site Foreman sees only `requested_by = self` (another foreman's row → **404**), everyone else → **403** |
+| GET/PATCH/PUT/DELETE | `/api/v1/requisitions/{id}/` | Read / edit / delete one requisition | Site Foreman (own only) / Store Manager / Admin. Edits and deletes are refused once the requisition left `DRAFT` → **400** `{"code": "REQUISITION_LOCKED", "detail": "…"}` |
+| POST | `/api/v1/requisitions/{id}/submit/` | DRAFT → SUBMITTED | Site Foreman / Store Manager / Admin |
+| POST | `/api/v1/requisitions/{id}/approve/` | SUBMITTED → APPROVED, generates `MaterialToken` (returns token UUID). Approving **your own** requisition → **400** `{"code": "SELF_APPROVAL", "detail": "…"}`, status unchanged, no token row — superusers included | Store Manager / Admin |
+| POST | `/api/v1/requisitions/{id}/reject/` | SUBMITTED → REJECTED (own request may be rejected — only approval needs a second person) | Store Manager / Admin |
+| GET/POST/PATCH/PUT/DELETE | `/api/v1/req-items/` | Requisition line items. Reads follow the parent requisition; writes only while the parent is `DRAFT`, otherwise **400** `{"code": "REQUISITION_LOCKED", "detail": "…"}` on create, edit and delete | Site Foreman (own requisitions) / Store Manager / Admin |
+| GET | `/api/v1/tokens/` | Material tokens (read-only) — **a bearer credential** | Store Manager / Admin only (Cashier / Stock Manager / everyone else → **403**) |
+| POST | `/api/v1/tokens/verify/` | Verify token — body: `{"token": "<uuid>"}` (UC-20) | Cashier / Store Manager / Admin (Stock Manager / foreman → **403**) |
+> ⚠ **Requisition tokens are bearer credentials (Phase 2).** Whoever holds a `MaterialToken` UUID can release the goods on credit, so tokens are no longer readable by "any logged-in user": `GET /requisitions/` exposes `token` only to a Store Manager / Admin (any row) or the requesting Site Foreman, and the key is `null` for anyone else (it stays present, because the Flutter `Requisition` model decodes a nullable `token`). `GET /tokens/` is manager/admin-only. A cashier releases with the UUID the approver hands over — reading it is not part of their role.
+>
+> ⚠ **Separation of duties.** `approve` refuses the requester (`SELF_APPROVAL`, 400) before any write; `reject` does not — withdrawing your own request is harmless.
+>
+> ⚠ **Immutable after submit.** A requisition and its lines may only change while `DRAFT` (`REQUISITION_LOCKED`, 400). Otherwise items could be edited after approval and the token would release what nobody approved. Corrections go through a new requisition.
+
 | POST | `/api/v1/tokens/release/` | **Material release at POS** — body: `{"token": "<uuid>"}`; FIFO-deducts stock, creates `SalesTransaction`, posts to `CollectibleLedger` (UC-21/22). Quantities are **base units** (`RequisitionItem.quantity`) and are priced from the variant's **factor-1** `VariantUOM` (`default_selling_price`), resolved for **every remaining line before the first write**. A line whose variant has no factor-1 selling unit → **400** `{"code": "NO_BASE_UOM", "detail": "…"}` with the token still unused and nothing written (no sale, receipt, ledger or stock move). Other token/state errors keep the plain `{"detail": "…"}` 400. | Cashier / Store Manager / Admin |
 
 ---
@@ -188,10 +195,12 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
    | Payments & official receipts | read-only | Cashier / Stock Manager / Store Manager / Admin (scoped like their transaction) |
    | Collectible ledgers (`/ledgers/`, `/ledgers/aging/`) | **none** — 405 (`ReadOnlyModelViewSet`) | Cashier / Store Manager / Admin (`IsReceivablesReader`) |
    | Collectible payments (`/ledger-payments/`) | `POST` only: Cashier / Store Manager / Admin | Cashier / Store Manager / Admin |
-   | Projects, requisitions, requisition items | Site Foreman / Store Manager / Admin | Any authenticated |
+   | Projects | Site Foreman / Store Manager / Admin | Any authenticated |
+   | Requisitions (`/requisitions/`, incl. items and lines) | Site Foreman (own, `DRAFT` only) / Store Manager / Admin | Site Foreman (own only, others → 404) / Store Manager / Admin; cashier, stocker, groupless → 403 |
    | Requisition `submit` | Site Foreman / Store Manager / Admin | — |
-   | Requisition `approve` / `reject` | Store Manager / Admin | — |
-   | Token `verify` | Any authenticated | — |
+   | Requisition `approve` / `reject` | Store Manager / Admin — not the requester (400 `SELF_APPROVAL`) | — |
+   | Material tokens (`/tokens/`) | — (read-only) | Store Manager / Admin |
+   | Token `verify` | Cashier / Store Manager / Admin | — |
    | Token `release` | Cashier / Store Manager / Admin | — |
 
    Superusers bypass all role checks. Frontend role route guards (`/admin/*` etc.) are now backed by matching API enforcement. `is_staff` is **not** API authority (decision 04); `/users/` has no `DELETE` (405) and `is_staff` is read-only via the API — see §3.2.

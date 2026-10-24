@@ -8,7 +8,6 @@
 
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.users.permissions import (
@@ -16,9 +15,10 @@ from apps.users.permissions import (
     IsForemanOrManagerOrReadOnly,
     IsManagerRole,
     IsPOSRole,
+    has_role,
 )
 
-from .exceptions import NoBaseUom
+from .exceptions import NoBaseUom, RequisitionLocked
 from .models import (
     MaterialToken,
     Project,
@@ -40,6 +40,46 @@ from .services import (
     submit_requisition,
     verify_token,
 )
+
+
+def _refusal(error):
+    """400 with a stable `{code, detail}` body for a domain refusal that carries a code.
+
+    Phase 2: every new refusal answers the same shape so the Flutter client can map a
+    readable message without parsing prose. A plain `ValueError` (no `code`) keeps the
+    old `{detail}` body.
+    """
+    code = getattr(error, 'code', None)
+    if code:
+        return Response(
+            {'code': code, 'detail': str(error)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response({'detail': str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _requisition_locked_response(requisition):
+    """400 `REQUISITION_LOCKED` unless `requisition` is DRAFT; None when it may change.
+
+    P2 ruling (R): a requisition and its lines are immutable once they leave DRAFT —
+    otherwise the lines could be edited after approval and the material token would
+    release what nobody approved. `None` (unknown / missing parent) is left to the
+    serializer, which already answers 400.
+    """
+    if requisition is None or requisition.status == Requisition.Status.DRAFT:
+        return None
+    return _refusal(RequisitionLocked(requisition.status))
+
+
+def _requisition_from_payload(value):
+    """The requisition a payload points at, or None when it is absent/garbage."""
+    try:
+        return Requisition.objects.filter(pk=value).first()
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_manager(user):
+    """Managers and admins see every requisition; a foreman only their own."""
+    return has_role(user, IsManagerRole.required_roles)
 
 
 # ---------------------------------------------------------------------------
@@ -70,17 +110,51 @@ class RequisitionViewSet(viewsets.ModelViewSet):
     serializer_class = RequisitionSerializer
 
     def get_permissions(self):
-        if self.action in ('list', 'retrieve'):
-            return [IsAuthenticated()]
+        # Phase 2 (token secrecy): the material token is a BEARER credential — whoever
+        # holds the UUID releases the goods on credit. Reads were open to any logged-in
+        # account, so a cashier who was never handed a token could read one here. Reads
+        # (and ordinary writes) now need Site Foreman / Store Manager / Admin; a
+        # cashier, stocker or groupless account gets 403. `approve`/`reject` stay a
+        # manager decision.
         if self.action in ('approve', 'reject'):
             return [IsManagerRole()]
         return [IsForemanOrManager()]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # Decision 02 "hidden ≠ forbidden": a foreman asking for another foreman's
+        # requisition gets 404, not 403, because the row is not theirs to know about.
+        user = getattr(getattr(self, 'request', None), 'user', None)
+        if user is None or _is_manager(user):
+            return qs
+        return qs.filter(requested_by=user)
 
     def perform_create(self, serializer):
         serializer.save(
             requested_by=self.request.user,
             req_number=generate_req_number(),
         )
+
+    # --- Immutability after DRAFT (P2 ruling) ---
+
+    def update(self, request, *args, **kwargs):
+        # `partial_update` is overridden too because DRF routes PATCH to it directly.
+        locked = _requisition_locked_response(self.get_object())
+        if locked:
+            return locked
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        locked = _requisition_locked_response(self.get_object())
+        if locked:
+            return locked
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        locked = _requisition_locked_response(self.get_object())
+        if locked:
+            return locked
+        return super().destroy(request, *args, **kwargs)
 
     # --- Status transitions ---
 
@@ -91,7 +165,7 @@ class RequisitionViewSet(viewsets.ModelViewSet):
         try:
             submit_requisition(requisition=req)
         except ValueError as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return _refusal(e)
         return Response({'detail': f'{req.req_number} submitted.'})
 
     @action(detail=True, methods=['post'])
@@ -101,7 +175,9 @@ class RequisitionViewSet(viewsets.ModelViewSet):
         try:
             token = approve_requisition(requisition=req, approver=request.user)
         except ValueError as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            # Includes `SelfApproval` (400 SELF_APPROVAL): separation of duties, nothing
+            # written and no token minted.
+            return _refusal(e)
         return Response({
             'detail': f'{req.req_number} approved.',
             'token': str(token.token),
@@ -114,7 +190,7 @@ class RequisitionViewSet(viewsets.ModelViewSet):
         try:
             reject_requisition(requisition=req, approver=request.user)
         except ValueError as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return _refusal(e)
         return Response({'detail': f'{req.req_number} rejected.'})
 
 
@@ -123,9 +199,13 @@ class RequisitionViewSet(viewsets.ModelViewSet):
 # ---------------------------------------------------------------------------
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsPOSRole])
 def token_verify_view(request):
-    """Verify a material token (UC-20: Scan/Verify Digital Material Token)."""
+    """Verify a material token (UC-20: Scan/Verify Digital Material Token).
+
+    Phase 2: POS work (Cashier / Store Manager / Admin). Verification describes what a
+    token is FOR, so a stocker or a groupless account had no business reading it.
+    """
     serializer = TokenVerifySerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     token_value = str(serializer.validated_data['token'])
@@ -156,10 +236,7 @@ def material_release_view(request):
         # Decision 09 item 6: a release the catalog cannot price for a base unit is a 400
         # with a stable `code`, not the 500 the IntegrityError used to produce. Raised
         # before the first write, so the token is still usable once the catalog is fixed.
-        return Response(
-            {'code': e.code, 'detail': str(e)},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        return _refusal(e)
     except ValueError as e:
         return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
     return Response(result, status=status.HTTP_201_CREATED)
@@ -170,9 +247,11 @@ def material_release_view(request):
 # ---------------------------------------------------------------------------
 
 class MaterialTokenViewSet(viewsets.ReadOnlyModelViewSet):
+    """Material tokens — a bearer credential, so only managers/admins may list them."""
+
     queryset = MaterialToken.objects.select_related('requisition').all()
     serializer_class = MaterialTokenSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsManagerRole]
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +259,52 @@ class MaterialTokenViewSet(viewsets.ReadOnlyModelViewSet):
 # ---------------------------------------------------------------------------
 
 class RequisitionItemViewSet(viewsets.ModelViewSet):
+    """Requisition lines.
+
+    Reads follow the parent requisition's rule (a Site Foreman sees only their own lines;
+    everyone else 403), and a line can only be created/edited/deleted while its
+    requisition is DRAFT (P2 ruling) — otherwise approved quantities could be changed
+    after the token was minted.
+    """
+
+    # `order_by` matters: the model has no Meta.ordering, and DRF's paginator warns (and
+    # can repeat a row across pages) on an unordered queryset.
     queryset = RequisitionItem.objects.select_related(
-        'requisition', 'variant').all()
+        'requisition', 'variant').order_by('pk')
     serializer_class = RequisitionItemSerializer
-    permission_classes = [IsForemanOrManagerOrReadOnly]
+    permission_classes = [IsForemanOrManager]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = getattr(getattr(self, 'request', None), 'user', None)
+        if user is None or _is_manager(user):
+            return qs
+        return qs.filter(requisition__requested_by=user)
+
+    def create(self, request, *args, **kwargs):
+        locked = _requisition_locked_response(
+            _requisition_from_payload(request.data.get('requisition')))
+        if locked:
+            return locked
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        # `partial_update` delegates here, so PATCH is covered by the same guard.
+        item = self.get_object()
+        locked = _requisition_locked_response(item.requisition)
+        if locked:
+            return locked
+        # Moving a line to another requisition is a write to BOTH parents: the new one has
+        # to be a draft as well, or an approved line could be smuggled into one.
+        target = _requisition_from_payload(request.data.get('requisition'))
+        if target is not None and target.pk != item.requisition_id:
+            locked = _requisition_locked_response(target)
+            if locked:
+                return locked
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        locked = _requisition_locked_response(self.get_object().requisition)
+        if locked:
+            return locked
+        return super().destroy(request, *args, **kwargs)

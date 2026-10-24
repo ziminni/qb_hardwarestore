@@ -32,3 +32,46 @@ class NoBaseUom(ValueError):
             message
             or f'Variant {variant} has no base-unit selling price: add a selling unit '
                'with conversion factor 1 before releasing it.')
+
+
+class SelfApproval(ValueError):
+    """The approver is the person who requested the material (decision 04 / NFR).
+
+    Separation of duties: approving is the second signature. A Site Foreman who was also
+    promoted to Store Manager could otherwise mint their own material token and release
+    goods on credit with nobody's agreement — a superuser included, because the rule is
+    about the paperwork, not about rank.
+
+    A `ValueError` subclass for the same reason as `NoBaseUom`: the request is
+    well-formed, the shop's rules just refuse it. Raised BEFORE any write, so the
+    requisition stays SUBMITTED and no `MaterialToken` row exists afterwards.
+    """
+
+    code = 'SELF_APPROVAL'
+
+    def __init__(self, message=None):
+        super().__init__(
+            message
+            or 'You cannot approve a requisition you requested: approval needs a second '
+               'person.')
+
+
+class RequisitionLocked(ValueError):
+    """A requisition — or one of its lines — was changed after it left DRAFT.
+
+    P2 ruling (R): once a requisition is submitted for approval it is frozen. Editing the
+    lines after approval would change WHAT the material token releases, so the POS would
+    hand over goods nobody approved.
+
+    A `ValueError` subclass so the view keeps one refusal path: the client gets
+    `{"code": "REQUISITION_LOCKED", "detail": …}` and nothing is written.
+    """
+
+    code = 'REQUISITION_LOCKED'
+
+    def __init__(self, status, message=None):
+        self.status = status
+        super().__init__(
+            message
+            or f'This requisition is {status}: only a DRAFT requisition can be changed. '
+               'Create a new requisition instead.')

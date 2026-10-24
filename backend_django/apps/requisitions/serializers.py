@@ -1,6 +1,9 @@
 """Requisitions app — serializers."""
 
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
+
+from apps.users.permissions import ROLE_SITE_FOREMAN, IsManagerRole, has_role
 
 from .models import (
     MaterialToken,
@@ -45,7 +48,7 @@ class RequisitionSerializer(serializers.ModelSerializer):
     # adds no endpoint and touches no model, so the map's backend invariant holds.
     project_customer_name = serializers.CharField(
         source='project.customer.name', read_only=True)
-    token = serializers.UUIDField(source='token.token', read_only=True)
+    token = serializers.SerializerMethodField()
 
     class Meta:
         model = Requisition
@@ -62,6 +65,37 @@ class RequisitionSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'requested_by': {'read_only': True},
         }
+
+    def get_token(self, obj):
+        """The material token UUID — a BEARER credential, so it needs a named reader.
+
+        Whoever holds this UUID can release the goods on credit, so `GET /requisitions/`
+        must not hand it to anyone who can log in. Only a manager/admin (any row) or the
+        requesting foreman sees it; everyone else gets `None`.
+
+        The key stays PRESENT with `null` because the Flutter `Requisition` model reads a
+        nullable `token` — dropping the key would break that decode.
+        """
+        if not self._may_see_token(obj):
+            return None
+        try:
+            # `obj.token` is a reverse OneToOne: it raises when the requisition was never
+            # approved. The view select_related's it, so this costs no extra query.
+            material_token = obj.token
+        except ObjectDoesNotExist:
+            return None
+        return str(material_token.token) if material_token else None
+
+    def _may_see_token(self, obj):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not user or not getattr(user, 'is_authenticated', False):
+            # No request context (a direct serializer use, a test): nothing to authorise
+            # against, so the credential is not disclosed.
+            return False
+        if has_role(user, IsManagerRole.required_roles):
+            return True
+        return has_role(user, [ROLE_SITE_FOREMAN]) and obj.requested_by_id == user.pk
 
 
 class TokenVerifySerializer(serializers.Serializer):
