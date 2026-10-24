@@ -28,7 +28,7 @@ the same commit that breaks it.
 - **Active branch:** `feature/backend-integration` — **pushed, in sync with `origin/`.** For how far ahead
   of `origin/master` it is run `git rev-list --count origin/master..HEAD`; a count written here stales on
   the next commit.
-- **Active Wayfinder map: `planning/audit-remediation/MAP.md`** — audit gap remediation, 9 decisions locked, Phases 1–5 READY TO BUILD, Phase 6 Barcode/QR in Fog. Prior maps (cashier, stocker, sales-manager, admin) complete.
+- **Active Wayfinder map: `planning/audit-remediation/MAP.md`** — audit gap remediation, 9 decisions locked, **Phase 1 BUILT 2026-10-24**, Phases 2–5 READY TO BUILD, Phase 6 Barcode/QR in Fog. Prior maps (cashier, stocker, sales-manager, admin) complete.
 - **Phase state is NOT stated here** — it is owned by the phase table in the active map, per-row and with
   evidence. Read that table; a copy here would be a second home, and this file's own rule forbids one.
 - **Phase 6 is built and pushed.** 6A.1–6A.4, 6B (reports + receiving), 6C (live sales screens + review
@@ -47,8 +47,8 @@ the same commit that breaks it.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.
-- **Last session:** `docs/sessions/2026-10-23-wayfinder-audit-and-verification.md` — audit of admin build + ATLAS refresh `f893950` (suppliers/audit/monitoring/settings → live, mock file deleted). **Gate re-proven fresh:** flutter **532/532**, analyze clean, tree clean.
-  **Next:** user runs `git push` (assistant shell has no SSH key); then Wayfinder next epic (CPMS repo #2 vs Fog: supplier writes, audit filter, settings API).
+- **Last session:** `docs/sessions/2026-10-24-audit-remediation-phase-1.md` — Phase 1 money & stock integrity built. **Gate:** backend **176/176**, flutter **552/552**, analyze clean.
+  **Next:** `git push` (user); then BUILD Phase 2 (access control & audit) — write `planning/audit-remediation/phase-2-plan.md` first.
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message
