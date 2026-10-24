@@ -11,14 +11,31 @@
 # false positive this comment has described since the file was written.
 
 """POS services — checkout, FIFO allocation, receipt generation."""
+import hashlib
+import json
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
+
 from django.db import transaction
+
 from apps.collectibles.models import CollectibleLedger
 from apps.inventory.services import allocate_fifo
 
-from .exceptions import CreditLimitExceeded, InvalidSale, WalkInCannotOwe
-from .models import Customer, SalesTransaction, SalesItem, Payment, OfficialReceipt
+from .exceptions import (
+    CreditLimitExceeded,
+    IdempotencyKeyReused,
+    InvalidIdempotencyKey,
+    InvalidSale,
+    WalkInCannotOwe,
+)
+from .models import (
+    Customer,
+    DocumentCounter,
+    OfficialReceipt,
+    Payment,
+    SalesItem,
+    SalesTransaction,
+)
 
 # Decision 08: a ledger in one of these states is credit still in use. PAID is not -
 # summing settled rows too would count history instead of debt, and the customer's
@@ -33,23 +50,134 @@ OUTSTANDING_LEDGER_STATUSES = (
 # both directions by `_validated_sale_lines`.
 MAX_SALE_LINES = 200
 
+# Decision 09 item 2, and the width of `SalesTransaction.idempotency_key`. A longer key
+# would be truncated by the database and stop identifying the attempt it names.
+MAX_IDEMPOTENCY_KEY_LENGTH = 64
+
+# Which model+field owns each counter prefix. The prefix is the counter's identity, so
+# the mapping is the one place that knows a `TRX` row counts `SalesTransaction`s.
+COUNTER_SOURCES = {
+    'TRX': ('transaction_no', SalesTransaction),
+    'OR': ('or_number', OfficialReceipt),
+}
+
+
+def _highest_existing_sequence(model, field_name, stamp):
+    """The highest numeric suffix already used for `stamp`, or 0.
+
+    Parsed in PYTHON rather than with `ORDER BY field DESC`: the suffix is zero-padded to
+    four digits, so a five-digit day (`-10000`) sorts BEFORE `-9999` lexically and the
+    counter would be seeded too low - which is exactly the collision this whole change
+    exists to prevent. Runs once per (prefix, day): only the row's first creation seeds.
+    """
+    used = model.objects.filter(
+        **{f'{field_name}__startswith': stamp}
+    ).values_list(field_name, flat=True)
+    highest = 0
+    for value in used:
+        suffix = str(value).rsplit('-', 1)[-1]
+        if suffix.isdigit():
+            highest = max(highest, int(suffix))
+    return highest
+
+
+def next_number(prefix, day=None):
+    """Reserve the next ``<prefix>-YYYYMMDD-NNNN`` for `day` (default: today).
+
+    Decision 09 item 3: the sequence is a `DocumentCounter` row locked with
+    `select_for_update`, NOT "read the newest document and add one". Two tills ringing at
+    the same instant used to read the same number and the loser died on the unique
+    constraint as a 500 - a lost sale, not a slow one.
+
+    The lock is taken inside the CALLER's atomic block (`process_sale`, `process_return`
+    and `requisitions.release_materials` all have one), so the reservation commits or
+    rolls back with the sale that asked for it. A caller without one gets a block of its
+    own here: still collision-free, but a failed sale then leaves a gap rather than
+    reusing the number. Gaps are fine; duplicates are not.
+    """
+    field_name, model = COUNTER_SOURCES[prefix]
+    day = day or date.today()
+    stamp = f'{prefix}-{day.strftime("%Y%m%d")}-'
+    with transaction.atomic():
+        counter, _ = (
+            DocumentCounter.objects.select_for_update().get_or_create(
+                prefix=prefix, day=day,
+                defaults={
+                    'last': _highest_existing_sequence(model, field_name, stamp),
+                },
+            )
+        )
+        counter.last += 1
+        counter.save(update_fields=['last'])
+    return f'{stamp}{counter.last:04d}'
+
 
 def generate_transaction_no():
-    today = date.today().strftime('%Y%m%d')
-    last = SalesTransaction.objects.filter(transaction_no__startswith=f'TRX-{today}').order_by('-transaction_no').first()
-    seq = 1
-    if last:
-        seq = int(last.transaction_no.split('-')[-1]) + 1
-    return f'TRX-{today}-{seq:04d}'
+    return next_number('TRX')
 
 
 def generate_or_number():
-    today = date.today().strftime('%Y%m%d')
-    last = OfficialReceipt.objects.filter(or_number__startswith=f'OR-{today}').order_by('-or_number').first()
-    seq = 1
-    if last:
-        seq = int(last.or_number.split('-')[-1]) + 1
-    return f'OR-{today}-{seq:04d}'
+    return next_number('OR')
+
+
+def parse_idempotency_key(raw):
+    """Validate the optional `Idempotency-Key` header value (decision 09 item 2).
+
+    No header -> None, and the request is simply not retry-protected (the behaviour
+    before this change). An empty or over-long key is refused rather than stored: an
+    empty one makes every retry look like the same request, and a truncated one stops
+    identifying the attempt it names, so both fail open in the worst possible way.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise InvalidIdempotencyKey('Idempotency-Key must be a string.')
+    key = raw.strip()
+    if not key:
+        raise InvalidIdempotencyKey('Idempotency-Key must not be empty.')
+    if len(key) > MAX_IDEMPOTENCY_KEY_LENGTH:
+        raise InvalidIdempotencyKey(
+            f'Idempotency-Key must be at most {MAX_IDEMPOTENCY_KEY_LENGTH} characters.')
+    return key
+
+
+def request_body_hash(data):
+    """Canonical fingerprint of a request body, for "is this the same request?".
+
+    `sort_keys` makes key order irrelevant (JSON objects have none), and `default=str`
+    keeps a value the encoder does not know from turning a retry into a 500. Two bodies
+    that differ in any value - a 3-piece cart retried as 2 - hash differently, which is
+    what lets a replayed key be refused with a 409 instead of silently selling the
+    second cart under the first one's receipt.
+    """
+    canonical = json.dumps(data, sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+
+
+def replayed_transaction(*, cashier, idempotency_key, request_hash):
+    """The transaction already recorded for this (cashier, key), or None.
+
+    Returns None when no key was sent or the key is unused, so both call sites read
+    "nothing to replay". Raises `IdempotencyKeyReused` when the key belongs to a DIFFERENT
+    body: replaying that would hand back a receipt for goods the cashier is not holding.
+
+    Called twice per checkout on purpose - once as the pre-check, and once after an
+    `IntegrityError` from the unique constraint, which is how a race between two
+    genuinely concurrent retries is settled (`select_for_update` cannot help: the row
+    does not exist yet for either of them).
+    """
+    if not idempotency_key:
+        return None
+    existing = (
+        SalesTransaction.objects
+        .filter(cashier=cashier, idempotency_key=idempotency_key)
+        .first()
+    )
+    if existing is None:
+        return None
+    if existing.request_hash != request_hash:
+        raise IdempotencyKeyReused(idempotency_key)
+    return existing
 
 
 def _parse_decimal(raw, *, field, line_no):
@@ -172,7 +300,8 @@ def _outstanding_credit(customer_id):
     return total or Decimal('0')
 
 
-def process_sale(*, customer_id, cashier, items_data, payments_data, source='WALK_IN'):
+def process_sale(*, customer_id, cashier, items_data, payments_data, source='WALK_IN',
+                 idempotency_key=None, request_hash=''):
     """Process a complete walk-in sale or requisition release.
 
     items_data: [{'variant_id': <VariantUOM id>, 'qty': 5}]
@@ -189,6 +318,12 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
     `InvalidSale` is raised before the atomic block: a refused cart must leave no
     transaction, no receipt, no payment and no moved stock, and raising before the first
     `create()` makes that true by construction rather than by rollback.
+
+    `idempotency_key` / `request_hash` are the client's retry token and the fingerprint of
+    the body that carried it (decision 09 item 2). Stored ON the row at creation, because
+    the unique constraint on (cashier, idempotency_key) is what settles two concurrent
+    retries - a check-then-insert in the view cannot, since the row does not exist yet for
+    either request.
     """
     lines = _validated_sale_lines(items_data)
     payments = _validated_payments(payments_data)
@@ -221,6 +356,8 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
             vat_amount=0,
             discount_amount=discount,
             grand_total=0,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
         )
 
         for vuom, qty in lines:
@@ -339,9 +476,11 @@ def _restock_returned(*, variant_id, qty_needed, original_id, return_item):
     Reads are row-locked, matching allocate_fifo's discipline on the way out.
     """
     from django.db.models import Sum
+
     from apps.inventory.models import InventoryBatch
-    from .models import SalesItemDeduction
+
     from .exceptions import ReturnError
+    from .models import SalesItemDeduction
 
     remaining = qty_needed
     if original_id is not None:

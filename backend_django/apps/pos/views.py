@@ -24,6 +24,34 @@ from .serializers import QuotationSerializer, SalesOrderSerializer
 from .serializers import HeldCartSerializer
 from .serializers import ShiftSerializer
 from .services import process_sale
+from .services import (
+    parse_idempotency_key, request_body_hash, replayed_transaction,
+)
+
+# Decision 09 item 2: the optional retry token. A client that times out mid-checkout
+# resends the SAME key and gets the original sale back instead of ringing a second one.
+IDEMPOTENCY_HEADER = 'Idempotency-Key'
+
+
+def _idempotency_inputs(request):
+    """(key, body hash) for this request, or (None, '') when no header was sent.
+
+    Read from `request.headers`, which is case-insensitive - a client sending
+    `idempotency-key` is not making an error. The hash is computed over the parsed body
+    (not the raw stream) so a pretty-printed re-send still matches its own retry.
+    """
+    key = parse_idempotency_key(request.headers.get(IDEMPOTENCY_HEADER))
+    if key is None:
+        return None, ''
+    return key, request_body_hash(request.data)
+
+
+def _replayed_response(transaction):
+    """200, not 201: nothing was created, the client is being shown its own sale."""
+    return Response(
+        SalesTransactionSerializer(transaction).data,
+        status=status.HTTP_200_OK,
+    )
 
 
 class BaseViewSet(viewsets.ModelViewSet):
@@ -51,10 +79,13 @@ class SalesTransactionViewSet(BaseViewSet):
         return qs
 
     def create(self, request):
+        idempotency_key, body_hash = _idempotency_inputs(request)
         ser = self.get_serializer(data=request.data)
         ser.is_valid(raise_exception=True)
         source = ser.validated_data.get('source','WALK_IN')
         if source == 'RETURN':
+            # Ledger ruling: this phase protects CHECKOUT with idempotency, not returns.
+            # A refund is already re-checkable against the original sale it reverses.
             from .services import process_return
             txn = process_return(
                 customer_id=ser.validated_data['customer'].id,
@@ -63,14 +94,43 @@ class SalesTransactionViewSet(BaseViewSet):
                 original_transaction_id=request.data.get('original_transaction'),
                 payment_method=request.data.get('payment_method','CASH'),
             )
-        else:
+            return Response(self.get_serializer(txn).data, status=status.HTTP_201_CREATED)
+
+        # Decision 09 item 2: replay BEFORE ringing anything. The common retry is a
+        # client that never saw the 201, and answering it from the recorded row is what
+        # makes "one key, one sale" true even when the first response was lost.
+        if idempotency_key:
+            replayed = replayed_transaction(
+                cashier=request.user, idempotency_key=idempotency_key,
+                request_hash=body_hash)
+            if replayed is not None:
+                return _replayed_response(replayed)
+
+        try:
             txn = process_sale(
                 customer_id=ser.validated_data['customer'].id,
                 cashier=request.user,
                 items_data=request.data.get('items',[]),
                 payments_data=request.data.get('payments',[]),
                 source=source,
+                idempotency_key=idempotency_key,
+                request_hash=body_hash,
             )
+        except IntegrityError:
+            # The race the pre-check cannot win: two retries both read "no such key" and
+            # both insert, and only the unique constraint on (cashier, idempotency_key)
+            # can refuse the second. `process_sale`'s own atomic block has already rolled
+            # back to its savepoint, so the connection is clean and re-reading here is
+            # legal - this except clause must stay OUTSIDE that block for exactly that
+            # reason. A different payload is a 409; the same one is a replay.
+            if not idempotency_key:
+                raise
+            replayed = replayed_transaction(
+                cashier=request.user, idempotency_key=idempotency_key,
+                request_hash=body_hash)
+            if replayed is None:
+                raise
+            return _replayed_response(replayed)
         return Response(self.get_serializer(txn).data, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['get'])
@@ -290,6 +350,18 @@ class HeldCartViewSet(BaseViewSet):
 
     @action(detail=True, methods=['post'])
     def complete(self, request, pk=None):
+        idempotency_key, body_hash = _idempotency_inputs(request)
+        # Decision 09 item 4, and the ruling that made it necessary: the first successful
+        # completion DELETES the cart, so this check must run BEFORE `get_object()`.
+        # Otherwise a retry of a sale that already rang answers 404 about a cart whose
+        # money is in the drawer - the cashier would take payment twice or lose the sale.
+        if idempotency_key:
+            replayed = replayed_transaction(
+                cashier=request.user, idempotency_key=idempotency_key,
+                request_hash=body_hash)
+            if replayed is not None:
+                return _replayed_response(replayed)
+
         cart = self.get_object()
         # Phase 1 task 1 (decision 01): the cart on the shelf stores a price, but that
         # price is a NOTE, not an authority - a cart parked yesterday, or tampered with,
@@ -308,14 +380,29 @@ class HeldCartViewSet(BaseViewSet):
             customer_id = Customer.objects.filter(
                 customer_type=Customer.Type.WALK_IN).values_list('id', flat=True).first()
         from django.db import transaction as db_transaction
-        with db_transaction.atomic():
-            txn = process_sale(
-                customer_id=customer_id,
-                cashier=request.user,
-                items_data=items_data,
-                payments_data=payments_data,
-            )
-            cart.delete()
+        try:
+            with db_transaction.atomic():
+                txn = process_sale(
+                    customer_id=customer_id,
+                    cashier=request.user,
+                    items_data=items_data,
+                    payments_data=payments_data,
+                    idempotency_key=idempotency_key,
+                    request_hash=body_hash,
+                )
+                cart.delete()
+        except IntegrityError:
+            # Same race as `SalesTransactionViewSet.create`, and handled the same way:
+            # the atomic block above has rolled back (cart still held), so re-reading is
+            # legal and the answer is the already-recorded sale (200) or a 409.
+            if not idempotency_key:
+                raise
+            replayed = replayed_transaction(
+                cashier=request.user, idempotency_key=idempotency_key,
+                request_hash=body_hash)
+            if replayed is None:
+                raise
+            return _replayed_response(replayed)
         return Response(
             SalesTransactionSerializer(txn).data,
             status=status.HTTP_201_CREATED,

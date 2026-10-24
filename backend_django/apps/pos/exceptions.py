@@ -105,6 +105,41 @@ class CreditLimitExceeded(Exception):
             'in full.')
 
 
+class IdempotencyKeyReused(Exception):
+    """The same `Idempotency-Key` arrived with a DIFFERENT body (decision 09 item 2).
+
+    A replay is only safe when it is the SAME request: the client retried because it never
+    saw the answer. Reusing the key for a different cart is a client bug, and quietly
+    ringing the second cart under the first one's receipt would be worse than refusing -
+    the cashier would hand over goods the receipt does not describe.
+
+    HTTP 409, not 400: the request is well-formed and the server knows exactly what
+    conflicts with what. "Conflict" is precisely this case. Deliberately NOT a
+    `ValueError`, so no `except ValueError` call site can mistake it for a sale that was
+    merely written wrong.
+    """
+
+    code = 'IDEMPOTENCY_KEY_REUSED'
+
+    def __init__(self, idempotency_key=''):
+        self.idempotency_key = idempotency_key
+        super().__init__(
+            f'Idempotency-Key {idempotency_key!r} was already used for a different '
+            'request. Use a new key for a new sale.')
+
+
+class InvalidIdempotencyKey(ValueError):
+    """The `Idempotency-Key` header itself is unusable (decision 09 item 2).
+
+    Empty (every retry would then look like the same request) or longer than the 64-char
+    column it is stored in (a truncated key silently stops identifying the attempt).
+    A ValueError subclass for the same reason as `InvalidSale`: it is a wrongly built
+    request, and the client's answer is to generate a proper key and retry.
+    """
+
+    code = 'INVALID_IDEMPOTENCY_KEY'
+
+
 class NoOpenShift(Exception):
     """A sale was rung by a cashier who has no open shift (decision 06, ruling 2).
 
@@ -209,6 +244,24 @@ def handler(exc, context):
         return Response(
             {
                 'code': NoOpenShift.code,
+                'detail': str(exc),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if isinstance(exc, IdempotencyKeyReused):
+        # 409, and its own branch: a conflict is not a bad request. The client must not
+        # retry blindly here - it has to mint a NEW key for what is a different sale.
+        return Response(
+            {
+                'code': IdempotencyKeyReused.code,
+                'detail': str(exc),
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
+    if isinstance(exc, InvalidIdempotencyKey):
+        return Response(
+            {
+                'code': InvalidIdempotencyKey.code,
                 'detail': str(exc),
             },
             status=status.HTTP_400_BAD_REQUEST,

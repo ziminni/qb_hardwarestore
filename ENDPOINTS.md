@@ -20,6 +20,7 @@ This document maps every **frontend feature** (`flutter/lib/features/`) to the *
 | --- | --- |
 | Pagination | **Enabled** — DRF `PageNumberPagination` with `PAGE_SIZE = 50` (`config/settings.py`). Every list response is an envelope: `{ "count", "next", "previous", "results" }`. Read `results`, and page with `?page=N`. |
 | Error format | DRF default: `{"detail": "..."}` for auth/permission errors; `{"field": ["msg"]}` for validation errors. Frontend should read `detail` or the first field error. |
+| Idempotency | `POST /api/v1/transactions/` and `POST /api/v1/held-carts/{id}/complete/` accept an optional `Idempotency-Key` header (≤64 chars, unique per cashier). Same key + same body → **200** with the **original** transaction and no new writes; same key + different body → **409** `IDEMPOTENCY_KEY_REUSED`; empty or >64 chars → **400** `INVALID_IDEMPOTENCY_KEY`. Generate one key per checkout attempt and reuse it for every retry of that attempt — a new key rings a second sale. |
 | 401 handling | Frontend retries once via `POST /auth/refresh/`; if that fails → logout to `/login`. |
 | Null safety | Every account is created **with a role** (`group_name` required at registration), so `role` in user payloads is never `null`. |
 | IDs | Integer PKs. Always serialize `id` in responses. |
@@ -96,7 +97,7 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 | Method | Path | Purpose | Auth |
 | --- | --- | --- | --- |
 | GET/POST/PATCH/DELETE | `/api/v1/customers/` | Customer CRUD (walk-in, regular, contractor) | Authenticated |
-| POST | `/api/v1/transactions/` | **Checkout** — body: `{customer, source, items[], payments[]}`; runs `process_sale` (FIFO stock deduction, payment allocation, OR generation, collectibles posting if underpaid) | Authenticated |
+| POST | `/api/v1/transactions/` | **Checkout** — body: `{customer, source, items[], payments[]}`; runs `process_sale` (server-priced lines, FIFO stock deduction on base units, payment allocation, OR generation, collectibles posting if underpaid). Honours `Idempotency-Key` (see *Idempotency* above). Failures are **400** `{code, detail}`: `INVALID_SALE` (line/qty/payment shape), `INSUFFICIENT_STOCK`, `CREDIT_LIMIT_EXCEEDED` (+ `limit`/`outstanding`/`shortfall`), `WALK_IN_CANNOT_OWE`, `NO_OPEN_SHIFT`; **409** `IDEMPOTENCY_KEY_REUSED` | Authenticated |
 | GET | `/api/v1/transactions/` | Sales history (with items, payments, receipt) | Authenticated |
 | GET | `/api/v1/transactions/daily_report/` | Today's totals: `{date, count, total_sales}` | Authenticated |
 | GET | `/api/v1/payments/` | POS payments (read-only) | Authenticated |
@@ -105,7 +106,7 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 | POST | `/api/v1/held-carts/` | **Hold** — body: `{customer, notes, items[{variant_uom, qty, unit_price}]}`; parks the cart without touching stock | Authenticated |
 | GET | `/api/v1/held-carts/{id}/` | Retrieve a single held cart with items | Authenticated |
 | DELETE | `/api/v1/held-carts/{id}/` | **Void** a held cart — permanent delete, no stock change | Authenticated |
-| POST | `/api/v1/held-carts/{id}/complete/` | **Complete** — body: `{customer?, payments[]}`; feeds items into `process_sale` (requires open shift) then deletes the cart | Authenticated |
+| POST | `/api/v1/held-carts/{id}/complete/` | **Complete** — body: `{customer?, payments[]}`; feeds items into `process_sale` (requires open shift) then deletes the cart. Honours `Idempotency-Key` (see *Idempotency* above): a retry after the cart was deleted returns the original sale with **200**, not 404 | Authenticated |
 | POST | `/api/v1/shifts/open/` | **Open shift** — body: `{opening_float}`; one open shift per cashier enforced at DB level (400 `SHIFT_ALREADY_OPEN` if already open) | Authenticated |
 | POST | `/api/v1/shifts/{id}/close/` | **Close shift** — body: `{closing_count}`; sets status=CLOSED, returns Z-reading (transaction_count, gross_sales, cash_sales, card_sales, gcash_sales, expected_drawer, variance) | Authenticated |
 | GET | `/api/v1/shifts/current/` | Current cashier's open shift, or 404 `No open shift` | Authenticated |
