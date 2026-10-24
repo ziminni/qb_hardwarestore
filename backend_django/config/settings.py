@@ -43,6 +43,10 @@ INSTALLED_APPS = [
     # Third-party
     'rest_framework',
     'corsheaders',
+    # Refresh-token blacklist. Without this app the blacklist models do not exist,
+    # so `BLACKLIST_AFTER_ROTATION` below silently does nothing: a rotated refresh
+    # token stays valid forever and a logout cannot revoke anything.
+    'rest_framework_simplejwt.token_blacklist',
 
     # BuildPro Modules
     'apps.users',
@@ -183,6 +187,24 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
+
+# =============================================
+# Cache
+# Backs the failed-login lockout (apps/users/lockout.py). An explicit entry even
+# though LocMem is Django's default, because this cache is now load-bearing.
+#
+# LocMem is PER-PROCESS: with N workers, each worker keeps its own failure counter,
+# so the 5-attempt limit is effectively 5N and a restart clears it. Fine for dev;
+# production MUST point 'default' at a shared cache (Redis/Memcached) for the
+# lockout to hold across workers.
+# =============================================
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'buildpro-locmem',
+    },
 }
 
 

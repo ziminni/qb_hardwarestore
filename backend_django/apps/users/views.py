@@ -12,8 +12,11 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.settings import api_settings as jwt_settings
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from . import lockout
 from .models import AuditLog, User
 from .permissions import STAFF_ROLES, IsAdminRole
 from .serializers import (
@@ -21,12 +24,19 @@ from .serializers import (
     LoginSerializer,
     RegisterSerializer,
     UserSerializer,
+    find_user_by_identifier,
 )
 from .services import (
     audit_request,
     is_active_admin,
     other_active_admin_exists,
     update_last_login,
+)
+
+
+LOGIN_LOCKED_CODE = 'LOGIN_LOCKED'
+LOGIN_LOCKED_DETAIL = (
+    'Too many failed sign-in attempts. Try again in {minutes} minutes.'
 )
 
 
@@ -90,6 +100,14 @@ def me_view(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def logout_view(request):
+    """Sign out: revoke ``{refresh}`` when it is the caller's, then audit. Always 204.
+
+    Local sign-out must never fail: an unparseable, expired, already-blacklisted or
+    someone else's token is simply ignored, so the client can always clear its own
+    tokens. The audit row is written either way — the LOGOUT event is the fact that the
+    user asked to sign out, not that a particular token was revoked.
+    """
+    revoke_refresh_token(request, _refresh_value(request))
     audit_request(
         request,
         AuditLog.ActionType.LOGOUT,
@@ -98,16 +116,75 @@ def logout_view(request):
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+def _refresh_value(request):
+    data = request.data
+    return data.get('refresh') if hasattr(data, 'get') else None
+
+
+def revoke_refresh_token(request, value):
+    """Blacklist ``value`` if it parses and belongs to ``request.user``; else ignore.
+
+    The ownership check is the point: without it any authenticated session could
+    blacklist a refresh token it merely happened to see. A foreign token is not an
+    error (that would disclose whether the token is real), and neither is a garbage
+    body — both are silent no-ops.
+    """
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        token = RefreshToken(value)
+    except TokenError:
+        return False
+    if str(token.payload.get(jwt_settings.USER_ID_CLAIM)) != str(request.user.pk):
+        return False
+    try:
+        token.blacklist()
+    except TokenError:
+        return False
+    return True
+
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login_view(request):
-    """Login: validate credentials and return JWT pair."""
+    """Login: validate credentials and return JWT pair.
+
+    Order matters: the lockout is answered **before** the password is looked at. A
+    locked pair that still validated the password would tell an attacker which guesses
+    were right, which is the one thing a lockout exists to prevent. Every counted
+    failure writes a ``LOGIN_FAILED`` row (decision 07); the response body stays the
+    same for an unknown user and a wrong password, and an inactive account's refusal
+    counts as a failure too, so a lockout cannot be dodged by pointing at a disabled
+    account.
+    """
+    identifier = _login_identifier(request)
+    key = lockout.attempt_key(identifier, request.META.get('REMOTE_ADDR'))
+
+    if lockout.is_locked(key):
+        retry_after = lockout.retry_after_seconds(key)
+        return Response(
+            {
+                'code': LOGIN_LOCKED_CODE,
+                'detail': LOGIN_LOCKED_DETAIL.format(
+                    minutes=max(1, -(-retry_after // 60))),
+                'retry_after': retry_after,
+            },
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
     serializer = LoginSerializer(
         data=request.data,
         context={'request': request},
     )
-    serializer.is_valid(raise_exception=True)
+    if not serializer.is_valid():
+        lockout.record_failure(key)
+        record_login_failure(request, identifier)
+        # Same body a plain raise_exception=True produced: this endpoint's refusals are
+        # not allowed to grow distinguishing detail just because it is now counted.
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
     user = serializer.validated_data['user']
+    lockout.reset(key)
 
     update_last_login(user)
     # `user=user`: this endpoint is AllowAny, so `request.user` is still anonymous.
@@ -124,6 +201,35 @@ def login_view(request):
         'refresh': str(refresh),
         'user': UserSerializer(user).data,
     })
+
+
+def _login_identifier(request):
+    """The name the caller tried to sign in as (``identifier``, else ``username``)."""
+    data = request.data
+    if not hasattr(data, 'get'):
+        return ''
+    return (data.get('identifier') or data.get('username') or '').strip()
+
+
+def record_login_failure(request, identifier):
+    """One ``LOGIN_FAILED`` row for one refused attempt.
+
+    The actor is the matched account when the identifier names one, so an admin can read
+    "who was attacked" from the row's FK. When it names nobody, the attempted name goes
+    into ``username_snapshot`` — the reason that column exists.
+
+    The description carries the attempted identifier (truncated to the column width) and
+    never the password, and the row's IP comes from ``REMOTE_ADDR`` via ``audit_request``.
+    """
+    user = find_user_by_identifier(identifier)
+    attempted = (identifier or '(blank)')[:150]
+    audit_request(
+        request,
+        AuditLog.ActionType.LOGIN_FAILED,
+        f'Failed sign-in attempt for {attempted}.',
+        user=user,
+        username=None if user is not None else attempted,
+    )
 
 
 # ---------------------------------------------------------------------------

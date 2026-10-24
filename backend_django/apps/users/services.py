@@ -32,7 +32,7 @@ def log_audit(*, user, action_type, description, ip_address=None, username=None)
     )
 
 
-def audit_request(request, action_type, description, user=None):
+def audit_request(request, action_type, description, user=None, username=None):
     """``log_audit`` from a request: actor and IP plumbing in one place.
 
     The actor is ``request.user`` unless ``user`` is passed explicitly. The one caller
@@ -40,6 +40,11 @@ def audit_request(request, action_type, description, user=None):
     user is still anonymous at the moment the row is written, while the account that
     logged in is known from the validated credentials. Getting this wrong silently wrote
     LOGIN rows with a blank actor — the trail's most-read event.
+
+    ``username`` overrides the snapshot for the other half of that case: a failed login
+    whose identifier names no account has no actor at all, and the attempted name is the
+    only thing that can identify the row. Passed through rather than re-derived here so
+    the snapshot rule keeps living in ``log_audit``.
 
     The IP is ``REMOTE_ADDR`` only. ``X-Forwarded-For`` is client-controlled, and an
     audit trail that records what the caller claims about itself is not evidence.
@@ -58,6 +63,7 @@ def audit_request(request, action_type, description, user=None):
         action_type=action_type,
         description=description,
         ip_address=ip_address,
+        username=username,
     )
 
 

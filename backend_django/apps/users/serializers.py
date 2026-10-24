@@ -81,6 +81,21 @@ class RegisterSerializer(serializers.ModelSerializer):
         return user
 
 
+def find_user_by_identifier(identifier):
+    """The account a login body names — username or email, case-insensitive.
+
+    Shared by the serializer and the login view on purpose: the view needs the same
+    answer to decide who a ``LOGIN_FAILED`` audit row belongs to, and two lookups that
+    can drift apart would let the audit trail name a different account than the one
+    whose password was refused.
+    """
+    if not identifier:
+        return None
+    return User.objects.filter(
+        Q(username__iexact=identifier) | Q(email__iexact=identifier),
+    ).first()
+
+
 class LoginSerializer(serializers.Serializer):
     """Accepts username or email plus password."""
 
@@ -93,9 +108,7 @@ class LoginSerializer(serializers.Serializer):
         password = attrs.get('password')
         if not identifier:
             raise serializers.ValidationError('Username or email is required.')
-        user = User.objects.filter(
-            Q(username__iexact=identifier) | Q(email__iexact=identifier),
-        ).first()
+        user = find_user_by_identifier(identifier)
         if user is None or not user.check_password(password):
             raise serializers.ValidationError('Invalid username or password.')
         if not user.is_active:
