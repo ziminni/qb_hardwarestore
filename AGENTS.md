@@ -28,7 +28,7 @@ the same commit that breaks it.
 - **Active branch:** `feature/backend-integration` — **pushed, in sync with `origin/`.** For how far ahead
   of `origin/master` it is run `git rev-list --count origin/master..HEAD`; a count written here stales on
   the next commit.
-- **Active Wayfinder map: `planning/audit-remediation/MAP.md`** — audit gap remediation, 9 decisions locked, **Phase 1 BUILT 2026-10-24**, Phases 2–5 READY TO BUILD, Phase 6 Barcode/QR in Fog. Prior maps (cashier, stocker, sales-manager, admin) complete.
+- **Active Wayfinder map: `planning/audit-remediation/MAP.md`** — audit gap remediation, 9 decisions locked, **Phases 1–2 BUILT 2026-10-24**, Phases 3–5 READY TO BUILD, Phase 6 Barcode/QR in Fog. Prior maps (cashier, stocker, sales-manager, admin) complete.
 - **Phase state is NOT stated here** — it is owned by the phase table in the active map, per-row and with
   evidence. Read that table; a copy here would be a second home, and this file's own rule forbids one.
 - **Phase 6 is built and pushed.** 6A.1–6A.4, 6B (reports + receiving), 6C (live sales screens + review
@@ -47,8 +47,8 @@ the same commit that breaks it.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.
-- **Last session:** `docs/sessions/2026-10-24-post-phase1-verification.md` — pi-lens blockers cleared on goods-receipt API tests, formatter-touched Flutter files verified. **Gate:** backend file 23/23 + LSP clean, flutter **552/552**, analyze clean. 10 files modified, uncommitted.
-  **Next:** commit the 10 files + `git push` (user — no SSH key in this shell); then write `planning/audit-remediation/phase-2-plan.md` and BUILD Phase 2 (access control & audit).
+- **Last session:** `docs/sessions/2026-10-24-audit-remediation-phase-2.md` — Phase 2 access control & audit built. **Gate:** backend **333/333** (`manage.py test --noinput`), flutter **565/565**, analyze clean.
+  **Next:** `git push` (user — no SSH key in this shell); then write `planning/audit-remediation/phase-3-plan.md` and BUILD Phase 3 (Cashier).
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message

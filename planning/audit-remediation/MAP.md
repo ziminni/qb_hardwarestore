@@ -5,7 +5,7 @@
 | Phase | Scope | Blocking Decisions | Status |
 |---|---|---|---|
 | 1 | Money & stock integrity (backend) — server UOM conversion, server price, sale validation, idempotency, safe numbering, split-receipt delta, zero-stock adjustment, release factor-1 UOM, credit-limit block | ✅ [UOM and price authority](./decisions/01-uom-and-price-authority.md), [Credit limit](./decisions/08-credit-limit.md), [Integrity mechanics](./decisions/09-integrity-mechanics.md) | ✅ Done 2026-10-24 — `3c2349e`..`ae514ee`, backend 176/176, flutter 552/552, hygiene fix-pass + QA live A–I PASS ([plan](./phase-1-plan.md)) |
-| 2 | Access control & audit — held-cart/transaction scoping, Admin group authority, self-approval guard, alert resolve role, append-only business audit | ✅ [Data scoping](./decisions/02-data-scoping.md), [Admin authority](./decisions/04-admin-authority.md), [Alert resolve](./decisions/06-alert-resolve.md), [Audit depth](./decisions/07-audit-depth.md) | [ ] Pending |
+| 2 | Access control & audit — held-cart/transaction scoping, Admin group authority, self-approval guard, alert resolve role, append-only business audit | ✅ [Data scoping](./decisions/02-data-scoping.md), [Admin authority](./decisions/04-admin-authority.md), [Alert resolve](./decisions/06-alert-resolve.md), [Audit depth](./decisions/07-audit-depth.md) | ✅ Done 2026-10-24 — `cc5b702`..`5c0423d`, backend 333/333, flutter 565/565, hygiene fix-pass (1 Critical + 4 Important) + QA live A–J PASS ([plan](./phase-2-plan.md)) |
 | 3 | Cashier — release attaches shift, held-cart close advisory, till Returns tab + debt-first return accounting | ✅ [Release shift](./decisions/03-release-shift.md), [Returns policy](./decisions/05-returns-policy.md) | [ ] Pending |
 | 4 | Stock Manager — live product CRUD, low-stock on sale/release + dedup, goods-receipt history, persisted supplier toggle | ✅ (no new decision; follows audit findings) | [ ] Pending |
 | 5 | Store Manager / Admin — user edit/deactivate UI, overdue filter contract, unlinked-return manager screen, dashboard aggregation limits | ✅ [Returns policy](./decisions/05-returns-policy.md) | [ ] Pending |
@@ -21,7 +21,7 @@ Every P0/P1 finding in the 2026-10-23 audit (`temp/audit/pos_inventory_system/ve
 - **Server is the trust boundary.** Flutter checks are UX only; never rely on them for integrity.
 - **Proof rule (AGENTS.md):** a test counts only after it fails without the fix; claims need command output.
 - **Backend test harness:** `POSTestBase` extends Django `TestCase` → use `content_type='application/json'` for nested writes.
-- **Key files:** `apps/pos/services.py` (`process_sale`, `generate_transaction_no` :24, `generate_or_number` :33, `process_return` :334), `apps/requisitions/services.py` (`approve_requisition` :39, `release_materials` :88), `apps/inventory/services.py` (`process_goods_receipt` :20, `apply_stock_adjustment` :110, `_check_low_stock` :146), `apps/users/views.py` (`IsAdminUser` :26 :88 :167), `apps/inventory/views.py` (`SystemAlertViewSet` :251).
+- **Key files:** `apps/pos/services.py` (`process_sale`, `generate_transaction_no` :24, `generate_or_number` :33, `process_return` :334), `apps/requisitions/services.py` (`approve_requisition` :39, `release_materials` :88), `apps/inventory/services.py` (`process_goods_receipt` :20, `apply_stock_adjustment` :110, `_check_low_stock` :146), `apps/users/views.py` (`IsAdminRole` on register/users/audit since Phase 2), `apps/inventory/views.py` (`SystemAlertViewSet` :251).
 - **Barcode field already exists:** `VariantUOM.barcode_qr` (`apps/inventory/models.py:128`), indexed, NOT unique, mostly blank. Till already has keyboard-wedge scan → client `findByBarcode`.
 - **CPMS untouched.** POS-local requisition/token models only.
 - **Agents:** expressive-dev (`deepseek-v4.1-flash`) codes; hygiene-reviewer (`glm-5.3-flash`) reviews every diff; qa-tester (`gpt-6-luna`) live-probes each phase. Use bare model IDs (opencode-go default provider).
@@ -40,7 +40,7 @@ Every P0/P1 finding in the 2026-10-23 audit (`temp/audit/pos_inventory_system/ve
 
 ## Active Frontier
 
-_(empty — Phase 1 built; Phases 2–5 ready to build)_
+_(empty — Phases 1–2 built; Phases 3–5 ready to build)_
 
 ## Blocked
 
