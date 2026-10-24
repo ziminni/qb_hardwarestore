@@ -153,7 +153,8 @@ class RequisitionService {
   }
 
   String _messageFor(DioException error) {
-    if (_serverCode(error) == 'NO_BASE_UOM') {
+    final code = _serverCode(error);
+    if (code == 'NO_BASE_UOM') {
       // Phase 1 Task 5: `release_materials` refuses a variant with no
       // conversion-factor-1 selling unit BEFORE any write, because the old fallback
       // priced it at zero and killed the sale halfway through. A clerk needs the
@@ -162,6 +163,14 @@ class RequisitionService {
       const intro =
           'The release was refused: this material has no base unit in the '
           'catalogue.';
+      final detail = _serverDetail(error);
+      return detail == null ? intro : '$intro $detail';
+    }
+    if (_ruleIntros[code] case final intro?) {
+      // Phase 2 Tasks 3/7: these two refusals are RULES, not failures, and they are the whole
+      // reason a manager's Approve button does nothing. The server's detail already explains it,
+      // so it is kept — but the code names the rule even when the body lost its detail, which
+      // is what stops a refusal degrading to 'The requisitions could not be loaded.'
       final detail = _serverDetail(error);
       return detail == null ? intro : '$intro $detail';
     }
@@ -176,6 +185,21 @@ class RequisitionService {
     if (status == 403) return 'You do not have access to requisitions.';
     return 'The requisitions could not be loaded.';
   }
+
+  /// What each business-rule `code` means, in words a manager can act on.
+  ///
+  /// Keyed by the stable codes from ENDPOINTS.md §3.6, so a new rule is one line here instead of
+  /// another branch inside [_messageFor].
+  static const Map<String, String> _ruleIntros = {
+    // Separation of duties (decision 04): approving is the second signature.
+    'SELF_APPROVAL':
+        'You cannot approve a requisition you requested — approval needs a '
+        'second person.',
+    // Immutable after submit (P2 ruling R): the lines may no longer change.
+    'REQUISITION_LOCKED':
+        'This requisition can no longer be changed: only a DRAFT requisition '
+        'can be edited. Create a new requisition instead.',
+  };
 
   /// The stable machine-readable `code` a business-rule refusal carries, if any.
   String? _serverCode(DioException error) {

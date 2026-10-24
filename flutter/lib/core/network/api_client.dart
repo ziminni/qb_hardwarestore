@@ -75,6 +75,15 @@ class ApiClient {
 
   bool get hasTokens => _accessToken != null && _refreshToken != null;
 
+  /// The refresh token held RIGHT NOW, or null when signed out.
+  ///
+  /// Exposed because the token rotates: after every refresh the live credential
+  /// is a different string from the one login returned, and only this client
+  /// knows which of the chain is current. `AuthService.logout` hands this one to
+  /// the server so it can be blacklisted (ENDPOINTS.md §auth — a garbage or
+  /// already-rotated token is ignored; the current one is revoked).
+  String? get refreshToken => _refreshToken;
+
   Future<void> restoreTokens() async {
     try {
       _accessToken = await _store.read(_accessTokenKey);
@@ -91,6 +100,18 @@ class ApiClient {
   }) async {
     _accessToken = accessToken;
     _refreshToken = refreshToken;
+    await _persistTokens();
+  }
+
+  /// Writes both held tokens to the store, never throwing.
+  ///
+  /// One writer for every path that changes the pair (login, refresh) so a
+  /// rotated token cannot be kept in memory only and lost on the next launch.
+  /// A store failure keeps the tokens in memory rather than failing the request.
+  Future<void> _persistTokens() async {
+    final accessToken = _accessToken;
+    final refreshToken = _refreshToken;
+    if (accessToken == null || refreshToken == null) return;
     try {
       await Future.wait([
         _store.write(_accessTokenKey, accessToken),
@@ -125,15 +146,25 @@ class ApiClient {
     if (refreshToken == null) return false;
 
     try {
-      final refreshClient = Dio(BaseOptions(baseUrl: ApiConfig.baseUrl));
-      final response = await refreshClient.post<Map<String, dynamic>>(
+      // Same `dio` as every other call: the interceptor skips the refresh path
+      // above, so there is no loop, and one client means one place to inspect
+      // the traffic. (A second Dio here also hid the refresh from every test.)
+      final response = await dio.post<Map<String, dynamic>>(
         '/api/v1/auth/refresh/',
         data: {'refresh': refreshToken},
       );
       final accessToken = response.data?['access'] as String?;
       if (accessToken == null) return false;
+
+      // Rotation is ON server-side (`ROTATE_REFRESH_TOKENS` +
+      // `BLACKLIST_AFTER_ROTATION`, Phase 2 Task 6): the token just spent is
+      // blacklisted, so this NEW refresh is the only one that still works.
+      // Dropping it 401s the NEXT refresh and signs the user out mid-shift.
+      // Absent key = rotation off, so the current token stays valid.
+      final rotated = response.data?['refresh'] as String?;
       _accessToken = accessToken;
-      await _store.write(_accessTokenKey, accessToken);
+      if (rotated != null && rotated.isNotEmpty) _refreshToken = rotated;
+      await _persistTokens();
       return true;
     } on DioException {
       await clearTokens();

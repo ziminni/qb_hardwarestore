@@ -357,6 +357,82 @@ void main() {
     },
   );
 
+  // Phase 2 Task 7 (audit remediation): the backend now refuses a self-approval and a
+  // post-DRAFT edit with a stable `code`. The server's `detail` is already readable, but the code
+  // is the only thing left when a `detail` is missing (stripped body, proxy error page), and
+  // "The requisitions could not be loaded." on an approve button is a dead end. The mapped
+  // message must name the rule that refused.
+  test(
+    'SELF_APPROVAL says a second person must approve, with the server reason',
+    () async {
+      serve(
+        (_) => _json({
+          'code': 'SELF_APPROVAL',
+          'detail':
+              'You cannot approve a requisition you requested: approval needs '
+              'a second person.',
+        }, status: 400),
+      );
+
+      await expectLater(
+        service().approve(2),
+        throwsA(
+          isA<RequisitionServiceException>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('cannot approve'), contains('second person')),
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
+    'SELF_APPROVAL is still explained when the body carries no detail',
+    () async {
+      serve((_) => _json({'code': 'SELF_APPROVAL'}, status: 400));
+
+      await expectLater(
+        service().approve(2),
+        throwsA(
+          isA<RequisitionServiceException>().having(
+            (e) => e.message,
+            'message',
+            contains('second person'),
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
+    'REQUISITION_LOCKED says the requisition can no longer be changed',
+    () async {
+      serve(
+        (_) => _json({
+          'code': 'REQUISITION_LOCKED',
+          'detail':
+              'This requisition is APPROVED: only a DRAFT requisition can be '
+              'changed. Create a new requisition instead.',
+        }, status: 400),
+      );
+
+      await expectLater(
+        service().reject(2),
+        throwsA(
+          isA<RequisitionServiceException>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('no longer'),
+              contains('only a DRAFT requisition can be changed'),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+
   test('an unreachable server says so in words a cashier can act on', () async {
     serve(
       (options) => throw DioException(
