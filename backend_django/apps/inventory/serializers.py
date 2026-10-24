@@ -176,7 +176,29 @@ class StockAdjustmentSerializer(serializers.ModelSerializer):
 
 
 class SystemAlertSerializer(serializers.ModelSerializer):
+    """An alert raised by the system, plus who cleared it and when.
+
+    `resolved_by_name` is derived rather than stored (expressive-dev rule: one home per
+    fact) and prefers the human `full_name`, falling back to the username because a
+    seeded account may have a blank full name.
+    """
+
+    resolved_by_name = serializers.SerializerMethodField()
+
     class Meta:
         model = SystemAlert
-        fields = ['id','alert_type','variant','message','is_resolved','created_at']
-        read_only_fields = ['id','created_at']
+        # Every field is read-only: alerts are system-generated and the only write the
+        # API accepts is POST /alerts/{id}/resolve/ (decision 06), which sets the trail
+        # from `request.user` and the server clock - never from the payload.
+        fields = [
+            'id', 'alert_type', 'variant', 'message', 'is_resolved',
+            'resolved_by', 'resolved_by_name', 'resolved_at', 'created_at',
+        ]
+        read_only_fields = fields
+
+    def get_resolved_by_name(self, alert):
+        resolver = alert.resolved_by
+        if resolver is None:
+            return None
+        return resolver.full_name or resolver.username
+

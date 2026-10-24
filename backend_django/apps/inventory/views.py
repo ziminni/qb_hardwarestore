@@ -11,13 +11,14 @@
 """Inventory app — ViewSets for catalog, purchasing & stock."""
 
 from django.db import transaction
-from rest_framework import viewsets
+from django.http import Http404
+from django.utils import timezone
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.users.permissions import (
-    IsAdminRole,
     IsInventoryRole,
 )
 from .models import (
@@ -291,19 +292,73 @@ class StockAdjustmentViewSet(_CatalogBaseViewSet):
             apply_stock_adjustment(adjustment=adj)
 
 
-class SystemAlertViewSet(viewsets.ModelViewSet):
-    queryset = SystemAlert.objects.select_related('variant').all()
+class SystemAlertViewSet(viewsets.ReadOnlyModelViewSet):
+    """The system alert feed: read it, and `resolve` an alert. Nothing else.
+
+    **Why read-only (decision 06).** Alerts are raised by the system — `_check_low_stock`
+    on a sale, the expiring-batch scan — so a hand-written row is a claim the dashboard
+    would believe and nobody derived from stock. Leaving `ModelViewSet` in place also
+    meant `POST /alerts/` was reachable; making the viewset read-only removes the route
+    itself, so POST/PUT/PATCH/DELETE answer **405 for every role**, Admin included,
+    rather than 403 for some and 201 for others.
+
+    **Why `resolve` allows the Stock Manager (P2 Ruling).** Decision 06 named Admin only,
+    but the stocker is the person who restocks and therefore the person who clears the
+    alert; the ruling reuses the existing `IsInventoryRole` class (Stock Manager + Store
+    Manager + Admin) instead of inventing a new one.
+
+    Reads stay `IsAuthenticated` on purpose: the low-stock page and the admin overview
+    both read this feed, and third-role accounts on those screens have no other source.
+    """
+
+    queryset = SystemAlert.objects.select_related('variant', 'resolved_by').all()
     serializer_class = SystemAlertSerializer
 
     def get_permissions(self):
-        if self.action in ('list', 'retrieve'):
-            return [IsAuthenticated()]
-        return [IsAdminRole()]
+        # `resolve` is the only write on this viewset; everything else it can reach is a
+        # read (the viewset itself no longer registers create/update/destroy).
+        if self.action == 'resolve':
+            return [IsInventoryRole()]
+        return [IsAuthenticated()]
 
     @action(detail=True, methods=['post'])
     def resolve(self, request, pk=None):
-        """Resolve an alert (Admin only — enforced via get_permissions)."""
-        alert = self.get_object()
-        alert.is_resolved = True
-        alert.save(update_fields=['is_resolved'])
-        return Response({'detail': 'Alert resolved.'})
+        """Mark one alert resolved, recording WHO and WHEN.
+
+        The row is re-read under `select_for_update` inside an atomic block because the
+        guard and the write must be one step: an unlocked `get_object()` would let two
+        concurrent resolves both see `is_resolved=False`, and the second one would stamp
+        its own name over the first resolver's - losing the audit trail this task exists
+        to create.
+
+        The response is the serialized alert (so a client can refresh the row in place)
+        plus the legacy `detail` sentence the old Admin-only endpoint returned, which
+        keeps any existing caller working.
+        """
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            alert = (
+                SystemAlert.objects.select_for_update()
+                .filter(pk=pk).first()
+            )
+            if alert is None:
+                raise Http404
+            if alert.is_resolved:
+                return Response(
+                    {
+                        'code': 'ALERT_ALREADY_RESOLVED',
+                        'detail': f'Alert {alert.pk} was already resolved.',
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            alert.is_resolved = True
+            alert.resolved_by = request.user
+            alert.resolved_at = timezone.now()
+            alert.save(
+                update_fields=['is_resolved', 'resolved_by', 'resolved_at'])
+
+        # `dict(...)` copy, not the ReturnDict itself: the serializer's `.data` is typed
+        # as index-only by pyright without django-stubs, but a plain dict accepts the
+        # legacy `detail` key below.
+        data = dict(SystemAlertSerializer(alert).data)
+        data['detail'] = 'Alert resolved.'
+        return Response(data)

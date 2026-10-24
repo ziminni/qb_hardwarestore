@@ -356,6 +356,13 @@ class SystemAlert(models.Model):
         ProductVariant, on_delete=models.CASCADE, related_name='alerts')
     message = models.TextField()
     is_resolved = models.BooleanField(default=False, db_index=True)
+    # Decision 06 (Phase 2): resolving an alert is a named act. Without these two columns
+    # the API could say "resolved" but not "by whom, when", and a second resolve would
+    # have silently overwritten the first resolver.
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='+')
+    resolved_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
