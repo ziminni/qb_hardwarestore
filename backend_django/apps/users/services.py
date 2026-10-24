@@ -98,3 +98,34 @@ def update_last_login(user):
     """Update last_login without triggering a full save() chain."""
     User = type(user)
     User.objects.filter(pk=user.pk).update(last_login=timezone.now())
+
+
+def lock_admin_rows(target):
+    """Row-lock the target and every active admin, then return the target re-read.
+
+    MUST be called inside ``transaction.atomic()``. This is what turns the last-admin
+    guard from check-then-act into decide-under-lock (review F3): the guard's "is
+    another active admin alive?" then reads state that no concurrent
+    deactivate/demote can change until this transaction commits.
+
+    Every candidate row is locked in **pk order** in ONE statement, so two concurrent
+    admin changes cannot deadlock by grabbing the same two rows in opposite order.
+
+    The candidates are filtered to ``is_active=True`` because that is exactly the set
+    the guard counts; the target is always included, even when it is already inactive
+    (the change may still be about its role). The return value is re-read from the
+    database, not the caller's in-memory instance, so the decision cannot be made on a
+    stale copy that a committed transaction has already overtaken.
+    """
+    active_admin_ids = (
+        User.objects.filter(is_active=True)
+        .filter(Q(is_superuser=True) | Q(groups__name__in=STAFF_ROLES))
+        .values('pk')
+    )
+    list(
+        User.objects.select_for_update()
+        .filter(Q(pk=target.pk) | Q(pk__in=active_admin_ids))
+        .order_by('pk')
+        .values_list('pk', flat=True)
+    )
+    return User.objects.get(pk=target.pk)

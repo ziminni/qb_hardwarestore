@@ -11,6 +11,7 @@
 from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 
 from apps.users.models import AuditLog
@@ -74,10 +75,15 @@ def _requisition_locked_response(requisition):
     return _refusal(RequisitionLocked(requisition.status))
 
 
-def _requisition_from_payload(value):
-    """The requisition a payload points at, or None when it is absent/garbage."""
+def _requisition_from_payload(value, queryset=None):
+    """The requisition a payload points at, or None when it is absent/garbage.
+
+    ``queryset`` is the caller's SCOPE (``_visible_requisitions``): passing it is how an
+    id outside the caller's world resolves to None (→ 404) instead of leaking the row.
+    """
+    source = Requisition.objects.all() if queryset is None else queryset
     try:
-        return Requisition.objects.filter(pk=value).first()
+        return source.filter(pk=value).first()
     except (TypeError, ValueError):
         return None
 
@@ -85,6 +91,20 @@ def _requisition_from_payload(value):
 def _is_manager(user):
     """Managers and admins see every requisition; a foreman only their own."""
     return has_role(user, IsManagerRole.required_roles)
+
+
+def _visible_requisitions(user):
+    """The requisitions ``user`` may see AND write into — one home for that rule.
+
+    A manager/admin sees every row; a Site Foreman sees only ``requested_by=self``;
+    anything else sees nothing. `RequisitionViewSet.get_queryset` and the requisition
+    LINE writes both resolve the parent through this, so a line cannot be filed onto —
+    or moved into — a requisition its author cannot read (review F5).
+    """
+    qs = Requisition.objects.all()
+    if user is None or _is_manager(user):
+        return qs
+    return qs.filter(requested_by=user)
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +149,8 @@ class RequisitionViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         # Decision 02 "hidden ≠ forbidden": a foreman asking for another foreman's
         # requisition gets 404, not 403, because the row is not theirs to know about.
+        # The scope itself lives in `_visible_requisitions` so the line endpoints below
+        # cannot drift from it.
         user = getattr(getattr(self, 'request', None), 'user', None)
         if user is None or _is_manager(user):
             return qs
@@ -313,9 +335,26 @@ class RequisitionItemViewSet(viewsets.ModelViewSet):
             return qs
         return qs.filter(requisition__requested_by=user)
 
+    def _visible_parent(self, payload_value):
+        """The requisition this payload targets, if the caller may write into it.
+
+        Resolved through `_visible_requisitions`, the same scope the requisition list
+        uses. An id the caller cannot see is **404** ("hidden ≠ forbidden") and nothing
+        is written, instead of the unscoped lookup that let foreman B file a line onto
+        foreman A's requisition (review F5). Absent key → None, which the serializer
+        reports as its own 400.
+        """
+        if payload_value is None:
+            return None
+        parent = _requisition_from_payload(
+            payload_value, _visible_requisitions(self.request.user))
+        if parent is None:
+            raise NotFound('Requisition not found.')
+        return parent
+
     def create(self, request, *args, **kwargs):
-        locked = _requisition_locked_response(
-            _requisition_from_payload(request.data.get('requisition')))
+        parent = self._visible_parent(request.data.get('requisition'))
+        locked = _requisition_locked_response(parent)
         if locked:
             return locked
         return super().create(request, *args, **kwargs)
@@ -327,8 +366,9 @@ class RequisitionItemViewSet(viewsets.ModelViewSet):
         if locked:
             return locked
         # Moving a line to another requisition is a write to BOTH parents: the new one has
-        # to be a draft as well, or an approved line could be smuggled into one.
-        target = _requisition_from_payload(request.data.get('requisition'))
+        # to be visible to this caller AND a draft, or an approved line could be smuggled
+        # into someone else's requisition.
+        target = self._visible_parent(request.data.get('requisition'))
         if target is not None and target.pk != item.requisition_id:
             locked = _requisition_locked_response(target)
             if locked:

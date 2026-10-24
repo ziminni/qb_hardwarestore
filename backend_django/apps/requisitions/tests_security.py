@@ -17,6 +17,8 @@ from django.contrib.auth.models import Group
 from django.utils.crypto import get_random_string
 from rest_framework.test import APIClient
 
+from apps.users.models import AuditLog
+
 from .models import MaterialToken, Requisition, RequisitionItem
 from .serializers import RequisitionSerializer
 from .services import approve_requisition, submit_requisition
@@ -377,3 +379,106 @@ class RequisitionLockAfterSubmitTests(_SecurityBase):
         created = Requisition.objects.get(pk=response.data['id'])
         self.assertEqual(created.status, Requisition.Status.DRAFT)
         self.assertEqual(created.requested_by, self.foreman)
+
+
+class RequisitionStatusIsActionOnlyTests(_SecurityBase):
+    """`status` moves only through submit/approve/reject (review F2).
+
+    `RequisitionSerializer.read_only_fields` listed `approved_by` but not `status`, so a
+    plain `PATCH /requisitions/{id}/ {"status": "APPROVED"}` walked a DRAFT straight to
+    APPROVED/RELEASED around the approval action: no separation-of-duties check, no
+    `MaterialToken` minted, no `REQ_APPROVE` audit row, and an approval that can never
+    happen afterwards (there is nothing left in SUBMITTED to approve). The field is now
+    read-only, so the value in the payload is ignored rather than trusted: the response
+    and the database both still say DRAFT.
+    """
+
+    def _assert_untouched_draft(self, requisition, response):
+        self.assertEqual(response.data['status'], Requisition.Status.DRAFT, response.data)
+        requisition.refresh_from_db()
+        self.assertEqual(requisition.status, Requisition.Status.DRAFT)
+        self.assertFalse(
+            MaterialToken.objects.filter(requisition=requisition).exists(),
+            'a PATCH must not mint the material token an approval would mint')
+        self.assertFalse(
+            AuditLog.objects.filter(
+                action_type=AuditLog.ActionType.REQ_APPROVE).exists(),
+            'a PATCH must not write the approval audit row')
+
+    def test_a_foreman_cannot_walk_their_own_draft_to_approved(self):
+        self._login('foreman1')
+
+        response = self.client.patch(
+            f'{LIST_URL}{self.requisition.pk}/', {'status': 'APPROVED'},
+            format='json')
+
+        self.assertIn(response.status_code, (200, 400), response.data)
+        self._assert_untouched_draft(self.requisition, response)
+
+    def test_a_manager_cannot_walk_a_draft_to_released_by_patching_status(self):
+        self._login('manager1')
+
+        response = self.client.patch(
+            f'{LIST_URL}{self.requisition.pk}/', {'status': 'RELEASED'},
+            format='json')
+
+        self.assertIn(response.status_code, (200, 400), response.data)
+        self._assert_untouched_draft(self.requisition, response)
+
+
+class RequisitionItemParentOwnershipTests(_SecurityBase):
+    """`/req-items/` writes resolve the TARGET parent through the read scope (F5).
+
+    `RequisitionItemViewSet.create` resolved the parent with an unscoped
+    `Requisition.objects.filter(pk=...)`, so a Site Foreman could file a line onto
+    another foreman's requisition — a write into a row they cannot even read (the read
+    side answers 404). The move branch of `update` had the same hole. The parent is now
+    looked up through the same scope `RequisitionViewSet.get_queryset` uses, so the
+    answer is 404 and nothing is written.
+    """
+
+    def _own_requisition_with_item(self, requester):
+        requisition = Requisition.objects.create(
+            project=self.project, requested_by=requester,
+            req_number=f'REQ-OWN-{requester.pk}')
+        item = RequisitionItem.objects.create(
+            requisition=requisition, variant=self.variant, quantity=2)
+        return requisition, item
+
+    def test_a_foreman_cannot_add_a_line_to_another_foremans_draft(self):
+        lines = self.requisition.items.count()
+        self._login('foreman2')
+
+        response = self.client.post(ITEMS_URL, {
+            'requisition': self.requisition.pk,
+            'variant': self.variant.pk,
+            'quantity': '5.00',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 404, response.data)
+        self.assertEqual(self.requisition.items.count(), lines)
+
+    def test_a_foreman_cannot_move_own_line_into_another_foremans_draft(self):
+        own_requisition, own_item = self._own_requisition_with_item(self.other_foreman)
+        self._login('foreman2')
+
+        response = self.client.patch(
+            f'{ITEMS_URL}{own_item.pk}/', {'requisition': self.requisition.pk},
+            format='json')
+
+        self.assertEqual(response.status_code, 404, response.data)
+        own_item.refresh_from_db()
+        self.assertEqual(own_item.requisition_id, own_requisition.pk)
+        self.assertEqual(self.requisition.items.count(), 1)
+
+    def test_a_foreman_can_still_add_a_line_to_their_own_draft(self):
+        self._login('foreman1')
+
+        response = self.client.post(ITEMS_URL, {
+            'requisition': self.requisition.pk,
+            'variant': self.variant.pk,
+            'quantity': '5.00',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(self.requisition.items.count(), 2)

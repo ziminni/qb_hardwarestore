@@ -29,6 +29,7 @@ from .serializers import (
 from .services import (
     audit_request,
     is_active_admin,
+    lock_admin_rows,
     other_active_admin_exists,
     update_last_login,
 )
@@ -267,15 +268,18 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         is_active_after = serializer.validated_data.get(
             'is_active', instance.is_active)
-        refusal = last_admin_refusal(
-            instance,
-            keeps_admin_authority=is_active_after and is_active_admin(instance),
-        )
-        if refusal is not None:
-            return refusal
-        # The write and its audit row are one transaction (decision 07): a refused or
-        # rolled-back update leaves no row claiming the change happened.
+        # The guard DECIDES UNDER THE LOCK (review F3): the target and every other
+        # active admin are row-locked first, and the decision is made on the re-read
+        # row, so "another admin is alive" cannot go stale before this write commits.
+        # The write and its audit row stay in the same block (decision 07).
         with transaction.atomic():
+            locked = lock_admin_rows(instance)
+            refusal = last_admin_refusal(
+                locked,
+                keeps_admin_authority=is_active_after and is_active_admin(locked),
+            )
+            if refusal is not None:
+                return refusal
             response = super().update(request, *args, **kwargs)
             instance.refresh_from_db()
             if was_active and not instance.is_active:
@@ -331,14 +335,18 @@ class UserViewSet(viewsets.ModelViewSet):
                 {'detail': f'Group "{group_name}" does not exist.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        refusal = last_admin_refusal(
-            user,
-            keeps_admin_authority=user.is_active and (
-                user.is_superuser or group.name in STAFF_ROLES),
-        )
-        if refusal is not None:
-            return refusal
+        # Lock first, then decide (review F3): assigning a non-admin group demotes the
+        # account, and the "is another admin alive?" answer must not go stale before the
+        # write. The membership change and its audit row commit together (decision 07).
         with transaction.atomic():
+            locked = lock_admin_rows(user)
+            refusal = last_admin_refusal(
+                locked,
+                keeps_admin_authority=locked.is_active and (
+                    locked.is_superuser or group.name in STAFF_ROLES),
+            )
+            if refusal is not None:
+                return refusal
             user.groups.set([group])
             audit_request(
                 request,
@@ -364,20 +372,23 @@ class UserViewSet(viewsets.ModelViewSet):
                 {'detail': f'Group "{group_name}" does not exist.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        still_has_admin_group = (
-            user.groups.filter(name__in=STAFF_ROLES)
-            .exclude(pk=group.pk)
-            .exists()
-        )
-        refusal = last_admin_refusal(
-            user,
-            keeps_admin_authority=user.is_active and (
-                user.is_superuser or still_has_admin_group),
-        )
-        if refusal is not None:
-            return refusal
+        # Same shape as assign_role (review F3): lock the admin rows, then read the
+        # remaining admin membership from the LOCKED row, then write.
         with transaction.atomic():
-            user.groups.remove(group)
+            locked = lock_admin_rows(user)
+            still_has_admin_group = (
+                locked.groups.filter(name__in=STAFF_ROLES)
+                .exclude(pk=group.pk)
+                .exists()
+            )
+            refusal = last_admin_refusal(
+                locked,
+                keeps_admin_authority=locked.is_active and (
+                    locked.is_superuser or still_has_admin_group),
+            )
+            if refusal is not None:
+                return refusal
+            locked.groups.remove(group)
             audit_request(
                 request,
                 AuditLog.ActionType.ROLE_CHANGE,

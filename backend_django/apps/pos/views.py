@@ -122,6 +122,27 @@ def _refuse_credit_limit_from_non_manager(request):
     raise CreditLimitForbidden()
 
 
+def _refuse_foreign_original_for_cashier(view, original_id):
+    """404 when a cashier-only caller names an original sale outside their scope (F4).
+
+    `process_return` looks the original up with a plain `objects.get(pk=...)`, so the
+    return path bypassed decision 02's row scoping entirely: cashier A could reverse
+    cashier B's sale, restock stock they never sold and refund money out of a drawer
+    that never took it. The original is resolved through the SAME scoped queryset the
+    detail endpoint uses, so another till's sale is a **404** — hidden, not forbidden —
+    and nothing is written. Managers/admins are unchanged (they see the whole store),
+    and an absent `original_transaction` (an unlinked return) still passes.
+    """
+    if original_id is None or not is_cashier_only(view.request.user):
+        return
+    try:
+        visible = view.get_queryset().filter(pk=original_id).exists()
+    except (TypeError, ValueError):
+        visible = False
+    if not visible:
+        raise NotFound('Original transaction not found.')
+
+
 class CustomerViewSet(BaseViewSet):
     """Customers: sales roles read, POS roles write, managers alone set credit limits."""
 
@@ -161,6 +182,16 @@ class CustomerViewSet(BaseViewSet):
 class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
     queryset = SalesTransaction.objects.select_related('customer','cashier').prefetch_related('items','payments','receipt').all()
     serializer_class = SalesTransactionSerializer
+    # A completed sale is a financial record (Phase 2 review, F1). `BaseViewSet` is a
+    # `ModelViewSet`, so PUT/PATCH reached `perform_update` and could rewrite
+    # `grand_total`, `customer`, `status`, `notes` or `original_transaction` after the
+    # receipt was printed — and DELETE reached `perform_destroy`, which either cascaded
+    # the sale's items and payments away or (with a receipt attached) raised
+    # `ProtectedError` as a 500. Only RING (create) and READ survive: a correction is a
+    # RETURN transaction, never an edit of the original, and that is what keeps a
+    # receipt number answering for the same money forever. 405 is the answer for every
+    # role, an admin included — no role may rewrite financial history.
+    http_method_names = ['get', 'head', 'options', 'post']
 
     def get_queryset(self):
         # `super()` reaches `OwnSalesScopeMixin.get_queryset`, so the cashier-only scope
@@ -179,6 +210,9 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
         ser.is_valid(raise_exception=True)
         source = ser.validated_data.get('source','WALK_IN')
         if source == 'RETURN':
+            # Scope the original BEFORE the refund runs (review F4).
+            _refuse_foreign_original_for_cashier(
+                self, request.data.get('original_transaction'))
             # Ledger ruling: this phase protects CHECKOUT with idempotency, not returns.
             # A refund is already re-checkable against the original sale it reverses.
             from .services import process_return

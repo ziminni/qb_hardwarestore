@@ -6,8 +6,12 @@ Phase 2, Task 1. ``is_staff`` keeps exactly one meaning: "may log into Django
 400 and the account itself survives — users are deactivated, never deleted.
 """
 
+from unittest import mock
+
 from django.contrib.auth.models import Group
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils.crypto import get_random_string
 from rest_framework.test import APIClient
 
@@ -288,6 +292,115 @@ class LastAdminGuardTests(AdminAuthorityTestBase):
         )
         self.assertEqual(res.status_code, 200, res.data)
         self.assertTrue(User.objects.get(pk=superuser.pk).is_active)
+
+
+class LastAdminGuardIsLockedTests(AdminAuthorityTestBase):
+    """The last-admin guard decides under a row lock (review F3).
+
+    ``last_admin_refusal`` used to run OUTSIDE any transaction: it asked "is another
+    active admin alive?", got `yes`, and only then wrote. Two concurrent requests —
+    deactivate admin A, deactivate admin B — could both read `yes` and both write, and
+    the system was left with **zero** admins and no way back in through the API. The
+    guard now runs inside `transaction.atomic()` AFTER `select_for_update` has locked
+    the target and every other active-admin candidate, so the state it decides on
+    cannot be invalidated before its own write commits.
+
+    What these tests prove deterministically: the request issues a `SELECT ... FOR
+    UPDATE` over the user rows, and the guard's decision point is only reached after
+    that lock is held (the probe fails if no lock query came first). What only a REAL
+    two-connection run can prove is that Postgres BLOCKS the loser: the second request
+    waits on the lock and then re-reads committed state. A single-threaded test can show
+    the ordering, not the blocking.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.admin = self.make_user('lock_admin1', groups=[ADMIN_GROUP])
+        self.second_admin = self.make_user('lock_admin2', groups=[ADMIN_GROUP])
+        self.admin_auth = self.auth(self.admin)
+
+    def _only_admin_left(self):
+        User.objects.filter(pk=self.second_admin.pk).update(is_active=False)
+
+    def _admin_locks(self, queries):
+        """Every captured statement that row-locks the user table."""
+        return [
+            q['sql'] for q in queries
+            if 'FOR UPDATE' in q['sql'].upper() and 'apps_users' in q['sql']
+        ]
+
+    def test_deactivating_the_only_admin_row_locks_the_admin_rows_first(self):
+        self._only_admin_left()
+
+        with CaptureQueriesContext(connection) as captured:
+            res = self.client.patch(
+                f'{USERS_URL}{self.admin.pk}/',
+                {'is_active': False},
+                format='json',
+                HTTP_AUTHORIZATION=self.admin_auth,
+            )
+
+        self.assertEqual(res.status_code, 400, res.data)
+        self.assertEqual(res.data['code'], 'LAST_ADMIN')
+        self.assertTrue(
+            self._admin_locks(captured.captured_queries),
+            'the last-admin guard must lock the rows it decides on')
+
+    def test_the_guard_decides_while_it_holds_the_lock(self):
+        """The probe runs at the guard's decision point (inside `last_admin_refusal`).
+
+        It asserts a `FOR UPDATE` on the admin rows has ALREADY been issued when the
+        guard asks "does another admin exist?". Without the fix the guard is reached
+        with no lock held at all, so the assertion fails — the check-then-act bug stated
+        as an assertion.
+        """
+        from apps.users import services
+
+        real = services.other_active_admin_exists
+
+        def probe(user):
+            self.assertTrue(
+                self._admin_locks(connection.queries),
+                'the guard must decide after the admin rows are locked, not before')
+            return real(user)
+
+        with CaptureQueriesContext(connection), mock.patch(
+                'apps.users.views.other_active_admin_exists', probe):
+            res = self.client.patch(
+                f'{USERS_URL}{self.second_admin.pk}/',
+                {'is_active': False},
+                format='json',
+                HTTP_AUTHORIZATION=self.admin_auth,
+            )
+
+        self.assertEqual(res.status_code, 200, res.data)
+
+    def test_assign_role_and_remove_role_take_the_same_lock(self):
+        cashier = self.make_user('lock_cashier', groups=[CASHIER_GROUP])
+
+        with CaptureQueriesContext(connection) as assign_captured:
+            assigned = self.client.post(
+                f'{USERS_URL}{cashier.pk}/assign_role/',
+                {'group_name': CASHIER_GROUP},
+                format='json',
+                HTTP_AUTHORIZATION=self.admin_auth,
+            )
+        self.assertEqual(assigned.status_code, 200, assigned.data)
+        self.assertTrue(
+            self._admin_locks(assign_captured.captured_queries),
+            'assign_role must lock the admin rows before deciding')
+
+        with CaptureQueriesContext(connection) as remove_captured:
+            removed = self.client.post(
+                f'{USERS_URL}{cashier.pk}/remove_role/',
+                {'group_name': CASHIER_GROUP},
+                format='json',
+                HTTP_AUTHORIZATION=self.admin_auth,
+            )
+        self.assertEqual(removed.status_code, 200, removed.data)
+        self.assertTrue(
+            self._admin_locks(remove_captured.captured_queries),
+            'remove_role must lock the admin rows before deciding')
 
 
 class DeactivatedUserTokenTests(AdminAuthorityTestBase):

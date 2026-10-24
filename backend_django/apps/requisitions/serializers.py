@@ -60,6 +60,14 @@ class RequisitionSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id', 'req_number', 'approved_by',
+            # `status` is ACTION-only (review F2): it moves through
+            # `submit` / `approve` / `reject` and nowhere else. It used to be writable,
+            # so `PATCH {"status": "APPROVED"}` walked a DRAFT to APPROVED (or RELEASED)
+            # around the approval action: no separation-of-duties check, no
+            # `MaterialToken` minted, no `REQ_APPROVE` audit row, and a requisition that
+            # could never be approved afterwards. A read-only field is IGNORED, so an
+            # old client that still sends it is not broken by a 400.
+            'status',
             'created_at', 'updated_at',
         ]
         extra_kwargs = {

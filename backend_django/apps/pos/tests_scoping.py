@@ -32,7 +32,7 @@ from django.test import TestCase
 from django.utils.crypto import get_random_string
 from rest_framework.test import APIClient
 
-from .models import Customer, HeldCart, Shift
+from .models import Customer, HeldCart, Payment, SalesItem, SalesTransaction, Shift
 from .services import process_sale
 from .tests import POSTestBase
 
@@ -351,6 +351,144 @@ class QuotationAndOrderReadAccessTests(ScopingTestBase):
             for url in (QUOTATIONS_URL, SALES_ORDERS_URL):
                 with self.subTest(role=user.username, url=url):
                     self.assertEqual(self._get(url, user).status_code, 200)
+
+
+class SalesImmutabilityTests(ScopingTestBase):
+    """A completed sale is a financial record: written once, never edited or deleted.
+
+    `SalesTransactionViewSet` inherited `ModelViewSet`, so PATCH/PUT rewrote
+    `grand_total`, `customer`, `status`, `notes` or `original_transaction` after the
+    receipt was printed, and DELETE removed the sale with its items and payments in one
+    cascade. The endpoint now routes only `get`/`head`/`options`/`post`: ringing and
+    reading a sale stay, mutating it answers **405** for every role, an admin included —
+    a correction is a return transaction, never an edit of the original.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.admin = self._make_user('scope_admin', 'Admin')
+
+    def _detail_url(self, transaction):
+        return f'{TRANSACTIONS_URL}{transaction.id}/'
+
+    def test_a_cashier_cannot_patch_a_completed_sale(self):
+        response = self.client.patch(
+            self._detail_url(self.txn_a), {'grand_total': '0.01'},
+            format='json', **self._auth(self.cashier_a))
+
+        self.assertEqual(response.status_code, 405, response.data)
+        self.txn_a.refresh_from_db()
+        self.assertEqual(self.txn_a.grand_total, Decimal('20.00'))
+
+    def test_a_cashier_cannot_put_a_completed_sale(self):
+        before = self.txn_a.grand_total
+
+        response = self.client.put(
+            self._detail_url(self.txn_a), {'grand_total': '0.01'},
+            format='json', **self._auth(self.cashier_a))
+
+        self.assertEqual(response.status_code, 405, response.data)
+        self.txn_a.refresh_from_db()
+        self.assertEqual(self.txn_a.grand_total, before)
+
+    def test_nobody_can_delete_a_completed_sale(self):
+        items = self.txn_a.items.count()
+        payments = self.txn_a.payments.count()
+        self.assertEqual(items, 1)
+        self.assertEqual(payments, 1)
+
+        response = self.client.delete(
+            self._detail_url(self.txn_a), **self._auth(self.cashier_a))
+
+        self.assertEqual(response.status_code, 405, response.data)
+        self.assertTrue(
+            SalesTransaction.objects.filter(pk=self.txn_a.pk).exists(),
+            'the sale, its items and its payments must survive a DELETE')
+        self.assertEqual(
+            SalesItem.objects.filter(transaction_id=self.txn_a.pk).count(), items)
+        self.assertEqual(
+            Payment.objects.filter(transaction_id=self.txn_a.pk).count(), payments)
+
+    def test_an_admin_and_a_manager_cannot_mutate_a_sale_either(self):
+        for user in (self.admin, self.manager):
+            url = self._detail_url(self.txn_a)
+            auth = self._auth(user)
+
+            patched = self.client.patch(
+                url, {'grand_total': '0.01'}, format='json', **auth)
+            self.assertEqual(patched.status_code, 405, patched.data)
+
+            replaced = self.client.put(
+                url, {'grand_total': '0.01'}, format='json', **auth)
+            self.assertEqual(replaced.status_code, 405, replaced.data)
+
+            deleted = self.client.delete(url, **auth)
+            self.assertEqual(deleted.status_code, 405, deleted.data)
+
+        self.txn_a.refresh_from_db()
+        self.assertEqual(self.txn_a.grand_total, Decimal('20.00'))
+        self.assertTrue(SalesTransaction.objects.filter(pk=self.txn_a.pk).exists())
+
+
+class ReturnScopeTests(ScopingTestBase):
+    """A cashier reverses only a sale THEY rang (review F4).
+
+    `POST /transactions/` with `source=RETURN` handed `request.data['original_transaction']`
+    straight to `process_return`, which does `SalesTransaction.objects.get(pk=...)` with
+    no scope at all: cashier A could reverse cashier B's sale, restock B's stock and
+    refund money out of a drawer that never took it. The original is now resolved through
+    the caller's own scoped queryset, so another till's sale is a **404** ("hidden ≠
+    forbidden") and nothing is written — no RETURN row, no stock movement. Manager and
+    admin keep the whole store and are unchanged.
+    """
+
+    def _batches(self):
+        from apps.inventory.models import InventoryBatch
+        return list(
+            InventoryBatch.objects.filter(variant=self.variant)
+            .order_by('pk').values_list('pk', 'current_qty'))
+
+    def _return_payload(self, original):
+        return {
+            'customer': self.customer.id,
+            'source': 'RETURN',
+            'original_transaction': original.id,
+            'items': [{'variant_id': self.vuom.id, 'qty': 1}],
+            'payment_method': 'CASH',
+        }
+
+    def _returns_posted(self):
+        return SalesTransaction.objects.filter(
+            source=SalesTransaction.Source.RETURN).count()
+
+    def test_a_cashier_cannot_reverse_another_cashiers_sale(self):
+        stock_before = self._batches()
+        returns_before = self._returns_posted()
+
+        response = self.client.post(
+            TRANSACTIONS_URL, self._return_payload(self.txn_b),
+            format='json', **self._auth(self.cashier_a))
+
+        self.assertEqual(response.status_code, 404, response.data)
+        self.assertEqual(self._returns_posted(), returns_before)
+        self.assertEqual(self._batches(), stock_before)
+
+    def test_a_cashier_can_return_their_own_sale(self):
+        response = self.client.post(
+            TRANSACTIONS_URL, self._return_payload(self.txn_a),
+            format='json', **self._auth(self.cashier_a))
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data['source'], 'RETURN')
+        self.assertEqual(response.data['original_transaction'], self.txn_a.id)
+
+    def test_a_manager_can_return_any_cashiers_sale(self):
+        response = self.client.post(
+            TRANSACTIONS_URL, self._return_payload(self.txn_b),
+            format='json', **self._auth(self.manager))
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data['original_transaction'], self.txn_b.id)
 
 
 class DenyByDefaultTests(TestCase):
