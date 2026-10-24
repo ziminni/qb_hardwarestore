@@ -47,8 +47,8 @@ the same commit that breaks it.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.
-- **Last session:** `docs/sessions/2026-10-24-audit-remediation-phase-1.md` — Phase 1 money & stock integrity built. **Gate:** backend **176/176**, flutter **552/552**, analyze clean.
-  **Next:** `git push` (user); then BUILD Phase 2 (access control & audit) — write `planning/audit-remediation/phase-2-plan.md` first.
+- **Last session:** `docs/sessions/2026-10-24-post-phase1-verification.md` — pi-lens blockers cleared on goods-receipt API tests, formatter-touched Flutter files verified. **Gate:** backend file 23/23 + LSP clean, flutter **552/552**, analyze clean. 10 files modified, uncommitted.
+  **Next:** commit the 10 files + `git push` (user — no SSH key in this shell); then write `planning/audit-remediation/phase-2-plan.md` and BUILD Phase 2 (access control & audit).
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message
