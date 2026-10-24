@@ -10,7 +10,7 @@ from decimal import Decimal
 from apps.pos.tests import POSTestBase
 from apps.pos.exceptions import ReturnError
 from apps.pos.services import process_return, process_sale
-from apps.pos.models import SalesItemDeduction
+from apps.pos.models import SalesItemDeduction, SalesTransaction
 
 
 class SaleDeductionTests(POSTestBase):
@@ -118,6 +118,10 @@ class ReturnGuardTests(POSTestBase):
 
     def _return(self, qty, original_id, unit_price=Decimal('10'),
                 method='CASH'):
+        """Post a linked return. `unit_price` is still accepted by the service signature
+        (older callers pass it) but is IGNORED since decision 01 - see
+        `test_a_client_return_price_is_ignored`.
+        """
         return process_return(
             customer_id=self.customer.id,
             cashier=self.cashier,
@@ -169,12 +173,20 @@ class ReturnGuardTests(POSTestBase):
                          (Decimal('5'), Decimal('5')),
                          'row caps are per call, not per line: oldest takes 5, not 7')
 
-    def test_negative_unit_price_is_refused(self):
+    def test_a_client_return_price_is_ignored(self):
+        # REWRITTEN by phase 1 task 1 (decision 01). This used to assert that a NEGATIVE
+        # client `unit_price` raised ReturnError - a guard that only worked because the
+        # client's price was believed in the first place. The server now prices the
+        # refund from the original sale line, so there is nothing left to validate: a
+        # forged price (negative, zero or inflated) is simply not input.
         original = self._sell_seven()
 
-        with self.assertRaises(ReturnError):
-            self._return(Decimal('2'), original.id,
-                         unit_price=Decimal('-10'))
+        ret = self._return(Decimal('2'), original.id,
+                           unit_price=Decimal('-10'))
+
+        self.assertEqual(ret.grand_total, Decimal('-20'),
+                         'refund is 2 x the ORIGINAL line price, not the forged sign')
+        self.assertEqual(ret.items.get().unit_price, Decimal('10'))
 
     def test_unknown_payment_method_is_refused(self):
         original = self._sell_seven()
@@ -203,6 +215,11 @@ class ReturnGuardTests(POSTestBase):
             'restock reads its rows locked, matching allocate_fifo discipline')
 
     def test_endpoint_maps_return_errors_to_400(self):
+        # UPDATED by phase 1 task 1 (decision 01): this used to provoke the 400 with a
+        # NEGATIVE client `unit_price`, and a client price is now ignored entirely, so
+        # that request would legitimately return 201. The refusal under test - a return
+        # against its own original must map to a stable code, not a 500 - is provoked
+        # with a real violation instead: returning more than the original sale drew.
         from rest_framework.test import APIClient
         from django.contrib.auth import get_user_model
         get_user_model().objects.create_superuser(
@@ -213,13 +230,18 @@ class ReturnGuardTests(POSTestBase):
                             format='json')
         client.credentials(
             HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+        original = self._sell_seven()   # 7 on the shelf, 7 sold
 
         response = client.post('/api/v1/transactions/', {
             'customer': self.customer.id,
             'source': 'RETURN',
-            'items': [{'variant_id': self.vuom.id, 'qty': '2',
-                       'unit_price': '-10.00'}],
+            'original_transaction': original.id,
+            'items': [{'variant_id': self.vuom.id, 'qty': '10'}],
         }, format='json')
 
         self.assertEqual(response.status_code, 400, response.data)
         self.assertEqual(response.data['code'], 'INVALID_RETURN')
+        self.assertFalse(
+            SalesTransaction.objects.filter(
+                source=SalesTransaction.Source.RETURN).exists(),
+            'a refused return must not be recorded')

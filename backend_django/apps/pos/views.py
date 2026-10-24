@@ -291,8 +291,14 @@ class HeldCartViewSet(BaseViewSet):
     @action(detail=True, methods=['post'])
     def complete(self, request, pk=None):
         cart = self.get_object()
+        # Phase 1 task 1 (decision 01): the cart on the shelf stores a price, but that
+        # price is a NOTE, not an authority - a cart parked yesterday, or tampered with,
+        # must not set today's price. So it is not forwarded: `process_sale` prices every
+        # line from `VariantUOM.default_selling_price` and converts selling units to base
+        # units, exactly as the checkout screen does. One price authority, both entry
+        # points.
         items_data = [
-            {'variant_id': item.variant_uom_id, 'qty': item.qty, 'unit_price': item.unit_price}
+            {'variant_id': item.variant_uom_id, 'qty': item.qty}
             for item in cart.items.all()
         ]
         payments_data = request.data.get('payments', [])

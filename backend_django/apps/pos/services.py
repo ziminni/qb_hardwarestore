@@ -12,13 +12,17 @@
 
 """POS services — checkout, FIFO allocation, receipt generation."""
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from django.db import transaction
 from apps.collectibles.models import CollectibleLedger
 from apps.inventory.services import allocate_fifo
 
-from .exceptions import WalkInCannotOwe
+from .exceptions import InvalidSale, WalkInCannotOwe
 from .models import Customer, SalesTransaction, SalesItem, Payment, OfficialReceipt
+
+# A cart this long is not a cart, it is a mistake (or a probe). One number, checked in
+# both directions by `_validated_sale_lines`.
+MAX_SALE_LINES = 200
 
 
 def generate_transaction_no():
@@ -39,12 +43,129 @@ def generate_or_number():
     return f'OR-{today}-{seq:04d}'
 
 
+def _parse_decimal(raw, *, field, line_no):
+    """Parse a client-supplied number, or refuse the sale.
+
+    `Decimal(str(None))` raises ConversionSyntax, `Decimal('NaN')` and
+    `Decimal('Infinity')` parse happily and then poison the arithmetic (`min(stock,
+    Infinity)` empties the shelf). Both are 400s, not 500s.
+    """
+    try:
+        value = Decimal(str(raw))
+    except (InvalidOperation, TypeError, ValueError):
+        raise InvalidSale(f'Line {line_no}: {field} must be a number.') from None
+    if not value.is_finite():
+        raise InvalidSale(f'Line {line_no}: {field} must be a finite number.')
+    return value
+
+
+def _validated_sale_lines(items_data):
+    """Resolve and validate every cart line BEFORE anything is written.
+
+    Decision 01: a line names a **VariantUOM** (the selling unit - a box, a metre, a
+    bag). There is deliberately no fallback to a `ProductVariant` id any more: that
+    ambiguous resolution is what turned a swapped id into a sale of the wrong thing at
+    a conversion factor nobody chose. Unknown, inactive or product-inactive all fail
+    here, so `allocate_fifo` can never be handed a variant id it cannot price.
+
+    Returns `[(VariantUOM, qty)]`, where `qty` is the SELLING quantity. The caller
+    multiplies by `conversion_factor` for the base-unit deduction - one place does the
+    conversion, so a sale and its return cannot disagree about what a box is.
+    """
+    from apps.inventory.models import VariantUOM
+
+    if not isinstance(items_data, (list, tuple)) or not items_data:
+        raise InvalidSale('A sale needs at least one item.')
+    if len(items_data) > MAX_SALE_LINES:
+        raise InvalidSale(
+            f'A sale cannot carry more than {MAX_SALE_LINES} items.')
+
+    lines = []
+    for index, item in enumerate(items_data, start=1):
+        if not isinstance(item, dict):
+            raise InvalidSale(f'Line {index}: each item must be an object.')
+        raw_uom_id = item.get('variant_id')
+        try:
+            vuom = (
+                VariantUOM.objects
+                .select_related('variant', 'variant__product')
+                .filter(pk=raw_uom_id)
+                .first()
+            )
+        except (TypeError, ValueError):
+            vuom = None
+        if vuom is None:
+            raise InvalidSale(
+                f'Line {index}: {raw_uom_id!r} is not a selling unit of any product.')
+        if not vuom.variant.is_active:
+            raise InvalidSale(
+                f'Line {index}: {vuom.variant} is no longer available for sale.')
+        if not vuom.variant.product.is_active:
+            raise InvalidSale(
+                f'Line {index}: {vuom.variant.product} is no longer available for '
+                'sale.')
+        qty = _parse_decimal(item.get('qty'), field='qty', line_no=index)
+        if qty <= 0:
+            raise InvalidSale(f'Line {index}: qty must be greater than zero.')
+        lines.append((vuom, qty))
+    return lines
+
+
+def _validated_payments(payments_data):
+    """Validate the tender before any write: method known, amount non-negative.
+
+    An EMPTY list stays valid - a cash sale with nothing tendered is the walk-in shortfall
+    path, which decision 14 answers with its own 400 (WalkInCannotOwe) or a ledger row for
+    a named customer. `amount_tendered` is never trusted to equal the total; it is what the
+    cashier took, and the shortfall is computed from the server's price.
+    """
+    if payments_data is None:
+        payments_data = []
+    if not isinstance(payments_data, (list, tuple)):
+        raise InvalidSale('payments must be a list.')
+    methods = dict(Payment.Method.choices)
+    payments = []
+    for index, pdata in enumerate(payments_data, start=1):
+        if not isinstance(pdata, dict):
+            raise InvalidSale(f'Payment {index}: each payment must be an object.')
+        method = pdata.get('method', Payment.Method.CASH)
+        if method not in methods:
+            raise InvalidSale(
+                f'Payment {index}: {method!r} is not a payment method this till takes.')
+        amount = _parse_decimal(
+            pdata.get('amount_tendered', 0), field='amount_tendered', line_no=index)
+        if amount < 0:
+            raise InvalidSale(
+                f'Payment {index}: amount_tendered cannot be negative.')
+        payments.append({
+            'method': method,
+            'amount_tendered': amount,
+            'reference_no': pdata.get('reference_no') or '',
+        })
+    return payments
+
+
 def process_sale(*, customer_id, cashier, items_data, payments_data, source='WALK_IN'):
     """Process a complete walk-in sale or requisition release.
 
-    items_data: [{'variant_id': 1, 'qty': 5, 'unit_price': Decimal('150')}]
+    items_data: [{'variant_id': <VariantUOM id>, 'qty': 5}]
     payments_data: [{'method': 'CASH', 'amount_tendered': Decimal('750')}]
+
+    Decision 01 (uom-and-price-authority):
+
+    * the SELLING unit is a `VariantUOM` id, never a bare product-variant id;
+    * `unit_price` is `VariantUOM.default_selling_price` - a client-sent `unit_price`
+      is ignored, not rejected, so an older client keeps working;
+    * FIFO deducts `qty x conversion_factor` BASE units while `SalesItem.qty` keeps the
+      selling quantity, so the receipt reads "1 box" and the shelf loses 12 pieces.
+
+    `InvalidSale` is raised before the atomic block: a refused cart must leave no
+    transaction, no receipt, no payment and no moved stock, and raising before the first
+    `create()` makes that true by construction rather than by rollback.
     """
+    lines = _validated_sale_lines(items_data)
+    payments = _validated_payments(payments_data)
+
     vatable_sales = Decimal('0')
     discount = Decimal('0')
 
@@ -75,30 +196,27 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
             grand_total=0,
         )
 
-        for item in items_data:
-            item_id = item['variant_id']
-            qty = Decimal(str(item.get('qty', 0)))
-            unit_price = Decimal(str(item.get('unit_price', 0)))
+        for vuom, qty in lines:
+            # Decision 01: the server prices the line. `item.get('unit_price')` is never
+            # read again - a forged or stale price is not an error, it is simply not input.
+            unit_price = vuom.default_selling_price
             subtotal = qty * unit_price
 
             item_row = SalesItem.objects.create(
                 transaction=txn,
-                variant_uom_id=item_id,
+                variant_uom=vuom,
                 qty=qty,
                 unit_price=unit_price,
                 subtotal=subtotal,
             )
 
-            # FIFO allocation (deduct stock). item_id may be a VariantUOM id
-            # (POS payload) or a ProductVariant id; resolve to the variant.
-            from apps.inventory.models import VariantUOM
-            variant_id = item_id
-            vuom = VariantUOM.objects.filter(
-                pk=item_id).select_related('variant').first()
-            if vuom is not None:
-                variant_id = vuom.variant_id
-            # Raises ValueError on insufficient stock → whole sale rolls back.
-            allocations = allocate_fifo(variant_id=variant_id, qty_needed=qty)
+            # Decision 01: FIFO works in BASE units. Selling 1 box of 12 must remove 12
+            # pieces from the shelf while `SalesItem.qty` above keeps the 1 for the
+            # receipt - the two numbers answer different questions.
+            base_qty = qty * vuom.conversion_factor
+            # Raises InsufficientStock on short stock → whole sale rolls back.
+            allocations = allocate_fifo(
+                variant_id=vuom.variant_id, qty_needed=base_qty)
             # Task 6A.4: persist which batches this item drew from. Without these
             # rows a linked return cannot know "the original batch it left from".
             from .models import SalesItemDeduction
@@ -114,17 +232,16 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
         txn.grand_total = grand_total
         txn.save(update_fields=['vatable_sales', 'grand_total'])
 
-        # Payments
+        # Payments (already validated above: method known, amount non-negative).
         total_paid = Decimal('0')
-        for pdata in payments_data:
-            amt = Decimal(str(pdata.get('amount_tendered', 0)))
+        for pdata in payments:
             Payment.objects.create(
                 transaction=txn,
-                method=pdata.get('method', 'CASH'),
-                amount_tendered=amt,
-                reference_no=pdata.get('reference_no', ''),
+                method=pdata['method'],
+                amount_tendered=pdata['amount_tendered'],
+                reference_no=pdata['reference_no'],
             )
-            total_paid += amt
+            total_paid += pdata['amount_tendered']
 
         # Official receipt
         OfficialReceipt.objects.create(
@@ -331,19 +448,66 @@ def compute_z_reading(shift):
     }
 
 
+def _return_unit_price(*, original, vuom):
+    """The refund price for ONE return line (decision 01 + the ledger ruling).
+
+    Linked: the price the line actually sold at, looked up on the original transaction
+    by SELLING UNIT. A UOM that was never on that sale cannot be priced from it, so it is
+    refused - otherwise "return a box against a bag sale" would refund whatever the box
+    happens to be worth today.
+
+    Unlinked: the selling unit's `default_selling_price`, the only honest answer when the
+    original receipt is not to hand.
+
+    Either way the client's `unit_price` is never read: a refund the client can price is a
+    refund the client can inflate.
+    """
+    from .exceptions import ReturnError
+
+    if original is None:
+        return vuom.default_selling_price
+    original_line = (
+        SalesItem.objects
+        .filter(transaction=original, variant_uom=vuom)
+        .order_by('id')
+        .first()
+    )
+    if original_line is None:
+        raise ReturnError(
+            f'{vuom} was not on the original sale, so it cannot be refunded against it.')
+    return original_line.unit_price
+
+
 def process_return(*, customer_id, cashier, items_data,
                    original_transaction_id=None, payment_method='CASH'):
     """Post a customer return: a RETURN transaction with negative amounts.
 
     items_data mirrors process_sale but POSITIVE (what comes back):
-    [{'variant_id': 1, 'qty': 5, 'unit_price': Decimal('150')}].
+    [{'variant_id': <VariantUOM id>, 'qty': 5}].
     Lines store negative qty (direction) at a positive unit price; the payment
     is the negative refund. Validators do not run on objects.create(), and no
     full_clean path creates sale items — see the 6A.4 ledger note.
     Collectibles are deliberately untouched (decision 15 is silent on utang).
+
+    Phase 1 task 1 (decision 01, plus the ledger ruling that returns are converted and
+    server-priced too):
+
+    * the line names a `VariantUOM`, validated by the same `_validated_sale_lines` the
+      sale uses - an unknown or inactive one is `InvalidSale`, before any write;
+    * `_restock_returned` is given BASE units (`qty x conversion_factor`) because the
+      `SalesItemDeduction` rows it reconciles against are base units. A sale that
+      removed 12 pieces for one box must give 12 back, not 1;
+    * the refund price is the ORIGINAL sale line's `unit_price` when the return is
+      linked (and the UOM must have been on that sale), else the selling unit's
+      `default_selling_price`. A client `unit_price` is ignored - a forgeable refund is
+      money out of the drawer.
     """
-    from apps.inventory.models import VariantUOM
     from .exceptions import ReturnError
+
+    lines = _validated_sale_lines(items_data)
+    if payment_method not in dict(Payment.Method.choices):
+        raise ReturnError(
+            f'Unknown payment method: {payment_method}.')
 
     with transaction.atomic():
         original = None
@@ -380,31 +544,22 @@ def process_return(*, customer_id, cashier, items_data,
             raise ReturnError(
                 f'Unknown payment method: {payment_method}.')
         total = Decimal('0')
-        for item in items_data:
-            item_id = item['variant_id']
-            qty = Decimal(str(item.get('qty', 0)))
-            unit_price = Decimal(str(item.get('unit_price', 0)))
-            if qty <= 0:
-                raise ReturnError(
-                    'Return lines carry the positive qty coming back.')
-            if unit_price < 0:
-                raise ReturnError(
-                    'Return lines carry a non-negative unit price; the server negates.')
+        for vuom, qty in lines:
+            unit_price = _return_unit_price(original=original, vuom=vuom)
             item_row = SalesItem.objects.create(
                 transaction=txn,
-                variant_uom_id=item_id,
+                variant_uom=vuom,
                 qty=-qty,
                 unit_price=unit_price,
                 subtotal=-(qty * unit_price),
             )
-            # Same vuom-or-variant resolution as process_sale.
-            variant_id = item_id
-            vuom = VariantUOM.objects.filter(
-                pk=item_id).select_related('variant').first()
-            if vuom is not None:
-                variant_id = vuom.variant_id
+            # Ledger ruling, applied: `_restock_returned` reconciles against
+            # SalesItemDeduction rows, which are BASE units - so it must be given base
+            # units. Handing it the selling qty would give 1 piece back for a 12-piece
+            # box and quietly lose eleven.
             _restock_returned(
-                variant_id=variant_id, qty_needed=qty,
+                variant_id=vuom.variant_id,
+                qty_needed=qty * vuom.conversion_factor,
                 original_id=original.id if original else None,
                 return_item=item_row)
             total += -(qty * unit_price)

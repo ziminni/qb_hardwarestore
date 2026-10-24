@@ -19,11 +19,33 @@ class ReturnError(ValueError):
 
     A ValueError subclass so it reads as a client error, with a stable code the
     client branches on — the same shape as InsufficientStock and WalkInCannotOwe.
-    Raised for: return-of-return, more-than-drew (within or across calls), negative
-    unit price, unknown payment method, voided/non-completed original, no batches.
+    Raised for: return-of-return, more-than-drew (within or across calls), a selling
+    unit that was not on the original sale, unknown payment method, voided/non-completed
+    original, no batches.
+
+    NOT raised for a bad client `unit_price` any more: since decision 01 the server prices
+    the refund from the original sale line, so a client price is ignored rather than
+    refused (see `InvalidSale` for the payload shapes that ARE refused).
     """
 
     code = 'INVALID_RETURN'
+
+
+class InvalidSale(ValueError):
+    """A sale or return payload the server refuses to record (decision 01).
+
+    Raised BEFORE anything is written, for every shape the checkout endpoint used to
+    answer with a 500: an empty cart, a line whose `variant_id` is not a selling unit,
+    a qty that is not a positive finite number, an unknown payment method, a negative
+    tendered amount.
+
+    A ValueError subclass for the same reason as ReturnError - it reads as a client
+    error - with a stable `code` the client branches on, and `detail` for the cashier.
+    A forged `unit_price` is deliberately NOT an error: the server ignores it, so an
+    older client that still sends one keeps working.
+    """
+
+    code = 'INVALID_SALE'
 
 
 class WalkInCannotOwe(Exception):
@@ -140,6 +162,18 @@ def handler(exc, context):
         return Response(
             {
                 'code': NoOpenShift.code,
+                'detail': str(exc),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if isinstance(exc, InvalidSale):
+        # The checkout payload itself is wrong (empty cart, unknown selling unit, qty
+        # that is not a positive number, bogus payment method). One code for the whole
+        # class of them: the client's answer is always "show the detail and let the
+        # cashier fix the cart", and `detail` names the offending line.
+        return Response(
+            {
+                'code': InvalidSale.code,
                 'detail': str(exc),
             },
             status=status.HTTP_400_BAD_REQUEST,
