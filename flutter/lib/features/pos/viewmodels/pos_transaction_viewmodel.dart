@@ -12,6 +12,7 @@ import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/repositories/customer_repository.dart';
 import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/services/customer_service.dart';
+import 'package:client/data/services/held_cart_service.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
@@ -23,8 +24,10 @@ class PosTransactionViewmodel extends ChangeNotifier {
     this._tracking, {
     PosRepository? pos,
     CustomerRepository? customers,
+    HeldCartService? heldCarts,
   }) : _pos = pos ?? PosRepository(PosService()),
-       _customers = customers {
+       _customers = customers,
+       _injectedHeldCarts = heldCarts {
     _inventory.addListener(_inventoryChanged);
     _tracking.addListener(_inventoryChanged);
   }
@@ -33,6 +36,13 @@ class PosTransactionViewmodel extends ChangeNotifier {
   final ProductTrackingViewmodel _tracking;
   final PosRepository _pos;
   final CustomerRepository? _customers;
+
+  /// The parked-cart endpoint, built on FIRST USE for the same reason as
+  /// [_customerRepo]: a test about the cart must not construct a transport it never
+  /// uses.
+  final HeldCartService? _injectedHeldCarts;
+  HeldCartService get _heldCartService =>
+      _injectedHeldCarts ?? HeldCartService();
 
   /// Built on FIRST USE, not in the constructor.
   ///
@@ -85,6 +95,80 @@ class PosTransactionViewmodel extends ChangeNotifier {
   /// Null before the first press and after a success; tests and the error message
   /// for `IDEMPOTENCY_KEY_REUSED` both need to see which attempt is in flight.
   String? get idempotencyKey => _attemptKey;
+
+  /// The parked cart the last successful sale removed, or null.
+  ///
+  /// The till posts the sale; the Held transactions list owns the ROWS. This is the
+  /// one-shot hand-off between them, consumed by the page with
+  /// [takeCompletedHeldCartId] so a rebuild cannot re-remove an id.
+  int? _completedHeldCartId;
+  int? get completedHeldCartId => _completedHeldCartId;
+
+  /// Reads and clears [completedHeldCartId].
+  int? takeCompletedHeldCartId() {
+    final id = _completedHeldCartId;
+    _completedHeldCartId = null;
+    return id;
+  }
+
+  /// The parked cart this basket was RESUMED from, or null.
+  ///
+  /// Decision 05 says a parked basket is completed through
+  /// `POST /held-carts/{id}/complete/`, where the server rings the sale and deletes the
+  /// cart in one transaction. Remembering the id is what makes that possible - and what
+  /// stops the defect this replaces: the till posted a resumed basket through
+  /// `/transactions/`, left the parked cart on the server, and the same basket could be
+  /// resumed and sold a second time.
+  int? _resumedCartId;
+  int? get resumedCartId => _resumedCartId;
+
+  /// The basket as it stood when it was resumed, so `submit` can tell an UNCHANGED
+  /// parked basket (safe to `complete`) from one the cashier edited (whose server copy
+  /// is stale, so it must be rung from the till and the cart voided afterwards).
+  String? _resumedSignature;
+
+  /// Why the parked cart could not be removed after an EDITED basket was sold, or null.
+  ///
+  /// The sale is written and the money is in the drawer, so this is never a failed sale:
+  /// it is a row the cashier must void by hand, because the cart surviving means the
+  /// basket could be resumed and sold again. The page shows it as a warning.
+  String? _heldCartCleanupError;
+  String? get heldCartCleanupError => _heldCartCleanupError;
+
+  /// Everything about the basket that a parked cart holds, as one comparable string.
+  ///
+  /// The cart's own copy is what `complete` sells, so the comparison has to cover the
+  /// same facts: the selling units, their quantities and prices, and the account the
+  /// sale is addressed to.
+  String _basketSignature() => [
+    for (final line in _lines)
+      '${line.variantUomId}:${line.quantity}:${line.unitPrice}',
+    'customer:${_selectedCustomer?.id}',
+  ].join('|');
+
+  bool _resumedBasketIsUnchanged() =>
+      _resumedSignature != null && _resumedSignature == _basketSignature();
+
+  void _forgetResumedCart() {
+    _resumedCartId = null;
+    _resumedSignature = null;
+  }
+
+  /// Removes the parked copy of a basket that was rung from the till instead.
+  ///
+  /// Never throws: the sale has already been written, so turning a failed DELETE into a
+  /// failed sale would be a lie about money. A failure is REPORTED instead, naming the
+  /// cart the cashier must void, because a surviving cart can be resumed and sold again.
+  Future<void> _voidParkedCart(int cartId) async {
+    try {
+      await _heldCartService.voidCart(cartId);
+      _completedHeldCartId = cartId;
+    } on HeldCartServiceException catch (error) {
+      _heldCartCleanupError =
+          'The sale was completed, but parked cart #$cartId could not be removed '
+          '(${error.message}) Void it in Held transactions, or it can be sold again.';
+    }
+  }
 
   /// 32 hex characters from a CSPRNG.
   ///
@@ -423,6 +507,9 @@ class PosTransactionViewmodel extends ChangeNotifier {
 
   void clear() {
     _lines.clear();
+    // The till no longer holds the parked basket, so a later sale must not try to
+    // complete (or void) a cart this basket came from.
+    _forgetResumedCart();
     _dropAttemptKey();
     notifyListeners();
   }
@@ -475,6 +562,11 @@ class PosTransactionViewmodel extends ChangeNotifier {
         Customer(id: customerId, name: cart.customerName!, customerType: ''),
       );
     }
+    // Remember WHICH parked cart this is, and what it looked like when it arrived:
+    // `submit` completes the cart when nothing changed (server rings and deletes it
+    // atomically) and rings from the till when the cashier edited it.
+    _resumedCartId = cart.id;
+    _resumedSignature = _basketSignature();
     notifyListeners();
     return _lines.length;
   }
@@ -558,6 +650,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
     _isSubmitting = true;
     _submitError = null;
     _insufficientStockLineId = null;
+    _heldCartCleanupError = null;
     notifyListeners();
 
     try {
@@ -567,28 +660,57 @@ class PosTransactionViewmodel extends ChangeNotifier {
       // One key per ATTEMPT: created on the first press and reused by a retry, so
       // a dropped response cannot turn one basket into two sales.
       final attemptKey = _attemptKey ??= _newAttemptKey();
-      // The buyer is the SELECTED customer when the cashier picked or created one, and the
-      // seeded Walk-in Customer otherwise - a walk-in sale still cannot omit the customer,
-      // because the FK is not nullable (decision 06 section 2).
-      final buyer =
-          _selectedCustomer?.id ??
-          (_walkInCustomerId ??= await _pos.walkInCustomerId());
-      final result = await _pos.checkout(
-        customerId: buyer,
-        items: [
-          for (final line in sold)
-            PosCheckoutItem(
-              variantUomId: line.variantUomId,
-              quantity: line.quantity,
-              unitPrice: line.unitPrice,
-            ),
-        ],
-        // The tender goes on the wire as a CODE, never as the label the cashier read.
-        payments: [
-          PosCheckoutPayment(method: method.code, amountTendered: amountPaid),
-        ],
-        idempotencyKey: attemptKey,
-      );
+      // The tender goes on the wire as a CODE, never as the label the cashier read.
+      final payments = [
+        PosCheckoutPayment(method: method.code, amountTendered: amountPaid),
+      ];
+      final resumedCartId = _resumedCartId;
+      // An UNCHANGED resumed basket is sold through the parked cart, so the server
+      // writes the sale and deletes the cart in ONE transaction (decision 05). A basket
+      // the cashier edited must NOT go that way: `complete` sells the SERVER's copy,
+      // which is now stale, so it would ring what they removed.
+      final completeCartId =
+          resumedCartId != null && _resumedBasketIsUnchanged()
+          ? resumedCartId
+          : null;
+
+      final PosCheckoutResult result;
+      if (completeCartId != null) {
+        result = PosCheckoutResult.fromJson(
+          await _heldCartService.complete(
+            completeCartId,
+            payments: payments,
+            idempotencyKey: attemptKey,
+          ),
+        );
+        _completedHeldCartId = completeCartId;
+      } else {
+        // The buyer is the SELECTED customer when the cashier picked or created one, and
+        // the seeded Walk-in Customer otherwise - a walk-in sale still cannot omit the
+        // customer, because the FK is not nullable (decision 06 section 2).
+        final buyer =
+            _selectedCustomer?.id ??
+            (_walkInCustomerId ??= await _pos.walkInCustomerId());
+        result = await _pos.checkout(
+          customerId: buyer,
+          items: [
+            for (final line in sold)
+              PosCheckoutItem(
+                variantUomId: line.variantUomId,
+                quantity: line.quantity,
+                unitPrice: line.unitPrice,
+              ),
+          ],
+          payments: payments,
+          idempotencyKey: attemptKey,
+        );
+        if (resumedCartId != null) {
+          // The edited basket is sold, so the parked copy must not survive to be resumed
+          // and sold again. Voided AFTER the 201: voiding first would destroy the cart
+          // for a sale that then failed.
+          await _voidParkedCart(resumedCartId);
+        }
+      }
 
       // The receipt's numbers are the SERVER's, not the cart's arithmetic: decision
       // 06 section 1 says the response is the finished transaction. That now covers
@@ -608,6 +730,9 @@ class PosTransactionViewmodel extends ChangeNotifier {
         ),
       );
       _lines.clear();
+      // The basket is sold, so it is no longer a resumed cart: a second sale must not
+      // try to complete the same parked cart again.
+      _forgetResumedCart();
       // The sale is written, so this attempt is finished and its key is spent.
       _dropAttemptKey();
       return true;
@@ -616,6 +741,15 @@ class PosTransactionViewmodel extends ChangeNotifier {
       // Decision 06 section 3 separates a recoverable stock rejection from a terminal
       // failure. Recording WHICH line is what makes it recoverable: the cashier is
       // told which row to fix instead of being left to re-read the basket.
+      _insufficientStockLineId = error.isInsufficientStock
+          ? _lineForVariant(error.variantId)
+          : null;
+      return false;
+    } on HeldCartServiceException catch (error) {
+      // A resumed basket is sold by the SERVER's `complete` action, which runs
+      // `process_sale` — so its refusals (stock, credit limit, no open shift) arrive here
+      // with the same codes. The cart stays: nothing was written.
+      _submitError = error.message;
       _insufficientStockLineId = error.isInsufficientStock
           ? _lineForVariant(error.variantId)
           : null;

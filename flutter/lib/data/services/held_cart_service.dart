@@ -7,9 +7,19 @@ import 'package:dio/dio.dart';
 ///
 /// [message] is safe to show a cashier.
 class HeldCartServiceException implements Exception {
-  const HeldCartServiceException(this.message);
+  const HeldCartServiceException(this.message, {this.code, this.variantId});
 
   final String message;
+
+  /// The server's stable machine-readable code, when it sent one. `complete` runs
+  /// `process_sale`, so it can answer `INSUFFICIENT_STOCK` — the one refusal the till can
+  /// recover from in place, by naming the row to fix.
+  final String? code;
+
+  /// The variant the server blamed for a stock refusal, when it sent one.
+  final int? variantId;
+
+  bool get isInsufficientStock => code == 'INSUFFICIENT_STOCK';
 
   @override
   String toString() => message;
@@ -139,8 +149,30 @@ class HeldCartService {
       }
       return data;
     } on DioException catch (error) {
-      throw HeldCartServiceException(_message(error));
+      throw _failureFor(error);
     }
+  }
+
+  /// The refusal, with the server's own `code` and `variant_id` kept.
+  ///
+  /// A completed cart runs `process_sale`, so a resumed basket can be refused for stock
+  /// exactly as a fresh one can. Losing the code here would turn "remove two of this
+  /// row" into a flat "could not be completed".
+  HeldCartServiceException _failureFor(DioException error) {
+    final body = error.response?.data;
+    String? code;
+    int? variantId;
+    if (body is Map<String, dynamic>) {
+      final rawCode = body['code'];
+      if (rawCode is String && rawCode.isNotEmpty) code = rawCode;
+      final rawVariant = body['variant_id'];
+      if (rawVariant is int) variantId = rawVariant;
+    }
+    return HeldCartServiceException(
+      _message(error),
+      code: code,
+      variantId: variantId,
+    );
   }
 
   /// Maps a transport failure onto something a cashier can act on.

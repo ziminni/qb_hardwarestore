@@ -482,6 +482,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     }
 
     final messenger = ScaffoldMessenger.of(context);
+    final heldCarts = context.read<HeldCartViewmodel>();
     final confirmed = await transaction.submit(
       method: payment.method,
       amountPaid: payment.amountPaid,
@@ -503,11 +504,25 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
       return;
     }
 
+    // A sale that removed a parked cart must not leave it in the Held transactions
+    // list: a row the server no longer holds invites the cashier to resume a basket
+    // that has already been sold.
+    final completedCartId = transaction.takeCompletedHeldCartId();
+    if (completedCartId != null) {
+      heldCarts.forgetCart(completedCartId);
+    }
+
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) => PosReceiptDialog(receipt: transaction.receipts.first),
     );
+    // Shown AFTER the receipt so it is not buried under the dialog. The sale is
+    // written either way; this names the parked cart the cashier must still void.
+    final cleanupError = transaction.heldCartCleanupError;
+    if (cleanupError != null && context.mounted) {
+      messenger.showSnackBar(SnackBar(content: Text(cleanupError)));
+    }
     _restoreScannerFocus();
   }
 }

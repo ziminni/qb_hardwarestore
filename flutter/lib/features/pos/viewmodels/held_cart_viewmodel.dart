@@ -124,6 +124,19 @@ class HeldCartViewmodel extends ChangeNotifier {
     }
   }
 
+  /// Drops a row the SERVER no longer holds, without another request.
+  ///
+  /// Called by the till after a sale removed the cart — either `complete`, which deletes
+  /// it inside the sale's transaction, or the till's own void after an edited basket was
+  /// rung. The row must go: a cart that has already been sold must not sit in the queue
+  /// inviting a second resume.
+  void forgetCart(int cartId) {
+    final remaining = _carts.where((cart) => cart.id != cartId).toList();
+    if (remaining.length == _carts.length) return;
+    _carts = remaining;
+    notifyListeners();
+  }
+
   /// Sells a parked basket through the server's `complete` action.
   ///
   /// Returns the written sale, or null after setting [actionError]. The cart is
