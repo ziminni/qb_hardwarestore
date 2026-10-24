@@ -1,41 +1,46 @@
-# pyright: reportAttributeAccessIssue=false
+# pyright: reportAttributeAccessIssue=false, reportGeneralTypeIssues=false
 #
 # Same directive and reason as apps/pos/tests.py, apps/inventory/views.py and
 # seed_demo.py: the checker runs with a working directory outside the repo, so it resolves
 # no config, and `Model.objects` is a false positive on valid Django.
+# `reportGeneralTypeIssues` covers the same false positive one level down (the checker
+# cannot see that `transaction.atomic()` is a context manager without django-stubs).
 
 """Collectibles ViewSets — Accounts Receivable / Utang Management."""
 
 from django.db.models import Q
 from django.db import transaction
-from rest_framework import permissions, viewsets
+from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from apps.users.permissions import IsPOSOrReadOnly
+from apps.users.permissions import IsReceivablesReader, ReceivablesReadPOSWrite
 
 from .models import CollectibleLedger, CollectiblePayment
 from .services import apply_payment_to_ledger
 from .serializers import CollectibleLedgerSerializer, CollectiblePaymentSerializer
 
 
-class IsAdminOrReadOnly(permissions.BasePermission):
-    """Allow read for all authenticated users; write only for admins."""
+class CollectibleLedgerViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read outstanding collectible/receivable entries. There are no ledger writes.
 
-    def has_permission(self, request, view):
-        if request.method in permissions.SAFE_METHODS:
-            return request.user and request.user.is_authenticated
-        return request.user and request.user.is_staff
+    Phase 2 Task 2 (P2 Ruling) made this viewset read-only. `balance_due` is the money a
+    customer still owes, and the old `PATCH /ledgers/{id}/` let a Django-`is_staff` user
+    set it to anything - which is indistinguishable from a customer paying. A ledger is
+    now created and moved only by the code that knows why: `process_sale` and
+    `release_materials` open one, and `POST /ledger-payments/` moves it. `ReadOnlyModelViewSet`
+    (rather than a hand-written guard) means the router registers no PUT/PATCH/DELETE
+    route at all, so those answers are 405 by construction.
 
-
-class CollectibleLedgerViewSet(viewsets.ModelViewSet):
-    """Manage outstanding collectible/receivable entries."""
+    Reads need a RECEIVABLES role (Cashier / Store Manager / Admin): a Stock Manager
+    reads sales, but customers' debts are not theirs to see.
+    """
 
     queryset = CollectibleLedger.objects.select_related(
         'customer', 'transaction',
     ).prefetch_related('payments').order_by('-due_date')
     serializer_class = CollectibleLedgerSerializer
-    permission_classes = [IsAdminOrReadOnly]
+    permission_classes = [IsReceivablesReader]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -94,13 +99,24 @@ class CollectibleLedgerViewSet(viewsets.ModelViewSet):
 
 
 class CollectiblePaymentViewSet(viewsets.ModelViewSet):
-    """Post and view payments against collectible ledgers."""
+    """Post and view payments against collectible ledgers.
+
+    A payment row is a receipt of money, so it is **immutable**: `http_method_names`
+    drops PUT/PATCH/DELETE, and the router therefore publishes only GET and POST.
+    Editing one would erase a debt without any money moving, and deleting one would
+    delete the record that the balance was already reduced. A correction is a new
+    business event, not an edit of a past one.
+
+    Reads need a RECEIVABLES role; the POST itself is a POS-role action (a cashier takes
+    the money).
+    """
 
     queryset = CollectiblePayment.objects.select_related(
         'collectible', 'processed_by',
     ).order_by('-payment_date')
     serializer_class = CollectiblePaymentSerializer
-    permission_classes = [IsPOSOrReadOnly]
+    permission_classes = [ReceivablesReadPOSWrite]
+    http_method_names = ['get', 'head', 'options', 'post']
 
     def perform_create(self, serializer):
         """Record the payment and move the ledger, as ONE transaction.

@@ -7,6 +7,7 @@ and under `DEBUG=True` as an HTML page the client could not parse at all.
 """
 
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import exception_handler as drf_exception_handler
 
@@ -161,6 +162,25 @@ class NoOpenShift(Exception):
             or 'You have no open shift. Open a shift before ringing a sale.')
 
 
+class CreditLimitForbidden(PermissionDenied):
+    """A non-manager tried to set `Customer.total_credit_limit` (Phase 2 Task 2).
+
+    Decision 08 made the credit limit a hard block enforced on the SERVER, so the number
+    it is enforced against must not be writable by the person the block is aimed at: a
+    cashier who could raise a customer's limit would void the block for their own sale.
+    Only a Store Manager or an Admin may set it.
+
+    A `PermissionDenied` subclass, so the refusal is a 403 by DRF's own reasoning - the
+    caller may use the endpoint, just not this field - and the handler below gives it
+    the project's stable `{code, detail}` shape. Raised BEFORE the serializer touches
+    anything, so a refused request writes nothing at all.
+    """
+
+    code = 'CREDIT_LIMIT_FORBIDDEN'
+    default_detail = (
+        'Only a Store Manager or an Admin may change a customer credit limit.')
+
+
 def handler(exc, context):
     """Return DRF's own response, except for a short-stock sale.
 
@@ -291,5 +311,16 @@ def handler(exc, context):
                 'detail': str(exc),
             },
             status=status.HTTP_400_BAD_REQUEST,
+        )
+    if isinstance(exc, CreditLimitForbidden):
+        # 403, not 400: the request is well formed and the caller is allowed to use
+        # `/customers/` - what they may not do is set this one money field. Same
+        # {code, detail} shape as the other refusals so the client branches on `code`.
+        return Response(
+            {
+                'code': CreditLimitForbidden.code,
+                'detail': str(exc.detail),
+            },
+            status=status.HTTP_403_FORBIDDEN,
         )
     return drf_exception_handler(exc, context)

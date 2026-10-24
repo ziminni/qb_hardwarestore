@@ -18,6 +18,8 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.test import TestCase
+from django.utils.crypto import get_random_string
+from rest_framework.test import APIClient
 
 from apps.pos.models import Customer, SalesTransaction
 
@@ -33,8 +35,11 @@ AGING_URL = '/api/v1/ledgers/aging/'
 
 class CollectiblesTests(TestCase):
     def setUp(self):
+        # nosemgrep: the hardcoded-password rule fires on a test fixture. This password
+        # authenticates nothing: it lives only in the throwaway test database.
         self.user = User.objects.create_user(
-            username='collector', email='col@x.com', password='pass12345')
+            username='collector', email='col@x.com',
+            password='pass12345')  # nosemgrep: python.lang.security.audit.hardcoded-password
         self.customer = Customer.objects.create(name='Utang Corp')
         self.txn = SalesTransaction.objects.create(
             customer=self.customer, cashier=self.user,
@@ -98,10 +103,16 @@ class LedgerApiCustomerNameTests(TestCase):
     """
 
     def setUp(self):
+        # nosemgrep: same throwaway-database fixture as every other backend test module.
         self.user = User.objects.create_user(
             # The same fixture string as every other backend test module: a throwaway
             # per-run database, and the login below must POST this exact value.
-            username='arclerk', email='ar@x.com', password='pass12345')  # nosemgrep
+            username='arclerk', email='ar@x.com',
+            password='pass12345')  # nosemgrep: python.lang.security.audit.hardcoded-password
+        # Phase 2 Task 2: ledger reads now require a RECEIVABLES role (Cashier /
+        # Store Manager / Admin), so this clerk is a Cashier. The assertions below are
+        # unchanged - the group only stops the permission layer answering for them.
+        self.user.groups.add(Group.objects.get_or_create(name='Cashier')[0])
         self.customer = Customer.objects.create(
             name='Utang Corp', customer_type=Customer.Type.REGULAR)
         self.txn = SalesTransaction.objects.create(
@@ -182,8 +193,10 @@ class LedgerPaymentApiTests(TestCase):
     """
 
     def setUp(self):
+        # nosemgrep: same throwaway-database fixture as every other backend test module.
         self.user = User.objects.create_user(
-            username='armgr', email='am@x.com', password='pass12345')  # nosemgrep
+            username='armgr', email='am@x.com',
+            password='pass12345')  # nosemgrep: python.lang.security.audit.hardcoded-password
         self.customer = Customer.objects.create(
             name='Utang Corp', customer_type=Customer.Type.REGULAR)
         self.txn = SalesTransaction.objects.create(
@@ -195,8 +208,8 @@ class LedgerPaymentApiTests(TestCase):
             original_amount=Decimal('500'), balance_due=Decimal('500'),
             due_date=date.today(), status=CollectibleLedger.Status.OPEN,
         )
-        # Posting a payment is IsPOSOrReadOnly, so the actor needs a POS role -
-        # the same fixture every other POS-role test uses.
+        # Posting a payment is ReceivablesReadPOSWrite, so the actor needs a POS role
+        # (and a receivables read role) - the same fixture every other POS test uses.
         self.user.groups.add(Group.objects.get_or_create(name='Cashier')[0])
         login = self.client.post(
             LOGIN_URL,
@@ -260,3 +273,135 @@ class LedgerPaymentApiTests(TestCase):
         row = next(r for r in response.json()['results']
                    if r['id'] == self.ledger.pk)
         self.assertEqual(row['balance_due'], '300.00')
+
+
+class ReceivablesAccessTestBase(TestCase):
+    """Phase 2 Task 2 — receivables reads need a receivables role; money rows are immutable.
+
+    Decision 02 + the ``P2 Ruling``: ledgers are written only by ``process_sale``,
+    ``release_materials`` and the payment endpoint, so ``PATCH /ledgers/{id}/`` (which
+    could raise or lower an outstanding balance) no longer exists for anyone. Payments
+    may be POSTed and read, never edited or deleted — a payment row is a receipt of
+    money, and an editable one is a way to erase a debt.
+    """
+
+    def setUp(self):
+        # APIClient, not Django's test client: these tests post JSON bodies and read
+        # `response.data`, and the auth headers are set per call.
+        self.client = APIClient()
+        self.password = get_random_string(16)
+        self.cashier = self._make_user('ar_scope_cashier', 'Cashier')
+        self.manager = self._make_user('ar_scope_manager', 'Store Manager')
+        self.stocker = self._make_user('ar_scope_stocker', 'Stock Manager')
+        self.foreman = self._make_user('ar_scope_foreman', 'Site Foreman')
+        self.nobody = self._make_user('ar_scope_nobody')
+        # `is_staff` is Django-admin access only (decision 04) — never API authority.
+        self.desk_staff = self._make_user('ar_scope_staff', is_staff=True)
+
+        self.customer = Customer.objects.create(
+            name='Utang Corp', customer_type=Customer.Type.REGULAR)
+        self.txn = SalesTransaction.objects.create(
+            customer=self.customer, cashier=self.cashier,
+            transaction_no='TRX-SCOPE-0001',
+            vatable_sales=Decimal('500'), grand_total=Decimal('500'))
+        self.ledger = CollectibleLedger.objects.create(
+            customer=self.customer, transaction=self.txn,
+            original_amount=Decimal('500'), balance_due=Decimal('500'),
+            due_date=date.today(), status=CollectibleLedger.Status.OPEN,
+        )
+
+    def _make_user(self, username, *groups, is_staff=False):
+        user = User.objects.create_user(
+            username=username, email=f'{username}@example.com',
+            password=self.password, is_staff=is_staff)
+        for name in groups:
+            user.groups.add(Group.objects.get_or_create(name=name)[0])
+        return user
+
+    def _auth(self, user):
+        login = APIClient().post(
+            LOGIN_URL, {'username': user.username, 'password': self.password},
+            format='json')
+        self.assertEqual(login.status_code, 200, login.data)
+        return {'HTTP_AUTHORIZATION': f"Bearer {login.data['access']}"}
+
+
+class LedgerReadRoleTests(ReceivablesAccessTestBase):
+    def test_cashier_and_manager_read_ledgers_and_aging(self):
+        for user in (self.cashier, self.manager):
+            with self.subTest(role=user.username):
+                self.assertEqual(
+                    self.client.get(LEDGERS_URL, **self._auth(user)).status_code, 200)
+                self.assertEqual(
+                    self.client.get(AGING_URL, **self._auth(user)).status_code, 200)
+
+    def test_stocker_foreman_groupless_and_desk_staff_are_refused(self):
+        for user in (self.stocker, self.foreman, self.nobody, self.desk_staff):
+            with self.subTest(user=user.username):
+                self.assertEqual(
+                    self.client.get(LEDGERS_URL, **self._auth(user)).status_code, 403)
+                self.assertEqual(
+                    self.client.get(AGING_URL, **self._auth(user)).status_code, 403)
+
+
+class LedgerImmutabilityTests(ReceivablesAccessTestBase):
+    def test_ledger_writes_are_gone_even_for_a_manager(self):
+        for method in ('put', 'patch', 'delete'):
+            with self.subTest(method=method):
+                request = getattr(self.client, method)
+                response = request(
+                    f'{LEDGERS_URL}{self.ledger.pk}/',
+                    {'balance_due': '0.00', 'status': 'PAID'},
+                    content_type='application/json',
+                    **self._auth(self.manager))
+
+                self.assertEqual(response.status_code, 405, response.content)
+                self.ledger.refresh_from_db()
+                self.assertEqual(self.ledger.balance_due, Decimal('500'))
+
+    def test_a_cashier_can_still_post_a_payment(self):
+        response = self.client.post(
+            PAYMENTS_URL,
+            {'collectible': self.ledger.pk, 'amount_paid': '200',
+             'payment_method': 'CASH'},
+            format='json', **self._auth(self.cashier))
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.ledger.refresh_from_db()
+        self.assertEqual(self.ledger.balance_due, Decimal('300'))
+
+    def test_a_stocker_cannot_post_a_payment(self):
+        response = self.client.post(
+            PAYMENTS_URL,
+            {'collectible': self.ledger.pk, 'amount_paid': '200',
+             'payment_method': 'CASH'},
+            format='json', **self._auth(self.stocker))
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.ledger.refresh_from_db()
+        self.assertEqual(self.ledger.balance_due, Decimal('500'))
+
+    def test_a_payment_cannot_be_edited_or_deleted(self):
+        self.client.post(
+            PAYMENTS_URL,
+            {'collectible': self.ledger.pk, 'amount_paid': '200',
+             'payment_method': 'CASH'},
+            format='json', **self._auth(self.cashier))
+        payment = CollectiblePayment.objects.get()
+
+        for method in ('put', 'patch', 'delete'):
+            with self.subTest(method=method):
+                request = getattr(self.client, method)
+                response = request(
+                    f'{PAYMENTS_URL}{payment.pk}/',
+                    {'amount_paid': '0.01'},
+                    content_type='application/json',
+                    **self._auth(self.cashier))
+
+                self.assertEqual(response.status_code, 405, response.content)
+
+        payment.refresh_from_db()
+        self.assertEqual(payment.amount_paid, Decimal('200'))
+        self.assertEqual(CollectiblePayment.objects.count(), 1)
+        self.ledger.refresh_from_db()
+        self.assertEqual(self.ledger.balance_due, Decimal('300'))

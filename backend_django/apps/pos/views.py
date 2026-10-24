@@ -8,13 +8,17 @@ from django.db.models import Sum
 from decimal import Decimal
 from decimal import InvalidOperation
 from django.db import IntegrityError
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from apps.users.permissions import IsPOSOrReadOnly, IsManagerRole
+from apps.users.permissions import (
+    IsManagerRole, IsPOSOrReadOnly, IsPOSRole, SalesReadPOSWrite,
+    has_role, is_cashier_only,
+)
+from .exceptions import CreditLimitForbidden
 from .models import Customer, SalesTransaction, Payment, OfficialReceipt
 from .models import Quotation, SalesOrder
 from .models import HeldCart
@@ -64,21 +68,98 @@ def _replayed_response(transaction):
 
 
 class BaseViewSet(viewsets.ModelViewSet):
-    """Read requires auth; write requires POS role (Cashier+)."""
+    """Read needs a SALES role; write needs a POS role (decision 02, Phase 2).
 
-    permission_classes = [IsPOSOrReadOnly]
+    Reads used to be open to any authenticated user, which handed quotations, customers
+    and the whole sales history to a Site Foreman or to a groupless account. `foreman`
+    is not a sales role: 403. A Stock Manager IS a sales reader (P2 Ruling - the stocker
+    Sales tab reads all sales), it just cannot write one.
+    """
+
+    permission_classes = [SalesReadPOSWrite]
+
+
+class OwnSalesScopeMixin:
+    """Row-level scope: a cashier-only user sees the sales THEY rang, nobody else's.
+
+    Manager / Admin / Stock Manager see the whole store. `own_scope_field` is the lookup
+    that reaches the cashier who owns the row: `cashier` on a transaction, and
+    `transaction__cashier` on a payment or a receipt.
+
+    Filtering the QUERYSET, rather than refusing in a permission class, is what makes a
+    non-owner's detail URL a **404**: within this caller's world the row does not exist,
+    so the API neither confirms it nor reveals whose till rang it ("hidden ≠ forbidden",
+    decision 02). It also scopes `daily_report` for free, because that action already
+    aggregates `self.get_queryset()`.
+    """
+
+    own_scope_field = 'cashier'
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if is_cashier_only(self.request.user):
+            return qs.filter(**{self.own_scope_field: self.request.user})
+        return qs
+
+
+def _refuse_credit_limit_from_non_manager(request):
+    """403 when a non-manager sends `total_credit_limit` (decision 08, Phase 2).
+
+    The field is only refused when it is actually PRESENT: an older client that posts a
+    customer without it keeps working, and a cashier editing a customer's phone number
+    is not asked for a manager's permission. Nothing is written, because this runs
+    before the serializer sees the payload.
+    """
+    if 'total_credit_limit' not in request.data:
+        return
+    if has_role(request.user, IsManagerRole.required_roles):
+        return
+    raise CreditLimitForbidden()
 
 
 class CustomerViewSet(BaseViewSet):
+    """Customers: sales roles read, POS roles write, managers alone set credit limits."""
+
     queryset = Customer.objects.all()
     serializer_class = CustomerSerializer
 
+    def get_permissions(self):
+        # Deleting a customer erases who owed what, so it is a manager decision - a
+        # cashier may not make a debtor's history disappear.
+        if self.action == 'destroy':
+            return [IsManagerRole()]
+        return super().get_permissions()
 
-class SalesTransactionViewSet(BaseViewSet):
+    def create(self, request, *args, **kwargs):
+        _refuse_credit_limit_from_non_manager(request)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        # `partial_update` delegates here, so PATCH is covered by the same guard.
+        _refuse_credit_limit_from_non_manager(request)
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            # Sales, quotations, orders, ledgers and requisitions PROTECT their customer:
+            # deleting one would orphan money. 409 with a stable code, never a 500.
+            return Response(
+                {'code': 'CUSTOMER_IN_USE',
+                 'detail': 'This customer has sales or receivables and cannot be '
+                           'deleted. Deactivate them instead.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+
+class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
     queryset = SalesTransaction.objects.select_related('customer','cashier').prefetch_related('items','payments','receipt').all()
     serializer_class = SalesTransactionSerializer
 
     def get_queryset(self):
+        # `super()` reaches `OwnSalesScopeMixin.get_queryset`, so the cashier-only scope
+        # is applied BEFORE the source filter below (both apply, in either order).
         qs = super().get_queryset()
         # Decision 15's amendment wires the returns page over
         # GET /transactions/?source=RETURN: the page must isolate returns.
@@ -301,23 +382,37 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(self.get_serializer(shift).data)
 
 
-class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Payment.objects.select_related('transaction').all()
+class PaymentViewSet(OwnSalesScopeMixin, viewsets.ReadOnlyModelViewSet):
+    """Read-only POS payments, scoped to the caller's own sales for a cashier-only user.
+
+    A payment row carries the till's money, so it follows its transaction: a cashier sees
+    their own, a manager / stocker / admin sees the store (P2 Ruling - the stocker Sales
+    tab sums every sale).
+    """
+
+    # `order_by('id')` is not cosmetic: paginated results from an unordered queryset can
+    # repeat or skip a row between pages (UnorderedObjectListWarning), and a payment list
+    # that skips a row is money missing from a screen.
+    queryset = Payment.objects.select_related('transaction').order_by('id')
     serializer_class = PaymentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [SalesReadPOSWrite]
+    own_scope_field = 'transaction__cashier'
 
 
-class OfficialReceiptViewSet(viewsets.ReadOnlyModelViewSet):
+class OfficialReceiptViewSet(OwnSalesScopeMixin, viewsets.ReadOnlyModelViewSet):
+    """Read-only official receipts, scoped exactly like the payments they record."""
+
     queryset = OfficialReceipt.objects.select_related('transaction').all()
     serializer_class = OfficialReceiptSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [SalesReadPOSWrite]
+    own_scope_field = 'transaction__cashier'
 
 
 class QuotationViewSet(BaseViewSet):
     """Decision 05: quotations are a real backend resource.
 
-    Writes need a POS role (BaseViewSet -> IsPOSOrReadOnly); reads are open to any authenticated
-    user, which is what lets the sales screens list them for a Cashier.
+    Reads need a SALES role and writes a POS role (BaseViewSet -> SalesReadPOSWrite), which is
+    what lets every sales screen list them while keeping a Site Foreman or a groupless account out.
     """
 
     queryset = Quotation.objects.select_related('customer').prefetch_related('items__variant_uom')
@@ -329,7 +424,7 @@ class QuotationViewSet(BaseViewSet):
 
 
 class SalesOrderViewSet(BaseViewSet):
-    """Phase 6 task 6A.2 (decision 05). Reads are open to any authenticated user; writes need a POS role."""
+    """Phase 6 task 6A.2 (decision 05). Reads need a SALES role; writes need a POS role."""
 
     queryset = SalesOrder.objects.select_related(
         'customer', 'quotation').prefetch_related('items__variant_uom')
@@ -340,9 +435,17 @@ class SalesOrderViewSet(BaseViewSet):
 
 
 class HeldCartViewSet(BaseViewSet):
-    """Held/parked carts — Phase 3 of cashier-workflow."""
+    """Held/parked carts — Phase 3 of cashier-workflow.
+
+    EVERY method requires a POS role (decision 02): a parked cart is live till work, so a
+    Stock Manager or Site Foreman gets 403 even on GET. Among POS roles the carts stay
+    store-wide - decision 05's "any cashier may resume" is unchanged, so the queryset is
+    NOT scoped to `cashier=request.user`.
+    """
+
     queryset = HeldCart.objects.select_related('cashier', 'customer').prefetch_related('items__variant_uom')
     serializer_class = HeldCartSerializer
+    permission_classes = [IsPOSRole]
 
     def perform_create(self, serializer):
         serializer.save(cashier=self.request.user)

@@ -100,17 +100,21 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 
 | Method | Path | Purpose | Auth |
 | --- | --- | --- | --- |
-| GET/POST/PATCH/DELETE | `/api/v1/customers/` | Customer CRUD (walk-in, regular, contractor) | Authenticated |
-| POST | `/api/v1/transactions/` | **Checkout** — body: `{customer, source, items[], payments[]}`; runs `process_sale` (server-priced lines, FIFO stock deduction on base units, payment allocation, OR generation, collectibles posting if underpaid). Honours `Idempotency-Key` (see *Idempotency* above). Failures are **400** `{code, detail}`: `INVALID_SALE` (line/qty/payment shape), `INSUFFICIENT_STOCK`, `CREDIT_LIMIT_EXCEEDED` (+ `limit`/`outstanding`/`shortfall`), `WALK_IN_CANNOT_OWE`, `NO_OPEN_SHIFT`; **409** `IDEMPOTENCY_KEY_REUSED` | Authenticated |
-| GET | `/api/v1/transactions/` | Sales history (with items, payments, receipt) | Authenticated |
-| GET | `/api/v1/transactions/daily_report/` | Today's totals: `{date, count, total_sales}` | Authenticated |
-| GET | `/api/v1/payments/` | POS payments (read-only) | Authenticated |
-| GET | `/api/v1/receipts/` | Official receipts (read-only) | Authenticated |
-| GET | `/api/v1/held-carts/` | List held (parked) carts for the current cashier | Authenticated |
-| POST | `/api/v1/held-carts/` | **Hold** — body: `{customer, notes, items[{variant_uom, qty, unit_price}]}`; parks the cart without touching stock | Authenticated |
-| GET | `/api/v1/held-carts/{id}/` | Retrieve a single held cart with items | Authenticated |
-| DELETE | `/api/v1/held-carts/{id}/` | **Void** a held cart — permanent delete, no stock change | Authenticated |
-| POST | `/api/v1/held-carts/{id}/complete/` | **Complete** — body: `{customer?, payments[]}`; feeds items into `process_sale` (requires open shift) then deletes the cart. Honours `Idempotency-Key` (see *Idempotency* above): a retry after the cart was deleted returns the original sale with **200**, not 404 | Authenticated |
+| GET | `/api/v1/customers/` | Customer list (walk-in, regular, contractor), including `total_credit_limit` | Cashier / Stock Manager / Store Manager / Admin |
+| POST/PUT/PATCH | `/api/v1/customers/` | Create or update a customer. Sending **`total_credit_limit`** requires Store Manager / Admin — any other role gets **403** `{"code": "CREDIT_LIMIT_FORBIDDEN", "detail": …}` and **nothing is written** (a cashier who could raise a limit would void decision 08's credit block) | Cashier / Store Manager / Admin (credit limit: Store Manager / Admin) |
+| DELETE | `/api/v1/customers/{id}/` | Delete a customer. Refused with **409** `{"code": "CUSTOMER_IN_USE"}` when sales, quotations, orders, ledgers or requisitions still reference the row (they are `PROTECT`) — deactivate instead | Store Manager / Admin |
+| POST | `/api/v1/transactions/` | **Checkout** — body: `{customer, source, items[], payments[]}`; runs `process_sale` (server-priced lines, FIFO stock deduction on base units, payment allocation, OR generation, collectibles posting if underpaid). Honours `Idempotency-Key` (see *Idempotency* above). Failures are **400** `{code, detail}`: `INVALID_SALE` (line/qty/payment shape), `INSUFFICIENT_STOCK`, `CREDIT_LIMIT_EXCEEDED` (+ `limit`/`outstanding`/`shortfall`), `WALK_IN_CANNOT_OWE`, `NO_OPEN_SHIFT`; **409** `IDEMPOTENCY_KEY_REUSED` | Cashier / Store Manager / Admin |
+| GET | `/api/v1/transactions/` | Sales history (with items, payments, receipt). **Own rows only** for a cashier-only user (another till's row is **404**); a Stock Manager / Store Manager / Admin sees every sale | Cashier / Stock Manager / Store Manager / Admin |
+| GET | `/api/v1/transactions/daily_report/` | Today's totals: `{date, count, total_sales}`, aggregated over the same scope as the list (cashier = own sales) | Cashier / Stock Manager / Store Manager / Admin |
+| GET | `/api/v1/payments/` | POS payments (read-only), scoped through their transaction's cashier | Cashier / Stock Manager / Store Manager / Admin |
+| GET | `/api/v1/receipts/` | Official receipts (read-only), scoped through their transaction's cashier | Cashier / Stock Manager / Store Manager / Admin |
+| GET/POST/PATCH/PUT/DELETE | `/api/v1/quotations/` | Quotations with nested items (`quotation_no` generated server-side, `created_by` = caller) | read: Cashier / Stock Manager / Store Manager / Admin — write: Cashier / Store Manager / Admin |
+| GET/POST/PATCH/PUT/DELETE | `/api/v1/sales-orders/` | Sales orders with nested items (`order_no` generated server-side, `created_by` = caller) | read: Cashier / Stock Manager / Store Manager / Admin — write: Cashier / Store Manager / Admin |
+| GET | `/api/v1/held-carts/` | List held (parked) carts — store-wide among POS roles | Cashier / Store Manager / Admin |
+| POST | `/api/v1/held-carts/` | **Hold** — body: `{customer, notes, items[{variant_uom, qty, unit_price}]}`; parks the cart without touching stock | Cashier / Store Manager / Admin |
+| GET | `/api/v1/held-carts/{id}/` | Retrieve a single held cart with items | Cashier / Store Manager / Admin |
+| DELETE | `/api/v1/held-carts/{id}/` | **Void** a held cart — permanent delete, no stock change | Cashier / Store Manager / Admin |
+| POST | `/api/v1/held-carts/{id}/complete/` | **Complete** — body: `{customer?, payments[]}`; feeds items into `process_sale` (requires open shift) then deletes the cart. Honours `Idempotency-Key` (see *Idempotency* above): a retry after the cart was deleted returns the original sale with **200**, not 404 | Cashier / Store Manager / Admin |
 | POST | `/api/v1/shifts/open/` | **Open shift** — body: `{opening_float}`; one open shift per cashier enforced at DB level (400 `SHIFT_ALREADY_OPEN` if already open) | Authenticated |
 | POST | `/api/v1/shifts/{id}/close/` | **Close shift** — body: `{closing_count}`; sets status=CLOSED, returns Z-reading (transaction_count, gross_sales, cash_sales, card_sales, gcash_sales, expected_drawer, variance) | Authenticated |
 | GET | `/api/v1/shifts/current/` | Current cashier's open shift, or 404 `No open shift` | Authenticated |
@@ -120,10 +124,13 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 
 | Method | Path | Purpose | Auth |
 | --- | --- | --- | --- |
-| GET | `/api/v1/ledgers/` | Outstanding receivable entries (+ nested payments) | Authenticated |
-| GET | `/api/v1/ledgers/aging/` | **Aging report** — overdue/open balances grouped by customer | Authenticated |
-| POST/PATCH/DELETE | `/api/v1/ledgers/` | Ledger write operations | Admin (`IsAdminOrReadOnly`) |
-| GET/POST/PATCH/DELETE | `/api/v1/ledger-payments/` | Collectible payments CRUD (posts against a ledger) | Authenticated |
+| GET | `/api/v1/ledgers/` | Outstanding receivable entries (+ nested payments) | Cashier / Store Manager / Admin |
+| GET | `/api/v1/ledgers/aging/` | **Aging report** — overdue/open balances grouped by customer | Cashier / Store Manager / Admin |
+| GET/POST/PUT/PATCH/DELETE | `/api/v1/ledger-payments/` | Collectible payments (posts against a ledger and moves `balance_due` in one atomic block). **Read + create only**: a payment row is a receipt of money, so PUT/PATCH/DELETE are **405** | read: Cashier / Store Manager / Admin — `POST`: Cashier / Store Manager / Admin |
+
+> ℹ **Ledgers are read-only (Phase 2):** `POST/PUT/PATCH/DELETE /api/v1/ledgers/` no longer exist (**405** for everyone, including managers). A ledger is opened by `process_sale` / `release_materials` and moved only by `POST /api/v1/ledger-payments/`, so `balance_due` cannot be rewritten by hand. The previous `PATCH` allowed any Django `is_staff` account to set a balance.
+>
+> ℹ **Receivables readers are narrower than sales readers:** a Stock Manager may read `/transactions/` (the stocker Sales tab) but gets **403** on `/ledgers/` — customers' debts are not inventory data.
 
 > ℹ **Route note (fixed):** collectible payments were previously registered at `/api/v1/payments/`, which collided with the POS `payments` route and made them unreachable. They now live at **`/api/v1/ledger-payments/`**. Nested payments are still also visible inside `/api/v1/ledgers/` responses.
 
@@ -176,10 +183,11 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
    | Users CRUD, roles, audit logs, register | Admin **group** (`IsAdminRole`) | Admin **group** |
    | Inventory catalog & stock (products, categories, brands, UOMs, suppliers, POs, goods receipts + `process`, stock adjustments) | Stock Manager / Store Manager / Admin | Any authenticated |
    | System alerts (incl. `resolve`) | Admin | Any authenticated |
-   | POS (transactions, customers) | Cashier / Store Manager / Admin | Any authenticated |
-   | Payments & official receipts | read-only | Any authenticated |
-   | Collectible ledgers | Admin | Any authenticated |
-   | Collectible payments (`/ledger-payments/`) | Cashier / Store Manager / Admin | Any authenticated |
+   | Sales reads: `/transactions/` (+ `daily_report`), `/customers/`, `/payments/`, `/receipts/`, `/quotations/`, `/sales-orders/` | Cashier / Store Manager / Admin (`SalesReadPOSWrite`) | Cashier / Stock Manager / Store Manager / Admin — a **cashier-only** user sees only rows they rang (404 otherwise) |
+   | Held/parked carts (`/held-carts/`, incl. `complete`) | Cashier / Store Manager / Admin | Cashier / Store Manager / Admin (store-wide; `inventory` / `foreman` → 403) |
+   | Payments & official receipts | read-only | Cashier / Stock Manager / Store Manager / Admin (scoped like their transaction) |
+   | Collectible ledgers (`/ledgers/`, `/ledgers/aging/`) | **none** — 405 (`ReadOnlyModelViewSet`) | Cashier / Store Manager / Admin (`IsReceivablesReader`) |
+   | Collectible payments (`/ledger-payments/`) | `POST` only: Cashier / Store Manager / Admin | Cashier / Store Manager / Admin |
    | Projects, requisitions, requisition items | Site Foreman / Store Manager / Admin | Any authenticated |
    | Requisition `submit` | Site Foreman / Store Manager / Admin | — |
    | Requisition `approve` / `reject` | Store Manager / Admin | — |
