@@ -46,7 +46,12 @@ class PosReceiptDialog extends StatelessWidget {
               const Divider(),
               _amountRow('Total', receipt.total),
               _amountRow('Paid', receipt.amountPaid),
-              _amountRow('Change', receipt.change),
+              // An underpaid named-customer sale owes the shortfall as utang; printing
+              // it as negative change reads like money the till handed back.
+              if (receipt.change < 0)
+                _amountRow('Balance due (utang)', -receipt.change)
+              else
+                _amountRow('Change', receipt.change),
               const SizedBox(height: 12),
               const Text(
                 'Inventory quantities were updated in the current app session.',
