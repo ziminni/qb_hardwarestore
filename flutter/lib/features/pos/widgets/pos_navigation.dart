@@ -13,6 +13,9 @@ const List<DashboardNavigationItem> posNavigationItems = [
   DashboardNavigationItem('Record payment', Icons.payments_outlined),
   DashboardNavigationItem('Held transactions', Icons.pause_circle_outline),
   DashboardNavigationItem('Shifts', Icons.access_time),
+  // Appended by decision 05 (Phase 3). Index 6 is the FIRST free slot: the tab
+  // order is append-only, so no existing page renumbers.
+  DashboardNavigationItem('Returns', Icons.assignment_return_outlined),
 ];
 
 /// Routes the POS shell sidebar tap to the matching page.
@@ -25,6 +28,7 @@ void navigatePos(BuildContext context, int index) {
     3 => AppRoutes.posReceivables,
     4 => AppRoutes.posHeld,
     5 => AppRoutes.posShifts,
+    6 => AppRoutes.posReturns,
     _ => null,
   };
   if (path != null) context.go(path);

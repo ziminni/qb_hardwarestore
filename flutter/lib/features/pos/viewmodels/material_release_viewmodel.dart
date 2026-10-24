@@ -31,9 +31,21 @@ class MaterialReleaseViewmodel extends ChangeNotifier {
   bool get hasVerified => verification != null;
   bool get isReleased => result != null;
 
+  /// True when the last RELEASE was refused with `NO_OPEN_SHIFT`.
+  ///
+  /// Decision 03 (Phase 3): a release is recorded against the cashier's open
+  /// shift, so `release_materials` refuses without one. That is a RULE with a
+  /// next step the screen can offer — the Shifts tab — where every other
+  /// refusal (a spent token, a bad code) is not.
+  ///
+  /// Driven by the CODE, never by the prose: a connection error whose text
+  /// happened to mention a shift must not put a pointless detour on screen.
+  bool needsOpenShift = false;
+
   Future<void> verify(String token) async {
     isBusy = true;
     error = null;
+    needsOpenShift = false;
     verification = null;
     result = null;
     notifyListeners();
@@ -53,12 +65,16 @@ class MaterialReleaseViewmodel extends ChangeNotifier {
     if (token == null || result != null) return false;
 
     error = null;
+    needsOpenShift = false;
     isBusy = true;
     notifyListeners();
     try {
       result = await _repository.release(token);
     } on RequisitionServiceException catch (failure) {
       error = failure.message;
+      // Only this refusal has an action attached; every other one is read and
+      // reported, so a Retry of the same press is the honest next step.
+      needsOpenShift = failure.code == 'NO_OPEN_SHIFT';
       notifyListeners();
       return false;
     } finally {

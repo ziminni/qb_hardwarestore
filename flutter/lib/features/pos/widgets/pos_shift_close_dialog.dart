@@ -1,3 +1,5 @@
+import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/models/shift.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_z_reading_summary.dart';
@@ -98,6 +100,22 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
             'Opening float ₱${widget.shift.openingFloat.toStringAsFixed(2)}. '
             'Count the drawer and enter the total cash.',
           ),
+          // Decision 06 / Phase 3 Task 3: record-and-WARN, never block. The
+          // carts are not deleted by the close and can still be resumed, so the
+          // cashier is told the count and may close anyway. A warning on every
+          // close would be a warning nobody reads, hence the > 0 guard.
+          if (widget.shift.heldCartCount > 0) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              '${widget.shift.heldCartCount} held cart(s) remain — they stay '
+              'held and can be resumed later.',
+              style: TextStyle(
+                color: AppColors.warning,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+          const SizedBox(height: AppSpacing.sm),
           TextField(
             controller: _controller,
             autofocus: true,

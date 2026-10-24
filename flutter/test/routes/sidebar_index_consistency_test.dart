@@ -82,8 +82,10 @@ void main() {
     expect(inventoryOrder.length, 13);
     expect(
       posOrder.length,
-      6,
-      reason: 'the POS sidebar has 6 destinations (tabs 0-5)',
+      7,
+      reason:
+          'the POS sidebar has 7 destinations — Returns (decision 05) was '
+          'APPENDED at index 6, so tabs 0-5 keep their numbers',
     );
     expect(salesOrder.first, 'salesDashboard');
     expect(
@@ -102,6 +104,14 @@ void main() {
     expect(posOrder[2], 'posRelease');
     expect(posOrder[4], 'posHeld');
     expect(posOrder[5], 'posShifts');
+    expect(
+      posOrder[6],
+      'posReturns',
+      reason:
+          'Returns is appended at 6 (decision 05). Renumbering an existing tab '
+          'would send a cashier to the wrong screen — the regression this file '
+          'exists for',
+    );
   });
 
   group('every page highlights its own entry in its own sidebar', () {

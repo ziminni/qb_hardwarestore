@@ -14,6 +14,7 @@ import 'package:client/features/dashboard/viewmodels/admin_overview_viewmodel.da
 import 'package:client/features/dashboard/views/admin_dashboard.dart';
 import 'package:client/features/dashboard/views/inventory_dashboard.dart';
 import 'package:client/features/pos/views/pos_receivables_page.dart';
+import 'package:client/features/pos/views/pos_returns_page.dart';
 import 'package:client/features/pos/views/pos_shift_page.dart';
 import 'package:client/features/pos/views/pos_held_transactions_page.dart';
 import 'package:client/features/pos/views/pos_transaction_history_page.dart';
@@ -76,6 +77,12 @@ class AppRoutes {
   static const String posReceivables = '/pos/receivables';
   static const String posHeld = '/pos/held';
   static const String posShifts = '/pos/shifts';
+
+  /// The till's Returns tab (index 6, decision 05).
+  ///
+  /// Appended, never inserted: the POS sidebar is append-only, so tabs 0-5 keep
+  /// the numbers their own pages declare.
+  static const String posReturns = '/pos/returns';
   static const String salesDashboard = '/sales/dashboard';
   static const String salesTransactions = '/sales/transactions';
   static const String salesQuotations = '/sales/quotations';
@@ -378,6 +385,16 @@ class AppRoutes {
           name: 'pos_shifts',
           pageBuilder: (context, state) =>
               _transitionPage(state, const PosShiftPage()),
+        ),
+        // The page builds its own returns and shift viewmodels — the same
+        // page-owned pattern the Shifts tab uses — so this route declares no
+        // provider. A route that NEEDED one and did not provide it is exactly
+        // how AdminDashboard crashed with ProviderNotFoundException.
+        GoRoute(
+          path: posReturns,
+          name: 'pos_returns',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const PosReturnsPage()),
         ),
         GoRoute(
           path: salesDashboard,

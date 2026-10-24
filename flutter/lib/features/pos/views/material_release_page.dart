@@ -2,7 +2,9 @@ import 'package:client/data/models/requisition.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/viewmodels/material_release_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
+import 'package:client/routes/routes.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 /// The material release counter — Phase 5's only **irreversible** screen (decision 09).
 ///
@@ -80,11 +82,31 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
                 if (_viewmodel.error != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 16),
-                    child: Text(
-                      _viewmodel.error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _viewmodel.error!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                        // Decision 03 (Phase 3 Task 1): a release needs an open
+                        // shift. That is the one refusal here the clerk can FIX,
+                        // so it gets the control that fixes it — the token stays
+                        // in the field, because retyping a 36-character UUID is
+                        // how the wrong requisition gets released.
+                        if (_viewmodel.needsOpenShift)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: OutlinedButton.icon(
+                              onPressed: () =>
+                                  context.go(AppRoutes.posShifts),
+                              icon: const Icon(Icons.access_time),
+                              label: const Text('Go to Shifts'),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 if (_viewmodel.verification != null) ...[

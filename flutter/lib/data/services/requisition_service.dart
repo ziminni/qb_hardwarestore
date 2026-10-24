@@ -10,9 +10,17 @@ import 'package:dio/dio.dart';
 /// replacing that with a generic message throws away the only explanation the manager gets for a
 /// button that did nothing.
 class RequisitionServiceException implements Exception {
-  const RequisitionServiceException(this.message);
+  const RequisitionServiceException(this.message, {this.code});
 
   final String message;
+
+  /// The server's stable machine-readable code, when it sent one.
+  ///
+  /// Phase 3 Task 4 needs it for exactly one refusal: `NO_OPEN_SHIFT` is the
+  /// only release failure with a NEXT STEP the screen can take (open a shift),
+  /// and a transport failure that merely mentions "shift" in prose would be a
+  /// guess.
+  final String? code;
 
   @override
   String toString() => message;
@@ -52,7 +60,10 @@ class RequisitionService {
           queryParameters: {'page': page},
         );
       } on DioException catch (error) {
-        throw RequisitionServiceException(_messageFor(error));
+        throw RequisitionServiceException(
+          _messageFor(error),
+          code: _serverCode(error),
+        );
       } on FormatException {
         throw const RequisitionServiceException(
           'The requisition data could not be read. Try again.',
@@ -126,7 +137,12 @@ class RequisitionService {
       }
       return data;
     } on DioException catch (error) {
-      throw RequisitionServiceException(_messageFor(error));
+      // The CODE travels with the message (Phase 3 Task 4): `NO_OPEN_SHIFT` is
+      // the one release refusal the screen can FIX, and only the code says so.
+      throw RequisitionServiceException(
+        _messageFor(error),
+        code: _serverCode(error),
+      );
     } on FormatException {
       throw const RequisitionServiceException(
         'The requisition data could not be read. Try again.',
@@ -199,6 +215,12 @@ class RequisitionService {
     'REQUISITION_LOCKED':
         'This requisition can no longer be changed: only a DRAFT requisition '
         'can be edited. Create a new requisition instead.',
+    // Decision 03 (Phase 3 Task 1): a release now writes a SalesTransaction
+    // against the cashier's open shift, so the Z-reading counts it in the
+    // transaction count and gross sales. No shift, no release.
+    'NO_OPEN_SHIFT':
+        'Open a shift before releasing materials — a release is recorded '
+        'against a shift, so the Z-reading counts it in the day\'s sales.',
   };
 
   /// The stable machine-readable `code` a business-rule refusal carries, if any.

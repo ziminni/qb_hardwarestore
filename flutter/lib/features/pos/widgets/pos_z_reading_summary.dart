@@ -51,6 +51,17 @@ class PosZReadingSummary extends StatelessWidget {
               '₱${variance.toStringAsFixed(2)}',
               color: variance == 0 ? null : AppColors.error,
             ),
+          // Advisory (Phase 3 Task 3): parked carts are NOT part of the drawer
+          // arithmetic and never block a close, so the line appears only when
+          // there are some. Printing "0" on every Z-reading would put a number
+          // next to the money that has nothing to do with it.
+          if (reading.heldCartCount > 0)
+            _line(
+              context,
+              'Held carts',
+              '${reading.heldCartCount}',
+              color: AppColors.warning,
+            ),
         ],
       ),
     );

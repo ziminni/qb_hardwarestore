@@ -1,5 +1,19 @@
 import 'package:client/data/models/json_field.dart';
 
+/// `held_cart_count`, read leniently when ABSENT and strictly when present.
+///
+/// The server always sends it on `current`, on the list and at close (Phase 3
+/// Task 3), but a body that predates the field — or a proxy that trims unknown
+/// keys — must not break the Shifts tab: "no carts" is the honest reading of a
+/// count nobody sent. A count that IS sent is parsed strictly, because a wrong
+/// warning about a cashier's parked carts is worse than none.
+int _heldCartCount(Map<String, dynamic> json) {
+  if (!json.containsKey('held_cart_count') || json['held_cart_count'] == null) {
+    return 0;
+  }
+  return intField(json, 'held_cart_count');
+}
+
 /// The end-of-shift summary (Z-reading) returned with a closed shift.
 ///
 /// Derived on the server from the shift's own transactions — never stored — so
@@ -13,6 +27,7 @@ class ZReading {
     required this.gcashSales,
     required this.expectedDrawer,
     required this.variance,
+    this.heldCartCount = 0,
   });
 
   factory ZReading.fromJson(Map<String, dynamic> json) {
@@ -28,6 +43,11 @@ class ZReading {
       variance: json['variance'] == null
           ? null
           : decimalField(json, 'variance'),
+      // ADVISORY (Phase 3 Task 3): the count of carts still parked by this
+      // cashier. Absent is read as 0 rather than failing — a fixture written
+      // before the field existed must still parse — but a PRESENT value is read
+      // strictly, because a count the client guessed would be a wrong warning.
+      heldCartCount: _heldCartCount(json),
     );
   }
 
@@ -41,6 +61,14 @@ class ZReading {
   /// Counted minus expected. Null until the shift is closed; non-zero is
   /// recorded and warned about, never blocked (decision 06, ruling 3).
   final double? variance;
+
+  /// Parked carts the shift's cashier left behind (Phase 3 Task 3).
+  ///
+  /// ADVISORY ONLY: the close is recorded and warned about, never blocked, and
+  /// the carts are never deleted — they can still be resumed (decision 06,
+  /// record-and-warn). Defaults to 0 so a fixture written before the field
+  /// existed still parses.
+  final int heldCartCount;
 }
 
 /// A cashier's shift — Phase 4 of the cashier workflow (decision 06).
@@ -59,6 +87,7 @@ class Shift {
     required this.closedAt,
     required this.notes,
     required this.zReading,
+    this.heldCartCount = 0,
   });
 
   factory Shift.fromJson(Map<String, dynamic> json) {
@@ -77,6 +106,7 @@ class Shift {
       zReading: zReading is Map<String, dynamic>
           ? ZReading.fromJson(zReading)
           : null,
+      heldCartCount: _heldCartCount(json),
     );
   }
 
@@ -95,6 +125,13 @@ class Shift {
   /// Only complete on a closed shift — the server computes it at close and
   /// returns it with every later read of the same shift.
   final ZReading? zReading;
+
+  /// Parked carts this cashier still has (Phase 3 Task 3).
+  ///
+  /// Advisory: the close dialog WARNS about them and closes anyway, and they
+  /// stay resumable. Read-only on the wire — a client that could write it could
+  /// silence the advisory.
+  final int heldCartCount;
 
   bool get isOpen => status == openStatus;
 }
