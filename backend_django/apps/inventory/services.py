@@ -15,7 +15,7 @@ from django.db.models import F, Sum
 from django.utils import timezone
 
 
-from .exceptions import InsufficientStock, ReceiptAlreadyProcessed
+from .exceptions import InsufficientStock, NoBatchHistory, ReceiptAlreadyProcessed
 from .models import (
     GoodsReceipt,
     InventoryBatch,
@@ -161,10 +161,31 @@ def allocate_fifo(*, variant_id: int, qty_needed: Decimal):
 
 
 def apply_stock_adjustment(*, adjustment: StockAdjustment) -> None:
-    """Apply a manual stock adjustment by reducing the newest batch.
+    """Move stock for one manual adjustment; MUST run inside the caller's atomic block.
 
-    Negative qty_adjusted = removal; positive = add back (uses oldest batch).
-    After applying, check low-stock thresholds.
+    Negative `qty_adjusted` = removal (shrinkage / damage) through FIFO, so the loss comes
+    off the oldest stock first and an over-deduction surfaces as `InsufficientStock`
+    rather than as silently negative stock.
+
+    Positive `qty_adjusted` = addition (count correction / return) onto the NEWEST batch
+    of that variant, whatever its `current_qty` is. Two defects lived here before:
+
+    1. The batch lookup filtered `current_qty__gt=0`, so a correction booked against an
+       out-of-stock variant matched nothing, wrote a StockAdjustment row and moved no
+       stock - the ledger asserted stock the shelves did not have (audit gap 09 item 5).
+    2. When no batch matched at all, nothing was raised and the caller kept the row.
+       A variant that has never been delivered cannot be corrected upwards: there is
+       nowhere to put the quantity. The ledger ruling replaced the plan's "create a
+       batch" with "reopen the newest EXISTING batch", because `InventoryBatch.receipt`
+       is a non-null PROTECT FK and a receipt-less batch would need a schema change.
+       `NoBatchHistory` (400 NO_BATCH_HISTORY) is the refusal, and because the caller in
+       `StockAdjustmentViewSet` wraps create + apply in ONE atomic block, refusing it
+       leaves no adjustment row behind.
+
+    The old removal branch caught its own `ValueError` and called `allocate_fifo` a second
+    time; the retry could only ever raise again (the stock needed to satisfy it does not
+    appear between two calls), so it doubled the work and hid the real error class. It is
+    gone: `InsufficientStock` propagates to the DRF handler, which answers 400.
     """
     from .models import InventoryBatch
 
@@ -174,21 +195,22 @@ def apply_stock_adjustment(*, adjustment: StockAdjustment) -> None:
     if qty < 0:  # removal (shrinkage / damage)
         # The result is deliberately not bound: `allocate_fifo` both deducts and returns
         # the allocation, and this caller only needs the deduction.
-        try:
-            allocate_fifo(variant_id=variant.pk, qty_needed=abs(qty))
-        except ValueError:
-            allocate_fifo(variant_id=variant.pk, qty_needed=abs(qty))
+        allocate_fifo(variant_id=variant.pk, qty_needed=abs(qty))
     elif qty > 0:  # addition (correction / return)
-        # Add to the most recent active batch
+        # Newest batch FIRST, and `current_qty` is not filtered: an emptied batch is
+        # exactly the one a correction is meant to reopen. Locked so two corrections
+        # cannot read the same `current_qty` and lose one of the increments.
         batch = (
             InventoryBatch.objects
-            .filter(variant=variant, current_qty__gt=0)
-            .order_by('-receipt__receive_date')
+            .select_for_update()
+            .filter(variant=variant)
+            .order_by('-receipt__receive_date', '-id')
             .first()
         )
-        if batch:
-            batch.current_qty += qty
-            batch.save(update_fields=['current_qty'])
+        if batch is None:
+            raise NoBatchHistory(variant)
+        batch.current_qty += qty
+        batch.save(update_fields=['current_qty'])
 
     _check_low_stock(variant)
 

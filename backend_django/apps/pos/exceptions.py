@@ -10,7 +10,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import exception_handler as drf_exception_handler
 
-from apps.inventory.exceptions import InsufficientStock
+from apps.inventory.exceptions import InsufficientStock, NoBatchHistory
 from apps.collectibles.services import Overpayment
 
 
@@ -183,6 +183,20 @@ def handler(exc, context):
     Everything else falls through to DRF unchanged, so a genuine server error stays
     a 5xx and a validation error stays a 400 with DRF's field errors.
     """
+    if isinstance(exc, NoBatchHistory):
+        # A positive stock adjustment for a variant this shop has never received. Raised
+        # inside `StockAdjustmentViewSet.perform_create`'s atomic block, so the
+        # StockAdjustment row is rolled back with it - the client records the delivery and
+        # retries. 400 and the same {code, detail} shape as the other business rules, in
+        # place of the silent no-op that used to keep the row.
+        return Response(
+            {
+                'code': NoBatchHistory.code,
+                'detail': str(exc),
+                'variant_id': exc.variant_id,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     if isinstance(exc, InsufficientStock):
         return Response(
             {

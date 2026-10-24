@@ -21,6 +21,7 @@ from apps.pos.models import SalesTransaction, SalesItem, OfficialReceipt
 from apps.pos.services import generate_transaction_no, generate_or_number
 from apps.collectibles.models import CollectibleLedger
 
+from .exceptions import NoBaseUom
 from .models import MaterialToken, Requisition, RequisitionItem
 
 
@@ -85,12 +86,54 @@ def verify_token(*, token_value: str) -> dict:
             for it in items
         ],
     }
+def _base_uoms_for(items: list) -> dict:
+    """Map variant_id -> the factor-1 VariantUOM, refusing any line that has none.
+
+    Requisition quantities are base units, so the factor-1 selling unit is the only one
+    whose `default_selling_price` prices a base unit directly; a CF=12 row would charge 12
+    base units' worth per base unit. One query for the whole release, `pk` order so a
+    catalog with a duplicate CF=1 row resolves the same way on every call.
+
+    Raises `NoBaseUom` — before the caller writes anything (decision 09 item 6).
+    """
+    from apps.inventory.models import VariantUOM
+
+    by_variant = {}
+    for row in VariantUOM.objects.filter(conversion_factor=1).order_by('pk'):
+        by_variant.setdefault(row.variant_id, row)
+
+    for item_info in items:
+        if Decimal(item_info['remaining']) <= 0:
+            continue
+        if item_info['variant_id'] not in by_variant:
+            raise NoBaseUom(
+                item_info['variant_id'],
+                message=(
+                    f"Variant {item_info['variant_name']} "
+                    f"(#{item_info['variant_id']}) has no base-unit selling price: "
+                    'add a selling unit with conversion factor 1 before releasing it.'),
+            )
+    return by_variant
+
+
 def release_materials(*, token_value: str, cashier) -> dict:
     """Process material release at POS (UC-21 + UC-22).
 
     FIFO-deducts stock, creates SalesTransaction (source=REQUISITION),
     posts to CollectiblesLedger (construction firm pays later),
     marks token used and requisition RELEASED.
+
+    Requires a factor-1 selling unit for every line BEFORE the first write (decision 09
+    item 6). The lookup used to happen inside the write loop and, on a miss, fell back to
+    a zero price while handing `variant_uom=None` to a non-null FK: the stock was deducted
+    and the SalesTransaction created, then the IntegrityError escaped as a 500 with the
+    token still unused — a release the cashier could retry into a second deduction. The
+    resolve now happens here, so a catalog gap answers 400 `NO_BASE_UOM` and leaves the
+    stock, the sale, the receipt, the ledger and the token untouched.
+
+    Quantities stay in BASE units: `RequisitionItem.quantity` is already base-unit (the
+    requisition is written against `variant`, not a selling unit), so the factor-1 price
+    applies to it directly and is NOT multiplied by a conversion factor.
     """
     info = verify_token(token_value=token_value)
     token_obj = (
@@ -99,6 +142,10 @@ def release_materials(*, token_value: str, cashier) -> dict:
     )
     req = token_obj.requisition
     customer = req.project.customer
+
+    # Resolved up front and reused by the write loop: one query for every line, and no
+    # second chance for a catalog gap to appear after stock has already moved.
+    base_uoms = _base_uoms_for(info['items'])
 
     with transaction.atomic():
         token_obj = (
@@ -118,7 +165,6 @@ def release_materials(*, token_value: str, cashier) -> dict:
             grand_total=Decimal('0'),
         )
 
-        from apps.inventory.models import VariantUOM
         grand_total = Decimal('0')
 
         for item_info in info['items']:
@@ -128,9 +174,8 @@ def release_materials(*, token_value: str, cashier) -> dict:
             if remaining <= 0:
                 continue
 
-            vuom = VariantUOM.objects.filter(
-                variant=item.variant, conversion_factor=1).first()
-            unit_price = vuom.default_selling_price if vuom else Decimal('0')
+            vuom = base_uoms[item.variant_id]
+            unit_price = vuom.default_selling_price
 
             allocate_fifo(variant_id=item.variant_id, qty_needed=remaining)
 

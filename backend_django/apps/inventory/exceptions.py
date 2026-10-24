@@ -45,3 +45,27 @@ class ReceiptAlreadyProcessed(ValueError):
         self.receipt_pk = receipt_pk
         super().__init__(
             message or f'Goods receipt {receipt_pk} was already processed.')
+
+
+class NoBatchHistory(ValueError):
+    """A positive stock adjustment for a variant that has never been delivered.
+
+    There is nowhere to put the quantity. The ledger ruling for decision 09 item 5:
+    "create a batch" was the plan, but `InventoryBatch.receipt` is a non-null PROTECT
+    foreign key, so a receipt-less batch would need a schema change — instead the
+    adjustment reopens the newest EXISTING batch for the variant, and when there is no
+    batch at all the adjustment is refused rather than booked against nothing.
+
+    A `ValueError` subclass for the same reason as `InsufficientStock`: the request is
+    well-formed, it just names a variant this shop has never stocked, and the client's
+    answer is "record the delivery first".
+    """
+
+    code = 'NO_BATCH_HISTORY'
+
+    def __init__(self, variant, message=None):
+        self.variant_id = getattr(variant, 'pk', variant)
+        super().__init__(
+            message
+            or f'Variant {variant} has no batch history: stock it with a goods '
+               'receipt before correcting its quantity upwards.')

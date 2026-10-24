@@ -18,6 +18,7 @@ from apps.users.permissions import (
     IsPOSRole,
 )
 
+from .exceptions import NoBaseUom
 from .models import (
     MaterialToken,
     Project,
@@ -150,6 +151,14 @@ def material_release_view(request):
         result = release_materials(
             token_value=token_value,
             cashier=request.user,
+        )
+    except NoBaseUom as e:
+        # Decision 09 item 6: a release the catalog cannot price for a base unit is a 400
+        # with a stable `code`, not the 500 the IntegrityError used to produce. Raised
+        # before the first write, so the token is still usable once the catalog is fixed.
+        return Response(
+            {'code': e.code, 'detail': str(e)},
+            status=status.HTTP_400_BAD_REQUEST,
         )
     except ValueError as e:
         return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)

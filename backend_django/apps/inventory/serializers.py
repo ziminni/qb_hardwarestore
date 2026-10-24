@@ -162,6 +162,18 @@ class StockAdjustmentSerializer(serializers.ModelSerializer):
         # {"user":["This field is required."]}.
         read_only_fields = ['id','timestamp','user']
 
+    def validate_qty_adjusted(self, value):
+        # A zero adjustment is not a correction, it is a no-op with a receipt: a
+        # StockAdjustment row is the stock ledger's evidence that quantity moved, so a row
+        # that moved nothing is a false record. Refused HERE rather than in the service
+        # because it is a payload fact (sign is meaningful, magnitude must be non-zero)
+        # and DRF turns it into the same 400 the other validation errors use.
+        if value == 0:
+            raise serializers.ValidationError(
+                'qty_adjusted must not be 0: an adjustment records stock that moved, '
+                'and use a negative value for a removal.')
+        return value
+
 
 class SystemAlertSerializer(serializers.ModelSerializer):
     class Meta:

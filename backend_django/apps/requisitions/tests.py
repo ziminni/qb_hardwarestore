@@ -4,7 +4,9 @@
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.test import TestCase
+from rest_framework.test import APIClient
 
 from apps.collectibles.models import CollectibleLedger
 from apps.inventory.models import (
@@ -12,7 +14,7 @@ from apps.inventory.models import (
     POItem, Supplier, UnitOfMeasure, VariantUOM,
 )
 from apps.inventory.services import process_goods_receipt
-from apps.pos.models import Customer, SalesTransaction
+from apps.pos.models import Customer, OfficialReceipt, SalesTransaction
 
 from .models import MaterialToken, Project, Requisition, RequisitionItem
 from .serializers import RequisitionSerializer
@@ -169,3 +171,108 @@ class RequisitionListQueryTests(RequisitionTestBase):
         self.assertEqual(
             one_row, four_rows,
             'the project customer lookup is happening per row (N+1)')
+
+
+class MaterialReleaseApiTests(RequisitionTestBase):
+    """Decision 09 item 6 — a release must resolve the base-unit (factor 1) VariantUOM
+    for EVERY line BEFORE it writes anything.
+
+    The defect: `release_materials` looked the factor-1 selling unit up per item and, on
+    a miss, still deducted stock and created a SalesTransaction, then passed
+    `variant_uom=None` into a non-null FK — an IntegrityError 500 with the stock already
+    moving inside the same block. Retrying the token after the 500 could then deduct a
+    second time in the worst case, and the cashier saw a crash instead of a reason.
+
+    Exercised over HTTP because the contract that matters to the client is the 400 with a
+    stable `code`, and because "nothing was written" is only provable by leaving the
+    request and looking.
+    """
+
+    def setUp(self):
+        super().setUp()
+        group, _ = Group.objects.get_or_create(name='Cashier')
+        self.cashier.groups.add(group)
+        self.client = APIClient()
+        # A 500 must be inspected, not re-raised: before the fix this request CRASHES in
+        # the view, and a test that dies with IntegrityError proves the crash but not the
+        # status code the client would see.
+        self.client.raise_request_exception = False
+        login = self.client.post('/api/v1/auth/login/', {
+            'username': 'cashier1', 'password': 'pass12345'}, format='json')
+        token = login.data.get('access') or login.data.get('token')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    def _second_variant_without_base_uom(self):
+        """A variant that HAS stock and HAS a selling unit — but only a factor-12 one."""
+        box = UnitOfMeasure.objects.create(code='BOX', name='Box')
+        product = Product.objects.create(
+            category=Category.objects.get(name='Cement'),
+            brand=Brand.objects.get(name='Rhino'),
+            base_name='Premium Cement')
+        variant = ProductVariant.objects.create(
+            product=product, variant_name='50kg', base_uom=box)
+        VariantUOM.objects.create(
+            variant=variant, uom=box, conversion_factor=Decimal('12'),
+            default_selling_price=Decimal('120'),
+        )
+        supplier = Supplier.objects.create(company_name='Acme Second')
+        po = PurchaseOrder.objects.create(
+            supplier=supplier, created_by=self.manager)
+        POItem.objects.create(
+            po=po, variant=variant, ordered_qty=Decimal('50'),
+            unit_cost=Decimal('90'), received_qty=Decimal('50'))
+        receipt = GoodsReceipt.objects.create(po=po, received_by=self.manager)
+        process_goods_receipt(receipt=receipt, user=self.manager)
+        return variant
+
+    def _approved_token(self):
+        submit_requisition(requisition=self.requisition)
+        return approve_requisition(
+            requisition=self.requisition, approver=self.manager)
+
+    def _release(self, token):
+        return self.client.post(
+            '/api/v1/tokens/release/', {'token': str(token.token)}, format='json')
+
+    def test_line_without_base_uom_is_400_and_writes_nothing(self):
+        box_variant = self._second_variant_without_base_uom()
+        RequisitionItem.objects.create(
+            requisition=self.requisition, variant=box_variant,
+            quantity=Decimal('3'))
+        token = self._approved_token()
+        transactions_before = SalesTransaction.objects.count()
+
+        response = self._release(token)
+
+        self.assertEqual(
+            response.status_code, 400, getattr(response, 'data', None))
+        self.assertEqual(response.data['code'], 'NO_BASE_UOM')
+        self.assertIn('detail', response.data)
+        # Nothing written: no sale, no receipt, no ledger, no deduction, token unused.
+        self.assertEqual(SalesTransaction.objects.count(), transactions_before)
+        self.assertFalse(OfficialReceipt.objects.exists())
+        self.assertFalse(CollectibleLedger.objects.exists())
+        token.refresh_from_db()
+        self.assertFalse(token.is_used)
+        self.requisition.refresh_from_db()
+        self.assertEqual(self.requisition.status, Requisition.Status.APPROVED)
+        self.req_item.refresh_from_db()
+        self.assertEqual(self.req_item.released_qty, Decimal('0'))
+        base_stock = sum(self.variant.batches.values_list('current_qty', flat=True))
+        box_stock = sum(box_variant.batches.values_list('current_qty', flat=True))
+        self.assertEqual(base_stock, Decimal('100'))
+        self.assertEqual(box_stock, Decimal('50'))
+
+    def test_successful_release_still_uses_base_unit_price(self):
+        """Guard on the unchanged happy path: quantities stay in BASE units and the
+        price comes from the factor-1 selling unit (server-priced since task 1)."""
+        token = self._approved_token()
+
+        response = self._release(token)
+
+        self.assertEqual(response.status_code, 201, response.data)
+        # 10 base units at the factor-1 unit price of 10.00.
+        self.assertEqual(
+            Decimal(response.data['grand_total']), Decimal('100'))
+        base_stock = sum(self.variant.batches.values_list('current_qty', flat=True))
+        self.assertEqual(base_stock, Decimal('90'))

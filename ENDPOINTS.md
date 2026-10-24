@@ -88,7 +88,7 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 | GET/POST/PATCH/DELETE | `/api/v1/goods-receipts/` | Goods receipt CRUD. `POST` accepts `items: [{po_item, qty}]`; each entry adds to `POItem.received_qty` (capped at `ordered_qty`, else 400) **and** stores one `lines` row — the quantity that receipt delivered. Response carries `lines: [{id, po_item, variant, variant_name, qty}]` and read-only `processed_at` (null until processed). | Authenticated |
 | POST | `/api/v1/goods-receipts/{id}/process/` | Turn **this receipt's own** lines into FIFO `InventoryBatch` rows and set `processed_at`. Batches use `line.qty`, `po_item.unit_cost`, `po_item.variant`. Receipts with no `lines` (legacy/`seed_demo`, which set `received_qty` directly) batch the delta vs. what the PO already put in stock, and answer `[]` when there is none. Re-processing → **400** `{"code": "RECEIPT_ALREADY_PROCESSED", "detail": "Goods receipt N was already processed."}`; the guard runs under a `select_for_update` lock on the receipt row, so concurrent calls cannot double-count. | Authenticated |
 | GET | `/api/v1/batches/` | Inventory batches (stock on hand) — read-only | Authenticated |
-| GET/POST/PATCH/DELETE | `/api/v1/adjustments/` | Stock adjustment CRUD | Authenticated |
+| GET/POST/PATCH/DELETE | `/api/v1/adjustments/` | Stock adjustment CRUD (`user` = request user, read-only). **Negative** `qty_adjusted` deducts through FIFO; **positive** reopens the **newest** batch of the variant, whatever its `current_qty` is (so a correction against an out-of-stock variant restocks it). Refusals are **400**: `qty_adjusted = 0` → `{"qty_adjusted": ["qty_adjusted must not be 0 …"]}`; positive with **no batch history** for the variant → `{"code": "NO_BATCH_HISTORY", "detail": "…", "variant_id": N}`; negative beyond stock on hand → `{"code": "INSUFFICIENT_STOCK", "detail": "…", "shortfall": "11.00", "variant_id": N}`. Row creation and the stock move are ONE `atomic` block, so a refused adjustment leaves **no** `StockAdjustment` row. | Authenticated |
 | GET | `/api/v1/alerts/` | System alerts (low stock, expiring, etc.) | Authenticated (admin to write) |
 | POST | `/api/v1/alerts/{id}/resolve/` | Resolve an alert | Admin |
 
@@ -135,7 +135,7 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 | GET | `/api/v1/req-items/` | Requisition line items | Authenticated |
 | GET | `/api/v1/tokens/` | Material tokens (read-only) | Authenticated |
 | POST | `/api/v1/tokens/verify/` | Verify token — body: `{"token": "<uuid>"}` (UC-20) | Authenticated |
-| POST | `/api/v1/tokens/release/` | **Material release at POS** — body: `{"token": "<uuid>"}`; FIFO-deducts stock, creates `SalesTransaction`, posts to `CollectibleLedger` (UC-21/22) | Cashier / Store Manager / Admin |
+| POST | `/api/v1/tokens/release/` | **Material release at POS** — body: `{"token": "<uuid>"}`; FIFO-deducts stock, creates `SalesTransaction`, posts to `CollectibleLedger` (UC-21/22). Quantities are **base units** (`RequisitionItem.quantity`) and are priced from the variant's **factor-1** `VariantUOM` (`default_selling_price`), resolved for **every remaining line before the first write**. A line whose variant has no factor-1 selling unit → **400** `{"code": "NO_BASE_UOM", "detail": "…"}` with the token still unused and nothing written (no sale, receipt, ledger or stock move). Other token/state errors keep the plain `{"detail": "…"}` 400. | Cashier / Store Manager / Admin |
 
 ---
 
