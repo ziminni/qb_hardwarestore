@@ -283,41 +283,50 @@ void main() {
 
       await tester.tap(find.byTooltip('One more').first);
       await tester.pumpAndSettle();
-      expect(confirm().onPressed, isNull, reason: 'the reason is still missing');
+      expect(
+        confirm().onPressed,
+        isNull,
+        reason: 'the reason is still missing',
+      );
 
       await tester.enterText(find.byType(TextField).last, 'cracked sacks');
       await tester.pumpAndSettle();
       expect(confirm().onPressed, isNotNull);
     });
 
-    testWidgets('the confirm dialog states value, debt and cash before posting', (
-      tester,
-    ) async {
-      final returns = _StubReturns(found: _sale(), preflight: _preflight());
-      await _pump(tester, returns: returns);
-      await _search(tester, 'OR-1');
+    testWidgets(
+      'the confirm dialog states value, debt and cash before posting',
+      (tester) async {
+        final returns = _StubReturns(found: _sale(), preflight: _preflight());
+        await _pump(tester, returns: returns);
+        await _search(tester, 'OR-1');
 
-      // Eight bags: 800 of value against 600 of utang.
-      for (var i = 0; i < 8; i++) {
-        await tester.tap(find.byTooltip('One more').first);
-        await tester.pump();
-      }
-      await tester.enterText(find.byType(TextField).last, 'cracked sacks');
-      await tester.pumpAndSettle();
+        // Eight bags: 800 of value against 600 of utang.
+        for (var i = 0; i < 8; i++) {
+          await tester.tap(find.byTooltip('One more').first);
+          await tester.pump();
+        }
+        await tester.enterText(find.byType(TextField).last, 'cracked sacks');
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Confirm return'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Confirm return'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('Confirm the return'), findsOneWidget);
-      expect(find.text('Return value ₱800.00'), findsOneWidget);
-      expect(find.text('Settles utang ₱600.00'), findsOneWidget);
-      expect(
-        find.textContaining('Cash refund ₱200.00'),
-        findsOneWidget,
-        reason: 'only the EXCESS leaves the drawer (decision 05)',
-      );
-      expect(returns.posts, 0, reason: 'nothing is posted before the cashier says so');
-    });
+        expect(find.text('Confirm the return'), findsOneWidget);
+        expect(find.text('Return value ₱800.00'), findsOneWidget);
+        expect(find.text('Settles utang ₱600.00'), findsOneWidget);
+        expect(
+          find.textContaining('Cash refund ₱200.00'),
+          findsOneWidget,
+          reason: 'only the EXCESS leaves the drawer (decision 05)',
+        );
+        expect(
+          returns.posts,
+          0,
+          reason: 'nothing is posted before the cashier says so',
+        );
+      },
+    );
 
     testWidgets('posting shows the server refund summary', (tester) async {
       final returns = _StubReturns(found: _sale(), preflight: _preflight());
@@ -344,7 +353,9 @@ void main() {
       expect(find.widgetWithText(OutlinedButton, 'New return'), findsOneWidget);
     });
 
-    testWidgets('a NO_OPEN_SHIFT refusal offers the Shifts tab', (tester) async {
+    testWidgets('a NO_OPEN_SHIFT refusal offers the Shifts tab', (
+      tester,
+    ) async {
       final returns = _StubReturns(found: _sale(), preflight: _preflight())
         ..failPost = const ReturnsServiceException(
           'You have no open shift. Open a shift before posting a return.',

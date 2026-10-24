@@ -18,21 +18,20 @@ import 'package:client/data/services/returns_service.dart';
 import 'package:client/features/pos/viewmodels/pos_returns_viewmodel.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-TransactionRecord _sale({int id = 18, int customerId = 2}) =>
-    TransactionRecord(
-      id: id,
-      transactionNo: 'TRX-20261024-0007',
-      transDate: DateTime(2026, 10, 24, 9),
-      customerId: customerId,
-      customerName: 'Maria Santos',
-      cashierName: 'Ana Cruz',
-      source: 'CHARGE',
-      originalTransactionId: null,
-      status: 'COMPLETED',
-      grandTotal: 1000,
-      items: const [],
-      payments: const [],
-    );
+TransactionRecord _sale({int id = 18, int customerId = 2}) => TransactionRecord(
+  id: id,
+  transactionNo: 'TRX-20261024-0007',
+  transDate: DateTime(2026, 10, 24, 9),
+  customerId: customerId,
+  customerName: 'Maria Santos',
+  cashierName: 'Ana Cruz',
+  source: 'CHARGE',
+  originalTransactionId: null,
+  status: 'COMPLETED',
+  grandTotal: 1000,
+  items: const [],
+  payments: const [],
+);
 
 ReturnableSale _preflight({
   double openDebt = 600,
@@ -74,13 +73,15 @@ class _StubReturns extends ReturnsRepository {
   Object? failPreflight;
   Object? failPost;
 
-  final List<({
-    int customerId,
-    int originalTransactionId,
-    String reason,
-    String paymentMethod,
-    List<ReturnRequestLine> lines,
-  })>
+  final List<
+    ({
+      int customerId,
+      int originalTransactionId,
+      String reason,
+      String paymentMethod,
+      List<ReturnRequestLine> lines,
+    })
+  >
   posts = [];
 
   final List<String> queries = [];
@@ -132,7 +133,10 @@ class _StubReturns extends ReturnsRepository {
 
 _PosReturnsHarness _harness() {
   final repository = _StubReturns();
-  return _PosReturnsHarness(repository, PosReturnsViewmodel(repository: repository));
+  return _PosReturnsHarness(
+    repository,
+    PosReturnsViewmodel(repository: repository),
+  );
 }
 
 class _PosReturnsHarness {
@@ -159,52 +163,61 @@ void main() {
       expect(h.viewmodel.searchError, isNull);
     });
 
-    test('a miss clears the previous sale instead of leaving it to be refunded', () async {
-      final h = _harness();
-      h.repository
-        ..found = _sale()
-        ..preflight = _preflight();
-      await h.viewmodel.search('OR-1');
-      h.viewmodel.setQuantity(8, 3);
+    test(
+      'a miss clears the previous sale instead of leaving it to be refunded',
+      () async {
+        final h = _harness();
+        h.repository
+          ..found = _sale()
+          ..preflight = _preflight();
+        await h.viewmodel.search('OR-1');
+        h.viewmodel.setQuantity(8, 3);
 
-      h.repository.found = null;
-      await h.viewmodel.search('OR-2');
+        h.repository.found = null;
+        await h.viewmodel.search('OR-2');
 
-      expect(h.viewmodel.searchedMiss, isTrue);
-      expect(
-        h.viewmodel.foundSale,
-        isNull,
-        reason:
-            'a stale sale left on screen is the previous customer, refunded by '
-            'mistake',
-      );
-      expect(h.viewmodel.preflight, isNull);
-      expect(h.viewmodel.hasQuantity, isFalse);
-    });
-
-    test('an empty query asks for a number instead of hitting the server', () async {
-      final h = _harness();
-
-      await h.viewmodel.search('  ');
-
-      expect(h.repository.queries, isEmpty);
-      expect(h.viewmodel.searchError, contains('Enter the transaction'));
-    });
-
-    test('a failed pre-flight is reported, and the sale is not postable', () async {
-      final h = _harness();
-      h.repository
-        ..found = _sale()
-        ..failPreflight = const ReturnsServiceException(
-          'The returnable quantities could not be read.',
+        expect(h.viewmodel.searchedMiss, isTrue);
+        expect(
+          h.viewmodel.foundSale,
+          isNull,
+          reason:
+              'a stale sale left on screen is the previous customer, refunded by '
+              'mistake',
         );
+        expect(h.viewmodel.preflight, isNull);
+        expect(h.viewmodel.hasQuantity, isFalse);
+      },
+    );
 
-      await h.viewmodel.search('OR-1');
+    test(
+      'an empty query asks for a number instead of hitting the server',
+      () async {
+        final h = _harness();
 
-      expect(h.viewmodel.searchError, contains('could not be read'));
-      expect(h.viewmodel.preflight, isNull);
-      expect(h.viewmodel.canSubmit, isFalse);
-    });
+        await h.viewmodel.search('  ');
+
+        expect(h.repository.queries, isEmpty);
+        expect(h.viewmodel.searchError, contains('Enter the transaction'));
+      },
+    );
+
+    test(
+      'a failed pre-flight is reported, and the sale is not postable',
+      () async {
+        final h = _harness();
+        h.repository
+          ..found = _sale()
+          ..failPreflight = const ReturnsServiceException(
+            'The returnable quantities could not be read.',
+          );
+
+        await h.viewmodel.search('OR-1');
+
+        expect(h.viewmodel.searchError, contains('could not be read'));
+        expect(h.viewmodel.preflight, isNull);
+        expect(h.viewmodel.canSubmit, isFalse);
+      },
+    );
   });
 
   group('the quantity cap', () {
@@ -363,30 +376,33 @@ void main() {
   });
 
   group('submitting', () {
-    test('sends the original sale, its customer, the reason and the method', () async {
-      final h = _harness();
-      h.repository
-        ..found = _sale(id: 18, customerId: 2)
-        ..preflight = _preflight();
-      await h.viewmodel.search('OR-1');
-      h.viewmodel.setQuantity(8, 8);
-      h.viewmodel.setReason(' cracked sacks between layers ');
-      h.viewmodel.setRefundMethod('GCASH');
+    test(
+      'sends the original sale, its customer, the reason and the method',
+      () async {
+        final h = _harness();
+        h.repository
+          ..found = _sale(id: 18, customerId: 2)
+          ..preflight = _preflight();
+        await h.viewmodel.search('OR-1');
+        h.viewmodel.setQuantity(8, 8);
+        h.viewmodel.setReason(' cracked sacks between layers ');
+        h.viewmodel.setRefundMethod('GCASH');
 
-      expect(await h.viewmodel.submit(), isTrue);
+        expect(await h.viewmodel.submit(), isTrue);
 
-      final post = h.repository.posts.single;
-      expect(
-        post.customerId,
-        2,
-        reason:
-            'the ORIGINAL sale customer: a refund settles THAT customer\'s '
-            'utang, and the pre-flight body carries no id',
-      );
-      expect(post.originalTransactionId, 18);
-      expect(post.reason, ' cracked sacks between layers ');
-      expect(post.paymentMethod, 'GCASH');
-    });
+        final post = h.repository.posts.single;
+        expect(
+          post.customerId,
+          2,
+          reason:
+              'the ORIGINAL sale customer: a refund settles THAT customer\'s '
+              'utang, and the pre-flight body carries no id',
+        );
+        expect(post.originalTransactionId, 18);
+        expect(post.reason, ' cracked sacks between layers ');
+        expect(post.paymentMethod, 'GCASH');
+      },
+    );
 
     test('the POSTED summary replaces the client estimate', () async {
       final h = _harness();
@@ -464,7 +480,10 @@ void main() {
       h.viewmodel.setReason('unwanted');
 
       expect(h.viewmodel.isRefusedByServer, isTrue);
-      expect(h.viewmodel.refusalMessage, contains('material release, not a sale'));
+      expect(
+        h.viewmodel.refusalMessage,
+        contains('material release, not a sale'),
+      );
       expect(h.viewmodel.canSubmit, isFalse);
 
       expect(await h.viewmodel.submit(), isFalse);

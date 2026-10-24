@@ -79,11 +79,11 @@ class AdminSkeletonLayout extends StatelessWidget {
                               ? const Color(0xFFE5E5E5)
                               : Colors.transparent,
                           child: ListTile(
-                          dense: true,
-                          selected: selected,
-                          onTap: onNavigationSelected != null
-                              ? () => onNavigationSelected!(index)
-                              : () => context.go(item.$3),
+                            dense: true,
+                            selected: selected,
+                            onTap: onNavigationSelected != null
+                                ? () => onNavigationSelected!(index)
+                                : () => context.go(item.$3),
                             leading: Icon(item.$2, size: 19),
                             title: Text(item.$1),
                           ),

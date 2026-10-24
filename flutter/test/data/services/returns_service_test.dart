@@ -72,7 +72,10 @@ Map<String, dynamic> _saleRow({int id = 18}) => {
 };
 
 /// `returnable_payload` verbatim: strings, one row per selling unit.
-Map<String, dynamic> _returnable({String? reasonIfNot, String openDebt = '600.00'}) => {
+Map<String, dynamic> _returnable({
+  String? reasonIfNot,
+  String openDebt = '600.00',
+}) => {
   'transaction_no': 'TRX-20261024-0007',
   'customer': 'Maria Santos',
   'source': 'CHARGE',
@@ -235,13 +238,14 @@ void main() {
 
   group('pre-flight', () {
     test('reads the payload the server sends', () async {
-      final service = serviceWith(
-        _FakeAdapter(returnableBody: _returnable()),
-      );
+      final service = serviceWith(_FakeAdapter(returnableBody: _returnable()));
 
       final preflight = await service.fetchReturnable(18);
 
-      expect(adapter.requests.single.path, '${_transactionsPath}18/returnable/');
+      expect(
+        adapter.requests.single.path,
+        '${_transactionsPath}18/returnable/',
+      );
       expect(preflight.transactionNo, 'TRX-20261024-0007');
       expect(preflight.customer, 'Maria Santos');
       expect(preflight.returnable, isTrue);
@@ -254,7 +258,9 @@ void main() {
 
     test('reason_if_not becomes a clerk-readable refusal', () async {
       final service = serviceWith(
-        _FakeAdapter(returnableBody: _returnable(reasonIfNot: 'RETURN_OF_RETURN')),
+        _FakeAdapter(
+          returnableBody: _returnable(reasonIfNot: 'RETURN_OF_RETURN'),
+        ),
       );
 
       final preflight = await service.fetchReturnable(18);
@@ -285,39 +291,43 @@ void main() {
   });
 
   group('posting the return', () {
-    test('sends the body the serializer expects, with the ORIGINAL customer', () async {
-      final service = serviceWith(_FakeAdapter(postBody: _postedReturn()));
+    test(
+      'sends the body the serializer expects, with the ORIGINAL customer',
+      () async {
+        final service = serviceWith(_FakeAdapter(postBody: _postedReturn()));
 
-      await service.postReturn(
-        customerId: 2,
-        originalTransactionId: 18,
-        reason: '  cracked sacks  ',
-        paymentMethod: 'CASH',
-        lines: const [ReturnRequestLine(variantUomId: 8, qty: 8)],
-      );
+        await service.postReturn(
+          customerId: 2,
+          originalTransactionId: 18,
+          reason: '  cracked sacks  ',
+          paymentMethod: 'CASH',
+          lines: const [ReturnRequestLine(variantUomId: 8, qty: 8)],
+        );
 
-      final request = adapter.requests.single;
-      expect(request.method, 'POST');
-      expect(request.path, _transactionsPath);
-      final sent = request.data as Map<String, dynamic>;
-      expect(sent['customer'], 2);
-      expect(
-        sent['source'],
-        'RETURN',
-        reason: 'a return IS a transaction with source RETURN (decision 05)',
-      );
-      expect(sent['original_transaction'], 18);
-      expect(sent['reason'], 'cracked sacks');
-      expect(sent['payment_method'], 'CASH');
-      expect(
-        sent['items'],
-        [
-          {'variant_id': 8, 'qty': 8.0},
-        ],
-        reason: 'the server prices the lines; a client price would be forgeable',
-      );
-      expect(sent.containsKey('cashier'), isFalse);
-    });
+        final request = adapter.requests.single;
+        expect(request.method, 'POST');
+        expect(request.path, _transactionsPath);
+        final sent = request.data as Map<String, dynamic>;
+        expect(sent['customer'], 2);
+        expect(
+          sent['source'],
+          'RETURN',
+          reason: 'a return IS a transaction with source RETURN (decision 05)',
+        );
+        expect(sent['original_transaction'], 18);
+        expect(sent['reason'], 'cracked sacks');
+        expect(sent['payment_method'], 'CASH');
+        expect(
+          sent['items'],
+          [
+            {'variant_id': 8, 'qty': 8.0},
+          ],
+          reason:
+              'the server prices the lines; a client price would be forgeable',
+        );
+        expect(sent.containsKey('cashier'), isFalse);
+      },
+    );
 
     test('reads refund_summary, the server\'s own arithmetic', () async {
       final service = serviceWith(_FakeAdapter(postBody: _postedReturn()));
@@ -339,31 +349,34 @@ void main() {
       expect(result.refund.ledgerBalance, 0);
     });
 
-    test('a sale that owed nothing reports a null ledger, not a zero one', () async {
-      final service = serviceWith(
-        _FakeAdapter(
-          postBody: _postedReturn(
-            debtReduced: '0.00',
-            cashRefund: '800.00',
-            ledgerId: null,
-            ledgerBalance: null,
+    test(
+      'a sale that owed nothing reports a null ledger, not a zero one',
+      () async {
+        final service = serviceWith(
+          _FakeAdapter(
+            postBody: _postedReturn(
+              debtReduced: '0.00',
+              cashRefund: '800.00',
+              ledgerId: null,
+              ledgerBalance: null,
+            ),
           ),
-        ),
-      );
+        );
 
-      final result = await service.postReturn(
-        customerId: 2,
-        originalTransactionId: 18,
-        reason: 'unwanted',
-        paymentMethod: 'CASH',
-        lines: const [ReturnRequestLine(variantUomId: 8, qty: 8)],
-      );
+        final result = await service.postReturn(
+          customerId: 2,
+          originalTransactionId: 18,
+          reason: 'unwanted',
+          paymentMethod: 'CASH',
+          lines: const [ReturnRequestLine(variantUomId: 8, qty: 8)],
+        );
 
-      expect(result.refund.debtReduced, 0);
-      expect(result.refund.cashRefund, 800);
-      expect(result.refund.ledgerId, isNull);
-      expect(result.refund.ledgerBalance, isNull);
-    });
+        expect(result.refund.debtReduced, 0);
+        expect(result.refund.cashRefund, 800);
+        expect(result.refund.ledgerId, isNull);
+        expect(result.refund.ledgerBalance, isNull);
+      },
+    );
   });
 
   group('every server code becomes words a cashier can act on', () {
@@ -387,30 +400,24 @@ void main() {
     }
 
     test('NO_OPEN_SHIFT is flagged as fixable', () async {
-      final failure = await refusal(
-        const {
-          'code': 'NO_OPEN_SHIFT',
-          'detail': 'You have no open shift.',
-        },
-        400,
-      );
+      final failure = await refusal(const {
+        'code': 'NO_OPEN_SHIFT',
+        'detail': 'You have no open shift.',
+      }, 400);
 
       expect(failure.needsOpenShift, isTrue);
       expect(failure.message, contains('Open a shift'));
     });
 
     test('RETURN_QTY_EXCEEDED names the four numbers', () async {
-      final failure = await refusal(
-        {
-          'code': 'RETURN_QTY_EXCEEDED',
-          'detail': 'Selling unit 8 sold 10.00 on this sale.',
-          'variant_uom': 8,
-          'sold': '10.00',
-          'already_returned': '2.00',
-          'requested': '9.00',
-        },
-        400,
-      );
+      final failure = await refusal({
+        'code': 'RETURN_QTY_EXCEEDED',
+        'detail': 'Selling unit 8 sold 10.00 on this sale.',
+        'variant_uom': 8,
+        'sold': '10.00',
+        'already_returned': '2.00',
+        'requested': '9.00',
+      }, 400);
 
       expect(failure.code, 'RETURN_QTY_EXCEEDED');
       expect(failure.message, contains('sold 10.00'));
@@ -435,10 +442,10 @@ void main() {
       };
 
       for (final entry in expected.entries) {
-        final failure = await refusal(
-          {'code': entry.key, 'detail': 'server prose'},
-          entry.key == 'UNLINKED_RETURN_FORBIDDEN' ? 403 : 400,
-        );
+        final failure = await refusal({
+          'code': entry.key,
+          'detail': 'server prose',
+        }, entry.key == 'UNLINKED_RETURN_FORBIDDEN' ? 403 : 400);
         expect(
           failure.message,
           contains(entry.value),

@@ -268,10 +268,12 @@ void main() {
       ),
     ];
     await tester.pumpWidget(
-      _app(ChangeNotifierProvider<InventorySalesViewmodel>(
-        create: (_) => InventorySalesViewmodel(service: sales),
-        child: const SalesReturnsPage(),
-      )),
+      _app(
+        ChangeNotifierProvider<InventorySalesViewmodel>(
+          create: (_) => InventorySalesViewmodel(service: sales),
+          child: const SalesReturnsPage(),
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -334,12 +336,16 @@ void main() {
     tester,
   ) async {
     _sizeUp(tester);
-    sales.transactions = [_row(id: 9, no: 'TRX-20261019-0001', source: 'WALK_IN')];
+    sales.transactions = [
+      _row(id: 9, no: 'TRX-20261019-0001', source: 'WALK_IN'),
+    ];
     await tester.pumpWidget(
-      _app(ChangeNotifierProvider<InventorySalesViewmodel>(
-        create: (_) => InventorySalesViewmodel(service: sales),
-        child: const SalesDashboardPage(),
-      )),
+      _app(
+        ChangeNotifierProvider<InventorySalesViewmodel>(
+          create: (_) => InventorySalesViewmodel(service: sales),
+          child: const SalesDashboardPage(),
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 

@@ -134,8 +134,7 @@ class PosReturnsViewmodel extends ChangeNotifier {
   /// Clerk-readable reason the sale cannot be returned, or null.
   String? get refusalMessage =>
       preflight?.notReturnableMessage ??
-      (preflight?.reasonIfNot ??
-          'This sale cannot be returned at the till.');
+      (preflight?.reasonIfNot ?? 'This sale cannot be returned at the till.');
 
   /// True only when a POST would be a real, complete return: the server said
   /// yes, some quantity is chosen, and a reason is written.

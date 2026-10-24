@@ -194,5 +194,4 @@ class _NotificationsSheetState extends State<NotificationsSheet> {
   };
 }
 
-String _shortDate(DateTime date) =>
-    '${date.month}/${date.day}/${date.year}';
+String _shortDate(DateTime date) => '${date.month}/${date.day}/${date.year}';

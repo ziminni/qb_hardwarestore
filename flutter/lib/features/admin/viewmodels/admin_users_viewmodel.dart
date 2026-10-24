@@ -49,9 +49,8 @@ class AdminUsersViewmodel extends ChangeNotifier {
   /// No invented roles: the control can only offer what the server sent —
   /// which includes [User.noRoleLabel], because a groupless account is a real
   /// row and filtering to it is how an admin finds one to fix.
-  List<String> get availableRoles => {
-    for (final user in _rows) user.roleLabel,
-  }.toList()..sort();
+  List<String> get availableRoles =>
+      {for (final user in _rows) user.roleLabel}.toList()..sort();
   UserStats? get stats => _stats;
   bool get isLoading => _isLoading;
   String? get loadError => _loadError;

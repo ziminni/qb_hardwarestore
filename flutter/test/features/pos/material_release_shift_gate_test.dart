@@ -34,22 +34,23 @@ class _StubRequisitions extends RequisitionRepository {
   Object? failRelease;
 
   @override
-  Future<TokenVerification> verifyToken(String token) async => TokenVerification(
-    token: token,
-    requisitionId: 3,
-    reqNumber: 'REQ-20261024-0003',
-    project: '2-Storey House - Mandaue',
-    customer: 'Dela Cruz Construction',
-    items: const [
-      VerifiedRequisitionItem(
-        id: 1,
-        variantId: 7,
-        variantName: '40kg',
-        quantity: 10,
-        remaining: 10,
-      ),
-    ],
-  );
+  Future<TokenVerification> verifyToken(String token) async =>
+      TokenVerification(
+        token: token,
+        requisitionId: 3,
+        reqNumber: 'REQ-20261024-0003',
+        project: '2-Storey House - Mandaue',
+        customer: 'Dela Cruz Construction',
+        items: const [
+          VerifiedRequisitionItem(
+            id: 1,
+            variantId: 7,
+            variantName: '40kg',
+            quantity: 10,
+            remaining: 10,
+          ),
+        ],
+      );
 
   @override
   Future<ReleaseResult> release(String token) async {
@@ -152,45 +153,49 @@ void main() {
       return viewmodel;
     }
 
-    testWidgets('a NO_OPEN_SHIFT refusal explains it and offers the Shifts tab', (
-      tester,
-    ) async {
-      final repo = _StubRequisitions()
-        ..failRelease = const RequisitionServiceException(
-          'You have no open shift. Open a shift before releasing materials.',
-          code: 'NO_OPEN_SHIFT',
+    testWidgets(
+      'a NO_OPEN_SHIFT refusal explains it and offers the Shifts tab',
+      (tester) async {
+        final repo = _StubRequisitions()
+          ..failRelease = const RequisitionServiceException(
+            'You have no open shift. Open a shift before releasing materials.',
+            code: 'NO_OPEN_SHIFT',
+          );
+        final visited = <String>[];
+        await pump(tester, repository: repo, visitedRoutes: visited);
+
+        await tester.enterText(find.byType(TextField).first, 'b1e0-token');
+        await tester.tap(find.widgetWithText(FilledButton, 'Verify'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.widgetWithText(FilledButton, 'Release materials'),
         );
-      final visited = <String>[];
-      await pump(tester, repository: repo, visitedRoutes: visited);
+        await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField).first, 'b1e0-token');
-      await tester.tap(find.widgetWithText(FilledButton, 'Verify'));
-      await tester.pumpAndSettle();
+        expect(
+          find.textContaining('Open a shift before releasing'),
+          findsOneWidget,
+          reason:
+              'the clerk must be told the rule, not shown a generic failure',
+        );
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Release materials'));
-      await tester.pumpAndSettle();
+        final goToShifts = find.widgetWithText(OutlinedButton, 'Go to Shifts');
+        expect(
+          goToShifts,
+          findsOneWidget,
+          reason:
+              'a refusal the clerk can fix deserves the control that fixes it — '
+              'otherwise it is a dead end',
+        );
 
-      expect(
-        find.textContaining('Open a shift before releasing'),
-        findsOneWidget,
-        reason: 'the clerk must be told the rule, not shown a generic failure',
-      );
+        await tester.tap(goToShifts);
+        await tester.pumpAndSettle();
 
-      final goToShifts = find.widgetWithText(OutlinedButton, 'Go to Shifts');
-      expect(
-        goToShifts,
-        findsOneWidget,
-        reason:
-            'a refusal the clerk can fix deserves the control that fixes it — '
-            'otherwise it is a dead end',
-      );
-
-      await tester.tap(goToShifts);
-      await tester.pumpAndSettle();
-
-      expect(visited, [AppRoutes.posShifts]);
-      expect(find.text('SHIFTS PAGE'), findsOneWidget);
-    });
+        expect(visited, [AppRoutes.posShifts]);
+        expect(find.text('SHIFTS PAGE'), findsOneWidget);
+      },
+    );
 
     testWidgets('the token stays entered while the clerk opens a shift', (
       tester,

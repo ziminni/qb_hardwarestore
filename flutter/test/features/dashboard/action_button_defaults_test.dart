@@ -89,28 +89,29 @@ void main() {
   });
 
   group('section header actions pass null through', () {
-    final sections = <String, Widget Function({String? label, VoidCallback? on})>{
-      'AdminSection': ({String? label, VoidCallback? on}) => AdminSection(
-        title: 'Recent activity',
-        actionLabel: label,
-        onAction: on,
-        child: const Text('body'),
-      ),
-      'InventorySection': ({String? label, VoidCallback? on}) =>
-          InventorySection(
-            title: 'Inventory table',
+    final sections =
+        <String, Widget Function({String? label, VoidCallback? on})>{
+          'AdminSection': ({String? label, VoidCallback? on}) => AdminSection(
+            title: 'Recent activity',
             actionLabel: label,
             onAction: on,
             child: const Text('body'),
           ),
-      'AdminUserSection': ({String? label, VoidCallback? on}) =>
-          AdminUserSection(
-            title: 'User accounts',
-            actionLabel: label,
-            onAction: on,
-            child: const Text('body'),
-          ),
-    };
+          'InventorySection': ({String? label, VoidCallback? on}) =>
+              InventorySection(
+                title: 'Inventory table',
+                actionLabel: label,
+                onAction: on,
+                child: const Text('body'),
+              ),
+          'AdminUserSection': ({String? label, VoidCallback? on}) =>
+              AdminUserSection(
+                title: 'User accounts',
+                actionLabel: label,
+                onAction: on,
+                child: const Text('body'),
+              ),
+        };
 
     for (final entry in sections.entries) {
       testWidgets('${entry.key} with no onAction renders disabled', (

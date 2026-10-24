@@ -45,7 +45,10 @@ class _StubUsersService extends UserService {
   _StubUsersService() : super();
 
   @override
-  Future<List<User>> fetchUsers({String? search}) async => [_groupless, _manager];
+  Future<List<User>> fetchUsers({String? search}) async => [
+    _groupless,
+    _manager,
+  ];
 
   @override
   Future<UserStats> fetchUserStats() async =>
@@ -86,10 +89,7 @@ void main() {
 
       expect(viewmodel.loadError, isNull);
       expect(viewmodel.users, hasLength(2));
-      expect(
-        viewmodel.users.where((user) => user.role == null),
-        hasLength(1),
-      );
+      expect(viewmodel.users.where((user) => user.role == null), hasLength(1));
     });
 
     test('offers "No role" as a filter value', () async {
@@ -99,13 +99,16 @@ void main() {
       expect(viewmodel.availableRoles, contains('Store Manager'));
     });
 
-    test('filtering by "No role" isolates the accounts an admin must fix', () async {
-      await viewmodel.load();
+    test(
+      'filtering by "No role" isolates the accounts an admin must fix',
+      () async {
+        await viewmodel.load();
 
-      viewmodel.setRoleFilter(User.noRoleLabel);
+        viewmodel.setRoleFilter(User.noRoleLabel);
 
-      expect(viewmodel.users.single.username, 'root');
-    });
+        expect(viewmodel.users.single.username, 'root');
+      },
+    );
 
     test('filtering by a real role excludes the role-less account', () async {
       await viewmodel.load();
@@ -126,7 +129,10 @@ void main() {
       expect(find.text('Mana Ger'), findsOneWidget);
       expect(find.text('No role'), findsOneWidget);
       expect(find.text('Store Manager'), findsOneWidget);
-      expect(find.textContaining('Missing required object field'), findsNothing);
+      expect(
+        find.textContaining('Missing required object field'),
+        findsNothing,
+      );
     });
 
     testWidgets('the role filter can pick the role-less accounts', (

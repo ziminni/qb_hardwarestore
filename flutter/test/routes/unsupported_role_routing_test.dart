@@ -349,8 +349,7 @@ void main() {
             'break: $failure',
       );
 
-      final auth = AuthViewmodel(AuthRepository(AuthService()))
-        ..user = parsed;
+      final auth = AuthViewmodel(AuthRepository(AuthService()))..user = parsed;
 
       expect(auth.isAuthenticated, isTrue, reason: 'they ARE signed in');
       expect(auth.roleName, isNull);

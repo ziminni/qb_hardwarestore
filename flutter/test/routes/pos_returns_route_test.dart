@@ -49,15 +49,16 @@ class _OfflineAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
-AuthViewmodel _cashier() => AuthViewmodel(AuthRepository(AuthService()))
-  ..user = const User(
-    id: 7,
-    username: 'cashier',
-    email: 'cashier@buildpro.ph',
-    fullName: 'Ana Cruz',
-    role: Role(id: 3, name: 'pos', displayName: 'Cashier'),
-    isActive: true,
-  );
+AuthViewmodel _cashier() =>
+    AuthViewmodel(AuthRepository(AuthService()))
+      ..user = const User(
+        id: 7,
+        username: 'cashier',
+        email: 'cashier@buildpro.ph',
+        fullName: 'Ana Cruz',
+        role: Role(id: 3, name: 'pos', displayName: 'Cashier'),
+        isActive: true,
+      );
 
 void main() {
   test('the redirect lets a cashier stay on /pos/returns', () {

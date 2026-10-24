@@ -65,7 +65,9 @@ Future<void> _pumpSheet(
   addTearDown(tester.view.resetDevicePixelRatio);
 
   await tester.pumpWidget(
-    MaterialApp(home: Scaffold(body: NotificationsSheet(service: service))),
+    MaterialApp(
+      home: Scaffold(body: NotificationsSheet(service: service)),
+    ),
   );
 }
 
@@ -83,9 +85,7 @@ void main() {
       reason: 'a sheet that renders blank while waiting looks broken',
     );
 
-    gate.complete([
-      _alert(id: 1, message: 'Cement 40kg is below threshold'),
-    ]);
+    gate.complete([_alert(id: 1, message: 'Cement 40kg is below threshold')]);
     await tester.pumpAndSettle();
 
     expect(find.byType(CircularProgressIndicator), findsNothing);
@@ -103,11 +103,7 @@ void main() {
           type: 'OUT_OF_STOCK',
           message: 'Tiles 60x60 is out of stock',
         ),
-        _alert(
-          id: 3,
-          message: 'Old alert, already handled',
-          resolved: true,
-        ),
+        _alert(id: 3, message: 'Old alert, already handled', resolved: true),
       ];
 
     await _pumpSheet(tester, service);

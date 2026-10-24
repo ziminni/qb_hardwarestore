@@ -100,8 +100,7 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
                           Padding(
                             padding: const EdgeInsets.only(top: 8),
                             child: OutlinedButton.icon(
-                              onPressed: () =>
-                                  context.go(AppRoutes.posShifts),
+                              onPressed: () => context.go(AppRoutes.posShifts),
                               icon: const Icon(Icons.access_time),
                               label: const Text('Go to Shifts'),
                             ),

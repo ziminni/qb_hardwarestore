@@ -48,12 +48,13 @@ final List<DeadControlPattern> deadControlPatterns = [
 /// `path:line: <label> — <source line>`, one entry per dead control found.
 List<String> findDeadControls(Directory root) {
   final violations = <String>[];
-  final files = root
-      .listSync(recursive: true)
-      .whereType<File>()
-      .where((file) => file.path.endsWith('.dart'))
-      .toList()
-    ..sort((a, b) => a.path.compareTo(b.path));
+  final files =
+      root
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((file) => file.path.endsWith('.dart'))
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
 
   for (final file in files) {
     final lines = file.readAsLinesSync();
@@ -95,7 +96,8 @@ void main() {
     );
   });
 
-  test('the guard actually reads the tree', () {    final files = Directory('lib')
+  test('the guard actually reads the tree', () {
+    final files = Directory('lib')
         .listSync(recursive: true)
         .whereType<File>()
         .where((file) => file.path.endsWith('.dart'))

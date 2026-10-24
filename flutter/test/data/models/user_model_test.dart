@@ -36,22 +36,25 @@ void main() {
     expect(User.fromJson(_row()).role, isNull);
   });
 
-  test('the role-less account reads as "No role" wherever a label is needed', () {
-    expect(User.fromJson(_row(role: null)).roleLabel, User.noRoleLabel);
-    expect(
-      User.fromJson(
-        _row(
-          role: {
-            'id': 3,
-            'name': 'sales',
-            'display_name': 'Store Manager',
-            'permissions': <int>[],
-          },
-        ),
-      ).roleLabel,
-      'Store Manager',
-    );
-  });
+  test(
+    'the role-less account reads as "No role" wherever a label is needed',
+    () {
+      expect(User.fromJson(_row(role: null)).roleLabel, User.noRoleLabel);
+      expect(
+        User.fromJson(
+          _row(
+            role: {
+              'id': 3,
+              'name': 'sales',
+              'display_name': 'Store Manager',
+              'permissions': <int>[],
+            },
+          ),
+        ).roleLabel,
+        'Store Manager',
+      );
+    },
+  );
 
   test('a role that is not an object still fails loudly', () {
     // A string where an object belongs is a contract break, not a groupless

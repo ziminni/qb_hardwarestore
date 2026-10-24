@@ -38,8 +38,7 @@ class PosReturnsPage extends StatefulWidget {
 class _PosReturnsPageState extends State<PosReturnsPage> {
   late final PosReturnsViewmodel _returns =
       widget.viewmodel ?? PosReturnsViewmodel();
-  late final ShiftViewmodel _shift =
-      widget.shiftViewmodel ?? ShiftViewmodel();
+  late final ShiftViewmodel _shift = widget.shiftViewmodel ?? ShiftViewmodel();
   final _search = TextEditingController();
   final _reason = TextEditingController();
 
@@ -73,7 +72,8 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
           final shift = context.watch<ShiftViewmodel>();
           return DashboardShell(
             title: 'Returns',
-            subtitle: 'Return goods against the original sale — utang first, '
+            subtitle:
+                'Return goods against the original sale — utang first, '
                 'then cash.',
             selectedNavigationIndex: 6,
             navigationItems: posNavigationItems,
@@ -164,7 +164,8 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
             padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
             child: LinearProgressIndicator(),
           ),
-        if (returns.searchError != null) _errorText(context, returns.searchError!),
+        if (returns.searchError != null)
+          _errorText(context, returns.searchError!),
         if (returns.searchedMiss) ...[
           const SizedBox(height: AppSpacing.md),
           Text(

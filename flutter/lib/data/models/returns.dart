@@ -13,22 +13,22 @@ import 'package:client/data/models/json_field.dart';
 const Map<String, String> returnCodeMessages = {
   'NO_OPEN_SHIFT':
       'You have no open shift. Open a shift before posting a return — a refund '
-          'is cash out of a drawer, and a drawer is a shift.',
+      'is cash out of a drawer, and a drawer is a shift.',
   'RETURN_REASON_REQUIRED':
       'A return needs a reason before it can be posted: say why the customer '
-          'brought the goods back.',
+      'brought the goods back.',
   'UNLINKED_RETURN_FORBIDDEN':
       'A cashier returns against the receipt in hand. Only a Store Manager can '
-          'post a return with no original sale.',
+      'post a return with no original sale.',
   'RELEASE_NOT_RETURNABLE':
       'That document is a material release, not a sale, so it cannot be '
-          'returned at the till.',
-  'RETURN_OF_RETURN': 'That document is itself a return, and a return cannot '
+      'returned at the till.',
+  'RETURN_OF_RETURN':
+      'That document is itself a return, and a return cannot '
       'reverse another return.',
   'ORIGINAL_NOT_COMPLETED':
       'Only a completed sale can be returned. This document is not completed.',
-  'RETURN_QTY_EXCEEDED':
-      'That is more than the sale still has to return.',
+  'RETURN_QTY_EXCEEDED': 'That is more than the sale still has to return.',
 };
 
 /// Clerk-readable text for a stable [code], or null when this client has never
@@ -215,7 +215,9 @@ class ReturnResult {
       // A 201 without the summary is a contract break worth failing on: the
       // whole point of the response is that the client does not compute the
       // refund, and printing a made-up one is printing a lie about money.
-      throw const FormatException('Missing required object field "refund_summary"');
+      throw const FormatException(
+        'Missing required object field "refund_summary"',
+      );
     }
     return ReturnResult(
       returnNo: stringField(json, 'transaction_no'),
