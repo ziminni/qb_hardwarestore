@@ -12,7 +12,7 @@ grepping the codebase, and never paste a copy of a fact that already has a home.
 | System architecture & Live/Mock matrix | `docs/SYSTEM_ATLAS.md` |
 | Interactive architecture cockpit | `docs/system-atlas.html` |
 | API contract: endpoints, auth, role matrix | `ENDPOINTS.md` |
-| Unbuilt work, decisions, roadmap | `planning/MAP.md` (index) → active map: `planning/stocker-workflow/MAP.md` (cashier-workflow complete) |
+| Unbuilt work, decisions, roadmap | `planning/MAP.md` (index) → active map: `planning/audit-remediation/MAP.md` |
 | Session history & gotchas | `docs/sessions/` — newest date first |
 | Branch, commit & review conventions | `CONTRIBUTING.md` |
 | Django backend (6 apps + `services.py`) | `backend_django/apps/{users,inventory,pos,collectibles,requisitions,reports}/` |
@@ -28,7 +28,7 @@ the same commit that breaks it.
 - **Active branch:** `feature/backend-integration` — **pushed, in sync with `origin/`.** For how far ahead
   of `origin/master` it is run `git rev-list --count origin/master..HEAD`; a count written here stales on
   the next commit.
-- **Active Wayfinder map: `planning/admin-workflow/MAP.md`** — Admin (`admin` role) audit logs + suppliers/POs + settings. **3 decisions locked, 3 phases BUILT 2026-10-22** (`b5c72c2` + `34b421b` + `02f82de`). Prior maps archived (sales-manager, stocker, cashier).
+- **Active Wayfinder map: `planning/audit-remediation/MAP.md`** — audit gap remediation, 9 decisions locked, Phases 1–5 READY TO BUILD, Phase 6 Barcode/QR in Fog. Prior maps (cashier, stocker, sales-manager, admin) complete.
 - **Phase state is NOT stated here** — it is owned by the phase table in the active map, per-row and with
   evidence. Read that table; a copy here would be a second home, and this file's own rule forbids one.
 - **Phase 6 is built and pushed.** 6A.1–6A.4, 6B (reports + receiving), 6C (live sales screens + review

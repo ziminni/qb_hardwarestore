@@ -13,8 +13,7 @@ neither — it is an index, and a second home for a fact is how the two drift.
 Work runs as **Wayfinder maps** — a low-resolution index plus one file per open decision, so each stays
 workable across many sessions without loading everything at once.
 
-**[planning/cashier-workflow/MAP.md](cashier-workflow/MAP.md)** — **ACTIVE (opened 2026-10-20).** The cashier
-logs in with no keyring prompt and every cashier sidebar tab routes to a live screen or is removed.
+**[planning/audit-remediation/MAP.md](audit-remediation/MAP.md)** — **ACTIVE (opened 2026-10-24).** Fix every P0/P1 audit finding with security enforced per phase, then role phases, then Barcode/QR. Prior maps (cashier, stocker, sales-manager, admin) complete.
 
 **[planning/api-integration/MAP.md](api-integration/MAP.md)** — **COMPLETE, closed.** The integration epic
 (Phases 0–6 built). Its invariants still bind new maps.
