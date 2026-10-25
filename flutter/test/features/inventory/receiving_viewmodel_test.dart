@@ -146,17 +146,20 @@ void main() {
   // read "ORDERED · received 0" because the list was re-read but the SELECTED
   // order kept pointing at the old object, and process/ (where the server flips
   // the status) re-read nothing at all.
-  test('after recording, the selected order shows the server quantity', () async {
-    service.orders = [_order()];
-    await viewmodel.load();
-    viewmodel.select(viewmodel.orders.single);
-    viewmodel.setQty(11, 4);
+  test(
+    'after recording, the selected order shows the server quantity',
+    () async {
+      service.orders = [_order()];
+      await viewmodel.load();
+      viewmodel.select(viewmodel.orders.single);
+      viewmodel.setQty(11, 4);
 
-    service.orders = [_order(receivedQty: 4)];
-    await viewmodel.recordReceipt();
+      service.orders = [_order(receivedQty: 4)];
+      await viewmodel.recordReceipt();
 
-    expect(viewmodel.selected!.items.single.receivedQty, 4);
-  });
+      expect(viewmodel.selected!.items.single.receivedQty, 4);
+    },
+  );
 
   test('after processing, the selected order shows the new status', () async {
     service.orders = [_order()];

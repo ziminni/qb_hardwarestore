@@ -26,8 +26,7 @@ class AdminOverviewViewmodel extends ChangeNotifier {
   String? _loadError;
 
   SalesSummary? get today => _today;
-  List<TransactionRecord> get recentTransactions =>
-      List.unmodifiable(_recent);
+  List<TransactionRecord> get recentTransactions => List.unmodifiable(_recent);
   bool get isLoading => _isLoading;
   String? get loadError => _loadError;
 

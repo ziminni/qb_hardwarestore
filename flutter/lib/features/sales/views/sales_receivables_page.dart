@@ -258,7 +258,8 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
                   setState(() {
                     _posting = false;
                     _error =
-                        viewmodel.payError ?? 'The payment could not be recorded.';
+                        viewmodel.payError ??
+                        'The payment could not be recorded.';
                   });
                 },
           child: const Text('Record'),

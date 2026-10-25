@@ -95,8 +95,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     // found on the till. hasLoaded is set even on failure (the shared
     // keep-rows contract), so a failed load must also unready the metrics —
     // except after a successful load, where stale rows under the banner stand.
-    final stockReady =
-        inventory.hasLoaded && inventory.loadError == null;
+    final stockReady = inventory.hasLoaded && inventory.loadError == null;
     final metrics = [
       ('Today sales', '₱${today.totalGross.toStringAsFixed(2)}'),
       if (stockReady) ('Products', '${inventory.products.length}'),
@@ -139,13 +138,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
               runSpacing: 12,
               children: [
                 for (final metric in metrics)
-                SizedBox(
-                  width: 190,
-                  child: AdminMetricCard(label: metric.$1, value: metric.$2),
-                ),
+                  SizedBox(
+                    width: 190,
+                    child: AdminMetricCard(label: metric.$1, value: metric.$2),
+                  ),
               ],
             ),
-            const SizedBox(height: 16),
+          const SizedBox(height: 16),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
