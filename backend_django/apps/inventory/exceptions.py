@@ -67,6 +67,89 @@ class InvalidVariant(CatalogWriteRefused):
     code = 'INVALID_VARIANT'
 
 
+class SupplierInactive(CatalogWriteRefused):
+    """A purchase order for a supplier that has been deactivated.
+
+    An inactive supplier is one this shop has stopped buying from (the delete it used to
+    have became the archive), so raising an order against it would put a document in the
+    receiving queue that nobody intends to deliver.
+    """
+
+    code = 'SUPPLIER_INACTIVE'
+
+    def __init__(self, supplier):
+        self.supplier_id = getattr(supplier, 'pk', supplier)
+        super().__init__(
+            f'{supplier} is inactive: reactivate it before ordering from it.')
+
+
+class InvalidPurchaseOrder(CatalogWriteRefused):
+    """A purchase-order payload the shop cannot accept.
+
+    No lines, an ordered qty of 0, a negative unit cost, an inactive variant, or the same
+    variant on two lines. All of them are refused BEFORE the order row exists, so a
+    refusal leaves no PO and no lines.
+    """
+
+    code = 'INVALID_PO'
+
+
+class InvalidPurchaseOrderState(CatalogWriteRefused):
+    """An action that does not apply to the order's current status.
+
+    `place/` on anything but a DRAFT, `cancel/` on an already-cancelled order.
+    """
+
+    code = 'INVALID_PO_STATE'
+
+
+class PurchaseOrderLocked(CatalogWriteRefused):
+    """An edit to a purchase order that has left DRAFT.
+
+    Once placed, the supplier has been told what to deliver; changing the lines or the
+    supplier afterwards would make the receipt of what arrives disagree with the order it
+    is booked against. Cancel and raise a new order instead.
+    """
+
+    code = 'PO_LOCKED'
+
+
+class PurchaseOrderHasReceipts(CatalogWriteRefused):
+    """A cancel of an order that has already received stock.
+
+    Cancelling a PARTIAL/COMPLETE order would leave batches in the rack explained by a
+    document the books call cancelled. Send the goods back through a stock adjustment.
+    """
+
+    code = 'PO_HAS_RECEIPTS'
+
+
+class PurchaseOrderNotOrdered(CatalogWriteRefused):
+    """A goods receipt against a DRAFT purchase order.
+
+    A DRAFT has not been placed, so what arrives is not what this document asked for. The
+    fix is to place it (`POST /purchase-orders/{id}/place/`) or record the delivery
+    against the order that was actually placed.
+    """
+
+    code = 'PO_NOT_ORDERED'
+
+    def __init__(self, po):
+        super().__init__(
+            f'PO #{getattr(po, "pk", po)} is DRAFT and cannot be received: place it '
+            'first.')
+
+
+class PurchaseOrderNotReceivable(CatalogWriteRefused):
+    """A goods receipt against a COMPLETE or CANCELLED purchase order.
+
+    Kept as its own code so a receiving screen can tell "place it first" from "this order
+    is finished": one is a missing step, the other is a closed document.
+    """
+
+    code = 'PO_NOT_RECEIVABLE'
+
+
 
 class InsufficientStock(ValueError):
     """A FIFO allocation could not be satisfied by the stock on hand.

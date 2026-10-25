@@ -23,6 +23,13 @@ from apps.users.permissions import (
     IsInventoryRole,
 )
 from apps.users.services import audit_request
+from .exceptions import (
+    InvalidPurchaseOrderState,
+    PurchaseOrderHasReceipts,
+    PurchaseOrderLocked,
+    PurchaseOrderNotOrdered,
+    PurchaseOrderNotReceivable,
+)
 from .models import (
     Brand, Category, Product, ProductVariant, UnitOfMeasure, VariantUOM,
     Supplier, PurchaseOrder, GoodsReceipt, GoodsReceiptItem,
@@ -210,10 +217,111 @@ class SupplierViewSet(_AuditedCatalogViewSet):
 
 
 class PurchaseOrderViewSet(_CatalogBaseViewSet):
+    """Purchase orders: create with nested lines, then `place` / `cancel` (Task 4.2).
+
+    Three rules live here rather than on the serializer, because each is about the
+    DOCUMENT's life rather than its payload:
+
+    1. **`created_by` is the caller.** Assigned from `request.user` in `perform_create`,
+       so a body that says otherwise is not an input (same invariant as the checkout's
+       `cashier` and an adjustment's `user`).
+    2. **Edit only while DRAFT** (`PO_LOCKED`). Once placed, the supplier has been told
+       what to deliver; a later edit would make the receipt disagree with the order.
+    3. **Status moves by ACTION only.** `place/` (DRAFT → ORDERED) and `cancel/` (DRAFT or
+       ORDERED with nothing received → CANCELLED) each take the row lock, check the state
+       they are allowed to leave and write their audit row inside one transaction, so two
+       tills cannot both place the same order.
+    """
+
     queryset = PurchaseOrder.objects.select_related(
         'supplier', 'created_by',
     ).prefetch_related('items__variant').all()
     serializer_class = PurchaseOrderSerializer
+
+    def perform_create(self, serializer):
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            po = serializer.save(created_by=self.request.user)
+            audit_request(
+                self.request,
+                AuditLog.ActionType.CREATE,
+                f'Purchase order #{po.pk} created for {po.supplier.company_name} '
+                f'with {po.items.count()} line(s).',
+            )
+
+    def perform_update(self, serializer):
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            po = serializer.save()
+            audit_request(
+                self.request,
+                AuditLog.ActionType.UPDATE,
+                f'Purchase order #{po.pk} edited for {po.supplier.company_name} '
+                f'({po.items.count()} line(s)).',
+            )
+
+    def update(self, request, *args, **kwargs):
+        if self.get_object().status != PurchaseOrder.Status.DRAFT:
+            raise PurchaseOrderLocked(self.get_object())
+        return super().update(request, *args, **kwargs)
+
+    def _locked(self, pk) -> PurchaseOrder:
+        """The order, row-locked, for one of the status actions.
+
+        MUST run inside an atomic block (both actions do). `get_object()` would read
+        without a lock, so two concurrent `place/` calls could both see DRAFT and both
+        write an audit row for the same transition.
+        """
+        po = PurchaseOrder.objects.select_for_update().filter(pk=pk).first()
+        if po is None:
+            raise Http404
+        return po
+
+    @action(detail=True, methods=['post'])
+    def place(self, request, pk=None):
+        """DRAFT → ORDERED. Anything else is `INVALID_PO_STATE`."""
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            po = self._locked(pk)
+            if po.status != PurchaseOrder.Status.DRAFT:
+                raise InvalidPurchaseOrderState(
+                    f'PO #{po.pk} is {po.status}: only a DRAFT can be placed.')
+            po.status = PurchaseOrder.Status.ORDERED
+            po.save(update_fields=['status', 'updated_at'])
+            audit_request(
+                request,
+                AuditLog.ActionType.UPDATE,
+                f'Purchase order #{po.pk} placed with {po.supplier.company_name}.',
+            )
+        return Response(self.get_serializer(po).data)
+
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        """DRAFT/ORDERED with nothing received → CANCELLED.
+
+        A PARTIAL/COMPLETE order has stock in the rack explained by this document, so it
+        is refused with `PO_HAS_RECEIPTS` rather than cancelled out from under it. The
+        `received_qty` check sits beside the receipt check on purpose: a legacy receipt
+        (the fixtures and `seed_demo` set `received_qty` directly) has no `receipts` row
+        but did deliver goods.
+        """
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            po = self._locked(pk)
+            if po.status in (
+                    PurchaseOrder.Status.PARTIAL, PurchaseOrder.Status.COMPLETE):
+                raise PurchaseOrderHasReceipts(po)
+            if po.status != PurchaseOrder.Status.DRAFT and \
+                    po.status != PurchaseOrder.Status.ORDERED:
+                raise InvalidPurchaseOrderState(
+                    f'PO #{po.pk} is {po.status} and cannot be cancelled.')
+            if po.receipts.exists() or po.items.filter(received_qty__gt=0).exists():
+                raise PurchaseOrderHasReceipts(po)
+            po.status = PurchaseOrder.Status.CANCELLED
+            po.save(update_fields=['status', 'updated_at'])
+            audit_request(
+                request,
+                AuditLog.ActionType.UPDATE,
+                f'Purchase order #{po.pk} cancelled '
+                f'({po.supplier.company_name}).',
+            )
+        return Response(self.get_serializer(po).data)
 
 
 class _ReceiptRefused(Exception):
@@ -269,12 +377,17 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
         ser.is_valid(raise_exception=True)
 
         po = ser.validated_data['po']
+        # Task 4.2: only an ORDERED or PARTIAL order can receive. A DRAFT was never
+        # placed, so what arrives is not what this document asked for; a COMPLETE or
+        # CANCELLED one is closed. Both were reachable before this gate - a DRAFT receipt
+        # is what the receiving screen's own fixtures did. Each refusal carries its own
+        # stable code, so a client can tell "place it first" from "this order is done".
+        if po.status == PurchaseOrder.Status.DRAFT:
+            raise PurchaseOrderNotOrdered(po)
         if po.status in (
                 PurchaseOrder.Status.COMPLETE, PurchaseOrder.Status.CANCELLED):
-            return Response(
-                {'detail': f'PO {po.pk} is {po.status} and cannot receive more.'},
-                status=drf_status.HTTP_400_BAD_REQUEST,
-            )
+            raise PurchaseOrderNotReceivable(
+                f'PO {po.pk} is {po.status} and cannot receive more.')
         # Shape checks first, outside the transaction: they need no lock, and answering
         # them before the atomic block keeps the block to the part that must be atomic.
         parsed = []  # (po_item_id, qty) — one entry per delivered line, in payload order

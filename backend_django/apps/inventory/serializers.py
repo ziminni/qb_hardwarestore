@@ -7,13 +7,16 @@
 # `manage.py check` plus the test run remain the authority on what this file does.
 """Inventory app — serializers for product catalog (Sprint 1)."""
 
+from django.db import transaction
 from rest_framework import serializers
 
 from .exceptions import (
     DuplicateBaseUnit,
+    InvalidPurchaseOrder,
     InvalidSellingUnit,
     InvalidVariant,
     SellingUnitInUse,
+    SupplierInactive,
 )
 from .models import (
     Brand,
@@ -224,20 +227,107 @@ class SupplierSerializer(serializers.ModelSerializer):
 
 
 class POItemSerializer(serializers.ModelSerializer):
+    """One purchase-order line — a NESTED write, because there is no `/po-items/` endpoint.
+
+    `po` is read-only: the parent serializer creates the lines under the order it is
+    building, so a client sending a `po` here was sending a value that was then
+    overwritten. `received_qty` is read-only for the same reason and a stronger one — it
+    is the running total the goods-receipt path accumulates under a lock (Task 6B.2), and
+    a client-writable one would let a delivery be claimed without stock moving.
+
+    `ordered_qty` / `unit_cost` are declared WITHOUT the model's validators so the
+    refusal is the project's `INVALID_PO` code instead of DRF's field-error dict.
+    """
+
     variant_name = serializers.CharField(source='variant.variant_name', read_only=True)
+    ordered_qty = serializers.DecimalField(max_digits=12, decimal_places=2)
+    unit_cost = serializers.DecimalField(max_digits=12, decimal_places=2)
+
     class Meta:
         model = POItem
         fields = ['id','po','variant','variant_name','ordered_qty','unit_cost','received_qty']
-        read_only_fields = ['id']
+        read_only_fields = ['id','po','received_qty']
+
+    def validate(self, attrs):
+        qty = attrs.get('ordered_qty')
+        if qty is None or qty <= 0:
+            raise InvalidPurchaseOrder(
+                'ordered_qty must be greater than 0: a line for nothing is not an order.')
+        cost = attrs.get('unit_cost')
+        if cost is None or cost < 0:
+            raise InvalidPurchaseOrder('unit_cost must not be negative.')
+        variant = attrs.get('variant')
+        if variant is not None and not variant.is_active:
+            raise InvalidPurchaseOrder(
+                f'{variant} is inactive: it cannot be ordered until it is restored.')
+        return attrs
 
 
 class PurchaseOrderSerializer(serializers.ModelSerializer):
-    items = POItemSerializer(many=True, read_only=True)
+    """A purchase order with its lines as a nested write (Phase 4 Task 2).
+
+    `status` is READ-ONLY and the transitions are actions (`place/`, `cancel/`), for the
+    same reason `/requisitions/` works that way: placing an order is an event with an
+    audit row and a supplier conversation behind it, not a field a PATCH may set.
+    `created_by` is the caller, assigned in the view from `request.user`.
+    """
+
+    items = POItemSerializer(many=True, required=False)
     created_by_name = serializers.CharField(source='created_by.full_name', read_only=True)
+
     class Meta:
         model = PurchaseOrder
         fields = ['id','supplier','created_by','created_by_name','order_date','expected_delivery','status','notes','items','created_at','updated_at']
-        read_only_fields = ['id','order_date','created_at','updated_at']
+        read_only_fields = ['id','created_by','order_date','status','created_at','updated_at']
+
+    def validate(self, attrs):
+        supplier = attrs.get('supplier')
+        if supplier is None and self.instance is not None:
+            supplier = self.instance.supplier
+        if supplier is None:
+            raise InvalidPurchaseOrder('a purchase order needs a supplier.')
+        if not supplier.is_active:
+            raise SupplierInactive(supplier)
+
+        if 'items' in attrs:
+            lines = attrs['items'] or []
+            if not lines:
+                raise InvalidPurchaseOrder(
+                    'a purchase order needs at least one line.')
+            seen = {}
+            for line in lines:
+                variant = line['variant']
+                if variant.pk in seen:
+                    raise InvalidPurchaseOrder(
+                        f'{variant} appears twice: an order carries one line per '
+                        'variant (raise its quantity instead).')
+                seen[variant.pk] = True
+        elif self.instance is None:
+            raise InvalidPurchaseOrder(
+                'a purchase order needs at least one line.')
+
+        return attrs
+
+    def create(self, validated_data):
+        lines = validated_data.pop('items')
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            po = PurchaseOrder.objects.create(**validated_data)
+            POItem.objects.bulk_create(
+                [POItem(po=po, **line) for line in lines])
+        return po
+
+    def update(self, instance, validated_data):
+        lines = validated_data.pop('items', None)
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            po = super().update(instance, validated_data)
+            if lines is not None:
+                # Replaced wholesale: keeping the old rows would leave an order whose
+                # lines nobody asked for. Only reachable while DRAFT (the viewset refuses
+                # the PATCH otherwise), so no receipt can be PROTECT-ing a line here.
+                po.items.all().delete()
+                POItem.objects.bulk_create(
+                    [POItem(po=po, **line) for line in lines])
+        return po
 class InventoryBatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = InventoryBatch

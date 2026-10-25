@@ -30,8 +30,12 @@ class GoodsReceiptItemsApiTests(InventoryTestBase):
         token = login.data.get('access') or login.data.get('token')
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
         supplier = Supplier.objects.create(company_name='Acme Supply')
+        # Task 4.2: only an ORDERED/PARTIAL order can receive, so the fixture PO is
+        # created already placed. Before that gate a DRAFT receipt was accepted, which is
+        # exactly the shape this file used to post.
         self.po = PurchaseOrder.objects.create(
-            supplier=supplier, created_by=self.user)
+            supplier=supplier, created_by=self.user,
+            status=PurchaseOrder.Status.ORDERED)
         self.item = POItem.objects.create(
             po=self.po, variant=self.variant, ordered_qty=Decimal('10'),
             unit_cost=Decimal('50'))
@@ -155,7 +159,7 @@ class ReceiptProcessGuardTests(GoodsReceiptItemsApiTests):
 
         self.assertEqual(response.status_code, 400, response.data)
 
-    def test_processing_an_empty_receipt_leaves_the_po_draft(self):
+    def test_processing_an_empty_receipt_leaves_the_po_status_alone(self):
         from apps.inventory.models import PurchaseOrder
         receipt = self._post_receipt(None, items=[])
         self.assertEqual(receipt.status_code, 201, receipt.data)
@@ -166,9 +170,12 @@ class ReceiptProcessGuardTests(GoodsReceiptItemsApiTests):
 
         self.assertEqual(process.status_code, 200, process.data)
         self.assertEqual(process.data, [])
+        # The point of the test is unchanged: an empty process moves nothing and decides
+        # nothing. The fixture PO now starts ORDERED (a DRAFT can no longer be received),
+        # so "unchanged" reads ORDERED.
         self.assertEqual(
             PurchaseOrder.objects.get(pk=self.po.pk).status,
-            PurchaseOrder.Status.DRAFT)
+            PurchaseOrder.Status.ORDERED)
 
 
 class SplitReceiptLineTests(GoodsReceiptItemsApiTests):
