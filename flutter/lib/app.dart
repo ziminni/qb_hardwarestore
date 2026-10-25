@@ -1,3 +1,4 @@
+import 'package:client/core/theme/app_scroll_behavior.dart';
 import 'package:client/core/theme/app_theme.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/routes/routes.dart';
@@ -27,6 +28,8 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp.router(
       title: 'Hardware Store Management System',
       theme: AppTheme.lightTheme,
+      // Wide tables must be reachable with a plain mouse on a 1366px screen.
+      scrollBehavior: const AppScrollBehavior(),
       debugShowCheckedModeBanner: false,
       routerConfig: _router,
     );
