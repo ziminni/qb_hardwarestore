@@ -22,6 +22,7 @@ import 'package:client/data/services/products_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/views/inventory_low_stock_page.dart';
+import '../../support/phase4_fakes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -132,6 +133,7 @@ void main() {
     final store = InventoryViewmodel(
       products: _FakeProductsRepository(_catalogue()),
       inventory: inventory,
+      catalogue: FakeCatalogueRepository(),
     );
     await store.load();
 
@@ -151,6 +153,7 @@ void main() {
     final store = InventoryViewmodel(
       products: _FakeProductsRepository(_catalogue(qty: 3)),
       inventory: inventory,
+      catalogue: FakeCatalogueRepository(),
     );
     await store.load();
 
@@ -169,6 +172,7 @@ void main() {
     final store = InventoryViewmodel(
       products: _FakeProductsRepository(_catalogue()),
       inventory: inventory,
+      catalogue: FakeCatalogueRepository(),
     );
     await store.load();
 

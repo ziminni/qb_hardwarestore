@@ -40,6 +40,8 @@ class SystemAlert {
     required this.message,
     required this.isResolved,
     required this.createdAt,
+    this.resolvedByName = '',
+    this.resolvedAt,
   });
 
   final int id;
@@ -49,6 +51,16 @@ class SystemAlert {
   final bool isResolved;
   final DateTime? createdAt;
 
+  /// Who cleared the alert, as the server spells it (full name, else username).
+  ///
+  /// Empty until resolved — the server sends `null`, and inventing a name here
+  /// would be a claim about who did the work. Phase 4 Task 6 shows this beside
+  /// the resolved time so a cleared alert still says who cleared it.
+  final String resolvedByName;
+
+  /// When it was cleared, or null while it is still open.
+  final DateTime? resolvedAt;
+
   factory SystemAlert.fromJson(Map<String, dynamic> json) {
     return SystemAlert(
       id: intField(json, 'id'),
@@ -57,6 +69,8 @@ class SystemAlert {
       message: stringField(json, 'message'),
       isResolved: boolFieldOr(json, 'is_resolved', or: false),
       createdAt: nullableDateField(json, 'created_at'),
+      resolvedByName: json['resolved_by_name'] as String? ?? '',
+      resolvedAt: nullableDateField(json, 'resolved_at'),
     );
   }
 }
