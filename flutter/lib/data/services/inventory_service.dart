@@ -48,6 +48,7 @@ class InventoryService {
   Future<List<SystemAlert>> fetchAlerts() async {
     final page = await _guard(
       () => _client.getList<SystemAlert>(alertsPath, SystemAlert.fromJson),
+      'The alerts could not be read.',
     );
     return page.items;
   }
@@ -60,6 +61,7 @@ class InventoryService {
         adjustmentsPath,
         StockAdjustment.fromJson,
       ),
+      'The stock movements could not be read.',
     );
     return page.items;
   }
@@ -101,15 +103,18 @@ class InventoryService {
   ///
   /// Decision 17: a PO can be created through the UI and then never received —
   /// this list is where receiving starts.
-  Future<List<PurchaseOrderRecord>> fetchPurchaseOrders() async {
-    final page = await _guard(
-      () => _client.getList<PurchaseOrderRecord>(
-        purchaseOrdersPath,
-        PurchaseOrderRecord.fromJson,
-      ),
-    );
-    return page.items;
-  }
+  ///
+  /// F3: this reads EVERY page. `getList` answers one page (DRF `PAGE_SIZE` is
+  /// 50), so a single-page read hid every order past the first fifty from
+  /// receiving — silently, because a short list looks exactly like a complete
+  /// one.
+  Future<List<PurchaseOrderRecord>> fetchPurchaseOrders() => _guard(
+    () => _client.getAll<PurchaseOrderRecord>(
+      purchaseOrdersPath,
+      PurchaseOrderRecord.fromJson,
+    ),
+    'The purchase orders could not be read.',
+  );
 
   /// Records a goods receipt, carrying the received quantities.
   ///
@@ -149,6 +154,7 @@ class InventoryService {
         goodsReceiptsPath,
         GoodsReceiptRecord.fromJson,
       ),
+      'The goods receipts could not be read.',
     );
     return page.items;
   }
@@ -203,16 +209,34 @@ class InventoryService {
     }
   }
 
-  /// Runs a read, converting a transport failure into a message worth showing.
+  /// Runs a read, converting a failure into a message worth showing.
   ///
-  /// Deliberately does NOT catch `FormatException`: a malformed body is a
-  /// contract break and must fail loudly rather than be reported as a network
-  /// problem the user could retry their way out of.
-  Future<T> _guard<T>(Future<T> Function() read) async {
+  /// Three failures reach here and all three used to be some screens' problem
+  /// and nobody's job:
+  ///
+  ///  * a transport failure — a `DioException`, described from the server's own
+  ///    `detail` where there is one;
+  ///  * a malformed envelope — `parsePaged` throws a `FormatException`;
+  ///  * a row that does not match its model — a `fromJson` cast throws a
+  ///    `TypeError`.
+  ///
+  /// The last two are CONTRACT BREAKS, and letting them escape was the bug F1
+  /// fixed: `InventoryViewmodel.load()` caught only the service exceptions, so
+  /// the parse failure left `loadError` null and the empty list rendered as
+  /// "nothing here" with no retry. [fallback] is the sentence the screen shows.
+  Future<T> _guard<T>(Future<T> Function() read, String fallback) async {
     try {
       return await read();
     } on DioException catch (error) {
       throw InventoryServiceException(_message(error));
+    } on FormatException catch (error) {
+      throw InventoryServiceException('$fallback (${error.message})');
+    } on TypeError {
+      // The raw message is a Dart type name; the user gets the fact that the
+      // response was unreadable, and the retry the screen offers.
+      throw InventoryServiceException(
+        '$fallback (a row was not the shape this app expects)',
+      );
     }
   }
 

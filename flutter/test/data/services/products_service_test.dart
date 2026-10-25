@@ -181,6 +181,11 @@ void main() {
         // read `data['results']` by hand, which turns a contract break into a
         // silently EMPTY catalogue. `parsePaged` throws instead, and that is the
         // behaviour worth protecting.
+        //
+        // What the throw reaches the screen AS changed with F1: it is a
+        // ProductsServiceException carrying the parse message, not a raw
+        // FormatException the viewmodel never caught (which left `loadError`
+        // null and the empty catalogue rendering as "no products yet").
         useBodies({
           _productsPath: {'count': 1, 'next': null, 'previous': null},
           _batchesPath: _envelope([_batch()]),
@@ -188,7 +193,17 @@ void main() {
 
         await expectLater(
           service().fetchCatalogue(),
-          throwsA(isA<FormatException>()),
+          throwsA(
+            isA<ProductsServiceException>().having(
+              (error) => error.message,
+              'message',
+              allOf(
+                contains('could not be loaded'),
+                contains('results'),
+                isNot(contains('FormatException')),
+              ),
+            ),
+          ),
         );
       },
     );
@@ -208,7 +223,36 @@ void main() {
 
         await expectLater(
           service().fetchCatalogue(),
-          throwsA(isA<FormatException>()),
+          throwsA(isA<ProductsServiceException>()),
+        );
+      },
+    );
+
+    test(
+      'a row that does not match its model is an error, not a short list',
+      () async {
+        // `Product.fromJson` casts `id` with `as int`; a drifted row throws a
+        // TypeError. Nothing used to catch it, so the fetch crashed past the
+        // service and the screen showed an empty catalogue with no retry.
+        useBodies({
+          _productsPath: _envelope([
+            {'base_name': 'Circuit Breaker', 'variants': const []},
+          ]),
+          _batchesPath: _envelope([_batch()]),
+        });
+
+        await expectLater(
+          service().fetchCatalogue(),
+          throwsA(
+            isA<ProductsServiceException>().having(
+              (error) => error.message,
+              'message',
+              allOf(
+                contains('could not be loaded'),
+                isNot(contains('TypeError')),
+              ),
+            ),
+          ),
         );
       },
     );

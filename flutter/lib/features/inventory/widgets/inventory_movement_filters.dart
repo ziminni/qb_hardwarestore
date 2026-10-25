@@ -77,6 +77,9 @@ class InventoryMovementFilters extends StatelessWidget {
           width: 180,
           child: DropdownButtonFormField<String?>(
             initialValue: category,
+            // Load-bearing in a fixed-width box: without it the label plus the
+            // arrow overflows the 180px field and the text is clipped.
+            isExpanded: true,
             decoration: const InputDecoration(labelText: 'Category'),
             items: [
               const DropdownMenuItem(
@@ -95,6 +98,7 @@ class InventoryMovementFilters extends StatelessWidget {
           width: 190,
           child: DropdownButtonFormField<InventoryDatePreset>(
             initialValue: datePreset,
+            isExpanded: true,
             decoration: const InputDecoration(labelText: 'Date range'),
             items: InventoryDatePreset.values
                 .map(

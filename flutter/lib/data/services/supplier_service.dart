@@ -40,11 +40,9 @@ class SupplierService {
   static const suppliersPath = '/api/v1/suppliers/';
   static const purchaseOrdersPath = '/api/v1/purchase-orders/';
 
-  /// How many pages to read before giving up. 40 x DRF's `PAGE_SIZE` (50) =
-  /// 2000 rows, far past any supplier book; hitting it means the API is
-  /// misbehaving, and failing loudly beats a silently truncated list the user
-  /// would read as complete.
-  static const _maxPages = 40;
+  /// How many pages to read before giving up. See [ApiClient.maxListPages] —
+  /// the walk itself now lives in the client, next to the envelope it follows.
+  static const _maxPages = ApiClient.maxListPages;
 
   /// Every supplier, both active and inactive.
   ///
@@ -142,21 +140,7 @@ class SupplierService {
     String fallback,
   ) async {
     try {
-      final all = <T>[];
-      var page = 1;
-      while (true) {
-        final result = await _client.getList<T>(
-          path,
-          fromJson,
-          queryParameters: {'page': page},
-        );
-        all.addAll(result.items);
-        if (!result.hasMore) return all;
-        page++;
-        if (page > _maxPages) {
-          throw const FormatException('The list did not end.');
-        }
-      }
+      return await _client.getAll<T>(path, fromJson, maxPages: _maxPages);
     } on DioException catch (error) {
       throw SupplierServiceException(_message(error, fallback));
     } on FormatException catch (error) {
@@ -164,6 +148,12 @@ class SupplierService {
       // still has to reach the screen as a retryable message instead of a raw
       // crash that leaves the table blank with no explanation.
       throw SupplierServiceException('$fallback (${error.message})');
+    } on TypeError {
+      // A row whose field is the wrong TYPE throws from its `fromJson` cast,
+      // not as a FormatException. Same contract break, so the same answer.
+      throw SupplierServiceException(
+        '$fallback (a row was not the shape this app expects)',
+      );
     }
   }
 

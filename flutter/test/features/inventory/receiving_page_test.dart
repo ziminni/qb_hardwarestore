@@ -22,8 +22,16 @@ class _StubInventoryService extends InventoryService {
   int recordCalls = 0;
   int processCalls = 0;
 
+  /// Refuse the purchase-order read, the way a contract break or a dead server
+  /// does once the service has mapped it.
+  String? failure;
+
   @override
-  Future<List<PurchaseOrderRecord>> fetchPurchaseOrders() async => orders;
+  Future<List<PurchaseOrderRecord>> fetchPurchaseOrders() async {
+    final error = failure;
+    if (error != null) throw InventoryServiceException(error);
+    return orders;
+  }
 
   @override
   Future<GoodsReceiptRecord> createReceipt({
@@ -171,6 +179,28 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.processCalls, 1);
+  });
+
+  testWidgets('a failed load reports the error, not "no order is waiting"', (
+    tester,
+  ) async {
+    // F2 sweep: the receiving workspace has a spinner and an error line, but its
+    // empty copy still spoke for a fetch that never succeeded.
+    _sizeUp(tester);
+    final service = _StubInventoryService()
+      ..failure = 'Cannot connect to the BuildPro server.';
+    await tester.pumpWidget(
+      _app(
+        InventoryReceivingPage(viewmodel: ReceivingViewmodel(service: service)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Cannot connect'), findsOneWidget);
+    expect(
+      find.textContaining('No order is waiting to be received'),
+      findsNothing,
+    );
   });
 
   testWidgets('a DRAFT order is not offered for receiving', (tester) async {

@@ -40,14 +40,17 @@ class CatalogueService {
 
   Future<List<Category>> fetchCategories() => _guard(
     () => _client.getList<Category>(categoriesPath, Category.fromJson),
+    'The categories could not be read.',
   ).then((page) => page.items);
 
   Future<List<Brand>> fetchBrands() => _guard(
     () => _client.getList<Brand>(brandsPath, Brand.fromJson),
+    'The brands could not be read.',
   ).then((page) => page.items);
 
   Future<List<UnitOfMeasure>> fetchUnits() => _guard(
     () => _client.getList<UnitOfMeasure>(unitsPath, UnitOfMeasure.fromJson),
+    'The units could not be read.',
   ).then((page) => page.items);
 
   /// Creates a category and returns its server id.
@@ -79,11 +82,24 @@ class CatalogueService {
     );
   }
 
-  Future<T> _guard<T>(Future<T> Function() read) async {
+  /// Runs a read, converting a failure into a message worth showing.
+  ///
+  /// A parse failure is a CONTRACT BREAK, not a connection problem: `parsePaged`
+  /// throws a `FormatException` and a drifted row throws a `TypeError` from its
+  /// `fromJson` cast. Both used to escape this guard, so the store never saw a
+  /// failure and its empty category/brand/unit lists rendered as "none exist".
+  /// [fallback] is the sentence the screen shows.
+  Future<T> _guard<T>(Future<T> Function() read, String fallback) async {
     try {
       return await read();
     } on DioException catch (error) {
       throw CatalogueServiceException(_message(error));
+    } on FormatException catch (error) {
+      throw CatalogueServiceException('$fallback (${error.message})');
+    } on TypeError {
+      throw CatalogueServiceException(
+        '$fallback (a row was not the shape this app expects)',
+      );
     }
   }
 

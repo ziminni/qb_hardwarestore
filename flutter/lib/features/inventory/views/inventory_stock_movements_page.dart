@@ -11,6 +11,7 @@ import 'package:client/features/inventory/widgets/inventory_movement_tabs.dart';
 import 'package:client/features/inventory/widgets/inventory_movements_table.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:client/features/inventory/widgets/inventory_stock_balance_table.dart';
+import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -34,6 +35,22 @@ class _InventoryStockMovementsPageState
   bool _newestFirst = true;
   int _page = 1;
   int _rows = 10;
+
+  @override
+  void initState() {
+    super.initState();
+    // F2: this screen read the store but never fetched it, so a refresh on
+    // /inventory/stock-movements showed an empty period — zero movements, zero
+    // stock items and "No stock movements match your filters." — before anything
+    // had been read. Deferred past the first frame (`load()` notifies
+    // synchronously) and guarded by `hasLoaded` because the store is app-scoped
+    // and another screen has usually already fetched it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final inventory = context.read<InventoryViewmodel>();
+      if (!inventory.hasLoaded) inventory.load();
+    });
+  }
 
   @override
   void dispose() {
@@ -240,158 +257,185 @@ class _InventoryStockMovementsPageState
       _ => 'No stock movements match your filters.',
     };
 
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            const gap = AppSpacing.md;
+            final columns = constraints.maxWidth >= 980
+                ? 4
+                : constraints.maxWidth >= 520
+                ? 2
+                : 1;
+            final width =
+                (constraints.maxWidth - gap * (columns - 1)) / columns;
+            return Wrap(
+              spacing: gap,
+              runSpacing: gap,
+              children: [
+                SizedBox(
+                  width: width,
+                  child: InventoryMovementSummaryCard(
+                    label: 'STOCK IN',
+                    value: '$incomingCount movements',
+                    caption: _datePreset.label,
+                    icon: Icons.south_west,
+                    color: AppColors.success,
+                  ),
+                ),
+                SizedBox(
+                  width: width,
+                  child: InventoryMovementSummaryCard(
+                    label: 'STOCK OUT',
+                    value: '$outgoingCount movements',
+                    caption: _datePreset.label,
+                    icon: Icons.north_east,
+                    color: AppColors.error,
+                  ),
+                ),
+                SizedBox(
+                  width: width,
+                  child: InventoryMovementSummaryCard(
+                    label: 'TOTAL MOVEMENTS',
+                    value: '${periodMovements.length}',
+                    caption: _datePreset.label,
+                    icon: Icons.swap_vert,
+                    color: AppColors.info,
+                  ),
+                ),
+                SizedBox(
+                  width: width,
+                  child: InventoryMovementSummaryCard(
+                    label: 'STOCK ITEMS',
+                    value: '$stockItemCount',
+                    caption: 'Tracked variants',
+                    icon: Icons.inventory_2_outlined,
+                    color: AppColors.brandGold,
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        InventoryMovementTabs(
+          selected: _view,
+          onSelected: (value) => setState(() {
+            _view = value;
+            _page = 1;
+          }),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        InventoryMovementFilters(
+          view: _view,
+          searchController: _search,
+          type: _type,
+          category: _category,
+          datePreset: _datePreset,
+          categories: inventory.categories,
+          dateLabel: _rangeLabel,
+          onSearch: (value) => setState(() {
+            _query = value;
+            _page = 1;
+          }),
+          onTypeChanged: (value) => setState(() {
+            _type = value;
+            _page = 1;
+          }),
+          onCategoryChanged: (value) => setState(() {
+            _category = value;
+            _page = 1;
+          }),
+          onDateChanged: _changeDate,
+          onSort: () => setState(() => _newestFirst = !_newestFirst),
+          newestFirst: _newestFirst,
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        if (_view == InventoryMovementView.balance)
+          InventoryStockBalanceTable(
+            records: balances,
+            onViewHistory: _viewHistory,
+          )
+        else ...[
+          InventoryMovementsTable(
+            movements: visible,
+            products: inventory.products,
+            emptyMessage: emptyMessage,
+            onView: (movement) => _showDetails(inventory, movement),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Text(
+                '${filtered.isEmpty ? 0 : start + 1}–${start + visible.length} of ${filtered.length}',
+              ),
+              const SizedBox(width: AppSpacing.md),
+              DropdownButton<int>(
+                value: _rows,
+                items: const [10, 20, 30]
+                    .map(
+                      (value) => DropdownMenuItem(
+                        value: value,
+                        child: Text('$value rows'),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) => setState(() {
+                  _rows = value ?? 10;
+                  _page = 1;
+                }),
+              ),
+              IconButton(
+                onPressed: _page > 1 ? () => setState(() => _page--) : null,
+                icon: const Icon(Icons.chevron_left),
+              ),
+              Text('$_page of $pages'),
+              IconButton(
+                onPressed: _page < pages ? () => setState(() => _page++) : null,
+                icon: const Icon(Icons.chevron_right),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+
+    final failure = inventory.loadError;
+    final pending = inventory.isLoading || !inventory.hasLoaded;
+    // A failed fetch is not an empty period: the "no movements" copy may only
+    // speak after a load that WORKED. Rows kept from an earlier good load stay
+    // visible under the banner.
+    final hasContent =
+        periodMovements.isNotEmpty || inventory.stockRecords.isNotEmpty;
+
     return InventorySkeletonLayout(
       title: 'Stock Movements',
       subtitle:
           'Track inventory coming in, going out, and current stock balances.',
       selectedNavigationIndex: 4,
       onNavigationSelected: (index) => navigateInventory(context, index),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          LayoutBuilder(
-            builder: (context, constraints) {
-              const gap = AppSpacing.md;
-              final columns = constraints.maxWidth >= 980
-                  ? 4
-                  : constraints.maxWidth >= 520
-                  ? 2
-                  : 1;
-              final width =
-                  (constraints.maxWidth - gap * (columns - 1)) / columns;
-              return Wrap(
-                spacing: gap,
-                runSpacing: gap,
-                children: [
-                  SizedBox(
-                    width: width,
-                    child: InventoryMovementSummaryCard(
-                      label: 'STOCK IN',
-                      value: '$incomingCount movements',
-                      caption: _datePreset.label,
-                      icon: Icons.south_west,
-                      color: AppColors.success,
-                    ),
-                  ),
-                  SizedBox(
-                    width: width,
-                    child: InventoryMovementSummaryCard(
-                      label: 'STOCK OUT',
-                      value: '$outgoingCount movements',
-                      caption: _datePreset.label,
-                      icon: Icons.north_east,
-                      color: AppColors.error,
-                    ),
-                  ),
-                  SizedBox(
-                    width: width,
-                    child: InventoryMovementSummaryCard(
-                      label: 'TOTAL MOVEMENTS',
-                      value: '${periodMovements.length}',
-                      caption: _datePreset.label,
-                      icon: Icons.swap_vert,
-                      color: AppColors.info,
-                    ),
-                  ),
-                  SizedBox(
-                    width: width,
-                    child: InventoryMovementSummaryCard(
-                      label: 'STOCK ITEMS',
-                      value: '$stockItemCount',
-                      caption: 'Tracked variants',
-                      icon: Icons.inventory_2_outlined,
-                      color: AppColors.brandGold,
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          InventoryMovementTabs(
-            selected: _view,
-            onSelected: (value) => setState(() {
-              _view = value;
-              _page = 1;
-            }),
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          InventoryMovementFilters(
-            view: _view,
-            searchController: _search,
-            type: _type,
-            category: _category,
-            datePreset: _datePreset,
-            categories: inventory.categories,
-            dateLabel: _rangeLabel,
-            onSearch: (value) => setState(() {
-              _query = value;
-              _page = 1;
-            }),
-            onTypeChanged: (value) => setState(() {
-              _type = value;
-              _page = 1;
-            }),
-            onCategoryChanged: (value) => setState(() {
-              _category = value;
-              _page = 1;
-            }),
-            onDateChanged: _changeDate,
-            onSort: () => setState(() => _newestFirst = !_newestFirst),
-            newestFirst: _newestFirst,
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          if (_view == InventoryMovementView.balance)
-            InventoryStockBalanceTable(
-              records: balances,
-              onViewHistory: _viewHistory,
+      // Loading outranks error, error outranks empty (the precedence `AsyncView`
+      // documents): see F2.
+      child: pending
+          ? const Center(
+              child: Padding(
+                padding: EdgeInsets.all(AppSpacing.xxl),
+                child: CircularProgressIndicator(),
+              ),
             )
-          else ...[
-            InventoryMovementsTable(
-              movements: visible,
-              products: inventory.products,
-              emptyMessage: emptyMessage,
-              onView: (movement) => _showDetails(inventory, movement),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  '${filtered.isEmpty ? 0 : start + 1}–${start + visible.length} of ${filtered.length}',
-                ),
-                const SizedBox(width: AppSpacing.md),
-                DropdownButton<int>(
-                  value: _rows,
-                  items: const [10, 20, 30]
-                      .map(
-                        (value) => DropdownMenuItem(
-                          value: value,
-                          child: Text('$value rows'),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) => setState(() {
-                    _rows = value ?? 10;
-                    _page = 1;
-                  }),
-                ),
-                IconButton(
-                  onPressed: _page > 1 ? () => setState(() => _page--) : null,
-                  icon: const Icon(Icons.chevron_left),
-                ),
-                Text('$_page of $pages'),
-                IconButton(
-                  onPressed: _page < pages
-                      ? () => setState(() => _page++)
-                      : null,
-                  icon: const Icon(Icons.chevron_right),
-                ),
+                if (failure != null)
+                  LiveLoadErrorBanner(
+                    message: failure,
+                    onRetry: inventory.load,
+                  ),
+                if (failure == null || hasContent) content,
               ],
             ),
-          ],
-        ],
-      ),
     );
   }
 }

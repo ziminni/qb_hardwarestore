@@ -57,6 +57,25 @@ Map<String, dynamic> _adjustment({
   'timestamp': '2026-09-25T16:24:33.630104+08:00',
 };
 
+/// `PurchaseOrderSerializer` as receiving reads it (decision 17).
+Map<String, dynamic> _po({int id = 1, String status = 'ORDERED'}) => {
+  'id': id,
+  'supplier': 3,
+  'status': status,
+  'notes': '',
+  'items': [
+    {
+      'id': id * 10,
+      'po': id,
+      'variant': 8,
+      'variant_name': '20A 1-pole',
+      'ordered_qty': '10.00',
+      'unit_cost': '180.00',
+      'received_qty': '0.00',
+    },
+  ],
+};
+
 class _FakeAdapter implements HttpClientAdapter {
   _FakeAdapter(this.bodies, {this.statusCode = 200});
 
@@ -83,6 +102,37 @@ class _FakeAdapter implements HttpClientAdapter {
     return ResponseBody.fromString(
       jsonEncode(bodies[options.path]),
       statusCode,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+/// Answers `page` N of one list endpoint, so a paging walk can be observed.
+class _PagedAdapter implements HttpClientAdapter {
+  _PagedAdapter(this.pages);
+
+  /// Body per page, in order. Past the end the last page is answered again.
+  final List<Map<String, dynamic>> pages;
+  final List<String?> requestedPages = [];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final page = options.queryParameters['page'];
+    requestedPages.add(page == null ? null : '$page');
+    final index = (page is int ? page : int.tryParse('$page') ?? 1) - 1;
+    final body = index >= 0 && index < pages.length ? pages[index] : pages.last;
+    return ResponseBody.fromString(
+      jsonEncode(body),
+      200,
       headers: {
         Headers.contentTypeHeader: [Headers.jsonContentType],
       },
@@ -148,13 +198,50 @@ void main() {
     test(
       'a body with no results list throws instead of reading empty',
       () async {
+        // Still loud (decision 03), but as a message a screen can show: F1 made
+        // the parse failure an InventoryServiceException, so `loadError` is set
+        // instead of the empty list rendering as "nothing here".
         useBodies({
           _alertsPath: {'count': 1, 'next': null, 'previous': null},
         });
 
         await expectLater(
           service().fetchAlerts(),
-          throwsA(isA<FormatException>()),
+          throwsA(
+            isA<InventoryServiceException>().having(
+              (error) => error.message,
+              'message',
+              allOf(
+                contains('could not be read'),
+                isNot(contains('FormatException')),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'a row that does not match its model is an error, not an empty list',
+      () async {
+        // `SystemAlert.fromJson` reads required ints through `intField`, which
+        // throws a FormatException for a missing field. Nothing used to catch it,
+        // so the alerts screen reported "no low stock" on a contract break —
+        // the false-empty this finding is about.
+        final broken = _alert()..remove('variant');
+        useBodies({
+          _alertsPath: _envelope([broken]),
+        });
+
+        await expectLater(
+          service().fetchAlerts(),
+          throwsA(
+            isA<InventoryServiceException>().having(
+              (error) => error.message,
+              'message',
+              contains('could not be read'),
+            ),
+          ),
         );
       },
     );
@@ -165,6 +252,39 @@ void main() {
       await expectLater(
         service().fetchAlerts(),
         throwsA(isA<InventoryServiceException>()),
+      );
+    });
+  });
+
+  group('InventoryService.fetchPurchaseOrders', () {
+    test('follows pagination, so receiving sees every order', () async {
+      // One page is 50 rows (DRF PAGE_SIZE). A single-page read silently hid
+      // every order past the first fifty, and the receiving screen has no way to
+      // tell a short list from a truncated one.
+      final paged = _PagedAdapter([
+        {
+          'count': 3,
+          'next': 'http://test/api/v1/purchase-orders/?page=2',
+          'previous': null,
+          'results': [_po(id: 1), _po(id: 2)],
+        },
+        {
+          'count': 3,
+          'next': null,
+          'previous': 'http://test/api/v1/purchase-orders/?page=1',
+          'results': [_po(id: 3)],
+        },
+      ]);
+      client.dio.httpClientAdapter = paged;
+
+      final orders = await service().fetchPurchaseOrders();
+
+      expect(orders.map((order) => order.id).toList(), [1, 2, 3]);
+      expect(
+        paged.requestedPages,
+        ['1', '2'],
+        reason:
+            'the walk must ask for the second page, not stop after the first',
       );
     });
   });

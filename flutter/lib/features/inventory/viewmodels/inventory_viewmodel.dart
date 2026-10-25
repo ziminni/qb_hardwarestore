@@ -222,6 +222,18 @@ class InventoryViewmodel extends ChangeNotifier {
       _loadError = error.message;
     } on CatalogueServiceException catch (error) {
       _loadError = error.message;
+    } on FormatException catch (error) {
+      // The services map a contract break onto their own exception, so reaching
+      // this is a leak from a repository, the assembler or a parser that grew a
+      // `FormatException` of its own. Before F1 it left `loadError` null and the
+      // empty lists rendered as "no products yet" — a claim nobody checked.
+      _loadError = 'The catalogue could not be read. (${error.message})';
+    } on TypeError {
+      // A `fromJson` cast on a drifted row. An Error, not an Exception, which is
+      // why catching the service exceptions alone never saw it.
+      _loadError =
+          'The catalogue could not be read: a row was not the shape this app '
+          'expects.';
     } finally {
       _isLoading = false;
       _hasLoaded = true;

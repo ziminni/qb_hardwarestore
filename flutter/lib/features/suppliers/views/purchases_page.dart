@@ -51,6 +51,13 @@ class _PurchasesPageState extends State<PurchasesPage> {
   Future<void> _newOrder() async {
     final state = context.read<SuppliersPurchasesViewmodel>();
     final inventory = context.read<InventoryViewmodel>();
+    // The product picker is built from the shared catalogue, which this screen
+    // does not own and never loaded. Fetch it first rather than opening a picker
+    // with no rows and no explanation (F2 page sweep).
+    if (!inventory.hasLoaded) {
+      await inventory.load();
+      if (!mounted) return;
+    }
     final result = await showDialog<PurchaseOrderFormResult>(
       context: context,
       builder: (_) => PurchasesFormDialog(

@@ -183,7 +183,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
                     onRetry: shift.loadCurrent,
                   ),
                 if (shift.currentShift != null) _shiftStrip(context, shift),
-                _till(context, shift, transaction, products),
+                _till(context, inventory, shift, transaction, products),
               ],
             ),
           );
@@ -199,6 +199,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
   /// open shift the product browser and cart are never built at all.
   Widget _till(
     BuildContext context,
+    InventoryViewmodel inventory,
     ShiftViewmodel shift,
     PosTransactionViewmodel transaction,
     List<PosCatalogItem> products,
@@ -220,6 +221,21 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     }
     if (!shift.hasOpenShift) return const _OpenShiftGate();
 
+    // F2 page sweep: the product browser is the CATALOGUE, and until the first
+    // fetch finishes it is unknown — not empty. Without this the grid said "No
+    // products match your search." at a cashier who had not searched.
+    if (inventory.isLoading && !inventory.hasLoaded) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: AppSpacing.xxl),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    // A failed catalogue is not a search that found nothing. The banner above
+    // carries the message and the Retry; the grid stays (the till's structure is
+    // what the cashier expects) but says what actually happened.
+    final catalogueEmpty =
+        inventory.loadError != null && inventory.products.isEmpty;
+
     // The shift strip above the till eats its own height; without subtracting it
     // the cart's Pay button lands below the viewport, where a tap misses it.
     final stripHeight = shift.currentShift == null ? 0.0 : 48.0;
@@ -233,6 +249,9 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
             flex: 3,
             child: PosProductBrowser(
               products: products,
+              emptyMessage: catalogueEmpty
+                  ? 'The product catalogue could not be loaded.'
+                  : 'No products match your search.',
               searchController: _scanController,
               searchFocusNode: _scanFocusNode,
               onSubmitted: (value) => _handleScan(context, value),

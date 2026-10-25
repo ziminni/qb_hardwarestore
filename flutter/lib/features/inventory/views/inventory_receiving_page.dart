@@ -105,7 +105,10 @@ class _OrderWorkspace extends StatelessWidget {
             children: [
               SizedBox(
                 width: 320,
-                child: viewmodel.orders.isEmpty
+                // A failed read is not an empty order book: with the error line
+                // above already saying what went wrong, the empty copy is
+                // withheld so it cannot claim nothing is waiting (F2 sweep).
+                child: viewmodel.orders.isEmpty && viewmodel.loadError == null
                     ? const Padding(
                         padding: EdgeInsets.all(AppSpacing.lg),
                         child: Text(

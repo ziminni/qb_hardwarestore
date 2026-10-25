@@ -203,6 +203,45 @@ class ApiClient {
     return parsePaged<T>(response.data, fromJson);
   }
 
+  /// How many pages [getAll] will read before giving up.
+  ///
+  /// 40 x DRF's `PAGE_SIZE` (50) = 2000 rows, far past any list this app shows.
+  /// Hitting it means the API keeps answering `next`, and failing loudly beats
+  /// returning a silently truncated list the user would read as complete.
+  static const maxListPages = 40;
+
+  /// Walks EVERY page of a list endpoint and returns the flattened rows.
+  ///
+  /// [getList] answers one page. Any screen that counts, searches or picks from
+  /// a list needs all of them: a customer past row 50 could not be selected at
+  /// the till, and a purchase order past row 50 could not be received. The walk
+  /// lives here, next to the envelope it follows, so a service asks for "the
+  /// list" once instead of writing its own `while (next)` loop.
+  ///
+  /// `next` — not a short page — is the signal, which is the same rule
+  /// [parsePaged] documents.
+  Future<List<T>> getAll<T>(
+    String path,
+    T Function(Map<String, dynamic> json) fromJson, {
+    int maxPages = maxListPages,
+  }) async {
+    final all = <T>[];
+    var page = 1;
+    while (true) {
+      final result = await getList<T>(
+        path,
+        fromJson,
+        queryParameters: {'page': page},
+      );
+      all.addAll(result.items);
+      if (!result.hasMore) return all;
+      page++;
+      if (page > maxPages) {
+        throw const FormatException('The list did not end.');
+      }
+    }
+  }
+
   /// POSTs [data], optionally with per-request [headers].
   ///
   /// [headers] exists for the `Idempotency-Key` the checkout contract requires

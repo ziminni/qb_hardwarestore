@@ -6,6 +6,7 @@ import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_low_stock_table.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
+import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmodel.dart';
 import 'package:client/features/suppliers/widgets/purchases_form_dialog.dart';
 import 'package:flutter/material.dart';
@@ -35,6 +36,25 @@ class InventoryLowStockPage extends StatefulWidget {
 class _InventoryLowStockPageState extends State<InventoryLowStockPage> {
   String _query = '';
   bool _showResolved = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // F2: this screen read the store but never fetched it, so a refresh straight
+    // onto /inventory/low-stock painted "No low-stock products match this
+    // search." before anything had been read — and kept painting it, because
+    // nothing ever fetched.
+    //
+    // Deferred past the first frame: `load()` notifies synchronously and marking
+    // an element dirty mid-build throws. Guarded by `hasLoaded` because the store
+    // is app-scoped and shared with the Stock, Products and dashboard screens —
+    // the Retry button covers a stale list, and Resolve reloads anyway.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final inventory = context.read<InventoryViewmodel>();
+      if (!inventory.hasLoaded) inventory.load();
+    });
+  }
 
   void _announce(String message) {
     if (!mounted) return;
@@ -119,43 +139,67 @@ class _InventoryLowStockPageState extends State<InventoryLowStockPage> {
       }
     }
 
+    final failure = inventory.loadError;
+    final pending = inventory.isLoading || !inventory.hasLoaded;
+
     return InventorySkeletonLayout(
       title: 'Low Stock',
       subtitle: 'Variants the server has alerted as low or out of stock.',
       selectedNavigationIndex: 5,
       onNavigationSelected: (index) => navigateInventory(context, index),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              SizedBox(
-                width: 340,
-                child: TextField(
-                  onChanged: (value) => setState(() => _query = value),
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search),
-                    hintText: 'Search low-stock items',
+      // Loading, then error, then data — the precedence `AsyncView` documents.
+      // Nothing is claimed here before the first attempt finishes, and a failed
+      // attempt is never reported as an empty result: see F2.
+      child: pending
+          ? const Center(
+              child: Padding(
+                padding: EdgeInsets.all(AppSpacing.xxl),
+                child: CircularProgressIndicator(),
+              ),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (failure != null)
+                  LiveLoadErrorBanner(
+                    message: failure,
+                    onRetry: inventory.load,
                   ),
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 340,
+                      child: TextField(
+                        onChanged: (value) => setState(() => _query = value),
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.search),
+                          hintText: 'Search low-stock items',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.lg),
+                    FilterChip(
+                      label: const Text('Show resolved'),
+                      selected: _showResolved,
+                      onSelected: (value) =>
+                          setState(() => _showResolved = value),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(width: AppSpacing.lg),
-              FilterChip(
-                label: const Text('Show resolved'),
-                selected: _showResolved,
-                onSelected: (value) => setState(() => _showResolved = value),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          InventoryLowStockTable(
-            rows: rows,
-            inventory: inventory,
-            onReorder: _reorder,
-            onResolve: canResolve ? _resolve : null,
-          ),
-        ],
-      ),
+                const SizedBox(height: AppSpacing.xl),
+                // A failed load with nothing retained shows the banner INSTEAD of
+                // the table, so the table's "no low-stock products" copy cannot
+                // speak for a fetch that never succeeded. Rows kept from an
+                // earlier good load stay visible under the banner.
+                if (failure == null || rows.isNotEmpty)
+                  InventoryLowStockTable(
+                    rows: rows,
+                    inventory: inventory,
+                    onReorder: _reorder,
+                    onResolve: canResolve ? _resolve : null,
+                  ),
+              ],
+            ),
     );
   }
 }

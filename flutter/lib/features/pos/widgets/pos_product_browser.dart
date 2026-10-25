@@ -11,6 +11,7 @@ class PosProductBrowser extends StatelessWidget {
     required this.searchController,
     required this.searchFocusNode,
     required this.onSubmitted,
+    this.emptyMessage = 'No products match your search.',
   });
 
   final List<PosCatalogItem> products;
@@ -19,6 +20,11 @@ class PosProductBrowser extends StatelessWidget {
   final TextEditingController searchController;
   final FocusNode searchFocusNode;
   final ValueChanged<String> onSubmitted;
+
+  /// What the empty grid says. The till passes a different sentence when the
+  /// catalogue itself failed to load — "no products match your search" would
+  /// blame a search the cashier never made.
+  final String emptyMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -48,7 +54,7 @@ class PosProductBrowser extends StatelessWidget {
         const SizedBox(height: 10),
         Expanded(
           child: products.isEmpty
-              ? const Center(child: Text('No products match your search.'))
+              ? Center(child: Text(emptyMessage))
               : GridView.builder(
                   gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                     maxCrossAxisExtent: 260,

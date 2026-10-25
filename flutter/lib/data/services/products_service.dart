@@ -37,6 +37,10 @@ class ProductsService {
 
   final ApiClient _client;
 
+  /// What the screen says when the catalogue read fails for a reason other than
+  /// a specific HTTP status. A contract break appends its parse detail to this.
+  static const _loadFallback = 'The product catalogue could not be loaded.';
+
   static const productsPath = '/api/v1/products/';
   static const batchesPath = '/api/v1/batches/';
 
@@ -52,6 +56,12 @@ class ProductsService {
   /// that the response was malformed. `parsePaged` throws instead, and there is a
   /// test pinning that.
   ///
+  /// F1: that throw is turned into a [ProductsServiceException] here rather than
+  /// escaping as a raw `FormatException`/`TypeError`. Neither was caught by
+  /// `InventoryViewmodel.load()`, so a malformed envelope left `loadError` null
+  /// and the screen painted "No products in the catalogue yet." over a fetch that
+  /// had actually failed — with no banner and no Retry.
+  ///
   /// The two requests run together because neither depends on the other.
   Future<ProductsSnapshot> fetchCatalogue() async {
     try {
@@ -65,6 +75,16 @@ class ProductsService {
       );
     } on DioException catch (error) {
       throw ProductsServiceException(_message(error));
+    } on FormatException catch (error) {
+      // A malformed envelope or row: a contract break, reported as a message the
+      // screen can show, with the parse detail kept for whoever debugs it.
+      throw ProductsServiceException('$_loadFallback (${error.message})');
+    } on TypeError {
+      // A row whose field is the wrong TYPE throws from its `fromJson` cast. The
+      // raw message is a Dart type name, so the clerk gets the plain sentence.
+      throw const ProductsServiceException(
+        '$_loadFallback (a row was not the shape this app expects)',
+      );
     }
   }
 
