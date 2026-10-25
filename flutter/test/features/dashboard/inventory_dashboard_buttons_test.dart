@@ -19,6 +19,7 @@ import 'package:client/data/services/products_service.dart';
 import 'package:client/features/dashboard/widget/inventory_dashboard_content.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/routes/routes.dart';
+import '../../support/phase4_fakes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -46,6 +47,7 @@ Future<InventoryViewmodel> _loadedInventory() async {
   final viewmodel = InventoryViewmodel(
     products: _EmptyProductsRepository(),
     inventory: _EmptyInventoryRepository(),
+    catalogue: FakeCatalogueRepository(),
   );
   await viewmodel.load();
   return viewmodel;

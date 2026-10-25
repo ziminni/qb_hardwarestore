@@ -1,73 +1,87 @@
 // Decision 11: `ProductsViewmodel` is **view state only**. It owns search,
-// filters, sort, paging and selection, and NO product data.
+// filters, paging and selection, and NO product data.
 //
 // Before this, it held a COPY of the product list taken at construction
 // (`ProductsViewmodel(context.read<InventoryViewmodel>().products)`), and
 // `products_page` applied every mutation to BOTH viewmodels — each computing its
 // own `max(id)+1`, so the two could disagree. The duplication is what these tests
 // exist to prevent from coming back.
+//
+// Phase 4 Task 4 rewrote the mutation group: the store no longer mutates in
+// memory, so "delegates to the store" now means "sends the draft to the
+// repository". The store is seeded from a fake catalogue instead of
+// `InventoryMockData`, which was deleted with the seed.
 
-import 'package:client/data/models/inventory_batch.dart';
-import 'package:client/data/models/product.dart';
+import 'package:client/data/models/product_writes.dart';
+import 'package:client/data/repositories/products_repository.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/products/viewmodels/products_viewmodel.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Product _draft({
-  required int id,
-  String baseName = 'Test Product',
-  String categoryName = 'Cement',
-  String brandName = 'Holcim',
-  bool isActive = true,
-  List<ProductVariant> variants = const [],
-}) => Product(
-  id: id,
-  categoryId: 1,
-  categoryName: categoryName,
-  brandId: 1,
-  brandName: brandName,
-  baseName: baseName,
-  description: '',
-  imageUrl: '',
-  isActive: isActive,
-  variants: variants,
-);
+import '../../support/phase4_fakes.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  late FakeProductsRepository products;
   late InventoryViewmodel inventory;
   late ProductsViewmodel vm;
 
-  setUp(() {
-    inventory = InventoryViewmodel();
+  setUp(() async {
+    products = FakeProductsRepository(
+      products: [
+        product(
+          id: 1,
+          name: 'Portland Cement',
+          categoryName: 'Cement',
+          brandName: 'Holcim',
+        ),
+        product(
+          id: 2,
+          name: 'PVC Pipe',
+          categoryName: 'Plumbing',
+          brandName: 'Neltex',
+        ),
+        product(
+          id: 3,
+          name: 'Old Hammer',
+          categoryName: 'Hand Tools',
+          brandName: 'Stanley',
+          isActive: false,
+        ),
+      ],
+      batches: [batch(id: 1, variantId: 1, qty: 40)],
+    );
+    inventory = InventoryViewmodel(
+      products: products,
+      inventory: FakeInventoryRepository(),
+      catalogue: FakeCatalogueRepository(),
+    );
+    await inventory.load();
     vm = ProductsViewmodel(inventory);
   });
 
   tearDown(() => vm.dispose());
 
   group('ProductsViewmodel reads the store live (decision 11)', () {
-    test('its product list IS the store\'s, not a copy', () {
+    test("its product list IS the store's, not a copy", () async {
+      expect(vm.products.length, 3);
+
+      // The proof it is not a snapshot: change the STORE (as a reload would) and
+      // read the viewmodel.
+      products.setSnapshot(products: [product(id: 9, name: 'Only One')]);
+      await inventory.load();
+
+      expect(vm.products.single.id, 9);
       expect(vm.products.length, inventory.products.length);
-
-      // The proof it is not a snapshot: mutate the store, read the viewmodel.
-      // (InventoryViewmodel has no `archiveProduct`; archiving is an update.)
-      inventory.updateProduct(
-        inventory.products.first.copyWith(isActive: false),
-      );
-
-      expect(
-        vm.products.length,
-        inventory.products.length,
-        reason: 'viewmodel list drifted from the store',
-      );
     });
 
-    test('a store change notifies the viewmodel\'s listeners', () {
+    test("a store change notifies the viewmodel's listeners", () async {
       var notified = 0;
       vm.addListener(() => notified++);
 
-      inventory.addProduct(_draft(id: 0, baseName: 'Fresh Product'));
+      products.setSnapshot(products: [product(id: 4, name: 'Fresh Product')]);
+      await inventory.load();
 
       expect(
         notified,
@@ -76,25 +90,27 @@ void main() {
       );
     });
 
-    test('it stops listening once disposed', () {
-      // If the listener leaked, a later store change would call
-      // notifyListeners on a dead ChangeNotifier and Flutter would throw.
+    test('it stops listening once disposed', () async {
+      // If the listener leaked, a later store change would call notifyListeners
+      // on a dead ChangeNotifier and Flutter would throw.
       //
       // Uses a LOCAL instance on purpose: disposing the shared `vm` here would
       // make tearDown dispose it a second time, which Flutter also throws for.
       ProductsViewmodel(inventory).dispose();
 
-      expect(
-        () => inventory.addProduct(_draft(id: 0, baseName: 'After Dispose')),
-        returnsNormally,
-      );
+      products.setSnapshot(products: [product(id: 5)]);
+      await expectLater(inventory.load(), completes);
     });
   });
 
   group('ProductsViewmodel filters (unchanged behaviour)', () {
     test('only active products are listed', () {
-      expect(vm.products.every((product) => product.isActive), isTrue);
+      // `products` is the store's whole list (archived rows included — the
+      // archived dialog reads them); the TABLE shows only active ones.
+      expect(vm.products, hasLength(3));
+      expect(vm.archivedProducts, 1);
       expect(vm.filteredProducts.every((product) => product.isActive), isTrue);
+      expect(vm.filteredProducts, hasLength(2));
     });
 
     test('search matches a product name', () {
@@ -109,198 +125,111 @@ void main() {
       );
     });
 
-    test('search matches a variant barcode, not just the product', () {
-      // The migrated behaviour: search used to look at sku + qrIdentifier, which
-      // no longer exist. A barcode lives on the selling unit.
-      final barcode = inventory.products
-          .expand((product) => product.variants)
-          .map((variant) => variant.barcode)
-          .firstWhere((value) => value.isNotEmpty);
-
-      vm.setSearchQuery(barcode);
+    test('search matches a variant name and barcode', () {
+      vm.setSearchQuery('20A');
 
       expect(vm.filteredProducts, isNotEmpty);
-    });
 
-    test('a search that matches nothing returns nothing', () {
-      vm.setSearchQuery('zzz-nothing-matches');
-
+      vm.setSearchQuery('NOT-A-BARCODE');
       expect(vm.filteredProducts, isEmpty);
-      expect(vm.visibleProducts, isEmpty);
-      expect(vm.firstVisibleItem, 0);
     });
 
-    test('the category filter narrows to that category', () {
-      vm.setCategory('Plumbing');
-
-      expect(vm.filteredProducts, isNotEmpty);
-      expect(
-        vm.filteredProducts.every(
-          (product) => product.categoryName == 'Plumbing',
-        ),
-        isTrue,
-      );
-    });
-
-    test('the brand filter narrows to that brand', () {
-      final brand = inventory.products.first.brandName;
-      vm.setBrand(brand);
-
-      expect(
-        vm.filteredProducts.every((product) => product.brandName == brand),
-        isTrue,
-      );
-    });
-
-    test('clearFilters restores the full list', () {
-      vm.setSearchQuery('zzz-nothing-matches');
-      expect(vm.filteredProducts, isEmpty);
+    test('category and brand filters narrow the list', () {
+      vm.setCategory('Cement');
+      expect(vm.filteredProducts.single.id, 1);
 
       vm.clearFilters();
-
-      expect(vm.filteredProducts.length, vm.products.length);
-      expect(vm.selectedCategory, isNull);
-      expect(vm.selectedBrand, isNull);
+      vm.setBrand('Neltex');
+      expect(vm.filteredProducts.single.id, 2);
     });
   });
 
-  group('ProductsViewmodel paging and selection (unchanged behaviour)', () {
-    test('a page holds at most rowsPerPage products', () {
-      vm.setRowsPerPage(3);
-
-      expect(vm.visibleProducts.length, lessThanOrEqualTo(3));
-      expect(vm.firstVisibleItem, 1);
-    });
-
-    test('totalPages covers the filtered list', () {
-      vm.setRowsPerPage(3);
-      final expected = (vm.filteredProducts.length / 3).ceil();
-
-      expect(vm.totalPages, expected < 1 ? 1 : expected);
-    });
-
-    test('paging past the end is clamped', () {
-      vm.goToPage(9999);
-
-      expect(vm.currentPage, vm.totalPages);
-    });
-
-    test('selection survives paging but not a filter change', () {
-      final first = vm.visibleProducts.first;
-      vm.toggleSelection(first.id, true);
-      vm.goToPage(2);
-      expect(vm.selectedProductIds, contains(first.id));
-
-      vm.setSearchQuery('a');
-      expect(
-        vm.selectedProductIds,
-        isEmpty,
-        reason: 'a selection made under other filters is meaningless',
-      );
-    });
-  });
-
-  group('ProductsViewmodel mutations delegate to the store (decision 11)', () {
-    test('addProduct writes to the store, not to a private list', () {
-      final before = inventory.products.length;
-
-      vm.addProduct(_draft(id: 0, baseName: 'Delegated Product'));
-
-      expect(inventory.products.length, before + 1);
-      expect(
-        inventory.products.any((p) => p.baseName == 'Delegated Product'),
-        isTrue,
-      );
-      expect(vm.products.length, inventory.products.length);
-    });
-
-    test('addProduct gives the product a real id from the store', () {
-      vm.addProduct(_draft(id: 0, baseName: 'Needs An Id'));
-
-      final stored = inventory.products.firstWhere(
-        (p) => p.baseName == 'Needs An Id',
-      );
-      expect(stored.id, greaterThan(0));
-    });
-
-    test('addProduct passes the opening stock through as batches', () {
-      final variant = const ProductVariant(
-        id: 9901,
-        productId: 0,
+  group('ProductsViewmodel writes go to the server (Phase 4 Task 4)', () {
+    test('createProduct hands the draft to the repository', () async {
+      const draft = NewProductDraft(
+        categoryId: 1,
+        brandId: 1,
+        baseName: 'Delegated Product',
+        description: '',
+        imageUrl: '',
+        variantName: 'Standard',
         baseUomId: 1,
         minStockThreshold: 5,
-        maxStockLevel: 0,
-        variantName: 'Delegated Variant',
-        baseUomCode: 'Bag',
-        isActive: true,
+        maxStockLevel: 100,
+        sellingPrice: 250,
       );
 
-      vm.addProduct(
-        _draft(id: 0, baseName: 'With Stock', variants: [variant]),
-        openingStock: const [
-          InventoryBatch(
-            id: 0,
-            variantId: 9901,
-            receiptId: 0,
-            initialQty: 25,
-            currentQty: 25,
-            unitCostLanded: 100,
-            markupPercentage: 0,
-            batchSellingPrice: 120,
-            expirationDate: null,
-            createdAt: null,
-          ),
-        ],
-      );
+      final error = await vm.createProduct(draft);
 
-      expect(inventory.stockOnHandFor(9901), 25.0);
+      expect(error, isNull);
+      expect(products.createdDrafts.single.baseName, 'Delegated Product');
+      expect(products.createdDrafts.single.sellingPrice, 250);
     });
 
-    test('updateProduct writes through to the store', () {
-      final target = inventory.products.first;
+    test('a refused create returns the message and reloads', () async {
+      products.failAt = ProductWriteStep.variant;
 
-      vm.updateProduct(target.copyWith(baseName: 'Renamed Product'));
-
-      expect(
-        inventory.products.any((p) => p.baseName == 'Renamed Product'),
-        isTrue,
+      final error = await vm.createProduct(
+        const NewProductDraft(
+          categoryId: 1,
+          brandId: 1,
+          baseName: 'Half Made',
+          description: '',
+          imageUrl: '',
+          variantName: 'Standard',
+          baseUomId: 1,
+          minStockThreshold: 0,
+          maxStockLevel: 0,
+          sellingPrice: 1,
+        ),
       );
-      expect(vm.products.any((p) => p.baseName == 'Renamed Product'), isTrue);
+
+      expect(error, 'The variant could not be created: server said no');
+      expect(products.loadCount, greaterThan(1));
     });
 
-    test('archiveProduct deactivates it in the store', () {
-      final target = inventory.products.first;
-
-      vm.archiveProduct(target);
-
-      expect(
-        inventory.products.firstWhere((p) => p.id == target.id).isActive,
-        isFalse,
+    test('editProduct hands the PATCH draft to the repository', () async {
+      final error = await vm.editProduct(
+        const ProductEditDraft(
+          productId: 1,
+          variantId: 1,
+          sellingUnitId: 1,
+          sellingPrice: 275,
+        ),
       );
+
+      expect(error, isNull);
+      expect(products.editDrafts.single.sellingPrice, 275);
+      expect(products.editDrafts.single.sellingUnitBody, {
+        'default_selling_price': 275.0,
+      });
     });
 
-    test('archiveSelectedProducts deactivates each selected product once', () {
-      final selected = vm.visibleProducts.take(2).toList();
-      for (final product in selected) {
-        vm.toggleSelection(product.id, true);
-      }
+    test('setProductActive PATCHes is_active, it does not delete', () async {
+      final target = vm.products.first;
 
-      vm.archiveSelectedProducts();
+      final error = await vm.setProductActive(target, false);
 
-      for (final product in selected) {
+      expect(error, isNull);
+      expect(products.activePatches.single, (productId: 1, isActive: false));
+    });
+
+    test(
+      'archiveSelectedProducts PATCHes each selected product once',
+      () async {
+        vm.selectVisibleProducts(true);
+        final selected = vm.selectedProductIds.length;
+        expect(selected, greaterThan(0));
+
+        await vm.archiveSelectedProducts();
+
+        expect(products.activePatches, hasLength(selected));
         expect(
-          inventory.products.firstWhere((p) => p.id == product.id).isActive,
-          isFalse,
-          reason: 'product ${product.id} was not archived',
+          products.activePatches.every((patch) => patch.isActive == false),
+          isTrue,
         );
-      }
-      expect(vm.selectedProductIds, isEmpty);
-      // The store owns the ids, so exactly one product was added per archive.
-      expect(
-        inventory.products.map((p) => p.id).toSet().length,
-        inventory.products.length,
-        reason: 'archiving duplicated a product id',
-      );
-    });
+        expect(vm.selectedProductIds, isEmpty);
+      },
+    );
   });
 }

@@ -8,6 +8,14 @@ import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+/// Categories, live (Phase 4 Task 4).
+///
+/// Every action here reaches `GET/POST/PATCH /api/v1/categories/` and reloads.
+/// Before this, "Save changes" renamed the row in memory and the snackbar said so
+/// in as many words — "Category updated in mock data." — and the change was gone
+/// on the next load. There is no Delete anywhere: the route answers **405**, so
+/// archiving is the supported exit and a restore is the same PATCH with the
+/// other flag.
 class CategoriesPage extends StatefulWidget {
   const CategoriesPage({super.key});
 
@@ -18,58 +26,96 @@ class CategoriesPage extends StatefulWidget {
 class _CategoriesPageState extends State<CategoriesPage> {
   String _query = '';
 
+  @override
+  void initState() {
+    super.initState();
+    // Load on open. Deferred past the first frame: `load()` notifies
+    // synchronously and marking an element dirty mid-build throws.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<InventoryViewmodel>().load();
+    });
+  }
+
+  void _announce(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _create() async {
+    final inventory = context.read<InventoryViewmodel>();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => const _NewCategoryDialog(),
+    );
+    if (name == null || !mounted) return;
+    final error = await inventory.createCategory(name);
+    _announce(error ?? 'Category "$name" created.');
+  }
+
   Future<void> _open(Category category, bool editing) async {
     final inventory = context.read<InventoryViewmodel>();
-    final result = await showDialog<Category>(
+    if (!editing) {
+      await showDialog<void>(
+        context: context,
+        builder: (_) => InventoryCategoryDialog(
+          category: category,
+          products: inventory.productsForCategory(category.id),
+        ),
+      );
+      return;
+    }
+    final name = await showDialog<String>(
       context: context,
       builder: (_) => InventoryCategoryDialog(
         category: category,
-        products: inventory.productsForCategory(category.id),
-        editing: editing,
+        products: const [],
+        editing: true,
       ),
     );
-    if (result != null) {
-      inventory.updateCategory(result);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Category updated in mock data.')),
-        );
-      }
-    }
+    if (name == null || name.isEmpty || !mounted) return;
+    final error = await inventory.renameCategory(category.id, name);
+    _announce(error ?? 'Category renamed to "$name".');
   }
 
-  Future<void> _archive(Category category) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Archive category?'),
-        content: Text('${category.name} will remain visible as archived.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+  Future<void> _toggle(Category category) async {
+    final inventory = context.read<InventoryViewmodel>();
+    final archiving = category.isActive;
+    if (archiving) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Archive category?'),
+          content: Text(
+            '${category.name} will be hidden from the new product picker. '
+            'Products already filed under it stay sellable.',
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Archive'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true && mounted) {
-      context.read<InventoryViewmodel>().archiveCategory(category);
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Archive'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
     }
+    final error = await inventory.setCategoryActive(category.id, !archiving);
+    _announce(
+      error ?? '${category.name} ${archiving ? 'archived' : 'restored'}.',
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final inventory = context.watch<InventoryViewmodel>();
     final categories = inventory.categories
-        .where(
-          (item) =>
-              item.name.toLowerCase().contains(_query.toLowerCase()) ||
-              item.description.toLowerCase().contains(_query.toLowerCase()),
-        )
+        .where((item) => item.name.toLowerCase().contains(_query.toLowerCase()))
         .toList();
     final activeCount = inventory.categories
         .where((item) => item.isActive)
@@ -102,7 +148,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
                 ),
               ),
               SizedBox(
-                width: 360,
+                width: 320,
                 child: TextField(
                   onChanged: (value) => setState(() => _query = value),
                   decoration: const InputDecoration(
@@ -111,10 +157,38 @@ class _CategoriesPageState extends State<CategoriesPage> {
                   ),
                 ),
               ),
+              const SizedBox(width: AppSpacing.md),
+              FilledButton.icon(
+                onPressed: _create,
+                icon: const Icon(Icons.add),
+                label: const Text('New category'),
+              ),
             ],
           ),
           const SizedBox(height: AppSpacing.xl),
-          if (categories.isEmpty)
+          if (inventory.isLoading && !inventory.hasLoaded)
+            const SizedBox(
+              height: 240,
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (inventory.loadError case final error?)
+            SizedBox(
+              height: 240,
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(error),
+                    const SizedBox(height: AppSpacing.md),
+                    OutlinedButton(
+                      onPressed: inventory.load,
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else if (categories.isEmpty)
             const SizedBox(
               height: 240,
               child: Center(child: Text('No categories match your search.')),
@@ -144,7 +218,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
                             ),
                             onView: () => _open(category, false),
                             onEdit: () => _open(category, true),
-                            onArchive: () => _archive(category),
+                            onArchive: () => _toggle(category),
                           ),
                         ),
                       )
@@ -154,6 +228,60 @@ class _CategoriesPageState extends State<CategoriesPage> {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// Names a new category. The server takes a name and nothing else.
+class _NewCategoryDialog extends StatefulWidget {
+  const _NewCategoryDialog();
+
+  @override
+  State<_NewCategoryDialog> createState() => _NewCategoryDialogState();
+}
+
+class _NewCategoryDialogState extends State<_NewCategoryDialog> {
+  final _name = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _name.text.trim();
+    if (name.isEmpty) {
+      setState(() => _error = 'Enter a category name.');
+      return;
+    }
+    Navigator.pop(context, name);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('New category'),
+      content: SizedBox(
+        width: 420,
+        child: TextField(
+          controller: _name,
+          autofocus: true,
+          decoration: InputDecoration(
+            labelText: 'Category name',
+            errorText: _error,
+          ),
+          onSubmitted: (_) => _submit(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('Create')),
+      ],
     );
   }
 }

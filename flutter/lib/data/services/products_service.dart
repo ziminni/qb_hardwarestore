@@ -68,16 +68,133 @@ class ProductsService {
     }
   }
 
-  String _message(DioException error) {
-    final data = error.response?.data;
-    if (data is Map<String, dynamic> && data['detail'] is String) {
-      return data['detail'] as String;
+  // ---------------------------------------------------------------------
+  // Writes (Phase 4 Task 4). There is no DELETE: the catalog routes answer
+  // 405 and archiving is `PATCH {"is_active": false}`.
+  // ---------------------------------------------------------------------
+
+  static const variantsPath = '/api/v1/variants/';
+  static const variantUomsPath = '/api/v1/variant-uoms/';
+
+  /// POSTs one product row and returns the server id.
+  Future<int> createProduct(Map<String, dynamic> body) async {
+    final response = await _write(
+      () => _client.post<Map<String, dynamic>>(productsPath, data: body),
+    );
+    return _idOf(response.data);
+  }
+
+  /// POSTs one variant row and returns the server id.
+  Future<int> createVariant(Map<String, dynamic> body) async {
+    final response = await _write(
+      () => _client.post<Map<String, dynamic>>(variantsPath, data: body),
+    );
+    return _idOf(response.data);
+  }
+
+  /// POSTs one selling unit and returns the server id.
+  Future<int> createSellingUnit(Map<String, dynamic> body) async {
+    final response = await _write(
+      () => _client.post<Map<String, dynamic>>(variantUomsPath, data: body),
+    );
+    return _idOf(response.data);
+  }
+
+  Future<void> patchProduct(int id, Map<String, dynamic> body) async {
+    if (body.isEmpty) return;
+    await _write(
+      () =>
+          _client.patch<Map<String, dynamic>>('$productsPath$id/', data: body),
+    );
+  }
+
+  Future<void> patchVariant(int id, Map<String, dynamic> body) async {
+    if (body.isEmpty) return;
+    await _write(
+      () =>
+          _client.patch<Map<String, dynamic>>('$variantsPath$id/', data: body),
+    );
+  }
+
+  Future<void> patchSellingUnit(int id, Map<String, dynamic> body) async {
+    if (body.isEmpty) return;
+    await _write(
+      () => _client.patch<Map<String, dynamic>>(
+        '$variantUomsPath$id/',
+        data: body,
+      ),
+    );
+  }
+
+  int _idOf(Map<String, dynamic>? data) {
+    final id = data?['id'];
+    if (id is int) return id;
+    throw const ProductsServiceException(
+      'The server did not return the saved row.',
+    );
+  }
+
+  Future<Response<Map<String, dynamic>>> _write(
+    Future<Response<Map<String, dynamic>>> Function() write,
+  ) async {
+    try {
+      return await write();
+    } on DioException catch (error) {
+      throw ProductsServiceException(_message(error));
     }
+  }
+
+  String _message(DioException error) {
+    final status = error.response?.statusCode;
+    final data = error.response?.data;
+
+    if (data is Map<String, dynamic>) {
+      final code = data['code'];
+      if (code is String) {
+        final mapped = _codes[code];
+        if (mapped != null) return mapped;
+      }
+      final detail = data['detail'];
+      if (detail is String) return detail;
+      final fieldError = _firstFieldError(data);
+      if (fieldError != null) return fieldError;
+    }
+
     if (error.type == DioExceptionType.connectionError ||
         error.type == DioExceptionType.connectionTimeout ||
         error.type == DioExceptionType.receiveTimeout) {
       return 'Cannot connect to the BuildPro server.';
     }
-    return 'Unable to load the product catalogue.';
+    return switch (status) {
+      401 => 'Your session has expired. Sign in again.',
+      403 => 'Only a stock manager can change the product catalogue.',
+      404 => 'That product no longer exists. Reload and try again.',
+      405 => 'Products cannot be deleted: archive the product instead.',
+      _ => 'Unable to load the product catalogue.',
+    };
+  }
+
+  /// The refusal codes this service can be answered with (ENDPOINTS.md §3.3),
+  /// each turned into something a clerk can act on.
+  static const Map<String, String> _codes = {
+    'INVALID_VARIANT':
+        'A stock level cannot be negative. Correct the reorder level and save '
+        'again.',
+    'INVALID_SELLING_UNIT':
+        'The selling price cannot be negative, and one selling unit always '
+        'holds at least one base unit.',
+    'DUPLICATE_BASE_UNIT': 'This variant already has a base-unit selling unit.',
+    'SELLING_UNIT_IN_USE':
+        'This selling unit has already been sold, so its unit and factor are '
+        'frozen. The price is still editable.',
+  };
+
+  String? _firstFieldError(Map<String, dynamic> data) {
+    for (final entry in data.entries) {
+      final value = entry.value;
+      if (value is List && value.isNotEmpty) return '${value.first}';
+      if (value is String && value.isNotEmpty) return value;
+    }
+    return null;
   }
 }

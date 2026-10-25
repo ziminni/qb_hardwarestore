@@ -219,4 +219,13 @@ class ApiClient {
       options: headers == null ? null : Options(headers: headers),
     );
   }
+
+  /// PATCHes [data] — the verb every catalog edit uses (Phase 4 Task 4).
+  ///
+  /// There is deliberately no `delete`: the catalog and purchasing routes
+  /// answer **405** to DELETE (Phase 4 Task 1), so a client method for it could
+  /// only ever produce a refusal. Archive through `PATCH {"is_active": false}`.
+  Future<Response<T>> patch<T>(String path, {Object? data}) {
+    return dio.patch<T>(path, data: data);
+  }
 }

@@ -91,10 +91,17 @@ class InventoryCategoryCard extends StatelessWidget {
                     itemBuilder: (_) => [
                       const PopupMenuItem(value: 'view', child: Text('View')),
                       const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                      // Archive and restore are the same PATCH with the other
+                      // flag — DELETE is 405, so a category is never removed.
                       if (category.isActive)
                         const PopupMenuItem(
                           value: 'archive',
                           child: Text('Archive'),
+                        )
+                      else
+                        const PopupMenuItem(
+                          value: 'archive',
+                          child: Text('Restore'),
                         ),
                     ],
                   ),
@@ -110,17 +117,8 @@ class InventoryCategoryCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: AppSpacing.sm),
-              SizedBox(
-                height: 42,
-                child: Text(
-                  category.description,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colors.onSurfaceVariant,
-                  ),
-                ),
-              ),
+              // No description line: the server has no description column, and
+              // an empty paragraph reads as missing data (Phase 4 Task 4).
               const Divider(height: AppSpacing.xxl),
               Row(
                 children: [

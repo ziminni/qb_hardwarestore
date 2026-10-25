@@ -36,6 +36,7 @@ import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
 import 'package:client/features/pos/widgets/pos_receipt_dialog.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
+import '../../support/phase4_fakes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -156,7 +157,7 @@ void main() {
   setUp(() {
     _pos = _RecordingPosRepository();
     _cart = PosTransactionViewmodel(
-      InventoryViewmodel(),
+      seededInventory(),
       ProductTrackingViewmodel(),
       pos: _pos,
     );

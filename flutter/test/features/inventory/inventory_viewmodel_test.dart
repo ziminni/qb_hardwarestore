@@ -1,252 +1,215 @@
-// Step 3 of the staged ProductVariant swap: stock moves onto batches.
+// The inventory store, after Phase 4 Task 4 removed its mock seed and its
+// in-memory mutators (`addProduct`, `updateProduct`, `sellStock`, and the opening
+// batches they wrote).
 //
-// Ruling R12: the mock mirrors the backend's implemented behaviour, verified in
-// `backend_django/apps/inventory/services.py`:
-//   - `allocate_fifo` deducts OLDEST batch first, ordered by receipt date.
-//   - `apply_stock_adjustment` sends removals through FIFO and lands additions on
-//     the NEWEST active batch.
-//
-// Decision 10 answer: adding a product creates an opening batch, because the
-// form collects a quantity and a cost and a batch is exactly "a lot at a cost".
+// The stock/batch assertions below are the SAME questions the file asked before —
+// totals, FIFO order, price/cost origins, status thresholds — but the rows now
+// arrive the only way production gets them: through the repository, on `load()`.
+// The local-mutation groups are gone with the code they covered; their
+// replacements assert the SERVER request (`inventory_phase4_writes_test.dart`).
 
+import 'package:client/data/models/catalogue_option.dart';
 import 'package:client/data/models/inventory.dart';
-import 'package:client/data/models/inventory_batch.dart';
-import 'package:client/data/models/product.dart';
-import 'package:client/data/models/variant_uom.dart';
+import 'package:client/data/services/products_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Current quantities of a variant's batches, oldest receipt first.
-List<double> _batchQtys(InventoryViewmodel vm, int variantId) =>
-    vm.batchesFor(variantId).map((batch) => batch.currentQty).toList();
+import '../../support/phase4_fakes.dart';
 
 void main() {
   // Needed only by the location-hint group, which legitimately exercises
-  // `shared_preferences` through its mock. The stock and lookup groups build a
-  // viewmodel with no platform dependency at all.
+  // `shared_preferences` through its mock. Every other group builds a viewmodel
+  // with no platform dependency at all.
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('InventoryViewmodel — stock lives on batches', () {
-    test('stockOnHandFor sums every batch of a variant', () {
-      // Variant 1 ("40 kg Bag") is seeded as two lots of the same delivery
-      // series: 80 + 50 = the 130 the legacy field also carries.
-      expect(InventoryViewmodel().stockOnHandFor(1), 130.0);
+  /// Variant 1 holds two lots of the same delivery series: 80 + 50 = 130.
+  InventoryViewmodel seeded() {
+    final products = FakeProductsRepository(
+      products: [
+        product(
+          id: 1,
+          name: 'Portland Cement',
+          categoryName: 'Cement',
+          brandName: 'Holcim',
+          variants: [
+            variant(
+              id: 1,
+              productId: 1,
+              name: '40 kg Bag',
+              threshold: 30,
+              sellingUoms: [
+                variantUom(
+                  id: 1,
+                  variantId: 1,
+                  price: 270,
+                  barcode: 'MAT-00001',
+                  uomCode: 'BAG',
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+      batches: [
+        batch(id: 1, variantId: 1, qty: 80, cost: 200, receiptId: 1),
+        batch(id: 2, variantId: 1, qty: 50, cost: 235, receiptId: 2),
+      ],
+    );
+    return InventoryViewmodel(
+      products: products,
+      inventory: FakeInventoryRepository(),
+      catalogue: FakeCatalogueRepository(
+        categories: [category(id: 1, name: 'Cement')],
+      ),
+    );
+  }
+
+  group('InventoryViewmodel — nothing is invented before the first load', () {
+    test('a fresh store is EMPTY and has not loaded anything', () {
+      final vm = InventoryViewmodel(
+        products: FakeProductsRepository(),
+        inventory: FakeInventoryRepository(),
+        catalogue: FakeCatalogueRepository(),
+      );
+
+      // The mock seed is gone: twelve invented products used to be visible for a
+      // frame, which is why the pages now show a spinner instead (hasLoaded).
+      expect(vm.products, isEmpty);
+      expect(vm.batches, isEmpty);
+      expect(vm.categories, isEmpty);
+      expect(vm.hasLoaded, isFalse);
     });
 
-    test('batches are exposed oldest receipt first', () {
-      final vm = InventoryViewmodel();
+    test(
+      'load() fills products, batches, categories, brands and units',
+      () async {
+        final vm = InventoryViewmodel(
+          products: FakeProductsRepository(
+            products: [product(id: 6)],
+            batches: [batch(id: 6, variantId: 6)],
+          ),
+          inventory: FakeInventoryRepository(),
+          catalogue: FakeCatalogueRepository(
+            categories: [category(id: 1, name: 'Electrical')],
+            brands: const [Brand(id: 1, name: 'Omni')],
+            units: const [UnitOfMeasure(id: 1, code: 'PC', name: 'Piece')],
+          ),
+        );
+
+        await vm.load();
+
+        expect(vm.products.single.id, 6);
+        expect(vm.batches.single.variantId, 6);
+        expect(vm.categories.single.name, 'Electrical');
+        expect(vm.brands.single.name, 'Omni');
+        expect(vm.units.single.code, 'PC');
+        expect(vm.hasLoaded, isTrue);
+        expect(vm.isLoading, isFalse);
+        expect(vm.loadError, isNull);
+      },
+    );
+
+    test(
+      'a failed load reports the message and keeps the rows already shown',
+      () async {
+        final products = FakeProductsRepository(
+          products: [product(id: 6)],
+          batches: [batch(id: 6, variantId: 6)],
+        );
+        final vm = InventoryViewmodel(
+          products: products,
+          inventory: FakeInventoryRepository(),
+          catalogue: FakeCatalogueRepository(),
+        );
+        await vm.load();
+
+        final failing = _FailingProductsRepository();
+        final reloaded = InventoryViewmodel(
+          products: failing,
+          inventory: FakeInventoryRepository(),
+          catalogue: FakeCatalogueRepository(),
+        );
+        await reloaded.load();
+
+        // An empty list would render as a legitimate "no products"; the error is
+        // the honest state, and `hasLoaded` stops the spinner.
+        expect(reloaded.loadError, isNotNull);
+        expect(reloaded.hasLoaded, isTrue);
+      },
+    );
+  });
+
+  group('InventoryViewmodel — stock lives on batches', () {
+    test('stockOnHandFor sums every batch of a variant', () async {
+      final vm = seeded();
+      await vm.load();
+
+      expect(vm.stockOnHandFor(1), 130.0);
+    });
+
+    test('batches are exposed oldest receipt first', () async {
+      final vm = seeded();
+      await vm.load();
 
       expect(vm.batchesFor(1).map((batch) => batch.receiptId).toList(), [1, 2]);
     });
 
-    test('the catalogue carries batch stock and the selling-uom price', () {
-      final row = InventoryViewmodel().catalogue.firstWhere(
-        (item) => item.variant.id == 1,
-      );
+    test(
+      'the catalogue carries batch stock and the selling-uom price',
+      () async {
+        final vm = seeded();
+        await vm.load();
 
-      expect(row.price, 270.0); // VariantUom.defaultSellingPrice
-      expect(row.stockOnHand, 130.0); // summed batches
-      expect(row.uom.barcodeQr, 'MAT-00001');
-    });
+        final row = vm.catalogue.firstWhere((item) => item.variant.id == 1);
 
-    test('a sale deducts the oldest batch first', () {
-      final vm = InventoryViewmodel();
-
-      vm.sellStock(
-        variantId: 1,
-        quantity: 30,
-        reference: 'SALE-1',
-        userName: 'Test',
-      );
-
-      expect(_batchQtys(vm, 1), [50.0, 50.0]); // 80 - 30; newer lot untouched
-      expect(vm.stockOnHandFor(1), 100.0);
-    });
-
-    test('a sale crossing a batch boundary drains the oldest batch first', () {
-      final vm = InventoryViewmodel();
-
-      vm.sellStock(
-        variantId: 1,
-        quantity: 100,
-        reference: 'SALE-2',
-        userName: 'Test',
-      );
-
-      expect(_batchQtys(vm, 1), [0.0, 30.0]);
-      expect(vm.stockOnHandFor(1), 30.0);
-    });
-
-    test('a sale of more than is on hand changes nothing', () {
-      final vm = InventoryViewmodel();
-
-      vm.sellStock(
-        variantId: 1,
-        quantity: 999,
-        reference: 'SALE-3',
-        userName: 'Test',
-      );
-
-      expect(_batchQtys(vm, 1), [80.0, 50.0]);
-      expect(vm.stockOnHandFor(1), 130.0);
-    });
-
-    test('a sale records the batch-derived before and after', () {
-      final vm = InventoryViewmodel();
-
-      vm.sellStock(
-        variantId: 1,
-        quantity: 30,
-        reference: 'SALE-4',
-        userName: 'Test',
-      );
-
-      final movement = vm.movements.firstWhere(
-        (entry) => entry.reference == 'SALE-4',
-      );
-      expect(movement.previousStock, 130.0);
-      expect(movement.newStock, 100.0);
-      expect(movement.quantityChange, -30.0);
-    });
-
-    test('adding a product records the opening stock it is given', () {
-      final vm = InventoryViewmodel();
-      const product = Product(
-        id: 0,
-        categoryId: 1,
-        categoryName: 'Cement',
-        brandId: 1,
-        brandName: 'Holcim',
-        baseName: 'Test Product',
-        description: '',
-        imageUrl: '',
-        isActive: true,
-        variants: [
-          ProductVariant(
-            id: 900,
-            productId: 0,
-            baseUomId: 1,
-            minStockThreshold: 10,
-            maxStockLevel: 0,
-            variantName: 'Test Variant',
-            baseUomCode: 'Bag',
-            isActive: true,
-            sellingUoms: [
-              VariantUom(
-                id: 900,
-                variantId: 900,
-                uomId: 1,
-                uomCode: 'Bag',
-                uomName: 'Bag',
-                barcodeQr: '',
-                conversionFactor: 1,
-                defaultSellingPrice: 120,
-              ),
-            ],
-          ),
-        ],
-      );
-
-      // Stock arrives as batches, because a batch is exactly "a lot at a cost"
-      // and the variant no longer owns a quantity (decision 02 / decision 10).
-      vm.addProduct(
-        product,
-        openingStock: const [
-          InventoryBatch(
-            id: 0,
-            variantId: 900,
-            receiptId: 0,
-            initialQty: 42,
-            currentQty: 42,
-            unitCostLanded: 100,
-            markupPercentage: 0,
-            batchSellingPrice: 120,
-            expirationDate: null,
-            createdAt: null,
-          ),
-        ],
-      );
-
-      final batches = vm.batchesFor(900);
-      expect(batches, hasLength(1));
-      expect(batches.single.currentQty, 42.0);
-      expect(batches.single.unitCostLanded, 100.0);
-      expect(batches.single.initialQty, 42.0);
-      expect(vm.stockOnHandFor(900), 42.0);
-      // The viewmodel assigns real ids rather than trusting the form's zeros.
-      expect(batches.single.id, greaterThan(0));
-      expect(batches.single.receiptId, greaterThan(0));
-    });
-
-    test('adding a product with no opening stock creates no batch', () {
-      final vm = InventoryViewmodel();
-      const product = Product(
-        id: 0,
-        categoryId: 1,
-        categoryName: 'Cement',
-        brandId: 1,
-        brandName: 'Holcim',
-        baseName: 'Zero Stock Product',
-        description: '',
-        imageUrl: '',
-        isActive: true,
-        variants: [
-          ProductVariant(
-            id: 901,
-            productId: 0,
-            baseUomId: 1,
-            minStockThreshold: 10,
-            maxStockLevel: 0,
-            variantName: 'No Stock Variant',
-            baseUomCode: 'Bag',
-            isActive: true,
-          ),
-        ],
-      );
-
-      vm.addProduct(product);
-
-      expect(vm.batchesFor(901), isEmpty);
-      expect(vm.stockOnHandFor(901), 0.0);
-      expect(vm.movements.where((m) => m.variantId == 901), isEmpty);
-    });
+        expect(row.price, 270.0); // VariantUom.defaultSellingPrice
+        expect(row.stockOnHand, 130.0); // summed batches
+        expect(row.uom.barcodeQr, 'MAT-00001');
+      },
+    );
   });
 
-  // The three lookups the readers need once they stop reading the legacy
-  // flattened fields. Each has exactly one home: barcode on the selling unit,
-  // price on the selling unit (decision 08), cost on the newest batch.
-  group('InventoryViewmodel — legacy field lookups', () {
-    test('barcodeFor reads the selling uom, not a SKU', () {
-      // There is no SKU field anywhere in the backend (decision 10);
-      // VariantUom.barcodeQr is the only identifier the API carries.
-      final vm = InventoryViewmodel();
+  // The three lookups the readers need. Each has exactly one home: barcode on the
+  // selling unit, price on the selling unit (decision 08), cost on the newest
+  // batch.
+  group('InventoryViewmodel — field lookups', () {
+    test('barcodeFor reads the selling uom, not a SKU', () async {
+      final vm = seeded();
+      await vm.load();
 
       expect(vm.barcodeFor(1), 'MAT-00001');
     });
 
-    test('barcodeFor is empty when no selling unit carries one', () {
-      final vm = InventoryViewmodel();
+    test('barcodeFor is empty when the variant is unknown', () async {
+      final vm = seeded();
+      await vm.load();
 
       expect(vm.barcodeFor(999999), '');
     });
 
-    test('priceFor reads the selling uom default, never a batch price', () {
-      final vm = InventoryViewmodel();
+    test(
+      'priceFor reads the selling uom default, never a batch price',
+      () async {
+        final vm = seeded();
+        await vm.load();
 
-      expect(vm.priceFor(1), 270.0); // uom price; batch price is also 270 here
-      expect(vm.priceFor(999999), isNull);
-    });
+        expect(vm.priceFor(1), 270.0);
+        expect(vm.priceFor(999999), isNull);
+      },
+    );
 
-    test('costFor reads the newest batch, labelled as such', () {
-      final vm = InventoryViewmodel();
+    test('costFor reads the NEWEST batch, labelled as such', () async {
+      final vm = seeded();
+      await vm.load();
 
       expect(vm.costFor(1), 235.0);
       expect(vm.costFor(999999), isNull);
     });
 
-    test('variantFor finds a variant across products', () {
-      final vm = InventoryViewmodel();
+    test('variantFor finds a variant across products', () async {
+      final vm = seeded();
+      await vm.load();
 
       expect(vm.variantFor(1)?.variantName, '40 kg Bag');
       expect(vm.variantFor(999999), isNull);
@@ -260,26 +223,25 @@ void main() {
     setUp(() => SharedPreferences.setMockInitialValues({}));
 
     test('starts with no hints recorded', () async {
-      final vm = InventoryViewmodel();
+      final vm = seeded();
 
       expect(vm.locationHints, isEmpty);
       expect(vm.locationHintFor(1), '');
     });
 
     test('a saved hint is readable and survives a new viewmodel', () async {
-      final vm = InventoryViewmodel();
+      final vm = seeded();
 
       await vm.setLocationHint(1, 'Rack A-01');
       expect(vm.locationHintFor(1), 'Rack A-01');
 
-      // A fresh viewmodel reads the same persisted blob.
-      final reopened = InventoryViewmodel();
+      final reopened = seeded();
       await reopened.loadLocationHints();
       expect(reopened.locationHintFor(1), 'Rack A-01');
     });
 
     test('hints are keyed by variant, not product', () async {
-      final vm = InventoryViewmodel();
+      final vm = seeded();
 
       await vm.setLocationHint(1, 'Rack A-01');
       await vm.setLocationHint(2, 'Yard E-02');
@@ -289,7 +251,7 @@ void main() {
     });
 
     test('an empty hint reads back as no hint', () async {
-      final vm = InventoryViewmodel();
+      final vm = seeded();
       await vm.setLocationHint(1, 'Rack A-01');
 
       await vm.setLocationHint(1, '   ');
@@ -299,7 +261,7 @@ void main() {
     });
 
     test('setting a hint notifies listeners', () async {
-      final vm = InventoryViewmodel();
+      final vm = seeded();
       var notified = 0;
       vm.addListener(() => notified++);
 
@@ -309,65 +271,78 @@ void main() {
     });
   });
 
-  // Status must be derived from the batch total, not from the mirrored legacy
-  // field, or step 4 could not delete that field.
+  // Status must be derived from the batch total with the SERVER's predicate
+  // (decision 13, rule 2): `total <= 0` is out of stock, `threshold > 0 &&
+  // total < threshold` is low, anything else is in stock.
   group('InventoryViewmodel — status from batch stock', () {
-    test('a variant at or below its threshold is low stock', () {
-      final vm = InventoryViewmodel();
-
-      // Variant 1 holds 130 against a threshold of 30.
-      expect(vm.statusForVariant(1), InventoryStockStatus.inStock);
-
-      vm.sellStock(
-        variantId: 1,
-        quantity: 105,
-        reference: 'SALE-LOW',
-        userName: 'Test',
+    InventoryViewmodel withStock(double qty, {double threshold = 30}) {
+      return InventoryViewmodel(
+        products: FakeProductsRepository(
+          products: [
+            product(
+              id: 1,
+              variants: [variant(id: 1, productId: 1, threshold: threshold)],
+            ),
+          ],
+          batches: [batch(id: 1, variantId: 1, qty: qty)],
+        ),
+        inventory: FakeInventoryRepository(),
+        catalogue: FakeCatalogueRepository(),
       );
+    }
 
-      expect(vm.stockOnHandFor(1), 25.0);
+    test('a variant above its threshold is in stock', () async {
+      final vm = withStock(130);
+      await vm.load();
+
+      expect(vm.statusForVariant(1), InventoryStockStatus.inStock);
+    });
+
+    test('a variant below its threshold is low stock', () async {
+      final vm = withStock(25);
+      await vm.load();
+
       expect(vm.statusForVariant(1), InventoryStockStatus.lowStock);
     });
 
-    test('an empty variant is out of stock', () {
-      final vm = InventoryViewmodel();
+    test(
+      'a variant ON its threshold is in stock, as the server says',
+      () async {
+        final vm = withStock(30);
+        await vm.load();
 
-      vm.sellStock(
-        variantId: 1,
-        quantity: 130,
-        reference: 'SALE-ALL',
-        userName: 'Test',
-      );
+        expect(vm.statusForVariant(1), InventoryStockStatus.inStock);
+      },
+    );
+
+    test('an empty variant is out of stock', () async {
+      final vm = withStock(0);
+      await vm.load();
 
       expect(vm.statusForVariant(1), InventoryStockStatus.outOfStock);
     });
 
+    test('a zero threshold never reads as low stock', () async {
+      final vm = withStock(1, threshold: 0);
+      await vm.load();
+
+      expect(vm.statusForVariant(1), InventoryStockStatus.inStock);
+    });
+
     test('an unknown variant is out of stock, not a crash', () {
-      expect(
-        InventoryViewmodel().statusForVariant(999999),
-        InventoryStockStatus.outOfStock,
-      );
+      final vm = withStock(1);
+
+      expect(vm.statusForVariant(999999), InventoryStockStatus.outOfStock);
     });
   });
+}
 
-  // The client-side adjustment tests that used to live here were DELETED, not
-  // rewritten in place: decision 13 makes an adjustment a server write, so they
-  // encoded removed behaviour. Their replacements live in
-  // inventory_viewmodel_authority_test.dart, which asserts the request the client
-  // sends. Removal on its own is a real change, so `sellStock` — which still
-  // deducts locally — keeps its coverage here.
-  group('InventoryViewmodel — selling stock', () {
-    test('selling an unknown variant is a no-op, not a crash', () {
-      final vm = InventoryViewmodel();
-
-      vm.sellStock(
-        variantId: 999999,
-        quantity: 1,
-        reference: 'SALE-X',
-        userName: 'Test',
-      );
-
-      expect(vm.movements.any((m) => m.reference == 'SALE-X'), isFalse);
-    });
-  });
+/// A repository whose catalogue read always fails, for the error-path test.
+class _FailingProductsRepository extends FakeProductsRepository {
+  @override
+  Future<ProductsSnapshot> loadCatalogue() async {
+    throw const ProductsServiceException(
+      'Cannot connect to the BuildPro server.',
+    );
+  }
 }

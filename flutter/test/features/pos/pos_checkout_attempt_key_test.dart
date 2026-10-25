@@ -24,6 +24,7 @@ import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
+import '../../support/phase4_fakes.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _RecordingPosRepository extends PosRepository {
@@ -64,7 +65,7 @@ void main() {
   late PosTransactionViewmodel cart;
 
   setUp(() {
-    inventory = InventoryViewmodel();
+    inventory = seededInventory();
     repository = _RecordingPosRepository();
     cart = PosTransactionViewmodel(
       inventory,
@@ -79,7 +80,8 @@ void main() {
     expect(cart.addLine(option, 2), isNull);
   }
 
-  Future<bool> submit() => cart.submit(method: TenderMethod.cash, amountPaid: 20);
+  Future<bool> submit() =>
+      cart.submit(method: TenderMethod.cash, amountPaid: 20);
 
   test('a payment attempt is sent under a 32-hex-character key', () async {
     addOne();

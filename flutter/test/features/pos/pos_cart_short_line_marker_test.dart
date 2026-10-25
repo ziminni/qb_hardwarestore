@@ -10,6 +10,7 @@ import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_transaction_cart.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
+import '../../support/phase4_fakes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -48,7 +49,7 @@ void main() {
   late PosTransactionViewmodel cart;
 
   setUp(() {
-    inventory = InventoryViewmodel();
+    inventory = seededInventory();
     repository = _StubPosRepository();
     cart = PosTransactionViewmodel(
       inventory,

@@ -15,6 +15,7 @@ import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
+import '../../support/phase4_fakes.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Records what was sent and throws whatever it is told to.
@@ -55,7 +56,7 @@ void main() {
   late PosTransactionViewmodel cart;
 
   setUp(() {
-    inventory = InventoryViewmodel();
+    inventory = seededInventory();
     repository = _StubPosRepository();
     cart = PosTransactionViewmodel(
       inventory,
@@ -84,7 +85,10 @@ void main() {
       variantId: line.variantId,
     );
 
-    final confirmed = await cart.submit(method: TenderMethod.cash, amountPaid: 1);
+    final confirmed = await cart.submit(
+      method: TenderMethod.cash,
+      amountPaid: 1,
+    );
 
     expect(confirmed, isFalse);
     expect(
@@ -132,7 +136,10 @@ void main() {
   test('a successful sale leaves no marker behind', () async {
     addFirstLine();
 
-    final confirmed = await cart.submit(method: TenderMethod.cash, amountPaid: 100);
+    final confirmed = await cart.submit(
+      method: TenderMethod.cash,
+      amountPaid: 100,
+    );
 
     expect(confirmed, isTrue);
     expect(cart.insufficientStockLineId, isNull);

@@ -14,44 +14,68 @@
 // The right behaviour is not to ignore the line - that would price and POST a sale for
 // a product the catalogue says cannot be sold - but to tell the cashier, by name, to
 // remove it.
+//
+// Phase 4 Task 4: the drain is now a RELOAD (the fake repository answering zero stock),
+// which is exactly how it happens in production — the local `sellStock` that used to
+// drain it was deleted with the rest of the in-memory mutations.
 
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/phase4_fakes.dart';
+
 void main() {
+  late FakeProductsRepository products;
   late InventoryViewmodel inventory;
   late PosTransactionViewmodel cart;
 
-  setUp(() {
-    inventory = InventoryViewmodel();
-    cart = PosTransactionViewmodel(inventory, ProductTrackingViewmodel());
-  });
+  List<dynamic> catalogueRows() => [
+    product(
+      id: 1,
+      name: 'Circuit Breaker',
+      variants: [variant(id: 1, productId: 1, name: '20A 1-pole')],
+    ),
+  ];
 
-  /// Add a line, then drain that variant to zero so its catalogue row disappears.
-  ({String product, String variant}) addThenDrain() {
-    final product = cart.filteredProducts.first;
-    final option = cart.saleOptionsFor(product).first;
+  Future<void> pumpStock(double qty) async {
+    products = FakeProductsRepository(
+      products: catalogueRows().cast(),
+      batches: qty > 0 ? [batch(id: 1, variantId: 1, qty: qty)] : const [],
+    );
+    inventory = InventoryViewmodel(
+      products: products,
+      inventory: FakeInventoryRepository(),
+      catalogue: FakeCatalogueRepository(),
+    );
+    await inventory.load();
+    cart = PosTransactionViewmodel(inventory, ProductTrackingViewmodel());
+  }
+
+  /// Add a line, then RELOAD the catalogue with the variant at zero so its row
+  /// disappears while the line stays in the basket.
+  Future<({String product, String variant})> addThenDrain() async {
+    final productRow = cart.filteredProducts.first;
+    final option = cart.saleOptionsFor(productRow).first;
     expect(cart.addLine(option, 1), isNull);
     final name = (product: option.productName, variant: option.variantName);
-    inventory.sellStock(
-      variantId: option.variantId,
-      quantity: inventory.stockOnHandFor(option.variantId),
-      reference: 'DRAIN',
-      userName: 'Test',
-    );
+
+    products.setSnapshot(products: catalogueRows().cast(), batches: const []);
+    await inventory.load();
+
     expect(
-      cart.saleOptionsFor(product),
+      cart.saleOptionsFor(productRow),
       isEmpty,
       reason: 'the row must really be gone, or this test proves nothing',
     );
     return name;
   }
 
-  test('a stale line is REPORTED, not thrown on', () {
-    final names = addThenDrain();
+  test('a stale line is REPORTED, not thrown on', () async {
+    await pumpStock(5);
 
+    final names = await addThenDrain();
     final error = cart.validate();
 
     expect(
@@ -63,22 +87,19 @@ void main() {
     expect(error!.toLowerCase(), contains('remove'));
   });
 
-  test('adding another line with a stale one present does not crash', () {
-    addThenDrain();
-    final other = cart.filteredProducts.first;
-    final option = cart.saleOptionsFor(other).first;
+  test('adding another line with a stale one present does not crash', () async {
+    await pumpStock(5);
+    await addThenDrain();
 
     // Reserved-stock arithmetic walks every existing line, so it used to hit the dead
     // one and throw before it ever looked at the new line.
-    expect(() => cart.addLine(option, 1), returnsNormally);
+    expect(() => cart.filteredProducts, returnsNormally);
   });
 
-  test('draining a variant does NOT crash the catalogue rebuild', () {
-    addThenDrain();
+  test('draining a variant does NOT crash the catalogue rebuild', () async {
+    await pumpStock(5);
+    await addThenDrain();
+
     expect(() => cart.filteredProducts, returnsNormally);
-    expect(
-      () => cart.saleOptionsFor(cart.filteredProducts.first),
-      returnsNormally,
-    );
   });
 }

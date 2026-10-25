@@ -23,6 +23,7 @@ import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/views/pos_returns_page.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:client/routes/routes.dart';
+import '../support/phase4_fakes.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -113,7 +114,7 @@ void main() {
           // router dies on its first frame for a reason that has nothing to do
           // with the Returns tab.
           ChangeNotifierProvider<InventoryViewmodel>(
-            create: (_) => InventoryViewmodel(),
+            create: (_) => seededInventory(),
           ),
           ChangeNotifierProvider<ProductTrackingViewmodel>(
             create: (_) => ProductTrackingViewmodel(),

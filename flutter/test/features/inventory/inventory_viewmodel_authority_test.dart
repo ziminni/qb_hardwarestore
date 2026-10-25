@@ -21,6 +21,7 @@ import 'package:client/data/services/inventory_service.dart';
 import 'package:client/data/services/products_service.dart';
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
+import '../../support/phase4_fakes.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Product _product({required int variantId, required double threshold}) =>
@@ -176,8 +177,11 @@ void main() {
     inventory = _FakeInventoryRepository();
   });
 
-  InventoryViewmodel store() =>
-      InventoryViewmodel(products: products, inventory: inventory);
+  InventoryViewmodel store() => InventoryViewmodel(
+    products: products,
+    inventory: inventory,
+    catalogue: FakeCatalogueRepository(),
+  );
 
   group('the server is the authority for inventory state', () {
     test(

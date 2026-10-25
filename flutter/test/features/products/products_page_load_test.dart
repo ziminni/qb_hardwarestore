@@ -22,6 +22,7 @@ import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:client/features/products/views/products_page.dart';
+import '../../support/phase4_fakes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -149,7 +150,11 @@ void main() {
     // The store still holds 12 mock products at this point. If the page rendered
     // them, a user would see real-looking data that is not real and then watch it
     // change. The spinner must cover that window.
-    final store = InventoryViewmodel(products: products, inventory: inventory);
+    final store = InventoryViewmodel(
+      products: products,
+      inventory: inventory,
+      catalogue: FakeCatalogueRepository(),
+    );
     final gate = Completer<void>();
     products.gate = gate.future;
 
@@ -164,7 +169,11 @@ void main() {
   });
 
   testWidgets('renders the loaded catalogue', (tester) async {
-    final store = InventoryViewmodel(products: products, inventory: inventory);
+    final store = InventoryViewmodel(
+      products: products,
+      inventory: inventory,
+      catalogue: FakeCatalogueRepository(),
+    );
 
     await pumpPage(tester, store);
     await tester.pumpAndSettle();
@@ -176,7 +185,11 @@ void main() {
   testWidgets('a failed load shows the error and Retry re-runs the fetch', (
     tester,
   ) async {
-    final store = InventoryViewmodel(products: products, inventory: inventory);
+    final store = InventoryViewmodel(
+      products: products,
+      inventory: inventory,
+      catalogue: FakeCatalogueRepository(),
+    );
     products.error = const ProductsServiceException('Cannot connect.');
 
     await pumpPage(tester, store);

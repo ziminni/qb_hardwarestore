@@ -1,7 +1,7 @@
 import 'dart:math';
 
-import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
+import 'package:client/data/models/product_writes.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:flutter/foundation.dart';
 
@@ -21,12 +21,10 @@ import 'package:flutter/foundation.dart';
 /// forgot to mirror one. The list is now read live from the store and every
 /// mutation is delegated to it, so there is one authority.
 ///
-/// This mirrors `PosTransactionViewmodel`, which already took the live store and
-/// listened to it — the correct pattern already existed one screen over.
-///
-/// NOT registered in `main.dart`, deliberately: this is per-screen view state,
-/// and a single app-wide instance would share one search box, one page number
-/// and one selection across every visit to the screen.
+/// Phase 4 Task 4 removed the last of the in-memory writes: creating, editing and
+/// archiving a product now POST/PATCH the server and reload. Each method returns
+/// `null` on success or a message to show, so the page never announces a save
+/// that the server refused.
 class ProductsViewmodel extends ChangeNotifier {
   ProductsViewmodel(this._inventory) {
     _inventory.addListener(_onStoreChanged);
@@ -172,37 +170,39 @@ class ProductsViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Adds a product to the store, carrying the opening stock the form collected.
+  /// Creates the catalog item on the server (product → variant → selling unit).
   ///
-  /// Opening stock is a batch — "a lot at a cost" — so it is passed straight
-  /// through to the store rather than kept here (decisions 02 and 11).
-  void addProduct(
-    Product product, {
-    List<InventoryBatch> openingStock = const [],
-  }) {
-    _inventory.addProduct(product, openingStock: openingStock);
-  }
+  /// Returns `null` on success, or the message to show. The store reloads either
+  /// way — a chain that failed at step 2 leaves a product row behind, and hiding
+  /// it would invite a duplicate retry.
+  Future<String?> createProduct(NewProductDraft draft) =>
+      _inventory.createProduct(draft);
 
-  void updateProduct(Product updatedProduct) {
-    _inventory.updateProduct(updatedProduct);
-  }
+  /// PATCHes the fields that changed. Returns `null` on success.
+  Future<String?> editProduct(ProductEditDraft draft) =>
+      _inventory.editProduct(draft);
 
-  void archiveProduct(Product product) {
-    _inventory.updateProduct(product.copyWith(isActive: false));
-  }
+  /// Archive (`false`) or restore (`true`). Never a delete — the route is 405.
+  Future<String?> setProductActive(Product product, bool isActive) =>
+      _inventory.setProductActive(product.id, isActive);
 
-  /// Archives every selected product through the store, then clears the
-  /// selection. Clearing first means the store's per-product notifications
-  /// cannot re-enter this loop.
-  void archiveSelectedProducts() {
+  /// Archives every selected product through the store, one PATCH each.
+  ///
+  /// The selection is cleared FIRST: the store notifies after every write, and a
+  /// listener that re-enters this loop would archive the same row twice.
+  Future<String?> archiveSelectedProducts() async {
     final selected = Set<int>.of(_selectedProductIds);
     _selectedProductIds.clear();
-    for (final product in _inventory.products) {
-      if (selected.contains(product.id)) {
-        _inventory.updateProduct(product.copyWith(isActive: false));
-      }
-    }
     notifyListeners();
+    String? failure;
+    for (final product in _inventory.products) {
+      if (!selected.contains(product.id)) continue;
+      final error = await _inventory.setProductActive(product.id, false);
+      // Keep going: one refused row must not leave the rest selected and
+      // un-archived. The first message is what the page shows.
+      failure ??= error;
+    }
+    return failure;
   }
 
   void _onStoreChanged() => notifyListeners();

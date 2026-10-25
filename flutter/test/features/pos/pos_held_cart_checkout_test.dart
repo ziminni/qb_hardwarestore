@@ -18,16 +18,11 @@
 
 import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/models/held_cart.dart';
-import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/shift.dart';
 import 'package:client/data/repositories/auth_repository.dart';
-import 'package:client/data/repositories/inventory_repository.dart';
 import 'package:client/data/repositories/pos_repository.dart';
-import 'package:client/data/repositories/products_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/held_cart_service.dart';
-import 'package:client/data/services/inventory_service.dart';
-import 'package:client/data/services/products_service.dart';
 import 'package:client/data/services/shift_service.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
@@ -37,6 +32,7 @@ import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
+import '../../support/phase4_fakes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -128,22 +124,10 @@ class _OpenShift extends ShiftService {
   );
 }
 
-/// The till loads the live catalogue on open; these fail deterministically so no
-/// test touches the network and the bundled rows stay the catalogue under test.
-class _FailingProductsRepository extends ProductsRepository {
-  _FailingProductsRepository() : super(ProductsService());
-
-  @override
-  Future<ProductsSnapshot> loadCatalogue() async =>
-      throw const ProductsServiceException('Cannot connect.');
-}
-
-class _FailingInventoryRepository extends InventoryRepository {
-  _FailingInventoryRepository() : super(InventoryService());
-
-  @override
-  Future<List<StockAdjustment>> loadAdjustments() async => [];
-}
+// The catalogue comes from a fake repository (test/support/phase4_fakes.dart):
+// Phase 4 deleted `InventoryMockData`, so a till test can no longer rely on a
+// bundled seed — and the old "failing repository" arrangement only worked because
+// a failed load left those bundled rows in place.
 
 void main() {
   late InventoryViewmodel inventory;
@@ -152,10 +136,9 @@ void main() {
   late PosTransactionViewmodel cart;
 
   setUp(() {
-    inventory = InventoryViewmodel(
-      products: _FailingProductsRepository(),
-      inventory: _FailingInventoryRepository(),
-    );
+    // `seededInventory()` fills the store SYNCHRONOUSLY: these tests never await a
+    // load, and the mock catalogue that used to answer here was deleted in Phase 4.
+    inventory = seededInventory();
     pos = _FakePosRepository();
     heldService = _FakeHeldCartService();
     cart = PosTransactionViewmodel(

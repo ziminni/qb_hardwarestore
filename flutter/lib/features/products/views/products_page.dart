@@ -18,6 +18,12 @@ import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+/// The products screen (Phase 4 Task 4).
+///
+/// Every action reaches the server: "Add product" posts the product, its first
+/// variant and that variant's factor-1 selling unit; Edit and Archive/Restore
+/// PATCH; and each one reloads. What used to happen instead was an in-memory
+/// write behind a snackbar that admitted it — "Product added to mock inventory."
 class ProductsPage extends StatefulWidget {
   const ProductsPage({super.key});
 
@@ -34,12 +40,19 @@ class _ProductsPageState extends State<ProductsPage> {
     // Deferred to after the first frame on purpose: `load()` calls
     // notifyListeners() synchronously, and doing that from initState means
     // marking an element dirty while it is still being built. The view passes
-    // `!hasLoaded` to AsyncView, so the spinner covers the frame in which the
-    // store still holds the 12 MOCK products — otherwise they would visibly
-    // flash before the API's 6 arrive.
+    // `!hasLoaded` to AsyncView, so the spinner covers the first frame — the
+    // store starts EMPTY now, and an empty state would claim "no products"
+    // before anyone asked the server.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) context.read<InventoryViewmodel>().load();
     });
+  }
+
+  void _announce(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _showProductForm(
@@ -47,49 +60,37 @@ class _ProductsPageState extends State<ProductsPage> {
     ProductsViewmodel viewModel, [
     Product? product,
   ]) async {
-    final categories = <int, Product>{
-      for (final item in viewModel.products) item.categoryId: item,
-    }.values.toList();
-    final brands = <int, Product>{
-      for (final item in viewModel.products) item.brandId: item,
-    }.values.toList();
-
+    final inventory = context.read<InventoryViewmodel>();
     final result = await showDialog<ProductFormResult>(
       context: context,
-      builder: (context) => ProductsFormDialog(
+      builder: (_) => ProductsFormDialog(
         product: product,
         products: viewModel.products,
-        categories: categories,
-        brands: brands,
+        categories: inventory.categories,
+        brands: inventory.brands,
+        units: inventory.units,
       ),
     );
-    if (result == null || !context.mounted) return;
+    if (result == null) return;
 
-    // Decision 11: the viewmodel delegates to the store, so each mutation is
-    // applied ONCE. Calling both viewmodels was the duplicated-write path that
-    // let their two product lists drift apart.
-    if (product == null) {
-      viewModel.addProduct(result.product, openingStock: result.openingStock);
-    } else {
-      viewModel.updateProduct(result.product);
+    // Decision 11: the viewmodel delegates to the store, so each write is
+    // applied ONCE, on the server, through one data path.
+    final draft = result.draft;
+    if (draft != null) {
+      final error = await viewModel.createProduct(draft);
+      _announce(error ?? '${draft.baseName} added to the catalogue.');
+      return;
     }
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            product == null
-                ? 'Product added to mock inventory.'
-                : 'Product updated in mock inventory.',
-          ),
-        ),
-      );
-    }
+    final edit = result.edit;
+    if (edit == null) return;
+    final error = await viewModel.editProduct(edit);
+    _announce(error ?? '${edit.baseName ?? product?.baseName} updated.');
   }
 
   void _showProductDetails(BuildContext context, Product product) {
     showDialog<void>(
       context: context,
-      builder: (context) => ProductsDetailsDialog(
+      builder: (_) => ProductsDetailsDialog(
         product: product,
         movements: context
             .read<InventoryViewmodel>()
@@ -109,10 +110,11 @@ class _ProductsPageState extends State<ProductsPage> {
   ) {
     showDialog<void>(
       context: context,
-      builder: (context) => ProductsArchivedDialog(
+      builder: (_) => ProductsArchivedDialog(
         products: viewModel.products
             .where((product) => !product.isActive)
             .toList(growable: false),
+        onRestore: (product) => viewModel.setProductActive(product, true),
       ),
     );
   }
@@ -124,18 +126,19 @@ class _ProductsPageState extends State<ProductsPage> {
   ) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Move product to archive?'),
         content: Text(
-          '${product.baseName} will be removed from the product catalog and transaction selections.',
+          '${product.baseName} will be removed from the product catalog and transaction selections. '
+          'It is archived, never deleted, so it can be restored.',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text('Cancel'),
           ),
           FilledButton.icon(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             icon: const Icon(Icons.archive_outlined),
             label: const Text('Move to archive'),
           ),
@@ -144,10 +147,8 @@ class _ProductsPageState extends State<ProductsPage> {
     );
     if (confirmed != true || !context.mounted) return;
 
-    viewModel.archiveProduct(product);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${product.baseName} moved to archive.')),
-    );
+    final error = await viewModel.setProductActive(product, false);
+    _announce(error ?? '${product.baseName} moved to archive.');
   }
 
   Future<void> _archiveSelected(
@@ -157,18 +158,18 @@ class _ProductsPageState extends State<ProductsPage> {
     final selectedIds = viewModel.selectedProductIds;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: Text('Archive ${selectedIds.length} products?'),
         content: const Text(
           'The selected products will no longer appear in the main product catalog.',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text('Cancel'),
           ),
           FilledButton.icon(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             icon: const Icon(Icons.archive_outlined),
             label: const Text('Move to archive'),
           ),
@@ -177,12 +178,8 @@ class _ProductsPageState extends State<ProductsPage> {
     );
     if (confirmed != true || !context.mounted) return;
 
-    viewModel.archiveSelectedProducts();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${selectedIds.length} products moved to archive.'),
-      ),
-    );
+    final error = await viewModel.archiveSelectedProducts();
+    _announce(error ?? '${selectedIds.length} products moved to archive.');
   }
 
   @override
@@ -201,7 +198,7 @@ class _ProductsPageState extends State<ProductsPage> {
             // Decision 07: one shared widget owns loading, error, empty and data,
             // with the precedence baked in so the builder only runs with data.
             // `!hasLoaded` keeps the spinner up for the frame before the first
-            // load attempt, when the store still holds mock data.
+            // load attempt, when the store is still empty rather than mock.
             child: AsyncView(
               isLoading: inventory.isLoading || !inventory.hasLoaded,
               error: inventory.loadError,

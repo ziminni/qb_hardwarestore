@@ -14,13 +14,7 @@
 import 'package:client/data/models/customer.dart';
 import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/services/customer_service.dart';
-import 'package:client/data/services/inventory_service.dart';
-import 'package:client/data/services/products_service.dart';
-import 'package:client/data/models/product.dart';
-import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/repositories/auth_repository.dart';
-import 'package:client/data/repositories/inventory_repository.dart';
-import 'package:client/data/repositories/products_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/sales_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
@@ -33,6 +27,8 @@ import 'package:client/features/sales/views/sales_transactions_page.dart';
 import 'package:client/features/sales/widgets/sales_document_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../../support/phase4_fakes.dart';
 import 'package:provider/provider.dart';
 
 class _StubSalesService extends SalesService {
@@ -69,48 +65,37 @@ class _StubCustomerService extends CustomerService {
 /// A catalogue entry the quotation/order lines can be resolved against. The
 /// wire only carries `variant_uom` as an id; the name has to come from the
 /// app-scoped inventory viewmodel (decision D-02).
-InventoryViewmodel _inventory() {
+///
+/// Phase 4 Task 4: the store no longer carries an in-memory `addProduct`, so the
+/// fixture arrives through the repository and `load()` — the same path production
+/// uses.
+Future<InventoryViewmodel> _inventory() async {
   final inventory = InventoryViewmodel(
-    products: ProductsRepository(ProductsService()),
-    inventory: InventoryRepository(InventoryService()),
-  );
-  inventory.addProduct(
-    const Product(
-      id: 0,
-      categoryId: 1,
-      categoryName: 'Electrical',
-      brandId: 1,
-      brandName: 'BuildPro',
-      baseName: 'Circuit Breaker',
-      description: '',
-      imageUrl: '',
-      isActive: true,
-      variants: [
-        ProductVariant(
-          id: 5,
-          productId: 0,
-          baseUomId: 1,
-          minStockThreshold: 1,
-          maxStockLevel: 100,
-          sellingUoms: [
-            VariantUom(
-              id: 42,
-              variantId: 5,
-              uomId: 1,
-              uomCode: 'PC',
-              uomName: 'per piece',
-              barcodeQr: '',
-              conversionFactor: 1,
-              defaultSellingPrice: 250,
+    products: FakeProductsRepository(
+      products: [
+        product(
+          id: 1,
+          name: 'Circuit Breaker',
+          categoryName: 'Electrical',
+          brandName: 'BuildPro',
+          variants: [
+            variant(
+              id: 5,
+              productId: 1,
+              name: '20A 1-pole',
+              threshold: 1,
+              maxStockLevel: 100,
+              sellingUoms: [variantUom(id: 42, variantId: 5, price: 250)],
             ),
           ],
-          variantName: '20A 1-pole',
-          baseUomCode: 'PC',
-          isActive: true,
         ),
       ],
+      batches: [batch(id: 1, variantId: 5, qty: 10)],
     ),
+    inventory: FakeInventoryRepository(),
+    catalogue: FakeCatalogueRepository(),
   );
+  await inventory.load();
   return inventory;
 }
 
@@ -229,7 +214,7 @@ void main() {
     testWidgets('View opens the quotation with its lines and total', (
       tester,
     ) async {
-      await pump(tester, inventory: _inventory());
+      await pump(tester, inventory: await _inventory());
 
       expect(find.byType(SalesDocumentSheet), findsNothing);
       await _tapView(tester);
@@ -251,7 +236,7 @@ void main() {
     });
 
     testWidgets('the sheet is strictly read-only', (tester) async {
-      await pump(tester, inventory: _inventory());
+      await pump(tester, inventory: await _inventory());
       await _tapView(tester);
 
       expect(
@@ -289,7 +274,7 @@ void main() {
     });
 
     testWidgets('a quotation with no items says so', (tester) async {
-      await pump(tester, inventory: _inventory(), items: const []);
+      await pump(tester, inventory: await _inventory(), items: const []);
       await _tapView(tester);
 
       expect(_inSheet('No items'), findsOneWidget);
@@ -317,7 +302,7 @@ void main() {
             ),
             child: const SalesOrdersPage(),
           ),
-          inventory: _inventory(),
+          inventory: await _inventory(),
         ),
       );
       await tester.pumpAndSettle();

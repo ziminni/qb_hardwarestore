@@ -20,6 +20,7 @@ import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
+import '../../support/phase4_fakes.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _StubPosRepository extends PosRepository {
@@ -132,7 +133,7 @@ void main() {
   late PosTransactionViewmodel cart;
 
   setUp(() {
-    inventory = InventoryViewmodel();
+    inventory = seededInventory();
     pos = _StubPosRepository();
     customers = _StubCustomerRepository();
     cart = PosTransactionViewmodel(
@@ -246,7 +247,7 @@ void _loadCustomersTests() {
     late PosTransactionViewmodel cart;
 
     setUp(() {
-      inventory = InventoryViewmodel();
+      inventory = seededInventory();
       customers = _StubCustomerRepository();
       cart = PosTransactionViewmodel(
         inventory,
@@ -305,7 +306,7 @@ void _utangPanelTests() {
     late PosTransactionViewmodel cart;
 
     setUp(() {
-      inventory = InventoryViewmodel();
+      inventory = seededInventory();
       customers = _StubCustomerRepository();
       cart = PosTransactionViewmodel(
         inventory,
@@ -382,7 +383,7 @@ void _reviewFixTests() {
     late PosTransactionViewmodel cart;
 
     setUp(() {
-      inventory = InventoryViewmodel();
+      inventory = seededInventory();
       customers = _StubCustomerRepository();
       cart = PosTransactionViewmodel(
         inventory,

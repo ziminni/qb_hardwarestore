@@ -52,6 +52,12 @@ class PurchaseOrderRecord {
   final String notes;
   final List<PurchaseOrderItem> items;
 
+  /// Only an ORDERED or PARTIAL order can be received — the server refuses a
+  /// DRAFT with `PO_NOT_ORDERED` and a COMPLETE/CANCELLED one with
+  /// `PO_NOT_RECEIVABLE`. The receiving list therefore shows these two states
+  /// only, so the screen cannot offer a delivery the server will reject.
+  bool get isReceivable => status == 'ORDERED' || status == 'PARTIAL';
+
   factory PurchaseOrderRecord.fromJson(Map<String, dynamic> json) {
     final items = json['items'];
     if (items is! List) {
@@ -79,12 +85,50 @@ class ReceiptLine {
   Map<String, dynamic> toJson() => {'po_item': poItemId, 'qty': qty};
 }
 
+/// One delivered quantity as the server reports it back (`GoodsReceiptItem`).
+///
+/// `qty` is what THIS receipt delivered, not the order's running total, and the
+/// variant name is denormalised into the row so a history list needs one request
+/// rather than one per line.
+class GoodsReceiptLine {
+  const GoodsReceiptLine({
+    required this.id,
+    required this.poItemId,
+    required this.variantName,
+    required this.qty,
+  });
+
+  final int id;
+  final int poItemId;
+  final String variantName;
+  final double qty;
+
+  factory GoodsReceiptLine.fromJson(Map<String, dynamic> json) =>
+      GoodsReceiptLine(
+        id: intField(json, 'id'),
+        poItemId: intField(json, 'po_item'),
+        variantName: stringField(json, 'variant_name'),
+        qty: decimalField(json, 'qty'),
+      );
+}
+
+/// A goods receipt: the create answer and one row of `GET /goods-receipts/`.
+///
+/// One model for both because it is one serializer. The history-only fields are
+/// tolerant (`batches` absent → empty, `processed_at` absent → null) so a create
+/// response and a list row are both readable without a second class that could
+/// drift from the wire.
 class GoodsReceiptRecord {
   const GoodsReceiptRecord({
     required this.id,
     required this.poId,
     required this.deliveryReceiptNo,
     required this.batches,
+    this.receivedByName = '',
+    this.receiveDate,
+    this.notes = '',
+    this.lines = const [],
+    this.processedAt,
   });
 
   final int id;
@@ -92,18 +136,36 @@ class GoodsReceiptRecord {
   final String deliveryReceiptNo;
   final List<InventoryBatch> batches;
 
+  /// Who booked the delivery in — the server's `received_by_name`.
+  final String receivedByName;
+  final DateTime? receiveDate;
+  final String notes;
+  final List<GoodsReceiptLine> lines;
+
+  /// Null until `process/` turned the lines into FIFO batches.
+  final DateTime? processedAt;
+
+  bool get isProcessed => processedAt != null;
+
+  double get totalQty => lines.fold(0, (sum, line) => sum + line.qty);
+
   factory GoodsReceiptRecord.fromJson(Map<String, dynamic> json) {
-    final batches = json['batches'];
-    if (batches is! List) {
-      throw FormatException('Missing required list field "batches"');
-    }
     return GoodsReceiptRecord(
       id: intField(json, 'id'),
       poId: intField(json, 'po'),
       deliveryReceiptNo: stringField(json, 'delivery_receipt_no'),
-      batches: batches
+      batches: (json['batches'] as List<dynamic>? ?? const [])
           .map((b) => InventoryBatch.fromJson(b as Map<String, dynamic>))
           .toList(),
+      receivedByName: json['received_by_name'] as String? ?? '',
+      receiveDate: nullableDateField(json, 'receive_date'),
+      notes: json['notes'] as String? ?? '',
+      lines: (json['lines'] as List<dynamic>? ?? const [])
+          .map(
+            (line) => GoodsReceiptLine.fromJson(line as Map<String, dynamic>),
+          )
+          .toList(),
+      processedAt: nullableDateField(json, 'processed_at'),
     );
   }
 }

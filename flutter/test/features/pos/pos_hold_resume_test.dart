@@ -9,16 +9,10 @@
 // navigates AND hands the basket over.
 
 import 'package:client/data/models/held_cart.dart';
-import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/shift.dart';
-import 'package:client/data/models/system_alert.dart';
 import 'package:client/data/repositories/auth_repository.dart';
-import 'package:client/data/repositories/inventory_repository.dart';
-import 'package:client/data/repositories/products_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/held_cart_service.dart';
-import 'package:client/data/services/inventory_service.dart';
-import 'package:client/data/services/products_service.dart';
 import 'package:client/data/services/shift_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
@@ -29,6 +23,7 @@ import 'package:client/features/pos/views/pos_held_transactions_page.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:client/routes/routes.dart';
+import '../../support/phase4_fakes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -80,26 +75,10 @@ class _OpenShift extends ShiftService {
   );
 }
 
-// The till loads the live catalogue on open. These fail deterministically so no
-// test touches the network and the bundled rows stay the catalogue under test.
-class _FailingProductsRepository extends ProductsRepository {
-  _FailingProductsRepository() : super(ProductsService());
-
-  @override
-  Future<ProductsSnapshot> loadCatalogue() async =>
-      throw const ProductsServiceException('Cannot connect.');
-}
-
-class _FailingInventoryRepository extends InventoryRepository {
-  _FailingInventoryRepository() : super(InventoryService());
-
-  @override
-  Future<List<SystemAlert>> loadAlerts() async =>
-      throw const InventoryServiceException('Cannot connect.');
-
-  @override
-  Future<List<StockAdjustment>> loadAdjustments() async => [];
-}
+// The catalogue comes from a fake repository (test/support/phase4_fakes.dart):
+// Phase 4 deleted `InventoryMockData`, so a till test can no longer rely on a
+// bundled seed — and the old "failing repository" arrangement only worked because
+// a failed load left those bundled rows in place.
 
 /// A [GoRouter] holding the two POS screens a resume crosses, so the navigation
 /// half of Resume is observable rather than assumed.
@@ -136,10 +115,9 @@ void main() {
   late HeldCartViewmodel heldCarts;
 
   setUp(() {
-    inventory = InventoryViewmodel(
-      products: _FailingProductsRepository(),
-      inventory: _FailingInventoryRepository(),
-    );
+    // `seededInventory()` fills the store SYNCHRONOUSLY: these tests never await a
+    // load, and the mock catalogue that used to answer here was deleted in Phase 4.
+    inventory = seededInventory();
     cart = PosTransactionViewmodel(inventory, ProductTrackingViewmodel());
     heldService = _StubHeldCarts();
     heldCarts = HeldCartViewmodel(service: heldService);

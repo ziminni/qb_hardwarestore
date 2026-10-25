@@ -115,6 +115,44 @@ class InventoryService {
   ///
   /// The `items` payload sets POItem.received_qty server-side, which is what a
   /// later process/ turns into FIFO batches. Returns the server's row.
+  /// Resolves one alert on the server and returns the stored row.
+  ///
+  /// Decision 06: resolving is a named act with a trail — the server stamps
+  /// `resolved_by` and `resolved_at`, so the screen can show WHO cleared it and
+  /// WHEN. The client never guesses either.
+  Future<SystemAlert> resolveAlert(int alertId) async {
+    try {
+      final response = await _client.post<Map<String, dynamic>>(
+        '$alertsPath$alertId/resolve/',
+        data: const <String, dynamic>{},
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const InventoryServiceException(
+          'The server did not return the resolved alert.',
+        );
+      }
+      return SystemAlert.fromJson(data);
+    } on DioException catch (error) {
+      throw InventoryServiceException(_message(error));
+    }
+  }
+
+  /// Every goods receipt the server has recorded, for the receiving history.
+  ///
+  /// `GoodsReceiptSerializer` carries `received_by_name`, `receive_date`, the
+  /// delivered `lines` and `processed_at`, so one call describes a delivery
+  /// without a request per line.
+  Future<List<GoodsReceiptRecord>> fetchGoodsReceipts() async {
+    final page = await _guard(
+      () => _client.getList<GoodsReceiptRecord>(
+        goodsReceiptsPath,
+        GoodsReceiptRecord.fromJson,
+      ),
+    );
+    return page.items;
+  }
+
   Future<GoodsReceiptRecord> createReceipt({
     required int poId,
     required List<ReceiptLine> items,

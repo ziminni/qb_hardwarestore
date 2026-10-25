@@ -1,4 +1,5 @@
 import 'package:client/data/models/inventory.dart';
+import 'package:client/data/models/receiving.dart';
 import 'package:client/data/models/system_alert.dart';
 import 'package:client/data/services/inventory_service.dart';
 
@@ -15,6 +16,14 @@ class InventoryRepository {
   Future<List<SystemAlert>> loadAlerts() => service.fetchAlerts();
 
   Future<List<StockAdjustment>> loadAdjustments() => service.fetchAdjustments();
+
+  /// Every goods receipt the server has recorded, newest first.
+  Future<List<GoodsReceiptRecord>> loadGoodsReceipts() =>
+      service.fetchGoodsReceipts();
+
+  /// Resolves one alert on the server; the trail (who, when) is the server's.
+  Future<SystemAlert> resolveAlert(int alertId) =>
+      service.resolveAlert(alertId);
 
   Future<StockAdjustment> recordAdjustment({
     required int variantId,

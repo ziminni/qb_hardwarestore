@@ -16,16 +16,10 @@
 // dashboard actually shows: every recorded transaction, with no period filter.
 
 import 'package:client/data/models/sale_transaction.dart';
-import 'package:client/data/models/variant_uom.dart';
-import 'package:client/data/models/product.dart';
 import 'package:client/data/models/customer.dart';
 import 'package:client/data/repositories/auth_repository.dart';
-import 'package:client/data/repositories/inventory_repository.dart';
-import 'package:client/data/repositories/products_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/customer_service.dart';
-import 'package:client/data/services/inventory_service.dart';
-import 'package:client/data/services/products_service.dart';
 import 'package:client/data/services/sales_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
@@ -38,6 +32,8 @@ import 'package:client/features/sales/views/sales_returns_page.dart';
 import 'package:client/features/sales/widgets/sales_document_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../../support/phase4_fakes.dart';
 import 'package:provider/provider.dart';
 
 class _StubSalesService extends SalesService {
@@ -132,48 +128,38 @@ const _returnItems = [
 
 /// A catalogue the return lines resolve names against. The wire carries only
 /// `variant_uom` codes/ids, so a name has to come from the app-scoped catalogue.
-InventoryViewmodel _inventory() {
+///
+/// Phase 4 Task 4: seeded through the repository + `load()`, because the
+/// in-memory `addProduct` that used to build it is gone.
+Future<InventoryViewmodel> _inventory() async {
   final inventory = InventoryViewmodel(
-    products: ProductsRepository(ProductsService()),
-    inventory: InventoryRepository(InventoryService()),
-  );
-  inventory.addProduct(
-    const Product(
-      id: 0,
-      categoryId: 1,
-      categoryName: 'Hardware',
-      brandId: 1,
-      brandName: 'BuildPro',
-      baseName: 'Cement Bag',
-      description: '',
-      imageUrl: '',
-      isActive: true,
-      variants: [
-        ProductVariant(
-          id: 5,
-          productId: 0,
-          baseUomId: 1,
-          minStockThreshold: 1,
-          maxStockLevel: 100,
-          sellingUoms: [
-            VariantUom(
-              id: 1,
-              variantId: 5,
-              uomId: 1,
-              uomCode: 'BAG',
-              uomName: 'per bag',
-              barcodeQr: '',
-              conversionFactor: 1,
-              defaultSellingPrice: 50,
+    products: FakeProductsRepository(
+      products: [
+        product(
+          id: 1,
+          name: 'Cement Bag',
+          categoryName: 'Hardware',
+          brandName: 'BuildPro',
+          variants: [
+            variant(
+              id: 5,
+              productId: 1,
+              name: '40kg',
+              threshold: 1,
+              maxStockLevel: 100,
+              sellingUoms: [
+                variantUom(id: 1, variantId: 5, price: 50, uomCode: 'BAG'),
+              ],
             ),
           ],
-          variantName: '40kg',
-          baseUomCode: 'BAG',
-          isActive: true,
         ),
       ],
+      batches: [batch(id: 1, variantId: 5, qty: 10)],
     ),
+    inventory: FakeInventoryRepository(),
+    catalogue: FakeCatalogueRepository(),
   );
+  await inventory.load();
   return inventory;
 }
 
@@ -301,7 +287,7 @@ void main() {
             create: (_) => InventorySalesViewmodel(service: sales),
             child: const SalesReturnsPage(),
           ),
-          inventory: _inventory(),
+          inventory: await _inventory(),
         ),
       );
       await tester.pumpAndSettle();

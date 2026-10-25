@@ -1,41 +1,52 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
-import 'package:client/data/models/inventory_batch.dart';
+import 'package:client/data/models/catalogue_option.dart';
+import 'package:client/data/models/category.dart';
 import 'package:client/data/models/product.dart';
-import 'package:client/data/models/product_tracking.dart';
+import 'package:client/data/models/product_writes.dart';
 import 'package:client/data/services/image_file_service.dart';
-import 'package:client/data/services/variant_uom_merge.dart';
-import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/products/widgets/products_image.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 
-/// What the product form produces: the product plus the opening stock it
-/// collected.
+/// What the product form produced: a creation draft, or an edit draft.
 ///
-/// Opening stock is a batch, because a batch is exactly "a lot at a cost" and
-/// the variant no longer carries a quantity (decision 02; decision 10's
-/// add-product answer). The form passes ids of 0 and the viewmodel assigns real
-/// ones.
+/// One dialog, two payloads, because the two writes are genuinely different: a
+/// create is a chain of three POSTs that cannot exist without a category, a brand
+/// and a base unit, while an edit is a set of PATCHes over rows that already have
+/// ids. Phase 4 Task 4.
 class ProductFormResult {
-  const ProductFormResult({required this.product, required this.openingStock});
-  final Product product;
-  final List<InventoryBatch> openingStock;
+  const ProductFormResult.create(NewProductDraft this.draft) : edit = null;
+  const ProductFormResult.edit(ProductEditDraft this.edit) : draft = null;
+
+  final NewProductDraft? draft;
+  final ProductEditDraft? edit;
 }
 
+/// The product dialog, live (Phase 4 Task 4).
+///
+/// Two things changed at once here, and both were forced by the server contract:
+///
+///  * **No opening stock.** User decision 2026-10-25: a product's first stock
+///    arrives through a purchase order that is then received. Quantity, cost and
+///    package fields used to build an in-memory batch that vanished on reload.
+///  * **Server lists, not derivations.** Categories and brands come from their
+///    own endpoints and the base unit from `/uoms/`, because `base_uom` is a
+///    foreign key that is frozen after creation. The old form offered a hardcoded
+///    word list ('piece', 'kg', …) that could not be sent at all.
 class ProductsFormDialog extends StatefulWidget {
   const ProductsFormDialog({
     super.key,
     required this.categories,
     required this.brands,
+    required this.units,
     required this.products,
     this.product,
   });
 
-  final List<Product> categories;
-  final List<Product> brands;
+  final List<Category> categories;
+  final List<Brand> brands;
+  final List<UnitOfMeasure> units;
   final List<Product> products;
   final Product? product;
 
@@ -49,83 +60,51 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   late final TextEditingController _descriptionController;
   late final TextEditingController _variantController;
   late final TextEditingController _barcodeController;
-  late final TextEditingController _initialStockController;
   late final TextEditingController _reorderController;
-  late final TextEditingController _locationController;
-  late final TextEditingController _packageSizeController;
-  late final TextEditingController _costController;
+  late final TextEditingController _maxController;
   late final TextEditingController _sellingController;
-  ProductTrackingMethod _trackingMethod = ProductTrackingMethod.quantity;
-  ProductStockForm _stockForm = ProductStockForm.direct;
-  String _baseUnit = 'piece';
-  String _packageType = 'Bag';
-  bool _allowFractional = false;
-  bool _allowPartial = false;
-  late int _categoryId;
-  late int _brandId;
+  int? _categoryId;
+  int? _brandId;
+  int? _baseUomId;
   late String _imagePath;
 
   final _imageFileService = const ImageFileService();
+
+  ProductVariant? get _variant => widget.product?.variants.firstOrNull;
 
   @override
   void initState() {
     super.initState();
     final product = widget.product;
+    final variant = _variant;
     _nameController = TextEditingController(text: product?.baseName ?? '');
     _descriptionController = TextEditingController(
       text: product?.description ?? '',
     );
-    final firstVariant = product?.variants.firstOrNull;
     _variantController = TextEditingController(
-      text: firstVariant?.variantName ?? 'Standard',
+      text: variant?.variantName ?? 'Standard',
     );
-    _barcodeController = TextEditingController(
-      // Barcodes live on the selling unit now (decision 10). This is readable in
-      // initState because it needs no viewmodel; stock, cost and location do, so
-      // they are filled in didChangeDependencies instead.
-      text: firstVariant?.barcode.isNotEmpty == true
-          ? firstVariant!.barcode
-          : 'QB-${DateTime.now().millisecondsSinceEpoch}',
-    );
-    _initialStockController = TextEditingController(text: '0');
+    // Empty, not invented: the API has no barcode by default and a generated
+    // 'QB-<timestamp>' value was a code nobody had ever printed.
+    _barcodeController = TextEditingController(text: variant?.barcode ?? '');
     _reorderController = TextEditingController(
-      text: firstVariant == null
-          ? '10'
-          : firstVariant.minStockThreshold.toStringAsFixed(0),
+      text: (variant?.minStockThreshold ?? 0).toStringAsFixed(0),
     );
-    _locationController = TextEditingController(text: '');
-    _packageSizeController = TextEditingController(text: '40');
-    _costController = TextEditingController(text: '0');
+    _maxController = TextEditingController(
+      text: (variant?.maxStockLevel ?? 0).toStringAsFixed(0),
+    );
     _sellingController = TextEditingController(
       // The charged price is the selling unit's, never the batch's (decision 08).
       text:
-          firstVariant?.sellingUoms.firstOrNull?.defaultSellingPrice
-              .toStringAsFixed(2) ??
-          '0',
+          variant?.sellingUoms.firstOrNull?.defaultSellingPrice.toStringAsFixed(
+            2,
+          ) ??
+          '0.00',
     );
-    _categoryId = product?.categoryId ?? widget.categories.first.categoryId;
-    _brandId = product?.brandId ?? widget.brands.first.brandId;
+    _categoryId = product?.categoryId ?? widget.categories.firstOrNull?.id;
+    _brandId = product?.brandId ?? widget.brands.firstOrNull?.id;
+    _baseUomId = variant?.baseUomId ?? widget.units.firstOrNull?.id;
     _imagePath = product?.imageUrl ?? '';
-  }
-
-  InventoryViewmodel? _inventory;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Batch stock, batch cost and the store-local location hint are not on the
-    // variant, so they are read once here into the controllers the form shows.
-    if (_inventory != null) return;
-    _inventory = context.read<InventoryViewmodel>();
-    final first = widget.product?.variants.firstOrNull;
-    if (first == null) return;
-    _initialStockController.text = _inventory!
-        .stockOnHandFor(first.id)
-        .toStringAsFixed(0);
-    _costController.text = (_inventory!.costFor(first.id) ?? 0).toStringAsFixed(
-      2,
-    );
-    _locationController.text = _inventory!.locationHintFor(first.id);
   }
 
   @override
@@ -134,11 +113,8 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     _descriptionController.dispose();
     _variantController.dispose();
     _barcodeController.dispose();
-    _initialStockController.dispose();
     _reorderController.dispose();
-    _locationController.dispose();
-    _packageSizeController.dispose();
-    _costController.dispose();
+    _maxController.dispose();
     _sellingController.dispose();
     super.dispose();
   }
@@ -149,179 +125,54 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     setState(() => _imagePath = path);
   }
 
-  String _defaultUnit(ProductTrackingMethod method) => switch (method) {
-    ProductTrackingMethod.quantity => 'piece',
-    ProductTrackingMethod.weight => 'kg',
-    ProductTrackingMethod.length => 'meter',
-    ProductTrackingMethod.volume => 'L',
-  };
-
-  List<String> _unitsForMethod() => switch (_trackingMethod) {
-    ProductTrackingMethod.quantity => ['piece', 'box', 'pack', 'set', 'bundle'],
-    ProductTrackingMethod.weight => ['kg', 'g'],
-    ProductTrackingMethod.length => ['meter', 'cm', 'mm', 'inch', 'foot'],
-    ProductTrackingMethod.volume => ['L', 'mL'],
-  };
-
-  List<ProductStockForm> _stockOptions() => switch (_trackingMethod) {
-    ProductTrackingMethod.length => [
-      ProductStockForm.continuous,
-      ProductStockForm.standardLengths,
-    ],
-    ProductTrackingMethod.weight || ProductTrackingMethod.volume => [
-      ProductStockForm.direct,
-      ProductStockForm.packaged,
-    ],
-    ProductTrackingMethod.quantity => [ProductStockForm.direct],
-  };
-
-  Widget _buildPreview(BuildContext context) {
-    final initial = double.tryParse(_initialStockController.text) ?? 0;
-    final size = double.tryParse(_packageSizeController.text) ?? 0;
-    final packaged =
-        _stockForm == ProductStockForm.packaged ||
-        _stockForm == ProductStockForm.standardLengths;
-    final total = packaged ? initial * size : initial;
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      decoration: BoxDecoration(
-        color: Theme.of(
-          context,
-        ).colorScheme.secondaryContainer.withValues(alpha: .35),
-        border: Border.all(color: AppColors.border),
-        borderRadius: BorderRadius.circular(AppRadii.medium),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Stock Preview',
-            style: Theme.of(
-              context,
-            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            _nameController.text.trim().isEmpty
-                ? 'Unnamed product'
-                : _nameController.text.trim(),
-          ),
-          Text('Tracking: ${_trackingMethod.label}'),
-          if (packaged)
-            Text(
-              'Physical inventory: ${initial.toStringAsFixed(0)} ${_packageType.toLowerCase()}s × ${size.toStringAsFixed(2)} $_baseUnit',
-            ),
-          Text('Total available: ${total.toStringAsFixed(2)} $_baseUnit'),
-          Text(
-            'Smaller amount sales: ${_allowPartial || _allowFractional ? 'Allowed' : 'Not allowed'}',
-          ),
-          Text(
-            'Selling: ₱${_sellingController.text.isEmpty ? '0' : _sellingController.text} / $_baseUnit',
-          ),
-        ],
-      ),
-    );
-  }
-
   void _submit() {
     if (!_formKey.currentState!.validate()) return;
+    final price = double.tryParse(_sellingController.text.trim()) ?? 0;
+    final threshold = double.tryParse(_reorderController.text.trim()) ?? 0;
+    final maxLevel = double.tryParse(_maxController.text.trim()) ?? 0;
+    final barcode = _barcodeController.text.trim();
 
-    final category = widget.categories.firstWhere(
-      (product) => product.categoryId == _categoryId,
-    );
-    final brand = widget.brands.firstWhere(
-      (product) => product.brandId == _brandId,
-    );
     final existing = widget.product;
-    final initial = double.tryParse(_initialStockController.text) ?? 0;
-    final packageSize = double.tryParse(_packageSizeController.text) ?? 0;
-    final packaged =
-        _stockForm == ProductStockForm.packaged ||
-        _stockForm == ProductStockForm.standardLengths;
-    final total = packaged ? initial * packageSize : initial;
-    final existingVariant = existing?.variants.firstOrNull;
-    // Price and barcode belong to the selling unit (decisions 08 and 10), so the
-    // form edits that unit rather than parking them on the variant. Any extra
-    // selling units the variant already had are preserved, not rebuilt away.
-    final sellingUoms = mergePrimarySellingUom(
-      existing: existingVariant?.sellingUoms ?? const [],
-      variantId: existingVariant?.id ?? 0,
-      uomCode: _baseUnit,
-      barcodeQr: _barcodeController.text.trim(),
-      defaultSellingPrice: double.tryParse(_sellingController.text) ?? 0,
-    );
-    final variant =
-        existingVariant?.copyWith(sellingUoms: sellingUoms) ??
-        ProductVariant(
-          id: DateTime.now().microsecondsSinceEpoch,
-          productId: existing?.id ?? 0,
-          baseUomId: 0,
-          maxStockLevel: 0,
-          variantName: _variantController.text.trim(),
-          baseUomCode: _baseUnit,
-          isActive: true,
-          minStockThreshold: double.tryParse(_reorderController.text) ?? 0,
-          sellingUoms: sellingUoms,
-        );
-    final configuration = ProductTrackingConfiguration(
-      productName: _nameController.text.trim(),
-      method: _trackingMethod,
-      baseUnit: _baseUnit,
-      stockForm: _stockForm,
-      allowFractional: _allowFractional,
-      allowPartialPackage: _allowPartial,
-      packageType: _packageType,
-      packageSize: packageSize,
-      initialPackages: packaged ? initial.toInt() : 0,
-      totalBaseQuantity: total,
-      reorderLevel: double.tryParse(_reorderController.text) ?? 0,
-      storageLocation: _locationController.text.trim(),
-      costPrice: double.tryParse(_costController.text) ?? 0,
-      sellingPrice: double.tryParse(_sellingController.text) ?? 0,
-      packageSellingPrice: 0,
-      standardLength: _stockForm == ProductStockForm.standardLengths
-          ? packageSize
-          : 0,
-      allowedSaleUnits: _unitsForMethod(),
-      physicalPieces: _stockForm == ProductStockForm.standardLengths
-          ? List.filled(initial.toInt(), packageSize)
-          : const [],
-    );
-    context.read<ProductTrackingViewmodel>().save(configuration);
+    if (existing == null) {
+      Navigator.of(context).pop(
+        ProductFormResult.create(
+          NewProductDraft(
+            categoryId: _categoryId!,
+            brandId: _brandId!,
+            baseName: _nameController.text.trim(),
+            description: _descriptionController.text.trim(),
+            imageUrl: _imagePath,
+            variantName: _variantController.text.trim(),
+            baseUomId: _baseUomId!,
+            minStockThreshold: threshold,
+            maxStockLevel: maxLevel,
+            sellingPrice: price,
+            barcodeQr: barcode,
+          ),
+        ),
+      );
+      return;
+    }
 
-    final product = Product(
-      id: existing?.id ?? 0,
-      categoryId: category.categoryId,
-      categoryName: category.categoryName,
-      brandId: brand.brandId,
-      brandName: brand.brandName,
-      baseName: _nameController.text.trim(),
-      description: _descriptionController.text.trim(),
-      imageUrl: _imagePath,
-      isActive: existing?.isActive ?? true,
-      variants: [variant, ...?existing?.variants.skip(1)],
-    );
-
+    final variant = _variant;
     Navigator.of(context).pop(
-      ProductFormResult(
-        product: product,
-        openingStock: total > 0
-            ? [
-                InventoryBatch(
-                  id: 0,
-                  variantId: variant.id,
-                  receiptId: 0,
-                  initialQty: total,
-                  currentQty: total,
-                  unitCostLanded: double.tryParse(_costController.text) ?? 0,
-                  markupPercentage: 0,
-                  batchSellingPrice:
-                      double.tryParse(_sellingController.text) ?? 0,
-                  expirationDate: null,
-                  createdAt: null,
-                ),
-              ]
-            : const <InventoryBatch>[],
+      ProductFormResult.edit(
+        ProductEditDraft(
+          productId: existing.id,
+          variantId: variant?.id ?? 0,
+          sellingUnitId: variant?.sellingUoms.firstOrNull?.id ?? 0,
+          baseName: _nameController.text.trim(),
+          description: _descriptionController.text.trim(),
+          categoryId: _categoryId,
+          brandId: _brandId,
+          // `product` and `base_uom` are frozen after creation, so the variant
+          // PATCH never carries them (400 INVALID_VARIANT if it did).
+          variantName: _variantController.text.trim(),
+          minStockThreshold: threshold,
+          maxStockLevel: maxLevel,
+          sellingPrice: price,
+          barcodeQr: barcode,
+        ),
       ),
     );
   }
@@ -329,9 +180,9 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-
+    final editing = widget.product != null;
     return AlertDialog(
-      title: Text(widget.product == null ? 'Add product' : 'Edit product'),
+      title: Text(editing ? 'Edit product' : 'Add product'),
       content: SizedBox(
         width: 520,
         child: SingleChildScrollView(
@@ -342,7 +193,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  '1. Basic Information',
+                  '1. Basic information',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
@@ -356,36 +207,25 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                       ? 'Enter a product name.'
                       : null,
                 ),
-                if (widget.product == null) ...[
-                  const SizedBox(height: AppSpacing.xl),
-                  Text(
-                    'First variant',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  TextFormField(
-                    controller: _variantController,
-                    decoration: const InputDecoration(
-                      labelText: 'Variant name',
-                    ),
-                    validator: (value) => value == null || value.trim().isEmpty
-                        ? 'Enter a variant name.'
-                        : null,
-                  ),
-                ],
+                const SizedBox(height: AppSpacing.md),
+                TextFormField(
+                  controller: _variantController,
+                  decoration: const InputDecoration(labelText: 'Variant name'),
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'Enter a variant name.'
+                      : null,
+                ),
                 const SizedBox(height: AppSpacing.md),
                 TextFormField(
                   controller: _barcodeController,
                   decoration: const InputDecoration(
-                    labelText: 'Queen Builders barcode',
-                    hintText: 'Scan or enter the product barcode',
+                    labelText: 'Barcode (optional)',
+                    hintText: 'Scan or type the code printed on the package',
                     prefixIcon: Icon(Icons.barcode_reader),
-                    helperText:
-                        'One barcode identifies this main product package.',
                   ),
                   validator: (value) {
                     final barcode = value?.trim() ?? '';
-                    if (barcode.isEmpty) return 'Scan or enter a barcode.';
+                    if (barcode.isEmpty) return null;
                     final duplicate = widget.products.any(
                       (product) =>
                           product.id != widget.product?.id &&
@@ -399,20 +239,28 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                         ? 'This barcode is already assigned to another product.'
                         : null;
                   },
-                  onFieldSubmitted: (_) => setState(() {}),
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 DropdownButtonFormField<int>(
                   initialValue: _categoryId,
                   decoration: const InputDecoration(labelText: 'Category'),
                   items: widget.categories
+                      // An archived category is hidden from the picker; its
+                      // products stay sellable.
+                      .where(
+                        (category) =>
+                            category.isActive ||
+                            category.id == widget.product?.categoryId,
+                      )
                       .map(
-                        (product) => DropdownMenuItem(
-                          value: product.categoryId,
-                          child: Text(product.categoryName),
+                        (category) => DropdownMenuItem(
+                          value: category.id,
+                          child: Text(category.name),
                         ),
                       )
                       .toList(),
+                  validator: (value) =>
+                      value == null ? 'Choose a category.' : null,
                   onChanged: (value) {
                     if (value != null) setState(() => _categoryId = value);
                   },
@@ -423,16 +271,43 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                   decoration: const InputDecoration(labelText: 'Brand'),
                   items: widget.brands
                       .map(
-                        (product) => DropdownMenuItem(
-                          value: product.brandId,
-                          child: Text(product.brandName),
+                        (brand) => DropdownMenuItem(
+                          value: brand.id,
+                          child: Text(brand.name),
                         ),
                       )
                       .toList(),
+                  validator: (value) =>
+                      value == null ? 'Choose a brand.' : null,
                   onChanged: (value) {
                     if (value != null) setState(() => _brandId = value);
                   },
                 ),
+                if (!editing) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  DropdownButtonFormField<int>(
+                    initialValue: _baseUomId,
+                    decoration: const InputDecoration(
+                      labelText: 'Base unit',
+                      helperText:
+                          'Set once: a variant keeps this unit for its whole '
+                          'history.',
+                    ),
+                    items: widget.units
+                        .map(
+                          (unit) => DropdownMenuItem(
+                            value: unit.id,
+                            child: Text(unit.label),
+                          ),
+                        )
+                        .toList(),
+                    validator: (value) =>
+                        value == null ? 'Choose a base unit.' : null,
+                    onChanged: (value) {
+                      if (value != null) setState(() => _baseUomId = value);
+                    },
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.lg),
                 TextFormField(
                   controller: _descriptionController,
@@ -502,241 +377,91 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                     ],
                   ),
                 ),
+                const Divider(height: AppSpacing.xxl),
+                Text(
+                  '2. Stock levels',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 const SizedBox(height: AppSpacing.md),
-                if (widget.product == null) ...[
-                  const Divider(height: AppSpacing.xxl),
-                  Text(
-                    '2. Inventory Tracking',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: colors.secondaryContainer.withValues(alpha: .35),
+                    border: Border.all(color: AppColors.border),
+                    borderRadius: BorderRadius.circular(AppRadii.medium),
                   ),
-                  const SizedBox(height: AppSpacing.xs),
-                  const Text('How is this product tracked?'),
-                  const SizedBox(height: AppSpacing.md),
-                  Wrap(
-                    spacing: AppSpacing.sm,
-                    runSpacing: AppSpacing.sm,
-                    children: ProductTrackingMethod.values
-                        .map(
-                          (method) => ChoiceChip(
-                            label: Text(method.label),
-                            selected: _trackingMethod == method,
-                            onSelected: (_) => setState(() {
-                              _trackingMethod = method;
-                              _baseUnit = _defaultUnit(method);
-                              _stockForm =
-                                  method == ProductTrackingMethod.length
-                                  ? ProductStockForm.standardLengths
-                                  : ProductStockForm.direct;
-                              _allowFractional =
-                                  method != ProductTrackingMethod.quantity;
-                            }),
-                          ),
-                        )
-                        .toList(),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    _trackingMethod.description,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  DropdownButtonFormField<String>(
-                    initialValue: _baseUnit,
-                    decoration: const InputDecoration(
-                      labelText: 'Base measurement / unit',
-                    ),
-                    items: _unitsForMethod()
-                        .map(
-                          (unit) =>
-                              DropdownMenuItem(value: unit, child: Text(unit)),
-                        )
-                        .toList(),
-                    onChanged: (value) =>
-                        setState(() => _baseUnit = value ?? _baseUnit),
-                  ),
-                  if (_trackingMethod != ProductTrackingMethod.quantity) ...[
-                    const SizedBox(height: AppSpacing.md),
-                    SegmentedButton<ProductStockForm>(
-                      segments: _stockOptions()
-                          .map(
-                            (form) => ButtonSegment(
-                              value: form,
-                              label: Text(form.label),
-                            ),
-                          )
-                          .toList(),
-                      selected: {_stockForm},
-                      onSelectionChanged: (values) =>
-                          setState(() => _stockForm = values.first),
-                    ),
-                  ],
-                  if (_stockForm == ProductStockForm.packaged ||
-                      _stockForm == ProductStockForm.standardLengths) ...[
-                    const SizedBox(height: AppSpacing.md),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            initialValue: _packageType,
-                            decoration: InputDecoration(
-                              labelText:
-                                  _stockForm == ProductStockForm.standardLengths
-                                  ? 'Physical unit'
-                                  : 'Package type',
-                            ),
-                            items:
-                                const [
-                                      'Bag',
-                                      'Sack',
-                                      'Box',
-                                      'Pack',
-                                      'Container',
-                                      'Piece',
-                                      'Roll',
-                                    ]
-                                    .map(
-                                      (item) => DropdownMenuItem(
-                                        value: item,
-                                        child: Text(item),
-                                      ),
-                                    )
-                                    .toList(),
-                            onChanged: (value) => setState(
-                              () => _packageType = value ?? _packageType,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: AppSpacing.md),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _packageSizeController,
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            decoration: InputDecoration(
-                              labelText:
-                                  _stockForm == ProductStockForm.standardLengths
-                                  ? 'Standard length per piece'
-                                  : 'Quantity per package',
-                              suffixText: _baseUnit,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        _stockForm == ProductStockForm.standardLengths
-                            ? 'Allow partial / cut sales'
-                            : 'Allow partial package sales',
-                      ),
-                      value: _allowPartial,
-                      onChanged: (value) =>
-                          setState(() => _allowPartial = value),
-                    ),
-                  ],
-                  if (_trackingMethod == ProductTrackingMethod.quantity)
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Allow fractional quantity?'),
-                      subtitle: const Text(
-                        'Keep this off for indivisible items such as hammers.',
-                      ),
-                      value: _allowFractional,
-                      onChanged: (value) =>
-                          setState(() => _allowFractional = value),
-                    ),
-                  const Divider(height: AppSpacing.xxl),
-                  Text(
-                    '3. Pricing & Initial Stock',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  Row(
+                  child: const Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Icon(Icons.local_shipping_outlined, size: 18),
+                      SizedBox(width: AppSpacing.sm),
                       Expanded(
-                        child: TextFormField(
-                          controller: _costController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(
-                            labelText: 'Cost per $_baseUnit',
-                            prefixText: '₱ ',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _sellingController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(
-                            labelText: 'Selling price per $_baseUnit',
-                            prefixText: '₱ ',
-                          ),
+                        child: Text(
+                          'Stock arrives through a purchase order → Receiving. '
+                          'This form creates the catalogue item only.',
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: AppSpacing.md),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _initialStockController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(
-                            labelText:
-                                (_stockForm == ProductStockForm.packaged ||
-                                    _stockForm ==
-                                        ProductStockForm.standardLengths)
-                                ? 'Initial packages / pieces'
-                                : 'Initial quantity',
-                            suffixText:
-                                (_stockForm == ProductStockForm.packaged ||
-                                    _stockForm ==
-                                        ProductStockForm.standardLengths)
-                                ? _packageType.toLowerCase()
-                                : _baseUnit,
-                          ),
-                          onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _reorderController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
                         ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _reorderController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(
-                            labelText: 'Reorder level',
-                            suffixText: _baseUnit,
-                          ),
+                        decoration: const InputDecoration(
+                          labelText: 'Reorder level',
+                          helperText: 'Low-stock alert below this',
                         ),
+                        validator: _nonNegative,
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  TextFormField(
-                    controller: _locationController,
-                    decoration: const InputDecoration(
-                      labelText: 'Storage location',
                     ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _maxController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Maximum stock level',
+                          helperText: 'Used to suggest reorder quantity',
+                        ),
+                        validator: _nonNegative,
+                      ),
+                    ),
+                  ],
+                ),
+                const Divider(height: AppSpacing.xxl),
+                Text(
+                  '3. Selling price',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
                   ),
-                  const SizedBox(height: AppSpacing.lg),
-                  _buildPreview(context),
-                ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+                TextFormField(
+                  controller: _sellingController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Selling price',
+                    prefixText: '₱ ',
+                  ),
+                  validator: (value) {
+                    final price = double.tryParse(value?.trim() ?? '');
+                    if (price == null) return 'Enter a price.';
+                    if (price < 0) return 'The price cannot be negative.';
+                    return null;
+                  },
+                ),
               ],
             ),
           ),
@@ -749,9 +474,16 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
         ),
         FilledButton(
           onPressed: _submit,
-          child: Text(widget.product == null ? 'Add product' : 'Save changes'),
+          child: Text(editing ? 'Save changes' : 'Add product'),
         ),
       ],
     );
+  }
+
+  static String? _nonNegative(String? value) {
+    final parsed = double.tryParse(value?.trim() ?? '');
+    if (parsed == null) return 'Enter a number.';
+    if (parsed < 0) return 'This cannot be negative.';
+    return null;
   }
 }
