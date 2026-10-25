@@ -78,12 +78,30 @@ class _CatalogBaseViewSet(
 
 
 class _StockRecordBaseViewSet(_InventoryWritePermissions, viewsets.ModelViewSet):
-    """Stock evidence that keeps full CRUD (goods receipts, stock adjustments).
+    """Stock evidence: append-only, so `PUT`/`PATCH`/`DELETE` are **405**.
 
-    Deliberately separate from `_CatalogBaseViewSet`: Task 4.1 removed DELETE from the
-    catalog and purchasing rows only, so these two viewsets keep the behaviour the Phase
-    2/3 clients were written against.
+    A goods receipt and a stock adjustment are the same kind of record a sale is: by the
+    time the row exists, the stock has ALREADY moved. An adjustment deducts through FIFO
+    (or reopens the newest batch) inside the POST that creates it, and `process/` mints
+    the batches from a receipt's lines. Editing `qty_adjusted` afterwards therefore
+    re-writes what the ledger says moved without moving anything back, and deleting
+    either row erases the only evidence that it did move - and, where batches point at
+    the receipt, that DELETE raises `ProtectedError` (a **500**, not a refusal).
+
+    Still a `ModelViewSet` and not mixins, because `post` must stay: the collection POST
+    IS the adjustment, and `process/` is an action POST. `http_method_names` is what
+    removes the other three verbs, exactly as `CollectiblePaymentViewSet` does for a
+    payment - the router keeps its routes and DRF answers **405 for every role, Admin
+    included**, before any permission-free object lookup or serializer validation runs.
+
+    **The cost, accepted deliberately.** A mistaken UNPROCESSED receipt cannot be
+    withdrawn either: no header edit, no delete. It is left unprocessed - it minted no
+    batches and moved no stock, so its `received_qty` contribution is the only trace -
+    and the correction is a new business event (a further receipt, or an adjustment),
+    never an edit of a past one.
     """
+
+    http_method_names = ['get', 'head', 'options', 'post']
 
 
 class _AuditedCatalogViewSet(_CatalogBaseViewSet):
