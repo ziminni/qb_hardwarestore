@@ -39,6 +39,12 @@ from django.db import models, transaction
 
 class Category(models.Model):
     name = models.CharField(max_length=100, unique=True, db_index=True)
+    # Phase 4 Task 1: the archive replaces the DELETE a clerk wanted. A category is
+    # PROTECT-referenced by its products, so deleting it was a 500, and deleting the
+    # products first would have erased their sales history. Archiving hides the category
+    # from the "new product" picker and leaves its products SELLABLE - the till prices a
+    # line from the selling unit, never from the category.
+    is_active = models.BooleanField(default=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

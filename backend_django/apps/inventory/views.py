@@ -13,7 +13,7 @@
 from django.db import transaction
 from django.http import Http404
 from django.utils import timezone
-from rest_framework import status, viewsets
+from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -38,8 +38,8 @@ from .serializers import (
 from .services import process_goods_receipt, apply_stock_adjustment
 
 
-class _CatalogBaseViewSet(viewsets.ModelViewSet):
-    """Base: read requires auth; write requires inventory role."""
+class _InventoryWritePermissions:
+    """Read requires auth; every write requires the inventory role."""
 
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):
@@ -47,9 +47,99 @@ class _CatalogBaseViewSet(viewsets.ModelViewSet):
         return [IsInventoryRole()]
 
 
-class CategoryViewSet(_CatalogBaseViewSet):
+class _CatalogBaseViewSet(
+        _InventoryWritePermissions,
+        mixins.CreateModelMixin,
+        mixins.ListModelMixin,
+        mixins.RetrieveModelMixin,
+        mixins.UpdateModelMixin,
+        viewsets.GenericViewSet):
+    """Base for the catalog and purchasing: **there is no DELETE** (Phase 4 Task 1).
+
+    Every one of these rows is referenced through `PROTECT` - a category by its products,
+    a product by its variants, a variant by batches, a selling unit by sale lines, a
+    supplier by purchase orders - so `DELETE` either raised `ProtectedError` (a **500** to
+    the client, not a refusal) or, where nothing pointed at the row yet, quietly erased
+    the master data other screens were showing. Archiving is the supported exit: PATCH
+    `is_active: false` on a category, product, variant or supplier.
+
+    Composed from mixins rather than `ModelViewSet` for exactly that reason: without
+    `DestroyModelMixin` the router does not map a `delete` action at all, so the verb
+    answers **405** for every role, Admin included, and no `perform_destroy` exists to be
+    called by accident later.
+    """
+
+
+class _StockRecordBaseViewSet(_InventoryWritePermissions, viewsets.ModelViewSet):
+    """Stock evidence that keeps full CRUD (goods receipts, stock adjustments).
+
+    Deliberately separate from `_CatalogBaseViewSet`: Task 4.1 removed DELETE from the
+    catalog and purchasing rows only, so these two viewsets keep the behaviour the Phase
+    2/3 clients were written against.
+    """
+
+
+class _AuditedCatalogViewSet(_CatalogBaseViewSet):
+    """A catalog write that changes money or stock meaning leaves ONE audit row.
+
+    Decision 07 (Phase 2) and Phase 4 Task 1: create/edit/archive of a product, variant,
+    selling unit, category and supplier are the writes that decide what the shelf and the
+    till mean, so each one is a named event in the trail. The row is written INSIDE the
+    same `atomic` block as the write, so a refused or rolled-back write leaves no row
+    claiming it happened - and every refusal here happens during validation, before the
+    first `save()`.
+
+    Subclasses say what they are (`audit_label`) and, when the OLD value matters, what
+    changed (`audit_snapshot` / `audit_changes`). A selling unit's price is money: the
+    trail has to read "10.00 -> 12.50", not only "12.50".
+    """
+
+    audit_label = 'Catalog row'
+
+    def audit_detail(self, instance):
+        return str(instance)
+
+    def audit_snapshot(self, instance):
+        return {}
+
+    def audit_changes(self, snapshot, instance) -> str:
+        return ''
+
+    def perform_create(self, serializer):
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            instance = serializer.save()
+            audit_request(
+                self.request,
+                AuditLog.ActionType.CREATE,
+                f'{self.audit_label} {self.audit_detail(instance)} created.',
+            )
+
+    def perform_update(self, serializer):
+        # Snapshot BEFORE save(): `serializer.instance` is untouched until `save()` runs,
+        # so this is the row as it was, which is the half of the change worth auditing.
+        snapshot = self.audit_snapshot(serializer.instance)
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            instance = serializer.save()
+            changes = self.audit_changes(snapshot, instance)
+            description = (
+                f'{self.audit_label} {self.audit_detail(instance)} updated')
+            if changes:
+                description = f'{description}: {changes}'
+            audit_request(
+                self.request,
+                AuditLog.ActionType.UPDATE,
+                f'{description}.',
+            )
+
+
+class CategoryViewSet(_AuditedCatalogViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
+
+    audit_label = 'Category'
+
+    def audit_detail(self, instance):
+        return f'{instance.name} (active={instance.is_active})'
 
 
 class BrandViewSet(_CatalogBaseViewSet):
@@ -62,7 +152,7 @@ class UnitOfMeasureViewSet(_CatalogBaseViewSet):
     serializer_class = UnitOfMeasureSerializer
 
 
-class ProductViewSet(_CatalogBaseViewSet):
+class ProductViewSet(_AuditedCatalogViewSet):
     queryset = Product.objects.select_related(
         'category', 'brand',
     ).prefetch_related(
@@ -71,8 +161,13 @@ class ProductViewSet(_CatalogBaseViewSet):
     ).all()
     serializer_class = ProductSerializer
 
+    audit_label = 'Product'
 
-class ProductVariantViewSet(_CatalogBaseViewSet):
+    def audit_detail(self, instance):
+        return f'{instance.base_name} (active={instance.is_active})'
+
+
+class ProductVariantViewSet(_AuditedCatalogViewSet):
     queryset = ProductVariant.objects.select_related(
         'product', 'base_uom',
     ).prefetch_related(
@@ -80,19 +175,38 @@ class ProductVariantViewSet(_CatalogBaseViewSet):
     ).all()
     serializer_class = ProductVariantSerializer
 
+    audit_label = 'Variant'
 
-class VariantUOMViewSet(_CatalogBaseViewSet):
+
+class VariantUOMViewSet(_AuditedCatalogViewSet):
     queryset = VariantUOM.objects.select_related('variant', 'uom').all()
     serializer_class = VariantUOMSerializer
+
+    audit_label = 'Selling unit'
+
+    def audit_snapshot(self, instance):
+        return {'default_selling_price': instance.default_selling_price}
+
+    def audit_changes(self, snapshot, instance):
+        before = snapshot.get('default_selling_price')
+        if before is None or before == instance.default_selling_price:
+            return ''
+        return (
+            f'price {before:.2f} -> {instance.default_selling_price:.2f}')
 
 
 # =========================================================================
 # Purchasing & Stock ViewSets  (Phase 2)
 # =========================================================================
 
-class SupplierViewSet(_CatalogBaseViewSet):
+class SupplierViewSet(_AuditedCatalogViewSet):
     queryset = Supplier.objects.all()
     serializer_class = SupplierSerializer
+
+    audit_label = 'Supplier'
+
+    def audit_detail(self, instance):
+        return f'{instance.company_name} (active={instance.is_active})'
 
 
 class PurchaseOrderViewSet(_CatalogBaseViewSet):
@@ -113,7 +227,7 @@ class _ReceiptRefused(Exception):
     """
 
 
-class GoodsReceiptViewSet(_CatalogBaseViewSet):
+class GoodsReceiptViewSet(_StockRecordBaseViewSet):
     queryset = GoodsReceipt.objects.select_related(
         'po', 'received_by',
     ).prefetch_related(
@@ -272,7 +386,7 @@ class InventoryBatchViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
 
-class StockAdjustmentViewSet(_CatalogBaseViewSet):
+class StockAdjustmentViewSet(_StockRecordBaseViewSet):
     """The inventory write path. An adjustment moves stock, so it is not a plain CRUD.
 
     Two invariants live here, both learned the hard way in Phase 2:

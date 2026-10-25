@@ -1,7 +1,20 @@
+# pyright: reportAttributeAccessIssue=false
+#
+# Same directive and reason as apps/inventory/models.py and apps/inventory/views.py: the
+# checker resolves its config from its WORKING DIRECTORY and does not run inside this
+# repo, so pyrightconfig.json is not found and this travels with the file. Without
+# django-stubs every `Model.objects` is a false positive on valid Django, and Django's own
+# `manage.py check` plus the test run remain the authority on what this file does.
 """Inventory app — serializers for product catalog (Sprint 1)."""
 
 from rest_framework import serializers
 
+from .exceptions import (
+    DuplicateBaseUnit,
+    InvalidSellingUnit,
+    InvalidVariant,
+    SellingUnitInUse,
+)
 from .models import (
     Brand,
     Category,
@@ -23,7 +36,7 @@ from .models import (
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
-        fields = ['id', 'name', 'created_at', 'updated_at']
+        fields = ['id', 'name', 'is_active', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
@@ -41,9 +54,44 @@ class UnitOfMeasureSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
+def selling_unit_is_sold(unit) -> bool:
+    """True once a sale line or a held cart line references this selling unit.
+
+    Why these two tables (Phase 4 Task 1): a `SalesItem` is money already taken and stock
+    already deducted — changing the unit's factor or uom afterwards re-writes what the
+    return cap and restock are measured against. A `HeldCartItem` is a parked cart that
+    will be sold as it stands, so the same change would reprice or re-measure a cart a
+    cashier is holding. Quotations and sales orders are DOCUMENTS priced on the day they
+    were written and move no stock; they are deliberately not part of the guard.
+    """
+    from apps.pos.models import HeldCartItem, SalesItem
+
+    return (
+        SalesItem.objects.filter(variant_uom_id=unit.pk).exists()
+        or HeldCartItem.objects.filter(variant_uom_id=unit.pk).exists()
+    )
+
+
 class VariantUOMSerializer(serializers.ModelSerializer):
+    """A selling unit — the row the till prices a line from.
+
+    `conversion_factor` and `default_selling_price` are declared EXPLICITLY, without the
+    model's `MinValueValidator`s, because DRF copies those validators onto the generated
+    field and they run before `validate()`: a factor of 0 answered
+    `{"conversion_factor": ["Ensure this value is greater than or equal to 0.01."]}`, a
+    dict no client can branch on. Declaring the two fields keeps the same refusal but in
+    the project's stable `{code, detail}` shape (`INVALID_SELLING_UNIT`).
+    """
+
     uom_code = serializers.CharField(source='uom.code', read_only=True)
     uom_name = serializers.CharField(source='uom.name', read_only=True)
+    conversion_factor = serializers.DecimalField(max_digits=12, decimal_places=2)
+    default_selling_price = serializers.DecimalField(max_digits=12, decimal_places=2)
+
+    # Frozen once the unit has been sold: they decide what a past sale MEANT. The price
+    # is deliberately absent — a shop reprices all the time and the sale line keeps its
+    # own `unit_price`, so raising the price cannot corrupt history.
+    FROZEN_ONCE_SOLD = ('variant', 'uom', 'conversion_factor')
 
     class Meta:
         model = VariantUOM
@@ -53,11 +101,73 @@ class VariantUOMSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id']
 
+    def validate(self, attrs):
+        variant = attrs.get('variant')
+        if variant is None and self.instance is not None:
+            variant = self.instance.variant
+        factor = attrs.get('conversion_factor')
+        if factor is None and self.instance is not None:
+            factor = self.instance.conversion_factor
+        price = attrs.get('default_selling_price')
+        if price is None and self.instance is not None:
+            price = self.instance.default_selling_price
+
+        if factor is not None and factor <= 0:
+            raise InvalidSellingUnit(
+                'conversion_factor must be greater than 0: it is how many base units '
+                'one selling unit is, and a sale multiplies by it.')
+        if price is not None and price < 0:
+            raise InvalidSellingUnit(
+                'default_selling_price must not be negative.')
+
+        if factor is not None and factor == 1 and variant is not None:
+            # Factor 1 IS the base unit. Checked on create and whenever the factor is
+            # written, so an unrelated PATCH cannot re-open the ambiguity either.
+            rivals = VariantUOM.objects.filter(
+                variant=variant, conversion_factor=1)
+            if self.instance is not None:
+                rivals = rivals.exclude(pk=self.instance.pk)
+            if rivals.exists():
+                raise DuplicateBaseUnit(
+                    f'{variant} already has a conversion-factor-1 selling unit: a '
+                    'variant has exactly one base unit.')
+
+        if self.instance is not None:
+            changed = [
+                field for field in self.FROZEN_ONCE_SOLD
+                if field in attrs
+                and _field_value(attrs[field])
+                != _field_value(getattr(self.instance, field))
+            ]
+            if changed and selling_unit_is_sold(self.instance):
+                raise SellingUnitInUse(
+                    f'{self.instance} has been sold: {', '.join(changed)} cannot be '
+                    'changed without rewriting what past sales and returns mean. '
+                    'Create a new selling unit; the price stays editable.')
+
+        return attrs
+
+
+def _field_value(value):
+    """A comparable key for a validated field: an FK instance compares by its pk."""
+    return getattr(value, 'pk', value)
+
 
 class ProductVariantSerializer(serializers.ModelSerializer):
+    """A variant. Thresholds may not go negative; product/base_uom are set once.
+
+    Both thresholds are declared explicitly for the same reason as the selling unit's
+    factor: the model's `MinValueValidator(0)` fired first and answered with DRF's
+    field-error dict instead of the project's `INVALID_VARIANT` code.
+    """
+
     base_uom_code = serializers.CharField(
         source='base_uom.code', read_only=True)
     selling_uoms = VariantUOMSerializer(many=True, read_only=True)
+    min_stock_threshold = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False)
+    max_stock_level = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False)
 
     class Meta:
         model = ProductVariant
@@ -67,6 +177,28 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             'is_active', 'selling_uoms', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    # Set at creation: stock batches, sale deductions and every historical figure hang
+    # off these two, so re-pointing them would rewrite the variant's whole history.
+    FROZEN_AFTER_CREATION = ('product', 'base_uom')
+
+    def validate(self, attrs):
+        for field in ('min_stock_threshold', 'max_stock_level'):
+            value = attrs.get(field)
+            if value is not None and value < 0:
+                raise InvalidVariant(f'{field} must not be negative.')
+
+        if self.instance is not None:
+            for field in self.FROZEN_AFTER_CREATION:
+                if field not in attrs:
+                    continue
+                if _field_value(attrs[field]) != _field_value(
+                        getattr(self.instance, field)):
+                    raise InvalidVariant(
+                        f'{field} is set when the variant is created: changing it '
+                        'would re-point its stock and sales history.')
+
+        return attrs
 
 
 class ProductSerializer(serializers.ModelSerializer):

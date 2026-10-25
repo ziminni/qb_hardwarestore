@@ -11,7 +11,11 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import exception_handler as drf_exception_handler
 
-from apps.inventory.exceptions import InsufficientStock, NoBatchHistory
+from apps.inventory.exceptions import (
+    CatalogWriteRefused,
+    InsufficientStock,
+    NoBatchHistory,
+)
 from apps.collectibles.services import Overpayment
 
 
@@ -311,6 +315,15 @@ def handler(exc, context):
     Everything else falls through to DRF unchanged, so a genuine server error stays
     a 5xx and a validation error stays a 400 with DRF's field errors.
     """
+    if isinstance(exc, CatalogWriteRefused):
+        # Phase 4 Tasks 1-2: catalog/purchasing refusals (a delete, an unusable selling
+        # unit, a purchase order in the wrong state). Raised BEFORE the first write - in
+        # a serializer `validate()` or a view action - so the 400 also means "nothing
+        # changed". Same `{code, detail}` shape as the till's refusals.
+        return Response(
+            {'code': exc.code, 'detail': str(exc)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     if isinstance(exc, NoBatchHistory):
         # A positive stock adjustment for a variant this shop has never received. Raised
         # inside `StockAdjustmentViewSet.perform_create`'s atomic block, so the

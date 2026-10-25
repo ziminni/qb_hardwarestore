@@ -5,6 +5,69 @@ without importing the service module.
 """
 
 
+class CatalogWriteRefused(ValueError):
+    """A catalog or purchasing write the server refuses (Phase 4 Tasks 1-2).
+
+    Every one of these refusals was previously reachable with a well-formed request: a
+    delete that 500'd on `PROTECT`, a selling unit with a factor of 0 (which divided
+    every FIFO deduction by zero), two factor-1 units on one variant (making "the base
+    unit" ambiguous), a purchase order placed from a body field instead of an action.
+
+    Carries a stable `code` and a `detail` sentence, and `apps.pos.exceptions.handler`
+    publishes them as the project's `{code, detail}` **400** - the same shape the till's
+    refusals use, so a client branches on `code` instead of matching English prose.
+
+    A `ValueError` subclass, like `InvalidSale`: the request is well formed, it just
+    asks for something the shop's history does not allow. Raised from serializer
+    `validate()` and from the purchasing actions, always BEFORE the first write, so a
+    refused request leaves no row and no audit row behind.
+    """
+
+    code = 'INVALID_CATALOG_WRITE'
+
+
+class InvalidSellingUnit(CatalogWriteRefused):
+    """A selling unit whose numbers cannot be used (factor <= 0, price < 0)."""
+
+    code = 'INVALID_SELLING_UNIT'
+
+
+class DuplicateBaseUnit(CatalogWriteRefused):
+    """A second conversion-factor-1 unit on one variant.
+
+    Factor 1 IS the base unit: it is what `process_sale` multiplies a sold qty by and
+    what a return restocks. Two of them on one variant make "how many base units is one
+    box" unanswerable, so the second is refused rather than picked between.
+    """
+
+    code = 'DUPLICATE_BASE_UNIT'
+
+
+class SellingUnitInUse(CatalogWriteRefused):
+    """A variant/uom/factor change on a selling unit that has already been SOLD.
+
+    A sale line records `qty` in selling units and the FIFO deduction in BASE units
+    (`qty x conversion_factor`), and a linked return caps and restocks against those two
+    numbers. Changing the factor or re-pointing the unit afterwards re-writes the meaning
+    of every past sale - and of the return the customer is about to make. The PRICE stays
+    editable: a till may reprice, it may not rewrite history.
+    """
+
+    code = 'SELLING_UNIT_IN_USE'
+
+
+class InvalidVariant(CatalogWriteRefused):
+    """A variant write the shop cannot accept.
+
+    A negative `min_stock_threshold` / `max_stock_level` makes every sale "low stock"
+    and every reorder quantity nonsense; `product` and `base_uom` are set at creation
+    because changing either re-points the variant's whole stock and sales history.
+    """
+
+    code = 'INVALID_VARIANT'
+
+
+
 class InsufficientStock(ValueError):
     """A FIFO allocation could not be satisfied by the stock on hand.
 
