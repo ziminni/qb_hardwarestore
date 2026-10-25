@@ -74,6 +74,20 @@ class ReceivingViewmodel extends ChangeNotifier {
       _orders = orders
           .where((order) => order.isReceivable)
           .toList(growable: false);
+      // The open panel must show the SERVER's copy of the selected order, not
+      // the object it was selected from: otherwise it reads "ORDERED · received
+      // 0" after a delivery. Matched against the UNFILTERED list, so an order
+      // this delivery just completed still updates (and stays on screen with
+      // its final state) although it has left the receivable list.
+      final selectedId = _selected?.id;
+      if (selectedId != null) {
+        for (final order in orders) {
+          if (order.id == selectedId) {
+            _selected = order;
+            break;
+          }
+        }
+      }
       _loadError = null;
     } on InventoryServiceException catch (error) {
       _loadError = error.message;
@@ -175,6 +189,8 @@ class ReceivingViewmodel extends ChangeNotifier {
     notifyListeners();
     try {
       _lastBatches = await _service.processReceipt(receiptId);
+      // process/ is where the server moves the order to PARTIAL or COMPLETE.
+      await load();
       await loadReceipts();
       return _lastBatches.isNotEmpty;
     } on InventoryServiceException catch (error) {
