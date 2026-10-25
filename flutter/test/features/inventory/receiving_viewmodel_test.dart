@@ -32,8 +32,18 @@ class _StubInventoryService extends InventoryService {
     lastLines = items;
     final failure = this.failure;
     if (failure != null) throw InventoryServiceException(failure);
-    return GoodsReceiptRecord(id: 5, poId: poId, deliveryReceiptNo: deliveryReceiptNo, batches: const []);
+    return GoodsReceiptRecord(
+      id: 5,
+      poId: poId,
+      deliveryReceiptNo: deliveryReceiptNo,
+      batches: const [],
+    );
   }
+
+  List<GoodsReceiptRecord> receipts = const [];
+
+  @override
+  Future<List<GoodsReceiptRecord>> fetchGoodsReceipts() async => receipts;
 
   @override
   Future<List<InventoryBatch>> processReceipt(int receiptId) async {
@@ -44,13 +54,24 @@ class _StubInventoryService extends InventoryService {
   }
 }
 
-PurchaseOrderRecord _order() => const PurchaseOrderRecord(
+/// ORDERED on purpose: only ORDERED/PARTIAL orders can be received, which is the
+/// filter this file pins below. A DRAFT order used to be listed here and the
+/// screen offered a delivery the server refuses with PO_NOT_ORDERED.
+PurchaseOrderRecord _order({String status = 'ORDERED'}) => PurchaseOrderRecord(
   id: 1,
   supplierId: 2,
-  status: 'DRAFT',
+  status: status,
   notes: '',
   items: [
-    PurchaseOrderItem(id: 11, poId: 1, variantId: 8, variantName: 'Portland 40kg', orderedQty: 10, unitCost: 50, receivedQty: 0),
+    PurchaseOrderItem(
+      id: 11,
+      poId: 1,
+      variantId: 8,
+      variantName: 'Portland 40kg',
+      orderedQty: 10,
+      unitCost: 50,
+      receivedQty: 0,
+    ),
   ],
 );
 
@@ -61,6 +82,24 @@ void main() {
   setUp(() {
     service = _StubInventoryService();
     viewmodel = ReceivingViewmodel(service: service);
+  });
+
+  test('only ORDERED and PARTIAL orders are listed for receiving', () async {
+    service.orders = [
+      _order(),
+      _order(status: 'PARTIAL'),
+      _order(status: 'DRAFT'),
+      _order(status: 'COMPLETE'),
+      _order(status: 'CANCELLED'),
+    ];
+
+    await viewmodel.load();
+
+    expect(viewmodel.orders, hasLength(2));
+    expect(
+      viewmodel.orders.map((order) => order.status),
+      everyElement(anyOf('ORDERED', 'PARTIAL')),
+    );
   });
 
   test('loads the purchase orders on start', () async {
@@ -84,30 +123,36 @@ void main() {
     expect(viewmodel.orders, hasLength(1));
   });
 
-  test('clearing a field withdraws its line instead of posting stale qty', () async {
-    service.orders = [_order()];
-    await viewmodel.load();
-    viewmodel.select(viewmodel.orders.single);
-    viewmodel.setQty(11, 4);
+  test(
+    'clearing a field withdraws its line instead of posting stale qty',
+    () async {
+      service.orders = [_order()];
+      await viewmodel.load();
+      viewmodel.select(viewmodel.orders.single);
+      viewmodel.setQty(11, 4);
 
-    viewmodel.clearQty(11);
-    final ok = await viewmodel.recordReceipt();
+      viewmodel.clearQty(11);
+      final ok = await viewmodel.recordReceipt();
 
-    expect(ok, isFalse);
-    expect(service.recordCalls, 0);
-  });
+      expect(ok, isFalse);
+      expect(service.recordCalls, 0);
+    },
+  );
 
-  test('recording posts one line per order item with the entered quantities', () async {
-    service.orders = [_order()];
-    await viewmodel.load();
+  test(
+    'recording posts one line per order item with the entered quantities',
+    () async {
+      service.orders = [_order()];
+      await viewmodel.load();
 
-    viewmodel.select(viewmodel.orders.single);
-    viewmodel.setQty(11, 4);
-    final ok = await viewmodel.recordReceipt();
+      viewmodel.select(viewmodel.orders.single);
+      viewmodel.setQty(11, 4);
+      final ok = await viewmodel.recordReceipt();
 
-    expect(ok, isTrue);
-    expect(service.recordCalls, 1);
-    expect(service.lastLines, hasLength(1));
-    expect(viewmodel.lastReceiptId, 5);
-  });
+      expect(ok, isTrue);
+      expect(service.recordCalls, 1);
+      expect(service.lastLines, hasLength(1));
+      expect(viewmodel.lastReceiptId, 5);
+    },
+  );
 }

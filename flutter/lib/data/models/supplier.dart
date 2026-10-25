@@ -139,6 +139,15 @@ class PurchaseOrder {
   double get receivedQuantity =>
       items.fold(0, (sum, item) => sum + item.receivedQuantity);
 
+  /// `place/` only leaves DRAFT; any other status answers 400 INVALID_PO_STATE.
+  bool get canPlace => status == PurchaseStatus.draft;
+
+  /// `cancel/` refuses an order that already has goods against it
+  /// (400 PO_HAS_RECEIPTS) and one that is already cancelled.
+  bool get canCancel =>
+      (status == PurchaseStatus.draft || status == PurchaseStatus.ordered) &&
+      receivedQuantity == 0;
+
   /// A purchase order from `PurchaseOrderSerializer` (decision D-02).
   ///
   /// `supplier` is an **id** and the serializer exposes no `supplier_name`, so

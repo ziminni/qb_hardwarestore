@@ -4,10 +4,27 @@ import 'package:client/data/models/supplier.dart';
 import 'package:client/features/suppliers/widgets/purchases_status_badge.dart';
 import 'package:flutter/material.dart';
 
+/// The purchase-order book, with the two transitions the server allows.
+///
+/// Which action is offered is decided by the ORDER's status, because the server
+/// is strict about it: `place/` only leaves DRAFT (`INVALID_PO_STATE` otherwise)
+/// and `cancel/` refuses an order with goods already received
+/// (`PO_HAS_RECEIPTS`). A button that could only produce a refusal is not
+/// rendered at all — the disabled/live distinction is the viewmodel's `canPlace`
+/// / `canCancel` (Phase 4 Task 4).
 class PurchasesTable extends StatelessWidget {
-  const PurchasesTable({super.key, required this.orders, required this.onView});
+  const PurchasesTable({
+    super.key,
+    required this.orders,
+    required this.onView,
+    required this.onPlace,
+    required this.onCancel,
+  });
   final List<PurchaseOrder> orders;
   final ValueChanged<PurchaseOrder> onView;
+  final ValueChanged<PurchaseOrder> onPlace;
+  final ValueChanged<PurchaseOrder> onCancel;
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -70,13 +87,36 @@ class PurchasesTable extends StatelessWidget {
                           DataCell(Text('₱${order.total.toStringAsFixed(2)}')),
                           DataCell(PurchasesStatusBadge(status: order.status)),
                           DataCell(
-                            IconButton(
-                              tooltip: 'View purchase order',
-                              onPressed: () => onView(order),
-                              icon: const Icon(
-                                Icons.visibility_outlined,
-                                size: 18,
-                              ),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  tooltip: 'View purchase order',
+                                  onPressed: () => onView(order),
+                                  icon: const Icon(
+                                    Icons.visibility_outlined,
+                                    size: 18,
+                                  ),
+                                ),
+                                if (order.canPlace)
+                                  IconButton(
+                                    tooltip: 'Place purchase order',
+                                    onPressed: () => onPlace(order),
+                                    icon: const Icon(
+                                      Icons.send_outlined,
+                                      size: 18,
+                                    ),
+                                  ),
+                                if (order.canCancel)
+                                  IconButton(
+                                    tooltip: 'Cancel purchase order',
+                                    onPressed: () => onCancel(order),
+                                    icon: const Icon(
+                                      Icons.block_outlined,
+                                      size: 18,
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
                         ],

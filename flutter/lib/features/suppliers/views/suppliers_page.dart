@@ -1,21 +1,22 @@
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
+import 'package:client/data/models/supplier.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmodel.dart';
+import 'package:client/features/suppliers/widgets/suppliers_form_dialog.dart';
 import 'package:client/features/suppliers/widgets/suppliers_table.dart';
 import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-/// The Suppliers screen (decision D-02).
+/// The Suppliers screen (decision D-02, Phase 4 Task 4).
 ///
-/// Reads the live vendor list. Two things are gone rather than greyed:
-///
-///  * the **Add Supplier** button — the repository has no write method this
-///    pass, so the button would open a dialog whose Save did nothing;
-///  * the **Edit** action on each row, for the same reason. Deactivate stays
-///    because the viewmodel still owns that flag locally and the chip visibly
-///    changes.
+/// Add, edit and activate/deactivate all reach `/api/v1/suppliers/` now, and each
+/// one reloads. The Phase 1 version could only READ: the Add button and the Edit
+/// action were removed because the repository had no write method, and the
+/// activate/deactivate chip toggled a session-local map that a reload threw away.
+/// That map is gone — `_activeOverrides` existed precisely because nothing was
+/// written down.
 ///
 /// The search box still filters client-side: `SupplierViewSet` configures no
 /// `SearchFilter`, so a server-side search would silently match nothing.
@@ -36,6 +37,37 @@ class _SuppliersPageState extends State<SuppliersPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) context.read<SuppliersPurchasesViewmodel>().load();
     });
+  }
+
+  void _announce(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _openForm([Supplier? supplier]) async {
+    final state = context.read<SuppliersPurchasesViewmodel>();
+    final result = await showDialog<Supplier>(
+      context: context,
+      builder: (_) => SuppliersFormDialog(supplier: supplier),
+    );
+    if (result == null || !mounted) return;
+    final error = await state.saveSupplier(result);
+    _announce(
+      error ??
+          '${result.companyName} ${supplier == null ? 'added' : 'updated'}.',
+    );
+  }
+
+  Future<void> _toggle(Supplier supplier) async {
+    final state = context.read<SuppliersPurchasesViewmodel>();
+    final error = await state.toggleSupplier(supplier);
+    _announce(
+      error ??
+          '${supplier.companyName} '
+              '${supplier.isActive ? 'deactivated' : 'activated'}.',
+    );
   }
 
   @override
@@ -64,6 +96,11 @@ class _SuppliersPageState extends State<SuppliersPage> {
                   ),
                 ),
               ),
+              FilledButton.icon(
+                onPressed: () => _openForm(),
+                icon: const Icon(Icons.add),
+                label: const Text('Add supplier'),
+              ),
             ],
           ),
           const SizedBox(height: AppSpacing.xl),
@@ -76,8 +113,8 @@ class _SuppliersPageState extends State<SuppliersPage> {
               suppliers: suppliers,
               purchaseCount: (id) =>
                   state.purchases.where((item) => item.supplierId == id).length,
-              onEdit: null,
-              onToggle: state.toggleSupplier,
+              onEdit: _openForm,
+              onToggle: _toggle,
             ),
         ],
       ),

@@ -1,19 +1,19 @@
+import 'package:client/data/models/purchase_draft.dart';
 import 'package:client/data/models/supplier.dart';
 import 'package:client/data/repositories/supplier_repository.dart';
 import 'package:client/data/services/supplier_service.dart';
 import 'package:flutter/foundation.dart';
 
-/// Suppliers and their purchase orders, read from the API (decision D-02).
+/// Suppliers and their purchase orders, read from and written to the API
+/// (decision D-02, Phase 4 Task 4).
 ///
-/// Replaces the hardcoded `_suppliers`/`_purchases` fixtures this class used to
-/// hold. Those fixtures were the reason the Stocker Purchasing tabs showed six
-/// vendors no server had ever heard of.
-///
-/// Deliberately NOT present any more: `saveSupplier` and `addPurchase`. Both
-/// mutated local lists that no server knew about, behind dialogs whose Save
-/// button therefore lied. D-02 scoped this pass to reads only; when writes are
-/// specified they will go through [SupplierRepository] and re-load, not through
-/// a memory-only mutation.
+/// Two rounds of removal are visible here. The first deleted the hardcoded
+/// `_suppliers`/`_purchases` fixtures. The second (Phase 4) deleted
+/// `_activeOverrides` — a session-local map that made the activate/deactivate
+/// chip change without any server knowing, so a reload silently reverted it. A
+/// supplier's active flag is now `PATCH {"is_active": …}` followed by a reload,
+/// and a purchase order is created with its lines, placed and cancelled through
+/// the server's own transitions.
 class SuppliersPurchasesViewmodel extends ChangeNotifier {
   SuppliersPurchasesViewmodel({SupplierRepository? repository})
     : _repository = repository ?? SupplierRepository();
@@ -80,13 +80,22 @@ class SuppliersPurchasesViewmodel extends ChangeNotifier {
         .toList();
   }
 
+  /// The supplier behind an id, for the PO dialogs. Null when the list has not
+  /// loaded one — a picker must not crash over a missing name.
+  Supplier? supplierById(int id) {
+    for (final supplier in _suppliers) {
+      if (supplier.id == id) return supplier;
+    }
+    return null;
+  }
+
   /// Loads suppliers, then purchase orders.
   ///
   /// Suppliers first because each PO's `supplierName` is resolved from them:
   /// `PurchaseOrderSerializer` sends the supplier **id** only, and D-02 chose
   /// this join over a backend change. A PO whose supplier is not in the list
-  /// (deleted upstream, or a permission-filtered row) keeps an empty name
-  /// rather than a guessed one.
+  /// (filtered by permission, or on another page) keeps an empty name rather
+  /// than a guessed one.
   Future<void> load() async {
     _isLoading = true;
     _loadError = null;
@@ -94,12 +103,7 @@ class SuppliersPurchasesViewmodel extends ChangeNotifier {
     try {
       final suppliers = await _repository.fetchSuppliers();
       final purchases = await _repository.fetchPurchaseOrders();
-      _suppliers = [
-        for (final s in suppliers)
-          _activeOverrides.containsKey(s.id)
-              ? s.copyWith(isActive: _activeOverrides[s.id]!)
-              : s,
-      ];
+      _suppliers = suppliers;
       _purchases = _withSupplierNames(purchases, suppliers);
     } on SupplierServiceException catch (error) {
       _loadError = error.message;
@@ -113,8 +117,8 @@ class SuppliersPurchasesViewmodel extends ChangeNotifier {
   ///
   /// An id with no match keeps `''` rather than a placeholder: D-02 chose the
   /// client-side join over a backend change, so an unmatched id means the
-  /// supplier was deleted or filtered — and "No supplier" invented text would
-  /// hide that.
+  /// supplier was filtered out — and "No supplier" invented text would hide
+  /// that.
   List<PurchaseOrder> _withSupplierNames(
     List<PurchaseOrder> purchases,
     List<Supplier> suppliers,
@@ -128,24 +132,112 @@ class SuppliersPurchasesViewmodel extends ChangeNotifier {
     ];
   }
 
-  /// Session-local active-flag overrides, keyed by supplier id.
-  ///
-  /// Re-applied after every load so a toggle survives tab switches: without
-  /// this, each page open re-runs load() and silently reverts the switch.
-  /// Memory-only — PATCH wiring is Fog of War.
-  final Map<int, bool> _activeOverrides = {};
+  // ---------------------------------------------------------------------
+  // Supplier writes
+  // ---------------------------------------------------------------------
 
-  /// Flips a supplier's active flag **locally**.
-  void toggleSupplier(Supplier supplier) {
-    final index = _suppliers.indexWhere((item) => item.id == supplier.id);
-    if (index < 0) return;
-    final next = !supplier.isActive;
-    _activeOverrides[supplier.id] = next;
-    _suppliers = [
-      ..._suppliers.sublist(0, index),
-      _suppliers[index].copyWith(isActive: next),
-      ..._suppliers.sublist(index + 1),
-    ];
-    notifyListeners();
+  /// Creates a supplier ([existing] null) or PATCHes one, then reloads.
+  ///
+  /// Returns `null` on success or the message to show. The reload is what makes
+  /// the change survive closing the screen — the reason `_activeOverrides`
+  /// existed was that nothing had been written down.
+  Future<String?> saveSupplier(Supplier supplier) async {
+    final body = {
+      'company_name': supplier.companyName,
+      'contact_person': supplier.contactPerson,
+      'phone': supplier.phone,
+      'email': supplier.email,
+      'address': supplier.address,
+    };
+    try {
+      if (supplier.id == 0) {
+        await _repository.createSupplier(body);
+      } else {
+        await _repository.patchSupplier(supplier.id, body);
+      }
+    } on SupplierServiceException catch (error) {
+      return error.message;
+    }
+    await load();
+    return null;
+  }
+
+  /// Activates (`true`) or deactivates (`false`) a supplier on the server.
+  ///
+  /// `is_active` is the retirement path: `DELETE` answers 405 because purchase
+  /// orders PROTECT-reference the row.
+  Future<String?> setSupplierActive(Supplier supplier, bool isActive) async {
+    if (supplier.id == 0) {
+      return 'Save the supplier before changing its status.';
+    }
+    try {
+      await _repository.patchSupplier(supplier.id, {'is_active': isActive});
+    } on SupplierServiceException catch (error) {
+      return error.message;
+    }
+    await load();
+    return null;
+  }
+
+  /// Flips a supplier's active flag through the server.
+  Future<String?> toggleSupplier(Supplier supplier) =>
+      setSupplierActive(supplier, !supplier.isActive);
+
+  // ---------------------------------------------------------------------
+  // Purchase-order writes
+  // ---------------------------------------------------------------------
+
+  /// Creates a purchase order with its lines, optionally placing it at once.
+  ///
+  /// "Place order" is a SECOND call (`place/`), not a flag on the create: the
+  /// server treats placing as an event with its own audit row and its own lock,
+  /// so a create that failed to place is a DRAFT the screen shows as one.
+  Future<String?> createPurchaseOrder(
+    PurchaseOrderDraft draft, {
+    bool place = false,
+  }) async {
+    if (draft.lines.isEmpty) return 'Add at least one line to the order.';
+    final int id;
+    try {
+      id = await _repository.createPurchaseOrder(draft);
+    } on SupplierServiceException catch (error) {
+      return error.message;
+    }
+    String? placeError;
+    if (place) {
+      try {
+        await _repository.placePurchaseOrder(id);
+      } on SupplierServiceException catch (error) {
+        // The draft exists — say so, because retrying the create would duplicate
+        // the order. The list reload below shows it as DRAFT.
+        placeError =
+            'Purchase order #$id was saved as a draft but could not be '
+            'placed: ${error.message}';
+      }
+    }
+    await load();
+    return placeError;
+  }
+
+  /// DRAFT → ORDERED.
+  Future<String?> placeOrder(PurchaseOrder order) async {
+    try {
+      await _repository.placePurchaseOrder(order.id);
+    } on SupplierServiceException catch (error) {
+      return error.message;
+    }
+    await load();
+    return null;
+  }
+
+  /// DRAFT or ORDERED-with-nothing-received → CANCELLED.
+  Future<String?> cancelOrder(PurchaseOrder order) async {
+    try {
+      await _repository.cancelPurchaseOrder(order.id);
+    } on SupplierServiceException catch (error) {
+      return error.message;
+    }
+    await load();
+    return null;
   }
 }

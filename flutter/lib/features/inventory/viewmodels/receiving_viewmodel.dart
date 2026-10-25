@@ -4,12 +4,19 @@ import 'package:client/data/services/inventory_service.dart';
 import 'package:flutter/foundation.dart';
 
 /// Owns the receiving screen: purchase orders in, goods receipts recorded,
-/// receipts processed into FIFO batches.
+/// receipts processed into FIFO batches, and the deliveries already received.
 ///
 /// Screen-scoped like every other viewmodel (decision 11): it lives as long as
 /// the receiving page and no longer. Amounts entered per PO line travel to the
 /// server as `items: [{po_item, qty}]`, which is what `process/` turns into
 /// batches — the screen never invents stock itself.
+///
+/// Phase 4 added two things the server allows and the screen did not show:
+///
+///  * the list is filtered to **ORDERED / PARTIAL** orders, the only ones that
+///    can be received (`PO_NOT_ORDERED`, `PO_NOT_RECEIVABLE` elsewhere), and
+///  * **received deliveries** from `GET /goods-receipts/`, so a delivery can be
+///    looked up after the fact instead of only at the moment it was booked.
 class ReceivingViewmodel extends ChangeNotifier {
   ReceivingViewmodel({InventoryService? service})
     : _service = service ?? InventoryService();
@@ -20,6 +27,10 @@ class ReceivingViewmodel extends ChangeNotifier {
   bool _isLoading = false;
   String? _loadError;
 
+  List<GoodsReceiptRecord> _receipts = const [];
+  bool _isLoadingReceipts = false;
+  String? _receiptsError;
+
   PurchaseOrderRecord? _selected;
   final Map<int, double> _quantities = {};
   String? _actionError;
@@ -27,10 +38,16 @@ class ReceivingViewmodel extends ChangeNotifier {
   int? _lastReceiptId;
   List<InventoryBatch> _lastBatches = const [];
 
+  /// Only the orders that can actually be received.
   List<PurchaseOrderRecord> get orders => List.unmodifiable(_orders);
   bool get isLoading => _isLoading;
   bool get hasOrders => _orders.isNotEmpty;
   String? get loadError => _loadError;
+
+  /// Deliveries already booked into stock, newest first.
+  List<GoodsReceiptRecord> get receipts => List.unmodifiable(_receipts);
+  bool get isLoadingReceipts => _isLoadingReceipts;
+  String? get receiptsError => _receiptsError;
 
   PurchaseOrderRecord? get selected => _selected;
 
@@ -44,22 +61,40 @@ class ReceivingViewmodel extends ChangeNotifier {
 
   /// True once a receipt has been processed: the Process button must go away,
   /// because process/ has no receipt-level guard against a second run client-side.
-  bool get isProcessed =>
-      _lastReceiptId != null && _lastBatches.isNotEmpty;
+  bool get isProcessed => _lastReceiptId != null && _lastBatches.isNotEmpty;
 
-  /// Loads every purchase order. A failed load keeps the rows already shown:
-  /// emptying the table would read as "nothing on order".
+  /// Loads the orders that can be received. A failed load keeps the rows already
+  /// shown: emptying the table would read as "nothing on order".
   Future<void> load() async {
     _isLoading = true;
     _loadError = null;
     notifyListeners();
     try {
-      _orders = await _service.fetchPurchaseOrders();
+      final orders = await _service.fetchPurchaseOrders();
+      _orders = orders
+          .where((order) => order.isReceivable)
+          .toList(growable: false);
       _loadError = null;
     } on InventoryServiceException catch (error) {
       _loadError = error.message;
     } finally {
       _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Loads the goods-receipt history.
+  Future<void> loadReceipts() async {
+    _isLoadingReceipts = true;
+    _receiptsError = null;
+    notifyListeners();
+    try {
+      _receipts = await _service.fetchGoodsReceipts();
+      _receiptsError = null;
+    } on InventoryServiceException catch (error) {
+      _receiptsError = error.message;
+    } finally {
+      _isLoadingReceipts = false;
       notifyListeners();
     }
   }
@@ -86,7 +121,7 @@ class ReceivingViewmodel extends ChangeNotifier {
   }
 
   /// Records the receipt with one line per order item that has a quantity.
-  Future<bool> recordReceipt() async {
+  Future<bool> recordReceipt({String deliveryReceiptNo = ''}) async {
     final order = _selected;
     if (order == null) {
       _actionError = 'Select a purchase order first.';
@@ -110,8 +145,13 @@ class ReceivingViewmodel extends ChangeNotifier {
       final receipt = await _service.createReceipt(
         poId: order.id,
         items: lines,
+        deliveryReceiptNo: deliveryReceiptNo,
       );
       _lastReceiptId = receipt.id;
+      // The delivery is now part of the history, and the order's received
+      // quantity moved: reload both so the screen agrees with the server.
+      await load();
+      await loadReceipts();
       return true;
     } on InventoryServiceException catch (error) {
       _actionError = error.message;
@@ -135,6 +175,7 @@ class ReceivingViewmodel extends ChangeNotifier {
     notifyListeners();
     try {
       _lastBatches = await _service.processReceipt(receiptId);
+      await loadReceipts();
       return _lastBatches.isNotEmpty;
     } on InventoryServiceException catch (error) {
       _actionError = error.message;

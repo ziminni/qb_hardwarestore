@@ -12,6 +12,7 @@
 //   * a failure names itself and the retry actually re-fetches,
 //   * the mock-creating controls are gone, not greyed.
 
+import 'package:client/data/models/purchase_draft.dart';
 import 'package:client/data/models/supplier.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/repositories/supplier_repository.dart';
@@ -98,6 +99,72 @@ class _StubSupplierRepository extends SupplierRepository {
     if (failure != null) throw SupplierServiceException(failure);
     return purchases;
   }
+
+  // Phase 4 Task 4 writes. The stub APPLIES them, so a reload after a write shows
+  // the change — which is exactly the property the local `_activeOverrides` map
+  // failed: it survived a tab switch and died on a reload.
+  final List<Map<String, dynamic>> createdSuppliers = [];
+  final List<({int id, Map<String, dynamic> body})> patchedSuppliers = [];
+  String? writeError;
+
+  @override
+  Future<int> createSupplier(Map<String, dynamic> body) async {
+    final error = writeError;
+    if (error != null) throw SupplierServiceException(error);
+    createdSuppliers.add(body);
+    final created = Supplier(
+      id: 100 + createdSuppliers.length,
+      companyName: body['company_name'] as String,
+      contactPerson: (body['contact_person'] as String?) ?? '',
+      phone: (body['phone'] as String?) ?? '',
+      email: (body['email'] as String?) ?? '',
+      address: (body['address'] as String?) ?? '',
+    );
+    suppliers = [...suppliers, created];
+    return created.id;
+  }
+
+  @override
+  Future<void> patchSupplier(int id, Map<String, dynamic> body) async {
+    final error = writeError;
+    if (error != null) throw SupplierServiceException(error);
+    patchedSuppliers.add((id: id, body: body));
+    suppliers = [
+      for (final supplier in suppliers)
+        supplier.id == id
+            ? supplier.copyWith(
+                isActive: body['is_active'] as bool?,
+                companyName: body['company_name'] as String?,
+              )
+            : supplier,
+    ];
+  }
+
+  final List<int> placedOrders = [];
+  final List<int> cancelledOrders = [];
+  final List<Map<String, dynamic>> createdOrders = [];
+
+  @override
+  Future<int> createPurchaseOrder(PurchaseOrderDraft draft) async {
+    final error = writeError;
+    if (error != null) throw SupplierServiceException(error);
+    createdOrders.add(draft.toJson());
+    return 77;
+  }
+
+  @override
+  Future<void> placePurchaseOrder(int id) async {
+    final error = writeError;
+    if (error != null) throw SupplierServiceException(error);
+    placedOrders.add(id);
+  }
+
+  @override
+  Future<void> cancelPurchaseOrder(int id) async {
+    final error = writeError;
+    if (error != null) throw SupplierServiceException(error);
+    cancelledOrders.add(id);
+  }
 }
 
 Widget _app(Widget page, SupplierRepository repository) => MultiProvider(
@@ -181,21 +248,61 @@ void main() {
       },
     );
 
-    test(
-      'the mock mutators are gone and the local toggle still flips',
-      () async {
-        final repository = _StubSupplierRepository(
-          suppliers: [_supplier(id: 7, companyName: 'Bohol Cement Traders')],
-        );
-        final viewmodel = SuppliersPurchasesViewmodel(repository: repository);
-        await viewmodel.load();
+    test('a toggle PATCHes is_active and SURVIVES a reload', () async {
+      final repository = _StubSupplierRepository(
+        suppliers: [_supplier(id: 7, companyName: 'Bohol Cement Traders')],
+      );
+      final viewmodel = SuppliersPurchasesViewmodel(repository: repository);
+      await viewmodel.load();
 
-        viewmodel.toggleSupplier(viewmodel.suppliers.single);
+      final error = await viewmodel.toggleSupplier(viewmodel.suppliers.single);
 
-        expect(viewmodel.suppliers.single.isActive, isFalse);
-        expect(viewmodel.activeSuppliers, 0);
-      },
-    );
+      expect(error, isNull);
+      expect(repository.patchedSuppliers.single.id, 7);
+      expect(repository.patchedSuppliers.single.body, {'is_active': false});
+      expect(viewmodel.suppliers.single.isActive, isFalse);
+      expect(viewmodel.activeSuppliers, 0);
+
+      // The whole point: a reload re-reads the server, and the flag is still off.
+      // `_activeOverrides` existed because this used to revert.
+      await viewmodel.load();
+      expect(viewmodel.suppliers.single.isActive, isFalse);
+      expect(viewmodel.activeSuppliers, 0);
+    });
+
+    test('a refused toggle reports the message and changes nothing', () async {
+      final repository = _StubSupplierRepository(
+        suppliers: [_supplier(id: 7, companyName: 'Bohol Cement Traders')],
+      )..writeError = 'No permission to change suppliers.';
+      final viewmodel = SuppliersPurchasesViewmodel(repository: repository);
+      await viewmodel.load();
+
+      final error = await viewmodel.toggleSupplier(viewmodel.suppliers.single);
+
+      expect(error, 'No permission to change suppliers.');
+      expect(viewmodel.suppliers.single.isActive, isTrue);
+    });
+
+    test('saveSupplier creates with id 0 and PATCHes with a real id', () async {
+      final repository = _StubSupplierRepository();
+      final viewmodel = SuppliersPurchasesViewmodel(repository: repository);
+      await viewmodel.load();
+
+      await viewmodel.saveSupplier(
+        _supplier(id: 0, companyName: 'New Trader', contactPerson: 'Ana'),
+      );
+      expect(repository.createdSuppliers.single['company_name'], 'New Trader');
+      expect(viewmodel.suppliers.single.companyName, 'New Trader');
+
+      await viewmodel.saveSupplier(
+        viewmodel.suppliers.single.copyWith(companyName: 'Renamed Trader'),
+      );
+      expect(
+        repository.patchedSuppliers.single.body['company_name'],
+        'Renamed Trader',
+      );
+      expect(viewmodel.suppliers.single.companyName, 'Renamed Trader');
+    });
   });
 
   group('SuppliersPage', () {
@@ -232,17 +339,33 @@ void main() {
       expect(find.text('Neltex Distribution Cebu'), findsNothing);
     });
 
-    testWidgets('the mock-creating Add Supplier control is gone', (
+    testWidgets('Add supplier saves through the server, not to a local list', (
       tester,
     ) async {
       _sizeUp(tester);
-      await tester.pumpWidget(
-        _app(const SuppliersPage(), _StubSupplierRepository()),
-      );
+      final repository = _StubSupplierRepository();
+      await tester.pumpWidget(_app(const SuppliersPage(), repository));
       await tester.pumpAndSettle();
 
-      expect(find.text('Add Supplier'), findsNothing);
-      expect(find.widgetWithIcon(FilledButton, Icons.add), findsNothing);
+      // Phase 4 Task 4 brought this control BACK: in Phase 1 it was removed
+      // because the dialog's Save could only have mutated a local list. It now
+      // POSTs and reloads, so it exists and it works.
+      await tester.tap(find.text('Add supplier'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Company Name'),
+        'Tagbilaran Hardware',
+      );
+      await tester.tap(find.text('Save Supplier'));
+      await tester.pumpAndSettle();
+
+      expect(
+        repository.createdSuppliers.single['company_name'],
+        'Tagbilaran Hardware',
+      );
+      // The reload is what makes it survive closing the screen.
+      expect(repository.supplierCalls, greaterThan(1));
+      expect(find.text('Tagbilaran Hardware'), findsOneWidget);
     });
 
     testWidgets('a failed load shows the error with a working retry', (

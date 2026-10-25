@@ -32,26 +32,71 @@ class _StubInventoryService extends InventoryService {
     String deliveryReceiptNo = '',
   }) async {
     recordCalls++;
-    return GoodsReceiptRecord(id: 5, poId: poId, deliveryReceiptNo: deliveryReceiptNo, batches: const []);
+    return GoodsReceiptRecord(
+      id: 5,
+      poId: poId,
+      deliveryReceiptNo: deliveryReceiptNo,
+      batches: const [],
+    );
   }
+
+  List<GoodsReceiptRecord> receipts = const [];
+
+  @override
+  Future<List<GoodsReceiptRecord>> fetchGoodsReceipts() async => receipts;
 
   @override
   Future<List<InventoryBatch>> processReceipt(int receiptId) async {
     processCalls++;
     return const [
-      InventoryBatch(id: 21, variantId: 8, receiptId: 5, initialQty: 4, currentQty: 4, unitCostLanded: 50, markupPercentage: 0, batchSellingPrice: 50, expirationDate: null, createdAt: null),
+      InventoryBatch(
+        id: 21,
+        variantId: 8,
+        receiptId: 5,
+        initialQty: 4,
+        currentQty: 4,
+        unitCostLanded: 50,
+        markupPercentage: 0,
+        batchSellingPrice: 50,
+        expirationDate: null,
+        createdAt: null,
+      ),
     ];
   }
 }
 
-PurchaseOrderRecord _order() => const PurchaseOrderRecord(
+/// ORDERED, not DRAFT: the screen now lists only the orders the server will let
+/// it receive (ORDERED / PARTIAL). A DRAFT one answers 400 PO_NOT_ORDERED, so
+/// offering it was a button that could only produce a refusal.
+PurchaseOrderRecord _order({String status = 'ORDERED'}) => PurchaseOrderRecord(
   id: 1,
   supplierId: 2,
-  status: 'DRAFT',
+  status: status,
   notes: '',
-  items: [
-    PurchaseOrderItem(id: 11, poId: 1, variantId: 8, variantName: 'Portland 40kg', orderedQty: 10, unitCost: 50, receivedQty: 0),
+  items: const [
+    PurchaseOrderItem(
+      id: 11,
+      poId: 1,
+      variantId: 8,
+      variantName: 'Portland 40kg',
+      orderedQty: 10,
+      unitCost: 50,
+      receivedQty: 0,
+    ),
   ],
+);
+
+GoodsReceiptRecord _receipt({bool processed = false}) => GoodsReceiptRecord(
+  id: 7,
+  poId: 1,
+  deliveryReceiptNo: 'DR-9001',
+  batches: const [],
+  receivedByName: 'Ana Lopez',
+  receiveDate: DateTime(2026, 10, 25, 9, 30),
+  lines: const [
+    GoodsReceiptLine(id: 1, poItemId: 11, variantName: 'Portland 40kg', qty: 4),
+  ],
+  processedAt: processed ? DateTime(2026, 10, 25, 9, 45) : null,
 );
 
 void _sizeUp(WidgetTester tester) {
@@ -61,18 +106,28 @@ void _sizeUp(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
-Future<_StubInventoryService> _pump(WidgetTester tester) async {
+Future<_StubInventoryService> _pump(
+  WidgetTester tester, {
+  List<PurchaseOrderRecord>? orders,
+  List<GoodsReceiptRecord>? receipts,
+}) async {
   _sizeUp(tester);
-  final service = _StubInventoryService()..orders = [_order()];
+  final service = _StubInventoryService()
+    ..orders = orders ?? [_order()]
+    ..receipts = receipts ?? const [];
   await tester.pumpWidget(
-    _app(InventoryReceivingPage(viewmodel: ReceivingViewmodel(service: service))),
+    _app(
+      InventoryReceivingPage(viewmodel: ReceivingViewmodel(service: service)),
+    ),
   );
   await tester.pumpAndSettle();
   return service;
 }
 
 void main() {
-  testWidgets('purchase orders render and a receipt can be recorded', (tester) async {
+  testWidgets('purchase orders render and a receipt can be recorded', (
+    tester,
+  ) async {
     final service = await _pump(tester);
 
     expect(find.textContaining('PO-1'), findsOneWidget);
@@ -87,7 +142,9 @@ void main() {
     expect(find.textContaining('Receipt #5'), findsOneWidget);
   });
 
-  testWidgets('after processing the button is gone, not re-tappable', (tester) async {
+  testWidgets('after processing the button is gone, not re-tappable', (
+    tester,
+  ) async {
     await _pump(tester);
 
     await tester.tap(find.textContaining('PO-1'));
@@ -114,5 +171,39 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.processCalls, 1);
+  });
+
+  testWidgets('a DRAFT order is not offered for receiving', (tester) async {
+    await _pump(tester, orders: [_order(status: 'DRAFT')]);
+
+    expect(find.textContaining('PO-1'), findsNothing);
+    expect(
+      find.textContaining(
+        'Only ORDERED or PARTIAL purchase orders can be received',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('received deliveries list the server history and open a sheet', (
+    tester,
+  ) async {
+    await _pump(tester, receipts: [_receipt(processed: true)]);
+
+    await tester.tap(find.text('Received deliveries'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('PO-1'), findsOneWidget);
+    expect(find.text('DR-9001'), findsOneWidget);
+    expect(find.text('Ana Lopez'), findsOneWidget);
+    expect(find.text('In stock'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('View delivery'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Delivery #7'), findsOneWidget);
+    expect(find.text('Portland 40kg'), findsWidgets);
+    // Appending a delivery is the only write: the sheet offers no edit.
+    expect(find.text('Close'), findsOneWidget);
   });
 }

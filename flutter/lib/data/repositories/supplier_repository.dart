@@ -1,3 +1,4 @@
+import 'package:client/data/models/purchase_draft.dart';
 import 'package:client/data/models/supplier.dart';
 import 'package:client/data/services/supplier_service.dart';
 
@@ -17,4 +18,20 @@ class SupplierRepository {
 
   Future<List<PurchaseOrder>> fetchPurchaseOrders() =>
       _service.fetchPurchaseOrders();
+
+  /// Creates a supplier and returns the server id.
+  Future<int> createSupplier(Map<String, dynamic> body) =>
+      _service.createSupplier(body);
+
+  /// Edits a supplier, including `is_active` (the archive path — no DELETE).
+  Future<void> patchSupplier(int id, Map<String, dynamic> body) =>
+      _service.patchSupplier(id, body);
+
+  /// Creates a purchase order with its lines nested in the same POST.
+  Future<int> createPurchaseOrder(PurchaseOrderDraft draft) =>
+      _service.createPurchaseOrder(draft.toJson());
+
+  Future<void> placePurchaseOrder(int id) => _service.placePurchaseOrder(id);
+
+  Future<void> cancelPurchaseOrder(int id) => _service.cancelPurchaseOrder(id);
 }
