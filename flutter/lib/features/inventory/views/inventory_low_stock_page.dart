@@ -65,11 +65,13 @@ class _InventoryLowStockPageState extends State<InventoryLowStockPage> {
 
   /// The server admits Stock Manager / Store Manager / Admin to `resolve/`
   /// (`IsInventoryRole`). Everyone else is not offered the button.
+  ///
+  /// `roleName` is the role CODE the server sends as `role.name` (`inventory`,
+  /// `sales`, `admin`) — the same codes `AppRoutes.dashboardForRole` routes on.
+  /// Comparing it to the display labels hid Resolve from every role live.
   bool _canResolve(BuildContext context) {
     final role = context.read<AuthViewmodel>().roleName;
-    return role == 'Stock Manager' ||
-        role == 'Store Manager' ||
-        role == 'Admin';
+    return const {'inventory', 'sales', 'admin'}.contains(role);
   }
 
   Future<void> _reorder(Product product, ProductVariant variant) async {

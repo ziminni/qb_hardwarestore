@@ -67,6 +67,17 @@ class _StubSupplierRepository extends SupplierRepository {
   }
 }
 
+/// The role CODE the server sends as `role.name`, keyed by the label a person
+/// reads (`role.display_name`). The fixture used to put the label in BOTH
+/// fields, so a page comparing `roleName` to 'Stock Manager' passed here while
+/// the live server (which sends `inventory`) never showed the button.
+const _roleCodes = {
+  'Stock Manager': 'inventory',
+  'Store Manager': 'sales',
+  'System Administrator': 'admin',
+  'Cashier': 'pos',
+};
+
 AuthViewmodel _auth({String? role}) {
   final auth = AuthViewmodel(AuthRepository(AuthService()));
   if (role != null) {
@@ -75,7 +86,7 @@ AuthViewmodel _auth({String? role}) {
       username: 'stock',
       email: 'stock@qb.ph',
       fullName: 'Ana Lopez',
-      role: Role(id: 4, name: role, displayName: role),
+      role: Role(id: 4, name: _roleCodes[role]!, displayName: role),
     );
   }
   return auth;
@@ -193,6 +204,16 @@ void main() {
     // A resolved alert is not offered for resolving again.
     expect(find.text('Resolve'), findsNothing);
   });
+
+  for (final role in ['Store Manager', 'System Administrator']) {
+    testWidgets('$role is offered Resolve too (server: IsInventoryRole)', (
+      tester,
+    ) async {
+      await pump(tester, role: role);
+
+      expect(find.text('Resolve'), findsOneWidget);
+    });
+  }
 
   testWidgets('a cashier does not see Resolve at all', (tester) async {
     await pump(tester, role: 'Cashier');
