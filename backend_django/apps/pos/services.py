@@ -19,7 +19,7 @@ from decimal import Decimal, InvalidOperation
 from django.db import transaction
 
 from apps.collectibles.models import CollectibleLedger
-from apps.inventory.services import allocate_fifo
+from apps.inventory.services import allocate_fifo, check_low_stock_after_stock_out
 
 from .exceptions import (
     CreditLimitExceeded,
@@ -365,6 +365,11 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
             request_hash=request_hash,
         )
 
+        # Task 4.3: the variants that lose stock in THIS sale, collected so the
+        # low-stock check runs once per variant after the lines are deducted, not once
+        # per line.
+        affected_variant_ids = set()
+
         for vuom, qty in lines:
             # Decision 01: the server prices the line. `item.get('unit_price')` is never
             # read again - a forged or stale price is not an error, it is simply not input.
@@ -395,6 +400,16 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
             ])
 
             vatable_sales += subtotal
+            affected_variant_ids.add(vuom.variant_id)
+
+        # Task 4.3: every line has now been deducted, so re-evaluate the low-stock
+        # threshold ONCE per affected variant, inside this transaction. A sale taking the
+        # shelf below its minimum is the commonest way a shop runs out, and until now the
+        # low-stock screen never heard about it; a held-cart completion comes through
+        # this same function, so it is covered too. Alerts written here roll back with a
+        # sale that fails later (payment, credit limit), so no alert claims a sale that
+        # never happened.
+        check_low_stock_after_stock_out(variant_ids=affected_variant_ids)
 
         grand_total = vatable_sales - discount
         txn.vatable_sales = vatable_sales
@@ -837,6 +852,7 @@ def process_return(*, customer_id, cashier, items_data,
     from apps.users.permissions import IsManagerRole, has_role
 
     from .exceptions import (
+        NoOpenShift,
         OriginalNotCompleted,
         ReleaseNotReturnable,
         ReturnError,
@@ -844,7 +860,6 @@ def process_return(*, customer_id, cashier, items_data,
         ReturnQtyExceeded,
         ReturnReasonRequired,
         UnlinkedReturnForbidden,
-        NoOpenShift,
     )
     from .models import Shift
 

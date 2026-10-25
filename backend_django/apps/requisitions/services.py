@@ -17,7 +17,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.collectibles.models import CollectibleLedger
-from apps.inventory.services import allocate_fifo
+from apps.inventory.services import allocate_fifo, check_low_stock_after_stock_out
 from apps.pos.exceptions import NoOpenShift
 from apps.pos.models import OfficialReceipt, SalesItem, SalesTransaction, Shift
 from apps.pos.services import generate_or_number, generate_transaction_no
@@ -198,6 +198,7 @@ def release_materials(*, token_value: str, cashier) -> dict:
         )
 
         grand_total = Decimal('0')
+        affected_variant_ids = set()
 
         for item_info in info['items']:
             item = RequisitionItem.objects.select_related('variant').get(
@@ -210,6 +211,7 @@ def release_materials(*, token_value: str, cashier) -> dict:
             unit_price = vuom.default_selling_price
 
             allocate_fifo(variant_id=item.variant_id, qty_needed=remaining)
+            affected_variant_ids.add(item.variant_id)
 
             subtotal = remaining * unit_price
             SalesItem.objects.create(
@@ -218,6 +220,13 @@ def release_materials(*, token_value: str, cashier) -> dict:
             grand_total += subtotal
             item.released_qty = item.quantity
             item.save(update_fields=['released_qty'])
+
+        # Task 4.3: a release takes stock off the shelf exactly like a sale (it IS a sale
+        # of source REQUISITION), so it re-evaluates the low-stock threshold once per
+        # affected variant, inside this transaction. Before this the only two paths that
+        # raised an alert were a goods receipt and a manual adjustment - both of which ADD
+        # stock - so the shelf could be issued empty and the low-stock screen stayed quiet.
+        check_low_stock_after_stock_out(variant_ids=affected_variant_ids)
 
         txn.vatable_sales = grand_total
         txn.grand_total = grand_total

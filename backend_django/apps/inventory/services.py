@@ -20,6 +20,7 @@ from .models import (
     GoodsReceipt,
     InventoryBatch,
     POItem,
+    ProductVariant,
     PurchaseOrder,
     StockAdjustment,
     SystemAlert,
@@ -220,31 +221,83 @@ def apply_stock_adjustment(*, adjustment: StockAdjustment) -> None:
 # ---------------------------------------------------------------------------
 
 
+def check_low_stock_after_stock_out(*, variant_ids) -> list:
+    """Re-evaluate the threshold for each variant that just LOST stock (Task 4.3).
+
+    The PUBLIC entry point for the two stock-OUT paths — `process_sale` and
+    `release_materials`. Both call it once, after every line of their transaction has
+    been deducted through FIFO and still INSIDE that transaction, so the alert and the
+    sale commit or roll back together: a sale refused for short stock leaves no alert
+    claiming the shelf is low.
+
+    `_check_low_stock` stays private because a receipt and a manual adjustment call it
+    for one variant at a time. This wrapper exists so those two cross-app callers depend
+    on a name that says WHY they are asking, not on an underscore function.
+
+    Variants are locked and checked in PK ORDER: two tills selling the last bags of
+    different variants at the same moment would otherwise grab the same two rows in
+    opposite order and deadlock.
+    """
+    alerts = []
+    for variant in (
+            ProductVariant.objects
+            .filter(pk__in=set(variant_ids))
+            .order_by('pk')):
+        alert = _check_low_stock(variant)
+        if alert is not None:
+            alerts.append(alert)
+    return alerts
+
+
 def _check_low_stock(variant):
-    """Generate a SystemAlert if total current_qty < min_stock_threshold."""
+    """Raise the ONE alert this variant's stock calls for, or return None.
+
+    Two jobs, and both were missing before Phase 4:
+
+    * **Escalation.** Out of stock wins over low stock (an OUT alert is the more urgent
+      fact), and the open LOW alert is left exactly as it is — resolving it stays a
+      named act (decision 06).
+    * **Dedup.** An **unresolved** alert of the SAME type already on this variant
+      suppresses a second one. Without it every goods receipt re-raised the same "below
+      threshold" row, so the screen a stocker watches collected duplicates. Resolved
+      rows are history and do not suppress anything.
+
+    The variant row is LOCKED before the existence check, so two concurrent sales cannot
+    both read "no open alert" and both insert. A restock does NOT auto-resolve anything:
+    restoring stock is not the same act as clearing the alert.
+    """
     from django.db.models import Sum
 
-    total = (
-        InventoryBatch.objects
-        .filter(variant=variant, current_qty__gt=0)
-        .aggregate(total=Sum('current_qty'))
-    ).get('total') or Decimal('0')
+    with transaction.atomic():
+        # Re-read under the lock: the caller's `variant` may be a stale in-memory copy,
+        # and the threshold is the number the decision is made on.
+        locked = ProductVariant.objects.select_for_update().get(pk=variant.pk)
+        total = (
+            InventoryBatch.objects
+            .filter(variant=locked, current_qty__gt=0)
+            .aggregate(total=Sum('current_qty'))
+        ).get('total') or Decimal('0')
+        threshold = locked.min_stock_threshold
 
-    variant.refresh_from_db(fields=['min_stock_threshold'])
-    threshold = variant.min_stock_threshold
-
-    if total <= 0:
-        SystemAlert.objects.create(
-            alert_type=SystemAlert.AlertType.OUT_OF_STOCK,
-            variant=variant,
-            message=f'{variant} is out of stock.',
-        )
-    elif threshold > 0 and total < threshold:
-        SystemAlert.objects.create(
-            alert_type=SystemAlert.AlertType.LOW_STOCK,
-            variant=variant,
-            message=(
-                f'{variant} stock ({total}) is below '
+        if total <= 0:
+            alert_type = SystemAlert.AlertType.OUT_OF_STOCK
+            message = f'{locked} is out of stock.'
+        elif threshold > 0 and total < threshold:
+            alert_type = SystemAlert.AlertType.LOW_STOCK
+            message = (
+                f'{locked} stock ({total}) is below '
                 f'minimum threshold ({threshold}).'
-            ),
+            )
+        else:
+            return None
+
+        already_open = SystemAlert.objects.filter(
+            variant=locked, alert_type=alert_type, is_resolved=False).exists()
+        if already_open:
+            return None
+
+        return SystemAlert.objects.create(
+            alert_type=alert_type,
+            variant=locked,
+            message=message,
         )
