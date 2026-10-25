@@ -148,6 +148,7 @@ class Command(BaseCommand):
         for i, (v_name, info) in enumerate(variants.items()):
             po = PurchaseOrder.objects.create(
                 supplier=supplier, created_by=stocker,
+                status=PurchaseOrder.Status.ORDERED,
                 expected_delivery=timezone.localdate() + timedelta(days=7))
             POItem.objects.create(
                 po=po, variant=info['variant'], ordered_qty=Decimal('100'),

@@ -443,3 +443,222 @@ class PurchaseOrderFullFlowTests(PurchaseOrderTestBase):
             sum(b.current_qty for b in batches), Decimal('10'))
         self.assertEqual(
             {b.unit_cost_landed for b in batches}, {Decimal('50')})
+
+
+class PurchaseOrderEditLockTests(PurchaseOrderTestBase):
+    """The DRAFT-only edit gate decides under the PO row lock (B2).
+
+    `update()` used to ask "is this a DRAFT?" with an unlocked `get_object()` and only
+    then hand the write to `perform_update`, so a PATCH that replaces the lines could
+    pass the check while `place/` or `cancel/` committed in between — the supplier had
+    already been told what to deliver, and the order's lines changed underneath it. The
+    status is now read AFTER a `SELECT ... FOR UPDATE` on the order row, and that same
+    locked row is the one `super().update()` writes, so the verdict cannot go stale
+    before its own write commits.
+
+    What these tests prove deterministically: the lock query is issued, and it is issued
+    BEFORE the status decision / the UPDATE statement. What only a real two-connection
+    run can prove is that Postgres BLOCKS the loser; a single-threaded test shows the
+    ordering, not the blocking.
+    """
+
+    def _po_locks(self, queries):
+        """Captured statements that row-lock the PURCHASE ORDER table itself.
+
+        The table name is matched with its quotes, so the `FOR UPDATE` on
+        `inventory_po_item` (receiving takes that one too) is not counted.
+        """
+        return [
+            q['sql'] for q in queries
+            if 'FOR UPDATE' in q['sql'].upper() and '"inventory_po"' in q['sql']
+        ]
+
+    def test_the_edit_refusal_is_decided_while_the_po_row_is_locked(self):
+        from unittest import mock
+
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from apps.inventory.views import PurchaseOrderLocked as real_refusal
+
+        po = self._place_existing()
+        seen = {}
+
+        def probe(instance):
+            seen['locks'] = self._po_locks(connection.queries)
+            return real_refusal(instance)
+
+        with CaptureQueriesContext(connection), mock.patch(
+                'apps.inventory.views.PurchaseOrderLocked', probe):
+            response = self.client.patch(
+                f'{PO_URL}{po.pk}/', {'notes': 'Too late.'}, format='json',
+                **self._auth(self.stocker))
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(response.data.get('code'), 'PO_LOCKED', response.data)
+        self.assertIn('locks', seen, 'the PO_LOCKED gate must be reached at all')
+        self.assertTrue(
+            seen['locks'],
+            'the edit gate must read the status after locking the order row')
+        po.refresh_from_db()
+        self.assertNotEqual(po.notes, 'Too late.')
+
+    def test_a_draft_edit_locks_the_order_row_before_it_writes(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        created = self._create()
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.patch(
+                f'{PO_URL}{created.data["id"]}/',
+                {'notes': 'Call before delivery.'}, format='json',
+                **self._auth(self.stocker))
+
+        self.assertEqual(response.status_code, 200, response.data)
+        sql = [q['sql'].upper() for q in captured.captured_queries]
+        lock_at = next(
+            (i for i, s in enumerate(sql)
+             if 'FOR UPDATE' in s and '"INVENTORY_PO"' in s), None)
+        self.assertIsNotNone(lock_at, 'an edit must lock the order row')
+        write_at = next(
+            (i for i, s in enumerate(sql)
+             if s.startswith('UPDATE "INVENTORY_PO"')), None)
+        self.assertIsNotNone(write_at, 'the edit must write the order row')
+        self.assertLess(
+            lock_at, write_at, 'the lock must be taken before the write')
+
+    def test_a_patch_after_place_is_refused_and_the_order_is_unchanged(self):
+        po = self._place_existing()
+
+        response = self.client.patch(
+            f'{PO_URL}{po.pk}/', {'notes': 'Too late.'}, format='json',
+            **self._auth(self.stocker))
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(response.data.get('code'), 'PO_LOCKED', response.data)
+        po.refresh_from_db()
+        self.assertEqual(po.status, PurchaseOrder.Status.ORDERED)
+        self.assertEqual(po.items.get().ordered_qty, Decimal('10'))
+
+
+class NoOpPatchWritesNoAuditRowTests(PurchaseOrderTestBase):
+    """A PATCH that changes nothing writes no audit row (M3).
+
+    `{"status": "ORDERED"}` on a DRAFT order is a body with only a read-only field, so
+    DRF saves nothing — but the view still wrote an `UPDATE` row saying the order was
+    edited. The trail has to mean "something changed", otherwise every no-op PATCH a
+    screen fires on blur is a fake edit.
+    """
+
+    def _update_rows(self):
+        return AuditLog.objects.filter(
+            action_type=AuditLog.ActionType.UPDATE).count()
+
+    def test_a_read_only_field_patch_writes_no_audit_row(self):
+        created = self._create()
+        before = self._update_rows()
+
+        response = self.client.patch(
+            f'{PO_URL}{created.data["id"]}/', {'status': 'ORDERED'},
+            format='json', **self._auth(self.stocker))
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['status'], 'DRAFT')
+        self.assertEqual(
+            PurchaseOrder.objects.get(pk=created.data['id']).status,
+            PurchaseOrder.Status.DRAFT)
+        self.assertEqual(
+            self._update_rows(), before,
+            'a PATCH that changed nothing must not claim an edit in the trail')
+
+    def test_a_real_edit_still_writes_exactly_one_audit_row(self):
+        created = self._create()
+        before = self._update_rows()
+
+        response = self.client.patch(
+            f'{PO_URL}{created.data["id"]}/',
+            {'notes': 'Call before delivery.'}, format='json',
+            **self._auth(self.stocker))
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(self._update_rows(), before + 1)
+
+
+class ReceiptProcessRechecksTheOrderTests(PurchaseOrderTestBase):
+    """`process/` re-checks the PO status under the PO row lock (B1).
+
+    A receipt recorded while the order was ORDERED, an order cancelled afterwards, and
+    then a `process/` call: before the fix `process_goods_receipt` locked the PO row and
+    batched anyway — the lock protected the status WRITE, never the DECISION — so
+    batches were minted against a CANCELLED order, leaving stock that only a document
+    the books call cancelled can explain.
+    """
+
+    def test_processing_a_receipt_of_a_since_cancelled_order_is_refused(self):
+        from .models import GoodsReceipt
+
+        po = self._place_existing()
+        item = po.items.get()
+        receipt = self._post_receipt(po.pk, item.pk, '5')
+        self.assertEqual(receipt.status_code, 201, receipt.data)
+
+        # The cancel winning the race the row lock now closes: it commits after the
+        # receipt's own ORDERED gate was passed, so the receipt exists on a CANCELLED
+        # order. Written through the ORM because the API cancel refuses while a receipt
+        # exists (the next test) — this is the interleaving, not a reachable sequence.
+        PurchaseOrder.objects.filter(pk=po.pk).update(
+            status=PurchaseOrder.Status.CANCELLED)
+
+        response = self._process(receipt.data['id'])
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(
+            response.data.get('code'), 'PO_NOT_RECEIVABLE', response.data)
+        self.assertFalse(
+            InventoryBatch.objects.filter(variant=self.variant).exists(),
+            'no batch may be minted against a cancelled order')
+        item.refresh_from_db()
+        self.assertEqual(item.received_qty, Decimal('5'),
+                         'the recorded delivery is unchanged, it is just not stocked')
+        self.assertIsNone(
+            GoodsReceipt.objects.get(pk=receipt.data['id']).processed_at,
+            'a refused process/ leaves the receipt unprocessed')
+
+    def test_cancel_is_refused_while_an_unprocessed_receipt_exists(self):
+        po = self._place_existing()
+        receipt = self._post_receipt(po.pk, po.items.get().pk, '5')
+        self.assertEqual(receipt.status_code, 201, receipt.data)
+
+        response = self._action(po.pk, 'cancel')
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(
+            response.data.get('code'), 'PO_HAS_RECEIPTS', response.data)
+        po.refresh_from_db()
+        self.assertEqual(po.status, PurchaseOrder.Status.ORDERED)
+
+    def test_create_takes_the_po_row_lock_before_recording_the_receipt(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        po = self._place_existing()
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self._post_receipt(po.pk, po.items.get().pk, '5')
+
+        self.assertEqual(response.status_code, 201, response.data)
+        sql = [q['sql'].upper() for q in captured.captured_queries]
+        lock_at = next(
+            (i for i, s in enumerate(sql)
+             if 'FOR UPDATE' in s and '"INVENTORY_PO"' in s), None)
+        self.assertIsNotNone(
+            lock_at, 'recording a receipt must lock the order row first')
+        insert_at = next(
+            (i for i, s in enumerate(sql)
+             if s.startswith('INSERT INTO "INVENTORY_GOODS_RECEIPT"')), None)
+        self.assertIsNotNone(insert_at, 'the receipt row must be written')
+        self.assertLess(
+            lock_at, insert_at,
+            'the order must be locked before the receipt row exists, so a cancel '
+            'either sees the receipt or blocks')

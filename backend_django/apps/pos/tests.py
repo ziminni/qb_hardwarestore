@@ -72,7 +72,8 @@ class POSTestBase(TestCase):
         supplier = Supplier.objects.create(company_name='Acme')
         for cost, qty in (('40.00', '5'), ('60.00', '5')):
             po = PurchaseOrder.objects.create(
-                supplier=supplier, created_by=self.cashier)
+                supplier=supplier, created_by=self.cashier,
+                status=PurchaseOrder.Status.ORDERED)
             POItem.objects.create(
                 po=po, variant=self.variant, ordered_qty=Decimal(qty),
                 unit_cost=Decimal(cost), received_qty=Decimal(qty))

@@ -40,7 +40,9 @@ class InventoryTestBase(TestCase):
 
     def _receive(self, qty, unit_cost='50.00'):
         supplier = Supplier.objects.create(company_name='Acme Supply')
-        po = PurchaseOrder.objects.create(supplier=supplier, created_by=self.user)
+        po = PurchaseOrder.objects.create(
+            supplier=supplier, created_by=self.user,
+            status=PurchaseOrder.Status.ORDERED)
         item = POItem.objects.create(
             po=po, variant=self.variant, ordered_qty=Decimal(qty),
             unit_cost=Decimal(unit_cost), received_qty=Decimal(qty),
@@ -62,7 +64,9 @@ class GoodsReceiptTests(InventoryTestBase):
 
     def test_partial_receipt_marks_po_partial(self):
         supplier = Supplier.objects.create(company_name='Acme')
-        po = PurchaseOrder.objects.create(supplier=supplier, created_by=self.user)
+        po = PurchaseOrder.objects.create(
+            supplier=supplier, created_by=self.user,
+            status=PurchaseOrder.Status.ORDERED)
         POItem.objects.create(
             po=po, variant=self.variant, ordered_qty=Decimal('10'),
             unit_cost=Decimal('50'), received_qty=Decimal('10'))
@@ -90,7 +94,9 @@ class LegacyGoodsReceiptDeltaTests(InventoryTestBase):
     def _legacy_po(self, received_qty):
         """A PO with ONE item whose received_qty is set directly (no delivery lines)."""
         supplier = Supplier.objects.create(company_name='Acme Supply')
-        po = PurchaseOrder.objects.create(supplier=supplier, created_by=self.user)
+        po = PurchaseOrder.objects.create(
+            supplier=supplier, created_by=self.user,
+            status=PurchaseOrder.Status.ORDERED)
         item = POItem.objects.create(
             po=po, variant=self.variant, ordered_qty=Decimal('10'),
             unit_cost=Decimal('50'), received_qty=Decimal(received_qty))

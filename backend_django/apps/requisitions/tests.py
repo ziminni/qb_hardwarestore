@@ -75,7 +75,8 @@ class RequisitionTestBase(TestCase):
         )
         supplier = Supplier.objects.create(company_name='Acme')
         po = PurchaseOrder.objects.create(
-            supplier=supplier, created_by=self.manager)
+            supplier=supplier, created_by=self.manager,
+            status=PurchaseOrder.Status.ORDERED)
         POItem.objects.create(
             po=po, variant=self.variant, ordered_qty=Decimal('100'),
             unit_cost=Decimal('40'), received_qty=Decimal('100'))
@@ -246,7 +247,8 @@ class MaterialReleaseApiTests(RequisitionTestBase):
         )
         supplier = Supplier.objects.create(company_name='Acme Second')
         po = PurchaseOrder.objects.create(
-            supplier=supplier, created_by=self.manager)
+            supplier=supplier, created_by=self.manager,
+            status=PurchaseOrder.Status.ORDERED)
         POItem.objects.create(
             po=po, variant=variant, ordered_qty=Decimal('50'),
             unit_cost=Decimal('90'), received_qty=Decimal('50'))

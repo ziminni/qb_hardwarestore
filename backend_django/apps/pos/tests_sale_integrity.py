@@ -82,7 +82,9 @@ class SaleIntegrityBase(POSTestBase):
     def _stock_up(self, qty, cost='40.00'):
         """Add `qty` BASE units to the fixture variant, through a real goods receipt."""
         supplier = Supplier.objects.create(company_name=f'Extra {qty}')
-        po = PurchaseOrder.objects.create(supplier=supplier, created_by=self.cashier)
+        po = PurchaseOrder.objects.create(
+            supplier=supplier, created_by=self.cashier,
+            status=PurchaseOrder.Status.ORDERED)
         POItem.objects.create(
             po=po, variant=self.variant, ordered_qty=Decimal(qty),
             unit_cost=Decimal(cost), received_qty=Decimal(qty))

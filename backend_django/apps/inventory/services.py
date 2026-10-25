@@ -15,7 +15,12 @@ from django.db.models import F, Sum
 from django.utils import timezone
 
 
-from .exceptions import InsufficientStock, NoBatchHistory, ReceiptAlreadyProcessed
+from .exceptions import (
+    InsufficientStock,
+    NoBatchHistory,
+    PurchaseOrderNotReceivable,
+    ReceiptAlreadyProcessed,
+)
 from .models import (
     GoodsReceipt,
     InventoryBatch,
@@ -45,6 +50,9 @@ def process_goods_receipt(*, receipt: GoodsReceipt, user=None) -> list[Inventory
     two concurrent process/ calls serialize on that row, and the second one sees the
     first one's timestamp. The old guard (`receipt.batches.exists()`) lived in the view,
     outside any lock, so both callers could pass it and double-count.
+
+    The PO's STATUS is re-checked under its own row lock before anything is batched, so
+    a receipt recorded before the order was cancelled cannot stock a cancelled order.
     """
     with transaction.atomic():
         receipt = GoodsReceipt.objects.select_for_update().get(pk=receipt.pk)
@@ -54,6 +62,20 @@ def process_goods_receipt(*, receipt: GoodsReceipt, user=None) -> list[Inventory
         # Locked for the same reason: two receipts of the SAME PO processing at once
         # must not both read the PO's status and write a different verdict.
         po = PurchaseOrder.objects.select_for_update().get(pk=receipt.po_id)
+
+        # The lock is only worth taking if the status is RE-CHECKED under it. A receipt
+        # recorded while the order was ORDERED, an order cancelled before that delivery
+        # was processed, and then a `process/` used to mint batches on a CANCELLED
+        # order: stock in the rack explained by a document the books call cancelled.
+        # Same stable code the receiving gate uses, so the client is told "this order is
+        # closed" rather than "bad payload"; nothing is written and the receipt stays
+        # unprocessed.
+        if po.status not in (
+                PurchaseOrder.Status.ORDERED, PurchaseOrder.Status.PARTIAL):
+            raise PurchaseOrderNotReceivable(
+                f'PO {po.pk} is {po.status} and cannot be processed: only an '
+                'ORDERED or PARTIAL order can turn a receipt into stock.')
+
         batches = []
 
         lines = list(receipt.lines.select_related('po_item__variant'))

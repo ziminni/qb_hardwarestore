@@ -84,7 +84,8 @@ class ReturnsPolicyBase(TestCase):
         )
         supplier = Supplier.objects.create(company_name='Acme')
         po = PurchaseOrder.objects.create(
-            supplier=supplier, created_by=self.cashier)
+            supplier=supplier, created_by=self.cashier,
+            status=PurchaseOrder.Status.ORDERED)
         POItem.objects.create(
             po=po, variant=self.variant, ordered_qty=Decimal('500'),
             unit_cost=Decimal('5'), received_qty=Decimal('500'))

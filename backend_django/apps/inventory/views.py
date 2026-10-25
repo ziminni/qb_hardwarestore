@@ -54,6 +54,28 @@ class _InventoryWritePermissions:
         return [IsInventoryRole()]
 
 
+def _nothing_changed(serializer) -> bool:
+    """True when an update payload changes nothing on the row (M3).
+
+    Two shapes count as "nothing": a body with **no writable field** — `{}`, or only
+    read-only ones such as `{"status": "ORDERED"}` on a purchase order — and a body
+    whose every value the row already holds. Both used to write an `UPDATE` audit row
+    claiming an edit that never happened, so a screen that re-patches on blur filled the
+    trail with fake edits and the trail stopped meaning "something changed".
+
+    Nested lines (`items`, `variants`) are always a change: they are replaced wholesale,
+    so comparing them to the stored rows would be a second, weaker implementation of the
+    write itself. This runs BEFORE `serializer.save()`, which is why `validated_data` is
+    still intact (`PurchaseOrderSerializer.update` pops `items` out of it).
+    """
+    for field, value in serializer.validated_data.items():
+        if isinstance(value, (list, dict)):
+            return False
+        if getattr(serializer.instance, field, None) != value:
+            return False
+    return True
+
+
 class _CatalogBaseViewSet(
         _InventoryWritePermissions,
         mixins.CreateModelMixin,
@@ -140,6 +162,14 @@ class _AuditedCatalogViewSet(_CatalogBaseViewSet):
             )
 
     def perform_update(self, serializer):
+        # A PATCH that changes nothing is not an event: no writable field at all (`{}`, or
+        # only read-only ones such as `{"status": "ORDERED"}` on a purchase order), or
+        # every value it names is already stored. It used to write an `UPDATE` row saying
+        # the row was edited, so a screen that re-patches on blur filled the trail with
+        # edits that never happened.
+        if _nothing_changed(serializer):
+            serializer.save()
+            return
         # Snapshot BEFORE save(): `serializer.instance` is untouched until `save()` runs,
         # so this is the row as it was, which is the half of the change worth auditing.
         snapshot = self.audit_snapshot(serializer.instance)
@@ -267,6 +297,11 @@ class PurchaseOrderViewSet(_CatalogBaseViewSet):
             )
 
     def perform_update(self, serializer):
+        if _nothing_changed(serializer):
+            # Same rule as the catalog (M3): a PATCH of only read-only fields, or of
+            # values the order already holds, is not an edit and writes no audit row.
+            serializer.save()
+            return
         with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
             po = serializer.save()
             audit_request(
@@ -277,9 +312,39 @@ class PurchaseOrderViewSet(_CatalogBaseViewSet):
             )
 
     def update(self, request, *args, **kwargs):
-        if self.get_object().status != PurchaseOrder.Status.DRAFT:
-            raise PurchaseOrderLocked(self.get_object())
-        return super().update(request, *args, **kwargs)
+        """Edit only a DRAFT — decided UNDER the purchase order's row lock (B2).
+
+        The status used to be read with a plain `get_object()` and the write handed to
+        `perform_update` afterwards, so the read and the write were two separate steps:
+        `place/` or `cancel/` could commit in between and the lines were replaced on an
+        order the supplier had already been told about. Now the row is locked first, the
+        status decided under that lock, and `super().update()` is handed the SAME locked
+        row (`get_object()` below), so the verdict cannot go stale before its own write
+        commits. Callers take the lock in this order everywhere (place, cancel, receive,
+        process), so they serialize instead of deadlocking.
+        """
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            po = self._locked(kwargs.get('pk'))
+            self.check_object_permissions(request, po)
+            if po.status != PurchaseOrder.Status.DRAFT:
+                raise PurchaseOrderLocked(po)
+            self._locked_instance = po
+            try:
+                return super().update(request, *args, **kwargs)
+            finally:
+                self._locked_instance = None
+
+    def get_object(self):
+        """The row `update()` already locked, when this request is an edit.
+
+        DRF's `update()` looks the object up once more after `update()` returns to the
+        viewset; without this hook that second lookup would be an UNLOCKED read of a row
+        whose status was just decided against.
+        """
+        locked = getattr(self, '_locked_instance', None)
+        if locked is not None:
+            return locked
+        return super().get_object()
 
     def _locked(self, pk) -> PurchaseOrder:
         """The order, row-locked, for one of the status actions.
@@ -400,12 +465,12 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
         # CANCELLED one is closed. Both were reachable before this gate - a DRAFT receipt
         # is what the receiving screen's own fixtures did. Each refusal carries its own
         # stable code, so a client can tell "place it first" from "this order is done".
-        if po.status == PurchaseOrder.Status.DRAFT:
-            raise PurchaseOrderNotOrdered(po)
-        if po.status in (
-                PurchaseOrder.Status.COMPLETE, PurchaseOrder.Status.CANCELLED):
-            raise PurchaseOrderNotReceivable(
-                f'PO {po.pk} is {po.status} and cannot receive more.')
+        #
+        # The gate reads the row again INSIDE the transaction below, under
+        # `select_for_update`, because an unlocked read here could be answered by a
+        # status that `cancel/` replaced before the receipt row was written - the receipt
+        # then existed on a CANCELLED order and `process/` stocked it.
+        po_id = po.pk
         # Shape checks first, outside the transaction: they need no lock, and answering
         # them before the atomic block keeps the block to the part that must be atomic.
         parsed = []  # (po_item_id, qty) — one entry per delivered line, in payload order
@@ -444,6 +509,17 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
 
         try:
             with transaction.atomic():
+                # Locked BEFORE the status is decided, so this receipt and `cancel/`
+                # serialize: the cancel either sees this receipt (and refuses with
+                # PO_HAS_RECEIPTS) or waits here until the receipt is committed.
+                po = PurchaseOrder.objects.select_for_update().get(pk=po_id)
+                if po.status == PurchaseOrder.Status.DRAFT:
+                    raise PurchaseOrderNotOrdered(po)
+                if po.status in (
+                        PurchaseOrder.Status.COMPLETE,
+                        PurchaseOrder.Status.CANCELLED):
+                    raise PurchaseOrderNotReceivable(
+                        f'PO {po.pk} is {po.status} and cannot receive more.')
                 receipt = ser.save(received_by=request.user)
                 for po_item_pk, qty in parsed:
                     # LOCKED before accumulating: two deliveries recorded at the same
