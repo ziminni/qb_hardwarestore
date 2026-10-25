@@ -242,6 +242,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 DropdownButtonFormField<int>(
+                  isExpanded: true,
                   initialValue: _categoryId,
                   decoration: const InputDecoration(labelText: 'Category'),
                   items: widget.categories
@@ -255,7 +256,10 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                       .map(
                         (category) => DropdownMenuItem(
                           value: category.id,
-                          child: Text(category.name),
+                          child: Text(
+                            category.name,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                       )
                       .toList(),
@@ -267,13 +271,17 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 DropdownButtonFormField<int>(
+                  isExpanded: true,
                   initialValue: _brandId,
                   decoration: const InputDecoration(labelText: 'Brand'),
                   items: widget.brands
                       .map(
                         (brand) => DropdownMenuItem(
                           value: brand.id,
-                          child: Text(brand.name),
+                          child: Text(
+                            brand.name,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                       )
                       .toList(),
@@ -286,6 +294,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                 if (!editing) ...[
                   const SizedBox(height: AppSpacing.lg),
                   DropdownButtonFormField<int>(
+                    isExpanded: true,
                     initialValue: _baseUomId,
                     decoration: const InputDecoration(
                       labelText: 'Base unit',

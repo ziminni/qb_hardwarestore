@@ -81,6 +81,7 @@ class _AdminUserFiltersState extends State<AdminUserFilters> {
         const SizedBox(width: 12),
         Expanded(
           child: DropdownButtonFormField<String?>(
+            isExpanded: true,
             initialValue: widget.roleFilter,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
@@ -93,7 +94,10 @@ class _AdminUserFiltersState extends State<AdminUserFilters> {
                 child: Text('All roles'),
               ),
               for (final role in widget.availableRoles)
-                DropdownMenuItem<String?>(value: role, child: Text(role)),
+                DropdownMenuItem<String?>(
+                  value: role,
+                  child: Text(role, overflow: TextOverflow.ellipsis),
+                ),
             ],
             onChanged: widget.onRoleChanged,
           ),
@@ -101,6 +105,7 @@ class _AdminUserFiltersState extends State<AdminUserFilters> {
         const SizedBox(width: 12),
         Expanded(
           child: DropdownButtonFormField<bool?>(
+            isExpanded: true,
             initialValue: widget.activeFilter,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),

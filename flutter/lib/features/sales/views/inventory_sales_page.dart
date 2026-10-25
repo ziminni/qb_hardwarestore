@@ -48,10 +48,7 @@ class _InventorySalesPageState extends State<InventorySalesPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (state.loadError != null)
-            LiveLoadErrorBanner(
-              message: state.loadError!,
-              onRetry: state.load,
-            ),
+            LiveLoadErrorBanner(message: state.loadError!, onRetry: state.load),
           Wrap(
             spacing: AppSpacing.md,
             runSpacing: AppSpacing.md,
@@ -69,6 +66,7 @@ class _InventorySalesPageState extends State<InventorySalesPage> {
               SizedBox(
                 width: 190,
                 child: DropdownButtonFormField<InventorySaleStatus?>(
+                  isExpanded: true,
                   initialValue: _status,
                   decoration: const InputDecoration(labelText: 'Status'),
                   items: [

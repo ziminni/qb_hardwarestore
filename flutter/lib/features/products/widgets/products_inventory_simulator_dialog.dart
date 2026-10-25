@@ -65,6 +65,7 @@ class _ProductsInventorySimulatorDialogState
               ),
               const SizedBox(height: AppSpacing.xl),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: _productName,
                 decoration: const InputDecoration(labelText: 'Sample product'),
                 items: state.configurations
@@ -123,6 +124,7 @@ class _ProductsInventorySimulatorDialogState
                   SizedBox(
                     width: 170,
                     child: DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: _unit,
                       decoration: const InputDecoration(labelText: 'Unit'),
                       items: config.allowedSaleUnits

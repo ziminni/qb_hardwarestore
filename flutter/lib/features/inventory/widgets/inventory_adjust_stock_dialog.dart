@@ -98,6 +98,7 @@ class _InventoryAdjustStockDialogState
                 ),
                 const SizedBox(height: AppSpacing.md),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _reason,
                   decoration: const InputDecoration(labelText: 'Reason'),
                   items:

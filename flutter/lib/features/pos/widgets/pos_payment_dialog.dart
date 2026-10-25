@@ -53,6 +53,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                 ),
                 const SizedBox(height: 18),
                 DropdownButtonFormField<TenderMethod>(
+                  isExpanded: true,
                   initialValue: _method,
                   decoration: const InputDecoration(
                     labelText: 'Payment method',

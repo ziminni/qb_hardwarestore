@@ -245,13 +245,17 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<int>(
+                      isExpanded: true,
                       initialValue: _supplierId,
                       decoration: const InputDecoration(labelText: 'Supplier'),
                       items: activeSuppliers
                           .map(
                             (supplier) => DropdownMenuItem(
                               value: supplier.id,
-                              child: Text(supplier.companyName),
+                              child: Text(
+                                supplier.companyName,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           )
                           .toList(),

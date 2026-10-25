@@ -86,6 +86,7 @@ class _ProductsToolbarState extends State<ProductsToolbar> {
             ),
           );
           final category = DropdownButtonFormField<String?>(
+            isExpanded: true,
             initialValue: widget.selectedCategory,
             decoration: const InputDecoration(labelText: 'Category'),
             items: [
@@ -94,18 +95,25 @@ class _ProductsToolbarState extends State<ProductsToolbar> {
                 child: Text('All categories'),
               ),
               ...widget.categories.map(
-                (value) => DropdownMenuItem(value: value, child: Text(value)),
+                (value) => DropdownMenuItem(
+                  value: value,
+                  child: Text(value, overflow: TextOverflow.ellipsis),
+                ),
               ),
             ],
             onChanged: widget.onCategoryChanged,
           );
           final brand = DropdownButtonFormField<String?>(
+            isExpanded: true,
             initialValue: widget.selectedBrand,
             decoration: const InputDecoration(labelText: 'Brand'),
             items: [
               const DropdownMenuItem(value: null, child: Text('All brands')),
               ...widget.brands.map(
-                (value) => DropdownMenuItem(value: value, child: Text(value)),
+                (value) => DropdownMenuItem(
+                  value: value,
+                  child: Text(value, overflow: TextOverflow.ellipsis),
+                ),
               ),
             ],
             onChanged: widget.onBrandChanged,

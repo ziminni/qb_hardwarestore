@@ -198,9 +198,9 @@ class _CreateAccountDialogState extends State<_CreateAccountDialog> {
     setState(() => _saving = false);
     if (ok) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Account created.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Account created.')));
       }
       Navigator.of(context).pop();
     } else {
@@ -240,6 +240,7 @@ class _CreateAccountDialogState extends State<_CreateAccountDialog> {
               obscureText: true,
             ),
             DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _group,
               decoration: const InputDecoration(labelText: 'Role'),
               items: [
