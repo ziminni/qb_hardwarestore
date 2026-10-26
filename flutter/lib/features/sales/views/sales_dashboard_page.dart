@@ -24,7 +24,12 @@ class _SalesDashboardPageState extends State<SalesDashboardPage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<InventorySalesViewmodel>().load();
+      if (!mounted) return;
+      final sales = context.read<InventorySalesViewmodel>();
+      // Rows and tiles fail independently: the list feeds tables, the
+      // summary feeds tiles, and neither blocks the other.
+      sales.load();
+      sales.loadSummary();
     });
   }
 
@@ -39,9 +44,16 @@ class _SalesDashboardPageState extends State<SalesDashboardPage> {
     final completed = salesState.sales
         .where((sale) => sale.status == InventorySaleStatus.completed)
         .toList();
-    // Net of refunds: RETURN rows carry negative totals (see netRevenue).
-    final revenue = salesState.netRevenue;
-    final average = completed.isEmpty ? 0.0 : revenue / completed.length;
+    // Phase 5 Task 3: tiles read the server summary (correct at any scale),
+    // never the client fold of a capped transaction walk. Until the summary
+    // arrives the tiles fall back to the loaded rows and SAY so.
+    final summary = salesState.summary;
+    final revenue = summary?.totalGross ?? salesState.netRevenue;
+    final transactionCount = summary?.totalTransactions ?? completed.length;
+    final average = transactionCount == 0 ? 0.0 : revenue / transactionCount;
+    final scopeCaption = summary == null
+        ? 'Loaded transactions'
+        : 'Last 30 days · server';
     final pendingReturns = salesState.returns
         .where(
           (item) =>
@@ -62,6 +74,14 @@ class _SalesDashboardPageState extends State<SalesDashboardPage> {
             LiveLoadErrorBanner(
               message: salesState.loadError!,
               onRetry: salesState.load,
+            ),
+          // Tiles and rows fail independently: a dead summary keeps honest
+          // row-based tiles out of the picture only when it must. While the
+          // summary is missing the tiles say which transactions they fold.
+          if (salesState.summaryError != null)
+            LiveLoadErrorBanner(
+              message: salesState.summaryError!,
+              onRetry: salesState.loadSummary,
             ),
           Row(
             children: [
@@ -122,7 +142,9 @@ class _SalesDashboardPageState extends State<SalesDashboardPage> {
                     child: SalesDashboardMetricCard(
                       label: 'Completed revenue',
                       value: '₱${revenue.toStringAsFixed(2)}',
-                      caption: '${completed.length} completed transactions',
+                      caption: summary == null
+                          ? '${completed.length} completed · $scopeCaption'
+                          : '$transactionCount completed · $scopeCaption',
                       icon: Icons.payments_outlined,
                       color: AppColors.success,
                     ),
@@ -131,8 +153,8 @@ class _SalesDashboardPageState extends State<SalesDashboardPage> {
                     width: width,
                     child: SalesDashboardMetricCard(
                       label: 'Transactions',
-                      value: '${salesState.sales.length}',
-                      caption: 'All recorded statuses',
+                      value: '$transactionCount',
+                      caption: scopeCaption,
                       icon: Icons.receipt_long_outlined,
                       color: AppColors.info,
                     ),

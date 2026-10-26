@@ -1,4 +1,6 @@
+import 'package:client/data/models/role.dart';
 import 'package:client/data/models/sale_transaction.dart';
+import 'package:client/data/models/user.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/sales_service.dart';
@@ -9,14 +11,30 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
-Widget _app(Widget child, InventorySalesViewmodel viewmodel) =>
-    ChangeNotifierProvider<AuthViewmodel>.value(
-      value: AuthViewmodel(AuthRepository(AuthService())),
-      child: ChangeNotifierProvider<InventorySalesViewmodel>.value(
-        value: viewmodel,
-        child: MaterialApp(home: child),
-      ),
+Widget _app(
+  Widget child,
+  InventorySalesViewmodel viewmodel, {
+  String? roleCode,
+  String? roleLabel,
+}) {
+  final auth = AuthViewmodel(AuthRepository(AuthService()));
+  if (roleCode != null) {
+    auth.user = User(
+      id: 1,
+      username: 'u',
+      email: 'u@demo.ph',
+      fullName: 'U',
+      role: Role(id: 1, name: roleCode, displayName: roleLabel ?? roleCode),
     );
+  }
+  return ChangeNotifierProvider<AuthViewmodel>.value(
+    value: auth,
+    child: ChangeNotifierProvider<InventorySalesViewmodel>.value(
+      value: viewmodel,
+      child: MaterialApp(home: child),
+    ),
+  );
+}
 
 class _StubSalesService extends SalesService {
   _StubSalesService() : super();
@@ -84,5 +102,46 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('No customer returns available.'), findsOneWidget);
+  });
+
+  // Phase 5 Task 3: the unlinked correction lives on this page for the Store
+  // Manager (and Admin) only — a cashier's POST would 403 server-side, so the
+  // button is not offered. Compared by role CODE, never label.
+  testWidgets('a store manager is offered the unlinked return', (tester) async {
+    tester.view.physicalSize = const Size(1600, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final service = _StubSalesService()..rows = const [];
+    await tester.pumpWidget(
+      _app(
+        const SalesReturnsPage(),
+        InventorySalesViewmodel(service: service)..load(),
+        roleCode: 'sales',
+        roleLabel: 'Store Manager',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Unlinked return'), findsOneWidget);
+  });
+
+  testWidgets('a cashier is not offered the unlinked return', (tester) async {
+    tester.view.physicalSize = const Size(1600, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final service = _StubSalesService()..rows = const [];
+    await tester.pumpWidget(
+      _app(
+        const SalesReturnsPage(),
+        InventorySalesViewmodel(service: service)..load(),
+        roleCode: 'pos',
+        roleLabel: 'Cashier',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Unlinked return'), findsNothing);
   });
 }

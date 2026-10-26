@@ -15,11 +15,14 @@
 // transactions page uses. "This month" becomes a label that states what the
 // dashboard actually shows: every recorded transaction, with no period filter.
 
+import 'package:client/data/models/reports.dart';
 import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/models/customer.dart';
 import 'package:client/data/repositories/auth_repository.dart';
+import 'package:client/data/repositories/reports_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/customer_service.dart';
+import 'package:client/data/services/reports_service.dart';
 import 'package:client/data/services/sales_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
@@ -35,6 +38,18 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/phase4_fakes.dart';
 import 'package:provider/provider.dart';
+
+/// Phase 5 Task 3: the dashboard tiles read the summary, so the dead-label
+/// test pins the fallback — a refused summary keeps honest row-folded tiles
+/// that say where they came from, never a crash on an uninitialized client.
+class _FailingReportsRepository extends ReportsRepository {
+  _FailingReportsRepository() : super();
+
+  @override
+  Future<SalesSummary> fetchSalesSummary({String? from, String? to}) async {
+    throw const ReportsServiceException('Summary unavailable.');
+  }
+}
 
 class _StubSalesService extends SalesService {
   _StubSalesService() : super();
@@ -328,7 +343,10 @@ void main() {
     await tester.pumpWidget(
       _app(
         ChangeNotifierProvider<InventorySalesViewmodel>(
-          create: (_) => InventorySalesViewmodel(service: sales),
+          create: (_) => InventorySalesViewmodel(
+            service: sales,
+            reports: _FailingReportsRepository(),
+          ),
           child: const SalesDashboardPage(),
         ),
       ),
@@ -340,6 +358,9 @@ void main() {
       findsNothing,
       reason: 'it filtered nothing; keeping it would be a lie with a border',
     );
+    // The refused summary falls back to the loaded rows and says so.
+    expect(find.text('Loaded transactions'), findsWidgets);
+    expect(find.text('Summary unavailable.'), findsOneWidget);
 
     final label = find.text('All recorded transactions');
     expect(label, findsOneWidget);

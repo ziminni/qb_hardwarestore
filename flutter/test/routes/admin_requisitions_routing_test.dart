@@ -17,12 +17,14 @@ void main() {
     );
   });
 
+  // Phase 5: /admin/users admits the Store Manager (see
+  // admin_users_routing_test.dart), so the bounce case moved to audit logs.
   test('a store manager still bounces off the other admin screens', () {
     expect(
       AppRoutes.redirectFor(
         isAuthenticated: true,
         role: 'sales',
-        location: '/admin/users',
+        location: '/admin/audit-logs',
       ),
       AppRoutes.salesDashboard,
     );

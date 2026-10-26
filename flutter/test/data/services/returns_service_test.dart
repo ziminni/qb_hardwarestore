@@ -379,6 +379,57 @@ void main() {
     );
   });
 
+  // Phase 5 Task 3: the manager-only correction without an original sale.
+  // Same wire shape minus `original_transaction` — the server treats an
+  // absent key as unlinked (and 403s non-managers itself).
+  group('posting an unlinked return', () {
+    test('omits original_transaction and returns the summary', () async {
+      final service = serviceWith(_FakeAdapter(postBody: _postedReturn()));
+
+      final result = await service.postUnlinkedReturn(
+        customerId: 2,
+        reason: 'no receipt, bag brought back',
+        paymentMethod: 'CASH',
+        lines: const [ReturnRequestLine(variantUomId: 8, qty: 8)],
+      );
+
+      final request = adapter.requests.single;
+      expect(request.method, 'POST');
+      final sent = request.data as Map<String, dynamic>;
+      expect(sent['source'], 'RETURN');
+      expect(sent.containsKey('original_transaction'), isFalse);
+      expect(sent['reason'], 'no receipt, bag brought back');
+      expect(result.returnNo, isNotEmpty);
+    });
+
+    test('a cashier posting unlinked reads the manager boundary', () async {
+      final service = serviceWith(
+        _FakeAdapter(
+          postBody: const {
+            'code': 'UNLINKED_RETURN_FORBIDDEN',
+            'detail': 'Unlinked returns need a manager.',
+          },
+          postStatus: 403,
+        ),
+      );
+
+      final failure = await service
+          .postUnlinkedReturn(
+            customerId: 2,
+            reason: 'x',
+            paymentMethod: 'CASH',
+            lines: const [ReturnRequestLine(variantUomId: 8, qty: 1)],
+          )
+          .then<Object?>((_) => null, onError: (error) => error);
+
+      expect(failure, isA<ReturnsServiceException>());
+      expect(
+        (failure as ReturnsServiceException).code,
+        'UNLINKED_RETURN_FORBIDDEN',
+      );
+    });
+  });
+
   group('every server code becomes words a cashier can act on', () {
     Future<ReturnsServiceException> refusal(
       Map<String, dynamic> body,

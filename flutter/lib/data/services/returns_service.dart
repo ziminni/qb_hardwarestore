@@ -142,6 +142,47 @@ class ReturnsService {
     }
   }
 
+  /// Posts a manager-only return with no original sale (Phase 5).
+  ///
+  /// Same wire shape as [postReturn] minus `original_transaction`: the server
+  /// treats an absent key as unlinked, prices lines at the selling units'
+  /// `default_selling_price`, and 403s non-managers with
+  /// `UNLINKED_RETURN_FORBIDDEN` itself. The customer is chosen in the
+  /// dialog because there is no original sale to inherit one from.
+  Future<ReturnResult> postUnlinkedReturn({
+    required int customerId,
+    required String reason,
+    required String paymentMethod,
+    required List<ReturnRequestLine> lines,
+  }) async {
+    try {
+      final response = await _client.post<Map<String, dynamic>>(
+        transactionsPath,
+        data: {
+          'customer': customerId,
+          'source': 'RETURN',
+          'reason': reason.trim(),
+          'payment_method': paymentMethod,
+          'items': [for (final line in lines) line.toJson()],
+        },
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const ReturnsServiceException(
+          'The server did not return the refund summary.',
+        );
+      }
+      return ReturnResult.fromJson(data);
+    } on DioException catch (error) {
+      throw _failureFor(error);
+    } on FormatException {
+      throw const ReturnsServiceException(
+        'The return was sent but its refund summary could not be read. Check '
+        'the transaction history before trying again.',
+      );
+    }
+  }
+
   /// Maps a transport failure onto something a cashier can act on.
   ///
   /// Order matters, and 404 comes SECOND (after a stable code) even though it

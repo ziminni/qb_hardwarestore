@@ -68,6 +68,31 @@ void main() {
     expect(viewmodel.outstanding, 0);
   });
 
+  // Phase 5 Task 3: status filter chips narrow the rows client-side via
+  // `statusAt` — the same source the tiles use, so the tile and the rows
+  // cannot disagree about which debts are late.
+  test('an overdue chip narrows to late debts only', () async {
+    repository.rows = [
+      _entry(id: 1, isOverdue: true),
+      _entry(id: 2, dueDate: DateTime.now().add(const Duration(days: 30))),
+    ];
+    await viewmodel.load();
+
+    viewmodel.setStatusFilter(LedgerStatus.overdue);
+
+    expect(viewmodel.filteredEntries.map((e) => e.id), [1]);
+  });
+
+  test('clearing the filter shows every row again', () async {
+    repository.rows = [_entry(id: 1, isOverdue: true), _entry(id: 2)];
+    await viewmodel.load();
+    viewmodel.setStatusFilter(LedgerStatus.overdue);
+
+    viewmodel.setStatusFilter(null);
+
+    expect(viewmodel.filteredEntries, hasLength(2));
+  });
+
   test('a successful load exposes the rows and totals what is owed', () async {
     repository.rows = [_entry(), _entry(id: 2, balance: 100, original: 100)];
 

@@ -1,8 +1,33 @@
+import 'package:client/data/models/reports.dart';
 import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/models/sales.dart';
+import 'package:client/data/repositories/reports_repository.dart';
+import 'package:client/data/services/reports_service.dart';
 import 'package:client/data/services/sales_service.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+class _StubReportsRepository extends ReportsRepository {
+  _StubReportsRepository() : super();
+
+  SalesSummary summary = const SalesSummary(
+    from: '2026-09-26',
+    to: '2026-10-25',
+    totalTransactions: 40,
+    totalGross: 9000,
+    totalVat: 0,
+    totalDiscounts: 0,
+    days: [],
+  );
+  String? failure;
+
+  @override
+  Future<SalesSummary> fetchSalesSummary({String? from, String? to}) async {
+    final failure = this.failure;
+    if (failure != null) throw ReportsServiceException(failure);
+    return summary;
+  }
+}
 
 class _StubSalesService extends SalesService {
   _StubSalesService() : super();
@@ -63,11 +88,32 @@ TransactionRecord _row({
 
 void main() {
   late _StubSalesService service;
+  late _StubReportsRepository reports;
   late InventorySalesViewmodel viewmodel;
 
   setUp(() {
     service = _StubSalesService();
-    viewmodel = InventorySalesViewmodel(service: service);
+    reports = _StubReportsRepository();
+    viewmodel = InventorySalesViewmodel(service: service, reports: reports);
+  });
+
+  // Phase 5 Task 3: tiles read the server summary (correct at any scale),
+  // not the client fold of a capped transaction walk.
+  test('loadSummary exposes server totals', () async {
+    await viewmodel.loadSummary();
+
+    expect(viewmodel.summary?.totalGross, 9000);
+    expect(viewmodel.summary?.totalTransactions, 40);
+    expect(viewmodel.summaryError, isNull);
+  });
+
+  test('a failed summary names the failure and keeps no stale totals', () async {
+    reports.failure = 'Cannot connect to the BuildPro server.';
+
+    await viewmodel.loadSummary();
+
+    expect(viewmodel.summary, isNull);
+    expect(viewmodel.summaryError, contains('Cannot connect'));
   });
 
   test('sales load live and returns derive from RETURN rows', () async {

@@ -1,19 +1,33 @@
+import 'package:client/data/models/reports.dart';
 import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/data/models/tender_method.dart';
+import 'package:client/data/repositories/reports_repository.dart';
+import 'package:client/data/services/reports_service.dart';
 import 'package:client/data/services/sales_service.dart';
 import 'package:flutter/foundation.dart';
 
 class InventorySalesViewmodel extends ChangeNotifier {
-  InventorySalesViewmodel({SalesService? service})
-    : _service = service ?? SalesService();
+  InventorySalesViewmodel({SalesService? service, ReportsRepository? reports})
+    : _service = service ?? SalesService(),
+      _reports = reports ?? ReportsRepository();
 
   final SalesService _service;
+  final ReportsRepository _reports;
 
   List<InventorySale> _sales = const [];
   List<InventoryReturn> _returns = const [];
   bool _isLoading = false;
   String? _loadError;
+
+  /// Server-computed 30-day totals. Tiles read THIS, never the client fold:
+  /// the fold walks a capped page list, so past ~2000 transactions it would
+  /// understate revenue — a wrong number presented as a fact.
+  SalesSummary? _summary;
+  String? _summaryError;
+
+  SalesSummary? get summary => _summary;
+  String? get summaryError => _summaryError;
 
   List<InventorySale> get sales => List.unmodifiable(_sales);
   List<InventoryReturn> get returns => List.unmodifiable(_returns);
@@ -35,6 +49,26 @@ class InventorySalesViewmodel extends ChangeNotifier {
   int get completedReturns => _returns
       .where((item) => item.status == InventoryReturnStatus.completed)
       .length;
+
+  /// Loads the server-computed 30-day totals the tiles read.
+  ///
+  /// A failure names itself in [summaryError] and keeps any older summary
+  /// cleared — a stale total beside fresh rows would be a wrong number
+  /// presented as a fact. The transaction list is untouched: rows and tiles
+  /// fail independently.
+  Future<void> loadSummary() async {
+    _summaryError = null;
+    notifyListeners();
+    try {
+      _summary = await _reports.fetchSalesSummary();
+      _summaryError = null;
+    } on ReportsServiceException catch (error) {
+      _summary = null;
+      _summaryError = error.message;
+    } finally {
+      notifyListeners();
+    }
+  }
 
   /// Loads every sales transaction once and splits it in memory.
   ///

@@ -17,7 +17,6 @@ class ProductsToolbar extends StatefulWidget {
     required this.onBrandChanged,
     required this.onClearFilters,
     required this.onAddProduct,
-    required this.onOpenSimulator,
   });
 
   final String searchQuery;
@@ -30,7 +29,6 @@ class ProductsToolbar extends StatefulWidget {
   final ValueChanged<String?> onBrandChanged;
   final VoidCallback onClearFilters;
   final VoidCallback onAddProduct;
-  final VoidCallback onOpenSimulator;
 
   @override
   State<ProductsToolbar> createState() => _ProductsToolbarState();
@@ -143,11 +141,6 @@ class _ProductsToolbarState extends State<ProductsToolbar> {
               Wrap(
                 spacing: AppSpacing.sm,
                 children: [
-                  OutlinedButton.icon(
-                    onPressed: widget.onOpenSimulator,
-                    icon: const Icon(Icons.science_outlined, size: 18),
-                    label: const Text('Inventory Simulator'),
-                  ),
                   FilledButton.icon(
                     onPressed: widget.onAddProduct,
                     icon: const Icon(Icons.add, size: 18),

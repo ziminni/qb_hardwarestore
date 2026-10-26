@@ -88,6 +88,27 @@ class _ReceivablesView extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: AppSpacing.lg),
+          // Phase 5 Task 3: chips narrow the rows; the tiles above stay
+          // store-wide. Both read `statusAt`, so they cannot disagree.
+          Wrap(
+            spacing: AppSpacing.sm,
+            children: [
+              for (final option in <LedgerStatus?>[
+                null,
+                LedgerStatus.current,
+                LedgerStatus.dueSoon,
+                LedgerStatus.overdue,
+              ])
+                FilterChip(
+                  label: Text(
+                    option == null ? 'All' : option.label,
+                  ),
+                  selected: viewmodel.statusFilter == option,
+                  onSelected: (_) => viewmodel.setStatusFilter(option),
+                ),
+            ],
+          ),
           const SizedBox(height: AppSpacing.xl),
           if (viewmodel.isLoading && !viewmodel.hasEntries)
             const Padding(
@@ -116,8 +137,10 @@ class _ReceivablesView extends StatelessWidget {
               emptyMessage: viewmodel.loadError != null
                   // Not "no receivables": this screen failed to find out.
                   ? 'Receivables could not be loaded.'
-                  : 'No receivables available.',
-              rows: viewmodel.entries
+                  : viewmodel.statusFilter == null
+                      ? 'No receivables available.'
+                      : 'No ${viewmodel.statusFilter!.label.toLowerCase()} receivables.',
+              rows: viewmodel.filteredEntries
                   .map((entry) => _row(context, entry, now))
                   .toList(),
             ),

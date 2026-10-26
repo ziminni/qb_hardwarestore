@@ -23,7 +23,6 @@ Widget _toolbar(double width) => MaterialApp(
           onBrandChanged: (_) {},
           onClearFilters: () {},
           onAddProduct: () {},
-          onOpenSimulator: () {},
         ),
       ),
     ),

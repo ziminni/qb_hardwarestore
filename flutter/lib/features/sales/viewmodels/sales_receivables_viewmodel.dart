@@ -24,6 +24,26 @@ class SalesReceivablesViewmodel extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get loadError => _loadError;
 
+  /// Null shows every row. Set, rows narrow to that status via `statusAt` —
+  /// the same source the tiles use, so the Overdue tile and an Overdue chip
+  /// cannot disagree about which debts are late.
+  LedgerStatus? _statusFilter;
+  LedgerStatus? get statusFilter => _statusFilter;
+
+  List<LedgerEntry> get filteredEntries {
+    final filter = _statusFilter;
+    if (filter == null) return List.unmodifiable(_entries);
+    final now = DateTime.now();
+    return List.unmodifiable(
+      _entries.where((entry) => entry.statusAt(now) == filter),
+    );
+  }
+
+  void setStatusFilter(LedgerStatus? status) {
+    _statusFilter = status;
+    notifyListeners();
+  }
+
   /// Total still owed across every open receivable.
   double get outstanding =>
       _entries.fold<double>(0, (sum, entry) => sum + entry.balanceDue);

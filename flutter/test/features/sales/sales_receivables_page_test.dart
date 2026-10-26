@@ -88,6 +88,23 @@ void main() {
     expect(find.textContaining('could not be loaded'), findsNothing);
   });
 
+  // Phase 5 Task 3: chips narrow the rows; the tiles stay store-wide.
+  testWidgets('an overdue chip narrows the rows to late debts', (tester) async {
+    await _pump(
+      tester,
+      rows: [_entry(balance: 472), _entry(balance: 100, isOverdue: true)],
+    );
+    expect(find.text('Dela Cruz Construction'), findsNWidgets(2));
+
+    await tester.tap(find.widgetWithText(FilterChip, 'Overdue'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dela Cruz Construction'), findsOneWidget);
+    expect(find.text('₱100.00'), findsWidgets);
+    // Tiles still total the whole store, not the chip.
+    expect(find.text('₱572.00'), findsWidgets);
+  });
+
   testWidgets('a FAILED load shows the error and NEVER a total', (tester) async {
     await _pump(tester, failure: 'Cannot connect to the BuildPro server.');
 
