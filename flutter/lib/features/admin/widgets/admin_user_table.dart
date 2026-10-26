@@ -4,9 +4,20 @@ import 'package:client/data/models/user.dart';
 import 'package:flutter/material.dart';
 
 class AdminUserTable extends StatelessWidget {
-  const AdminUserTable({super.key, required this.users});
+  const AdminUserTable({
+    super.key,
+    required this.users,
+    required this.onToggleActive,
+    required this.onChangeRole,
+  });
 
   final List<User> users;
+
+  /// Opens the deactivate/reactivate confirm for [user].
+  final ValueChanged<User> onToggleActive;
+
+  /// Opens the role-change dialog for [user].
+  final ValueChanged<User> onChangeRole;
 
   @override
   Widget build(BuildContext context) {
@@ -19,6 +30,7 @@ class AdminUserTable extends StatelessWidget {
           DataColumn(label: Text('EMAIL')),
           DataColumn(label: Text('ROLE')),
           DataColumn(label: Text('STATUS')),
+          DataColumn(label: Text('ACTIONS')),
         ],
         rows: [
           for (final user in users)
@@ -33,6 +45,25 @@ class AdminUserTable extends StatelessWidget {
                       : Text(user.roleLabel),
                 ),
                 DataCell(Text(user.isActive ? 'Active' : 'Inactive')),
+                // Phase 5 Task 2: the row writes through the viewmodel only
+                // after a confirm dialog — the buttons never mutate locally.
+                DataCell(
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextButton(
+                        onPressed: () => onToggleActive(user),
+                        child: Text(
+                          user.isActive ? 'Deactivate' : 'Reactivate',
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => onChangeRole(user),
+                        child: const Text('Change role'),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
         ],

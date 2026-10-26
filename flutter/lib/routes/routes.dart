@@ -126,9 +126,13 @@ class AppRoutes {
       // Decisions 16 and 20: the Store Manager (client role 'sales') is the
       // month-end actor and the requisition approver, and IsManagerRole admits
       // them server-side — the fence opens for the reports screen and the
-      // approve queue only. User management, audit logs and settings stay
-      // admin-only; Cashier ('pos') and Stock Manager ('inventory') still bounce.
-      if ((location == adminReports || location == adminRequisitions) &&
+      // approve queue only. Phase 5: the manager offboards staff in-app and
+      // IsUserManagerRole admits them server-side, so user management opens
+      // too. Audit logs and settings stay admin-only; Cashier ('pos') and
+      // Stock Manager ('inventory') still bounce everywhere here.
+      if ((location == adminReports ||
+              location == adminRequisitions ||
+              location == adminUserManagement) &&
           role == 'sales') {
         return null;
       }

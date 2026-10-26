@@ -41,6 +41,55 @@ class _StubUsersService extends UserService {
       role: Role(id: 3, name: 'pos', displayName: 'Cashier'),
     );
   }
+
+  int setActiveCalls = 0;
+  int? lastActiveId;
+  bool? lastActiveValue;
+  int assignCalls = 0;
+  int? lastAssignId;
+  String? lastAssignGroup;
+
+  @override
+  Future<User> setActive({required int id, required bool isActive}) async {
+    setActiveCalls++;
+    lastActiveId = id;
+    lastActiveValue = isActive;
+    final failure = this.failure;
+    if (failure != null) throw UsersServiceException(failure);
+    // Simulates the server: the flip is visible only on the next fetch, so a
+    // viewmodel that skips its reload keeps showing the stale row.
+    users = [
+      for (final u in users)
+        if (u.id == id)
+          User(
+            id: u.id,
+            username: u.username,
+            email: u.email,
+            fullName: u.fullName,
+            role: u.role,
+            isActive: isActive,
+          )
+        else
+          u,
+    ];
+    return users.firstWhere((u) => u.id == id);
+  }
+
+  @override
+  Future<User> assignRole({required int id, required String groupName}) async {
+    assignCalls++;
+    lastAssignId = id;
+    lastAssignGroup = groupName;
+    final failure = this.failure;
+    if (failure != null) throw UsersServiceException(failure);
+    return const User(
+      id: 2,
+      username: 'manager',
+      email: 'm@demo.ph',
+      fullName: 'Mana Ger',
+      role: Role(id: 4, name: 'pos', displayName: 'Cashier'),
+    );
+  }
 }
 
 void main() {
@@ -145,6 +194,98 @@ void main() {
     expect(viewmodel.roleFilter, isNull);
     expect(service.lastSearch, isNull);
     expect(viewmodel.users, hasLength(1));
+  });
+
+  // Phase 5 Task 2: deactivate/reactivate + role change reload from the
+  // server; a refused write names the failure and keeps the rows.
+  test('deactivate flips the row and reloads from the server', () async {
+    service.users = const [
+      User(
+        id: 2,
+        username: 'cashier',
+        email: 'c@demo.ph',
+        fullName: 'Cashy Ir',
+        role: Role(id: 4, name: 'pos', displayName: 'Cashier'),
+      ),
+    ];
+    await viewmodel.load();
+    final calls = service.setActiveCalls;
+
+    final ok = await viewmodel.setActive(
+      viewmodel.users.single,
+      isActive: false,
+    );
+
+    expect(ok, isTrue);
+    expect(service.setActiveCalls, calls + 1);
+    expect(service.lastActiveId, 2);
+    expect(service.lastActiveValue, isFalse);
+    expect(viewmodel.actionError, isNull);
+    // The stub flips server-side on write: only a reload shows it.
+    expect(viewmodel.users.single.isActive, isFalse);
+  });
+
+  test('a refused write names the failure and keeps the rows', () async {
+    service.users = const [
+      User(
+        id: 1,
+        username: 'admin',
+        email: 'a@demo.ph',
+        fullName: 'Ada Ministrator',
+        role: Role(id: 1, name: 'admin', displayName: 'Admin'),
+      ),
+    ];
+    await viewmodel.load();
+    service.failure = 'This change would leave no active admin.';
+
+    final ok = await viewmodel.setActive(
+      viewmodel.users.single,
+      isActive: false,
+    );
+
+    expect(ok, isFalse);
+    expect(viewmodel.actionError, contains('no active admin'));
+    expect(viewmodel.users, hasLength(1));
+    expect(viewmodel.loadError, isNull);
+  });
+
+  test('assignRole posts the group and reloads the row', () async {
+    service.users = const [
+      User(
+        id: 2,
+        username: 'manager',
+        email: 'm@demo.ph',
+        fullName: 'Mana Ger',
+        role: Role(id: 3, name: 'sales', displayName: 'Store Manager'),
+      ),
+    ];
+    await viewmodel.load();
+
+    final ok = await viewmodel.assignRole(
+      viewmodel.users.single,
+      groupName: 'Cashier',
+    );
+
+    expect(ok, isTrue);
+    expect(service.assignCalls, 1);
+    expect(service.lastAssignId, 2);
+    expect(service.lastAssignGroup, 'Cashier');
+    expect(viewmodel.actionError, isNull);
+  });
+
+  test('managers cannot offer admin groups; admins can', () {
+    expect(
+      AdminUsersViewmodel.assignableGroups(isAdmin: false),
+      containsAll(['Cashier', 'Stock Manager', 'Store Manager']),
+    );
+    expect(
+      AdminUsersViewmodel.assignableGroups(isAdmin: false),
+      isNot(contains('Admin')),
+    );
+    expect(
+      AdminUsersViewmodel.assignableGroups(isAdmin: true),
+      containsAll(['Admin', 'System Administrator', 'Cashier']),
+    );
   });
 
   test('create refuses a short password without touching the server', () async {

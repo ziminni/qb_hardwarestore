@@ -198,4 +198,105 @@ void main() {
       ),
     );
   });
+
+  // Phase 5 Task 2: deactivate/reactivate + role change go through the users
+  // endpoints the backend opened to Store Managers (IsUserManagerRole).
+
+  test('deactivate patches is_active false and returns the row', () async {
+    Map<String, dynamic>? sent;
+    String? path;
+    adapter.respond = (options) {
+      lastRequest = options;
+      path = options.path;
+      sent = options.data as Map<String, dynamic>?;
+      return _json(_user()..['is_active'] = false);
+    };
+
+    final updated = await service.setActive(id: 2, isActive: false);
+
+    expect(optionsMethod(lastRequest), 'PATCH');
+    expect(path, endsWith('/api/v1/users/2/'));
+    expect(sent?['is_active'], isFalse);
+    expect(updated.isActive, isFalse);
+  });
+
+  test('reactivate patches is_active true', () async {
+    Map<String, dynamic>? sent;
+    adapter.respond = (options) {
+      sent = options.data as Map<String, dynamic>?;
+      return _json(_user());
+    };
+
+    final updated = await service.setActive(id: 2, isActive: true);
+
+    expect(sent?['is_active'], isTrue);
+    expect(updated.isActive, isTrue);
+  });
+
+  test('assignRole posts the group name and returns the row', () async {
+    Map<String, dynamic>? sent;
+    String? path;
+    String? method;
+    adapter.respond = (options) {
+      // The action answers `{'detail': ...}`; the row comes from the reload,
+      // so only the POST is asserted — the trailing GET is the reload.
+      if (options.method == 'POST') {
+        method = 'POST';
+        path = options.path;
+        sent = options.data as Map<String, dynamic>?;
+        return _json({'detail': 'ok'});
+      }
+      return _json({
+        'count': 1,
+        'next': null,
+        'previous': null,
+        'results': [_user()],
+      });
+    };
+
+    final updated = await service.assignRole(id: 2, groupName: 'Cashier');
+
+    expect(method, 'POST');
+    expect(path, endsWith('/api/v1/users/2/assign_role/'));
+    expect(sent?['group_name'], 'Cashier');
+    expect(updated.id, 2);
+  });
+
+  test('a USER_ADMIN_FORBIDDEN refusal names the admin boundary', () async {
+    adapter.respond = (_) => _json({
+      'code': 'USER_ADMIN_FORBIDDEN',
+      'detail': 'Only an Admin may change an admin account.',
+    }, status: 403);
+
+    expect(
+      service.setActive(id: 1, isActive: false),
+      throwsA(
+        isA<UsersServiceException>().having(
+          (e) => (e).message,
+          'message',
+          contains('Admin'),
+        ),
+      ),
+    );
+  });
+
+  test('a LAST_ADMIN refusal carries the server sentence verbatim', () async {
+    adapter.respond = (_) => _json({
+      'code': 'LAST_ADMIN',
+      'detail': 'This change would leave no active admin.',
+    }, status: 400);
+
+    expect(
+      service.setActive(id: 1, isActive: false),
+      throwsA(
+        isA<UsersServiceException>().having(
+          (e) => (e).message,
+          'message',
+          contains('no active admin'),
+        ),
+      ),
+    );
+  });
 }
+
+String optionsMethod(RequestOptions? options) => options?.method ?? 'NONE';

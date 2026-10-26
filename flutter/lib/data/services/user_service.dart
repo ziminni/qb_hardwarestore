@@ -100,6 +100,56 @@ class UserService {
     }
   }
 
+  /// Flips `is_active` and returns the server row.
+  ///
+  /// Deactivation is reversible: the UI offers reactivate on inactive rows.
+  /// A 403 `USER_ADMIN_FORBIDDEN` names the admin boundary; a 400
+  /// `LAST_ADMIN` carries the server sentence verbatim.
+  Future<User> setActive({required int id, required bool isActive}) async {
+    try {
+      final response = await _client.patch<Map<String, dynamic>>(
+        '$usersPath$id/',
+        data: {'is_active': isActive},
+      );
+      final data = response.data;
+      if (data == null) throw const FormatException('Empty update response');
+      return User.fromJson(data);
+    } on DioException catch (error) {
+      throw UsersServiceException(
+        _message(error, 'The account could not be updated.'),
+      );
+    } on FormatException catch (error) {
+      throw UsersServiceException(error.message);
+    }
+  }
+
+  /// Replaces the account's group, then returns the reloaded server row.
+  ///
+  /// Membership is replaced, so assigning a non-admin group demotes. The
+  /// action answers `{'detail': ...}`, not a user row, so the row is re-read:
+  /// the screen shows what the server owns, never what the client assumed.
+  /// The server refuses admin-bound changes with 403 `USER_ADMIN_FORBIDDEN`
+  /// and the last-admin strip with 400 `LAST_ADMIN`.
+  Future<User> assignRole({required int id, required String groupName}) async {
+    try {
+      await _client.dio.post<void>(
+        '$usersPath$id/assign_role/',
+        data: {'group_name': groupName},
+      );
+      final users = await fetchUsers();
+      return users.firstWhere(
+        (user) => user.id == id,
+        orElse: () => throw const FormatException('Updated row missing'),
+      );
+    } on DioException catch (error) {
+      throw UsersServiceException(
+        _message(error, 'The role could not be changed.'),
+      );
+    } on FormatException catch (error) {
+      throw UsersServiceException(error.message);
+    }
+  }
+
   String _message(DioException error, String fallback) {
     if (error.type == DioExceptionType.connectionError ||
         error.type == DioExceptionType.connectionTimeout ||
@@ -110,6 +160,16 @@ class UserService {
       return 'Your session has expired. Sign in again.';
     }
     if (error.response?.statusCode == 403) {
+      // Phase 5 Task 2: the server names the admin boundary with a stable
+      // code — surface it, not the generic permission sentence, so a manager
+      // learns WHY this account is untouchable instead of retrying it.
+      final data = error.response?.data;
+      if (data is Map<String, dynamic> &&
+          data['code'] == 'USER_ADMIN_FORBIDDEN') {
+        final detail = data['detail'];
+        if (detail is String && detail.isNotEmpty) return detail;
+        return 'Only an Admin may change that account.';
+      }
       return 'You do not have permission to manage accounts.';
     }
     final data = error.response?.data;

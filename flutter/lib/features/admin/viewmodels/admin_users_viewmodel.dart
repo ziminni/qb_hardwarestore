@@ -18,6 +18,7 @@ class AdminUsersViewmodel extends ChangeNotifier {
   bool _isLoading = false;
   String? _loadError;
   String? _createError;
+  String? _actionError;
 
   String _query = '';
   String? _roleFilter;
@@ -28,6 +29,26 @@ class AdminUsersViewmodel extends ChangeNotifier {
   /// The last account-creation refusal. Kept apart from [_loadError] so a
   /// cancelled dialog never leaves a stale banner under a loaded table.
   String? get createError => _createError;
+
+  /// The last deactivate/reactivate/role-change refusal. Kept apart from
+  /// [_loadError] and [_createError] so a cancelled action dialog never
+  /// leaves a stale banner under a loaded table.
+  String? get actionError => _actionError;
+
+  /// Groups the role picker may offer. Managers get the working groups;
+  /// the Admin groups stay an admin-only offer (the server refuses them to
+  /// anyone else with 403 `USER_ADMIN_FORBIDDEN` anyway).
+  ///
+  /// Compare by GROUP name (what `assign_role` takes), never by display
+  /// label or client role code — the Phase 4 Resolve outage was a test that
+  /// used a label where the wire carries a code.
+  static List<String> assignableGroups({required bool isAdmin}) => [
+    'Cashier',
+    'Stock Manager',
+    'Store Manager',
+    'Site Foreman',
+    if (isAdmin) ...['Admin', 'System Administrator'],
+  ];
 
   List<User> get users => List.unmodifiable(
     _rows.where((user) {
@@ -101,6 +122,49 @@ class AdminUsersViewmodel extends ChangeNotifier {
     _roleFilter = null;
     _activeFilter = null;
     await load();
+  }
+
+  /// Flips `is_active` for [user], then reloads so the row comes from the
+  /// server (the owner of ids, roles and the LAST_ADMIN guard).
+  ///
+  /// A refused write keeps the rows already shown and names the failure in
+  /// [actionError]: an empty table would read as "no staff accounts".
+  Future<bool> setActive(User user, {required bool isActive}) async {
+    _actionError = null;
+    notifyListeners();
+    try {
+      await _users.setActive(id: user.id, isActive: isActive);
+      await load();
+      return _loadError == null;
+    } on UsersServiceException catch (error) {
+      _actionError = error.message;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Replaces [user]'s group, then reloads so the row comes from the server.
+  ///
+  /// Membership is replaced, so assigning a non-admin group demotes. Like
+  /// [setActive], a refusal keeps the rows and names itself in [actionError].
+  Future<bool> assignRole(User user, {required String groupName}) async {
+    _actionError = null;
+    notifyListeners();
+    try {
+      await _users.assignRole(id: user.id, groupName: groupName);
+      await load();
+      return _loadError == null;
+    } on UsersServiceException catch (error) {
+      _actionError = error.message;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Clears a stale action refusal, e.g. when its dialog is dismissed.
+  void clearActionError() {
+    _actionError = null;
+    notifyListeners();
   }
 
   /// Creates an account, then reloads so the new row comes from the server.

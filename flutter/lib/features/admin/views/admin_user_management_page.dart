@@ -1,5 +1,7 @@
 import 'package:client/core/layout/admin_skeleton_layout.dart';
+import 'package:client/data/models/user.dart';
 import 'package:client/features/admin/viewmodels/admin_users_viewmodel.dart';
+import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/admin/widgets/admin_user_action_button.dart';
 import 'package:client/features/admin/widgets/admin_user_filters.dart';
 import 'package:client/features/admin/widgets/admin_user_metric_card.dart';
@@ -12,10 +14,13 @@ import 'package:provider/provider.dart';
 /// The admin User Management screen.
 ///
 /// Lists staff accounts with server-computed totals, searches server-side,
-/// filters role/status client-side, and creates accounts through the register
-/// shape (which mandates a group). Row view/edit actions do not exist yet —
-/// the per-row buttons that opened nothing are gone rather than kept as
-/// decoration; account edits are a specified future, not a silent no-op.
+/// filters role/status client-side, creates accounts through the register
+/// shape (admins only — creation stays Admin-only server-side), and offers
+/// deactivate/reactivate + role change per row (Phase 5: Store Managers act
+/// on non-admin staff; the server refuses admin-bound changes with 403
+/// `USER_ADMIN_FORBIDDEN` and the last-admin strip with 400 `LAST_ADMIN`).
+/// Role identity is compared by GROUP name (what `assign_role` takes), never
+/// by display label or client role code.
 class AdminUserManagementPage extends StatefulWidget {
   const AdminUserManagementPage({super.key, this.viewmodel});
 
@@ -38,6 +43,10 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
       child: Builder(
         builder: (context) {
           final viewmodel = context.watch<AdminUsersViewmodel>();
+          // Role CODE comparison (Phase 4 lesson): the server sends codes
+          // ('admin', 'sales', ...); display labels belong on screen only.
+          final isAdmin =
+              context.read<AuthViewmodel>().roleName == 'admin';
           return AdminSkeletonLayout(
             title: 'User Management',
             subtitle: 'View and manage staff accounts.',
@@ -56,11 +65,14 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
                         ),
                       ),
                     ),
-                    AdminUserActionButton(
-                      label: 'Create account',
-                      icon: Icons.person_add_outlined,
-                      onPressed: () => _openCreateDialog(context, viewmodel),
-                    ),
+                    // Creation stays Admin-only server-side (`register_view`
+                    // is `IsAdminRole`), so non-admins are not offered it.
+                    if (isAdmin)
+                      AdminUserActionButton(
+                        label: 'Create account',
+                        icon: Icons.person_add_outlined,
+                        onPressed: () => _openCreateDialog(context, viewmodel),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -88,11 +100,32 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  if (viewmodel.actionError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: LiveLoadErrorBanner(
+                        message: viewmodel.actionError!,
+                        onRetry: viewmodel.clearActionError,
+                      ),
+                    ),
                   AdminUserSection(
                     title: 'User accounts',
                     child: viewmodel.users.isEmpty
                         ? const Text('No staff accounts found.')
-                        : AdminUserTable(users: viewmodel.users),
+                        : AdminUserTable(
+                            users: viewmodel.users,
+                            onToggleActive: (user) => _openToggleDialog(
+                              context,
+                              viewmodel,
+                              user,
+                            ),
+                            onChangeRole: (user) => _openRoleDialog(
+                              context,
+                              viewmodel,
+                              user,
+                              isAdmin: isAdmin,
+                            ),
+                          ),
                   ),
                 ],
                 if (viewmodel.hasLoaded && viewmodel.loadError != null) ...[
@@ -117,6 +150,143 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
     return showDialog<void>(
       context: context,
       builder: (_) => _CreateAccountDialog(viewmodel: viewmodel),
+    );
+  }
+
+  /// Deactivate/reactivate confirm. Nothing is written until Confirm: the
+  /// refusal (LAST_ADMIN, USER_ADMIN_FORBIDDEN) surfaces in the page banner
+  /// via [AdminUsersViewmodel.actionError], not inside this dialog.
+  Future<void> _openToggleDialog(
+    BuildContext context,
+    AdminUsersViewmodel viewmodel,
+    User user,
+  ) {
+    final verb = user.isActive ? 'Deactivate' : 'Reactivate';
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('$verb ${user.fullName}?'),
+        content: Text(
+          user.isActive
+              ? '${user.username} signs out on their next refresh. '
+                  'Their history stays; the account is never deleted.'
+              : '${user.username} can sign in again.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(dialogContext).pop();
+              await viewmodel.setActive(user, isActive: !user.isActive);
+            },
+            child: Text(verb),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Role change. Offers GROUP names (what `assign_role` takes); the current
+  /// group preselects only when it is itself assignable.
+  Future<void> _openRoleDialog(
+    BuildContext context,
+    AdminUsersViewmodel viewmodel,
+    User user, {
+    required bool isAdmin,
+  }) {
+    final groups = AdminUsersViewmodel.assignableGroups(isAdmin: isAdmin);
+    return showDialog<void>(
+      context: context,
+      builder: (_) => _ChangeRoleDialog(
+        viewmodel: viewmodel,
+        user: user,
+        groups: groups,
+      ),
+    );
+  }
+}
+
+/// Role picker. Sends the GROUP name; the list never contains admin groups
+/// for non-admin callers (the server would 403 them anyway).
+class _ChangeRoleDialog extends StatefulWidget {
+  const _ChangeRoleDialog({
+    required this.viewmodel,
+    required this.user,
+    required this.groups,
+  });
+
+  final AdminUsersViewmodel viewmodel;
+  final User user;
+  final List<String> groups;
+
+  @override
+  State<_ChangeRoleDialog> createState() => _ChangeRoleDialogState();
+}
+
+class _ChangeRoleDialogState extends State<_ChangeRoleDialog> {
+  late String _group;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _group = widget.groups.contains(widget.user.roleLabel)
+        ? widget.user.roleLabel
+        : widget.groups.first;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Change role for ${widget.user.fullName}?'),
+      content: DropdownButtonFormField<String>(
+        initialValue: _group,
+        isExpanded: true,
+        decoration: const InputDecoration(labelText: 'Group'),
+        items: [
+          for (final group in widget.groups)
+            DropdownMenuItem(
+              value: group,
+              child: Text(group, overflow: TextOverflow.ellipsis),
+            ),
+        ],
+        onChanged: (value) {
+          if (value != null) setState(() => _group = value);
+        },
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: _saving
+              ? null
+              : () async {
+                  setState(() => _saving = true);
+                  final ok = await widget.viewmodel.assignRole(
+                    widget.user,
+                    groupName: _group,
+                  );
+                  if (!context.mounted) return;
+                  Navigator.of(context).pop();
+                  if (!ok) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          widget.viewmodel.actionError ??
+                              'The role could not be changed.',
+                        ),
+                      ),
+                    );
+                  }
+                },
+          child: const Text('Change role'),
+        ),
+      ],
     );
   }
 }
