@@ -90,6 +90,18 @@ class IsAdminRole(RoleRequired):
     required_roles = STAFF_ROLES
 
 
+class IsUserManagerRole(RoleRequired):
+    """Store Manager / Admin — user account offboarding (Phase 5).
+
+    A store manager offboards their own leavers; Admins keep full authority.
+    Membership here grants NO access to admin-authority targets — the
+    UserViewSet refuses those per-call (USER_ADMIN_FORBIDDEN), so this class
+    alone never lets a manager touch, grant, or revive admin power.
+    """
+
+    required_roles = [ROLE_STORE_MANAGER, *STAFF_ROLES]
+
+
 class IsInventoryRole(RoleRequired):
     """Stock Manager / Store Manager / Admin — inventory & catalog writes."""
 

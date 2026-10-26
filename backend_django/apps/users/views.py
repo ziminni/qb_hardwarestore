@@ -18,7 +18,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from . import lockout
 from .models import AuditLog, User
-from .permissions import STAFF_ROLES, IsAdminRole
+from .permissions import STAFF_ROLES, IsAdminRole, IsUserManagerRole, has_role
 from .serializers import (
     AuditLogSerializer,
     LoginSerializer,
@@ -237,15 +237,52 @@ def record_login_failure(request, identifier):
 # User ViewSet
 # ---------------------------------------------------------------------------
 
+USER_ADMIN_FORBIDDEN_CODE = 'USER_ADMIN_FORBIDDEN'
+USER_ADMIN_FORBIDDEN_DETAIL = (
+    'Only an Admin may change an admin account or grant admin authority.'
+)
+
+
+def user_admin_refusal(request, target, group_name=None):
+    """403 when a non-admin caller reaches for admin authority (Phase 5).
+
+    Store Managers offboard non-admin staff; admin accounts (Admin / System
+    Administrator groups or superuser, active OR deactivated — reviving a
+    dormant admin is still seizing admin power) and admin GROUP grants stay
+    Admin-only. Admin callers never see this refusal.
+    """
+    if has_role(request.user, STAFF_ROLES):
+        return None
+    if target is not None and (
+        target.is_superuser
+        or target.groups.filter(name__in=STAFF_ROLES).exists()
+    ):
+        return Response(
+            {'code': USER_ADMIN_FORBIDDEN_CODE,
+             'detail': USER_ADMIN_FORBIDDEN_DETAIL},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    if group_name in STAFF_ROLES:
+        return Response(
+            {'code': USER_ADMIN_FORBIDDEN_CODE,
+             'detail': USER_ADMIN_FORBIDDEN_DETAIL},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return None
+
+
 class UserViewSet(viewsets.ModelViewSet):
-    """Admin CRUD for user accounts.
+    """Store Manager / Admin writes for user accounts (Phase 5).
 
     Accounts are deactivated, never deleted: audit rows will PROTECT their user
     (decision 07), so ``DELETE`` is not routed at all — it answers 405.
+    Store Managers may deactivate/reactivate and assign/remove NON-admin
+    roles; anything reaching admin authority is 403 USER_ADMIN_FORBIDDEN.
+    Account creation stays Admin-only via ``register_view``.
     """
     queryset = User.objects.prefetch_related('groups').all()
     serializer_class = UserSerializer
-    permission_classes = [IsAdminRole]
+    permission_classes = [IsUserManagerRole]
     http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']
 
     def get_queryset(self):
@@ -259,9 +296,19 @@ class UserViewSet(viewsets.ModelViewSet):
             )
         return qs
 
+    def create(self, request, *args, **kwargs):
+        """Account creation stays Admin-only; managers change existing rows."""
+        refusal = user_admin_refusal(request, None, group_name=STAFF_ROLES[0])
+        if refusal is not None:
+            return refusal
+        return super().create(request, *args, **kwargs)
+
     def update(self, request, *args, **kwargs):
         """PATCH / PUT, guarded so the last active admin cannot be disabled."""
         instance = self.get_object()
+        refusal = user_admin_refusal(request, instance)
+        if refusal is not None:
+            return refusal
         was_active = instance.is_active
         serializer = self.get_serializer(
             instance, data=request.data, partial=kwargs.get('partial', False))
@@ -320,9 +367,13 @@ class UserViewSet(viewsets.ModelViewSet):
 
         Membership is replaced, so assigning a non-admin group demotes the
         account — refused when that account is the last active admin.
+        Non-admin callers cannot touch admin accounts or grant admin groups.
         """
         user = self.get_object()
         group_name = request.data.get('group_name')
+        refusal = user_admin_refusal(request, user, group_name=group_name)
+        if refusal is not None:
+            return refusal
         if not group_name:
             return Response(
                 {'detail': 'group_name is required.'},
@@ -357,9 +408,15 @@ class UserViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def remove_role(self, request, pk=None):
-        """POST /api/users/{id}/remove_role/  { "group_name": "Cashier" }"""
+        """POST /api/users/{id}/remove_role/  { "group_name": "Cashier" }
+
+        Non-admin callers cannot touch admin accounts or admin groups.
+        """
         user = self.get_object()
         group_name = request.data.get('group_name')
+        refusal = user_admin_refusal(request, user, group_name=group_name)
+        if refusal is not None:
+            return refusal
         if not group_name:
             return Response(
                 {'detail': 'group_name is required.'},

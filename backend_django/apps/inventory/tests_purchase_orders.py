@@ -526,7 +526,8 @@ class PurchaseOrderEditLockTests(PurchaseOrderTestBase):
              if s.startswith('UPDATE "INVENTORY_PO"')), None)
         self.assertIsNotNone(write_at, 'the edit must write the order row')
         self.assertLess(
-            lock_at, write_at, 'the lock must be taken before the write')
+            int(lock_at), int(write_at),
+            'the lock must be taken before the write')
 
     def test_a_patch_after_place_is_refused_and_the_order_is_unchanged(self):
         po = self._place_existing()
@@ -659,6 +660,6 @@ class ReceiptProcessRechecksTheOrderTests(PurchaseOrderTestBase):
              if s.startswith('INSERT INTO "INVENTORY_GOODS_RECEIPT"')), None)
         self.assertIsNotNone(insert_at, 'the receipt row must be written')
         self.assertLess(
-            lock_at, insert_at,
+            int(lock_at), int(insert_at),
             'the order must be locked before the receipt row exists, so a cancel '
             'either sees the receipt or blocks')

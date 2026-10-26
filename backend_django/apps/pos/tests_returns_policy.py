@@ -602,3 +602,27 @@ class ReturnLookupTests(ReturnsPolicyBase):
         self.assertEqual(not_a_sale.data['reason_if_not'], 'RELEASE_NOT_RETURNABLE')
         self.assertFalse(a_return.data['returnable'])
         self.assertEqual(a_return.data['reason_if_not'], 'RETURN_OF_RETURN')
+
+
+class UnlinkedManagerContractTests(ReturnsPolicyBase):
+    """Phase 5 Task 1 — the manager unlinked-return contract the UI relies on."""
+
+    def test_a_manager_unlinked_return_without_a_reason_is_refused(self):
+        response = self._post_return(
+            original=None, qty=2, user=self.manager, reason=None)
+
+        self._refused(response, 'RETURN_REASON_REQUIRED')
+
+    def test_an_unlinked_return_writes_one_audit_row_naming_unlinked(self):
+        response = self._post_return(
+            original=None, qty=2, user=self.manager,
+            reason='no receipt, customer brought the bag back')
+
+        self.assertEqual(response.status_code, 201, response.data)
+        txn = SalesTransaction.objects.get(pk=response.data['id'])
+        rows = list(AuditLog.objects.filter(
+            action_type=AuditLog.ActionType.RETURN,
+            description__contains=txn.transaction_no))
+        self.assertEqual(len(rows), 1, 'one return event, one audit row')
+        self.assertIn('unlinked', rows[0].description)
+        self.assertIn('by ret_manager', rows[0].description)
