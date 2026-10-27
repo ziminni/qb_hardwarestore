@@ -101,9 +101,7 @@ class _ReceivablesView extends StatelessWidget {
                 LedgerStatus.overdue,
               ])
                 FilterChip(
-                  label: Text(
-                    option == null ? 'All' : option.label,
-                  ),
+                  label: Text(option == null ? 'All' : option.label),
                   selected: viewmodel.statusFilter == option,
                   onSelected: (_) => viewmodel.setStatusFilter(option),
                 ),
@@ -138,8 +136,8 @@ class _ReceivablesView extends StatelessWidget {
                   // Not "no receivables": this screen failed to find out.
                   ? 'Receivables could not be loaded.'
                   : viewmodel.statusFilter == null
-                      ? 'No receivables available.'
-                      : 'No ${viewmodel.statusFilter!.label.toLowerCase()} receivables.',
+                  ? 'No receivables available.'
+                  : 'No ${viewmodel.statusFilter!.label.toLowerCase()} receivables.',
               rows: viewmodel.filteredEntries
                   .map((entry) => _row(context, entry, now))
                   .toList(),

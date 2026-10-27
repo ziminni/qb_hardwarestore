@@ -41,16 +41,17 @@ class _StubLedgerRepository extends LedgerRepository {
   }
 }
 
-LedgerEntry _entry({double balance = 472, bool isOverdue = false}) => LedgerEntry(
-  id: 1,
-  customerId: 3,
-  customerName: 'Dela Cruz Construction',
-  transactionNo: 'TRX-20261016-0001',
-  originalAmount: 5000,
-  balanceDue: balance,
-  dueDate: DateTime.now().add(const Duration(days: 30)),
-  isOverdue: isOverdue,
-);
+LedgerEntry _entry({double balance = 472, bool isOverdue = false}) =>
+    LedgerEntry(
+      id: 1,
+      customerId: 3,
+      customerName: 'Dela Cruz Construction',
+      transactionNo: 'TRX-20261016-0001',
+      originalAmount: 5000,
+      balanceDue: balance,
+      dueDate: DateTime.now().add(const Duration(days: 30)),
+      isOverdue: isOverdue,
+    );
 
 /// The skeleton layout is a full sidebar-plus-content shell, which overflows the default
 /// 800x600 test surface. Sized here rather than tolerated, so an overflow cannot be mistaken for
@@ -72,13 +73,19 @@ Future<void> _pump(
     ..rows = rows
     ..failureMessage = failure;
   await tester.pumpWidget(
-    _app(SalesReceivablesPage(viewmodel: SalesReceivablesViewmodel(repository: repository))),
+    _app(
+      SalesReceivablesPage(
+        viewmodel: SalesReceivablesViewmodel(repository: repository),
+      ),
+    ),
   );
   await tester.pumpAndSettle();
 }
 
 void main() {
-  testWidgets('a successful load renders the rows and totals what is owed', (tester) async {
+  testWidgets('a successful load renders the rows and totals what is owed', (
+    tester,
+  ) async {
     await _pump(tester, rows: [_entry(balance: 472)]);
 
     expect(find.text('Dela Cruz Construction'), findsOneWidget);
@@ -105,7 +112,9 @@ void main() {
     expect(find.text('₱572.00'), findsWidgets);
   });
 
-  testWidgets('a FAILED load shows the error and NEVER a total', (tester) async {
+  testWidgets('a FAILED load shows the error and NEVER a total', (
+    tester,
+  ) async {
     await _pump(tester, failure: 'Cannot connect to the BuildPro server.');
 
     expect(find.text('Cannot connect to the BuildPro server.'), findsOneWidget);
@@ -114,23 +123,33 @@ void main() {
     expect(
       find.textContaining('₱0.00'),
       findsNothing,
-      reason: 'a number beside an error banner is more believable than any caption',
+      reason:
+          'a number beside an error banner is more believable than any caption',
     );
-    expect(find.text('Not loaded'), findsWidgets, reason: 'the tiles say what they do not know');
+    expect(
+      find.text('Not loaded'),
+      findsWidgets,
+      reason: 'the tiles say what they do not know',
+    );
   });
 
-  testWidgets('a failed load does NOT read as "no receivables"', (tester) async {
+  testWidgets('a failed load does NOT read as "no receivables"', (
+    tester,
+  ) async {
     await _pump(tester, failure: 'The receivables could not be loaded.');
 
     expect(
       find.text('No receivables available.'),
       findsNothing,
-      reason: 'that would state the store is owed nothing, which this screen cannot know',
+      reason:
+          'that would state the store is owed nothing, which this screen cannot know',
     );
     expect(find.text('Receivables could not be loaded.'), findsOneWidget);
   });
 
-  testWidgets('a load that succeeds after a failure clears the error', (tester) async {
+  testWidgets('a load that succeeds after a failure clears the error', (
+    tester,
+  ) async {
     _sizeUp(tester);
     final repository = _StubLedgerRepository()..failureMessage = 'Boom.';
     final viewmodel = SalesReceivablesViewmodel(repository: repository);

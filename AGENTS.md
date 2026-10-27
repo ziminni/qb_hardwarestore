@@ -28,7 +28,7 @@ the same commit that breaks it.
 - **Active branch:** `feature/backend-integration` — **pushed, in sync with `origin/`.** For how far ahead
   of `origin/master` it is run `git rev-list --count origin/master..HEAD`; a count written here stales on
   the next commit.
-- **Active Wayfinder map: `planning/audit-remediation/MAP.md`** — audit gap remediation, 9 decisions locked, **Phases 1–4 BUILT (2026-10-25)**, Phase 5 READY TO BUILD, Phase 6 Barcode/QR in Fog. Prior maps (cashier, stocker, sales-manager, admin) complete.
+- **Active Wayfinder map: `planning/audit-remediation/MAP.md`** — audit gap remediation, 9 decisions locked, **Phases 1–5 BUILT (2026-10-26)**, Phase 6 Barcode/QR in Fog. Prior maps (cashier, stocker, sales-manager, admin) complete.
 - **Phase state is NOT stated here** — it is owned by the phase table in the active map, per-row and with
   evidence. Read that table; a copy here would be a second home, and this file's own rule forbids one.
 - **Phase 6 is built and pushed.** 6A.1–6A.4, 6B (reports + receiving), 6C (live sales screens + review
@@ -47,8 +47,8 @@ the same commit that breaks it.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.
-- **Last session:** `docs/sessions/2026-10-25-audit-remediation-phase-4.md` — Phase 4 Stock Manager built + browser-verified. **Gate:** backend **456/456** (`manage.py test --noinput`), flutter **738/738**, analyze clean.
-  **Next:** `git push` (user); then write `planning/audit-remediation/phase-5-plan.md` and BUILD Phase 5 (Store Manager / Admin).
+- **Last session:** `docs/sessions/2026-10-26-audit-remediation-phase-5.md` — Phase 5 Store Manager / Admin built inline (no subagents). **Gate:** backend **468/468** (`manage.py test --noinput`), flutter **769/769**, analyze clean, API live probes PASS.
+  **Next:** `git push` (user); then grill Phase 6 ([Barcode concept](planning/audit-remediation/decisions/10-barcode-concept.md)).
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message

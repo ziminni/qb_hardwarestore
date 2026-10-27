@@ -45,8 +45,7 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
           final viewmodel = context.watch<AdminUsersViewmodel>();
           // Role CODE comparison (Phase 4 lesson): the server sends codes
           // ('admin', 'sales', ...); display labels belong on screen only.
-          final isAdmin =
-              context.read<AuthViewmodel>().roleName == 'admin';
+          final isAdmin = context.read<AuthViewmodel>().roleName == 'admin';
           return AdminSkeletonLayout(
             title: 'User Management',
             subtitle: 'View and manage staff accounts.',
@@ -114,11 +113,8 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
                         ? const Text('No staff accounts found.')
                         : AdminUserTable(
                             users: viewmodel.users,
-                            onToggleActive: (user) => _openToggleDialog(
-                              context,
-                              viewmodel,
-                              user,
-                            ),
+                            onToggleActive: (user) =>
+                                _openToggleDialog(context, viewmodel, user),
                             onChangeRole: (user) => _openRoleDialog(
                               context,
                               viewmodel,
@@ -169,7 +165,7 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
         content: Text(
           user.isActive
               ? '${user.username} signs out on their next refresh. '
-                  'Their history stays; the account is never deleted.'
+                    'Their history stays; the account is never deleted.'
               : '${user.username} can sign in again.',
         ),
         actions: [
@@ -200,11 +196,8 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
     final groups = AdminUsersViewmodel.assignableGroups(isAdmin: isAdmin);
     return showDialog<void>(
       context: context,
-      builder: (_) => _ChangeRoleDialog(
-        viewmodel: viewmodel,
-        user: user,
-        groups: groups,
-      ),
+      builder: (_) =>
+          _ChangeRoleDialog(viewmodel: viewmodel, user: user, groups: groups),
     );
   }
 }

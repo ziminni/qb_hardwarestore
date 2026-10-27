@@ -147,10 +147,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(returns.posts, 1);
-    expect(
-      (returns.sent!['items'] as List).single,
-      {'variant_id': 8, 'qty': 1.0},
-    );
+    expect((returns.sent!['items'] as List).single, {
+      'variant_id': 8,
+      'qty': 1.0,
+    });
     expect(returns.sent!.containsKey('original_transaction'), isFalse);
     expect(returns.sent!['reason'], 'bag burst in transit');
     expect(find.textContaining('RTN-20261026-0001'), findsOneWidget);

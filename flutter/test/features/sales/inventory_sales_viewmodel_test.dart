@@ -43,31 +43,55 @@ class _StubSalesService extends SalesService {
   }
 
   @override
-  Future<List<QuotationRecord>> fetchQuotations() =>
-      throw UnimplementedError();
+  Future<List<QuotationRecord>> fetchQuotations() => throw UnimplementedError();
 
   @override
-  Future<List<SalesOrderRow>> fetchSalesOrders() =>
-      throw UnimplementedError();
+  Future<List<SalesOrderRow>> fetchSalesOrders() => throw UnimplementedError();
 }
 
 TransactionRecord _sale() => TransactionRecord(
-  id: 9, transactionNo: 'TRX-20261019-0001',
-  transDate: DateTime(2026, 10, 19, 8), customerId: 3,
-  customerName: 'Dela Cruz Construction', cashierName: 'Cashy Ir',
-  source: 'WALK_IN', originalTransactionId: null, status: 'COMPLETED',
+  id: 9,
+  transactionNo: 'TRX-20261019-0001',
+  transDate: DateTime(2026, 10, 19, 8),
+  customerId: 3,
+  customerName: 'Dela Cruz Construction',
+  cashierName: 'Cashy Ir',
+  source: 'WALK_IN',
+  originalTransactionId: null,
+  status: 'COMPLETED',
   grandTotal: 100,
-  items: const [TransactionLineItem(variantUomId: 1, variantUomCode: 'BAG', qty: 2, unitPrice: 50, subtotal: 100)],
+  items: const [
+    TransactionLineItem(
+      variantUomId: 1,
+      variantUomCode: 'BAG',
+      qty: 2,
+      unitPrice: 50,
+      subtotal: 100,
+    ),
+  ],
   payments: const [TransactionPayment(method: 'CASH', amountTendered: 100)],
 );
 
 TransactionRecord _return() => TransactionRecord(
-  id: 10, transactionNo: 'TRX-20261019-0002',
-  transDate: DateTime(2026, 10, 19, 9), customerId: 3,
-  customerName: 'Dela Cruz Construction', cashierName: 'Cashy Ir',
-  source: 'RETURN', originalTransactionId: 9, status: 'COMPLETED',
+  id: 10,
+  transactionNo: 'TRX-20261019-0002',
+  transDate: DateTime(2026, 10, 19, 9),
+  customerId: 3,
+  customerName: 'Dela Cruz Construction',
+  cashierName: 'Cashy Ir',
+  source: 'RETURN',
+  originalTransactionId: 9,
+  status: 'COMPLETED',
   grandTotal: -50,
-  items: const [TransactionLineItem(variantUomId: 1, variantUomCode: 'BAG', qty: -1, unitPrice: 50, subtotal: -50)],
+  items: const [
+    TransactionLineItem(
+      variantUomId: 1,
+      variantUomCode: 'BAG',
+      qty: -1,
+      unitPrice: 50,
+      subtotal: -50,
+    ),
+  ],
   payments: const [TransactionPayment(method: 'CASH', amountTendered: -50)],
 );
 
@@ -78,11 +102,25 @@ TransactionRecord _row({
   String status = 'COMPLETED',
   String no = 'TRX-20261019-0002',
 }) => TransactionRecord(
-  id: 10, transactionNo: no, transDate: DateTime(2026, 10, 19, 9),
-  customerId: 3, customerName: 'Dela Cruz Construction', cashierName: 'Cashy Ir',
-  source: source, originalTransactionId: original, status: status,
+  id: 10,
+  transactionNo: no,
+  transDate: DateTime(2026, 10, 19, 9),
+  customerId: 3,
+  customerName: 'Dela Cruz Construction',
+  cashierName: 'Cashy Ir',
+  source: source,
+  originalTransactionId: original,
+  status: status,
   grandTotal: total,
-  items: const [TransactionLineItem(variantUomId: 1, variantUomCode: 'BAG', qty: -1, unitPrice: 50, subtotal: -50)],
+  items: const [
+    TransactionLineItem(
+      variantUomId: 1,
+      variantUomCode: 'BAG',
+      qty: -1,
+      unitPrice: 50,
+      subtotal: -50,
+    ),
+  ],
   payments: const [TransactionPayment(method: 'CASH', amountTendered: -50)],
 );
 
@@ -107,14 +145,17 @@ void main() {
     expect(viewmodel.summaryError, isNull);
   });
 
-  test('a failed summary names the failure and keeps no stale totals', () async {
-    reports.failure = 'Cannot connect to the BuildPro server.';
+  test(
+    'a failed summary names the failure and keeps no stale totals',
+    () async {
+      reports.failure = 'Cannot connect to the BuildPro server.';
 
-    await viewmodel.loadSummary();
+      await viewmodel.loadSummary();
 
-    expect(viewmodel.summary, isNull);
-    expect(viewmodel.summaryError, contains('Cannot connect'));
-  });
+      expect(viewmodel.summary, isNull);
+      expect(viewmodel.summaryError, contains('Cannot connect'));
+    },
+  );
 
   test('sales load live and returns derive from RETURN rows', () async {
     service.rows = [_sale(), _return()];
@@ -141,7 +182,6 @@ void main() {
   });
 
   group('fix pass: reviewer 43db5223', () {
-
     test('a VOID return reads as rejected, not completed', () async {
       service.rows = [_row(source: 'RETURN', original: 9, status: 'VOID')];
 

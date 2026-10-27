@@ -108,7 +108,11 @@ void main() {
     repository.rows = [
       _entry(id: 1, balance: 472),
       _entry(id: 2, balance: 100, isOverdue: true),
-      _entry(id: 3, balance: 28, dueDate: DateTime.now().subtract(const Duration(days: 1))),
+      _entry(
+        id: 3,
+        balance: 28,
+        dueDate: DateTime.now().subtract(const Duration(days: 1)),
+      ),
     ];
 
     await viewmodel.load();
@@ -116,7 +120,8 @@ void main() {
     expect(
       viewmodel.overdue,
       128,
-      reason: 'the server flag and the due date both count, and the tile must agree with the rows',
+      reason:
+          'the server flag and the due date both count, and the tile must agree with the rows',
     );
     expect(viewmodel.outstanding, 600);
   });
@@ -164,23 +169,27 @@ void main() {
     expect(viewmodel.entries, hasLength(1));
   });
 
-  test('a non-service failure still becomes something a cashier can read', () async {
-    // A malformed body throws FormatException, not LedgerServiceException; an unhandled type
-    // would reach the UI as an unreadable error or an empty screen.
-    repository.rows = const [];
-    final throwing = _ThrowingRepository();
-    final vm = SalesReceivablesViewmodel(repository: throwing);
+  test(
+    'a non-service failure still becomes something a cashier can read',
+    () async {
+      // A malformed body throws FormatException, not LedgerServiceException; an unhandled type
+      // would reach the UI as an unreadable error or an empty screen.
+      repository.rows = const [];
+      final throwing = _ThrowingRepository();
+      final vm = SalesReceivablesViewmodel(repository: throwing);
 
-    await vm.load();
+      await vm.load();
 
-    expect(vm.loadError, isNotNull);
-    expect(vm.loadError, isNot(contains('FormatException')));
-  });
+      expect(vm.loadError, isNotNull);
+      expect(vm.loadError, isNot(contains('FormatException')));
+    },
+  );
 }
 
 class _ThrowingRepository extends LedgerRepository {
   _ThrowingRepository() : super();
 
   @override
-  Future<List<LedgerEntry>> fetchLedgers() async => throw const FormatException('bad body');
+  Future<List<LedgerEntry>> fetchLedgers() async =>
+      throw const FormatException('bad body');
 }

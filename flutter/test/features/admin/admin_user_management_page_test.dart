@@ -118,9 +118,7 @@ Future<void> _pump(
         home: AdminUserManagementPage(
           viewmodel:
               viewmodel ??
-              AdminUsersViewmodel(
-                users: _StubUsersService(failure: failure),
-              ),
+              AdminUsersViewmodel(users: _StubUsersService(failure: failure)),
         ),
       ),
     ),
@@ -199,10 +197,7 @@ void main() {
     tester,
   ) async {
     final service = _ActionStub();
-    await _pump(
-      tester,
-      viewmodel: AdminUsersViewmodel(users: service),
-    );
+    await _pump(tester, viewmodel: AdminUsersViewmodel(users: service));
 
     await tester.tap(find.text('Deactivate'));
     await tester.pumpAndSettle();

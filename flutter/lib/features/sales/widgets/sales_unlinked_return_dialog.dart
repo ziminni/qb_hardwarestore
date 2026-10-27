@@ -43,8 +43,7 @@ List<_UnitOption> _unitOptions(List<Product> products) => [
       for (final uom in variant.sellingUoms)
         _UnitOption(
           id: uom.id,
-          label:
-              '${product.baseName} ${variant.variantName} (${uom.uomCode})',
+          label: '${product.baseName} ${variant.variantName} (${uom.uomCode})',
           price: uom.defaultSellingPrice,
         ),
 ];
@@ -133,7 +132,8 @@ class _UnlinkedReturnDialogState extends State<UnlinkedReturnDialog> {
     return _lines.fold<double>(
       0,
       (sum, line) =>
-          sum + (prices[line.variantUomId] ?? 0) * (line.qty.isNaN ? 0 : line.qty),
+          sum +
+          (prices[line.variantUomId] ?? 0) * (line.qty.isNaN ? 0 : line.qty),
     );
   }
 
@@ -200,18 +200,16 @@ class _UnlinkedReturnDialogState extends State<UnlinkedReturnDialog> {
                   child: Center(child: CircularProgressIndicator()),
                 )
               : _loadError != null
-                  ? Text(_loadError!)
-                  : _result != null
-                      ? _summary(_result!)
-                      : _form(),
+              ? Text(_loadError!)
+              : _result != null
+              ? _summary(_result!)
+              : _form(),
         ),
       ),
       actions: [
         if (_result == null) ...[
           TextButton(
-            onPressed: _posting
-                ? null
-                : () => Navigator.of(context).pop(),
+            onPressed: _posting ? null : () => Navigator.of(context).pop(),
             child: const Text('Cancel'),
           ),
           FilledButton(
@@ -251,10 +249,7 @@ class _UnlinkedReturnDialogState extends State<UnlinkedReturnDialog> {
             for (final customer in _customers)
               DropdownMenuItem(
                 value: customer.id,
-                child: Text(
-                  customer.name,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                child: Text(customer.name, overflow: TextOverflow.ellipsis),
               ),
           ],
           onChanged: (value) => setState(() => _customerId = value),
@@ -292,10 +287,12 @@ class _UnlinkedReturnDialogState extends State<UnlinkedReturnDialog> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: TextFormField(
-                    initialValue: line.qty
-                        .toStringAsFixed(line.qty == line.qty.round() ? 0 : 2),
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
+                    initialValue: line.qty.toStringAsFixed(
+                      line.qty == line.qty.round() ? 0 : 2,
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     decoration: const InputDecoration(labelText: 'Qty'),
                     onChanged: (value) =>
                         line.qty = double.tryParse(value) ?? 0,
@@ -345,10 +342,7 @@ class _UnlinkedReturnDialogState extends State<UnlinkedReturnDialog> {
           decoration: const InputDecoration(labelText: 'Refund method'),
           items: [
             for (final method in TenderMethod.refundTenders)
-              DropdownMenuItem(
-                value: method,
-                child: Text(method.label),
-              ),
+              DropdownMenuItem(value: method, child: Text(method.label)),
           ],
           onChanged: (value) {
             if (value != null) setState(() => _method = value);

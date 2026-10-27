@@ -8,7 +8,7 @@
 | 2 | Access control & audit — held-cart/transaction scoping, Admin group authority, self-approval guard, alert resolve role, append-only business audit | ✅ [Data scoping](./decisions/02-data-scoping.md), [Admin authority](./decisions/04-admin-authority.md), [Alert resolve](./decisions/06-alert-resolve.md), [Audit depth](./decisions/07-audit-depth.md) | ✅ Done 2026-10-24 — `cc5b702`..`5c0423d`, backend 333/333, flutter 565/565, hygiene fix-pass (1 Critical + 4 Important) + QA live A–J PASS ([plan](./phase-2-plan.md)) |
 | 3 | Cashier — release attaches shift, held-cart close advisory, till Returns tab + debt-first return accounting | ✅ [Release shift](./decisions/03-release-shift.md), [Returns policy](./decisions/05-returns-policy.md) | ✅ Done 2026-10-24 — `2703b7a`..`71ab5fb`, backend 383/383, flutter 694/694, hygiene APPROVED ×2 + API QA A1–A6 PASS + 4 browser E2E rounds (fixed: till payment codes, CORS Idempotency-Key, open-shift dialog, resumed-cart double-sell) ([plan](./phase-3-plan.md)) |
 | 4 | Stock Manager — live product CRUD, low-stock on sale/release + dedup, goods-receipt history, persisted supplier toggle | ✅ (no new decision; follows audit findings) | ✅ Done 2026-10-25 — `f4253b9`..`c17fd30`, backend 456/456, flutter 738/738, hygiene ×2 fix-pass + API QA B1–B6 PASS + browser E2E (fixed: Resolve hidden for every role, mouse-unreachable table actions at 1366px, stale Receiving status) ([plan](./phase-4-plan.md)) |
-| 5 | Store Manager / Admin — user edit/deactivate UI, overdue filter contract, unlinked-return manager screen, dashboard aggregation limits | ✅ [Returns policy](./decisions/05-returns-policy.md) | [ ] Ready to build ([plan](./phase-5-plan.md)) |
+| 5 | Store Manager / Admin — user edit/deactivate UI, overdue filter contract, unlinked-return manager screen, dashboard aggregation limits | ✅ [Returns policy](./decisions/05-returns-policy.md) | ✅ Done 2026-10-26 — `e8443bf`..`a706073`+format, backend 468/468, flutter 769/769, hygiene self-review + API live probes PASS ([plan](./phase-5-plan.md)) |
 | 6 | Barcode / QR — unique per-UOM codes, server lookup, label generation/print, POS scan hardening | ⛔ Fog — [Barcode concept](./decisions/10-barcode-concept.md) to be grilled at phase start | [ ] Pending |
 
 ## Destination
@@ -40,7 +40,7 @@ Every P0/P1 finding in the 2026-10-23 audit (`temp/audit/pos_inventory_system/ve
 
 ## Active Frontier
 
-_(empty — Phases 1–4 built; Phase 5 ready to build)_
+_(empty — Phases 1–5 built; Phase 6 ready to grill)_
 
 ## Blocked
 
