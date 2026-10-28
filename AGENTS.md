@@ -47,7 +47,7 @@ the same commit that breaks it.
 - **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
   the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
   Notes & Invariants says so; do not treat the old rule as binding.
-- **Last session:** `docs/sessions/2026-10-26-audit-remediation-phase-5.md` — Phase 5 Store Manager / Admin built inline (no subagents). **Gate:** backend **468/468** (`manage.py test --noinput`), flutter **769/769**, analyze clean, API live probes PASS.
+- **Last session:** `docs/sessions/2026-10-28-system-atlas-refresh.md` — fresh Phase 5 gates re-verified in-message + atlas pair refreshed to 34 live/1 partial/0 mock/2 dead. **Gate:** backend **468/468** (`docker exec buildpro_backend python manage.py test`), flutter **769/769**, analyze clean.
   **Next:** `git push` (user); then grill Phase 6 ([Barcode concept](planning/audit-remediation/decisions/10-barcode-concept.md)).
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
