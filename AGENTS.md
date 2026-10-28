@@ -28,12 +28,9 @@ the same commit that breaks it.
 - **Active branch:** `feature/backend-integration` — **pushed, in sync with `origin/`.** For how far ahead
   of `origin/master` it is run `git rev-list --count origin/master..HEAD`; a count written here stales on
   the next commit.
-- **Active Wayfinder map: `planning/audit-remediation/MAP.md`** — audit gap remediation, 9 decisions locked, **Phases 1–5 BUILT (2026-10-26)**, Phase 6 Barcode/QR in Fog. Prior maps (cashier, stocker, sales-manager, admin) complete.
+- **Active Wayfinder map: `planning/audit-remediation/MAP.md`** — audit gap remediation, 17 decisions locked, **Phases 1–5 BUILT**, Phase 6 Barcode labels & scanning **grilled 2026-10-28, ready to build** ([plan](planning/audit-remediation/phase-6-plan.md)). Prior maps (cashier, stocker, sales-manager, admin) complete.
 - **Phase state is NOT stated here** — it is owned by the phase table in the active map, per-row and with
   evidence. Read that table; a copy here would be a second home, and this file's own rule forbids one.
-- **Phase 6 is built and pushed.** 6A.1–6A.4, 6B (reports + receiving), 6C (live sales screens + review
-  fix pass), decision 19 (receivables Record payment), the seed reclassification, and the 6D live
-  end-to-end pass are done. **No build phase remains on this map.**
 - **Seed reclassification: BUILT 2026-10-20** (commit `5f1c52a`). The underpaid demo sale now
   posts to Maria Santos; Walk-in OPEN ledgers are zero.
 - **Inventory dashboard: BUILT 2026-10-20** (`cff80c1` + ranked-queue fix `9e18505`; 4 dashboard
@@ -44,16 +41,17 @@ the same commit that breaks it.
   (`9e15cd2` + fix pass `89ffb56`); orphan `pos_dashboard`/`sales_dashboard` views, their content
   widgets, `dashboard_mock_data.dart`, and the 7 orphaned pos/sales atomic widgets are deleted
   (zero consumers). The mock-purge epic is complete.
-- **THE INVARIANT IS SUPERSEDED.** "No new endpoints, no model or migration changes" held exactly across
-  the whole branch and Phase 6 breaks it deliberately — three decisions added backend work. The map's
-  Notes & Invariants says so; do not treat the old rule as binding.
-- **Last session:** `docs/sessions/2026-10-28-system-atlas-refresh.md` — fresh Phase 5 gates re-verified in-message + atlas pair refreshed to 34 live/1 partial/0 mock/2 dead. **Gate:** backend **468/468** (`docker exec buildpro_backend python manage.py test`), flutter **769/769**, analyze clean.
-  **Next:** `git push` (user); then grill Phase 6 ([Barcode concept](planning/audit-remediation/decisions/10-barcode-concept.md)).
+- **THE INVARIANT IS SUPERSEDED.** The old "no new endpoints, no model or migration changes" rule is
+  not binding; audit-remediation phases add backend work deliberately (Phase 6 adds a `VariantUOM`
+  constraint + backfill migration and a `?barcode=` filter).
+- **Last session:** `docs/sessions/2026-10-28-phase-6-wayfinder.md` — admin sales-chart red-screen fixed (`b5cfc33`) + Phase 6 grilled (8 decisions, plan written). **Gate:** backend **468/468** (`docker exec buildpro_backend python manage.py test`), flutter **771/771**, analyze clean.
+  **Next:** `git push` (user); then BUILD Phase 6 starting with Task 0 printing spike ([plan](planning/audit-remediation/phase-6-plan.md)).
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message
   is unverified.**
-- **Standing caveat:** `flutter run` has **never** been executed against the live backend. Contracts are
-  probed over HTTP; the pixels are unverified.
+- **Standing caveat:** `flutter run -d linux` is now used by the user against the live backend (it
+  surfaced the admin chart crash 2026-10-28); agent-side verification is still HTTP probes + widget
+  tests + headless web E2E, so desktop pixels are user-verified only.
 - **`.superpowers/` is gitignored**, so the execution ledger's 82 ruled entries live only on this machine
   — which is why the plan workspace was NOT deleted.

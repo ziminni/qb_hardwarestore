@@ -1,6 +1,6 @@
 # Barcode / QR Concept (Fog — grill at Phase 6 start)
 
-**Status:** Concept only. Not locked.
+**Status:** Concept background. Split 2026-10-28 into [Barcode baseline](./11-barcode-baseline.md) (locked), [Code source & format](./12-code-source-format.md), [Scan resolution](./13-scan-resolution.md), [Label printing](./14-label-printing.md), [Camera scanning](./15-camera-scan.md).
 
 ## How it works
 - **Identity lives on the selling unit:** `VariantUOM.barcode_qr`. "Nail / pc" and "Nail / box of 100" carry different codes, so one scan = product + unit + conversion factor (Phase 1 makes the server convert).
