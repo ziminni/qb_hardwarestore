@@ -13,6 +13,10 @@ class AdminSalesChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final maximum = values.reduce((a, b) => a > b ? a : b);
+    // A zero-gross week makes maximum 0 (0/0 = NaN) and a refund-heavy day
+    // goes negative — both violate FractionallySizedBox's heightFactor >= 0
+    // and red-screen the tab. Zero range renders flat; negatives clamp to it.
+    final double range = maximum <= 0 ? 1.0 : maximum;
     return SizedBox(
       height: 280,
       child: Row(
@@ -28,7 +32,7 @@ class AdminSalesChart extends StatelessWidget {
                     child: Align(
                       alignment: Alignment.bottomCenter,
                       child: FractionallySizedBox(
-                        heightFactor: values[index] / maximum,
+                        heightFactor: (values[index] / range).clamp(0.0, 1.0),
                         child: const ColoredBox(color: Colors.black26),
                       ),
                     ),

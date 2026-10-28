@@ -103,6 +103,46 @@ void _sizeUp(WidgetTester tester) {
 }
 
 void main() {
+  group('AdminSalesChart', () {
+    testWidgets('an all-zero week renders flat bars instead of red-screening', (
+      tester,
+    ) async {
+      _sizeUp(tester);
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: AdminSalesChart(
+              values: [0.0, 0.0, 0.0],
+              labels: ['a', 'b', 'c'],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byType(AdminSalesChart), findsOneWidget);
+    });
+
+    testWidgets('a refund-heavy negative day clamps instead of red-screening', (
+      tester,
+    ) async {
+      _sizeUp(tester);
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: AdminSalesChart(
+              values: [1000.0, -200.0],
+              labels: ['a', 'b'],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byType(AdminSalesChart), findsOneWidget);
+    });
+  });
+
   group('SalesMonitoringPage', () {
     testWidgets('it renders a loading state before the data lands', (
       tester,
