@@ -130,10 +130,7 @@ void main() {
       await tester.pumpWidget(
         const MaterialApp(
           home: Scaffold(
-            body: AdminSalesChart(
-              values: [1000.0, -200.0],
-              labels: ['a', 'b'],
-            ),
+            body: AdminSalesChart(values: [1000.0, -200.0], labels: ['a', 'b']),
           ),
         ),
       );
