@@ -35,7 +35,7 @@
       <div>
         <h1 class="text-2xl font-bold tracking-tight text-white">System Atlas — BuildPro POS / Inventory</h1>
         <p class="text-sm text-slate-400 mt-1">
-          Reverse-engineered from source · branch <span class="mdcode">feature/backend-integration</span> · refreshed 2026-10-24 (audit-remediation Phase 1: server price/UOM authority, Idempotency-Key, locked numbering, receipt-line batching)
+          Reverse-engineered from source · branch <span class="mdcode">feature/backend-integration</span> · refreshed 2026-10-26 (audit-remediation Phases 2–5: Admin-group authority, debt-first returns, catalog persistence, Store Manager user-write + unlinked returns + server-summary tiles)
         </p>
         <div class="flex flex-wrap gap-2 mt-3 text-xs">
           <span class="px-2 py-1 rounded bg-sky-500/10 text-sky-300 border border-sky-500/30">Django 5.2 LTS</span>
@@ -60,31 +60,31 @@
     <div class="card rounded-xl p-5">
       <div class="text-3xl font-bold text-white">10</div>
       <div class="text-sm text-slate-400 mt-1">Frontend Modules</div>
-      <div class="text-xs text-slate-500 mt-1">36 routes · 17 viewmodels · 15 ApiClient services</div>
+      <div class="text-xs text-slate-500 mt-1">37 routes · 18 viewmodels · 17 ApiClient services</div>
     </div>
     <div class="card rounded-xl p-5 border-l-4 border-l-emerald-500">
-      <div class="text-3xl font-bold text-emerald-400">32<span class="text-lg text-slate-500"> / 37</span></div>
+      <div class="text-3xl font-bold text-emerald-400">34<span class="text-lg text-slate-500"> / 37</span></div>
       <div class="text-sm text-slate-400 mt-1">🟢 Live &amp; API-wired</div>
-      <div class="text-xs text-slate-500 mt-1">zero mock rows — only 2 partial (movements, categories)</div>
+      <div class="text-xs text-slate-500 mt-1">zero mock rows — only 1 partial (movements)</div>
     </div>
     <div class="card rounded-xl p-5 border-l-4 border-l-rose-500">
-      <div class="text-3xl font-bold text-rose-400">2<span class="text-lg text-slate-500"> / 37</span></div>
+      <div class="text-3xl font-bold text-rose-400">1<span class="text-lg text-slate-500"> / 37</span></div>
       <div class="text-sm text-slate-400 mt-1">🟡 Partial or ⚫ dead</div>
-      <div class="text-xs text-slate-500 mt-1">partial: movements, categories · dead: brands/uoms, payments/receipts, projects</div>
+      <div class="text-xs text-slate-500 mt-1">partial: movements · dead: payments/receipts, projects</div>
     </div>
     <div class="card rounded-xl p-5 border-l-4 border-l-amber-500">
       <div class="text-3xl font-bold text-amber-400">6</div>
       <div class="text-sm text-slate-400 mt-1">⚠️ Vibe-Debt Hotspots</div>
-      <div class="text-xs text-slate-500 mt-1">8 uncalled endpoints · 2 duplications · 1 unused key path · 1 overflow</div>
+      <div class="text-xs text-slate-500 mt-1">5 uncalled endpoints · 2 duplications · 1 wide-screen overflow</div>
     </div>
   </div>
   <div class="card rounded-xl mt-4 px-5 py-3 text-xs text-slate-400 flex flex-wrap gap-x-8 gap-y-1">
     <span>Backend: <strong class="text-slate-200">6 apps</strong></span>
     <span><strong class="text-slate-200">35</strong> models</span>
-    <span><strong class="text-slate-200">44</strong> backend routes</span>
+    <span><strong class="text-slate-200">27</strong> router paths</span>
     <span><strong class="text-slate-200">4</strong> report paths</span>
     <span><strong class="text-slate-200">5</strong> auth routes</span>
-    <span class="text-rose-300">8 of 44 endpoints unreachable from the client</span>
+    <span class="text-rose-300">5 endpoints unreachable from the client (receipts, payments, req-items, tokens list, projects)</span>
   </div>
 </section>
 
@@ -102,20 +102,20 @@
 
 <section data-panel="architecture">
   <h2 class="text-lg font-semibold text-white mb-1">Container architecture</h2>
-  <p class="text-sm text-slate-400 mb-4">Two processes, one database. The API owns all business logic and since Phase 1 is the trust boundary: server prices, selling-unit conversion, payload validation, locked document numbering and idempotent checkout. Every screen reads live data except two static settings screens.</p>
+  <p class="text-sm text-slate-400 mb-4">Two processes, one database. The API owns all business logic and is the trust boundary: server prices, selling-unit conversion, payload validation, locked document numbering, idempotent checkout (P1); Admin-group authority + cashier scoping (P2); shift-gated debt-first returns (P3); persisted catalog + append-only records (P4); Store Manager user-write + manager unlinked returns (P5). Every screen reads live data except two static settings screens.</p>
   <div class="card rounded-xl p-6 overflow-x-auto">
 <pre class="mermaid">
 flowchart LR
   subgraph Client["Flutter client - flutter/"]
-    UI["36 routes in features/views"]
-    VM["17 viewmodels"]
+    UI["37 routes in features/views"]
+    VM["18 viewmodels"]
     NET["api_client.dart - Dio + JWT refresh + Idempotency-Key"]
     SEC["TokenStore seam - secure / prefs-per-platform"]
     UI --&gt; VM --&gt; NET
     NET -. tokens .-&gt; SEC
   end
   subgraph Server["Django REST - backend_django/"]
-    URLS["config/urls.py - /api/v1/ (no new routes in Phase 1)"]
+    URLS["config/urls.py - /api/v1/ (27 router paths)"]
     APPS["6 apps - users inventory pos collectibles requisitions reports"]
     SVC["services.py - process_sale, process_return, next_number, replayed_transaction"]
     URLS --&gt; APPS --&gt; SVC
@@ -200,7 +200,7 @@ erDiagram
 
 <section data-panel="matrix" class="hidden">
   <h2 class="text-lg font-semibold text-white mb-1">The Truth Matrix</h2>
-  <p class="text-sm text-slate-400 mb-4">What the UI actually does versus what the backend offers. 37 rows, verified 2026-10-24.</p>
+  <p class="text-sm text-slate-400 mb-4">What the UI actually does versus what the backend offers. 37 rows, verified 2026-10-26.</p>
 
   <div class="flex flex-wrap items-center gap-2 mb-4">
     <button class="pill on px-3 py-1.5 rounded-full text-xs font-medium" data-filter="all">All <span class="opacity-70" id="c-all"></span></button>
@@ -302,21 +302,21 @@ const MATRIX = [
   { f:'Low stock', ui:'inventory/views/inventory_low_stock_page.dart', vm:'inventory_viewmodel', ep:'GET /alerts/', s:'live', n:'Reads the server alerts, no longer derived in-client.' },
   { f:'Stock movements', ui:'inventory/views/inventory_stock_movements_page.dart', vm:'inventory_viewmodel', ep:'GET /adjustments/', s:'partial', n:'Movement history is the server adjustments. Previous/New/Reference show a dash — the API carries a delta, not a before/after pair. Sale and opening-stock rows stay local.' },
   { f:'Products', ui:'products/views/products_page.dart', vm:'products/viewmodels/products_viewmodel.dart', ep:'GET /products/ + /batches/', s:'live', n:'Round trip #2. Loads into the ONE product store.' },
-  { f:'Categories', ui:'categories/views/categories_page.dart', vm:'inventory_viewmodel (mock-seeded; archive local)', ep:'— (endpoint exists, uncalled)', s:'partial', n:'Category list is mock-seeded; archiving is local-only.' },
+  { f:'Categories', ui:'categories/views/categories_page.dart', vm:'CategoriesViewModel (live CRUD + archive/restore)', ep:'GET/POST/PATCH /categories/', s:'live', n:'Live since Phase 4: create, rename, archive, restore all hit the server and reload.' },
   { f:'Suppliers', ui:'suppliers/views/suppliers_page.dart', vm:'suppliers_purchases_viewmodel → SupplierRepository', ep:'GET /suppliers/', s:'live', n:'Live read-only since admin D-02.' },
   { f:'Purchases / PO', ui:'suppliers/views/purchases_page.dart', vm:'suppliers_purchases_viewmodel → SupplierRepository', ep:'GET /purchase-orders/', s:'live', n:'Live read-only since admin D-02; supplier name joined from loaded suppliers.' },
   { f:'POS transaction', ui:'pos/views/pos_transaction_page.dart', vm:'pos/viewmodels/pos_transaction_viewmodel.dart', ep:'POST /transactions/ + Idempotency-Key', s:'live', n:'Phase 1: attempt-scoped key per payment try, reused on retry, dropped on cart change; receipt renders SERVER lines/prices. Server validates (400 INVALID_SALE), prices from the catalogue, converts qty × conversion_factor, blocks over-limit credit and WALK_IN shortfall.' },
-  { f:'Sales dashboard', ui:'sales/views/sales_dashboard_page.dart', vm:'sales/viewmodels/inventory_sales_viewmodel.dart', ep:'GET /transactions/', s:'live', n:'Revenue nets refunds (netRevenue).' },
+  { f:'Sales dashboard', ui:'sales/views/sales_dashboard_page.dart', vm:'inventory_sales_viewmodel (loadSummary → server tiles, client fold fallback)', ep:'GET /reports/sales-summary/', s:'live', n:'Phase 5: tiles read server totals (Last 30 days vs Loaded transactions caption); rows and tiles fail independently.' },
   { f:'Sales transactions', ui:'sales/views/sales_transactions_page.dart', vm:'inventory_sales_viewmodel', ep:'GET /transactions/', s:'live', n:'Loads on open with banner + retry.' },
-  { f:'Sales returns', ui:'sales/views/sales_returns_page.dart', vm:'inventory_sales_viewmodel', ep:'GET /transactions/?source=RETURN', s:'live', n:'VOID reads rejected, COMPLETED/REFUNDED read completed.' },
+  { f:'Sales returns', ui:'sales/views/sales_returns_page.dart', vm:'inventory_sales_viewmodel + sales_unlinked_return_dialog', ep:'GET /transactions/?source=RETURN + POST linked/unlinked', s:'live', n:'Phase 5: Store Manager/Admin Unlinked return button (reason + open shift required); cashiers get UNLINKED_RETURN_FORBIDDEN.' },
   { f:'Sales reports', ui:'sales/views/sales_reports_page.dart (sales shell)', vm:'shared ReportsContent', ep:'GET /reports/*', s:'live', n:'Live since sales-manager Phase 1: wraps shared content in the sales shell at /sales/reports.' },
   { f:'Quotations', ui:'sales/views/sales_quotations_page.dart', vm:'sales/viewmodels/sales_module_viewmodel.dart', ep:'GET /quotations/', s:'live', n:'Read-only View sheets with nested items.' },
   { f:'Sales orders', ui:'sales/views/sales_orders_page.dart', vm:'sales_module_viewmodel', ep:'GET /sales-orders/', s:'live', n:'Read-only View sheets with nested items.' },
-  { f:'Receivables / utang', ui:'sales/views/sales_receivables_page.dart', vm:'sales/viewmodels/sales_receivables_viewmodel.dart', ep:'GET /ledgers/ + /ledgers/aging/ + POST /ledger-payments/', s:'live', n:'Reads live ledgers with pagination; Record payment moves balance_due, flips PAID at zero.' },
+  { f:'Receivables / utang', ui:'sales/views/sales_receivables_page.dart', vm:'sales_receivables_viewmodel (status chips + recordPayment + double-tap guard)', ep:'GET /ledgers/ + POST /ledger-payments/', s:'live', n:'Phase 5: All/Current/DueSoon/Overdue chips narrow rows via statusAt (same source as tiles); zero/over-amount refused client-side; failed load keeps shown rows.' },
   { f:'Inventory sales', ui:'sales/views/inventory_sales_page.dart', vm:'inventory_sales_viewmodel', ep:'GET /transactions/', s:'live', n:'Live since 6C.' },
   { f:'Inventory returns', ui:'sales/views/inventory_returns_page.dart', vm:'inventory_sales_viewmodel', ep:'GET /transactions/?source=RETURN', s:'live', n:'Read-only (D-02); returns entry UI is Phase 3 scope.' },
   { f:'Inventory reports', ui:'inventory/views/inventory_reports_page.dart', vm:'static manager-access banner', ep:'— (read-only scope, D-02)', s:'live', n:'Static banner, not mock data: stocker sees access message, no Valuation/Movements tabs.' },
-  { f:'Admin users', ui:'admin/views/admin_user_management_page.dart', vm:'admin/viewmodels/admin_users_viewmodel.dart', ep:'GET /users/ + /users/stats/ + POST /auth/register/', s:'live', n:'Live staff, server search, client filters, create with mandatory group. Null role fails loudly into loadError.' },
+  { f:'Admin users', ui:'admin/views/admin_user_management_page.dart', vm:'admin_users_viewmodel (deactivate/reactivate + role change; Create admin-only)', ep:'GET /users/ + /users/stats/ + PATCH + /assign_role/', s:'live', n:'Phase 5: Store Manager admitted; USER_ADMIN_FORBIDDEN + LAST_ADMIN guardrails surfaced as banners. Null role fails loudly into loadError.' },
   { f:'Admin audit logs', ui:'admin/views/audit_logs_page.dart', vm:'audit_log_repository → GET /audit-logs/?page=', ep:'GET /audit-logs/', s:'live', n:'Live paginated list, latest-first, load-on-open with error banner + retry. No filter (D-01).' },
   { f:'Admin requisitions (approve/reject queue)', ui:'admin/views/requisitions_page.dart', vm:'admin/viewmodels/admin_requisitions_viewmodel.dart', ep:'GET /requisitions/ + approve/ + reject/', s:'live', n:'Only SUBMITTED rows get a button — the server refuses illegal transitions, so the client must not offer what the server will reject.' },
   { f:'Admin reports', ui:'admin/views/reports_page.dart', vm:'admin/viewmodels/admin_reports_viewmodel.dart', ep:'GET /reports/* (sales-summary + valuation + movements + requisition-history)', s:'live', n:'Four tabs, lazy per-tab load, per-tab errors. Open to sales role.' },
@@ -325,7 +325,7 @@ const MATRIX = [
   { f:'Requisition token flow (release counter)', ui:'pos/views/material_release_page.dart', vm:'pos/viewmodels/material_release_viewmodel.dart', ep:'/tokens/verify/ + /tokens/release/', s:'live', n:'Reachable via posNavigation tab 2 → /pos/release. FIFO-deducts real stock, writes a SalesTransaction, always leaves a receivable. Phase 1: refuses NO_BASE_UOM before any write.' },
   { f:'Collectibles writes (Record payment)', ui:'sales/views/sales_receivables_page.dart', vm:'sales_receivables_viewmodel', ep:'POST /ledger-payments/', s:'live', n:'201 moves balance_due; ledger flips PAID at zero.' },
   { f:'Goods receipts (receiving)', ui:'inventory/views/inventory_receiving_page.dart', vm:'receiving_viewmodel', ep:'GET /purchase-orders/ + POST /goods-receipts/ + POST /:id/process/', s:'live', n:'Phase 1: each receipt batches ONLY its own GoodsReceiptItem lines (split deliveries no longer overcount); re-process refused via processed_at lock; over-order capped.' },
-  { f:'Brands / UOMs / variant-UOMs', ui:'— no UI', vm:'—', ep:'/brands/ · /uoms/ · /variant-uoms/', s:'dead', n:'' },
+  { f:'Brands / UOMs / variants / variant-UOMs', ui:'product add + category/brand dialogs', vm:'catalogue_service + products_service', ep:'/brands/ · /uoms/ · /variants/ · /variant-uoms/', s:'live', n:'Live since Phase 4: product add chains product → variant → variant-uom; dialogs resolve brand/uom names.' },
   { f:'Payments / receipts', ui:'— no UI', vm:'—', ep:'/payments/ · /receipts/', s:'dead', n:'' },
   { f:'Project entity', ui:'— no UI', vm:'—', ep:'/projects/', s:'dead', n:'Used by the CPMS integration contract.' },
   { f:'POS held transactions', ui:'pos/views/pos_held_transactions_page.dart', vm:'pos/viewmodels/held_cart_viewmodel.dart', ep:'GET /held-carts/ + hold/complete/void', s:'live', n:'Park a sale mid-ring, resume into the till. Walk-in carts resolve to the Walk-in Customer. Complete accepts Idempotency-Key (replay returns 200, not 404).' },
@@ -333,11 +333,11 @@ const MATRIX = [
 ];
 
 const FLOW = [
-  { k:'UI', body:'36 routes under `features/*/views/`, each reading its viewmodel via Provider. Every screen reads live API data except two static settings screens and two static-scope banners.' },
-  { k:'ViewModel', body:'17 viewmodels across 10 features. `PosTransactionViewmodel` and `ProductsViewmodel` are absent from `main.dart` **by design** (decision 11) — screen-scoped, provided by their own pages. `PosTransactionViewmodel` owns the checkout attempt key: minted per payment try, reused on retry, dropped on success or cart/customer change.' },
+  { k:'UI', body:'37 routes under `features/*/views/`, each reading its viewmodel via Provider. Every screen reads live API data except two static settings screens and two static-scope banners.' },
+  { k:'ViewModel', body:'18 viewmodels across 10 features. `PosTransactionViewmodel` and `ProductsViewmodel` are absent from `main.dart` **by design** (decision 11) — screen-scoped, provided by their own pages. `PosTransactionViewmodel` owns the checkout attempt key: minted per payment try, reused on retry, dropped on success or cart/customer change.' },
   { k:'ApiClient', body:'`core/network/api_client.dart` (~180 L) — Dio instance, base URL from `api_config.dart`, JWT in `flutter_secure_storage`, single refresh-on-401 retry, optional per-request `headers` for `Idempotency-Key`. The *only* egress point. `init()` is **not idempotent**.' },
   { k:'paged.dart', body:'`core/network/paged.dart` — unwraps `{count,next,previous,results}` in exactly one place (decision 03). `hasMore` comes from the `next` link, NOT the row count.' },
-  { k:'Django routing', body:'`config/urls.py` mounts 6 apps under `/api/v1/` plus `/api/health/` — 44 backend routes. The client calls 34 paths; 36 `GoRoute`s exist client-side with role gates (`redirectFor`: admin-only overview, sales admitted to reports + requisitions, inventory fence on stock screens).' },
+  { k:'Django routing', body:'`config/urls.py` mounts 6 apps under `/api/v1/` plus `/api/health/` — 27 router paths. The client references 37 paths; 37 `GoRoute`s exist client-side with role gates (`redirectFor`: admin-only overview/audit/settings, sales admitted to users + reports + requisitions, inventory fence on stock screens).' },
   { k:'ViewSet / Serializer', body:'DRF ModelViewSets with per-role permission classes. Nested sale items/payments are read-only on the serializer — the views pass raw arrays to the service, which validates. The **service layer** defines the true contract, not the docs.' },
   { k:'services.py', body:'The real logic: `process_sale` (validate → shift gate → server price → qty × CF → FIFO → payments → receipt → credit-limit), `process_return`, `next_number` (locked counter), `replayed_transaction` (200 replay / 409 conflict), `process_goods_receipt` (own-lines batching), `release_materials` (NO_BASE_UOM guard). **All of it is exercised by the client** plus RED-first backend tests.' }
 ];
@@ -364,7 +364,7 @@ const MODELMAP = [
   { be:'CollectibleLedger', ep:'GET /api/v1/ledgers/ + POST /ledger-payments/', fe:'data/models/ledger_entry.dart', v:'ok',
     d:'Reads live with pagination followed; Record payment POSTs move `balance_due` and flip PAID at zero.' },
   { be:'User (+ role)', ep:'GET /api/v1/users/ + POST /auth/register/', fe:'data/models/user.dart', v:'ok',
-    d:'`role` object required — a groupless row throws `FormatException` at the boundary into loadError. Register mandates `group_name`; the group list matches the backend validator. NOTE: user/audit APIs still gate on `is_staff` — Phase 2 switches to the Admin group.' }
+    d:'`role` object required — a groupless row throws `FormatException` at the boundary into loadError. Register mandates `group_name`. Authority: Admin group (`IsAdminRole`); Store Manager writes via `IsUserManagerRole` with `USER_ADMIN_FORBIDDEN` guardrails on admin accounts (Phase 5).' },
 ];
 
 const DEBT = [
@@ -372,23 +372,23 @@ const DEBT = [
     { k:'sales_module_viewmodel vs inventory_sales_viewmodel', v:'**Split by concern since 6C**, sharing `sale_transaction.dart` wire models: module VM owns quotations/orders, inventory VM owns transactions/returns. Not two stacks — one transport, two owners.' },
     { k:'core/layout/{admin,inventory,sales}_skeleton_layout.dart', v:'Three near-clone shells; diff is mostly nav labels. Still duplicated — owned by cleanup plan 04, not a phase.' },
     { k:'Singular widget dirs (kept)', v:'`features/dashboard/widget/` and `features/auth/widget/` stay singular; the other 8 features use `widgets/`. Cosmetic; renaming churns imports for nothing.' },
-    { k:'inventory_mock_data.dart (seed, not mock)', v:'Constructor seed only — first paint is never empty; products/batches replaced on `load()`. Categories stay seeded, matching the 🟡 row. Deleting it would trade a deliberate loading state for an empty flash.' }
+    { k:'✅ RESOLVED: inventory_mock_data.dart deleted (Phase 4)', v:'The 907-line seed is gone — `InventoryViewmodel` loads all lists from the server with an honest loading state. Zero mock files remain in `lib/`.' }
   ]},
   { title:'Wiring gaps & naming', tone:'amber', items:[
     { k:'✅ RESOLVED: 2 "unwired" viewmodels', v:'`PosTransactionViewmodel` and `ProductsViewmodel` are absent from `main.dart` — and that is **correct**, not a gap (decision 11). Both are screen-scoped view state, provided by their own pages.' },
-    { k:'HeldCartService.complete idempotency key has no production caller', v:'Resume sells via `POST /transactions/`; the key path on complete is contract-only, covered by tests. Wire it if held-cart completion ever bypasses the till.' },
-    { k:'IsAdminUser vs Admin group (Phase 2 scope)', v:'`users/views.py:26,88,167` gate on `is_staff` while the app gates on the Admin group — a group-only admin gets 403. Decision 04 switches to `IsAdminRole`; `is_staff` stays for Django /admin only.' },
+    { k:'✅ RESOLVED: HeldCartService.complete has production callers', v:'`held_cart_viewmodel:156` and `pos_transaction_viewmodel:680` — the `idempotencyKey` path is live, not contract-only.' },
+    { k:'✅ RESOLVED: IsAdminUser vs Admin group (Phase 2)', v:'User/audit APIs gate on the Admin group via `IsAdminRole`; `is_staff` remains for Django /admin only. Phase 5 added `IsUserManagerRole` for Store Manager user-write.' },
     { k:'Misleading filename', v:'`data/models/inventory.dart` is actually the StockAdjustment shape, not stock/batch.' },
-    { k:'⚠️ Products toolbar overflow', v:'`A RenderFlex overflowed by 9.7 pixels` from `products/widgets/products_toolbar.dart:113` and `products_catalog_overview.dart:156`, visible at ~1600px widths. Found while testing Phase 1; UI work outside that phase.' }
+    { k:'⚠️ Products toolbar overflow', v:'`isExpanded: true` + ellipsis shipped for all dropdowns (`42b6f77`); clean at 1024/1280/1366px. Residual risk only at ~1600px+ ultra-wide widths.' }
   ]},
   { title:'Disconnected endpoints', tone:'sky', items:[
-    { k:'8 of 44 endpoints unreachable', v:'Client calls 34 paths (count-verified 2026-10-24). Uncalled: brands, uoms, receipts, payments, req-items, tokens (list), projects, categories (names arrive nested in products). No screen needs them today.' },
+    { k:'5 endpoints unreachable', v:'Client references 37 paths (count-verified 2026-10-26). Uncalled: receipts, payments, req-items, tokens (list), projects. No screen needs them today.' },
     { k:'Lost integration code — superseded', v:'Commit `22c7c26` added an early `pos_service.dart`; merge `27a853e` dropped it. The staged model swap has since delivered this properly. Read the old file as a REFERENCE only.' }
   ]},
   { title:'Critical business logic (backend)', tone:'violet', items:[
     { k:'apps/pos/services.py process_sale', v:'Validate → shift gate → server price → qty × CF → FIFO → payments → receipt → ledger/credit-limit. Exercised by the POS checkout; RED-first tests in `tests_sale_integrity.py`.' },
     { k:'apps/pos/services.py next_number + replayed_transaction', v:'Locked counter (gaps fine, dupes impossible); same key+hash → 200 replay, same key+different body → 409, hash scoped per endpoint/cart. Tests in `tests_idempotency.py`.' },
-    { k:'apps/pos/services.py process_return', v:'Linked returns capped by negative deduction rows; restock at original batches × CF. Unlinked returns are Phase 3 policy scope.' },
+    { k:'apps/pos/services.py process_return', v:'Linked returns capped by negative deduction rows; restock at original batches × CF. Phase 3: debt-first refunds (`RETURN_CREDIT`); Phase 5: manager-only unlinked returns with required reason + open shift.' },
     { k:'apps/inventory/services.py process_goods_receipt', v:'Batches only the receipt\u2019s own lines; legacy delta path; `processed_at` lock. Split-delivery tests in `tests_goods_receipt_api.py`.' },
     { k:'apps/requisitions/services.py release_materials', v:'NO_BASE_UOM guard before any write; release deducts BASE units (never re-multiply); token stays spendable on refusal.' },
     { k:'apps/collectibles/models.py', v:'Utang ledger with payment rollup. Exercised by receivables + Record payment.' }
@@ -397,7 +397,7 @@ const DEBT = [
 
 const STUDY = [
   { id:'s1', t:'flutter/lib/main.dart', l:'~90 L — whole file', w:'Bootstrap and the `MultiProvider` list. Six providers — and knowing **why** the other two are deliberately absent (decision 11) is what stops someone re-adding them.', p:'/skill:codebase-xray Walk me through flutter/lib/main.dart line by line: the startup sequence, window_manager setup, and exactly which viewmodels are registered in MultiProvider — and why the other two must NOT be.' },
-  { id:'s2', t:'flutter/lib/routes/routes.dart', l:'~430 L — `redirectFor`, role map, 36 routes', w:'Single source of truth for navigation. `redirectFor` is PURE so the routing rules are testable without rendering. Role gates: admin-only overview, sales admitted to `/admin/reports` + `/admin/requisitions`, inventory fence on stock screens. Cashier added `/pos/history`, `/pos/receivables`, `/pos/held`, `/pos/shifts`; stocker added returns/reports/settings; sales-manager added `/sales/reports`.', p:'/skill:codebase-xray Walk me through flutter/lib/routes/routes.dart: the redirect/role map, all 36 routes, and how the inventory, sales and admin guards work.' },
+  { id:'s2', t:'flutter/lib/routes/routes.dart', l:'~430 L — `redirectFor`, role map, 37 routes', w:'Single source of truth for navigation. `redirectFor` is PURE so the routing rules are testable without rendering. Role gates: admin-only overview/audit/settings, sales (Store Manager) admitted to `/admin/users` + `/admin/reports` + `/admin/requisitions`, inventory fence on stock screens.', p:'/skill:codebase-xray Walk me through flutter/lib/routes/routes.dart: the redirect/role map, all 37 routes, and how the inventory, sales and admin guards work.' },
   { id:'s3', t:'flutter/lib/core/network/api_client.dart', l:'~180 L — init, interceptors, get/post/getList + headers', w:'The only network layer: Dio setup, JWT persistence, single refresh-on-401 retry, per-request `headers` for the `Idempotency-Key`. Note `init()` is **not idempotent** — `dio` is `late final`.', p:'/skill:codebase-xray Walk me through flutter/lib/core/network/api_client.dart: base URL resolution, token storage, the 401 refresh interceptor, the headers passthrough, and failure modes.' },
   { id:'s4', t:'flutter/lib/core/network/paged.dart', l:'~70 L — whole file', w:'Unwraps the DRF `{count,next,previous,results}` envelope in exactly one place (decision 03). `hasMore` comes from the `next` link, NOT the row count — the exact bug a review caught.', p:'/skill:codebase-xray Walk me through flutter/lib/core/network/paged.dart: the Paged type, parsePaged strictness, and why hasMore is derived from the next link rather than the row count.' },
   { id:'s5', t:'flutter/lib/features/inventory/viewmodels/inventory_viewmodel.dart', l:'~250 L — load, isLoading/loadError/hasLoaded, batchesFor, stockOnHandFor', w:'The product list\u2019s ONLY home, and so the hinge of the whole integration: loading it lights up products, inventory AND POS at once. `load()` mutates in place (`_products`/`_batches` are `final List`) and on failure KEEPS the catalogue rather than emptying it.', p:'/skill:codebase-xray Walk me through InventoryViewmodel: the constructor, why products and batches are the single store, how load() replaces them in place, and the failure path that deliberately leaves the catalogue intact.' },
@@ -406,7 +406,7 @@ const STUDY = [
   { id:'s8', t:'flutter/lib/data/services/pos_service.dart + backend_django/apps/pos/services.py', l:'checkout(idempotencyKey) + _failureFor; then process_sale, next_number, replayed_transaction', w:'**The money path (Phase 1).** The client sends a VariantUOM id + selling qty + attempt key; the SERVER validates, prices, converts (qty × CF), locks the document counter and de-dupes retries. The receipt renders **server** lines. New codes: `INVALID_SALE`, `CREDIT_LIMIT_EXCEEDED`, `IDEMPOTENCY_KEY_REUSED`, `NO_BASE_UOM`.', p:'/skill:codebase-xray Walk me through the POS checkout contract end to end: pos_service.dart (attempt key, server lines, error codes) and process_sale/next_number/replayed_transaction in backend_django/apps/pos/services.py. Why does the server own price and conversion, and how does a retried POST become a 200 instead of a duplicate sale?' },
     { id:'s9', t:'flutter/lib/data/models/ledger_entry.dart + data/services/ledger_service.dart', l:'~120 L + ~110 L — fromJson, paidAmount, statusAt; fetchLedgers', w:'The receivables screen\u2019s data. `paidAmount` is DERIVED (original - balance) and only survives because the server now APPLIES payments. `statusAt` lets overdue win if EITHER the server flag or the local clock says so, at DAY granularity to match the server. The service follows pagination — a screen that stops at the 50th debt hides money.' },
     { id:'s10', t:'flutter/lib/data/services/requisition_service.dart + data/models/requisition.dart', l:'~150 L + ~200 L — approve/reject/verifyToken/release; the three wire shapes', w:'No `createRequisition`, no `submit` — a POS client never files requisitions (CPMS identity). Three DIFFERENT shapes because the list row, the token check and the release result answer different questions. `token` is nullable: DRAFT/SUBMITTED rows have none, and a regular DRF `Field` renders None where a `ReadOnlyField` SKIPS the key. `NO_BASE_UOM` is mapped to a readable refusal.' },
-    { id:'s11', t:'flutter/lib/data/services/user_service.dart + features/admin/viewmodels/admin_users_viewmodel.dart', l:'~150 L + ~180 L — fetchUsers/fetchUserStats/createUser; load/create/filters', w:'The strictest error split: 401 session-expired vs 403 permission-denied vs load failure. `getList` parses rows EAGERLY, so the malformed-row guard sits on the outer catch — an inner try around `items.toList()` misses (proven by a RED test failing as no-throw). Create errors live in `createError`, never in the page banner.', p:'/skill:codebase-xray Walk me through user_service.dart and admin_users_viewmodel.dart: the three endpoints, the 401/403/load error split, why the FormatException guard is on the outer catch, and how search/filters/create interact.' },
+    { id:'s11', t:'flutter/lib/data/services/user_service.dart + features/admin/viewmodels/admin_users_viewmodel.dart', l:'setActive/assignRole + load/create/filters/actionError', w:'The strictest error split: 401 session-expired vs 403 permission-denied vs load failure. Phase 5: deactivate/reactivate via PATCH `is_active`, role change via POST `assign_role` + reload; `USER_ADMIN_FORBIDDEN` maps to the server message, `LAST_ADMIN` to a banner. Create stays admin-only; Store Manager acts on non-admin staff.', p:'/skill:codebase-xray Walk me through user_service.dart and admin_users_viewmodel.dart: setActive/assignRole, the 401/403/load error split, USER_ADMIN_FORBIDDEN handling, and how search/filters/deactivate/role-change interact.' },
 ];
 
 /* ============================ RENDER ============================ */
