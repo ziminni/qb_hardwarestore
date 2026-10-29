@@ -153,6 +153,12 @@ class FakeProductsRepository extends ProductsRepository {
   final List<ProductEditDraft> editDrafts = [];
   final List<({int productId, bool isActive})> activePatches = [];
 
+  /// Every selling-unit code PATCH, in order (Phase 6 decision 18).
+  final List<({int unitId, String barcode})> barcodePatches = [];
+
+  /// Set to refuse a code PATCH with this message (e.g. a 400 `BARCODE_TAKEN`).
+  String? barcodeError;
+
   void setSnapshot({
     List<Product> products = const [],
     List<InventoryBatch> batches = const [],
@@ -176,6 +182,18 @@ class FakeProductsRepository extends ProductsRepository {
       variantId: 200 + createdDrafts.length,
       sellingUnitId: 300 + createdDrafts.length,
     );
+  }
+
+  @override
+  Future<void> patchSellingUnit(int id, Map<String, dynamic> body) async {
+    final error = barcodeError;
+    if (error != null) {
+      throw ProductWriteException(
+        step: ProductWriteStep.sellingUnit,
+        message: error,
+      );
+    }
+    barcodePatches.add((unitId: id, barcode: '${body['barcode_qr']}'));
   }
 
   @override

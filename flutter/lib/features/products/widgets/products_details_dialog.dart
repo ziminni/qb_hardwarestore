@@ -3,8 +3,11 @@ import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/product_tracking.dart';
+import 'package:client/data/models/variant_uom.dart';
+import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_stock_status_badge.dart';
+import 'package:client/features/products/widgets/edit_unit_code_dialog.dart';
 import 'package:client/features/products/widgets/products_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -28,6 +31,15 @@ class ProductsDetailsDialog extends StatelessWidget {
     // batches, price on the selling unit, cost on the newest batch, location in
     // the local hint store. Decision 02 / 08 / 10.
     final inventory = context.read<InventoryViewmodel>();
+    // Code writes are `IsInventoryRole` on the server (decision 18), so the button
+    // only exists for those role CODES — `roleName` is the code, never the display
+    // label (the Phase 4 Resolve outage compared the label and hid the button from
+    // everyone).
+    final canEditCodes = const {
+      'inventory',
+      'sales',
+      'admin',
+    }.contains(context.read<AuthViewmodel>().roleName);
 
     return AlertDialog(
       title: Text(product.baseName),
@@ -134,11 +146,15 @@ class ProductsDetailsDialog extends StatelessWidget {
                             ],
                           ),
                           const SizedBox(height: AppSpacing.sm),
+                          _UnitCodes(
+                            variant: variant,
+                            canEdit: canEditCodes,
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
                           Wrap(
                             spacing: AppSpacing.xl,
                             runSpacing: AppSpacing.sm,
                             children: [
-                              Text('Barcode: ${variant.barcode}'),
                               Text('Unit: ${variant.baseUomCode}'),
                               Text(
                                 'Cost: ₱${(inventory.costFor(variant.id) ?? 0).toStringAsFixed(2)}',
@@ -191,6 +207,66 @@ class ProductsDetailsDialog extends StatelessWidget {
           child: const Text('Close'),
         ),
       ],
+    );
+  }
+}
+
+/// Every selling unit of one variant: unit · ×factor · code.
+///
+/// A code belongs to a UNIT, not to the variant (decision 11 F3): the box and the
+/// piece inside it carry different codes, and both have to be visible or a box
+/// label cannot be checked against anything.
+class _UnitCodes extends StatelessWidget {
+  const _UnitCodes({required this.variant, required this.canEdit});
+
+  final ProductVariant variant;
+
+  /// True for the role codes the server admits to a code write.
+  final bool canEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    if (variant.sellingUoms.isEmpty) {
+      return const Text('No selling units yet.');
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final unit in variant.sellingUoms)
+          Row(
+            children: [
+              Expanded(child: Text(_line(unit))),
+              if (canEdit)
+                TextButton(
+                  onPressed: () => _editCode(context, unit),
+                  child: const Text('Edit code'),
+                ),
+            ],
+          ),
+      ],
+    );
+  }
+
+  String _line(VariantUom unit) {
+    final factor = unit.conversionFactor;
+    final shown = factor == factor.roundToDouble()
+        ? factor.toStringAsFixed(0)
+        : '$factor';
+    final code = unit.barcodeQr.isEmpty ? 'no code yet' : unit.barcodeQr;
+    return '${unit.uomCode} · ×$shown · $code';
+  }
+
+  Future<void> _editCode(BuildContext context, VariantUom unit) async {
+    final inventory = context.read<InventoryViewmodel>();
+    await showDialog<void>(
+      context: context,
+      builder: (_) => EditUnitCodeDialog(
+        unitName: unit.uomCode,
+        currentCode: unit.barcodeQr,
+        // The store writes through the repository and reloads on success; a
+        // refusal comes back as the sentence the field shows.
+        onSubmit: (code) => inventory.setSellingUnitBarcode(unit.id, code),
+      ),
     );
   }
 }

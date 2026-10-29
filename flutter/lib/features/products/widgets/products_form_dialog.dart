@@ -84,9 +84,10 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     _variantController = TextEditingController(
       text: variant?.variantName ?? 'Standard',
     );
-    // Empty, not invented: the API has no barcode by default and a generated
-    // 'QB-<timestamp>' value was a code nobody had ever printed.
-    _barcodeController = TextEditingController(text: variant?.barcode ?? '');
+    // The BASE unit's code, not the variant's first non-blank one: this field
+    // writes the factor-1 selling unit, and `variant.barcode` may belong to the
+    // box (Phase 6 decisions 11 F3 and 18).
+    _barcodeController = TextEditingController(text: _baseUnitCode(variant));
     _reorderController = TextEditingController(
       text: (variant?.minStockThreshold ?? 0).toStringAsFixed(0),
     );
@@ -123,6 +124,18 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     final path = await _imageFileService.selectImage();
     if (!mounted || path == null) return;
     setState(() => _imagePath = path);
+  }
+
+  /// The factor-1 selling unit's code — the unit this form writes.
+  ///
+  /// `variant.barcode` answers with the variant's FIRST non-blank code, which may
+  /// be the box's; the form PATCHes the base unit, so it must show that one.
+  String _baseUnitCode(ProductVariant? variant) {
+    if (variant == null) return '';
+    for (final unit in variant.sellingUoms) {
+      if (unit.conversionFactor == 1) return unit.barcodeQr;
+    }
+    return variant.barcode;
   }
 
   void _submit() {
@@ -219,7 +232,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                 TextFormField(
                   controller: _barcodeController,
                   decoration: const InputDecoration(
-                    labelText: 'Barcode (optional)',
+                    labelText: 'Factory barcode (leave blank to auto-generate)',
                     hintText: 'Scan or type the code printed on the package',
                     prefixIcon: Icon(Icons.barcode_reader),
                   ),

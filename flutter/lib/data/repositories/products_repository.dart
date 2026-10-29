@@ -110,6 +110,15 @@ class ProductsRepository {
     }
   }
 
+  /// PATCHes one selling unit — today only its code (`barcode_qr`).
+  ///
+  /// A blank `barcodeQr` RESTORES the unit's own `QB` code: the server re-derives it
+  /// (decision 16), which is why the field's hint says "leave blank".
+  Future<void> patchSellingUnit(int id, Map<String, dynamic> body) => _step(
+    ProductWriteStep.sellingUnit,
+    () => service.patchSellingUnit(id, body),
+  );
+
   /// Archive (`false`) or restore (`true`) through `PATCH is_active`.
   Future<void> setProductActive(int productId, bool isActive) => _step(
     ProductWriteStep.product,

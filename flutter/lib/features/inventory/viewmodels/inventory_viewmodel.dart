@@ -358,6 +358,21 @@ class InventoryViewmodel extends ChangeNotifier {
     return List.unmodifiable(rows);
   }
 
+  /// PATCHes one selling unit's code, then reloads the catalogue (decision 18).
+  ///
+  /// Returns null on success, or the server's message for the field. The PATCH goes
+  /// through the store's repository, so the dialog never touches `ProductsService`
+  /// directly — the same one data path every other catalog write uses.
+  Future<String?> setSellingUnitBarcode(int unitId, String code) async {
+    try {
+      await _catalogue.patchSellingUnit(unitId, {'barcode_qr': code});
+    } on ProductWriteException catch (error) {
+      return error.message;
+    }
+    await load();
+    return null;
+  }
+
   /// Stock on hand for a variant — the sum of its batches.
   double stockOnHandFor(int variantId) =>
       batchesFor(variantId).fold(0, (sum, batch) => sum + batch.currentQty);
