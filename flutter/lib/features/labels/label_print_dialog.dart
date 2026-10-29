@@ -129,24 +129,40 @@ class _LabelPrintDialogState extends State<LabelPrintDialog> {
     final request = widget.requests[index];
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: Text(
-              '${request.productName} · ${request.variantName} · '
-              '${request.unitName}\n${request.code}',
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${request.productName} · ${request.variantName} · '
+                  '${request.unitName}\n${request.code}',
+                ),
+              ),
+              if (!request.code.startsWith('QB'))
+                const Text('Factory barcode — skipped')
+              else
+                SizedBox(
+                  width: 110,
+                  child: TextFormField(
+                    controller: _copies[index],
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Copies'),
+                    validator: _validateCopies,
+                  ),
+                ),
+            ],
           ),
-          if (!request.code.startsWith('QB'))
-            const Text('Factory barcode — skipped')
-          else
-            SizedBox(
-              width: 110,
-              child: TextFormField(
-                controller: _copies[index],
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Copies'),
-                validator: _validateCopies,
+          // A pre-fill that hit the 1..200 ceiling says so: otherwise a 2 500-piece
+          // receipt silently ships 200 stickers and the delivery is under-labelled.
+          if (request.cappedFrom case final received?)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Received $received — capped at $labelMaxCopies labels per print; '
+                'print again for the rest.',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
         ],

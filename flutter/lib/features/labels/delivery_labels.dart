@@ -19,21 +19,41 @@ List<LabelRequest> deliveryLabelRequests({
   required double receivedQty,
 }) => [
   for (final unit in sellingUnits)
-    LabelRequest(
-      code: unit.barcodeQr,
+    _requestFor(
+      unit: unit,
       productName: productName,
       variantName: variantName,
-      unitName: unit.uomCode,
-      copies: _copiesFor(unit, receivedQty),
+      receivedQty: receivedQty,
     ),
 ];
 
-/// Copies for one unit: 0 when it is not what arrived, else the quantity received.
-int _copiesFor(VariantUom unit, double receivedQty) {
+/// One unit's pre-filled request: 0 when it is not what arrived, else the
+/// quantity received — capped at [labelMaxCopies], and SAYING SO through
+/// [LabelRequest.cappedFrom] so the dialog can tell the clerk to print the rest.
+LabelRequest _requestFor({
+  required VariantUom unit,
+  required String productName,
+  required String variantName,
+  required double receivedQty,
+}) {
+  LabelRequest labelled(int copies, {int? cappedFrom}) => LabelRequest(
+    code: unit.barcodeQr,
+    productName: productName,
+    variantName: variantName,
+    unitName: unit.uomCode,
+    copies: copies,
+    cappedFrom: cappedFrom,
+  );
+
   // A factor-1 unit IS the base unit — the thing the receipt counted.
-  if (unit.conversionFactor != 1) return 0;
-  if (!isWholeUnit(unit.uomCode)) return 1;
+  if (unit.conversionFactor != 1) return labelled(0);
+  if (!isWholeUnit(unit.uomCode)) return labelled(1);
   final whole = receivedQty.floor();
-  if (whole <= 0) return 0;
-  return whole > labelMaxCopies ? labelMaxCopies : whole;
+  if (whole <= 0) return labelled(0);
+  // A silent clamp under-labels the delivery: a 2 500-piece receipt would ship
+  // with 200 stickers and nobody would notice (Phase 6 review Minor 3).
+  if (whole > labelMaxCopies) {
+    return labelled(labelMaxCopies, cappedFrom: whole);
+  }
+  return labelled(whole);
 }

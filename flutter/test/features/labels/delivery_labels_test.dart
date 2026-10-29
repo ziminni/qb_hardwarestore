@@ -66,11 +66,22 @@ void main() {
     );
   });
 
-  test('copies are capped at the printer limit', () {
+  test('copies are capped at the printer limit, and the cap is reported', () {
     // 2500 pieces received is one very large delivery, not 2500 stickers.
     final requests = prefill([unit()], 2500);
 
     expect(requests.single.copies, labelMaxCopies);
+    expect(
+      requests.single.cappedFrom,
+      2500,
+      reason:
+          'the dialog has to say "Received 2500 - capped at 200", so the pre-fill '
+          'must report how many were asked for before the clamp',
+    );
+  });
+
+  test('a receipt under the cap reports no cap', () {
+    expect(prefill([unit()], 12).single.cappedFrom, isNull);
   });
 
   test('a receipt of nothing asks for no stickers', () {

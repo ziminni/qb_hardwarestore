@@ -6,6 +6,8 @@
 // The printing plugin is behind [LabelPrinter], so these assertions about the
 // requests are the same thing as assertions about the PDF.
 
+import 'package:client/data/models/variant_uom.dart';
+import 'package:client/features/labels/delivery_labels.dart';
 import 'package:client/features/labels/label_document.dart';
 import 'package:client/features/labels/label_print_dialog.dart';
 import 'package:flutter/material.dart';
@@ -36,6 +38,25 @@ LabelRequest request({
   variantName: '20A 1-pole',
   unitName: unitName,
   copies: copies,
+);
+
+/// The base selling unit a goods receipt restocks.
+List<LabelRequest> deliveryReceipt(int receivedQty) => deliveryLabelRequests(
+  productName: 'Circuit Breaker',
+  variantName: '20A 1-pole',
+  sellingUnits: const [
+    VariantUom(
+      id: 13,
+      variantId: 8,
+      uomId: 1,
+      uomCode: 'PC',
+      uomName: 'Piece',
+      barcodeQr: 'QB000013-0',
+      conversionFactor: 1,
+      defaultSellingPrice: 315,
+    ),
+  ],
+  receivedQty: receivedQty.toDouble(),
 );
 
 Future<void> _openDialog(
@@ -173,6 +194,46 @@ void main() {
     expect(sent, hasLength(1), reason: 'the 0-copy unit is skipped');
     expect(sent.single.code, 'QB000013-0');
     expect(sent.single.copies, 4);
+  });
+
+  testWidgets('a receipt over the cap shows 200 AND says it was capped', (
+    tester,
+  ) async {
+    // 2 500 pieces received: the 1..200 ceiling (decision 14) still applies, but a
+    // silent clamp under-labels the delivery and nobody notices.
+    await _openDialog(
+      tester,
+      requests: deliveryReceipt(2500),
+      printer: printer,
+      allowSkip: true,
+    );
+
+    expect(
+      tester.widget<TextFormField>(find.byType(TextFormField)).controller!.text,
+      '200',
+    );
+    expect(
+      find.textContaining('capped at 200 labels per print'),
+      findsOneWidget,
+      reason: 'the clerk must know the delivery needs a second print',
+    );
+  });
+
+  testWidgets('a receipt under the cap says nothing about a cap', (
+    tester,
+  ) async {
+    await _openDialog(
+      tester,
+      requests: deliveryReceipt(12),
+      printer: printer,
+      allowSkip: true,
+    );
+
+    expect(
+      tester.widget<TextFormField>(find.byType(TextFormField)).controller!.text,
+      '12',
+    );
+    expect(find.textContaining('capped at'), findsNothing);
   });
 
   testWidgets('every row at 0 prints nothing and says why', (tester) async {

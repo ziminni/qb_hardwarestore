@@ -35,6 +35,7 @@ class LabelRequest {
     required this.variantName,
     required this.unitName,
     this.copies = 1,
+    this.cappedFrom,
   });
 
   final String code;
@@ -42,6 +43,13 @@ class LabelRequest {
   final String variantName;
   final String unitName;
   final int copies;
+
+  /// How many copies were asked for BEFORE the per-unit ceiling, when a pre-fill
+  /// clamp fired; null when nothing was capped.
+  ///
+  /// The dialog needs it to SAY so on the row: a silently clamped 2 500-piece
+  /// receipt ships an under-labelled delivery and nobody notices.
+  final int? cappedFrom;
 }
 
 /// The content of ONE sticker, after filtering and expansion.
