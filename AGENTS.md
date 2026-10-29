@@ -28,7 +28,7 @@ the same commit that breaks it.
 - **Active branch:** `feature/backend-integration` — **pushed, in sync with `origin/`.** For how far ahead
   of `origin/master` it is run `git rev-list --count origin/master..HEAD`; a count written here stales on
   the next commit.
-- **Active Wayfinder map: `planning/audit-remediation/MAP.md`** — audit gap remediation, 17 decisions locked, **Phases 1–5 BUILT**, Phase 6 Barcode labels & scanning **grilled 2026-10-28, ready to build** ([plan](planning/audit-remediation/phase-6-plan.md)). Prior maps (cashier, stocker, sales-manager, admin) complete.
+- **Active Wayfinder map: `planning/audit-remediation/MAP.md`** — audit gap remediation, 17 decisions locked, **all 6 phases BUILT** (Phase 6 Barcode labels & scanning closed 2026-10-29). Prior maps (cashier, stocker, sales-manager, admin) complete.
 - **Phase state is NOT stated here** — it is owned by the phase table in the active map, per-row and with
   evidence. Read that table; a copy here would be a second home, and this file's own rule forbids one.
 - **Seed reclassification: BUILT 2026-10-20** (commit `5f1c52a`). The underpaid demo sale now
@@ -44,8 +44,8 @@ the same commit that breaks it.
 - **THE INVARIANT IS SUPERSEDED.** The old "no new endpoints, no model or migration changes" rule is
   not binding; audit-remediation phases add backend work deliberately (Phase 6 adds a `VariantUOM`
   constraint + backfill migration and a `?barcode=` filter).
-- **Last session:** `docs/sessions/2026-10-28-phase-6-wayfinder.md` — admin sales-chart red-screen fixed (`b5cfc33`) + Phase 6 grilled (8 decisions, plan written). **Gate:** backend **468/468** (`docker exec buildpro_backend python manage.py test`), flutter **771/771**, analyze clean.
-  **Next:** `git push` (user); then BUILD Phase 6 starting with Task 0 printing spike ([plan](planning/audit-remediation/phase-6-plan.md)).
+- **Last session:** `docs/sessions/2026-10-29-audit-remediation-phase-6.md` — Phase 6 barcodes built + fix pass + browser re-check. **Gate:** backend **497/497** (`docker exec buildpro_backend python manage.py test`), flutter **839/839**, analyze clean.
+  **Next:** `git push` (user); first real thermal print at 100% / actual size (hardware, user); optional SYSTEM_ATLAS refresh; reseed dev DB for a clean demo.
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message

@@ -9,7 +9,7 @@
 | 3 | Cashier — release attaches shift, held-cart close advisory, till Returns tab + debt-first return accounting | ✅ [Release shift](./decisions/03-release-shift.md), [Returns policy](./decisions/05-returns-policy.md) | ✅ Done 2026-10-24 — `2703b7a`..`71ab5fb`, backend 383/383, flutter 694/694, hygiene APPROVED ×2 + API QA A1–A6 PASS + 4 browser E2E rounds (fixed: till payment codes, CORS Idempotency-Key, open-shift dialog, resumed-cart double-sell) ([plan](./phase-3-plan.md)) |
 | 4 | Stock Manager — live product CRUD, low-stock on sale/release + dedup, goods-receipt history, persisted supplier toggle | ✅ (no new decision; follows audit findings) | ✅ Done 2026-10-25 — `f4253b9`..`c17fd30`, backend 456/456, flutter 738/738, hygiene ×2 fix-pass + API QA B1–B6 PASS + browser E2E (fixed: Resolve hidden for every role, mouse-unreachable table actions at 1366px, stale Receiving status) ([plan](./phase-4-plan.md)) |
 | 5 | Store Manager / Admin — user edit/deactivate UI, overdue filter contract, unlinked-return manager screen, dashboard aggregation limits | ✅ [Returns policy](./decisions/05-returns-policy.md) | ✅ Done 2026-10-26 — `e8443bf`..`a706073`+format, backend 468/468, flutter 769/769, hygiene self-review + API live probes PASS ([plan](./phase-5-plan.md)) |
-| 6 | Barcode labels & scanning — unique per-unit codes (factory EAN or auto `QB` Code 128), scan adds the exact selling unit from a complete catalogue with server fallback, 50×30 mm thermal stickers, per-unit code edit | ✅ [Barcode baseline](./decisions/11-barcode-baseline.md), [Code source & format](./decisions/12-code-source-format.md), [Scan resolution](./decisions/13-scan-resolution.md), [Label printing](./decisions/14-label-printing.md), [Camera scanning](./decisions/15-camera-scan.md), [Code assignment](./decisions/16-code-assignment.md), [Scan-to-cart](./decisions/17-scan-to-cart.md), [Selling-unit codes UI](./decisions/18-unit-codes-ui.md) | [ ] Ready to build ([plan](./phase-6-plan.md)) |
+| 6 | Barcode labels & scanning — unique per-unit codes (factory EAN or auto `QB` Code 128), scan adds the exact selling unit from a complete catalogue with server fallback, 50×30 mm thermal stickers, per-unit code edit | ✅ [Barcode baseline](./decisions/11-barcode-baseline.md), [Code source & format](./decisions/12-code-source-format.md), [Scan resolution](./decisions/13-scan-resolution.md), [Label printing](./decisions/14-label-printing.md), [Camera scanning](./decisions/15-camera-scan.md), [Code assignment](./decisions/16-code-assignment.md), [Scan-to-cart](./decisions/17-scan-to-cart.md), [Selling-unit codes UI](./decisions/18-unit-codes-ui.md) | ✅ Done 2026-10-29 (`81e98a0`..`977f740`; [session](../../docs/sessions/2026-10-29-audit-remediation-phase-6.md)) |
 
 ## Destination
 
@@ -48,7 +48,7 @@ Every P0/P1 finding in the 2026-10-23 audit (`temp/audit/pos_inventory_system/ve
 
 ## Active Frontier
 
-_(empty — Phase 6 fully grilled 2026-10-28; build per [plan](./phase-6-plan.md))_
+_(empty — all 6 phases built; Phase 6 closed 2026-10-29)_
 
 ## Blocked
 
