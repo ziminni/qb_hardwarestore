@@ -44,8 +44,8 @@ the same commit that breaks it.
 - **THE INVARIANT IS SUPERSEDED.** The old "no new endpoints, no model or migration changes" rule is
   not binding; audit-remediation phases add backend work deliberately (Phase 6 adds a `VariantUOM`
   constraint + backfill migration and a `?barcode=` filter).
-- **Last session:** `docs/sessions/2026-10-29-audit-remediation-phase-6.md` — Phase 6 barcodes built + fix pass + browser re-check. **Gate:** backend **497/497** (`docker exec buildpro_backend python manage.py test`), flutter **839/839**, analyze clean.
-  **Next:** `git push` (user); first real thermal print at 100% / actual size (hardware, user); optional SYSTEM_ATLAS refresh; reseed dev DB for a clean demo.
+- **Last session:** `docs/sessions/2026-10-29-closeout-reseed-atlas.md` — dev DB reseeded clean (VUOM 8, 0 blanks, TXN 6) + SYSTEM_ATLAS refreshed to Phase 6 (gates 497/839). **Gate:** backend **497/497**, flutter **839/839**, analyze clean.
+  **Next:** `git push` (user, `eca8e99`); first real thermal print at 100% / actual size (hardware, user).
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message
