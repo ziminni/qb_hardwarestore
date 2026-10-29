@@ -35,7 +35,7 @@
       <div>
         <h1 class="text-2xl font-bold tracking-tight text-white">System Atlas — BuildPro POS / Inventory</h1>
         <p class="text-sm text-slate-400 mt-1">
-          Reverse-engineered from source · branch <span class="mdcode">feature/backend-integration</span> · refreshed 2026-10-26 (audit-remediation Phases 2–5: Admin-group authority, debt-first returns, catalog persistence, Store Manager user-write + unlinked returns + server-summary tiles)
+          Reverse-engineered from source · branch <span class="mdcode">feature/backend-integration</span> · refreshed 2026-10-29 (audit-remediation Phases 2–6: Phases 2–5 as before, plus barcodes — unique QB/EAN codes, ?barcode= lookup, scan-to-unit, 50×30 mm labels, per-unit code edit)
         </p>
         <div class="flex flex-wrap gap-2 mt-3 text-xs">
           <span class="px-2 py-1 rounded bg-sky-500/10 text-sky-300 border border-sky-500/30">Django 5.2 LTS</span>
@@ -200,7 +200,7 @@ erDiagram
 
 <section data-panel="matrix" class="hidden">
   <h2 class="text-lg font-semibold text-white mb-1">The Truth Matrix</h2>
-  <p class="text-sm text-slate-400 mb-4">What the UI actually does versus what the backend offers. 37 rows, verified 2026-10-26.</p>
+  <p class="text-sm text-slate-400 mb-4">What the UI actually does versus what the backend offers. 37 rows, verified 2026-10-29 (routes 37 · models 35 · services 17 · viewmodels 18 · gates 497/839).</p>
 
   <div class="flex flex-wrap items-center gap-2 mb-4">
     <button class="pill on px-3 py-1.5 rounded-full text-xs font-medium" data-filter="all">All <span class="opacity-70" id="c-all"></span></button>
@@ -305,7 +305,7 @@ const MATRIX = [
   { f:'Categories', ui:'categories/views/categories_page.dart', vm:'CategoriesViewModel (live CRUD + archive/restore)', ep:'GET/POST/PATCH /categories/', s:'live', n:'Live since Phase 4: create, rename, archive, restore all hit the server and reload.' },
   { f:'Suppliers', ui:'suppliers/views/suppliers_page.dart', vm:'suppliers_purchases_viewmodel → SupplierRepository', ep:'GET /suppliers/', s:'live', n:'Live read-only since admin D-02.' },
   { f:'Purchases / PO', ui:'suppliers/views/purchases_page.dart', vm:'suppliers_purchases_viewmodel → SupplierRepository', ep:'GET /purchase-orders/', s:'live', n:'Live read-only since admin D-02; supplier name joined from loaded suppliers.' },
-  { f:'POS transaction', ui:'pos/views/pos_transaction_page.dart', vm:'pos/viewmodels/pos_transaction_viewmodel.dart', ep:'POST /transactions/ + Idempotency-Key', s:'live', n:'Phase 1: attempt-scoped key per payment try, reused on retry, dropped on cart change; receipt renders SERVER lines/prices. Server validates (400 INVALID_SALE), prices from the catalogue, converts qty × conversion_factor, blocks over-limit credit and WALK_IN shortfall.' },
+  { f:'POS transaction', ui:'pos/views/pos_transaction_page.dart', vm:'pos/viewmodels/pos_transaction_viewmodel.dart', ep:'POST /transactions/ + Idempotency-Key', s:'live', n:'Phase 1: attempt-scoped key per payment try, reused on retry, dropped on cart change; receipt renders SERVER lines/prices. Server validates (400 INVALID_SALE), prices from the catalogue, converts qty × conversion_factor, blocks over-limit credit and WALK_IN shortfall. Phase 6: scans resolve the selling unit (whole units instant-add, measured open dialog preselected, server fallback on miss); blank scans silent; sold-out named out-of-stock, not archived.' },
   { f:'Sales dashboard', ui:'sales/views/sales_dashboard_page.dart', vm:'inventory_sales_viewmodel (loadSummary → server tiles, client fold fallback)', ep:'GET /reports/sales-summary/', s:'live', n:'Phase 5: tiles read server totals (Last 30 days vs Loaded transactions caption); rows and tiles fail independently.' },
   { f:'Sales transactions', ui:'sales/views/sales_transactions_page.dart', vm:'inventory_sales_viewmodel', ep:'GET /transactions/', s:'live', n:'Loads on open with banner + retry.' },
   { f:'Sales returns', ui:'sales/views/sales_returns_page.dart', vm:'inventory_sales_viewmodel + sales_unlinked_return_dialog', ep:'GET /transactions/?source=RETURN + POST linked/unlinked', s:'live', n:'Phase 5: Store Manager/Admin Unlinked return button (reason + open shift required); cashiers get UNLINKED_RETURN_FORBIDDEN.' },
@@ -325,7 +325,7 @@ const MATRIX = [
   { f:'Requisition token flow (release counter)', ui:'pos/views/material_release_page.dart', vm:'pos/viewmodels/material_release_viewmodel.dart', ep:'/tokens/verify/ + /tokens/release/', s:'live', n:'Reachable via posNavigation tab 2 → /pos/release. FIFO-deducts real stock, writes a SalesTransaction, always leaves a receivable. Phase 1: refuses NO_BASE_UOM before any write.' },
   { f:'Collectibles writes (Record payment)', ui:'sales/views/sales_receivables_page.dart', vm:'sales_receivables_viewmodel', ep:'POST /ledger-payments/', s:'live', n:'201 moves balance_due; ledger flips PAID at zero.' },
   { f:'Goods receipts (receiving)', ui:'inventory/views/inventory_receiving_page.dart', vm:'receiving_viewmodel', ep:'GET /purchase-orders/ + POST /goods-receipts/ + POST /:id/process/', s:'live', n:'Phase 1: each receipt batches ONLY its own GoodsReceiptItem lines (split deliveries no longer overcount); re-process refused via processed_at lock; over-order capped.' },
-  { f:'Brands / UOMs / variants / variant-UOMs', ui:'product add + category/brand dialogs', vm:'catalogue_service + products_service', ep:'/brands/ · /uoms/ · /variants/ · /variant-uoms/', s:'live', n:'Live since Phase 4: product add chains product → variant → variant-uom; dialogs resolve brand/uom names.' },
+  { f:'Brands / UOMs / variants / variant-UOMs', ui:'product add + category/brand dialogs', vm:'catalogue_service + products_service', ep:'/brands/ · /uoms/ · /variants/ · /variant-uoms/', s:'live', n:'Live since Phase 4: product add chains product → variant → variant-uom; dialogs resolve brand/uom names. Phase 6: every unit carries a unique barcode_qr (factory EAN GS1-checked or auto QB code); details dialog lists + edits each unit's code; 50×30 mm Code 128 stickers print from Products row/bulk + post-Receiving.' },
   { f:'Payments / receipts', ui:'— no UI', vm:'—', ep:'/payments/ · /receipts/', s:'dead', n:'' },
   { f:'Project entity', ui:'— no UI', vm:'—', ep:'/projects/', s:'dead', n:'Used by the CPMS integration contract.' },
   { f:'POS held transactions', ui:'pos/views/pos_held_transactions_page.dart', vm:'pos/viewmodels/held_cart_viewmodel.dart', ep:'GET /held-carts/ + hold/complete/void', s:'live', n:'Park a sale mid-ring, resume into the till. Walk-in carts resolve to the Walk-in Customer. Complete accepts Idempotency-Key (replay returns 200, not 404).' },
@@ -348,7 +348,7 @@ const MODELMAP = [
   { be:'ProductVariant', ep:'GET /api/v1/variants/', fe:'data/models/product.dart', v:'ok',
     d:'`variant_name` and `base_uom_code` come from the nested variant. Backend also exposes `selling_uoms`, `min_stock_threshold`, `max_stock_level`.' },
   { be:'VariantUOM', ep:'GET /api/v1/variant-uoms/', fe:'data/models/variant_uom.dart', v:'ok',
-    d:'Carries `barcode_qr`, `conversion_factor`, `default_selling_price`. **Phase 1 made it authoritative**: the server prices from it and multiplies selling qty by its factor. Barcode/QR phase will key labels off this row.' },
+    d:'Carries `barcode_qr`, `conversion_factor`, `default_selling_price`. **Phase 1 made it authoritative**: the server prices from it and multiplies selling qty by its factor. Phase 6 keyed labels + scans off this row: codes unique case-insensitively (400 BARCODE_INVALID / BARCODE_RESERVED_PREFIX / BARCODE_TAKEN), blanks auto-derived (QB + id + GS1 check) with migration backfill, PATCH '' restores; GET /variant-uoms/?barcode= exact match returns the unit + product/variant active flags.' },
   { be:'StockAdjustment', ep:'GET /api/v1/adjustments/', fe:'data/models/inventory.dart', v:'ok',
     d:'**Exact match** — all 7 keys align (`variant, user, adjustment_type, qty_adjusted, remarks, timestamp`). Misleadingly named "inventory"; it is the adjustment shape.' },
   { be:'InventoryBatch', ep:'GET /api/v1/batches/', fe:'data/models/inventory_batch.dart', v:'ok',

@@ -1,6 +1,6 @@
 # SYSTEM ATLAS — BuildPro POS / Inventory System
 
-> **Generated:** 2026-10-15 · **Refreshed:** 2026-10-26 (audit-remediation Phases 2–5 re-verified in source: Admin-group authority + cashier scoping, debt-first returns + shift gate, catalog persistence + append-only records, Store Manager user-write + manager unlinked returns + server-summary tiles) · **Branch:** `feature/backend-integration`
+> **Generated:** 2026-10-15 · **Refreshed:** 2026-10-29 (audit-remediation Phases 2–6 re-verified in source: Phases 2–5 as before, plus Phase 6 barcodes — unique normalised codes with GS1/QB validation, auto-derived QB codes with backfill, `?barcode=` lookup, till scan-to-unit with server fallback, 50×30 mm sticker labels via `pdf`+`printing`, per-unit code edit) · **Branch:** `feature/backend-integration`
 > **Method:** every claim below was verified against source — imports, route tables, model FKs, serializer fields, viewmodel bodies. `README.md`, `PHASE_*.md` and `ENDPOINTS.md` were **not** trusted.
 > **Companion:** [`docs/system-atlas.html`](./system-atlas.html) — interactive cockpit (KPIs, filterable Truth Matrix, guided study path).
 
@@ -8,7 +8,7 @@
 
 ## 1. Architecture
 
-Two processes, one database. A Flutter client talks to a Django REST API; the API owns **all** business logic and persists to PostgreSQL 15. Every client screen reads live API data except static store-info constants on the two settings screens — zero `*MockData`/`Simulator` files remain in `lib/` (both deleted; only comments reference the mock era). The server is the trust boundary: Phase 1 (server price/UOM authority, `INVALID_SALE` validation, credit-limit block, locked `DocumentCounter`, `Idempotency-Key` de-dupe) · Phase 2 (Admin-group authority + `LAST_ADMIN`, cashier-own scoping, token secrecy) · Phase 3 (open-shift gate, debt-first returns with `RETURN_CREDIT`) · Phase 4 (catalog persistence, two-step receive+process, append-only records) · Phase 5 (`IsUserManagerRole`: Store Manager user-write with `USER_ADMIN_FORBIDDEN` guardrails, manager-only unlinked returns).
+Two processes, one database. A Flutter client talks to a Django REST API; the API owns **all** business logic and persists to PostgreSQL 15. Every client screen reads live API data except static store-info constants on the two settings screens — zero `*MockData`/`Simulator` files remain in `lib/` (both deleted; only comments reference the mock era). The server is the trust boundary: Phase 1 (server price/UOM authority, `INVALID_SALE` validation, credit-limit block, locked `DocumentCounter`, `Idempotency-Key` de-dupe) · Phase 2 (Admin-group authority + `LAST_ADMIN`, cashier-own scoping, token secrecy) · Phase 3 (open-shift gate, debt-first returns with `RETURN_CREDIT`) · Phase 4 (catalog persistence, two-step receive+process, append-only records) · Phase 5 (`IsUserManagerRole`: Store Manager user-write with `USER_ADMIN_FORBIDDEN` guardrails, manager-only unlinked returns) · Phase 6 (unique `barcode_qr` per selling unit — factory EAN/UPC GS1-checked or auto-derived `QB` code; `?barcode=` lookup; till scans resolve the unit with server fallback; 50×30 mm Code 128 stickers from Products + Receiving; per-unit code edit).
 
 ```mermaid
 flowchart LR
@@ -173,7 +173,7 @@ Legend: 🟢 Live (screen's *primary* data comes from an API response) · 🟡 P
 
 ### Wiring gaps (verified 2026-10-24)
 
-- Uncalled by the client: receipts, payments, req-items, tokens (list), projects. Called: everything else including brands, uoms, categories, suppliers, purchase-orders, audit-logs, `ledgers/aging`, `users/stats`, `variants`, `variant-uoms`.
+- Uncalled by the client: receipts, payments, req-items, tokens (list), projects. Called: everything else including brands, uoms, categories, suppliers, purchase-orders, audit-logs, `ledgers/aging`, `users/stats`, `variants`, `variant-uoms` (Phase 6: `GET /variant-uoms/?barcode=` exact match drives till scan-to-unit + server fallback).
 - `HeldCartService.complete` now has production callers (`held_cart_viewmodel:156`, `pos_transaction_viewmodel:680`); `idempotencyKey` plumbing live.
 - `User`/`AuditLog` APIs gate on the Admin group (`IsAdminRole`, Phase 2); `UserViewset` user-write additionally admits Store Manager via `IsUserManagerRole` with `USER_ADMIN_FORBIDDEN` guardrails (Phase 5).
 
@@ -216,6 +216,6 @@ Legend: 🟢 Live (screen's *primary* data comes from an API response) · 🟡 P
 
 **Not verified:** `flutter run` pixels (standing caveat); true-concurrency behavior beyond qa-tester's 10-way live probe; CPMS repo (out of scope).
 
-- Gates: backend **468/468**, flutter **769/769**, `flutter analyze` clean.
+- Gates: backend **497/497**, flutter **839/839**, `flutter analyze` clean (fresh 2026-10-29: `docker exec buildpro_backend python manage.py test` → Ran 497 OK; `flutter test` → +839 All passed).
 - Known and deliberately unfixed: products toolbar `RenderFlex` overflow at ~1600px widths (`products_toolbar.dart:113`, `products_catalog_overview.dart:156`).
 - Deferred minors (ledger `.superpowers/sdd/audit-remediation/progress.md`): release `remaining<=0` race, seed re-forcing Maria's limit, dead duplicate method check in `process_return`, credit-limit TOCTOU (fails closed), pre-`ae514ee` replay hashes now 409.
