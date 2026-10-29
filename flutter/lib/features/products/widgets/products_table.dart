@@ -26,6 +26,7 @@ class ProductsTable extends StatefulWidget {
     required this.onViewProduct,
     required this.onEditProduct,
     required this.onArchiveProduct,
+    required this.onPrintLabels,
     required this.onClearFilters,
     required this.onPageChanged,
     required this.onRowsPerPageChanged,
@@ -46,6 +47,9 @@ class ProductsTable extends StatefulWidget {
   final ValueChanged<Product> onViewProduct;
   final ValueChanged<Product> onEditProduct;
   final ValueChanged<Product> onArchiveProduct;
+
+  /// Opens the label picker for this product's selling units (decision 14).
+  final ValueChanged<Product> onPrintLabels;
   final VoidCallback onClearFilters;
   final ValueChanged<int> onPageChanged;
   final ValueChanged<int> onRowsPerPageChanged;
@@ -72,6 +76,7 @@ class _ProductsTableState extends State<ProductsTable> {
   ValueChanged<Product> get onViewProduct => widget.onViewProduct;
   ValueChanged<Product> get onEditProduct => widget.onEditProduct;
   ValueChanged<Product> get onArchiveProduct => widget.onArchiveProduct;
+  ValueChanged<Product> get onPrintLabels => widget.onPrintLabels;
   VoidCallback get onClearFilters => widget.onClearFilters;
   ValueChanged<int> get onPageChanged => widget.onPageChanged;
   ValueChanged<int> get onRowsPerPageChanged => widget.onRowsPerPageChanged;
@@ -153,6 +158,7 @@ class _ProductsTableState extends State<ProductsTable> {
                             tooltip: 'Product actions',
                             onSelected: (value) {
                               if (value == 'edit') onEditProduct(product);
+                              if (value == 'labels') onPrintLabels(product);
                               if (value == 'archive') {
                                 onArchiveProduct(product);
                               }
@@ -161,6 +167,10 @@ class _ProductsTableState extends State<ProductsTable> {
                               PopupMenuItem(
                                 value: 'edit',
                                 child: Text('Edit product'),
+                              ),
+                              PopupMenuItem(
+                                value: 'labels',
+                                child: Text('Print labels'),
                               ),
                               PopupMenuItem(
                                 value: 'archive',
@@ -540,6 +550,16 @@ class _ProductsTableState extends State<ProductsTable> {
                             PopupMenuButton<void>(
                               tooltip: 'More actions',
                               itemBuilder: (context) => [
+                                PopupMenuItem(
+                                  onTap: () => onPrintLabels(product),
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.print_outlined, size: 18),
+                                      const SizedBox(width: AppSpacing.sm),
+                                      Text('Print labels'),
+                                    ],
+                                  ),
+                                ),
                                 PopupMenuItem(
                                   onTap: () => onArchiveProduct(product),
                                   child: Row(

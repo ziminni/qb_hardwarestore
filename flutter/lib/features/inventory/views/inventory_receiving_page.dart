@@ -3,7 +3,11 @@ import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
 import 'package:client/data/models/receiving.dart';
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/receiving_viewmodel.dart';
+import 'package:client/features/labels/delivery_labels.dart';
+import 'package:client/features/labels/label_document.dart';
+import 'package:client/features/labels/label_print_dialog.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -75,6 +79,7 @@ class _OrderWorkspace extends StatelessWidget {
   const _OrderWorkspace({required this.viewmodel});
 
   final ReceivingViewmodel viewmodel;
+
 
   @override
   Widget build(BuildContext context) {
@@ -148,6 +153,43 @@ class _OrderDetail extends StatefulWidget {
 }
 
 class _OrderDetailState extends State<_OrderDetail> {
+
+  /// Pre-fills the label picker from what this delivery actually created.
+  ///
+  /// The base unit of each delivered variant gets copies = the quantity received
+  /// when it is a countable unit (m/kg get one sticker), and the variant's other
+  /// units start at 0 — they were not what arrived (decision 14).
+  Future<void> _printDeliveryLabels(BuildContext context) async {
+    final inventory = context.read<InventoryViewmodel>();
+    final requests = <LabelRequest>[
+      for (final batch in widget.viewmodel.lastBatches)
+        if (inventory.variantFor(batch.variantId) case final variant?)
+          ...deliveryLabelRequests(
+            productName: _productNameFor(inventory, batch.variantId),
+            variantName: variant.variantName,
+            sellingUnits: variant.sellingUoms,
+            receivedQty: batch.initialQty,
+          ),
+    ];
+    if (requests.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('These batches have no selling units.')),
+      );
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (_) =>
+          LabelPrintDialog(requests: requests, allowSkip: true),
+    );
+  }
+
+  String _productNameFor(InventoryViewmodel inventory, int variantId) {
+    for (final record in inventory.stockRecords) {
+      if (record.variant.id == variantId) return record.product.baseName;
+    }
+    return '';
+  }
   final _controllers = <int, TextEditingController>{};
   final _deliveryController = TextEditingController();
 
@@ -268,6 +310,12 @@ class _OrderDetailState extends State<_OrderDetail> {
             Text(
               '${viewmodel.lastBatches.length} batch(es) created from receipt '
               '#${viewmodel.lastReceiptId}.',
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            OutlinedButton.icon(
+              onPressed: () => _printDeliveryLabels(context),
+              icon: const Icon(Icons.print_outlined),
+              label: const Text('Print labels for this delivery'),
             ),
           ],
         ],

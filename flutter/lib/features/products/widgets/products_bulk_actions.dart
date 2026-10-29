@@ -8,11 +8,15 @@ class ProductsBulkActions extends StatelessWidget {
     super.key,
     required this.selectedCount,
     required this.onArchive,
+    required this.onPrintLabels,
     required this.onClear,
   });
 
   final int selectedCount;
   final VoidCallback onArchive;
+
+  /// Opens the label picker for every selling unit of the selected variants.
+  final VoidCallback onPrintLabels;
   final VoidCallback onClear;
 
   @override
@@ -39,6 +43,11 @@ class ProductsBulkActions extends StatelessWidget {
             style: const TextStyle(fontWeight: FontWeight.w600),
           ),
           const SizedBox(width: AppSpacing.sm),
+          OutlinedButton.icon(
+            onPressed: onPrintLabels,
+            icon: const Icon(Icons.print_outlined, size: 17),
+            label: const Text('Print labels'),
+          ),
           OutlinedButton.icon(
             onPressed: onArchive,
             icon: const Icon(Icons.archive_outlined, size: 17),

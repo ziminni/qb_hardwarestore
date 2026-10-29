@@ -10,6 +10,8 @@ import 'package:client/features/products/widgets/products_details_dialog.dart';
 import 'package:client/features/products/widgets/products_form_dialog.dart';
 import 'package:client/features/products/widgets/products_catalog_overview.dart';
 import 'package:client/features/products/widgets/products_table.dart';
+import 'package:client/features/labels/label_document.dart';
+import 'package:client/features/labels/label_print_dialog.dart';
 import 'package:client/features/products/widgets/products_toolbar.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
@@ -150,6 +152,38 @@ class _ProductsPageState extends State<ProductsPage> {
     _announce(error ?? '${product.baseName} moved to archive.');
   }
 
+  /// Opens the label picker for every selling unit of [products] (decision 14).
+  ///
+  /// Each unit is a row: a `QB…` unit prints (default one sticker), a factory EAN
+  /// unit is listed as skipped — it already carries the manufacturer's label.
+  Future<void> _printLabels(
+    BuildContext context,
+    List<Product> products,
+  ) async {
+    final inventory = context.read<InventoryViewmodel>();
+    final requests = <LabelRequest>[
+      for (final product in products)
+        for (final variant in product.variants)
+          for (final unit in inventory.variantFor(variant.id)?.sellingUoms ??
+              variant.sellingUoms)
+            LabelRequest(
+              code: unit.barcodeQr,
+              productName: product.baseName,
+              variantName: variant.variantName,
+              unitName: unit.uomCode,
+              copies: unit.isInternalCode ? 1 : 0,
+            ),
+    ];
+    if (requests.isEmpty) {
+      _announce('These products have no selling units to label.');
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (_) => LabelPrintDialog(requests: requests),
+    );
+  }
+
   Future<void> _archiveSelected(
     BuildContext context,
     ProductsViewmodel viewModel,
@@ -248,6 +282,15 @@ class _ProductsPageState extends State<ProductsPage> {
                     ProductsBulkActions(
                       selectedCount: viewModel.selectedProductIds.length,
                       onArchive: () => _archiveSelected(context, viewModel),
+                      onPrintLabels: () => _printLabels(
+                        context,
+                        inventory.products
+                            .where(
+                              (product) => viewModel.selectedProductIds
+                                  .contains(product.id),
+                            )
+                            .toList(growable: false),
+                      ),
                       onClear: viewModel.clearSelection,
                     ),
                   ],
@@ -269,6 +312,8 @@ class _ProductsPageState extends State<ProductsPage> {
                         _showProductForm(context, viewModel, product),
                     onArchiveProduct: (product) =>
                         _archiveProduct(context, viewModel, product),
+                    onPrintLabels: (product) =>
+                        _printLabels(context, [product]),
                     onClearFilters: viewModel.clearFilters,
                     onPageChanged: viewModel.goToPage,
                     onRowsPerPageChanged: viewModel.setRowsPerPage,
