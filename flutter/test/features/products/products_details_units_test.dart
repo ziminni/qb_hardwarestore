@@ -14,6 +14,7 @@ import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/products/widgets/edit_unit_code_dialog.dart';
 import 'package:client/features/products/widgets/products_details_dialog.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -53,6 +54,44 @@ Product twoUnitProduct() => product(
         ),
       ],
     ),
+  ],
+);
+
+/// The shape QA hit at 1366×768: five variants, each with two units, in a dialog
+/// that has to fit a real laptop viewport (`qa-browser-assets/e10-*`).
+Product fiveVariantProduct() => product(
+  id: 40,
+  name: 'QA Integrity Item',
+  variants: [
+    for (var index = 0; index < 5; index++)
+      variant(
+        id: 400 + index,
+        productId: 40,
+        name: 'Variant ${index + 1}',
+        baseUomCode: 'PC',
+        sellingUoms: [
+          VariantUom(
+            id: 4000 + index * 2,
+            variantId: 400 + index,
+            uomId: 1,
+            uomCode: 'PC',
+            uomName: 'Piece',
+            barcodeQr: 'QB00004$index-1',
+            conversionFactor: 1,
+            defaultSellingPrice: 315,
+          ),
+          VariantUom(
+            id: 4001 + index * 2,
+            variantId: 400 + index,
+            uomId: 2,
+            uomCode: 'QABOX',
+            uomName: 'QA Box',
+            barcodeQr: 'QB00004$index-2',
+            conversionFactor: 12,
+            defaultSellingPrice: 3000,
+          ),
+        ],
+      ),
   ],
 );
 
@@ -136,6 +175,116 @@ void main() {
     // The unit and its factor travel with the code: a code with no unit is unusable.
     expect(find.textContaining('BOX'), findsWidgets);
   });
+
+  testWidgets(
+    'at 1366x768 the LAST unit scrolls into view and its Edit code still works',
+    (tester) async {
+      // QA defect 4: the content overflowed the viewport with no working scroll, so
+      // selling units of the lower variants were unreachable at the target size.
+      final wideProduct = fiveVariantProduct();
+      final wideInventory = InventoryViewmodel.seeded(
+        products: [wideProduct],
+        batches: [batch(id: 9, variantId: 400, qty: 100)],
+      );
+      tester.view.physicalSize = const Size(1366, 768);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<InventoryViewmodel>.value(
+              value: wideInventory,
+            ),
+            ChangeNotifierProvider<AuthViewmodel>.value(
+              value: authWithRole('inventory'),
+            ),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => showDialog<void>(
+                    context: context,
+                    builder: (_) => ProductsDetailsDialog(product: wideProduct),
+                  ),
+                  child: const Text('open details'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open details'));
+      await tester.pumpAndSettle();
+
+      // The QA finding: at 1366x768 the lower units were unreachable with a MOUSE
+      // — a wheel over the dialog did not move the content and no scrollbar was
+      // visible to grab (`qa-browser-assets/e10-dialog-1366x768.png`).
+      final scrollbar = find.descendant(
+        of: find.byType(ProductsDetailsDialog),
+        matching: find.byType(Scrollbar),
+      );
+      expect(
+        scrollbar,
+        findsOneWidget,
+        reason: 'the dialog must show a scrollbar the clerk can see and grab',
+      );
+      expect(
+        tester.widget<Scrollbar>(scrollbar).thumbVisibility,
+        isTrue,
+        reason:
+            'a hover-only thumb is invisible on a plain mouse until you hover',
+      );
+
+      final scrollable = find
+          .descendant(
+            of: find.byType(ProductsDetailsDialog),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      final position = tester.state<ScrollableState>(scrollable).position;
+      expect(position.pixels, 0);
+
+      // A real mouse wheel over the dialog, the way a user scrolls it.
+      final pointer = TestPointer(1, PointerDeviceKind.mouse);
+      await tester.sendEventToBinding(
+        pointer.hover(tester.getCenter(find.byType(ProductsDetailsDialog))),
+      );
+      await tester.sendEventToBinding(pointer.scroll(const Offset(0, 400)));
+      await tester.pumpAndSettle();
+
+      expect(
+        position.pixels,
+        greaterThan(0),
+        reason:
+            'the wheel must scroll the dialog content, not the page behind it',
+      );
+
+      final lastCode = find.textContaining('QB000044-2');
+      await tester.scrollUntilVisible(lastCode, 200, scrollable: scrollable);
+      await tester.pumpAndSettle();
+
+      expect(
+        lastCode,
+        findsOneWidget,
+        reason: "the fifth variant's QA-box code must be reachable",
+      );
+      await tester.tap(find.text('Edit code').last);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(EditUnitCodeDialog),
+        findsOneWidget,
+        reason: 'a reachable row must still be operable',
+      );
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'no RenderFlex overflow at 1366x768',
+      );
+    },
+  );
 
   testWidgets('a cashier sees the codes but no Edit code button', (
     tester,
