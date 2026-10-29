@@ -94,6 +94,18 @@ class VariantUOMSerializer(serializers.ModelSerializer):
 
     uom_code = serializers.CharField(source='uom.code', read_only=True)
     uom_name = serializers.CharField(source='uom.name', read_only=True)
+    # Task 3 (decision 13): a scan that misses the till's catalogue asks the server, and
+    # a miss has to explain WHY the unit cannot be sold - "belongs to <product>, which is
+    # archived" is a different message from "no product has that code". Names and both
+    # archive flags travel with the row so the client needs no second request.
+    product_name = serializers.CharField(
+        source='variant.product.base_name', read_only=True)
+    variant_name = serializers.CharField(
+        source='variant.variant_name', read_only=True)
+    variant_is_active = serializers.BooleanField(
+        source='variant.is_active', read_only=True)
+    product_is_active = serializers.BooleanField(
+        source='variant.product.is_active', read_only=True)
     conversion_factor = serializers.DecimalField(max_digits=12, decimal_places=2)
     default_selling_price = serializers.DecimalField(max_digits=12, decimal_places=2)
 
@@ -106,6 +118,8 @@ class VariantUOMSerializer(serializers.ModelSerializer):
         model = VariantUOM
         fields = [
             'id', 'variant', 'uom', 'uom_code', 'uom_name',
+            'product_name', 'variant_name',
+            'product_is_active', 'variant_is_active',
             'barcode_qr', 'conversion_factor', 'default_selling_price',
         ]
         read_only_fields = ['id']

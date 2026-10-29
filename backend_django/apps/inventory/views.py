@@ -253,7 +253,10 @@ class ProductVariantViewSet(_AuditedCatalogViewSet):
 
 
 class VariantUOMViewSet(_AuditedCatalogViewSet):
-    queryset = VariantUOM.objects.select_related('variant', 'uom').all()
+    # `variant__product` is joined because the response explains WHY a scanned unit
+    # cannot be sold (`product_name`, `product_is_active`): one query, not three per row.
+    queryset = VariantUOM.objects.select_related(
+        'variant__product', 'uom').all()
     serializer_class = VariantUOMSerializer
 
     audit_label = 'Selling unit'

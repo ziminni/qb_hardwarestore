@@ -481,3 +481,74 @@ class BackfillMigrationTests(BarcodeTestBase):
         before = dict(VariantUOM.objects.values_list('pk', 'barcode_qr'))
         migration.backfill_blank_barcodes(live_apps, None)
         self.assertEqual(dict(VariantUOM.objects.values_list('pk', 'barcode_qr')), before)
+
+
+class BarcodeLookupTests(BarcodeTestBase):
+    """Task 3 — `?barcode=` resolves a scan to the exact selling unit (decision 13).
+
+    The till scans, misses its loaded catalogue and asks the server. The answer has to
+    be ONE row for that exact code, and it has to carry enough to explain a refusal:
+    "that code belongs to <product>, which is archived" is a different message from "no
+    product has that code", so archived rows are returned rather than filtered out.
+    """
+
+    def _lookup(self, code, user=None):
+        return self.client.get(
+            VARIANT_UOMS_URL, {'barcode': code},
+            **self._auth(user or self.stocker))
+
+    def test_a_padded_lowercase_code_finds_that_one_unit(self):
+        own = self.unit.barcode_qr
+        self.assertTrue(own.startswith('QB'), own)
+
+        response = self._lookup(f'  {own.lower()}  ')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['count'], 1, response.data)
+        row = response.data['results'][0]
+        self.assertEqual(row['id'], self.unit.pk)
+        self.assertEqual(row['barcode_qr'], own)
+        # What the client needs to say WHY a unit cannot be sold.
+        self.assertEqual(row['product_name'], 'Portland Cement')
+        self.assertEqual(row['variant_name'], '40kg')
+        self.assertIs(row['variant_is_active'], True)
+        self.assertIs(row['product_is_active'], True)
+
+    def test_an_unknown_code_is_an_empty_page_not_an_error(self):
+        response = self._lookup('NO-SUCH-CODE')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['count'], 0, response.data)
+        self.assertEqual(response.data['results'], [])
+
+    def test_an_unauthenticated_lookup_is_refused(self):
+        response = self.client.get(
+            VARIANT_UOMS_URL, {'barcode': self.unit.barcode_qr})
+
+        self.assertEqual(response.status_code, 401, response.data)
+
+    def test_a_cashier_may_look_up_a_code(self):
+        response = self._lookup(self.unit.barcode_qr, user=self.cashier)
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['count'], 1, response.data)
+
+    def test_an_archived_variant_is_still_returned_with_its_flag(self):
+        self.variant.is_active = False
+        self.variant.save(update_fields=['is_active'])
+        self.product.is_active = False
+        self.product.save(update_fields=['is_active'])
+
+        response = self._lookup(self.unit.barcode_qr)
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['count'], 1, response.data)
+        row = response.data['results'][0]
+        self.assertIs(row['variant_is_active'], False)
+        self.assertIs(row['product_is_active'], False)
+
+    def test_without_a_barcode_param_the_catalogue_is_listed_as_before(self):
+        response = self.client.get(VARIANT_UOMS_URL, **self._auth(self.stocker))
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['count'], 2, response.data)
