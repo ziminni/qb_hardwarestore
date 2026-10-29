@@ -1,11 +1,13 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/units/whole_units.dart';
 import 'package:client/data/models/held_cart.dart';
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
 import 'package:client/features/pos/viewmodels/held_cart_viewmodel.dart';
+import 'package:client/features/pos/viewmodels/pos_scan_result.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_opening_float_form.dart';
@@ -300,24 +302,43 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     );
   }
 
+  /// What a scanner just typed, end to end (decisions 13 + 17).
+  ///
+  /// The resolution (catalogue, then one server fallback) lives in the viewmodel;
+  /// this only turns an outcome into an action or a sentence. A whole unit is
+  /// added straight to the cart — a re-scan merges, which is the till's rhythm —
+  /// while a measured unit (m, kg) opens the dialog on the SCANNED unit, so a
+  /// beep cannot sell "1 m" by accident.
   Future<void> _handleScan(BuildContext context, String value) async {
     final transaction = context.read<PosTransactionViewmodel>();
-    final product = transaction.findByBarcode(value);
     _scanController.clear();
     transaction.setQuery('');
 
-    if (product == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Product not found for barcode: ${value.trim()}'),
-        ),
-      );
-      _restoreScannerFocus();
-      return;
+    switch (await transaction.resolveScan(value)) {
+      case ScanHit(:final item):
+        if (isWholeUnit(item.unit)) {
+          final error = transaction.addLine(item, 1);
+          if (error != null) _announce(context, error);
+        } else {
+          await _addProduct(context, item, initial: item);
+        }
+      case ScanArchived(:final code, :final productName):
+        _announce(context, '`$code` belongs to $productName, which is archived');
+      case ScanNotFound(:final code):
+        _announce(context, 'No product has code `$code`');
+      case ScanError(:final message):
+        _announce(context, message);
     }
-
-    await _addProduct(context, product);
+    // Focus comes back last, on every outcome: the next beep must land in the
+    // scan field even if the cashier tapped nothing.
     _restoreScannerFocus();
+  }
+
+  void _announce(BuildContext context, String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _restoreScannerFocus() {
@@ -327,13 +348,18 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     });
   }
 
-  Future<void> _addProduct(BuildContext context, PosCatalogItem product) async {
+  Future<void> _addProduct(
+    BuildContext context,
+    PosCatalogItem product, {
+    PosCatalogItem? initial,
+  }) async {
     final transaction = context.read<PosTransactionViewmodel>();
     final selection = await showDialog<PosSaleSelection>(
       context: context,
       builder: (_) => PosSaleQuantityDialog(
         product: product,
         options: transaction.saleOptionsFor(product),
+        initial: initial,
       ),
     );
     if (selection == null || !context.mounted) {

@@ -1,4 +1,5 @@
 import 'package:client/data/models/product_writes.dart';
+import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/services/products_service.dart';
 
 /// Which POST in the create chain failed.
@@ -46,6 +47,13 @@ class ProductsRepository {
   final ProductsService service;
 
   Future<ProductsSnapshot> loadCatalogue() => service.fetchCatalogue();
+
+  /// Resolves a scanned code to the selling unit that owns it (decision 13).
+  ///
+  /// Returns the server's rows — including archived ones, whose names are how the
+  /// till explains why a code cannot be sold. Read-only, so no [ProductWriteStep].
+  Future<List<VariantUom>> lookupByBarcode(String code) =>
+      service.lookupByBarcode(code);
 
   /// Creates the catalog item: product, its first variant, and that variant's
   /// factor-1 selling unit carrying the price and the optional barcode.

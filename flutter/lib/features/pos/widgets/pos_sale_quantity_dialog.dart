@@ -1,3 +1,4 @@
+import 'package:client/core/units/whole_units.dart';
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:flutter/material.dart';
 
@@ -12,10 +13,17 @@ class PosSaleQuantityDialog extends StatefulWidget {
     super.key,
     required this.product,
     required this.options,
+    this.initial,
   });
 
   final PosCatalogItem product;
   final List<PosCatalogItem> options;
+
+  /// The unit a SCAN resolved, preselected so the cashier confirms THAT unit
+  /// (Barcode baseline F4 — a scanned metre must not become a piece).
+  ///
+  /// Null for a manual browse, which keeps the old behaviour: the first option.
+  final PosCatalogItem? initial;
 
   @override
   State<PosSaleQuantityDialog> createState() => _PosSaleQuantityDialogState();
@@ -24,7 +32,21 @@ class PosSaleQuantityDialog extends StatefulWidget {
 class _PosSaleQuantityDialogState extends State<PosSaleQuantityDialog> {
   final _formKey = GlobalKey<FormState>();
   final _quantity = TextEditingController(text: '1');
-  late PosCatalogItem _selected = widget.options.first;
+  late PosCatalogItem _selected = _initialSelection();
+
+  /// The scanned unit among [PosSaleQuantityDialog.options].
+  ///
+  /// By SELLING-UNIT ID, not by identity: the scanned item comes from an earlier
+  /// build of the till catalogue, so it is a different object than the option the
+  /// dropdown holds, and `DropdownButton` asserts on a value it cannot find.
+  PosCatalogItem _initialSelection() {
+    final wanted = widget.initial?.variantUomId;
+    if (wanted == null) return widget.options.first;
+    for (final option in widget.options) {
+      if (option.variantUomId == wanted) return option;
+    }
+    return widget.options.first;
+  }
 
   @override
   void dispose() {
@@ -84,15 +106,8 @@ class _PosSaleQuantityDialogState extends State<PosSaleQuantityDialog> {
                     if (number == null || number <= 0) {
                       return 'Enter a valid quantity';
                     }
-                    const wholeUnits = {
-                      'piece',
-                      'bag',
-                      'box',
-                      'sheet',
-                      'roll',
-                      'pack',
-                    };
-                    if (wholeUnits.contains(_selected.unit.toLowerCase()) &&
+                    // One list, shared with the till's scan path (decision 17).
+                    if (isWholeUnit(_selected.unit) &&
                         number != number.roundToDouble()) {
                       return 'Use a whole number for ${_selected.unit}';
                     }

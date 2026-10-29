@@ -382,6 +382,9 @@ void main() {
 
   group('ProductsService.lookupByBarcode', () {
     test('asks for the normalised code on the selling-unit endpoint', () async {
+      // Decision 13: the server compares `Upper(barcode_qr)`, so the client must
+      // send the same normalised text — a scanner's ` qb000013-0 ` has to find
+      // the stored `QB000013-0`.
       useBodies({_variantUomsPath: _envelope([_variantUomRow()])});
 
       await service().lookupByBarcode('  qb000013-0 ');

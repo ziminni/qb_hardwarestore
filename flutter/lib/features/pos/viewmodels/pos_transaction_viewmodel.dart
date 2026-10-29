@@ -11,10 +11,13 @@ import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/repositories/customer_repository.dart';
 import 'package:client/data/repositories/pos_repository.dart';
+import 'package:client/data/repositories/products_repository.dart';
 import 'package:client/data/services/customer_service.dart';
 import 'package:client/data/services/held_cart_service.dart';
 import 'package:client/data/services/pos_service.dart';
+import 'package:client/data/services/products_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
+import 'package:client/features/pos/viewmodels/pos_scan_result.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:flutter/foundation.dart';
 
@@ -25,9 +28,11 @@ class PosTransactionViewmodel extends ChangeNotifier {
     PosRepository? pos,
     CustomerRepository? customers,
     HeldCartService? heldCarts,
+    ProductsRepository? products,
   }) : _pos = pos ?? PosRepository(PosService()),
        _customers = customers,
-       _injectedHeldCarts = heldCarts {
+       _injectedHeldCarts = heldCarts,
+       _injectedProducts = products {
     _inventory.addListener(_inventoryChanged);
     _tracking.addListener(_inventoryChanged);
   }
@@ -43,6 +48,12 @@ class PosTransactionViewmodel extends ChangeNotifier {
   final HeldCartService? _injectedHeldCarts;
   HeldCartService get _heldCartService =>
       _injectedHeldCarts ?? HeldCartService();
+
+  /// The catalogue endpoint, for the scan fallback (decision 13). Injected by tests
+  /// and built on FIRST USE, so a scan-free test never touches it.
+  final ProductsRepository? _injectedProducts;
+  ProductsRepository get _productRepo =>
+      _injectedProducts ?? ProductsRepository(ProductsService());
 
   /// Built on FIRST USE, not in the constructor.
   ///
@@ -450,6 +461,44 @@ class PosTransactionViewmodel extends ChangeNotifier {
       if (VariantUom.normalise(item.barcode) == barcode) return item;
     }
     return null;
+  }
+
+  /// Resolves a scanned code to the exact selling unit it names (decision 13).
+  ///
+  /// Loaded catalogue first — the common case, no round trip. On a miss ONE server
+  /// lookup, then a catalogue reload, because the usual reason a code is missing at
+  /// the till is that the unit was created after the till opened. No retry loop: a
+  /// second scan is the retry.
+  Future<ScanResult> resolveScan(String raw) async {
+    final code = VariantUom.normalise(raw);
+    if (code.isEmpty) return const ScanNotFound('');
+    final cached = findByBarcode(code);
+    if (cached != null) return ScanHit(cached);
+
+    final List<VariantUom> rows;
+    try {
+      rows = await _productRepo.lookupByBarcode(code);
+    } on ProductsServiceException catch (error) {
+      // A failed lookup is NOT "no product has that code": the cashier would go
+      // hunting for a product that may well exist.
+      return ScanError(error.message);
+    }
+    if (rows.isEmpty) return ScanNotFound(code);
+
+    final row = rows.first;
+    if (!row.productIsActive || !row.variantIsActive) {
+      // Archived: the server still holds the code, so reloading cannot help. The
+      // names are what let the till say WHICH product this was.
+      return ScanArchived(code: code, productName: row.productName);
+    }
+
+    // Active on the server but missing from the catalogue: the unit was created
+    // after the till loaded. Reload once, then look again.
+    await _inventory.load();
+    final reloaded = findByBarcode(code);
+    if (reloaded != null) return ScanHit(reloaded);
+    if (_inventory.loadError case final message?) return ScanError(message);
+    return ScanArchived(code: code, productName: row.productName);
   }
 
   void setQuery(String value) {
