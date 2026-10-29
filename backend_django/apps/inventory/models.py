@@ -31,6 +31,44 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import models, transaction
+from django.db.models.functions import Upper
+
+
+# =========================================================================
+# Selling-unit codes  (Phase 6, decisions 11/12/16)
+# =========================================================================
+
+def gs1_check_digit(digits: str) -> int:
+    """The GS1 mod-10 check digit for `digits` (weights 3,1,3,1… from the RIGHTMOST).
+
+    One function for both code kinds: it validates a factory EAN (`4800016123450`) and
+    it derives an internal code from a selling unit's id, so the printed label and the
+    scan agree on the same arithmetic.
+    """
+    total = sum(
+        int(char) * (3 if position % 2 == 0 else 1)
+        for position, char in enumerate(reversed(digits)))
+    return (10 - total % 10) % 10
+
+
+def derived_code(pk: int) -> str:
+    """This shop's own code for a selling unit: `QB{id:06}-{check}`, e.g. QB000013-0.
+
+    Derived, never random: unique by construction (ids are unique) and recomputable
+    during an audit. The `QB` prefix is reserved so nobody can hand-type a code that a
+    future unit will be given automatically.
+    """
+    digits = f'{pk:06d}'
+    return f'QB{digits}-{gs1_check_digit(digits)}'
+
+
+def normalise_barcode(value) -> str:
+    """Trim + upper — the single normalisation the API, the seed and the till share.
+
+    `'  qb000013-0 '` and `'QB000013-0'` are the same code, so the stored value and a
+    scanned value compare equal without either side guessing.
+    """
+    return (value or '').strip().upper()
 
 
 # =========================================================================
@@ -159,7 +197,15 @@ class VariantUOM(models.Model):
         ordering = ['variant', 'uom']
         constraints = [
             models.UniqueConstraint(
-                fields=['variant', 'uom'], name='uq_variant_uom')]
+                fields=['variant', 'uom'], name='uq_variant_uom'),
+            # Phase 6 (decision 11): one scannable code per selling unit, compared
+            # case-insensitively because every write normalises to upper. Blanks are left
+            # out of the condition so the constraint never blocks a row that has no code
+            # yet - `save()` gives it one straight away (decision 16).
+            models.UniqueConstraint(
+                Upper('barcode_qr'), condition=~models.Q(barcode_qr=''),
+                name='uniq_variantuom_barcode'),
+        ]
 
     def __str__(self):
         return f'{self.variant} @ {self.uom.code} (×{self.conversion_factor})'

@@ -215,3 +215,43 @@ class NoBatchHistory(ValueError):
             message
             or f'Variant {variant} has no batch history: stock it with a goods '
                'receipt before correcting its quantity upwards.')
+
+
+class BarcodeTaken(CatalogWriteRefused):
+    """Another selling unit already carries this code (Phase 6, decision 11).
+
+    A code is what a scan resolves to, so two units sharing one make the till a coin
+    toss. The second write is refused and the detail names the holder (product ·
+    variant · unit), which leaks nothing: an inventory role may already read every
+    catalog row.
+
+    Raised by the serializer's pre-check for a readable sentence, and again by the view
+    when the DB constraint refuses the race the pre-check cannot win (two tills, one
+    code).
+    """
+
+    code = 'BARCODE_TAKEN'
+
+
+class BarcodeInvalid(CatalogWriteRefused):
+    """A code that is not scannable (decision 12).
+
+    Either it cannot be read as typed - not printable ASCII without spaces, or longer
+    than 100 characters - or it is an all-digit 8/12/13-character manufacturer code whose
+    GS1 mod-10 check digit does not match, i.e. a keying typo. Storing it would make the
+    unit look scannable while no scanner can ever find it.
+    """
+
+    code = 'BARCODE_INVALID'
+
+
+class BarcodeReservedPrefix(CatalogWriteRefused):
+    """A hand-typed internal `QB…` code (decision 12).
+
+    `QB` codes are generated from the selling unit's id, so a typed one is either a
+    mistake or a code a future unit is going to be given - and then two units would hold
+    it. Only a unit's OWN derived code is accepted, which makes a PATCH of a generated
+    code a no-op instead of a refusal.
+    """
+
+    code = 'BARCODE_RESERVED_PREFIX'

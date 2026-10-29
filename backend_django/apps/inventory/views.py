@@ -10,6 +10,7 @@
 # removed. `reportGeneralTypeIssues` is deliberately left ON.
 """Inventory app — ViewSets for catalog, purchasing & stock."""
 
+from django.db import IntegrityError
 from django.db import transaction
 from django.http import Http404
 from django.utils import timezone
@@ -24,6 +25,7 @@ from apps.users.permissions import (
 )
 from apps.users.services import audit_request
 from .exceptions import (
+    BarcodeTaken,
     InvalidPurchaseOrderState,
     PurchaseOrderHasReceipts,
     PurchaseOrderLocked,
@@ -34,6 +36,7 @@ from .models import (
     Brand, Category, Product, ProductVariant, UnitOfMeasure, VariantUOM,
     Supplier, PurchaseOrder, GoodsReceipt, GoodsReceiptItem,
     InventoryBatch, StockAdjustment, SystemAlert,
+    normalise_barcode,
 )
 from .serializers import (
     BrandSerializer, CategorySerializer, ProductSerializer,
@@ -52,6 +55,23 @@ class _InventoryWritePermissions:
         if self.action in ('list', 'retrieve'):
             return [IsAuthenticated()]
         return [IsInventoryRole()]
+
+
+def _refuse_lost_barcode_race(exc):
+    """Turn the barcode unique-constraint violation into the API's 400 `BARCODE_TAKEN`.
+
+    `VariantUOMSerializer`'s pre-check reads then writes, so two tills can both read "no
+    holder" and both insert; only `uniq_variantuom_barcode` can refuse the second. Called
+    from OUTSIDE the `atomic` block `_AuditedCatalogViewSet` wraps around `save()` (the
+    same reason `apps/pos/views.py` keeps its `except IntegrityError` outside its block),
+    so the savepoint is already rolled back and no half-write survives. Any other
+    constraint failure is re-raised untouched — it is not this handler's to explain.
+    """
+    if 'uniq_variantuom_barcode' not in str(exc):
+        raise exc
+    raise BarcodeTaken(
+        'That barcode was assigned to another selling unit at the same moment: reload '
+        'and use a different code.') from exc
 
 
 def _nothing_changed(serializer) -> bool:
@@ -248,6 +268,32 @@ class VariantUOMViewSet(_AuditedCatalogViewSet):
             return ''
         return (
             f'price {before:.2f} -> {instance.default_selling_price:.2f}')
+
+    def get_queryset(self):
+        """`?barcode=` resolves a scan to the exact selling unit (decision 13).
+
+        Exact and case-insensitive on the normalised value, because the till normalises
+        the scanned text the same way before it asks. Archived variants and products are
+        NOT filtered out: the till has to say "that code belongs to X, which is archived"
+        rather than "no product has that code", and that needs the row.
+        """
+        queryset = super().get_queryset()
+        code = normalise_barcode(self.request.query_params.get('barcode'))
+        if not code:
+            return queryset
+        return queryset.filter(barcode_qr__iexact=code)
+
+    def perform_create(self, serializer):
+        try:
+            super().perform_create(serializer)
+        except IntegrityError as exc:
+            _refuse_lost_barcode_race(exc)
+
+    def perform_update(self, serializer):
+        try:
+            super().perform_update(serializer)
+        except IntegrityError as exc:
+            _refuse_lost_barcode_race(exc)
 
 
 # =========================================================================
