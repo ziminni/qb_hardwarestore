@@ -17,6 +17,8 @@ dependencies:
   flutter_secure_storage: ^11.0.0
   file_selector: ^1.1.0   # Desktop product image selection
   shared_preferences: ^2.5.6
+  pdf: ^3.13.1
+  printing: ^5.15.1
   
 dev_dependencies:
   flutter_test:
