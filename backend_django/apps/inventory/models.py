@@ -209,6 +209,24 @@ class VariantUOM(models.Model):
 
     def __str__(self):
         return f'{self.variant} @ {self.uom.code} (×{self.conversion_factor})'
+
+    def save(self, *args, **kwargs):
+        """Every selling unit always carries a code (Phase 6, decision 16).
+
+        Two writes in ONE transaction, because the derived code is built from the row's
+        own id: the row first, then `barcode_qr`. The rule lives here rather than in the
+        API so the Django admin, the seed command, a shell session and the serializer all
+        obey it and no path can leave a unit unscannable.
+
+        A non-blank value is normalised (trim + upper) on the way in, so a code typed in
+        lower case by any of those paths still compares equal to a scan.
+        """
+        self.barcode_qr = normalise_barcode(self.barcode_qr)
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            super().save(*args, **kwargs)
+            if not self.barcode_qr:
+                self.barcode_qr = derived_code(self.pk)
+                super().save(update_fields=['barcode_qr'])
 # =========================================================================
 # Purchasing & Stock  (Phase 2)
 # =========================================================================

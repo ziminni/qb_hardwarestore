@@ -10,8 +10,7 @@
 # removed. `reportGeneralTypeIssues` is deliberately left ON.
 """Inventory app — ViewSets for catalog, purchasing & stock."""
 
-from django.db import IntegrityError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.http import Http404
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
@@ -260,14 +259,27 @@ class VariantUOMViewSet(_AuditedCatalogViewSet):
     audit_label = 'Selling unit'
 
     def audit_snapshot(self, instance):
-        return {'default_selling_price': instance.default_selling_price}
+        return {
+            'default_selling_price': instance.default_selling_price,
+            'barcode_qr': instance.barcode_qr,
+        }
 
     def audit_changes(self, snapshot, instance):
+        """What the edit changed: the price (money) and the code (what a scan resolves).
+
+        Reachable in one PATCH, so the two are joined rather than one replacing the
+        other. A code that ends up re-derived from a blank PATCH shows as a real change,
+        which is what happened: the unit's code went from an EAN back to its own QB.
+        """
+        changes = []
         before = snapshot.get('default_selling_price')
-        if before is None or before == instance.default_selling_price:
-            return ''
-        return (
-            f'price {before:.2f} -> {instance.default_selling_price:.2f}')
+        if before is not None and before != instance.default_selling_price:
+            changes.append(
+                f'price {before:.2f} -> {instance.default_selling_price:.2f}')
+        code_before = snapshot.get('barcode_qr', '')
+        if code_before != instance.barcode_qr:
+            changes.append(f"barcode '{code_before}' -> '{instance.barcode_qr}'")
+        return '; '.join(changes)
 
     def get_queryset(self):
         """`?barcode=` resolves a scan to the exact selling unit (decision 13).

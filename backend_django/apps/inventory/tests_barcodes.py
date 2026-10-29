@@ -32,6 +32,8 @@ from django.test import TransactionTestCase
 from django.utils.crypto import get_random_string
 from rest_framework.test import APIClient
 
+from apps.users.models import AuditLog
+
 from . import models as inventory_models
 from .models import UnitOfMeasure, VariantUOM
 from .tests import InventoryTestBase
@@ -320,3 +322,162 @@ class ConcurrentBarcodeTests(TransactionTestCase):
         self.assertEqual(losing.get('code'), 'BARCODE_TAKEN', losing)
         self.assertEqual(
             VariantUOM.objects.filter(barcode_qr__iexact=VALID_EAN).count(), 1)
+
+
+class CodeAssignmentTests(BarcodeTestBase):
+    """Task 2 — no selling unit is ever left without a code (decision 16).
+
+    The rule lives on the MODEL, not the view, so the API, the Django admin, the seed
+    command and a shell session all obey it: a row saved without a manufacturer code is
+    given `QB{id:06}-{check}`, and a PATCH of `''` re-derives it instead of leaving the
+    unit unscannable.
+    """
+
+    def test_create_without_a_code_gets_the_derived_one(self):
+        response = self.client.post(
+            VARIANT_UOMS_URL,
+            {'variant': self.variant.pk, 'uom': self.uom_rl.pk,
+             'conversion_factor': '6', 'default_selling_price': '60'},
+            format='json', **self._auth(self.stocker))
+
+        self.assertEqual(response.status_code, 201, response.data)
+        unit = VariantUOM.objects.get(pk=response.data['id'])
+        self.assertEqual(unit.barcode_qr, expected_code(unit.pk))
+        self.assertEqual(response.data['barcode_qr'], expected_code(unit.pk))
+
+    def test_create_with_a_valid_ean_keeps_it_normalised(self):
+        response = self.client.post(
+            VARIANT_UOMS_URL,
+            {'variant': self.variant.pk, 'uom': self.uom_rl.pk,
+             'barcode_qr': f'  {VALID_EAN}  ', 'conversion_factor': '6',
+             'default_selling_price': '60'},
+            format='json', **self._auth(self.stocker))
+
+        self.assertEqual(response.status_code, 201, response.data)
+        unit = VariantUOM.objects.get(pk=response.data['id'])
+        self.assertEqual(unit.barcode_qr, VALID_EAN)
+
+    def test_an_orm_create_is_given_a_code_too(self):
+        """The admin, the seed and a shell session all go through `save()`."""
+        unit = VariantUOM.objects.create(
+            variant=self.variant, uom=self.uom_rl,
+            conversion_factor=Decimal('6'),
+            default_selling_price=Decimal('60'))
+
+        self.assertEqual(unit.barcode_qr, expected_code(unit.pk))
+
+    def test_a_lowercase_code_is_stored_normalised_by_the_model(self):
+        unit = VariantUOM.objects.create(
+            variant=self.variant, uom=self.uom_rl,
+            barcode_qr=' ab-12 ', conversion_factor=Decimal('6'),
+            default_selling_price=Decimal('60'))
+
+        unit.refresh_from_db()
+        self.assertEqual(unit.barcode_qr, 'AB-12')
+
+    def test_patch_blank_restores_the_derived_code_and_is_audited(self):
+        replaced = self._patch_code(self.unit, VALID_EAN)
+        self.assertEqual(replaced.status_code, 200, replaced.data)
+        earlier = set(AuditLog.objects.filter(
+            description__contains='barcode').values_list('id', flat=True))
+
+        response = self._patch_code(self.unit, '')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        own = expected_code(self.unit.pk)
+        self.unit.refresh_from_db()
+        self.assertEqual(self.unit.barcode_qr, own)
+        new_rows = AuditLog.objects.filter(
+            description__contains='barcode').exclude(id__in=earlier)
+        self.assertEqual(new_rows.count(), 1, [r.description for r in new_rows])
+        self.assertIn(f"barcode '{VALID_EAN}' -> '{own}'", new_rows.first().description)
+
+    def test_replacing_the_generated_code_with_an_ean_is_audited_both_ways(self):
+        own = expected_code(self.unit.pk)
+
+        response = self._patch_code(self.unit, VALID_EAN)
+
+        self.assertEqual(response.status_code, 200, response.data)
+        rows = AuditLog.objects.filter(
+            action_type=AuditLog.ActionType.UPDATE,
+            description__contains='barcode')
+        self.assertEqual(rows.count(), 1, [r.description for r in rows])
+        self.assertIn(f"barcode '{own}' -> '{VALID_EAN}'", rows.first().description)
+
+    def test_a_price_and_a_code_change_in_one_patch_are_both_audited(self):
+        own = expected_code(self.unit.pk)
+
+        response = self.client.patch(
+            f'{VARIANT_UOMS_URL}{self.unit.pk}/',
+            {'barcode_qr': VALID_EAN, 'default_selling_price': '12.50'},
+            format='json', **self._auth(self.stocker))
+
+        self.assertEqual(response.status_code, 200, response.data)
+        description = AuditLog.objects.filter(
+            action_type=AuditLog.ActionType.UPDATE,
+            description__contains='barcode').first().description
+        self.assertIn("price 10.00 -> 12.50", description)
+        self.assertIn(f"barcode '{own}' -> '{VALID_EAN}'", description)
+
+class SeedCodeAssignmentTests(InventoryTestBase):
+    """The seed command must not leave a selling unit unscannable.
+
+    Its own TestCase, and the ONLY fixtures are the base ones no longer present: the
+    command has to run against a database with no catalog, because `_seed_catalog`
+    returns a variant map without costs when a `Cement` category already exists (a
+    pre-existing crash in the command, not something Phase 6 introduces).
+    """
+
+    def test_the_seed_command_leaves_no_blank_codes(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        # A clean catalog is what a fresh install has; `seed_demo` is not re-runnable
+        # against a half-seeded one.
+        inventory_models.StockAdjustment.objects.all().delete()
+        inventory_models.InventoryBatch.objects.all().delete()
+        VariantUOM.objects.all().delete()
+        inventory_models.ProductVariant.objects.all().delete()
+        inventory_models.Product.objects.all().delete()
+        inventory_models.Category.objects.all().delete()
+
+        call_command('seed_demo', verbosity=0, stdout=StringIO())
+
+        self.assertTrue(VariantUOM.objects.exists())
+        self.assertEqual(
+            VariantUOM.objects.filter(barcode_qr='').count(), 0,
+            'the seed must not leave a selling unit unscannable')
+        for unit in VariantUOM.objects.all():
+            self.assertEqual(unit.barcode_qr, expected_code(unit.pk))
+
+
+class BackfillMigrationTests(BarcodeTestBase):
+    """The data migration fills the rows that already existed before Phase 6."""
+
+    MIGRATION = 'apps.inventory.migrations.0007_backfill_variantuom_barcodes'
+
+    def _migration(self):
+        import importlib
+        try:
+            return importlib.import_module(self.MIGRATION)
+        except ModuleNotFoundError:
+            self.fail(f'{self.MIGRATION} is missing: existing blank codes stay '
+                      'unscannable')
+
+    def test_forward_backfills_every_blank_code_and_reruns_as_a_no_op(self):
+        from django.apps import apps as live_apps
+
+        migration = self._migration()
+        # A dev database from before Phase 6: every code blank.
+        VariantUOM.objects.update(barcode_qr='')
+
+        migration.backfill_blank_barcodes(live_apps, None)
+
+        self.assertEqual(VariantUOM.objects.filter(barcode_qr='').count(), 0)
+        for unit in VariantUOM.objects.all():
+            self.assertEqual(unit.barcode_qr, expected_code(unit.pk))
+
+        before = dict(VariantUOM.objects.values_list('pk', 'barcode_qr'))
+        migration.backfill_blank_barcodes(live_apps, None)
+        self.assertEqual(dict(VariantUOM.objects.values_list('pk', 'barcode_qr')), before)
