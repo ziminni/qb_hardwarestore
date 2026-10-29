@@ -392,6 +392,28 @@ class CodeAssignmentTests(BarcodeTestBase):
         self.assertEqual(new_rows.count(), 1, [r.description for r in new_rows])
         self.assertIn(f"barcode '{VALID_EAN}' -> '{own}'", new_rows.first().description)
 
+    def test_patch_blank_on_an_already_derived_code_writes_no_audit_row(self):
+        """A PATCH that restores the code already stored changes nothing (M1/M3).
+
+        A client clears the field to "go back to the generated code"; when that IS the
+        stored code the write is a no-op, and a no-op must not leave an `UPDATE` row
+        claiming an edit - the same rule `_nothing_changed` enforces for `{}` bodies.
+        """
+        own = expected_code(self.unit.pk)
+        self.assertEqual(self.unit.barcode_qr, own)
+
+        response = self._patch_code(self.unit, '')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.unit.refresh_from_db()
+        self.assertEqual(self.unit.barcode_qr, own)
+        self.assertFalse(
+            AuditLog.objects.filter(
+                action_type=AuditLog.ActionType.UPDATE,
+                description__contains='Selling unit').exists(),
+            [r.description for r in AuditLog.objects.filter(
+                action_type=AuditLog.ActionType.UPDATE)])
+
     def test_replacing_the_generated_code_with_an_ean_is_audited_both_ways(self):
         own = expected_code(self.unit.pk)
 

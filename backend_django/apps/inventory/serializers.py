@@ -220,10 +220,19 @@ class VariantUOMSerializer(serializers.ModelSerializer):
                 != _field_value(getattr(self.instance, field))
             ]
             if changed and selling_unit_is_sold(self.instance):
-                raise SellingUnitInUse(
+                    raise SellingUnitInUse(
                     f'{self.instance} has been sold: {', '.join(changed)} cannot be '
                     'changed without rewriting what past sales and returns mean. '
                     'Create a new selling unit; the price stays editable.')
+
+        if (self.instance is not None and 'barcode_qr' in attrs
+                and not attrs['barcode_qr']
+                and self.instance.barcode_qr == derived_code(self.instance.pk)):
+            # A blank code means "restore my own code" (decision 16). When that IS the
+            # stored code the PATCH changes nothing, so it must not write an `UPDATE`
+            # audit row claiming an edit that `save()` then undoes - the same rule
+            # `_nothing_changed` applies to a `{}` body.
+            attrs.pop('barcode_qr')
 
         return attrs
 
