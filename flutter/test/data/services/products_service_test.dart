@@ -78,6 +78,28 @@ Map<String, dynamic> _batch({
   'created_at': '2026-09-25T16:24:33.630104+08:00',
 };
 
+const _variantUomsPath = '/api/v1/variant-uoms/';
+
+/// One `GET /variant-uoms/?barcode=` row, shaped exactly like
+/// `VariantUOMSerializer` (verified against the committed backend).
+Map<String, dynamic> _variantUomRow({
+  bool variantIsActive = false,
+  bool productIsActive = true,
+}) => {
+  'id': 13,
+  'variant': 8,
+  'uom': 2,
+  'uom_code': 'PC',
+  'uom_name': 'Piece',
+  'product_name': 'Circuit Breaker',
+  'variant_name': '20A 1-pole',
+  'product_is_active': productIsActive,
+  'variant_is_active': variantIsActive,
+  'barcode_qr': 'QB000013-0',
+  'conversion_factor': '1.00',
+  'default_selling_price': '315.00',
+};
+
 /// A real DRF list envelope.
 Map<String, dynamic> _envelope(List<Map<String, dynamic>> results) => {
   'count': results.length,
@@ -95,6 +117,10 @@ class _PathFakeAdapter implements HttpClientAdapter {
   final int statusCode;
   final List<String> requested = [];
 
+  /// The query string of every request, so a test can assert that a filtered
+  /// call really asked the server to filter.
+  final List<Map<String, dynamic>> requestedQueries = [];
+
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
@@ -102,6 +128,7 @@ class _PathFakeAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     requested.add(options.path);
+    requestedQueries.add(options.queryParameters);
     if (!bodies.containsKey(options.path)) {
       return ResponseBody.fromString(
         '{"detail":"not found"}',
@@ -123,6 +150,59 @@ class _PathFakeAdapter implements HttpClientAdapter {
   @override
   void close({bool force = false}) {}
 }
+
+/// Answers each path with a LIST of page bodies, chosen by the `page` query
+/// parameter — the shape DRF produces when a list is longer than `PAGE_SIZE`.
+class _PagedFakeAdapter implements HttpClientAdapter {
+  _PagedFakeAdapter(this.pages);
+
+  /// path -> page bodies, in order (index 0 is page 1).
+  final Map<String, List<Map<String, dynamic>>> pages;
+  final List<String> requested = [];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final page = int.tryParse('${options.queryParameters['page'] ?? 1}') ?? 1;
+    requested.add('${options.path}?page=$page');
+    final bodies = pages[options.path];
+    if (bodies == null || page > bodies.length) {
+      return ResponseBody.fromString(
+        '{"detail":"invalid page"}',
+        404,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
+    }
+    return ResponseBody.fromString(
+      jsonEncode(bodies[page - 1]),
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+/// An envelope whose `next` link is set (or not) — the ONLY signal
+/// `parsePaged` uses to decide another page follows.
+Map<String, dynamic> _page(
+  List<Map<String, dynamic>> results, {
+  required int count,
+  required bool hasNext,
+}) => {
+  'count': count,
+  'next': hasNext ? 'http://test/api?page=2' : null,
+  'previous': null,
+  'results': results,
+};
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -262,6 +342,79 @@ void main() {
 
       await expectLater(
         service().fetchCatalogue(),
+        throwsA(isA<ProductsServiceException>()),
+      );
+    });
+
+    test('walks every page, so product and batch #51 load', () async {
+      // F5: one page is PAGE_SIZE (50) rows. Reading only the first page made
+      // product #51 unsearchable and unscannable at the till, and batch #51's
+      // quantity simply missing from every stock figure. The stub below answers
+      // exactly like DRF: `next` set on page 1, null on page 2.
+      final pageOneProducts = [
+        for (var id = 1; id <= 50; id++) _product(id: id),
+      ];
+      final pageOneBatches = [
+        for (var id = 1; id <= 50; id++) _batch(variantId: id),
+      ];
+      final adapter = _PagedFakeAdapter({
+        _productsPath: [
+          _page(pageOneProducts, count: 51, hasNext: true),
+          _page([_product(id: 51)], count: 51, hasNext: false),
+        ],
+        _batchesPath: [
+          _page(pageOneBatches, count: 51, hasNext: true),
+          _page([_batch(variantId: 51)], count: 51, hasNext: false),
+        ],
+      });
+      client.dio.httpClientAdapter = adapter;
+
+      final snapshot = await service().fetchCatalogue();
+
+      expect(snapshot.products, hasLength(51));
+      expect(snapshot.products.last.id, 51);
+      expect(snapshot.batches, hasLength(51));
+      expect(snapshot.batches.last.variantId, 51);
+      expect(adapter.requested, contains('$_productsPath?page=2'));
+      expect(adapter.requested, contains('$_batchesPath?page=2'));
+    });
+  });
+
+  group('ProductsService.lookupByBarcode', () {
+    test('asks for the normalised code on the selling-unit endpoint', () async {
+      useBodies({_variantUomsPath: _envelope([_variantUomRow()])});
+
+      await service().lookupByBarcode('  qb000013-0 ');
+
+      expect(adapter.requested, [_variantUomsPath]);
+      expect(adapter.requestedQueries.single['barcode'], 'QB000013-0');
+    });
+
+    test('returns the unit plus why the server thinks it is unsellable', () async {
+      useBodies({_variantUomsPath: _envelope([_variantUomRow()])});
+
+      final rows = await service().lookupByBarcode('QB000013-0');
+
+      final row = rows.single;
+      expect(row.id, 13);
+      expect(row.barcodeQr, 'QB000013-0');
+      expect(row.productName, 'Circuit Breaker');
+      expect(row.variantName, '20A 1-pole');
+      expect(row.variantIsActive, isFalse);
+      expect(row.productIsActive, isTrue);
+    });
+
+    test('an unknown code is an empty list, not a failure', () async {
+      useBodies({_variantUomsPath: _envelope(const [])});
+
+      expect(await service().lookupByBarcode('QB999999-9'), isEmpty);
+    });
+
+    test('a failed lookup is a ProductsServiceException', () async {
+      useBodies({}, statusCode: 500);
+
+      await expectLater(
+        service().lookupByBarcode('QB000013-0'),
         throwsA(isA<ProductsServiceException>()),
       );
     });

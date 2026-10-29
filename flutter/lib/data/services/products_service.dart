@@ -1,7 +1,7 @@
 import 'package:client/core/network/api_client.dart';
-import 'package:client/core/network/paged.dart';
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
+import 'package:client/data/models/variant_uom.dart';
 import 'package:dio/dio.dart';
 
 /// Raised when the catalogue cannot be loaded. [message] is safe to show a user.
@@ -63,16 +63,51 @@ class ProductsService {
   /// had actually failed — with no banner and no Retry.
   ///
   /// The two requests run together because neither depends on the other.
-  Future<ProductsSnapshot> fetchCatalogue() async {
+  Future<ProductsSnapshot> fetchCatalogue() => _read(() async {
+    // F5: `getList` reads ONE page (DRF `PAGE_SIZE` = 50). Product #51 was
+    // unsearchable and unscannable, and batch #51's quantity was missing from
+    // every stock figure. `getAll` walks the `next` links.
+    // The two reads run one after the other, NOT in parallel: `Future.wait` (and
+    // the record `.wait`) wraps a failure in ParallelWaitError, which is neither a
+    // DioException nor a FormatException — the exact leak F1 fixed. A second
+    // round trip is cheaper than a contract break reported as "no products".
+    final products = await _client.getAll<Product>(
+      productsPath,
+      Product.fromJson,
+    );
+    final batches = await _client.getAll<InventoryBatch>(
+      batchesPath,
+      InventoryBatch.fromJson,
+    );
+    return ProductsSnapshot(products: products, batches: batches);
+  });
+
+  /// Resolves a scanned code to the selling unit that owns it (decision 13).
+  ///
+  /// The server compares the normalised code exactly (`Upper(barcode_qr) ==`),
+  /// so this normalises first and a scanner's ` qb000013-0 ` finds
+  /// `QB000013-0`. One page is enough: a code identifies at most one unit.
+  ///
+  /// Archived variants and products come back TOO — that row is how the till can
+  /// say "that code belongs to X, which is archived" instead of "no such code".
+  Future<List<VariantUom>> lookupByBarcode(String code) {
+    final normalised = VariantUom.normalise(code);
+    if (normalised.isEmpty) return Future.value(const <VariantUom>[]);
+    return _read(
+      () async => (await _client.getList<VariantUom>(
+        variantUomsPath,
+        VariantUom.fromJson,
+        queryParameters: {'barcode': normalised},
+      )).items,
+    );
+  }
+
+  /// Runs a read, turning every way it can fail into a [ProductsServiceException]
+  /// the screen can show. The three failures deserve three messages: a transport
+  /// refusal, a malformed envelope, and a row of the wrong TYPE.
+  Future<T> _read<T>(Future<T> Function() read) async {
     try {
-      final responses = await Future.wait([
-        _client.getList<Product>(productsPath, Product.fromJson),
-        _client.getList<InventoryBatch>(batchesPath, InventoryBatch.fromJson),
-      ]);
-      return ProductsSnapshot(
-        products: (responses[0] as Paged<Product>).items,
-        batches: (responses[1] as Paged<InventoryBatch>).items,
-      );
+      return await read();
     } on DioException catch (error) {
       throw ProductsServiceException(_message(error));
     } on FormatException catch (error) {
@@ -87,11 +122,6 @@ class ProductsService {
       );
     }
   }
-
-  // ---------------------------------------------------------------------
-  // Writes (Phase 4 Task 4). There is no DELETE: the catalog routes answer
-  // 405 and archiving is `PATCH {"is_active": false}`.
-  // ---------------------------------------------------------------------
 
   static const variantsPath = '/api/v1/variants/';
   static const variantUomsPath = '/api/v1/variant-uoms/';

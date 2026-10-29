@@ -399,7 +399,10 @@ class PosTransactionViewmodel extends ChangeNotifier {
             productName: record.product.baseName,
             variantName: record.variant.variantName,
             unit: unit,
-            barcode: record.variant.barcode,
+            // Decision 11 F3: the unit's OWN code. `record.variant.barcode` is the
+            // variant's first non-blank code, so a piece and a box of one variant
+            // answered to the same code and the box was unscannable.
+            barcode: uom.barcodeQr,
             conversionFactor: factor,
             unitPrice: configuredPackagePrice > 0
                 ? configuredPackagePrice
@@ -435,11 +438,16 @@ class PosTransactionViewmodel extends ChangeNotifier {
       .where((item) => item.variantId == product.variantId)
       .toList(growable: false);
 
+  /// The catalogue line whose OWN selling unit carries [value], or null.
+  ///
+  /// Both sides are normalised the one way the server stores codes
+  /// ([VariantUom.normalise]), so a scanner's padded lower-case text matches the
+  /// stored `QB000013-0` (decision 11).
   PosCatalogItem? findByBarcode(String value) {
-    final barcode = value.trim().toLowerCase();
+    final barcode = VariantUom.normalise(value);
     if (barcode.isEmpty) return null;
     for (final item in _catalog) {
-      if (item.barcode.trim().toLowerCase() == barcode) return item;
+      if (VariantUom.normalise(item.barcode) == barcode) return item;
     }
     return null;
   }
