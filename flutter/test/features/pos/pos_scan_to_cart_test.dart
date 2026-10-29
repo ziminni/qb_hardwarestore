@@ -200,10 +200,13 @@ class _ScanProductsRepository extends ProductsRepository {
   int lookups = 0;
   int loads = 0;
   ProductsServiceException? failure;
+  ProductsServiceException? loadFailure;
 
   @override
   Future<ProductsSnapshot> loadCatalogue() async {
     loads++;
+    final boom = loadFailure;
+    if (boom != null) throw boom;
     return snapshot;
   }
 
@@ -350,6 +353,30 @@ void main() {
       },
     );
 
+    test('an empty scan resolves to nothing WITHOUT asking the server', () async {
+      final result = await cart.resolveScan('');
+
+      expect(result, isA<ScanNotFound>());
+      expect((result as ScanNotFound).code, isEmpty);
+      expect(
+        repository.lookups,
+        0,
+        reason:
+            'the API answers an empty ?barcode= with the FULL catalogue, so an '
+            'empty lookup would hand the till an arbitrary product',
+      );
+      expect(repository.loads, 0);
+    });
+
+    test('a whitespace-only scan is the same empty scan', () async {
+      final result = await cart.resolveScan('   ');
+
+      expect(result, isA<ScanNotFound>());
+      expect((result as ScanNotFound).code, isEmpty);
+      expect(repository.lookups, 0);
+      expect(repository.loads, 0);
+    });
+
     test('an empty server answer is "no product has that code"', () async {
       final result = await cart.resolveScan(_unknownCode);
 
@@ -437,6 +464,93 @@ void main() {
         expect(repository.loads, 1, reason: 'one reload, not a loop');
       },
     );
+
+    test(
+      'an ACTIVE unit that is out of stock is out of stock, not archived',
+      () async {
+        // The server holds the code and nothing is archived: the variant's stock is
+        // 0, so the till catalogue skips it. Telling the customer this product is
+        // "archived" is false (Phase 6 review Minor 1, promoted).
+        const soldOut = VariantUom(
+          id: 500,
+          variantId: 53,
+          uomId: 2,
+          uomCode: 'QABOX',
+          uomName: 'QA Box',
+          barcodeQr: _unknownCode,
+          conversionFactor: 2,
+          defaultSellingPrice: 60,
+          productName: 'QA4UI Bolt',
+          variantName: 'QA Standard',
+        );
+        repository.rows = [soldOut];
+        repository.snapshot = ProductsSnapshot(
+          products: [
+            product(
+              id: 53,
+              name: 'QA4UI Bolt',
+              variants: [
+                variant(
+                  id: 53,
+                  productId: 53,
+                  name: 'QA Standard',
+                  sellingUoms: const [soldOut],
+                ),
+              ],
+            ),
+          ],
+          // No batch at all: zero stock, so no catalogue row.
+          batches: const [],
+        );
+
+        final result = await cart.resolveScan(_unknownCode);
+
+        expect(
+          result,
+          isA<ScanOutOfStock>(),
+          reason:
+              'nothing is archived here: the variant is simply at zero stock and '
+              'may be re-stocked tomorrow',
+        );
+        expect((result as ScanOutOfStock).productName, 'QA4UI Bolt');
+        expect(result.unit, 'QABOX');
+        expect(result.code, _unknownCode);
+        expect(
+          repository.loads,
+          1,
+          reason: 'the reason is decided after ONE reload',
+        );
+      },
+    );
+
+    test('a reload that fails is an error, never "archived"', () async {
+      // An active row with no catalogue entry forces a reload; the reload failing
+      // means the till does NOT know why the code is unsellable.
+      repository.rows = [
+        const VariantUom(
+          id: 501,
+          variantId: 53,
+          uomId: 1,
+          uomCode: 'PC',
+          uomName: 'Piece',
+          barcodeQr: _unknownCode,
+          conversionFactor: 1,
+          defaultSellingPrice: 10,
+          productName: 'QA4UI Bolt',
+        ),
+      ];
+      repository.loadFailure = const ProductsServiceException(
+        'Cannot connect to the BuildPro server.',
+      );
+
+      final result = await cart.resolveScan(_unknownCode);
+
+      expect(result, isA<ScanError>());
+      expect(
+        (result as ScanError).message,
+        'Cannot connect to the BuildPro server.',
+      );
+    });
 
     test('a failed lookup is an error, never "not found"', () async {
       repository.failure = const ProductsServiceException(
@@ -600,6 +714,26 @@ void main() {
       expect(cart.lines.single.unit, 'PC');
     });
 
+    testWidgets('a blank scan is silent: no lookup, no snackbar, no line', (
+      tester,
+    ) async {
+      await pumpTill(tester, inventory: inventory, cart: cart);
+      final loadsAtOpen = repository.loads;
+
+      await scan(tester, '   ');
+
+      expect(
+        find.byType(SnackBar),
+        findsNothing,
+        reason:
+            'an empty scan is not an error, and "No product has code ``" looks '
+            'broken on a cashier\'s screen (QA defect 3)',
+      );
+      expect(cart.lines, isEmpty);
+      expect(repository.lookups, 0);
+      expect(repository.loads, loadsAtOpen);
+    });
+
     testWidgets('an unknown code says no product has it', (tester) async {
       await pumpTill(tester, inventory: inventory, cart: cart);
 
@@ -634,6 +768,60 @@ void main() {
       expect(
         find.text('`$_unknownCode` belongs to Old Cable, which is archived'),
         findsOneWidget,
+      );
+    });
+
+    testWidgets('a sold-out unit says out of stock, never "archived"', (
+      tester,
+    ) async {
+      await pumpTill(tester, inventory: inventory, cart: cart);
+      const soldOut = VariantUom(
+        id: 500,
+        variantId: 53,
+        uomId: 2,
+        uomCode: 'QABOX',
+        uomName: 'QA Box',
+        barcodeQr: _unknownCode,
+        conversionFactor: 2,
+        defaultSellingPrice: 60,
+        productName: 'QA4UI Bolt',
+        variantName: 'QA Standard',
+      );
+      repository.rows = [soldOut];
+      repository.snapshot = ProductsSnapshot(
+        products: [
+          wireProduct(),
+          measuredProduct(),
+          shortProduct(),
+          product(
+            id: 53,
+            name: 'QA4UI Bolt',
+            variants: [
+              variant(
+                id: 53,
+                productId: 53,
+                name: 'QA Standard',
+                sellingUoms: const [soldOut],
+              ),
+            ],
+          ),
+        ],
+        batches: allBatches(),
+      );
+
+      await scan(tester, _unknownCode);
+
+      expect(cart.lines, isEmpty);
+      expect(
+        find.text(
+          '`$_unknownCode` is QA4UI Bolt (QABOX), which is out of stock.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('archived'),
+        findsNothing,
+        reason: 'an archived product is a different, false statement',
       );
     });
 

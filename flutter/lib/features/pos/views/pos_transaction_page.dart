@@ -323,8 +323,18 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
           context,
           '`$code` belongs to $productName, which is archived',
         );
+      case ScanOutOfStock(:final code, :final productName, :final unit):
+        _announce(
+          context,
+          '`$code` is $productName ($unit), which is out of stock.',
+        );
       case ScanNotFound(:final code):
-        _announce(context, 'No product has code `$code`');
+        // An empty code is a scan of NOTHING (Enter on a blank field). It is not
+        // an error, and "No product has code ``" reads as a broken screen, so
+        // stay silent — nothing was looked up and nothing can be added.
+        if (code.isNotEmpty) {
+          _announce(context, 'No product has code `$code`');
+        }
       case ScanError(:final message):
         _announce(context, message);
     }

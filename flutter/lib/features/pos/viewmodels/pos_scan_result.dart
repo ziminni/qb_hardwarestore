@@ -31,6 +31,24 @@ class ScanNotFound extends ScanResult {
   final String code;
 }
 
+/// The code is live and unarchived, but this till cannot sell it right now.
+///
+/// The catalogue skips a variant at zero stock, so an ACTIVE product that just
+/// sold out resolved to "archived" — a false sentence in front of the customer.
+/// "Out of stock" is the honest reason, and it names the unit so the cashier can
+/// tell the piece from the box.
+class ScanOutOfStock extends ScanResult {
+  const ScanOutOfStock({
+    required this.code,
+    required this.productName,
+    required this.unit,
+  });
+
+  final String code;
+  final String productName;
+  final String unit;
+}
+
 /// The lookup itself failed (network, server, contract break) — NOT "not found".
 class ScanError extends ScanResult {
   const ScanError(this.message);

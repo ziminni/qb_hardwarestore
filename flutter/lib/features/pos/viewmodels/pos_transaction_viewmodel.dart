@@ -481,12 +481,21 @@ class PosTransactionViewmodel extends ChangeNotifier {
     }
 
     // Active on the server but missing from the catalogue: the unit was created
-    // after the till loaded. Reload once, then look again.
+    // after the till loaded, OR the variant is at zero stock (the catalogue skips
+    // those). Reload once, then look again.
     await _inventory.load();
     final reloaded = findByBarcode(code);
     if (reloaded != null) return ScanHit(reloaded);
     if (_inventory.loadError case final message?) return ScanError(message);
-    return ScanArchived(code: code, productName: row.productName);
+    // Nothing is archived here — the flags above said ACTIVE — so the only reason
+    // the reload still has no row is that there is no stock to sell. Calling that
+    // "archived" told the customer a product that may be re-stocked tomorrow was
+    // discontinued (Phase 6 review Minor 1).
+    return ScanOutOfStock(
+      code: code,
+      productName: row.productName,
+      unit: row.uomCode,
+    );
   }
 
   void setQuery(String value) {
