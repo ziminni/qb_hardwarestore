@@ -77,7 +77,10 @@ void main() {
   ) async {
     await _openDialog(
       tester,
-      requests: [request(), request(code: '4800016123450', unitName: 'BOX')],
+      requests: [
+        request(),
+        request(code: '4800016123450', unitName: 'BOX'),
+      ],
       printer: printer,
     );
 
@@ -154,7 +157,10 @@ void main() {
     // The Receiving pre-fill uses 0 for the units a delivery did not arrive as.
     await _openDialog(
       tester,
-      requests: [request(copies: 4), request(code: 'QB000012-3', copies: 0)],
+      requests: [
+        request(copies: 4),
+        request(code: 'QB000012-3', copies: 0),
+      ],
       printer: printer,
       allowSkip: true,
     );

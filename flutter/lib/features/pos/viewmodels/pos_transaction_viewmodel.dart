@@ -6,7 +6,6 @@ import 'package:client/data/models/held_cart.dart';
 // response shape, pos_service.dart owns the checkout one). The checkout path uses
 // the service's, so the stale duplicate is hidden rather than left ambiguous.
 import 'package:client/data/models/pos_transaction.dart' hide PosCheckoutResult;
-import 'package:client/data/models/product_tracking.dart';
 import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/repositories/customer_repository.dart';
@@ -18,13 +17,11 @@ import 'package:client/data/services/pos_service.dart';
 import 'package:client/data/services/products_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_scan_result.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:flutter/foundation.dart';
 
 class PosTransactionViewmodel extends ChangeNotifier {
   PosTransactionViewmodel(
-    this._inventory,
-    this._tracking, {
+    this._inventory, {
     PosRepository? pos,
     CustomerRepository? customers,
     HeldCartService? heldCarts,
@@ -34,11 +31,9 @@ class PosTransactionViewmodel extends ChangeNotifier {
        _injectedHeldCarts = heldCarts,
        _injectedProducts = products {
     _inventory.addListener(_inventoryChanged);
-    _tracking.addListener(_inventoryChanged);
   }
 
   final InventoryViewmodel _inventory;
-  final ProductTrackingViewmodel _tracking;
   final PosRepository _pos;
   final CustomerRepository? _customers;
 
@@ -372,17 +367,9 @@ class PosTransactionViewmodel extends ChangeNotifier {
           _inventory.stockOnHandFor(record.variant.id) <= 0) {
         continue;
       }
-      final tracking = _tracking.configurationFor(record.product.baseName);
-      final usesTracking =
-          tracking != null &&
-          tracking.baseUnit.toLowerCase() ==
-              record.variant.baseUomCode.toLowerCase();
       // Decision 06 section 2: the rows are built from the variant's REAL selling
       // units, because that is both what the catalogue can actually sell and the
-      // only source of a valid `variantUomId` for the payload. Tracking supplies the
-      // conversion factor and package price for whichever units it recognises; it can
-      // no longer add a unit the catalogue does not sell, because such a row has no
-      // id to submit.
+      // only source of a valid `variantUomId` for the payload.
       //
       // Building from tracking's labels instead produced DUPLICATE ids: variant 19 is
       // tracked with two sale units ('kg', 'g') but carries a single selling unit, so
@@ -393,31 +380,32 @@ class PosTransactionViewmodel extends ChangeNotifier {
       for (final uom in record.variant.sellingUoms) {
         final code = uom.uomCode.trim();
         if (code.isEmpty) continue;
+        // Decision 01: the selling unit is the single authority. The server charges
+        // `default_selling_price` and deducts `qty × conversion_factor`, and it
+        // refuses a unit whose factor is not positive — so a row for one would only
+        // ever be a refusal at checkout.
+        if (uom.conversionFactor <= 0) continue;
         sellableUnits.putIfAbsent(code.toLowerCase(), () => uom);
       }
       for (final uom in sellableUnits.values) {
-        final unit = uom.uomCode;
-        final factor = usesTracking ? _conversionFactor(tracking, unit) : 1.0;
-        final configuredPackagePrice =
-            usesTracking &&
-                unit.toLowerCase() == tracking.packageType.toLowerCase()
-            ? tracking.packageSellingPrice
-            : 0.0;
         items.add(
           PosCatalogItem(
             variantUomId: uom.id,
             variantId: record.variant.id,
             productName: record.product.baseName,
             variantName: record.variant.variantName,
-            unit: unit,
+            unit: uom.uomCode,
             // Decision 11 F3: the unit's OWN code. `record.variant.barcode` is the
             // variant's first non-blank code, so a piece and a box of one variant
             // answered to the same code and the box was unscannable.
             barcode: uom.barcodeQr,
-            conversionFactor: factor,
-            unitPrice: configuredPackagePrice > 0
-                ? configuredPackagePrice
-                : (_inventory.priceFor(record.variant.id) ?? 0) * factor,
+            // Both of these used to come from the local tracking config (and from
+            // the variant's FIRST unit's price), which made a scanned box show the
+            // piece price and an unscaled availability while the server charged the
+            // box price — a walk-in sale refused, or wrong change (Phase 6 review
+            // I1, QA defects 1 and 2).
+            conversionFactor: uom.conversionFactor,
+            unitPrice: uom.defaultSellingPrice,
             availableBaseStock: _inventory.stockOnHandFor(record.variant.id),
           ),
         );
@@ -511,7 +499,6 @@ class PosTransactionViewmodel extends ChangeNotifier {
   @override
   void dispose() {
     _inventory.removeListener(_inventoryChanged);
-    _tracking.removeListener(_inventoryChanged);
     super.dispose();
   }
 
@@ -856,29 +843,5 @@ class PosTransactionViewmodel extends ChangeNotifier {
       if (line.variantUomId == variantUomId) return line;
     }
     return null;
-  }
-
-  double _conversionFactor(ProductTrackingConfiguration tracking, String unit) {
-    if (unit.toLowerCase() == tracking.packageType.toLowerCase()) {
-      return tracking.stockForm == ProductStockForm.standardLengths
-          ? tracking.standardLength
-          : tracking.packageSize;
-    }
-    const factors = {
-      'g': .001,
-      'kg': 1.0,
-      'mm': .001,
-      'cm': .01,
-      'meter': 1.0,
-      'm': 1.0,
-      'inch': .0254,
-      'foot': .3048,
-      'ml': .001,
-      'l': 1.0,
-      'piece': 1.0,
-    };
-    final from = factors[unit.toLowerCase()] ?? 1;
-    final base = factors[tracking.baseUnit.toLowerCase()] ?? 1;
-    return from / base;
   }
 }

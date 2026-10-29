@@ -10,7 +10,6 @@
 
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
-import 'package:client/data/models/product_tracking.dart';
 import 'package:client/data/models/shift.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/repositories/auth_repository.dart';
@@ -24,7 +23,6 @@ import 'package:client/features/pos/viewmodels/pos_scan_result.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -33,11 +31,17 @@ import '../../support/phase4_fakes.dart';
 
 const _boxCode = 'QB000013-0';
 const _pcCode = 'QB000012-3';
+const _box12Code = 'QB000031-4';
 const _metreCode = 'QB000020-7';
 const _shortCode = 'QB000005-2';
 const _unknownCode = 'QB000099-1';
 
 /// Copper Wire, sold by the piece (id 120) and by the box (id 130).
+///
+/// The box is a 12-piece pack at ₱200 while the piece is ₱20 — numbers that
+/// DISAGREE on purpose (decision 01): the selling unit is the price authority,
+/// so a fixture whose box price equalled piece × factor could never catch a
+/// drift between what the till shows and what the server charges.
 Product wireProduct() => product(
   id: 12,
   name: 'Copper Wire',
@@ -63,10 +67,47 @@ Product wireProduct() => product(
           variantId: 12,
           uomId: 2,
           uomCode: 'BOX',
-          uomName: 'Box of 100',
+          uomName: 'Box of 12',
           barcodeQr: _boxCode,
-          conversionFactor: 100,
-          defaultSellingPrice: 1900,
+          conversionFactor: 12,
+          defaultSellingPrice: 200,
+        ),
+      ],
+    ),
+  ],
+);
+
+/// QA Box: one variant sold by the piece and by a 12-piece box, with 15 base
+/// units in stock — the shape that makes 1.25 boxes and refuses a second one.
+Product boxedProduct() => product(
+  id: 31,
+  name: 'QA Box Bolt',
+  variants: [
+    variant(
+      id: 31,
+      productId: 31,
+      name: 'Standard',
+      baseUomCode: 'PC',
+      sellingUoms: const [
+        VariantUom(
+          id: 310,
+          variantId: 31,
+          uomId: 1,
+          uomCode: 'PC',
+          uomName: 'Piece',
+          barcodeQr: 'QB000030-1',
+          conversionFactor: 1,
+          defaultSellingPrice: 20,
+        ),
+        VariantUom(
+          id: 311,
+          variantId: 31,
+          uomId: 2,
+          uomCode: 'BOX',
+          uomName: 'Box of 12',
+          barcodeQr: _box12Code,
+          conversionFactor: 12,
+          defaultSellingPrice: 200,
         ),
       ],
     ),
@@ -150,7 +191,8 @@ class _ScanProductsRepository extends ProductsRepository {
   _ScanProductsRepository({
     List<Product> products = const [],
     List<InventoryBatch> batches = const [],
-  }) : rows = const [], snapshot = ProductsSnapshot(products: products, batches: batches),
+  }) : rows = const [],
+       snapshot = ProductsSnapshot(products: products, batches: batches),
        super(ProductsService());
 
   ProductsSnapshot snapshot;
@@ -189,45 +231,17 @@ class _OpenShift extends ShiftService {
   );
 }
 
-/// Tracking gives the box its 100-piece factor, which is what makes "the box
-/// unit was added" distinguishable from "one piece was added".
-ProductTrackingViewmodel trackedProducts() {
-  final tracking = ProductTrackingViewmodel();
-  tracking.save(
-    const ProductTrackingConfiguration(
-      productName: 'Copper Wire',
-      method: ProductTrackingMethod.quantity,
-      baseUnit: 'pc',
-      stockForm: ProductStockForm.packaged,
-      allowFractional: false,
-      allowPartialPackage: false,
-      packageType: 'box',
-      packageSize: 100,
-      initialPackages: 5,
-      totalBaseQuantity: 500,
-      reorderLevel: 10,
-      storageLocation: 'A1',
-      costPrice: 10,
-      sellingPrice: 20,
-      packageSellingPrice: 1900,
-      standardLength: 0,
-      allowedSaleUnits: ['pc', 'box'],
-      physicalPieces: [],
-    ),
-  );
-  return tracking;
-}
-
-InventoryViewmodel _seededCatalogue(_ScanProductsRepository repository) =>
-    InventoryViewmodel.seeded(
-      catalogue: repository,
-      // A `load()` runs on open and on a scan fallback, so the OTHER sources must
-      // be fakes too: a real service would reach a Dio no unit test initialised.
-      inventory: FakeInventoryRepository(),
-      catalogueLists: FakeCatalogueRepository(),
-      products: repository.snapshot.products,
-      batches: repository.snapshot.batches,
-    );
+InventoryViewmodel _seededCatalogue(
+  _ScanProductsRepository repository,
+) => InventoryViewmodel.seeded(
+  catalogue: repository,
+  // A `load()` runs on open and on a scan fallback, so the OTHER sources must
+  // be fakes too: a real service would reach a Dio no unit test initialised.
+  inventory: FakeInventoryRepository(),
+  catalogueLists: FakeCatalogueRepository(),
+  products: repository.snapshot.products,
+  batches: repository.snapshot.batches,
+);
 
 /// The till's scan field — the one field the USB wedge types into.
 Finder scanField() => find.byWidgetPredicate(
@@ -240,7 +254,6 @@ Future<void> pumpTill(
   WidgetTester tester, {
   required InventoryViewmodel inventory,
   required PosTransactionViewmodel cart,
-  required ProductTrackingViewmodel tracking,
 }) async {
   tester.view.physicalSize = const Size(1600, 1400);
   tester.view.devicePixelRatio = 1.0;
@@ -253,7 +266,6 @@ Future<void> pumpTill(
           value: AuthViewmodel(AuthRepository(AuthService())),
         ),
         ChangeNotifierProvider<InventoryViewmodel>.value(value: inventory),
-        ChangeNotifierProvider<ProductTrackingViewmodel>.value(value: tracking),
       ],
       child: MaterialApp(
         home: PosTransactionPage(
@@ -286,11 +298,7 @@ void main() {
         batches: allBatches(),
       );
       inventory = _seededCatalogue(repository);
-      cart = PosTransactionViewmodel(
-        inventory,
-        trackedProducts(),
-        products: repository,
-      );
+      cart = PosTransactionViewmodel(inventory, products: repository);
     });
 
     test('a catalogue hit is answered without asking the server', () async {
@@ -304,6 +312,43 @@ void main() {
         reason: 'the loaded catalogue is the fast path (decision 13)',
       );
     });
+
+    test(
+      'a scanned box takes its price and factor from ITS selling unit',
+      () async {
+        final item = (await cart.resolveScan(_boxCode) as ScanHit).item;
+
+        expect(
+          item.unitPrice,
+          200,
+          reason:
+              'the server charges VariantUOM.default_selling_price (decision 01), '
+              'never the variant\'s FIRST unit price (₱20) times a factor',
+        );
+        expect(
+          item.conversionFactor,
+          12,
+          reason:
+              'the server deducts qty × VariantUOM.conversion_factor, so the till '
+              'must show the same 12 that will be deducted',
+        );
+      },
+    );
+
+    test(
+      'no tracking config at all: the unit still prices and factors it',
+      () async {
+        final untracked = PosTransactionViewmodel(
+          inventory,
+          products: repository,
+        );
+
+        final item = (await untracked.resolveScan(_boxCode) as ScanHit).item;
+
+        expect(item.unitPrice, 200);
+        expect(item.conversionFactor, 12);
+      },
+    );
 
     test('an empty server answer is "no product has that code"', () async {
       final result = await cart.resolveScan(_unknownCode);
@@ -342,50 +387,56 @@ void main() {
       );
     });
 
-    test('a server row that is active reloads the catalogue ONCE, then hits',
-        () async {
-      // The unit was created after the till loaded: the server knows it, the
-      // catalogue does not. One reload, and the scan lands.
-      final fresh = VariantUom(
-        id: 230,
-        variantId: 23,
-        uomId: 1,
-        uomCode: 'PC',
-        uomName: 'Piece',
-        barcodeQr: _unknownCode,
-        conversionFactor: 1,
-        defaultSellingPrice: 10,
-        productName: 'Fresh Cable',
-        variantName: 'New',
-      );
-      repository.rows = [fresh];
-      repository.snapshot = ProductsSnapshot(
-        products: [
-          wireProduct(),
-          product(
-            id: 23,
-            name: 'Fresh Cable',
-            variants: [
-              variant(
-                id: 23,
-                productId: 23,
-                name: 'New',
-                sellingUoms: [fresh],
-              ),
-            ],
-          ),
-        ],
-        // Stock matters: the till catalogue offers nothing it cannot sell.
-        batches: [...allBatches(), batch(id: 4, variantId: 23, qty: 12)],
-      );
+    test(
+      'a server row that is active reloads the catalogue ONCE, then hits',
+      () async {
+        // The unit was created after the till loaded: the server knows it, the
+        // catalogue does not. One reload, and the scan lands.
+        final fresh = VariantUom(
+          id: 230,
+          variantId: 23,
+          uomId: 1,
+          uomCode: 'PC',
+          uomName: 'Piece',
+          barcodeQr: _unknownCode,
+          conversionFactor: 1,
+          defaultSellingPrice: 10,
+          productName: 'Fresh Cable',
+          variantName: 'New',
+        );
+        repository.rows = [fresh];
+        repository.snapshot = ProductsSnapshot(
+          products: [
+            wireProduct(),
+            product(
+              id: 23,
+              name: 'Fresh Cable',
+              variants: [
+                variant(
+                  id: 23,
+                  productId: 23,
+                  name: 'New',
+                  sellingUoms: [fresh],
+                ),
+              ],
+            ),
+          ],
+          // Stock matters: the till catalogue offers nothing it cannot sell.
+          batches: [...allBatches(), batch(id: 4, variantId: 23, qty: 12)],
+        );
 
-      final result = await cart.resolveScan(_unknownCode);
+        final result = await cart.resolveScan(_unknownCode);
 
-      expect(result, isA<ScanHit>());
-      expect((result as ScanHit).item.variantUomId, 230);
-      expect(repository.lookups, 1, reason: 'one fallback per scan, no retry');
-      expect(repository.loads, 1, reason: 'one reload, not a loop');
-    });
+        expect(result, isA<ScanHit>());
+        expect((result as ScanHit).item.variantUomId, 230);
+        expect(
+          repository.lookups,
+          1,
+          reason: 'one fallback per scan, no retry',
+        );
+        expect(repository.loads, 1, reason: 'one reload, not a loop');
+      },
+    );
 
     test('a failed lookup is an error, never "not found"', () async {
       repository.failure = const ProductsServiceException(
@@ -402,10 +453,51 @@ void main() {
     });
   });
 
+  group('availability comes from the unit factor', () {
+    late _ScanProductsRepository repository;
+    late InventoryViewmodel inventory;
+    late PosTransactionViewmodel cart;
+
+    setUp(() {
+      // 15 base units in stock, sold by the piece and by a 12-piece box.
+      repository = _ScanProductsRepository(
+        products: [boxedProduct()],
+        batches: [batch(id: 5, variantId: 31, qty: 15)],
+      );
+      inventory = _seededCatalogue(repository);
+      cart = PosTransactionViewmodel(inventory, products: repository);
+    });
+
+    test('15 base units show as 1.25 of a 12-piece box', () {
+      final box = cart.findByBarcode(_box12Code)!;
+
+      expect(
+        box.availableSaleQuantity,
+        1.25,
+        reason:
+            'base stock ÷ conversion factor. Showing 15 told the cashier they '
+            'could sell 15 boxes (QA defect 1: a 12× overstatement)',
+      );
+    });
+
+    test('a cart of 2 boxes reserves 24 base units and is refused', () {
+      final box = cart.findByBarcode(_box12Code)!;
+
+      expect(cart.addLine(box, 1), isNull);
+      expect(
+        cart.addLine(box, 1),
+        'Only 1.25 BOX available.',
+        reason:
+            '2 × 12 = 24 base units against 15 in stock: the server would '
+            'refuse the whole sale at checkout',
+      );
+      expect(cart.lines.single.quantity, 1);
+    });
+  });
+
   group('the till scan flow', () {
     late _ScanProductsRepository repository;
     late InventoryViewmodel inventory;
-    late ProductTrackingViewmodel tracking;
     late PosTransactionViewmodel cart;
 
     setUp(() {
@@ -414,23 +506,13 @@ void main() {
         batches: allBatches(),
       );
       inventory = _seededCatalogue(repository);
-      tracking = trackedProducts();
-      cart = PosTransactionViewmodel(
-        inventory,
-        tracking,
-        products: repository,
-      );
+      cart = PosTransactionViewmodel(inventory, products: repository);
     });
 
     testWidgets('scanning a box code twice merges into one line of 2 boxes', (
       tester,
     ) async {
-      await pumpTill(
-        tester,
-        inventory: inventory,
-        cart: cart,
-        tracking: tracking,
-      );
+      await pumpTill(tester, inventory: inventory, cart: cart);
 
       await scan(tester, _boxCode);
       await scan(tester, _boxCode);
@@ -443,12 +525,7 @@ void main() {
     testWidgets('scanning a measured unit opens the dialog on THAT unit', (
       tester,
     ) async {
-      await pumpTill(
-        tester,
-        inventory: inventory,
-        cart: cart,
-        tracking: tracking,
-      );
+      await pumpTill(tester, inventory: inventory, cart: cart);
 
       await scan(tester, _metreCode);
 
@@ -468,30 +545,22 @@ void main() {
       );
     });
 
-    testWidgets('a whole unit that cannot be added says why and changes nothing',
-        (tester) async {
-      await pumpTill(
-        tester,
-        inventory: inventory,
-        cart: cart,
-        tracking: tracking,
-      );
+    testWidgets(
+      'a whole unit that cannot be added says why and changes nothing',
+      (tester) async {
+        await pumpTill(tester, inventory: inventory, cart: cart);
 
-      await scan(tester, _shortCode);
+        await scan(tester, _shortCode);
 
-      expect(cart.lines, isEmpty);
-      expect(find.text('Only 0.50 PC available.'), findsOneWidget);
-    });
+        expect(cart.lines, isEmpty);
+        expect(find.text('Only 0.50 PC available.'), findsOneWidget);
+      },
+    );
 
     testWidgets('a code the till had not loaded is found through the server', (
       tester,
     ) async {
-      await pumpTill(
-        tester,
-        inventory: inventory,
-        cart: cart,
-        tracking: tracking,
-      );
+      await pumpTill(tester, inventory: inventory, cart: cart);
       final loadsAtOpen = repository.loads;
 
       final fresh = VariantUom(
@@ -516,12 +585,7 @@ void main() {
             id: 33,
             name: 'Late Cable',
             variants: [
-              variant(
-                id: 33,
-                productId: 33,
-                name: 'New',
-                sellingUoms: [fresh],
-              ),
+              variant(id: 33, productId: 33, name: 'New', sellingUoms: [fresh]),
             ],
           ),
         ],
@@ -537,12 +601,7 @@ void main() {
     });
 
     testWidgets('an unknown code says no product has it', (tester) async {
-      await pumpTill(
-        tester,
-        inventory: inventory,
-        cart: cart,
-        tracking: tracking,
-      );
+      await pumpTill(tester, inventory: inventory, cart: cart);
 
       await scan(tester, _unknownCode);
 
@@ -553,12 +612,7 @@ void main() {
     testWidgets('a code on an archived product says so, naming the product', (
       tester,
     ) async {
-      await pumpTill(
-        tester,
-        inventory: inventory,
-        cart: cart,
-        tracking: tracking,
-      );
+      await pumpTill(tester, inventory: inventory, cart: cart);
       repository.rows = [
         const VariantUom(
           id: 430,
@@ -586,12 +640,7 @@ void main() {
     testWidgets('a failed lookup reports the error and does not crash', (
       tester,
     ) async {
-      await pumpTill(
-        tester,
-        inventory: inventory,
-        cart: cart,
-        tracking: tracking,
-      );
+      await pumpTill(tester, inventory: inventory, cart: cart);
       repository.failure = const ProductsServiceException(
         'Cannot connect to the BuildPro server.',
       );
@@ -609,12 +658,7 @@ void main() {
     testWidgets('browsing (not scanning) still preselects the first unit', (
       tester,
     ) async {
-      await pumpTill(
-        tester,
-        inventory: inventory,
-        cart: cart,
-        tracking: tracking,
-      );
+      await pumpTill(tester, inventory: inventory, cart: cart);
 
       await tester.tap(find.textContaining('THHN Wire').first);
       await tester.pumpAndSettle();

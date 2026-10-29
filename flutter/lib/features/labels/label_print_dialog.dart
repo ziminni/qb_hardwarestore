@@ -205,7 +205,9 @@ class _LabelPrintDialogState extends State<LabelPrintDialog> {
       }
     } catch (error) {
       // A refused print must not lose the picker: the user retries or saves.
-      if (mounted) setState(() => _error = 'Could not print the labels: $error');
+      if (mounted) {
+        setState(() => _error = 'Could not print the labels: $error');
+      }
       return;
     }
     if (mounted) Navigator.pop(context);

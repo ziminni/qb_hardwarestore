@@ -118,7 +118,7 @@ void main() {
     // `seededInventory()` fills the store SYNCHRONOUSLY: these tests never await a
     // load, and the mock catalogue that used to answer here was deleted in Phase 4.
     inventory = seededInventory();
-    cart = PosTransactionViewmodel(inventory, ProductTrackingViewmodel());
+    cart = PosTransactionViewmodel(inventory);
     heldService = _StubHeldCarts();
     heldCarts = HeldCartViewmodel(service: heldService);
   });

@@ -106,10 +106,7 @@ Future<void> _pump(WidgetTester tester, ShiftViewmodel shift) async {
         ],
         child: MaterialApp(
           home: PosTransactionPage(
-            viewmodel: PosTransactionViewmodel(
-              inventory,
-              ProductTrackingViewmodel(),
-            ),
+            viewmodel: PosTransactionViewmodel(inventory),
             shiftViewmodel: shift,
           ),
         ),

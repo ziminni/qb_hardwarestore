@@ -9,4 +9,5 @@
 const wholeUnitCodes = {'pc', 'piece', 'bag', 'box', 'sheet', 'roll', 'pack'};
 
 /// True when [code] names a unit that is only sold in whole counts.
-bool isWholeUnit(String code) => wholeUnitCodes.contains(code.trim().toLowerCase());
+bool isWholeUnit(String code) =>
+    wholeUnitCodes.contains(code.trim().toLowerCase());

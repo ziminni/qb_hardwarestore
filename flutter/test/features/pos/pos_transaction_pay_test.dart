@@ -149,11 +149,7 @@ void _addOneLine() {
 void main() {
   setUp(() {
     _pos = _StubPosRepository();
-    _cart = PosTransactionViewmodel(
-      seededInventory(),
-      ProductTrackingViewmodel(),
-      pos: _pos,
-    );
+    _cart = PosTransactionViewmodel(seededInventory(), pos: _pos);
   });
 
   testWidgets('an EMPTY cart cannot reach payment at all', (tester) async {

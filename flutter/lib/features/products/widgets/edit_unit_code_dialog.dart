@@ -78,7 +78,8 @@ class _EditUnitCodeDialogState extends State<EditUnitCodeDialog> {
               onSubmitted: (_) => _save(),
               decoration: InputDecoration(
                 labelText: 'Barcode',
-                hintText: 'Factory barcode — leave blank to restore the QB code',
+                hintText:
+                    'Factory barcode — leave blank to restore the QB code',
                 errorText: _error,
                 prefixIcon: const Icon(Icons.barcode_reader),
               ),

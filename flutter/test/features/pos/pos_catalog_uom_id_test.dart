@@ -12,7 +12,6 @@
 
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import '../../support/phase4_fakes.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -22,7 +21,7 @@ void main() {
 
   setUp(() {
     inventory = seededInventory();
-    cart = PosTransactionViewmodel(inventory, ProductTrackingViewmodel());
+    cart = PosTransactionViewmodel(inventory);
   });
 
   test('every catalogue item carries a REAL selling-unit id', () {

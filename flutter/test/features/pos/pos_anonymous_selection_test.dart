@@ -13,7 +13,6 @@ import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/services/customer_service.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import '../../support/phase4_fakes.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -59,7 +58,6 @@ void main() {
   setUp(() {
     cart = PosTransactionViewmodel(
       seededInventory(),
-      ProductTrackingViewmodel(),
       pos: _StubPosRepository(),
       customers: _StubCustomerRepository(),
     );

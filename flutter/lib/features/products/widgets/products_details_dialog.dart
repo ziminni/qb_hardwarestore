@@ -146,10 +146,7 @@ class ProductsDetailsDialog extends StatelessWidget {
                             ],
                           ),
                           const SizedBox(height: AppSpacing.sm),
-                          _UnitCodes(
-                            variant: variant,
-                            canEdit: canEditCodes,
-                          ),
+                          _UnitCodes(variant: variant, canEdit: canEditCodes),
                           const SizedBox(height: AppSpacing.sm),
                           Wrap(
                             spacing: AppSpacing.xl,

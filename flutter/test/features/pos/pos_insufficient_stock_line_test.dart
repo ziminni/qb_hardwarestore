@@ -14,7 +14,6 @@ import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import '../../support/phase4_fakes.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -58,11 +57,7 @@ void main() {
   setUp(() {
     inventory = seededInventory();
     repository = _StubPosRepository();
-    cart = PosTransactionViewmodel(
-      inventory,
-      ProductTrackingViewmodel(),
-      pos: repository,
-    );
+    cart = PosTransactionViewmodel(inventory, pos: repository);
   });
 
   /// Adds the first sellable line and reports its id plus the VARIANT the server

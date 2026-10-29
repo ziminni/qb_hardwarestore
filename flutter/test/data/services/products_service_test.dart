@@ -426,25 +426,28 @@ void main() {
       );
     });
 
-    test('a taken code is reported with the server\'s own holder name', () async {
-      useBodies({
-        unitPath: {
-          'code': 'BARCODE_TAKEN',
-          'detail': 'QB000013-0 is already the code of Copper Wire · BOX.',
-        },
-      }, statusCode: 400);
+    test(
+      'a taken code is reported with the server\'s own holder name',
+      () async {
+        useBodies({
+          unitPath: {
+            'code': 'BARCODE_TAKEN',
+            'detail': 'QB000013-0 is already the code of Copper Wire · BOX.',
+          },
+        }, statusCode: 400);
 
-      await expectLater(
-        service().patchSellingUnit(130, {'barcode_qr': 'QB000013-0'}),
-        throwsA(
-          isA<ProductsServiceException>().having(
-            (error) => error.message,
-            'message',
-            'QB000013-0 is already the code of Copper Wire · BOX.',
+        await expectLater(
+          service().patchSellingUnit(130, {'barcode_qr': 'QB000013-0'}),
+          throwsA(
+            isA<ProductsServiceException>().having(
+              (error) => error.message,
+              'message',
+              'QB000013-0 is already the code of Copper Wire · BOX.',
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
   });
 
   group('ProductsService.lookupByBarcode', () {
@@ -452,7 +455,9 @@ void main() {
       // Decision 13: the server compares `Upper(barcode_qr)`, so the client must
       // send the same normalised text — a scanner's ` qb000013-0 ` has to find
       // the stored `QB000013-0`.
-      useBodies({_variantUomsPath: _envelope([_variantUomRow()])});
+      useBodies({
+        _variantUomsPath: _envelope([_variantUomRow()]),
+      });
 
       await service().lookupByBarcode('  qb000013-0 ');
 
@@ -460,19 +465,24 @@ void main() {
       expect(adapter.requestedQueries.single['barcode'], 'QB000013-0');
     });
 
-    test('returns the unit plus why the server thinks it is unsellable', () async {
-      useBodies({_variantUomsPath: _envelope([_variantUomRow()])});
+    test(
+      'returns the unit plus why the server thinks it is unsellable',
+      () async {
+        useBodies({
+          _variantUomsPath: _envelope([_variantUomRow()]),
+        });
 
-      final rows = await service().lookupByBarcode('QB000013-0');
+        final rows = await service().lookupByBarcode('QB000013-0');
 
-      final row = rows.single;
-      expect(row.id, 13);
-      expect(row.barcodeQr, 'QB000013-0');
-      expect(row.productName, 'Circuit Breaker');
-      expect(row.variantName, '20A 1-pole');
-      expect(row.variantIsActive, isFalse);
-      expect(row.productIsActive, isTrue);
-    });
+        final row = rows.single;
+        expect(row.id, 13);
+        expect(row.barcodeQr, 'QB000013-0');
+        expect(row.productName, 'Circuit Breaker');
+        expect(row.variantName, '20A 1-pole');
+        expect(row.variantIsActive, isFalse);
+        expect(row.productIsActive, isTrue);
+      },
+    );
 
     test('an unknown code is an empty list, not a failure', () async {
       useBodies({_variantUomsPath: _envelope(const [])});

@@ -23,7 +23,9 @@ class _FailingProductsRepository extends ProductsRepository {
 
   @override
   Future<ProductsSnapshot> loadCatalogue() async =>
-      throw const ProductsServiceException('Cannot connect to the BuildPro server.');
+      throw const ProductsServiceException(
+        'Cannot connect to the BuildPro server.',
+      );
 }
 
 class _FailingInventoryRepository extends InventoryRepository {
@@ -34,8 +36,7 @@ class _FailingInventoryRepository extends InventoryRepository {
       throw const InventoryServiceException('Cannot connect.');
 
   @override
-  Future<List<StockAdjustment>> loadAdjustments() async =>
-      [];
+  Future<List<StockAdjustment>> loadAdjustments() async => [];
 }
 
 /// The till only renders inside an open shift (decision 06), so the catalogue
@@ -56,7 +57,9 @@ class _OpenShift extends ShiftService {
 }
 
 void main() {
-  testWidgets('a failed catalogue load shows the error with a retry', (tester) async {
+  testWidgets('a failed catalogue load shows the error with a retry', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(1600, 1400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -78,10 +81,7 @@ void main() {
           ],
           child: MaterialApp(
             home: PosTransactionPage(
-              viewmodel: PosTransactionViewmodel(
-                inventory,
-                ProductTrackingViewmodel(),
-              ),
+              viewmodel: PosTransactionViewmodel(inventory),
               shiftViewmodel: ShiftViewmodel(service: _OpenShift()),
             ),
           ),

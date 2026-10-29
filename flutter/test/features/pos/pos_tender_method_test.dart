@@ -156,11 +156,7 @@ Future<void> _payWith(WidgetTester tester, {String? label}) async {
 void main() {
   setUp(() {
     _pos = _RecordingPosRepository();
-    _cart = PosTransactionViewmodel(
-      seededInventory(),
-      ProductTrackingViewmodel(),
-      pos: _pos,
-    );
+    _cart = PosTransactionViewmodel(seededInventory(), pos: _pos);
     final option = _cart.saleOptionsFor(_cart.filteredProducts.first).first;
     expect(_cart.addLine(option, 1), isNull);
   });

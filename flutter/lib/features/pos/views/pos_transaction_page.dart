@@ -19,7 +19,6 @@ import 'package:client/features/pos/widgets/pos_product_browser.dart';
 import 'package:client/features/pos/widgets/pos_receipt_dialog.dart';
 import 'package:client/features/pos/widgets/pos_sale_quantity_dialog.dart';
 import 'package:client/features/pos/widgets/pos_transaction_cart.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -69,10 +68,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
   /// (reproduced by the resume test).
   late final PosTransactionViewmodel _transaction =
       widget.viewmodel ??
-      PosTransactionViewmodel(
-        context.read<InventoryViewmodel>(),
-        context.read<ProductTrackingViewmodel>(),
-      );
+      PosTransactionViewmodel(context.read<InventoryViewmodel>());
 
   late final HeldCartViewmodel _heldCarts = _resolveHeldCarts();
 
@@ -323,7 +319,10 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
           await _addProduct(context, item, initial: item);
         }
       case ScanArchived(:final code, :final productName):
-        _announce(context, '`$code` belongs to $productName, which is archived');
+        _announce(
+          context,
+          '`$code` belongs to $productName, which is archived',
+        );
       case ScanNotFound(:final code):
         _announce(context, 'No product has code `$code`');
       case ScanError(:final message):

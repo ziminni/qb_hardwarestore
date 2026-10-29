@@ -137,7 +137,9 @@ void main() {
     expect(find.textContaining('BOX'), findsWidgets);
   });
 
-  testWidgets('a cashier sees the codes but no Edit code button', (tester) async {
+  testWidgets('a cashier sees the codes but no Edit code button', (
+    tester,
+  ) async {
     await openDetails(tester, 'pos');
 
     expect(find.textContaining('QB000013-0'), findsOneWidget);
@@ -195,7 +197,8 @@ void main() {
     expect(
       find.byType(EditUnitCodeDialog),
       findsOneWidget,
-      reason: 'closing would leave the clerk with a message and no way to fix it',
+      reason:
+          'closing would leave the clerk with a message and no way to fix it',
     );
     expect(
       repository.loadCount,
@@ -215,11 +218,9 @@ void main() {
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
-    expect(
-      repository.barcodePatches,
-      [(unitId: 130, barcode: '')],
-      reason: 'the server re-derives the unit\'s own QB code from a blank',
-    );
+    expect(repository.barcodePatches, [
+      (unitId: 130, barcode: ''),
+    ], reason: 'the server re-derives the unit\'s own QB code from a blank');
     expect(repository.loadCount, loadsBefore + 1);
     expect(find.byType(EditUnitCodeDialog), findsNothing);
   });

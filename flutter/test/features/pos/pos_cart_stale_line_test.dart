@@ -21,7 +21,6 @@
 
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/phase4_fakes.dart';
@@ -50,7 +49,7 @@ void main() {
       catalogue: FakeCatalogueRepository(),
     );
     await inventory.load();
-    cart = PosTransactionViewmodel(inventory, ProductTrackingViewmodel());
+    cart = PosTransactionViewmodel(inventory);
   }
 
   /// Add a line, then RELOAD the catalogue with the variant at zero so its row

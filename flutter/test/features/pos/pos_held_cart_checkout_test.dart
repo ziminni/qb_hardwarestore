@@ -141,12 +141,7 @@ void main() {
     inventory = seededInventory();
     pos = _FakePosRepository();
     heldService = _FakeHeldCartService();
-    cart = PosTransactionViewmodel(
-      inventory,
-      ProductTrackingViewmodel(),
-      pos: pos,
-      heldCarts: heldService,
-    );
+    cart = PosTransactionViewmodel(inventory, pos: pos, heldCarts: heldService);
   });
 
   /// Parks a basket on the server and resumes it into the till.

@@ -19,7 +19,6 @@ import 'package:client/data/services/customer_service.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import '../../support/phase4_fakes.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -136,12 +135,7 @@ void main() {
     inventory = seededInventory();
     pos = _StubPosRepository();
     customers = _StubCustomerRepository();
-    cart = PosTransactionViewmodel(
-      inventory,
-      ProductTrackingViewmodel(),
-      pos: pos,
-      customers: customers,
-    );
+    cart = PosTransactionViewmodel(inventory, pos: pos, customers: customers);
   });
 
   Future<void> addOneLine() async {
@@ -251,7 +245,6 @@ void _loadCustomersTests() {
       customers = _StubCustomerRepository();
       cart = PosTransactionViewmodel(
         inventory,
-        ProductTrackingViewmodel(),
         pos: _StubPosRepository(),
         customers: customers,
       );
@@ -310,7 +303,6 @@ void _utangPanelTests() {
       customers = _StubCustomerRepository();
       cart = PosTransactionViewmodel(
         inventory,
-        ProductTrackingViewmodel(),
         pos: _StubPosRepository(),
         customers: customers,
       );
@@ -387,7 +379,6 @@ void _reviewFixTests() {
       customers = _StubCustomerRepository();
       cart = PosTransactionViewmodel(
         inventory,
-        ProductTrackingViewmodel(),
         pos: _StubPosRepository(),
         customers: customers,
       );
@@ -481,7 +472,6 @@ void _reviewFixTests() {
         ..failure = PosServiceException('The server broke.');
       final cart2 = PosTransactionViewmodel(
         inventory,
-        ProductTrackingViewmodel(),
         pos: pos,
         customers: customers,
       );

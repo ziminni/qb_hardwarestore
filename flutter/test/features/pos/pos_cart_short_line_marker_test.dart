@@ -9,7 +9,6 @@ import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_transaction_cart.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import '../../support/phase4_fakes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -51,11 +50,7 @@ void main() {
   setUp(() {
     inventory = seededInventory();
     repository = _StubPosRepository();
-    cart = PosTransactionViewmodel(
-      inventory,
-      ProductTrackingViewmodel(),
-      pos: repository,
-    );
+    cart = PosTransactionViewmodel(inventory, pos: repository);
   });
 
   Future<void> pumpCart(WidgetTester tester) async {

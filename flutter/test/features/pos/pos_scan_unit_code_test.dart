@@ -6,11 +6,9 @@
 // then answered to one code, so a scan could not tell them apart and the box
 // factor was unreachable — the "one label, two things" landmine.
 
-import 'package:client/data/models/product_tracking.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import '../../support/phase4_fakes.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -60,33 +58,10 @@ void main() {
       ],
       batches: [batch(id: 1, variantId: 12, qty: 500, cost: 10)],
     );
-    // Tracking supplies the conversion factor the catalogue uses (decision 06
-    // section 2), so "the box's factor" is a number this test can tell apart
-    // from the piece's.
-    final tracking = ProductTrackingViewmodel();
-    tracking.save(
-      const ProductTrackingConfiguration(
-        productName: 'Copper Wire',
-        method: ProductTrackingMethod.quantity,
-        baseUnit: 'pc',
-        stockForm: ProductStockForm.packaged,
-        allowFractional: false,
-        allowPartialPackage: false,
-        packageType: 'box',
-        packageSize: 100,
-        initialPackages: 5,
-        totalBaseQuantity: 500,
-        reorderLevel: 10,
-        storageLocation: 'A1',
-        costPrice: 10,
-        sellingPrice: 20,
-        packageSellingPrice: 1900,
-        standardLength: 0,
-        allowedSaleUnits: ['pc', 'box'],
-        physicalPieces: [],
-      ),
-    );
-    cart = PosTransactionViewmodel(inventory, tracking);
+    // The box's factor is 100 on its OWN selling unit (decision 01/06): the till
+    // catalogue reads it there, so "the box's factor" is a number this test can
+    // tell apart from the piece's without any local tracking config.
+    cart = PosTransactionViewmodel(inventory);
   });
 
   test('a scan of the BOX code resolves the box unit, not the piece', () {
