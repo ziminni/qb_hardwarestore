@@ -60,6 +60,9 @@ class AdminRequisitionsViewmodel extends ChangeNotifier {
   }
 
   /// Returns true only if the server accepted the approval.
+  ///
+  /// The approval mints the material token, and the server returns it. The row keeps it: it is
+  /// the only way the approver can hand the token to the foreman (and the cashier can release).
   Future<bool> approve(int requisitionId) => _act(
     requisitionId,
     (id) => _repository.approve(id),
@@ -67,15 +70,14 @@ class AdminRequisitionsViewmodel extends ChangeNotifier {
   );
 
   /// Returns true only if the server accepted the rejection.
-  Future<bool> reject(int requisitionId) => _act(
-    requisitionId,
-    (id) => _repository.reject(id),
-    RequisitionStatus.rejected,
-  );
+  Future<bool> reject(int requisitionId) => _act(requisitionId, (id) async {
+    await _repository.reject(id);
+    return null;
+  }, RequisitionStatus.rejected);
 
   Future<bool> _act(
     int requisitionId,
-    Future<void> Function(int id) call,
+    Future<String?> Function(int id) call,
     RequisitionStatus result,
   ) async {
     // A second press while the first is in flight must send NOTHING. Without this the row is still
@@ -89,8 +91,9 @@ class AdminRequisitionsViewmodel extends ChangeNotifier {
     actionError = null;
     isLoading = true;
     notifyListeners();
+    String? token;
     try {
-      await call(requisitionId);
+      token = await call(requisitionId);
     } on RequisitionServiceException catch (error) {
       actionError = error.message;
       notifyListeners();
@@ -99,7 +102,7 @@ class AdminRequisitionsViewmodel extends ChangeNotifier {
       isLoading = false;
     }
 
-    _replace(row, result);
+    _replace(row, result, token: token);
     notifyListeners();
     return true;
   }
@@ -114,7 +117,7 @@ class AdminRequisitionsViewmodel extends ChangeNotifier {
   /// [Requisition] is immutable, so a served action is reflected by replacing the row with a copy
   /// carrying the new status. The alternative — re-fetching the list — would make the manager wait
   /// on a round trip to see the effect of a call that already answered.
-  void _replace(Requisition old, RequisitionStatus status) {
+  void _replace(Requisition old, RequisitionStatus status, {String? token}) {
     requisitions = [
       for (final row in requisitions)
         if (identical(row, old))
@@ -126,7 +129,7 @@ class AdminRequisitionsViewmodel extends ChangeNotifier {
             projectCustomerName: row.projectCustomerName,
             requestedByName: row.requestedByName,
             items: row.items,
-            token: row.token,
+            token: token ?? row.token,
           )
         else
           row,

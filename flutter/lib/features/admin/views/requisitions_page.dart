@@ -1,6 +1,7 @@
 import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/data/models/requisition.dart';
 import 'package:client/features/admin/viewmodels/admin_requisitions_viewmodel.dart';
+import 'package:client/features/admin/widgets/requisition_token_panel.dart';
 import 'package:flutter/material.dart';
 
 /// The Store Manager's requisition queue — the POS half of decision 09.
@@ -40,14 +41,33 @@ class _RequisitionsPageState extends State<RequisitionsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final body = AnimatedBuilder(
+      animation: _viewmodel,
+      builder: (context, _) => _body(context),
+    );
+    const subtitle = 'Review material requests and their current status.';
     return AdminSkeletonLayout(
       title: 'Requisitions',
-      subtitle: 'Review material requests and their current status.',
+      subtitle: subtitle,
       selectedNavigationIndex: 4,
-      child: AnimatedBuilder(
-        animation: _viewmodel,
-        builder: (context, _) => _body(context),
-      ),
+      child: body,
+    );
+  }
+
+  /// Approves, then shows the token the approval minted, so the approver can
+  /// hand it to the foreman at once.
+  Future<void> _approve(Requisition row) async {
+    final approved = await _viewmodel.approve(row.id);
+    if (!approved || !mounted) return;
+    String? token;
+    for (final current in _viewmodel.requisitions) {
+      if (current.id == row.id) token = current.token;
+    }
+    if (token == null) return;
+    await showApprovedTokenDialog(
+      context,
+      reqNumber: row.reqNumber,
+      token: token,
     );
   }
 
@@ -97,7 +117,7 @@ class _RequisitionsPageState extends State<RequisitionsPage> {
         for (final row in rows)
           _RequisitionRow(
             row: row,
-            onApprove: () => viewmodel.approve(row.id),
+            onApprove: () => _approve(row),
             onReject: () => viewmodel.reject(row.id),
           ),
       ],
@@ -146,6 +166,10 @@ class _RequisitionRow extends StatelessWidget {
               const SizedBox(height: 8),
               for (final item in row.items)
                 Text('${item.quantity} × ${item.variantName}'),
+            ],
+            if (row.token != null) ...[
+              const SizedBox(height: 12),
+              RequisitionTokenPanel(token: row.token!),
             ],
             if (actionable) ...[
               const SizedBox(height: 12),
