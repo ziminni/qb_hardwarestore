@@ -1,15 +1,28 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
-import 'package:client/core/constants/app_shadows.dart';
+import 'package:client/core/format/format.dart';
+import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/product.dart';
-import 'package:client/features/products/widgets/products_empty_state.dart';
 import 'package:client/features/products/widgets/products_image.dart';
 import 'package:client/features/products/widgets/products_pagination.dart';
+import 'package:client/shared/widgets/app_panel.dart';
+import 'package:client/shared/widgets/data_panel.dart';
+import 'package:client/shared/widgets/empty_state.dart';
+import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
 
+/// The four ways to look at the catalogue. All four are kept on purpose (D8):
+/// each one answers a different question, and removing one is the user's call.
 enum ProductsLayoutView { grid, list, table, compact }
 
+/// The catalogue itself: a heading with the view switcher, then the rows in the
+/// chosen layout, then the pager.
+///
+/// The table view is the shared [DataPanel], so at 1440 px it fills the panel
+/// and under 720 px of panel width the same rows become cards: a table that
+/// scrolls sideways hides the price and the row menu off the right edge, which
+/// is exactly what the old raw `DataTable` did at 760 px.
 class ProductsTable extends StatefulWidget {
   const ProductsTable({
     super.key,
@@ -32,6 +45,7 @@ class ProductsTable extends StatefulWidget {
     required this.onRowsPerPageChanged,
     required this.onShowArchived,
     required this.archivedCount,
+    required this.stockStatusFor,
   });
 
   final List<Product> products;
@@ -56,6 +70,10 @@ class ProductsTable extends StatefulWidget {
   final VoidCallback onShowArchived;
   final int archivedCount;
 
+  /// Stock state of the product's first variant, read from the store the page
+  /// already loaded. Null when the product has no variant to count yet.
+  final InventoryStockStatus? Function(Product product) stockStatusFor;
+
   @override
   State<ProductsTable> createState() => _ProductsTableState();
 }
@@ -64,33 +82,167 @@ class _ProductsTableState extends State<ProductsTable> {
   ProductsLayoutView _layout = ProductsLayoutView.table;
 
   List<Product> get products => widget.products;
-  Set<int> get selectedProductIds => widget.selectedProductIds;
-  int get firstItem => widget.firstItem;
-  int get lastItem => widget.lastItem;
-  int get totalItems => widget.totalItems;
-  int get currentPage => widget.currentPage;
-  int get totalPages => widget.totalPages;
-  int get rowsPerPage => widget.rowsPerPage;
-  void Function(int, bool) get onSelectProduct => widget.onSelectProduct;
-  ValueChanged<bool> get onSelectAll => widget.onSelectAll;
-  ValueChanged<Product> get onViewProduct => widget.onViewProduct;
-  ValueChanged<Product> get onEditProduct => widget.onEditProduct;
-  ValueChanged<Product> get onArchiveProduct => widget.onArchiveProduct;
-  ValueChanged<Product> get onPrintLabels => widget.onPrintLabels;
-  VoidCallback get onClearFilters => widget.onClearFilters;
-  ValueChanged<int> get onPageChanged => widget.onPageChanged;
-  ValueChanged<int> get onRowsPerPageChanged => widget.onRowsPerPageChanged;
-  VoidCallback get onShowArchived => widget.onShowArchived;
-  int get archivedCount => widget.archivedCount;
 
-  Widget _viewButton(
-    BuildContext context,
-    ProductsLayoutView view,
-    IconData icon,
-    String tooltip,
-  ) {
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _header(context),
+        const SizedBox(height: AppSpacing.md),
+        if (products.isEmpty)
+          AppPanel(
+            child: EmptyState(
+              icon: Icons.inventory_2_outlined,
+              message: 'No products found',
+              actionLabel: 'Clear filters',
+              onAction: widget.onClearFilters,
+            ),
+          )
+        else
+          switch (_layout) {
+            ProductsLayoutView.table => _table(),
+            ProductsLayoutView.grid => AppPanel(child: _grid()),
+            ProductsLayoutView.list => AppPanel(child: _list(context)),
+            ProductsLayoutView.compact => AppPanel(child: _compact(context)),
+          },
+        const SizedBox(height: AppSpacing.md),
+        ProductsPagination(
+          firstItem: widget.firstItem,
+          lastItem: widget.lastItem,
+          totalItems: widget.totalItems,
+          currentPage: widget.currentPage,
+          totalPages: widget.totalPages,
+          rowsPerPage: widget.rowsPerPage,
+          onPageChanged: widget.onPageChanged,
+          onRowsPerPageChanged: widget.onRowsPerPageChanged,
+        ),
+      ],
+    );
+  }
+
+  // ------------------------------------------------------------- heading
+
+  /// The catalogue heading, the select-all control, the view switcher and the
+  /// archived list. A `Wrap`, so the controls drop to their own line instead of
+  /// pushing the heading off the panel on a narrow window.
+  Widget _header(BuildContext context) {
+    final allVisibleSelected =
+        products.isNotEmpty &&
+        products.every(
+          (product) => widget.selectedProductIds.contains(product.id),
+        );
+
+    return Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: AppSpacing.md,
+      runSpacing: AppSpacing.sm,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'All products',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${widget.totalItems} catalog '
+              '${widget.totalItems == 1 ? 'entry' : 'entries'} found',
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Tooltip(
+              message: 'Select all products',
+              child: Checkbox(
+                key: const ValueKey('ProductsSelectAll'),
+                value: allVisibleSelected,
+                onChanged: (value) => widget.onSelectAll(value ?? false),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.xs),
+              decoration: BoxDecoration(
+                color: AppColors.background,
+                border: Border.all(color: AppColors.border),
+                borderRadius: BorderRadius.circular(AppRadii.pill),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _viewButton(
+                    ProductsLayoutView.grid,
+                    Icons.grid_view_outlined,
+                    'Grid view',
+                  ),
+                  _viewButton(
+                    ProductsLayoutView.list,
+                    Icons.format_list_bulleted,
+                    'List view',
+                  ),
+                  _viewButton(
+                    ProductsLayoutView.table,
+                    Icons.view_column_outlined,
+                    'Table view',
+                  ),
+                  _viewButton(
+                    ProductsLayoutView.compact,
+                    Icons.table_rows_outlined,
+                    'Compact table',
+                  ),
+                ],
+              ),
+            ),
+            PopupMenuButton<String>(
+              tooltip: 'Product table options',
+              icon: const Icon(Icons.more_vert),
+              onSelected: (value) {
+                if (value == 'archived') widget.onShowArchived();
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'archived',
+                  child: Row(
+                    children: [
+                      const Icon(Icons.archive_outlined, size: 18),
+                      const SizedBox(width: AppSpacing.sm),
+                      const Expanded(child: Text('Show archived')),
+                      Text(
+                        '${widget.archivedCount}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _viewButton(ProductsLayoutView view, IconData icon, String tooltip) {
     final selected = _layout == view;
-    final colors = Theme.of(context).colorScheme;
     return Tooltip(
       message: tooltip,
       child: InkWell(
@@ -98,151 +250,352 @@ class _ProductsTableState extends State<ProductsTable> {
         borderRadius: BorderRadius.circular(AppRadii.pill),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
-          width: 38,
-          height: 34,
+          width: 44,
+          height: 36,
           decoration: BoxDecoration(
-            color: selected ? colors.secondaryContainer : Colors.transparent,
+            color: selected ? AppColors.selected : Colors.transparent,
             borderRadius: BorderRadius.circular(AppRadii.pill),
           ),
           child: Icon(
             icon,
             size: 19,
-            color: selected ? colors.primary : colors.onSurfaceVariant,
+            color: selected ? AppColors.brandGoldText : AppColors.textSecondary,
           ),
         ),
       ),
     );
   }
 
-  Widget _buildGrid(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      child: LayoutBuilder(
-        builder: (context, constraints) => GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: products.length,
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 300,
-            mainAxisExtent: 225,
-            crossAxisSpacing: AppSpacing.md,
-            mainAxisSpacing: AppSpacing.md,
+  // --------------------------------------------------------------- table
+
+  Widget _table() {
+    return DataPanel<Product>(
+      columns: [
+        DataPanelColumn<Product>(label: 'Product', cell: _productCell),
+        DataPanelColumn<Product>(
+          label: 'Variants',
+          numeric: true,
+          cell: (product) => Text(
+            formatCount(product.variants.length),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
-          itemBuilder: (context, index) {
-            final product = products[index];
-            return Container(
-              decoration: BoxDecoration(
-                color: colors.surface,
-                border: Border.all(color: AppColors.border),
-                borderRadius: BorderRadius.circular(AppRadii.medium),
+        ),
+        DataPanelColumn<Product>(
+          label: 'Price',
+          numeric: true,
+          cell: (product) => Text(
+            _price(product),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        DataPanelColumn<Product>(label: 'Stock', cell: _stockBadge),
+        DataPanelColumn<Product>(label: 'Actions', cell: _actionsCell),
+      ],
+      rows: products,
+      emptyMessage: 'No products found',
+      onRowTap: widget.onViewProduct,
+      rowKey: (product) => ValueKey('ProductsRow.${product.id}'),
+    );
+  }
+
+  Widget _productCell(Product product) {
+    // Category and brand travel with the name, the way the till's product card
+    // shows them: as columns of their own they took a third of the width from
+    // the name a stock manager actually reads.
+    final caption = [
+      product.categoryName,
+      product.brandName,
+    ].where((part) => part.isNotEmpty).join(' · ');
+
+    return Row(
+      children: [
+        Checkbox(
+          key: ValueKey('ProductsRowSelect.${product.id}'),
+          value: widget.selectedProductIds.contains(product.id),
+          onChanged: (value) =>
+              widget.onSelectProduct(product.id, value ?? false),
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: VisualDensity.compact,
+          semanticLabel: 'Select ${product.baseName}',
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                product.baseName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
               ),
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                onTap: () => onViewProduct(product),
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Checkbox(
-                            value: selectedProductIds.contains(product.id),
-                            onChanged: (value) =>
-                                onSelectProduct(product.id, value ?? false),
-                          ),
-                          const Spacer(),
-                          PopupMenuButton<String>(
-                            tooltip: 'Product actions',
-                            onSelected: (value) {
-                              if (value == 'edit') onEditProduct(product);
-                              if (value == 'labels') onPrintLabels(product);
-                              if (value == 'archive') {
-                                onArchiveProduct(product);
-                              }
-                            },
-                            itemBuilder: (_) => const [
-                              PopupMenuItem(
-                                value: 'edit',
-                                child: Text('Edit product'),
-                              ),
-                              PopupMenuItem(
-                                value: 'labels',
-                                child: Text('Print labels'),
-                              ),
-                              PopupMenuItem(
-                                value: 'archive',
-                                child: Text('Move to archive'),
-                              ),
-                            ],
-                          ),
-                        ],
+              if (caption.isNotEmpty)
+                Text(
+                  caption.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The price of the first selling unit the catalogue loaded for this product.
+  ///
+  /// Price belongs to the selling unit, not the product (decision 08), so a
+  /// product with several variants shows its first one here and the details
+  /// dialog lists every unit with its own price.
+  String _price(Product product) {
+    for (final variant in product.variants) {
+      if (variant.sellingUoms.isEmpty) continue;
+      return formatPeso(variant.sellingUoms.first.defaultSellingPrice);
+    }
+    return 'No price yet';
+  }
+
+  /// The stock state as a pill. Words plus color, because a color alone is
+  /// unreadable for a color blind stock manager.
+  Widget _stockBadge(Product product) {
+    final status = widget.stockStatusFor(product);
+    if (status == null) {
+      return const StatusBadge(label: 'Not counted yet');
+    }
+    return StatusBadge(
+      label: status.label,
+      tone: switch (status) {
+        InventoryStockStatus.inStock => StatusTone.success,
+        InventoryStockStatus.lowStock => StatusTone.warning,
+        InventoryStockStatus.outOfStock => StatusTone.error,
+      },
+    );
+  }
+
+  Widget _actionsCell(Product product) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: 'View product',
+          onPressed: () => widget.onViewProduct(product),
+          icon: const Icon(Icons.visibility_outlined, size: 18),
+        ),
+        IconButton(
+          tooltip: 'Edit product',
+          onPressed: () => widget.onEditProduct(product),
+          icon: const Icon(Icons.edit_outlined, size: 18),
+        ),
+        PopupMenuButton<String>(
+          tooltip: 'More actions',
+          icon: const Icon(Icons.more_vert, size: 18),
+          onSelected: (value) {
+            if (value == 'labels') widget.onPrintLabels(product);
+            if (value == 'archive') widget.onArchiveProduct(product);
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'labels', child: Text('Print labels')),
+            PopupMenuItem(value: 'archive', child: Text('Move to archive')),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------------- grid
+
+  /// Cards that size themselves: the column count follows the panel width and
+  /// each card is as tall as its own content, never a fixed 225 px that clips a
+  /// long name in another font.
+  Widget _grid() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final available = constraints.maxWidth;
+        final columns = available >= 900
+            ? 3
+            : available >= 600
+            ? 2
+            : 1;
+        final cardWidth = (available - AppSpacing.md * (columns - 1)) / columns;
+        return Wrap(
+          key: const ValueKey('ProductsGrid'),
+          spacing: AppSpacing.md,
+          runSpacing: AppSpacing.md,
+          children: [
+            for (final product in products)
+              SizedBox(width: cardWidth, child: _card(context, product)),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _card(BuildContext context, Product product) {
+    final caption = [
+      product.categoryName,
+      product.brandName,
+    ].where((part) => part.isNotEmpty).join(' · ');
+    return Material(
+      color: AppColors.cardBackground,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: AppColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => widget.onViewProduct(product),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Checkbox(
+                    key: ValueKey('ProductsRowSelect.${product.id}'),
+                    value: widget.selectedProductIds.contains(product.id),
+                    onChanged: (value) =>
+                        widget.onSelectProduct(product.id, value ?? false),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                    semanticLabel: 'Select ${product.baseName}',
+                  ),
+                  const Spacer(),
+                  PopupMenuButton<String>(
+                    tooltip: 'Product actions',
+                    onSelected: (value) {
+                      if (value == 'edit') widget.onEditProduct(product);
+                      if (value == 'labels') widget.onPrintLabels(product);
+                      if (value == 'archive') {
+                        widget.onArchiveProduct(product);
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'edit', child: Text('Edit product')),
+                      PopupMenuItem(
+                        value: 'labels',
+                        child: Text('Print labels'),
                       ),
-                      Center(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(AppRadii.small),
-                          child: ProductsImage(
-                            imageUrl: product.imageUrl,
-                            width: 72,
-                            height: 72,
-                          ),
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        product.baseName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.xs),
-                      Text(
-                        '${product.categoryName} · ${product.brandName}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall,
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(
-                        '${product.variants.length} variant${product.variants.length == 1 ? '' : 's'}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colors.onSurfaceVariant,
-                        ),
+                      PopupMenuItem(
+                        value: 'archive',
+                        child: Text('Move to archive'),
                       ),
                     ],
                   ),
+                ],
+              ),
+              Center(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadii.small),
+                  child: ProductsImage(
+                    imageUrl: product.imageUrl,
+                    width: 72,
+                    height: 72,
+                  ),
                 ),
               ),
-            );
-          },
+              const SizedBox(height: AppSpacing.sm),
+              if (caption.isNotEmpty) ...[
+                Text(
+                  caption.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+              ],
+              Text(
+                product.baseName,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  height: 1.3,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '${formatCount(product.variants.length)} '
+                '${product.variants.length == 1 ? 'variant' : 'variants'}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.xs,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(
+                    _price(product),
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  _stockBadge(product),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildList(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+  // ---------------------------------------------------------------- list
+
+  Widget _list(BuildContext context) {
+    // The panel paints its own background, so a ListTile inside it needs a
+    // Material of its own or its ink splash is painted behind that background.
+    return Material(
+      type: MaterialType.transparency,
       child: Column(
+        key: const ValueKey('ProductsList'),
+        mainAxisSize: MainAxisSize.min,
         children: [
           for (final product in products) ...[
             ListTile(
               contentPadding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.lg,
+                horizontal: AppSpacing.md,
                 vertical: AppSpacing.xs,
               ),
               leading: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Checkbox(
-                    value: selectedProductIds.contains(product.id),
+                    key: ValueKey('ProductsRowSelect.${product.id}'),
+                    value: widget.selectedProductIds.contains(product.id),
                     onChanged: (value) =>
-                        onSelectProduct(product.id, value ?? false),
+                        widget.onSelectProduct(product.id, value ?? false),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                    semanticLabel: 'Select ${product.baseName}',
                   ),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(AppRadii.small),
@@ -256,34 +609,56 @@ class _ProductsTableState extends State<ProductsTable> {
               ),
               title: Text(
                 product.baseName,
-                style: theme.textTheme.bodyMedium?.copyWith(
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 14,
                   fontWeight: FontWeight.w600,
                 ),
               ),
               subtitle: Text(
-                '${product.categoryName} · ${product.brandName} · ${product.variants.length} variants',
+                '${product.categoryName} · ${product.brandName} · '
+                '${formatCount(product.variants.length)} '
+                '${product.variants.length == 1 ? 'variant' : 'variants'}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12),
               ),
-              trailing: Wrap(
-                spacing: AppSpacing.xs,
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  IconButton(
-                    tooltip: 'View product',
-                    onPressed: () => onViewProduct(product),
-                    icon: const Icon(Icons.visibility_outlined, size: 18),
+                  Text(
+                    _price(product),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
                   ),
-                  IconButton(
-                    tooltip: 'Edit product',
-                    onPressed: () => onEditProduct(product),
-                    icon: const Icon(Icons.edit_outlined, size: 18),
-                  ),
-                  IconButton(
-                    tooltip: 'Move to archive',
-                    onPressed: () => onArchiveProduct(product),
-                    icon: const Icon(Icons.archive_outlined, size: 18),
+                  const SizedBox(width: AppSpacing.sm),
+                  PopupMenuButton<String>(
+                    tooltip: 'More actions',
+                    icon: const Icon(Icons.more_vert, size: 18),
+                    onSelected: (value) {
+                      if (value == 'edit') widget.onEditProduct(product);
+                      if (value == 'labels') widget.onPrintLabels(product);
+                      if (value == 'archive') widget.onArchiveProduct(product);
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'edit', child: Text('Edit product')),
+                      PopupMenuItem(
+                        value: 'labels',
+                        child: Text('Print labels'),
+                      ),
+                      PopupMenuItem(
+                        value: 'archive',
+                        child: Text('Move to archive'),
+                      ),
+                    ],
                   ),
                 ],
               ),
-              onTap: () => onViewProduct(product),
+              onTap: () => widget.onViewProduct(product),
             ),
             if (product != products.last) const Divider(height: 1),
           ],
@@ -292,305 +667,106 @@ class _ProductsTableState extends State<ProductsTable> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final allVisibleSelected =
-        products.isNotEmpty &&
-        products.every((product) => selectedProductIds.contains(product.id));
+  // ------------------------------------------------------------- compact
 
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: colors.surface,
-        border: Border.all(color: AppColors.border),
-        borderRadius: BorderRadius.circular(AppRadii.medium),
-        boxShadow: const [AppShadows.card],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.lg,
-              vertical: AppSpacing.md,
+  /// The dense variant: everything on one line, for a stock manager scanning
+  /// many rows. Kept alongside the table (D8) because it fits twice as many
+  /// records on a laptop screen.
+  Widget _compact(BuildContext context) {
+    final allVisibleSelected = products.every(
+      (product) => widget.selectedProductIds.contains(product.id),
+    );
+
+    return SingleChildScrollView(
+      key: const ValueKey('ProductsCompactTable'),
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        dataRowMinHeight: 48,
+        dataRowMaxHeight: 48,
+        headingRowHeight: 48,
+        columnSpacing: AppSpacing.xl,
+        headingRowColor: const WidgetStatePropertyAll(AppColors.background),
+        columns: [
+          DataColumn(
+            label: Checkbox(
+              value: allVisibleSelected,
+              onChanged: (value) => widget.onSelectAll(value ?? false),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
             ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'All products',
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.xs),
-                      Text(
-                        '$totalItems catalog ${totalItems == 1 ? 'entry' : 'entries'} found',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colors.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
+          ),
+          const DataColumn(label: Text('Product')),
+          const DataColumn(label: Text('Category')),
+          const DataColumn(label: Text('Brand')),
+          const DataColumn(label: Text('Variants')),
+          const DataColumn(label: Text('Price')),
+          const DataColumn(label: Text('Stock')),
+          const DataColumn(label: Text('Actions')),
+        ],
+        rows: [
+          for (final product in products)
+            DataRow(
+              selected: widget.selectedProductIds.contains(product.id),
+              cells: [
+                DataCell(
+                  Checkbox(
+                    key: ValueKey('ProductsRowSelect.${product.id}'),
+                    value: widget.selectedProductIds.contains(product.id),
+                    onChanged: (value) =>
+                        widget.onSelectProduct(product.id, value ?? false),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.all(AppSpacing.xs),
-                  decoration: BoxDecoration(
-                    color: colors.surfaceContainerLowest,
-                    border: Border.all(color: AppColors.border),
-                    borderRadius: BorderRadius.circular(AppRadii.pill),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _viewButton(
-                        context,
-                        ProductsLayoutView.grid,
-                        Icons.grid_view_outlined,
-                        'Grid view',
-                      ),
-                      _viewButton(
-                        context,
-                        ProductsLayoutView.list,
-                        Icons.format_list_bulleted,
-                        'List view',
-                      ),
-                      _viewButton(
-                        context,
-                        ProductsLayoutView.table,
-                        Icons.view_column_outlined,
-                        'Table view',
-                      ),
-                      _viewButton(
-                        context,
-                        ProductsLayoutView.compact,
-                        Icons.table_rows_outlined,
-                        'Compact table',
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                PopupMenuButton<String>(
-                  tooltip: 'Product table options',
-                  icon: const Icon(Icons.more_vert),
-                  onSelected: (value) {
-                    if (value == 'archived') onShowArchived();
-                  },
-                  itemBuilder: (context) => [
-                    PopupMenuItem(
-                      value: 'archived',
-                      child: Row(
-                        children: [
-                          const Icon(Icons.archive_outlined, size: 18),
-                          const SizedBox(width: AppSpacing.sm),
-                          const Expanded(child: Text('Show archived')),
-                          Text(
-                            '$archivedCount',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: colors.onSurfaceVariant,
+                DataCell(
+                  SizedBox(
+                    width: 220,
+                    child: Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(AppRadii.small),
+                          child: ProductsImage(
+                            imageUrl: product.imageUrl,
+                            width: 30,
+                            height: 30,
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: Text(
+                            product.baseName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
+                DataCell(
+                  Text(
+                    product.categoryName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                DataCell(
+                  Text(
+                    product.brandName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                DataCell(Text(formatCount(product.variants.length))),
+                DataCell(Text(_price(product))),
+                DataCell(_stockBadge(product)),
+                DataCell(_actionsCell(product)),
               ],
             ),
-          ),
-          const Divider(height: 1),
-          if (products.isEmpty)
-            ProductsEmptyState(onClearFilters: onClearFilters)
-          else if (_layout == ProductsLayoutView.grid)
-            _buildGrid(context)
-          else if (_layout == ProductsLayoutView.list)
-            _buildList(context)
-          else
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
-                dataRowMinHeight: _layout == ProductsLayoutView.compact
-                    ? 48
-                    : 68,
-                dataRowMaxHeight: _layout == ProductsLayoutView.compact
-                    ? 48
-                    : 68,
-                headingRowHeight: 48,
-                columnSpacing: AppSpacing.xl,
-                headingRowColor: WidgetStatePropertyAll(
-                  colors.secondaryContainer,
-                ),
-                columns: [
-                  DataColumn(
-                    label: Checkbox(
-                      value: allVisibleSelected,
-                      onChanged: (value) => onSelectAll(value ?? false),
-                    ),
-                  ),
-                  const DataColumn(label: Text('Product')),
-                  const DataColumn(label: Text('Category')),
-                  const DataColumn(label: Text('Brand')),
-                  const DataColumn(label: Text('Variants')),
-                  const DataColumn(label: Text('Actions')),
-                ],
-                rows: products.map((product) {
-                  return DataRow(
-                    selected: selectedProductIds.contains(product.id),
-                    cells: [
-                      DataCell(
-                        Checkbox(
-                          value: selectedProductIds.contains(product.id),
-                          onChanged: (value) =>
-                              onSelectProduct(product.id, value ?? false),
-                        ),
-                      ),
-                      DataCell(
-                        SizedBox(
-                          width: 280,
-                          child: Row(
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(
-                                  AppRadii.small,
-                                ),
-                                child: ProductsImage(
-                                  imageUrl: product.imageUrl,
-                                  width: _layout == ProductsLayoutView.compact
-                                      ? 30
-                                      : 46,
-                                  height: _layout == ProductsLayoutView.compact
-                                      ? 30
-                                      : 46,
-                                ),
-                              ),
-                              const SizedBox(width: AppSpacing.md),
-                              Expanded(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      product.baseName,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.bodyMedium
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                    ),
-                                    Text(
-                                      product.description,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.bodySmall,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      DataCell(
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.sm,
-                            vertical: AppSpacing.xs,
-                          ),
-                          decoration: BoxDecoration(
-                            color: colors.secondaryContainer,
-                            borderRadius: BorderRadius.circular(AppRadii.pill),
-                          ),
-                          child: Text(
-                            product.categoryName,
-                            style: theme.textTheme.bodySmall,
-                          ),
-                        ),
-                      ),
-                      DataCell(Text(product.brandName)),
-                      DataCell(
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.layers_outlined,
-                              size: 16,
-                              color: colors.onSurfaceVariant,
-                            ),
-                            const SizedBox(width: AppSpacing.xs),
-                            Text('${product.variants.length}'),
-                          ],
-                        ),
-                      ),
-                      DataCell(
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              tooltip: 'View product',
-                              onPressed: () => onViewProduct(product),
-                              style: IconButton.styleFrom(
-                                backgroundColor: colors.secondaryContainer,
-                              ),
-                              icon: const Icon(
-                                Icons.visibility_outlined,
-                                size: 17,
-                              ),
-                            ),
-                            IconButton(
-                              tooltip: 'Edit product',
-                              onPressed: () => onEditProduct(product),
-                              icon: const Icon(Icons.edit_outlined, size: 18),
-                            ),
-                            PopupMenuButton<void>(
-                              tooltip: 'More actions',
-                              itemBuilder: (context) => [
-                                PopupMenuItem(
-                                  onTap: () => onPrintLabels(product),
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.print_outlined, size: 18),
-                                      const SizedBox(width: AppSpacing.sm),
-                                      Text('Print labels'),
-                                    ],
-                                  ),
-                                ),
-                                PopupMenuItem(
-                                  onTap: () => onArchiveProduct(product),
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.archive_outlined, size: 18),
-                                      const SizedBox(width: AppSpacing.sm),
-                                      Text('Move to archive'),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  );
-                }).toList(),
-              ),
-            ),
-          const Divider(height: 1),
-          ProductsPagination(
-            firstItem: firstItem,
-            lastItem: lastItem,
-            totalItems: totalItems,
-            currentPage: currentPage,
-            totalPages: totalPages,
-            rowsPerPage: rowsPerPage,
-            onPageChanged: onPageChanged,
-            onRowsPerPageChanged: onRowsPerPageChanged,
-          ),
         ],
       ),
     );

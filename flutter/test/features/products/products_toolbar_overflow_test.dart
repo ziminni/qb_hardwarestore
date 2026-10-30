@@ -30,7 +30,9 @@ Widget _toolbar(double width) => MaterialApp(
 );
 
 void main() {
-  for (final width in [1000.0, 1060.0, 1400.0]) {
+  // 760 and 728 are the widths the card names: the narrow window the toolbar
+  // has to survive without an overflow stripe.
+  for (final width in [760.0, 728.0, 1000.0, 1060.0, 1400.0]) {
     testWidgets('long category and brand names fit the toolbar at ${width}px', (
       tester,
     ) async {

@@ -1,9 +1,15 @@
 import 'package:client/core/constants/app_colors.dart';
-import 'package:client/core/constants/app_radii.dart';
-import 'package:client/core/constants/app_shadows.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/shared/widgets/app_panel.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
 
+/// Search plus the category and brand filters, at the head of the catalogue.
+///
+/// The search field is the shared [FilterBar] and the two dropdowns sit in a
+/// row that becomes a stack when the toolbar itself gets narrow, so no filter is
+/// ever given a fixed 210 px slot in a `Row` that can overflow (the live report
+/// this replaces: "A RenderFlex overflowed by 13 pixels on the right").
 class ProductsToolbar extends StatefulWidget {
   const ProductsToolbar({
     super.key,
@@ -18,6 +24,18 @@ class ProductsToolbar extends StatefulWidget {
     required this.onClearFilters,
     required this.onAddProduct,
   });
+
+  /// Width of the toolbar's own content below which the filters drop under the
+  /// search field. Above it, search and both dropdowns share one row: the search
+  /// takes what is left, so the row can never overflow.
+  static const double sideBySideAbove = 820;
+
+  /// Enough for "All categories" plus a chevron and a long server-side name.
+  static const double filterWidth = 240;
+
+  /// Below [sideBySideAbove] the search keeps a line of its own; these two
+  /// filters still fit on one line until the toolbar's content is this narrow.
+  static const double twoFiltersAbove = 520;
 
   final String searchQuery;
   final List<String> categories;
@@ -46,6 +64,8 @@ class _ProductsToolbarState extends State<ProductsToolbar> {
   @override
   void didUpdateWidget(covariant ProductsToolbar oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // The page owns the query (a cleared filter or a fresh load rewrites it), so
+    // the field follows the value it is handed instead of keeping its own.
     if (widget.searchQuery != _searchController.text) {
       _searchController.value = TextEditingValue(
         text: widget.searchQuery,
@@ -60,63 +80,50 @@ class _ProductsToolbarState extends State<ProductsToolbar> {
     super.dispose();
   }
 
+  Widget _categoryField() {
+    return DropdownButtonFormField<String?>(
+      isExpanded: true,
+      initialValue: widget.selectedCategory,
+      decoration: const InputDecoration(labelText: 'Category'),
+      items: [
+        const DropdownMenuItem(value: null, child: Text('All categories')),
+        ...widget.categories.map(
+          (value) => DropdownMenuItem(
+            value: value,
+            child: Text(value, overflow: TextOverflow.ellipsis),
+          ),
+        ),
+      ],
+      onChanged: widget.onCategoryChanged,
+    );
+  }
+
+  Widget _brandField() {
+    return DropdownButtonFormField<String?>(
+      isExpanded: true,
+      initialValue: widget.selectedBrand,
+      decoration: const InputDecoration(labelText: 'Brand'),
+      items: [
+        const DropdownMenuItem(value: null, child: Text('All brands')),
+        ...widget.brands.map(
+          (value) => DropdownMenuItem(
+            value: value,
+            child: Text(value, overflow: TextOverflow.ellipsis),
+          ),
+        ),
+      ],
+      onChanged: widget.onBrandChanged,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        border: Border.all(color: AppColors.border),
-        borderRadius: BorderRadius.circular(AppRadii.medium),
-        boxShadow: const [AppShadows.card],
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final compact = constraints.maxWidth < 900;
-          final search = TextField(
-            controller: _searchController,
-            onChanged: widget.onSearchChanged,
-            decoration: const InputDecoration(
-              hintText: 'Search name, description, brand, or variant',
-              prefixIcon: Icon(Icons.search),
-            ),
-          );
-          final category = DropdownButtonFormField<String?>(
-            isExpanded: true,
-            initialValue: widget.selectedCategory,
-            decoration: const InputDecoration(labelText: 'Category'),
-            items: [
-              const DropdownMenuItem(
-                value: null,
-                child: Text('All categories'),
-              ),
-              ...widget.categories.map(
-                (value) => DropdownMenuItem(
-                  value: value,
-                  child: Text(value, overflow: TextOverflow.ellipsis),
-                ),
-              ),
-            ],
-            onChanged: widget.onCategoryChanged,
-          );
-          final brand = DropdownButtonFormField<String?>(
-            isExpanded: true,
-            initialValue: widget.selectedBrand,
-            decoration: const InputDecoration(labelText: 'Brand'),
-            items: [
-              const DropdownMenuItem(value: null, child: Text('All brands')),
-              ...widget.brands.map(
-                (value) => DropdownMenuItem(
-                  value: value,
-                  child: Text(value, overflow: TextOverflow.ellipsis),
-                ),
-              ),
-            ],
-            onChanged: widget.onBrandChanged,
-          );
-          final heading = Row(
+    return AppPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
             children: [
               Expanded(
                 child: Column(
@@ -131,82 +138,82 @@ class _ProductsToolbarState extends State<ProductsToolbar> {
                     const SizedBox(height: AppSpacing.xs),
                     Text(
                       'Search the catalog or narrow results using filters.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
                       ),
                     ),
                   ],
                 ),
               ),
-              Wrap(
-                spacing: AppSpacing.sm,
-                children: [
-                  FilledButton.icon(
-                    onPressed: widget.onAddProduct,
-                    icon: const Icon(Icons.add, size: 18),
-                    label: const Text('Add product'),
-                  ),
-                ],
+              const SizedBox(width: AppSpacing.md),
+              FilledButton.icon(
+                onPressed: widget.onAddProduct,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add product'),
               ),
             ],
-          );
-
-          if (compact) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                heading,
-                const SizedBox(height: AppSpacing.lg),
-                search,
-                const SizedBox(height: AppSpacing.md),
-                Wrap(
-                  spacing: AppSpacing.md,
-                  runSpacing: AppSpacing.md,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final search = FilterBar(
+                searchController: _searchController,
+                searchHint: 'Search name, description, brand, or variant',
+                onSearchChanged: widget.onSearchChanged,
+              );
+              if (constraints.maxWidth >= ProductsToolbar.sideBySideAbove) {
+                return Row(
                   children: [
-                    SizedBox(width: 210, child: category),
-                    SizedBox(width: 210, child: brand),
+                    Expanded(child: search),
+                    const SizedBox(width: AppSpacing.md),
+                    SizedBox(
+                      width: ProductsToolbar.filterWidth,
+                      child: _categoryField(),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    SizedBox(
+                      width: ProductsToolbar.filterWidth,
+                      child: _brandField(),
+                    ),
                   ],
-                ),
-                const SizedBox(height: AppSpacing.md),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    onPressed: widget.onClearFilters,
-                    icon: const Icon(Icons.filter_alt_off_outlined, size: 17),
-                    label: const Text('Clear filters'),
-                  ),
-                ),
-              ],
-            );
-          }
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              heading,
-              const SizedBox(height: AppSpacing.lg),
-              Row(
+                );
+              }
+              // Narrow: the search keeps a full line of its own, then the two
+              // filters share one line while they still fit side by side and
+              // stack under each other when they do not.
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(flex: 3, child: search),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(child: category),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(child: brand),
-                  const SizedBox(width: AppSpacing.md),
+                  search,
+                  const SizedBox(height: AppSpacing.md),
+                  if (constraints.maxWidth >= ProductsToolbar.twoFiltersAbove)
+                    Row(
+                      children: [
+                        Expanded(child: _categoryField()),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(child: _brandField()),
+                      ],
+                    )
+                  else ...[
+                    _categoryField(),
+                    const SizedBox(height: AppSpacing.md),
+                    _brandField(),
+                  ],
                 ],
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: widget.onClearFilters,
-                  icon: const Icon(Icons.filter_alt_off_outlined, size: 17),
-                  label: const Text('Clear filters'),
-                ),
-              ),
-            ],
-          );
-        },
+              );
+            },
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: widget.onClearFilters,
+              icon: const Icon(Icons.filter_alt_off_outlined, size: 17),
+              label: const Text('Clear filters'),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -1,8 +1,14 @@
-import 'package:client/core/constants/app_colors.dart';
-import 'package:client/core/constants/app_radii.dart';
-import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
+import 'package:client/shared/widgets/metric_grid.dart';
+import 'package:client/shared/widgets/metric_tile.dart';
 import 'package:flutter/material.dart';
 
+/// The catalogue's four numbers, above the toolbar.
+///
+/// Laid out by [MetricGrid], so the tiles fit the width they are given (four
+/// across at 1440 px, two at 760 px) instead of a hand-built grid with a fixed
+/// 150 px minimum height and a "Click a metric to view related records" line
+/// that competed with the heading for room on a narrow window.
 class ProductsCatalogOverview extends StatelessWidget {
   const ProductsCatalogOverview({
     super.key,
@@ -24,195 +30,73 @@ class ProductsCatalogOverview extends StatelessWidget {
   final int brandCount;
   final int lowStockVariants;
   final int outOfStockVariants;
+
+  /// Clears the filters, so the tiles that count the catalogue show it whole.
   final VoidCallback onShowAll;
+
+  /// Opens the low stock screen. The two stock numbers are the only ones with a
+  /// place to go.
   final VoidCallback onShowLowStock;
-
-  Widget _metric({
-    required BuildContext context,
-    required String label,
-    required String value,
-    required String firstDetail,
-    required String secondDetail,
-    required VoidCallback onTap,
-    Color? valueColor,
-    Color? detailColor,
-  }) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadii.small),
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label.toUpperCase(),
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: colors.onSurfaceVariant,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.6,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                value,
-                style: theme.textTheme.headlineMedium?.copyWith(
-                  color: valueColor ?? colors.onSurface,
-                  fontWeight: FontWeight.w700,
-                  height: 1,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              Text(
-                firstDetail,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: detailColor ?? colors.onSurface,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                secondDetail,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: colors.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final metrics = [
-      _metric(
-        context: context,
-        label: 'Total products',
-        value: '$totalProducts',
-        firstDetail: '$categoryCount categories',
-        secondDetail: '$brandCount brands represented',
+    final tiles = [
+      _tappable(
         onTap: onShowAll,
+        child: MetricTile(
+          label: 'TOTAL PRODUCTS',
+          value: formatCount(totalProducts),
+          caption:
+              '${formatCount(categoryCount)} categories, '
+              '${formatCount(brandCount)} brands',
+        ),
       ),
-      _metric(
-        context: context,
-        label: 'Categories',
-        value: '$categoryCount',
-        firstDetail: '$totalProducts catalog products',
-        secondDetail: 'Organized product groups',
+      _tappable(
         onTap: onShowAll,
+        child: MetricTile(
+          label: 'CATEGORIES',
+          value: formatCount(categoryCount),
+          caption: '${formatCount(totalProducts)} catalog products',
+        ),
       ),
-      _metric(
-        context: context,
-        label: 'Product variants',
-        value: '$totalVariants',
-        firstDetail: '$lowStockVariants low stock',
-        secondDetail: '$outOfStockVariants out of stock',
+      _tappable(
         onTap: onShowLowStock,
-        detailColor: lowStockVariants == 0
-            ? AppColors.success
-            : AppColors.warning,
+        child: MetricTile(
+          label: 'PRODUCT VARIANTS',
+          value: formatCount(totalVariants),
+          caption:
+              '${formatCount(lowStockVariants)} low stock, '
+              '${formatCount(outOfStockVariants)} out of stock',
+        ),
       ),
-      _metric(
-        context: context,
-        label: 'Archived',
-        value: '$archivedProducts',
-        firstDetail: archivedProducts == 0
-            ? 'Archive is empty'
-            : '$archivedProducts removed from catalog',
-        secondDetail: 'Not shown in the products table',
+      _tappable(
         onTap: onShowAll,
-        detailColor: colors.onSurfaceVariant,
+        child: MetricTile(
+          label: 'ARCHIVED',
+          value: formatCount(archivedProducts),
+          caption: archivedProducts == 0
+              ? 'Archive is empty'
+              : 'Not shown in the catalogue',
+        ),
       ),
     ];
 
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: colors.surface,
-        border: Border.all(color: AppColors.border),
-        borderRadius: BorderRadius.circular(AppRadii.medium),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.lg,
-              vertical: AppSpacing.md,
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Catalog overview',
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.xs),
-                      Text(
-                        'Product availability and catalog coverage',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colors.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Text(
-                  'Click a metric to view related records',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colors.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final columns = constraints.maxWidth >= 920 ? 4 : 2;
-              final width = constraints.maxWidth / columns;
-              return Wrap(
-                children: [
-                  for (var index = 0; index < metrics.length; index++)
-                    Container(
-                      width: width,
-                      constraints: const BoxConstraints(minHeight: 150),
-                      decoration: BoxDecoration(
-                        border: Border(
-                          right: index % columns == columns - 1
-                              ? BorderSide.none
-                              : const BorderSide(color: AppColors.border),
-                          bottom: columns == 2 && index < 2
-                              ? const BorderSide(color: AppColors.border)
-                              : BorderSide.none,
-                        ),
-                      ),
-                      child: metrics[index],
-                    ),
-                ],
-              );
-            },
-          ),
-        ],
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Four tiles in a row when four comfortable tiles fit, otherwise two:
+        // the shared grid picks its own column count from this minimum, and a
+        // minimum between the two leaves one tile stranded on its own line.
+        // Four tiles plus three 12 px gaps need `4 * 235 + 36` of width.
+        final width = constraints.maxWidth;
+        final minTileWidth = width >= 4 * 235 + 36 ? 235.0 : (width - 12) / 2;
+        return MetricGrid(minTileWidth: minTileWidth, children: tiles);
+      },
     );
+  }
+
+  /// A tile is a number first; the tap only adds the way to the records behind
+  /// it, so the tile keeps no button and no ripple of its own.
+  Widget _tappable({required VoidCallback onTap, required Widget child}) {
+    return GestureDetector(onTap: onTap, child: child);
   }
 }
