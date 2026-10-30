@@ -1,4 +1,5 @@
 import 'package:client/core/layout/admin_skeleton_layout.dart';
+import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/data/models/user.dart';
 import 'package:client/features/admin/viewmodels/admin_users_viewmodel.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
@@ -8,6 +9,7 @@ import 'package:client/features/admin/widgets/admin_user_metric_card.dart';
 import 'package:client/features/admin/widgets/admin_user_section.dart';
 import 'package:client/features/admin/widgets/admin_user_table.dart';
 import 'package:client/features/sales/widgets/live_load_error_banner.dart';
+import 'package:client/features/sales/widgets/sales_navigation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -22,7 +24,15 @@ import 'package:provider/provider.dart';
 /// Role identity is compared by GROUP name (what `assign_role` takes), never
 /// by display label or client role code.
 class AdminUserManagementPage extends StatefulWidget {
-  const AdminUserManagementPage({super.key, this.viewmodel});
+  const AdminUserManagementPage({
+    super.key,
+    this.viewmodel,
+    this.inSalesShell = false,
+  });
+
+  /// Draw inside the Store Manager's shell (sales sidebar, index 8) instead of
+  /// the admin one. See `SalesStaffPage`.
+  final bool inSalesShell;
 
   /// Injected by tests so the load path can be driven WITHOUT a server.
   final AdminUsersViewmodel? viewmodel;
@@ -46,93 +56,104 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
           // Role CODE comparison (Phase 4 lesson): the server sends codes
           // ('admin', 'sales', ...); display labels belong on screen only.
           final isAdmin = context.read<AuthViewmodel>().roleName == 'admin';
-          return AdminSkeletonLayout(
-            title: 'User Management',
-            subtitle: 'View and manage staff accounts.',
-            selectedNavigationIndex: 1,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'Staff accounts',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
+          final content = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Staff accounts',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                    // Creation stays Admin-only server-side (`register_view`
-                    // is `IsAdminRole`), so non-admins are not offered it.
-                    if (isAdmin)
-                      AdminUserActionButton(
-                        label: 'Create account',
-                        icon: Icons.person_add_outlined,
-                        onPressed: () => _openCreateDialog(context, viewmodel),
-                      ),
-                  ],
+                  ),
+                  // Creation stays Admin-only server-side (`register_view`
+                  // is `IsAdminRole`), so non-admins are not offered it.
+                  if (isAdmin)
+                    AdminUserActionButton(
+                      label: 'Create account',
+                      icon: Icons.person_add_outlined,
+                      onPressed: () => _openCreateDialog(context, viewmodel),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              if (viewmodel.isLoading && !viewmodel.hasLoaded)
+                const Center(child: CircularProgressIndicator())
+              else if (!viewmodel.hasLoaded && viewmodel.loadError != null)
+                LiveLoadErrorBanner(
+                  message: viewmodel.loadError!,
+                  onRetry: viewmodel.load,
+                )
+              else ...[
+                _Metrics(viewmodel: viewmodel),
+                const SizedBox(height: 16),
+                AdminUserSection(
+                  title: 'Search and filters',
+                  child: AdminUserFilters(
+                    initialQuery: viewmodel.searchQuery,
+                    availableRoles: viewmodel.availableRoles,
+                    roleFilter: viewmodel.roleFilter,
+                    activeFilter: viewmodel.activeFilter,
+                    onSearch: (query) => viewmodel.load(search: query),
+                    onRoleChanged: viewmodel.setRoleFilter,
+                    onActiveChanged: viewmodel.setActiveFilter,
+                    onClear: viewmodel.clearFilters,
+                  ),
                 ),
                 const SizedBox(height: 16),
-                if (viewmodel.isLoading && !viewmodel.hasLoaded)
-                  const Center(child: CircularProgressIndicator())
-                else if (!viewmodel.hasLoaded && viewmodel.loadError != null)
-                  LiveLoadErrorBanner(
-                    message: viewmodel.loadError!,
-                    onRetry: viewmodel.load,
-                  )
-                else ...[
-                  _Metrics(viewmodel: viewmodel),
-                  const SizedBox(height: 16),
-                  AdminUserSection(
-                    title: 'Search and filters',
-                    child: AdminUserFilters(
-                      initialQuery: viewmodel.searchQuery,
-                      availableRoles: viewmodel.availableRoles,
-                      roleFilter: viewmodel.roleFilter,
-                      activeFilter: viewmodel.activeFilter,
-                      onSearch: (query) => viewmodel.load(search: query),
-                      onRoleChanged: viewmodel.setRoleFilter,
-                      onActiveChanged: viewmodel.setActiveFilter,
-                      onClear: viewmodel.clearFilters,
+                if (viewmodel.actionError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: LiveLoadErrorBanner(
+                      message: viewmodel.actionError!,
+                      onRetry: viewmodel.clearActionError,
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  if (viewmodel.actionError != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: LiveLoadErrorBanner(
-                        message: viewmodel.actionError!,
-                        onRetry: viewmodel.clearActionError,
-                      ),
-                    ),
-                  AdminUserSection(
-                    title: 'User accounts',
-                    child: viewmodel.users.isEmpty
-                        ? const Text('No staff accounts found.')
-                        : AdminUserTable(
-                            users: viewmodel.users,
-                            onToggleActive: (user) =>
-                                _openToggleDialog(context, viewmodel, user),
-                            onChangeRole: (user) => _openRoleDialog(
-                              context,
-                              viewmodel,
-                              user,
-                              isAdmin: isAdmin,
-                            ),
+                AdminUserSection(
+                  title: 'User accounts',
+                  child: viewmodel.users.isEmpty
+                      ? const Text('No staff accounts found.')
+                      : AdminUserTable(
+                          users: viewmodel.users,
+                          onToggleActive: (user) =>
+                              _openToggleDialog(context, viewmodel, user),
+                          onChangeRole: (user) => _openRoleDialog(
+                            context,
+                            viewmodel,
+                            user,
+                            isAdmin: isAdmin,
                           ),
-                  ),
-                ],
-                if (viewmodel.hasLoaded && viewmodel.loadError != null) ...[
-                  const SizedBox(height: 16),
-                  LiveLoadErrorBanner(
-                    message: viewmodel.loadError!,
-                    onRetry: viewmodel.load,
-                  ),
-                ],
+                        ),
+                ),
               ],
-            ),
+              if (viewmodel.hasLoaded && viewmodel.loadError != null) ...[
+                const SizedBox(height: 16),
+                LiveLoadErrorBanner(
+                  message: viewmodel.loadError!,
+                  onRetry: viewmodel.load,
+                ),
+              ],
+            ],
+          );
+          const subtitle = 'View and manage staff accounts.';
+          if (widget.inSalesShell) {
+            return SalesSkeletonLayout(
+              title: 'Staff',
+              subtitle: subtitle,
+              selectedNavigationIndex: 8,
+              onNavigationSelected: (index) => navigateSales(context, index),
+              child: content,
+            );
+          }
+          return AdminSkeletonLayout(
+            title: 'User Management',
+            subtitle: subtitle,
+            selectedNavigationIndex: 1,
+            child: content,
           );
         },
       ),

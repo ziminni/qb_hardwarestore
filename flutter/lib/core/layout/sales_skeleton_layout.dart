@@ -73,6 +73,21 @@ class SalesSkeletonLayout extends StatelessWidget {
         ),
       ],
     ),
+    // Appended last: the sidebar index is the position in this list, so a
+    // new group anywhere else would renumber every tab after it.
+    SharedSidebarSection(
+      label: 'Management',
+      destinations: [
+        SharedSidebarDestination(
+          label: 'Approvals',
+          icon: Icons.fact_check_outlined,
+        ),
+        SharedSidebarDestination(
+          label: 'Staff',
+          icon: Icons.manage_accounts_outlined,
+        ),
+      ],
+    ),
   ];
 
   @override

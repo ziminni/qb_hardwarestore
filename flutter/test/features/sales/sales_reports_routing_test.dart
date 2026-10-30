@@ -40,6 +40,9 @@ const _salesPaths = [
   '/sales/receivables',
   '/sales/returns',
   '/sales/reports',
+  // Appended 2026-10-30: Approvals and Staff (sales_management_routing_test).
+  '/sales/requisitions',
+  '/sales/staff',
 ];
 
 Widget _app(Widget child) => ChangeNotifierProvider<AuthViewmodel>.value(
@@ -138,13 +141,15 @@ void main() {
     expect(AppRoutes.salesReports, '/sales/reports');
   });
 
-  test('the sales sidebar has seven destinations', () {
+  test('the sales sidebar has nine destinations', () {
     expect(
       SalesSkeletonLayout.navigationSections
           .expand((section) => section.destinations)
           .length,
-      7,
-      reason: 'index 6 (Reports) is only reachable if the sidebar renders it',
+      9,
+      reason:
+          'index 6 (Reports) is only reachable if the sidebar renders it; '
+          '7 and 8 are Approvals and Staff',
     );
   });
 

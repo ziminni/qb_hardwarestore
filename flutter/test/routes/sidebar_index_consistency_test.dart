@@ -74,10 +74,11 @@ void main() {
     );
     expect(
       salesOrder.length,
-      7,
+      9,
       reason:
-          'the sales sidebar has 7 destinations — Reports (index 6) was added by '
-          'decision D-01 so the manager can reach live reports inside their own shell',
+          'the sales sidebar has 9 destinations — Reports (index 6) was added by '
+          'decision D-01 so the manager can reach live reports inside their own shell; '
+          'Approvals (7) and Staff (8) were APPENDED on 2026-10-30 for the same reason',
     );
     expect(inventoryOrder.length, 13);
     expect(
@@ -93,6 +94,8 @@ void main() {
       'salesReports',
       reason: 'index 6 is Reports — the tab that used to be a silent no-op',
     );
+    expect(salesOrder[7], 'salesRequisitions');
+    expect(salesOrder[8], 'salesStaff');
     // Receiving must sit at 8, not 9: the sidebar's index 9 is "Returns".
     // When this was the other way round the Returns tab opened Receiving.
     expect(inventoryOrder[8], 'inventoryReceiving');

@@ -1,7 +1,9 @@
 import 'package:client/core/layout/admin_skeleton_layout.dart';
+import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/data/models/requisition.dart';
 import 'package:client/features/admin/viewmodels/admin_requisitions_viewmodel.dart';
 import 'package:client/features/admin/widgets/requisition_token_panel.dart';
+import 'package:client/features/sales/widgets/sales_navigation.dart';
 import 'package:flutter/material.dart';
 
 /// The Store Manager's requisition queue — the POS half of decision 09.
@@ -14,9 +16,17 @@ import 'package:flutter/material.dart';
 /// [viewmodel] is injectable so a test can observe what the screen sends. Production passes
 /// nothing and the page owns its viewmodel.
 class RequisitionsPage extends StatefulWidget {
-  const RequisitionsPage({super.key, this.viewmodel});
+  const RequisitionsPage({
+    super.key,
+    this.viewmodel,
+    this.inSalesShell = false,
+  });
 
   final AdminRequisitionsViewmodel? viewmodel;
+
+  /// Draw inside the Store Manager's shell (sales sidebar, index 7) instead of
+  /// the admin one. See `SalesRequisitionsPage`.
+  final bool inSalesShell;
 
   @override
   State<RequisitionsPage> createState() => _RequisitionsPageState();
@@ -46,6 +56,15 @@ class _RequisitionsPageState extends State<RequisitionsPage> {
       builder: (context, _) => _body(context),
     );
     const subtitle = 'Review material requests and their current status.';
+    if (widget.inSalesShell) {
+      return SalesSkeletonLayout(
+        title: 'Approvals',
+        subtitle: subtitle,
+        selectedNavigationIndex: 7,
+        onNavigationSelected: (index) => navigateSales(context, index),
+        child: body,
+      );
+    }
     return AdminSkeletonLayout(
       title: 'Requisitions',
       subtitle: subtitle,

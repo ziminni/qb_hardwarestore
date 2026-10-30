@@ -38,6 +38,8 @@ import 'package:client/features/products/views/products_page.dart';
 import 'package:client/features/suppliers/views/purchases_page.dart';
 import 'package:client/features/suppliers/views/suppliers_page.dart';
 import 'package:client/features/sales/views/inventory_sales_page.dart';
+import 'package:client/features/sales/views/sales_requisitions_page.dart';
+import 'package:client/features/sales/views/sales_staff_page.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -95,6 +97,13 @@ class AppRoutes {
   /// Separate from [adminReports] on purpose: the same report content, but in
   /// the SALES shell, so the manager's sidebar does not swap out.
   static const String salesReports = '/sales/reports';
+
+  /// The Store Manager's approval queue and staff list (sales sidebar indexes
+  /// 7 and 8). The same screens as [adminRequisitions] and
+  /// [adminUserManagement], in the SALES shell, so the manager can reach them
+  /// from their own sidebar and keep it (the D-01 pattern used for Reports).
+  static const String salesRequisitions = '/sales/requisitions';
+  static const String salesStaff = '/sales/staff';
 
   /// The pure routing decision: where a request to [location] should go, or null
   /// to stay.
@@ -430,6 +439,18 @@ class AppRoutes {
           name: 'sales_reports',
           pageBuilder: (context, state) =>
               _transitionPage(state, const SalesReportsPage()),
+        ),
+        GoRoute(
+          path: salesRequisitions,
+          name: 'sales_requisitions',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const SalesRequisitionsPage()),
+        ),
+        GoRoute(
+          path: salesStaff,
+          name: 'sales_staff',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const SalesStaffPage()),
         ),
       ],
     );
