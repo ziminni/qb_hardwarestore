@@ -5,6 +5,12 @@ import 'package:client/features/categories/widgets/inventory_category_card.dart'
 import 'package:client/features/categories/widgets/inventory_category_dialog.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
+import 'package:client/shared/widgets/stat_tile.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
+import 'package:client/shared/widgets/data_panel.dart';
+import 'package:client/core/constants/app_colors.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
+import 'package:client/core/constants/app_text_styles.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -41,9 +47,15 @@ class _CategoriesPageState extends State<CategoriesPage> {
   Future<void> _archive(Category category) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Archive category?'),
-        content: Text('${category.name} will remain visible as archived.'),
+      builder: (_) => AppDialog(
+        icon: Icons.archive_outlined,
+        title: 'Archive category?',
+        subtitle: category.name,
+        width: 460,
+        content: Text(
+          '${category.name} will remain visible as archived.',
+          style: AppTextStyles.bodyMedium,
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -83,24 +95,38 @@ class _CategoriesPageState extends State<CategoriesPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Wrap(
+            spacing: AppSpacing.md,
+            runSpacing: AppSpacing.md,
             children: [
-              Expanded(
-                child: Wrap(
-                  spacing: AppSpacing.xl,
-                  runSpacing: AppSpacing.sm,
-                  children: [
-                    Text(
-                      '${inventory.categories.length} categories',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Text('$activeCount active'),
-                    Text('$archivedCount archived'),
-                  ],
-                ),
+              StatTile(
+                width: 240,
+                icon: Icons.category_outlined,
+                label: 'Categories',
+                value: '${inventory.categories.length}',
+                caption: 'Product groups',
               ),
+              StatTile(
+                width: 240,
+                icon: Icons.check_circle_outline,
+                label: 'Active',
+                value: '$activeCount',
+                caption: 'Open for products',
+                color: AppColors.success,
+              ),
+              StatTile(
+                width: 240,
+                icon: Icons.archive_outlined,
+                label: 'Archived',
+                value: '$archivedCount',
+                caption: 'Kept for history',
+                color: AppColors.textSecondary,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          FilterBar(
+            filters: [
               SizedBox(
                 width: 360,
                 child: TextField(
@@ -115,9 +141,10 @@ class _CategoriesPageState extends State<CategoriesPage> {
           ),
           const SizedBox(height: AppSpacing.xl),
           if (categories.isEmpty)
-            const SizedBox(
-              height: 240,
-              child: Center(child: Text('No categories match your search.')),
+            const EmptyState(
+              icon: Icons.category_outlined,
+              title: 'No categories found',
+              message: 'No categories match your search.',
             )
           else
             LayoutBuilder(

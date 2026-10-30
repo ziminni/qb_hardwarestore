@@ -1,6 +1,6 @@
 import 'package:client/core/constants/app_colors.dart';
-import 'package:client/core/constants/app_radii.dart';
 import 'package:client/data/models/inventory.dart';
+import 'package:client/shared/widgets/status_pill.dart';
 import 'package:flutter/material.dart';
 
 class InventoryMovementBadge extends StatelessWidget {
@@ -16,20 +16,6 @@ class InventoryMovementBadge extends StatelessWidget {
       InventoryMovementType.supplierReturn => AppColors.error,
       InventoryMovementType.stockAdjustment => AppColors.warning,
     };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: .12),
-        borderRadius: BorderRadius.circular(AppRadii.pill),
-      ),
-      child: Text(
-        type.label,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
+    return StatusPill(label: type.label, color: color);
   }
 }

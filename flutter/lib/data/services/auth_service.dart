@@ -38,7 +38,9 @@ class AuthService {
 
   Future<User> currentUser() async {
     try {
-      final response = await _client.get<Map<String, dynamic>>('/api/v1/auth/me/');
+      final response = await _client.get<Map<String, dynamic>>(
+        '/api/v1/auth/me/',
+      );
       final data = response.data;
       if (data == null) {
         throw const AuthException('The server returned an empty response.');

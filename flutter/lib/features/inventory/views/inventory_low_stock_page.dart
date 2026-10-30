@@ -4,6 +4,8 @@ import 'package:client/data/models/product.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_low_stock_table.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -17,10 +19,15 @@ class _InventoryLowStockPageState extends State<InventoryLowStockPage> {
   String _query = '';
   void _reorder(Product product, ProductVariant variant) => showDialog<void>(
     context: context,
-    builder: (_) => AlertDialog(
-      title: const Text('Future Purchasing connection'),
-      content: Text(
-        'Reordering ${product.baseName} — ${variant.variantName} will connect to the Purchasing module in a future implementation.',
+    builder: (_) => AppDialog(
+      icon: Icons.shopping_bag_outlined,
+      title: 'Reorder item',
+      subtitle: '${product.baseName} — ${variant.variantName}',
+      width: 480,
+      content: InfoBanner(
+        title: 'Future Purchasing connection',
+        message:
+            'Reordering ${product.baseName} — ${variant.variantName} will connect to the Purchasing module in a future implementation.',
       ),
       actions: [
         FilledButton(
@@ -50,15 +57,19 @@ class _InventoryLowStockPageState extends State<InventoryLowStockPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 340,
-            child: TextField(
-              onChanged: (value) => setState(() => _query = value),
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                hintText: 'Search low-stock items',
+          FilterBar(
+            filters: [
+              SizedBox(
+                width: 340,
+                child: TextField(
+                  onChanged: (value) => setState(() => _query = value),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    hintText: 'Search low-stock items',
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
           const SizedBox(height: AppSpacing.xl),
           InventoryLowStockTable(

@@ -1,5 +1,10 @@
+import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/constants/app_text_styles.dart';
 import 'package:client/data/models/product.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
+import 'package:client/shared/widgets/status_pill.dart';
 import 'package:flutter/material.dart';
 
 class InventoryAdjustStockResult {
@@ -48,80 +53,103 @@ class _InventoryAdjustStockDialogState
     final quantity =
         double.tryParse(_quantity.text) ?? widget.variant.currentStock;
     final difference = quantity - widget.variant.currentStock;
-    return AlertDialog(
-      title: const Text('Adjust Stock'),
-      content: SizedBox(
-        width: 480,
-        child: SingleChildScrollView(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+    final differenceColor = difference < 0
+        ? AppColors.error
+        : difference > 0
+        ? AppColors.success
+        : AppColors.textSecondary;
+    return AppDialog(
+      icon: Icons.tune_rounded,
+      title: 'Adjust Stock',
+      subtitle: '${widget.product.baseName} · ${widget.variant.variantName}',
+      width: 540,
+      content: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
               children: [
-                Text(
-                  widget.product.baseName,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                Text(widget.variant.variantName),
-                const SizedBox(height: AppSpacing.lg),
-                Text(
-                  'Current system quantity: ${widget.variant.currentStock.toStringAsFixed(0)}',
-                ),
-                const SizedBox(height: AppSpacing.md),
-                TextFormField(
-                  controller: _quantity,
-                  autofocus: true,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Actual / New Quantity',
-                  ),
-                  onChanged: (_) => setState(() {}),
-                  validator: (value) {
-                    final parsed = double.tryParse(value ?? '');
-                    if (parsed == null || parsed < 0) {
-                      return 'Enter a valid non-negative quantity.';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: AppSpacing.md),
-                Text(
-                  'Difference: ${difference > 0 ? '+' : ''}${difference.toStringAsFixed(0)}',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: difference < 0 ? Colors.red : Colors.green,
+                Expanded(
+                  child: _QuantityBox(
+                    label: 'System quantity',
+                    value: widget.variant.currentStock.toStringAsFixed(0),
+                    unit: widget.variant.baseUomCode,
                   ),
                 ),
-                const SizedBox(height: AppSpacing.md),
-                DropdownButtonFormField<String>(
-                  initialValue: _reason,
-                  decoration: const InputDecoration(labelText: 'Reason'),
-                  items:
-                      const [
-                            'Count Correction',
-                            'Damaged Items',
-                            'Shrinkage / Loss',
-                            'Supplier Return',
-                          ]
-                          .map(
-                            (item) => DropdownMenuItem(
-                              value: item,
-                              child: Text(item),
-                            ),
-                          )
-                          .toList(),
-                  onChanged: (value) =>
-                      setState(() => _reason = value ?? _reason),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                  child: Icon(
+                    Icons.arrow_forward_rounded,
+                    color: AppColors.brandGold,
+                  ),
                 ),
-                const SizedBox(height: AppSpacing.md),
-                TextFormField(
-                  controller: _notes,
-                  maxLines: 3,
-                  decoration: const InputDecoration(labelText: 'Notes'),
+                Expanded(
+                  child: _QuantityBox(
+                    label: 'New quantity',
+                    value: quantity.toStringAsFixed(0),
+                    unit: widget.variant.baseUomCode,
+                    highlighted: true,
+                  ),
                 ),
               ],
             ),
-          ),
+            const SizedBox(height: AppSpacing.md),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: StatusPill(
+                label:
+                    'Difference: ${difference > 0 ? '+' : ''}${difference.toStringAsFixed(0)}',
+                color: differenceColor,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            const DialogSectionLabel('Adjustment'),
+            TextFormField(
+              controller: _quantity,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Actual / New Quantity',
+                prefixIcon: Icon(Icons.numbers_rounded),
+              ),
+              onChanged: (_) => setState(() {}),
+              validator: (value) {
+                final parsed = double.tryParse(value ?? '');
+                if (parsed == null || parsed < 0) {
+                  return 'Enter a valid non-negative quantity.';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: AppSpacing.md),
+            DropdownButtonFormField<String>(
+              initialValue: _reason,
+              decoration: const InputDecoration(labelText: 'Reason'),
+              items:
+                  const [
+                        'Count Correction',
+                        'Damaged Items',
+                        'Shrinkage / Loss',
+                        'Supplier Return',
+                      ]
+                      .map(
+                        (item) =>
+                            DropdownMenuItem(value: item, child: Text(item)),
+                      )
+                      .toList(),
+              onChanged: (value) => setState(() => _reason = value ?? _reason),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            TextFormField(
+              controller: _notes,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Notes',
+                alignLabelWithHint: true,
+              ),
+            ),
+          ],
         ),
       ),
       actions: [
@@ -129,7 +157,7 @@ class _InventoryAdjustStockDialogState
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
-        FilledButton(
+        FilledButton.icon(
           onPressed: () {
             if (!_formKey.currentState!.validate()) return;
             Navigator.pop(
@@ -141,9 +169,77 @@ class _InventoryAdjustStockDialogState
               ),
             );
           },
-          child: const Text('Confirm Adjustment'),
+          icon: const Icon(Icons.check_rounded, size: 18),
+          label: const Text('Confirm Adjustment'),
         ),
       ],
+    );
+  }
+}
+
+class _QuantityBox extends StatelessWidget {
+  const _QuantityBox({
+    required this.label,
+    required this.value,
+    required this.unit,
+    this.highlighted = false,
+  });
+
+  final String label;
+  final String value;
+  final String unit;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: highlighted ? AppColors.brandBlack : AppColors.surfaceSunken,
+        borderRadius: BorderRadius.circular(AppRadii.medium),
+        border: Border.all(
+          color: highlighted ? AppColors.brandBlack : AppColors.border,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label.toUpperCase(),
+            style: AppTextStyles.labelSmall.copyWith(
+              color: highlighted
+                  ? AppColors.brandGold
+                  : AppColors.textSecondary,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: value,
+                  style: AppTextStyles.bodyLarge.copyWith(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    color: highlighted
+                        ? AppColors.brandWhite
+                        : AppColors.textPrimary,
+                  ),
+                ),
+                TextSpan(
+                  text: '  $unit',
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: highlighted
+                        ? AppColors.brandGoldLight
+                        : AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

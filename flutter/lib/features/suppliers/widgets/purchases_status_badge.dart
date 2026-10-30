@@ -1,6 +1,6 @@
 import 'package:client/core/constants/app_colors.dart';
-import 'package:client/core/constants/app_radii.dart';
 import 'package:client/data/models/supplier.dart';
+import 'package:client/shared/widgets/status_pill.dart';
 import 'package:flutter/material.dart';
 
 class PurchasesStatusBadge extends StatelessWidget {
@@ -13,22 +13,8 @@ class PurchasesStatusBadge extends StatelessWidget {
       PurchaseStatus.cancelled => AppColors.error,
       PurchaseStatus.partial => AppColors.warning,
       PurchaseStatus.ordered => AppColors.primary,
-      PurchaseStatus.draft => Theme.of(context).colorScheme.outline,
+      PurchaseStatus.draft => AppColors.textSecondary,
     };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: .12),
-        borderRadius: BorderRadius.circular(AppRadii.pill),
-      ),
-      child: Text(
-        status.label,
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.w600,
-          fontSize: 12,
-        ),
-      ),
-    );
+    return StatusPill(label: status.label, color: color);
   }
 }

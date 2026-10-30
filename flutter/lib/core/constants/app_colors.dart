@@ -29,6 +29,17 @@ class AppColors {
   static const Color disabled = Color(0xFFAAA394);
   static const Color selected = Color(0xFFF1E6C9);
 
+  // Warm surface tones layered between softWhite and the card background.
+  static const Color surfaceSunken = Color(0xFFF3EFE5);
+  static const Color surfaceMuted = Color(0xFFEDE7D9);
+  static const Color tableHeader = Color(0xFFF6F2E8);
+
+  // Dark chrome used by the sidebar, splash and login brand panel.
+  static const Color chrome = brandBlack;
+  static const Color chromeRaised = Color(0xFF141311);
+  static const Color chromeBorder = Color(0xFF262420);
+  static const Color chromeText = Color(0xFFBDB6A6);
+
   // Status Colors
   static const Color success = Color(0xFF10B981);
   static const Color warning = Color(0xFFF59E0B);

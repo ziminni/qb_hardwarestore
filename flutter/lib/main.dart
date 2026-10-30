@@ -18,8 +18,8 @@ Future<void> main() async {
   ApiClient.instance.init();
   final authService = AuthService();
   final authRepository = AuthRepository(authService);
+  // Session restore runs behind the splash screen.
   final authViewmodel = AuthViewmodel(authRepository);
-  await authViewmodel.initialize();
 
   await windowManager.ensureInitialized();
   await windowManager.setMinimumSize(const Size(1000, 600));

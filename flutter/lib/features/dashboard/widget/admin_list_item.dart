@@ -1,3 +1,4 @@
+import 'package:client/shared/widgets/activity_list_item.dart';
 import 'package:flutter/material.dart';
 
 class AdminListItem extends StatelessWidget {
@@ -14,36 +15,10 @@ class AdminListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        children: [
-          const SizedBox(
-            width: 34,
-            height: 34,
-            child: ColoredBox(color: Color(0xFFE0E0E0)),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  style: const TextStyle(fontSize: 11, color: Colors.black54),
-                ),
-              ],
-            ),
-          ),
-          if (trailing != null)
-            Text(trailing!, style: const TextStyle(fontSize: 12)),
-        ],
-      ),
+    return ActivityListItem(
+      title: title,
+      subtitle: subtitle,
+      trailing: trailing,
     );
   }
 }

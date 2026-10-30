@@ -1,3 +1,4 @@
+import 'package:client/shared/widgets/section_card.dart';
 import 'package:flutter/material.dart';
 
 class SalesSection extends StatelessWidget {
@@ -16,35 +17,11 @@ class SalesSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: Colors.black26),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-              if (actionLabel != null)
-                TextButton(
-                  onPressed: onAction ?? () {},
-                  child: Text(actionLabel!),
-                ),
-            ],
-          ),
-          const Divider(),
-          child,
-        ],
-      ),
+    return SectionCard(
+      title: title,
+      actionLabel: actionLabel,
+      onAction: onAction,
+      child: child,
     );
   }
 }

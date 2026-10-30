@@ -5,6 +5,7 @@ import 'package:client/data/models/product.dart';
 import 'package:client/data/models/product_tracking.dart';
 import 'package:client/data/services/image_file_service.dart';
 import 'package:client/features/products/widgets/products_image.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
@@ -271,424 +272,402 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
 
-    return AlertDialog(
-      title: Text(widget.product == null ? 'Add product' : 'Edit product'),
-      content: SizedBox(
-        width: 520,
-        child: SingleChildScrollView(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  '1. Basic Information',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                TextFormField(
-                  controller: _nameController,
-                  autofocus: true,
-                  decoration: const InputDecoration(labelText: 'Product name'),
-                  validator: (value) => value == null || value.trim().isEmpty
-                      ? 'Enter a product name.'
-                      : null,
-                ),
-                if (widget.product == null) ...[
-                  const SizedBox(height: AppSpacing.xl),
-                  Text(
-                    'First variant',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  TextFormField(
-                    controller: _variantController,
-                    decoration: const InputDecoration(
-                      labelText: 'Variant name',
-                    ),
-                    validator: (value) => value == null || value.trim().isEmpty
-                        ? 'Enter a variant name.'
-                        : null,
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  TextFormField(
-                    controller: _skuController,
-                    decoration: const InputDecoration(labelText: 'SKU'),
-                    validator: (value) => value == null || value.trim().isEmpty
-                        ? 'Enter an SKU.'
-                        : null,
-                  ),
-                ],
-                const SizedBox(height: AppSpacing.md),
-                TextFormField(
-                  controller: _barcodeController,
-                  decoration: const InputDecoration(
-                    labelText: 'Queen Builders barcode',
-                    hintText: 'Scan or enter the product barcode',
-                    prefixIcon: Icon(Icons.barcode_reader),
-                    helperText:
-                        'One barcode identifies this main product package.',
-                  ),
-                  validator: (value) {
-                    final barcode = value?.trim() ?? '';
-                    if (barcode.isEmpty) return 'Scan or enter a barcode.';
-                    final duplicate = widget.products.any(
-                      (product) =>
-                          product.id != widget.product?.id &&
-                          product.variants.any(
-                            (variant) =>
-                                variant.qrIdentifier.toLowerCase() ==
-                                barcode.toLowerCase(),
-                          ),
-                    );
-                    return duplicate
-                        ? 'This barcode is already assigned to another product.'
-                        : null;
-                  },
-                  onFieldSubmitted: (_) => setState(() {}),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                DropdownButtonFormField<int>(
-                  initialValue: _categoryId,
-                  decoration: const InputDecoration(labelText: 'Category'),
-                  items: widget.categories
-                      .map(
-                        (product) => DropdownMenuItem(
-                          value: product.categoryId,
-                          child: Text(product.categoryName),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) setState(() => _categoryId = value);
-                  },
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                DropdownButtonFormField<int>(
-                  initialValue: _brandId,
-                  decoration: const InputDecoration(labelText: 'Brand'),
-                  items: widget.brands
-                      .map(
-                        (product) => DropdownMenuItem(
-                          value: product.brandId,
-                          child: Text(product.brandName),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) setState(() => _brandId = value);
-                  },
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                TextFormField(
-                  controller: _descriptionController,
-                  maxLines: 3,
-                  decoration: const InputDecoration(labelText: 'Description'),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                Text(
-                  'Product image',
-                  style: Theme.of(context).textTheme.labelLarge,
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Container(
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                  decoration: BoxDecoration(
-                    color: colors.surfaceContainerLowest,
-                    border: Border.all(color: AppColors.border),
-                    borderRadius: BorderRadius.circular(AppRadii.medium),
-                  ),
-                  child: Row(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(AppRadii.small),
-                        child: ProductsImage(
-                          imageUrl: _imagePath,
-                          width: 88,
-                          height: 88,
-                        ),
+    return AppDialog(
+      icon: widget.product == null
+          ? Icons.add_box_outlined
+          : Icons.edit_note_rounded,
+      title: widget.product == null ? 'Add product' : 'Edit product',
+      subtitle:
+          widget.product?.baseName ??
+          'Create a catalog item with its tracking and pricing',
+      width: 600,
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const FormStepHeader(step: 1, title: 'Basic Information'),
+            const SizedBox(height: AppSpacing.md),
+            TextFormField(
+              controller: _nameController,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Product name'),
+              validator: (value) => value == null || value.trim().isEmpty
+                  ? 'Enter a product name.'
+                  : null,
+            ),
+            if (widget.product == null) ...[
+              const SizedBox(height: AppSpacing.xl),
+              Text(
+                'First variant',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: _variantController,
+                decoration: const InputDecoration(labelText: 'Variant name'),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Enter a variant name.'
+                    : null,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: _skuController,
+                decoration: const InputDecoration(labelText: 'SKU'),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Enter an SKU.'
+                    : null,
+              ),
+            ],
+            const SizedBox(height: AppSpacing.md),
+            TextFormField(
+              controller: _barcodeController,
+              decoration: const InputDecoration(
+                labelText: 'Queen Builders barcode',
+                hintText: 'Scan or enter the product barcode',
+                prefixIcon: Icon(Icons.barcode_reader),
+                helperText: 'One barcode identifies this main product package.',
+              ),
+              validator: (value) {
+                final barcode = value?.trim() ?? '';
+                if (barcode.isEmpty) return 'Scan or enter a barcode.';
+                final duplicate = widget.products.any(
+                  (product) =>
+                      product.id != widget.product?.id &&
+                      product.variants.any(
+                        (variant) =>
+                            variant.qrIdentifier.toLowerCase() ==
+                            barcode.toLowerCase(),
                       ),
-                      const SizedBox(width: AppSpacing.lg),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _imagePath.isEmpty
-                                  ? 'No image selected'
-                                  : _imagePath.split(RegExp(r'[/\\]')).last,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: AppSpacing.sm),
-                            Wrap(
-                              spacing: AppSpacing.sm,
-                              runSpacing: AppSpacing.sm,
-                              children: [
-                                OutlinedButton.icon(
-                                  onPressed: _selectImage,
-                                  icon: const Icon(Icons.attach_file),
-                                  label: Text(
-                                    _imagePath.isEmpty
-                                        ? 'Choose image'
-                                        : 'Replace image',
-                                  ),
-                                ),
-                                if (_imagePath.isNotEmpty)
-                                  TextButton(
-                                    onPressed: () =>
-                                        setState(() => _imagePath = ''),
-                                    child: const Text('Remove'),
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                if (widget.product == null) ...[
-                  const Divider(height: AppSpacing.xxl),
-                  Text(
-                    '2. Inventory Tracking',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
+                );
+                return duplicate
+                    ? 'This barcode is already assigned to another product.'
+                    : null;
+              },
+              onFieldSubmitted: (_) => setState(() {}),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            DropdownButtonFormField<int>(
+              initialValue: _categoryId,
+              decoration: const InputDecoration(labelText: 'Category'),
+              items: widget.categories
+                  .map(
+                    (product) => DropdownMenuItem(
+                      value: product.categoryId,
+                      child: Text(product.categoryName),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                if (value != null) setState(() => _categoryId = value);
+              },
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            DropdownButtonFormField<int>(
+              initialValue: _brandId,
+              decoration: const InputDecoration(labelText: 'Brand'),
+              items: widget.brands
+                  .map(
+                    (product) => DropdownMenuItem(
+                      value: product.brandId,
+                      child: Text(product.brandName),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                if (value != null) setState(() => _brandId = value);
+              },
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            TextFormField(
+              controller: _descriptionController,
+              maxLines: 3,
+              decoration: const InputDecoration(labelText: 'Description'),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              'Product image',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: colors.surfaceContainerLowest,
+                border: Border.all(color: AppColors.border),
+                borderRadius: BorderRadius.circular(AppRadii.medium),
+              ),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(AppRadii.small),
+                    child: ProductsImage(
+                      imageUrl: _imagePath,
+                      width: 88,
+                      height: 88,
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.xs),
-                  const Text('How is this product tracked?'),
-                  const SizedBox(height: AppSpacing.md),
-                  Wrap(
-                    spacing: AppSpacing.sm,
-                    runSpacing: AppSpacing.sm,
-                    children: ProductTrackingMethod.values
-                        .map(
-                          (method) => ChoiceChip(
-                            label: Text(method.label),
-                            selected: _trackingMethod == method,
-                            onSelected: (_) => setState(() {
-                              _trackingMethod = method;
-                              _baseUnit = _defaultUnit(method);
-                              _stockForm =
-                                  method == ProductTrackingMethod.length
-                                  ? ProductStockForm.standardLengths
-                                  : ProductStockForm.direct;
-                              _allowFractional =
-                                  method != ProductTrackingMethod.quantity;
-                            }),
-                          ),
-                        )
-                        .toList(),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    _trackingMethod.description,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  DropdownButtonFormField<String>(
-                    initialValue: _baseUnit,
-                    decoration: const InputDecoration(
-                      labelText: 'Base measurement / unit',
-                    ),
-                    items: _unitsForMethod()
-                        .map(
-                          (unit) =>
-                              DropdownMenuItem(value: unit, child: Text(unit)),
-                        )
-                        .toList(),
-                    onChanged: (value) =>
-                        setState(() => _baseUnit = value ?? _baseUnit),
-                  ),
-                  if (_trackingMethod != ProductTrackingMethod.quantity) ...[
-                    const SizedBox(height: AppSpacing.md),
-                    SegmentedButton<ProductStockForm>(
-                      segments: _stockOptions()
-                          .map(
-                            (form) => ButtonSegment(
-                              value: form,
-                              label: Text(form.label),
-                            ),
-                          )
-                          .toList(),
-                      selected: {_stockForm},
-                      onSelectionChanged: (values) =>
-                          setState(() => _stockForm = values.first),
-                    ),
-                  ],
-                  if (_stockForm == ProductStockForm.packaged ||
-                      _stockForm == ProductStockForm.standardLengths) ...[
-                    const SizedBox(height: AppSpacing.md),
-                    Row(
+                  const SizedBox(width: AppSpacing.lg),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            initialValue: _packageType,
-                            decoration: InputDecoration(
-                              labelText:
-                                  _stockForm == ProductStockForm.standardLengths
-                                  ? 'Physical unit'
-                                  : 'Package type',
-                            ),
-                            items:
-                                const [
-                                      'Bag',
-                                      'Sack',
-                                      'Box',
-                                      'Pack',
-                                      'Container',
-                                      'Piece',
-                                      'Roll',
-                                    ]
-                                    .map(
-                                      (item) => DropdownMenuItem(
-                                        value: item,
-                                        child: Text(item),
-                                      ),
-                                    )
-                                    .toList(),
-                            onChanged: (value) => setState(
-                              () => _packageType = value ?? _packageType,
-                            ),
-                          ),
+                        Text(
+                          _imagePath.isEmpty
+                              ? 'No image selected'
+                              : _imagePath.split(RegExp(r'[/\\]')).last,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        const SizedBox(width: AppSpacing.md),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _packageSizeController,
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
+                        const SizedBox(height: AppSpacing.sm),
+                        Wrap(
+                          spacing: AppSpacing.sm,
+                          runSpacing: AppSpacing.sm,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: _selectImage,
+                              icon: const Icon(Icons.attach_file),
+                              label: Text(
+                                _imagePath.isEmpty
+                                    ? 'Choose image'
+                                    : 'Replace image',
+                              ),
                             ),
-                            decoration: InputDecoration(
-                              labelText:
-                                  _stockForm == ProductStockForm.standardLengths
-                                  ? 'Standard length per piece'
-                                  : 'Quantity per package',
-                              suffixText: _baseUnit,
-                            ),
-                          ),
+                            if (_imagePath.isNotEmpty)
+                              TextButton(
+                                onPressed: () =>
+                                    setState(() => _imagePath = ''),
+                                child: const Text('Remove'),
+                              ),
+                          ],
                         ),
                       ],
                     ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        _stockForm == ProductStockForm.standardLengths
-                            ? 'Allow partial / cut sales'
-                            : 'Allow partial package sales',
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            if (widget.product == null) ...[
+              const SizedBox(height: AppSpacing.lg),
+              const FormStepHeader(step: 2, title: 'Inventory Tracking'),
+              const SizedBox(height: AppSpacing.xs),
+              const Text('How is this product tracked?'),
+              const SizedBox(height: AppSpacing.md),
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: ProductTrackingMethod.values
+                    .map(
+                      (method) => ChoiceChip(
+                        label: Text(method.label),
+                        selected: _trackingMethod == method,
+                        onSelected: (_) => setState(() {
+                          _trackingMethod = method;
+                          _baseUnit = _defaultUnit(method);
+                          _stockForm = method == ProductTrackingMethod.length
+                              ? ProductStockForm.standardLengths
+                              : ProductStockForm.direct;
+                          _allowFractional =
+                              method != ProductTrackingMethod.quantity;
+                        }),
                       ),
-                      value: _allowPartial,
-                      onChanged: (value) =>
-                          setState(() => _allowPartial = value),
+                    )
+                    .toList(),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                _trackingMethod.description,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              DropdownButtonFormField<String>(
+                initialValue: _baseUnit,
+                decoration: const InputDecoration(
+                  labelText: 'Base measurement / unit',
+                ),
+                items: _unitsForMethod()
+                    .map(
+                      (unit) =>
+                          DropdownMenuItem(value: unit, child: Text(unit)),
+                    )
+                    .toList(),
+                onChanged: (value) =>
+                    setState(() => _baseUnit = value ?? _baseUnit),
+              ),
+              if (_trackingMethod != ProductTrackingMethod.quantity) ...[
+                const SizedBox(height: AppSpacing.md),
+                SegmentedButton<ProductStockForm>(
+                  segments: _stockOptions()
+                      .map(
+                        (form) =>
+                            ButtonSegment(value: form, label: Text(form.label)),
+                      )
+                      .toList(),
+                  selected: {_stockForm},
+                  onSelectionChanged: (values) =>
+                      setState(() => _stockForm = values.first),
+                ),
+              ],
+              if (_stockForm == ProductStockForm.packaged ||
+                  _stockForm == ProductStockForm.standardLengths) ...[
+                const SizedBox(height: AppSpacing.md),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _packageType,
+                        decoration: InputDecoration(
+                          labelText:
+                              _stockForm == ProductStockForm.standardLengths
+                              ? 'Physical unit'
+                              : 'Package type',
+                        ),
+                        items:
+                            const [
+                                  'Bag',
+                                  'Sack',
+                                  'Box',
+                                  'Pack',
+                                  'Container',
+                                  'Piece',
+                                  'Roll',
+                                ]
+                                .map(
+                                  (item) => DropdownMenuItem(
+                                    value: item,
+                                    child: Text(item),
+                                  ),
+                                )
+                                .toList(),
+                        onChanged: (value) => setState(
+                          () => _packageType = value ?? _packageType,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _packageSizeController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: InputDecoration(
+                          labelText:
+                              _stockForm == ProductStockForm.standardLengths
+                              ? 'Standard length per piece'
+                              : 'Quantity per package',
+                          suffixText: _baseUnit,
+                        ),
+                      ),
                     ),
                   ],
-                  if (_trackingMethod == ProductTrackingMethod.quantity)
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Allow fractional quantity?'),
-                      subtitle: const Text(
-                        'Keep this off for indivisible items such as hammers.',
-                      ),
-                      value: _allowFractional,
-                      onChanged: (value) =>
-                          setState(() => _allowFractional = value),
-                    ),
-                  const Divider(height: AppSpacing.xxl),
-                  Text(
-                    '3. Pricing & Initial Stock',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    _stockForm == ProductStockForm.standardLengths
+                        ? 'Allow partial / cut sales'
+                        : 'Allow partial package sales',
                   ),
-                  const SizedBox(height: AppSpacing.md),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _costController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(
-                            labelText: 'Cost per $_baseUnit',
-                            prefixText: '₱ ',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _sellingController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(
-                            labelText: 'Selling price per $_baseUnit',
-                            prefixText: '₱ ',
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _initialStockController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(
-                            labelText:
-                                (_stockForm == ProductStockForm.packaged ||
-                                    _stockForm ==
-                                        ProductStockForm.standardLengths)
-                                ? 'Initial packages / pieces'
-                                : 'Initial quantity',
-                            suffixText:
-                                (_stockForm == ProductStockForm.packaged ||
-                                    _stockForm ==
-                                        ProductStockForm.standardLengths)
-                                ? _packageType.toLowerCase()
-                                : _baseUnit,
-                          ),
-                          onChanged: (_) => setState(() {}),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _reorderController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(
-                            labelText: 'Reorder level',
-                            suffixText: _baseUnit,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  TextFormField(
-                    controller: _locationController,
-                    decoration: const InputDecoration(
-                      labelText: 'Storage location',
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  _buildPreview(context),
-                ],
+                  value: _allowPartial,
+                  onChanged: (value) => setState(() => _allowPartial = value),
+                ),
               ],
-            ),
-          ),
+              if (_trackingMethod == ProductTrackingMethod.quantity)
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Allow fractional quantity?'),
+                  subtitle: const Text(
+                    'Keep this off for indivisible items such as hammers.',
+                  ),
+                  value: _allowFractional,
+                  onChanged: (value) =>
+                      setState(() => _allowFractional = value),
+                ),
+              const SizedBox(height: AppSpacing.lg),
+              const FormStepHeader(step: 3, title: 'Pricing & Initial Stock'),
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _costController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: 'Cost per $_baseUnit',
+                        prefixText: '₱ ',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _sellingController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: 'Selling price per $_baseUnit',
+                        prefixText: '₱ ',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _initialStockController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: InputDecoration(
+                        labelText:
+                            (_stockForm == ProductStockForm.packaged ||
+                                _stockForm == ProductStockForm.standardLengths)
+                            ? 'Initial packages / pieces'
+                            : 'Initial quantity',
+                        suffixText:
+                            (_stockForm == ProductStockForm.packaged ||
+                                _stockForm == ProductStockForm.standardLengths)
+                            ? _packageType.toLowerCase()
+                            : _baseUnit,
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _reorderController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: 'Reorder level',
+                        suffixText: _baseUnit,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: _locationController,
+                decoration: const InputDecoration(
+                  labelText: 'Storage location',
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              _buildPreview(context),
+            ],
+          ],
         ),
       ),
       actions: [

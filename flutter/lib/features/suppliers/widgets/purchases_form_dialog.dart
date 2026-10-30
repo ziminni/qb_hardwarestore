@@ -3,6 +3,7 @@ import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/supplier.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
 
 class PurchasesFormDialog extends StatefulWidget {
@@ -128,11 +129,14 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
     final filteredMaterials = _filteredMaterials;
     final selectedMaterials = _selectedMaterials;
 
-    return AlertDialog(
-      title: const Text('Create Purchase Order'),
+    return AppDialog(
+      icon: Icons.add_shopping_cart_rounded,
+      title: 'Create Purchase Order',
+      subtitle: 'Choose a supplier and the materials to order',
+      width: 920,
+      scrollable: false,
       content: SizedBox(
-        width: 860,
-        height: (MediaQuery.sizeOf(context).height - 190).clamp(380.0, 610.0),
+        height: (MediaQuery.sizeOf(context).height - 300).clamp(300.0, 560.0),
         child: Form(
           key: _formKey,
           child: Column(

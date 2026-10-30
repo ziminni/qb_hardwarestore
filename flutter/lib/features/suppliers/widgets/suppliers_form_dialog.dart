@@ -1,5 +1,6 @@
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/models/supplier.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
 
 class SuppliersFormDialog extends StatefulWidget {
@@ -33,55 +34,71 @@ class _SuppliersFormDialogState extends State<SuppliersFormDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: Text(widget.supplier == null ? 'Add Supplier' : 'Edit Supplier'),
-    content: SizedBox(
-      width: 520,
-      child: SingleChildScrollView(
-        child: Form(
-          key: _key,
-          child: Column(
+  Widget build(BuildContext context) => AppDialog(
+    icon: Icons.local_shipping_outlined,
+    title: widget.supplier == null ? 'Add Supplier' : 'Edit Supplier',
+    subtitle:
+        widget.supplier?.companyName ?? 'Register a vendor for purchase orders',
+    width: 560,
+    content: Form(
+      key: _key,
+      child: Column(
+        children: [
+          const DialogSectionLabel('Company'),
+          TextFormField(
+            controller: _company,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'Company Name',
+              prefixIcon: Icon(Icons.business_outlined),
+            ),
+            validator: (value) => value == null || value.trim().isEmpty
+                ? 'Enter the company name.'
+                : null,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          TextFormField(
+            controller: _address,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Address',
+              alignLabelWithHint: true,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          const DialogSectionLabel('Contact'),
+          TextFormField(
+            controller: _contact,
+            decoration: const InputDecoration(
+              labelText: 'Contact Person',
+              prefixIcon: Icon(Icons.person_outline),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
             children: [
-              TextFormField(
-                controller: _company,
-                autofocus: true,
-                decoration: const InputDecoration(labelText: 'Company Name'),
-                validator: (value) => value == null || value.trim().isEmpty
-                    ? 'Enter the company name.'
-                    : null,
-              ),
-              const SizedBox(height: AppSpacing.md),
-              TextFormField(
-                controller: _contact,
-                decoration: const InputDecoration(labelText: 'Contact Person'),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _phone,
-                      decoration: const InputDecoration(labelText: 'Phone'),
-                    ),
+              Expanded(
+                child: TextFormField(
+                  controller: _phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Phone',
+                    prefixIcon: Icon(Icons.phone_outlined),
                   ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _email,
-                      decoration: const InputDecoration(labelText: 'Email'),
-                    ),
-                  ),
-                ],
+                ),
               ),
-              const SizedBox(height: AppSpacing.md),
-              TextFormField(
-                controller: _address,
-                maxLines: 3,
-                decoration: const InputDecoration(labelText: 'Address'),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: TextFormField(
+                  controller: _email,
+                  decoration: const InputDecoration(
+                    labelText: 'Email',
+                    prefixIcon: Icon(Icons.mail_outline),
+                  ),
+                ),
               ),
             ],
           ),
-        ),
+        ],
       ),
     ),
     actions: [

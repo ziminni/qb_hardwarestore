@@ -7,6 +7,7 @@ import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_adjust_stock_dialog.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:client/features/inventory/widgets/inventory_stock_table.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -80,10 +81,8 @@ class _InventoryStockPageState extends State<InventoryStockPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: AppSpacing.md,
-            runSpacing: AppSpacing.md,
-            children: [
+          FilterBar(
+            filters: [
               SizedBox(
                 width: 280,
                 child: TextField(

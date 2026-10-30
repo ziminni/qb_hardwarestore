@@ -1,9 +1,12 @@
-import 'package:client/core/constants/app_assets.dart';
+import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_durations.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/constants/app_text_styles.dart';
 import 'package:client/data/services/health_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
-import 'package:client/features/auth/widget/login_glass_card.dart';
+import 'package:client/features/auth/widget/login_brand_panel.dart';
+import 'package:client/shared/widgets/measure_ruler.dart';
 import 'package:client/shared/widgets/system_brand.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -16,6 +19,8 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  static const double _splitBreakpoint = 860;
+
   final _formKey = GlobalKey<FormState>();
   final _identifierController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -77,52 +82,17 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-
     return Scaffold(
       resizeToAvoidBottomInset: true,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _isTestingServer ? null : _testServer,
-        icon: _isTestingServer
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Icon(Icons.cloud_done_outlined),
-        label: Text(_isTestingServer ? 'Testing...' : 'Test server'),
-      ),
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final cardPadding = constraints.maxWidth >= 900
-              ? AppSpacing.xxl
-              : AppSpacing.lg;
+          final isSplit = constraints.maxWidth >= _splitBreakpoint;
 
-          return Stack(
-            fit: StackFit.expand,
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const IgnorePointer(
-                child: Image(
-                  image: AssetImage(AppAssets.bgLogin),
-                  fit: BoxFit.cover,
-                ),
-              ),
-              IgnorePointer(
-                child: ColoredBox(
-                  color: colors.secondary.withValues(alpha: 0.62),
-                ),
-              ),
-              SingleChildScrollView(
-                padding: EdgeInsets.all(cardPadding),
-                keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    minHeight: constraints.maxHeight - (cardPadding * 2),
-                  ),
-                  child: Center(child: LoginGlassCard(child: _buildForm())),
-                ),
-              ),
+              if (isSplit) const Expanded(flex: 11, child: LoginBrandPanel()),
+              Expanded(flex: 9, child: _buildFormPanel(showBrand: !isSplit)),
             ],
           );
         },
@@ -130,10 +100,45 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Widget _buildForm() {
+  Widget _buildFormPanel({required bool showBrand}) {
+    return ColoredBox(
+      color: AppColors.background,
+      child: Stack(
+        children: [
+          const Positioned(top: 0, left: 0, right: 0, child: MeasureRuler()),
+          Positioned.fill(
+            top: 22,
+            child: Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 40,
+                      vertical: AppSpacing.xxl,
+                    ),
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 380),
+                        child: _EntranceTransition(
+                          child: _buildForm(showBrand: showBrand),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                _buildServerCheck(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildForm({required bool showBrand}) {
     final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final foreground = colors.onSecondary;
 
     return Form(
       key: _formKey,
@@ -141,48 +146,45 @@ class _LoginPageState extends State<LoginPage> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.md,
-              vertical: 6,
-            ),
-            decoration: BoxDecoration(
-              color: colors.primary,
-              borderRadius: BorderRadius.circular(AppRadii.pill),
-            ),
-            child: SystemBrand(
-              logoSize: 24,
-              fontSize: 11,
-              textColor: colors.onPrimary,
-              uppercase: true,
-            ),
+          if (showBrand) ...[
+            const SystemBrand(logoSize: 36, fontSize: 14, uppercase: true),
+            const SizedBox(height: AppSpacing.xxl),
+          ],
+          Row(
+            children: [
+              Container(width: 24, height: 2, color: AppColors.brandGold),
+              const SizedBox(width: AppSpacing.sm),
+              Text(
+                'SIGN IN',
+                style: AppTextStyles.labelSmall.copyWith(
+                  color: AppColors.brandGold,
+                  letterSpacing: 3,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: AppSpacing.xl),
+          const SizedBox(height: AppSpacing.md),
           Text(
-            'Login',
-            style: theme.textTheme.displayLarge?.copyWith(
-              fontSize: 34,
-              fontWeight: FontWeight.w600,
-              color: foreground,
-              letterSpacing: -0.5,
-            ),
+            'Welcome back',
+            style: AppTextStyles.h1.copyWith(fontSize: 34, letterSpacing: 0.5),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: AppSpacing.sm),
           Text(
-            'Inventory, sales, and store management console',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: foreground.withValues(alpha: 0.75),
+            'Enter your credentials to open the store console.',
+            style: AppTextStyles.bodyMedium.copyWith(
+              color: AppColors.textSecondary,
             ),
           ),
-          const SizedBox(height: 28),
-          _fieldLabel('Username or Email', foreground),
+          const SizedBox(height: 36),
+          _fieldLabel('Username or Email'),
           const SizedBox(height: AppSpacing.sm),
           TextFormField(
             controller: _identifierController,
             autofocus: true,
             textInputAction: TextInputAction.next,
-            decoration: const InputDecoration(
-              hintText: 'Enter your username or email',
+            decoration: _inputDecoration(
+              hint: 'Enter your username or email',
+              icon: Icons.person_outline_rounded,
             ),
             validator: (value) {
               if (value == null || value.trim().isEmpty) {
@@ -192,24 +194,27 @@ class _LoginPageState extends State<LoginPage> {
             },
           ),
           const SizedBox(height: AppSpacing.xl),
-          _fieldLabel('Password', foreground),
+          _fieldLabel('Password'),
           const SizedBox(height: AppSpacing.sm),
           TextFormField(
             controller: _passwordController,
             obscureText: !_showPassword,
             textInputAction: TextInputAction.done,
             onFieldSubmitted: (_) => _login(),
-            decoration: InputDecoration(
-              hintText: 'Enter your password',
-              suffixIcon: IconButton(
+            decoration: _inputDecoration(
+              hint: 'Enter your password',
+              icon: Icons.lock_outline_rounded,
+              suffix: IconButton(
                 tooltip: _showPassword ? 'Hide password' : 'Show password',
                 onPressed: () {
                   setState(() => _showPassword = !_showPassword);
                 },
                 icon: Icon(
-                  _showPassword ? Icons.visibility_off : Icons.visibility,
+                  _showPassword
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
                   size: 20,
-                  color: colors.onSurfaceVariant,
+                  color: AppColors.textSecondary,
                 ),
               ),
             ),
@@ -242,18 +247,13 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                   const SizedBox(width: AppSpacing.sm),
-                  Text(
-                    'Remember me',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: foreground.withValues(alpha: 0.85),
-                    ),
-                  ),
+                  Text('Remember me', style: theme.textTheme.bodyMedium),
                 ],
               ),
               TextButton(
                 onPressed: () {},
                 style: TextButton.styleFrom(
-                  foregroundColor: colors.primary,
+                  foregroundColor: AppColors.brandGold,
                   padding: EdgeInsets.zero,
                   minimumSize: const Size(0, 32),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -265,45 +265,24 @@ class _LoginPageState extends State<LoginPage> {
           Consumer<AuthViewmodel>(
             builder: (context, viewModel, child) {
               final error = viewModel.error;
-              if (error == null) return const SizedBox.shrink();
-
-              return Padding(
-                padding: const EdgeInsets.only(top: AppSpacing.lg),
-                child: Text(
-                  error,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: colors.errorContainer,
-                  ),
-                ),
+              return AnimatedSize(
+                duration: AppDurations.normal,
+                curve: Curves.easeOut,
+                child: error == null
+                    ? const SizedBox(width: double.infinity)
+                    : Padding(
+                        padding: const EdgeInsets.only(top: AppSpacing.lg),
+                        child: _ErrorBanner(message: error),
+                      ),
               );
             },
           ),
           const SizedBox(height: AppSpacing.xl),
           Consumer<AuthViewmodel>(
             builder: (context, viewModel, child) {
-              return SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: FilledButton(
-                  onPressed: viewModel.isLoading ? null : _login,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (viewModel.isLoading) ...[
-                        SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: colors.onPrimary,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                      ],
-                      const Text('Sign in'),
-                    ],
-                  ),
-                ),
+              return _SignInButton(
+                isLoading: viewModel.isLoading,
+                onPressed: viewModel.isLoading ? null : _login,
               );
             },
           ),
@@ -312,13 +291,162 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Widget _fieldLabel(String text, Color foreground) {
+  Widget _buildServerCheck() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+      child: TextButton.icon(
+        onPressed: _isTestingServer ? null : _testServer,
+        style: TextButton.styleFrom(
+          foregroundColor: AppColors.textSecondary,
+          textStyle: AppTextStyles.labelMedium,
+        ),
+        icon: _isTestingServer
+            ? const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.brandGold,
+                ),
+              )
+            : const Icon(Icons.cloud_done_outlined, size: 16),
+        label: Text(
+          _isTestingServer
+              ? 'Testing connection...'
+              : 'Check server connection',
+        ),
+      ),
+    );
+  }
+
+  InputDecoration _inputDecoration({
+    required String hint,
+    required IconData icon,
+    Widget? suffix,
+  }) {
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: AppTextStyles.bodyMedium.copyWith(color: AppColors.disabled),
+      prefixIcon: Icon(icon, size: 20, color: AppColors.textSecondary),
+      suffixIcon: suffix,
+      contentPadding: const EdgeInsets.symmetric(vertical: 16),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadii.medium),
+        borderSide: const BorderSide(color: AppColors.brandGold, width: 1.6),
+      ),
+    );
+  }
+
+  Widget _fieldLabel(String text) {
     return Text(
       text,
-      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-        fontWeight: FontWeight.w500,
-        color: foreground,
+      style: AppTextStyles.labelLarge.copyWith(fontWeight: FontWeight.w500),
+    );
+  }
+}
+
+class _SignInButton extends StatelessWidget {
+  const _SignInButton({required this.isLoading, required this.onPressed});
+
+  final bool isLoading;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: FilledButton(
+        onPressed: onPressed,
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.brandBlack,
+          foregroundColor: AppColors.brandGoldLight,
+          disabledBackgroundColor: AppColors.brandBlack.withValues(alpha: 0.8),
+          disabledForegroundColor: AppColors.brandGoldLight,
+          textStyle: AppTextStyles.button.copyWith(letterSpacing: 1.5),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadii.medium),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (isLoading) ...[
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.brandGoldLight,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text('SIGNING IN'),
+            ] else ...[
+              const Text('SIGN IN'),
+              const SizedBox(width: AppSpacing.sm),
+              const Icon(Icons.arrow_forward_rounded, size: 18),
+            ],
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class _ErrorBanner extends StatelessWidget {
+  const _ErrorBanner({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.error.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppRadii.small),
+        border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline, size: 18, color: AppColors.error),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              message,
+              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.error),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EntranceTransition extends StatelessWidget {
+  const _EntranceTransition({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 700),
+      curve: Curves.easeOutCubic,
+      child: child,
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, 16 * (1 - value)),
+            child: child,
+          ),
+        );
+      },
     );
   }
 }

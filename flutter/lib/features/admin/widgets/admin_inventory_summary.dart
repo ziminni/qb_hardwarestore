@@ -1,3 +1,4 @@
+import 'package:client/shared/widgets/metric_card.dart';
 import 'package:flutter/material.dart';
 
 class AdminInventorySummary extends StatelessWidget {
@@ -12,30 +13,9 @@ class AdminInventorySummary extends StatelessWidget {
       runSpacing: 12,
       children: metrics
           .map(
-            (metric) => Container(
+            (metric) => SizedBox(
               width: 190,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border.all(color: Colors.black26),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    metric.$1,
-                    style: const TextStyle(color: Colors.black54),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    metric.$2,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
+              child: MetricCard(label: metric.$1, value: metric.$2),
             ),
           )
           .toList(),

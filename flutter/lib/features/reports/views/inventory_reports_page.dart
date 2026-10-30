@@ -5,6 +5,7 @@ import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:client/features/reports/widgets/inventory_report_metric_card.dart';
 import 'package:client/features/reports/widgets/inventory_top_products_table.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
+import 'package:client/shared/widgets/section_heading.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -29,40 +30,61 @@ class InventoryReportsPage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: AppSpacing.md,
-            runSpacing: AppSpacing.md,
-            children: [
-              InventoryReportMetricCard(
-                label: 'Completed sales value',
-                value: '₱${sales.completedRevenue.toStringAsFixed(2)}',
-                icon: Icons.payments_outlined,
-              ),
-              InventoryReportMetricCard(
-                label: 'Units sold',
-                value: sales.soldUnits.toStringAsFixed(0),
-                icon: Icons.shopping_cart_outlined,
-              ),
-              InventoryReportMetricCard(
-                label: 'Return records',
-                value: '${sales.returns.length}',
-                icon: Icons.undo_rounded,
-              ),
-              InventoryReportMetricCard(
-                label: 'Low/out of stock',
-                value: '$lowStock',
-                icon: Icons.warning_amber_rounded,
-              ),
-            ],
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const gap = AppSpacing.md;
+              final columns = constraints.maxWidth >= 980
+                  ? 4
+                  : constraints.maxWidth >= 520
+                  ? 2
+                  : 1;
+              final width =
+                  (constraints.maxWidth - gap * (columns - 1)) / columns;
+              return Wrap(
+                spacing: gap,
+                runSpacing: gap,
+                children: [
+                  SizedBox(
+                    width: width,
+                    child: InventoryReportMetricCard(
+                      label: 'Completed sales value',
+                      value: '₱${sales.completedRevenue.toStringAsFixed(2)}',
+                      icon: Icons.payments_outlined,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: InventoryReportMetricCard(
+                      label: 'Units sold',
+                      value: sales.soldUnits.toStringAsFixed(0),
+                      icon: Icons.shopping_cart_outlined,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: InventoryReportMetricCard(
+                      label: 'Return records',
+                      value: '${sales.returns.length}',
+                      icon: Icons.undo_rounded,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: InventoryReportMetricCard(
+                      label: 'Low/out of stock',
+                      value: '$lowStock',
+                      icon: Icons.warning_amber_rounded,
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
           const SizedBox(height: AppSpacing.xl),
-          Row(
-            children: [
-              Text(
-                'Top Products by Sales Value',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const Spacer(),
+          SectionHeading(
+            title: 'Sales performance',
+            subtitle: 'Which products move the most value through inventory',
+            trailing: [
               OutlinedButton.icon(
                 onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
@@ -76,7 +98,7 @@ class InventoryReportsPage extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.md),
+          const SizedBox(height: AppSpacing.lg),
           InventoryTopProductsTable(lines: lines),
         ],
       ),

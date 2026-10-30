@@ -1,6 +1,7 @@
-import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/constants/app_colors.dart';
 import 'package:client/data/models/category.dart';
 import 'package:client/data/models/inventory.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
 
 class InventoryMovementFilters extends StatelessWidget {
@@ -37,11 +38,8 @@ class InventoryMovementFilters extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: AppSpacing.md,
-      runSpacing: AppSpacing.md,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
+    return FilterBar(
+      filters: [
         SizedBox(
           width: 280,
           child: TextField(
@@ -107,7 +105,16 @@ class InventoryMovementFilters extends StatelessWidget {
             },
           ),
         ),
-        Chip(label: Text(dateLabel)),
+        Chip(
+          avatar: const Icon(
+            Icons.date_range_outlined,
+            size: 16,
+            color: AppColors.brandGold,
+          ),
+          label: Text(dateLabel),
+        ),
+      ],
+      trailing: [
         if (view != InventoryMovementView.balance)
           OutlinedButton.icon(
             onPressed: onSort,

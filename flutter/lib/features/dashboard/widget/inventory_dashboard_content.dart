@@ -4,6 +4,7 @@ import 'package:client/features/dashboard/widget/inventory_data_table.dart';
 import 'package:client/features/dashboard/widget/inventory_list_item.dart';
 import 'package:client/features/dashboard/widget/inventory_metric_card.dart';
 import 'package:client/features/dashboard/widget/inventory_section.dart';
+import 'package:client/shared/widgets/section_heading.dart';
 import 'package:flutter/material.dart';
 
 class InventoryDashboardContent extends StatelessWidget {
@@ -14,16 +15,11 @@ class InventoryDashboardContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Inventory overview',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-            ),
+        const SectionHeading(
+          title: 'Inventory overview',
+          subtitle: 'Today’s stock position at a glance',
+          trailing: [
             InventoryActionButton(label: 'Export', icon: Icons.download),
-            SizedBox(width: 8),
             InventoryActionButton(label: 'Add product'),
           ],
         ),

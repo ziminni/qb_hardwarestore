@@ -27,6 +27,7 @@ import 'package:client/features/products/views/products_page.dart';
 import 'package:client/features/suppliers/views/purchases_page.dart';
 import 'package:client/features/suppliers/views/suppliers_page.dart';
 import 'package:client/features/sales/views/inventory_returns_page.dart';
+import 'package:client/features/splash/views/splash_page.dart';
 import 'package:client/features/sales/views/inventory_sales_page.dart';
 import 'package:client/features/reports/views/inventory_reports_page.dart';
 import 'package:flutter/material.dart';
@@ -35,6 +36,7 @@ import 'package:go_router/go_router.dart';
 class AppRoutes {
   AppRoutes._();
 
+  static const String splash = '/splash';
   static const String login = '/login';
   static const String adminDashboard = '/admin/dashboard';
   static const String adminUserManagement = '/admin/users';
@@ -109,10 +111,11 @@ class AppRoutes {
 
   static GoRouter createRouter(AuthViewmodel auth) {
     return GoRouter(
-      initialLocation: login,
+      initialLocation: splash,
       refreshListenable: auth,
       redirect: (context, state) {
         final location = state.matchedLocation;
+        if (location == splash) return null;
         final isLogin = location == login;
 
         if (!auth.isAuthenticated) return isLogin ? null : login;
@@ -143,6 +146,12 @@ class AppRoutes {
         return null;
       },
       routes: [
+        GoRoute(
+          path: splash,
+          name: 'splash',
+          pageBuilder: (context, state) =>
+              NoTransitionPage(key: state.pageKey, child: const SplashPage()),
+        ),
         GoRoute(
           path: login,
           name: 'login',

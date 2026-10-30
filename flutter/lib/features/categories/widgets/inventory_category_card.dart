@@ -1,7 +1,10 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/constants/app_text_styles.dart';
 import 'package:client/data/models/category.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
+import 'package:client/shared/widgets/status_pill.dart';
 import 'package:flutter/material.dart';
 
 class InventoryCategoryCard extends StatelessWidget {
@@ -22,14 +25,12 @@ class InventoryCategoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
     return Card(
       margin: EdgeInsets.zero,
       elevation: 0,
       color: category.isActive
-          ? colors.surface
-          : colors.surfaceContainerHighest.withValues(alpha: .55),
+          ? AppColors.cardBackground
+          : AppColors.surfaceSunken,
       shape: RoundedRectangleBorder(
         side: const BorderSide(color: AppColors.border),
         borderRadius: BorderRadius.circular(AppRadii.medium),
@@ -37,108 +38,122 @@ class InventoryCategoryCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onView,
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+        hoverColor: AppColors.selected.withValues(alpha: 0.35),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              height: 3,
+              color: category.isActive ? AppColors.brandGold : AppColors.border,
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg + 2,
+                AppSpacing.lg,
+                AppSpacing.sm,
+                AppSpacing.md,
+              ),
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: AppColors.selected,
-                      borderRadius: BorderRadius.circular(AppRadii.small),
-                    ),
-                    child: const Icon(
-                      Icons.category_outlined,
-                      color: AppColors.brandGold,
-                    ),
-                  ),
-                  const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.sm,
-                      vertical: AppSpacing.xs,
-                    ),
-                    decoration: BoxDecoration(
-                      color:
-                          (category.isActive
-                                  ? AppColors.success
-                                  : AppColors.disabled)
-                              .withValues(alpha: .12),
-                      borderRadius: BorderRadius.circular(AppRadii.pill),
-                    ),
-                    child: Text(
-                      category.isActive ? 'Active' : 'Archived',
-                      style: theme.textTheme.labelSmall?.copyWith(
+                  Row(
+                    children: [
+                      const HexIconBadge(icon: Icons.category_outlined),
+                      const Spacer(),
+                      StatusPill(
+                        label: category.isActive ? 'Active' : 'Archived',
                         color: category.isActive
                             ? AppColors.success
                             : AppColors.textSecondary,
-                        fontWeight: FontWeight.w600,
+                      ),
+                      PopupMenuButton<String>(
+                        tooltip: 'Category actions',
+                        icon: const Icon(Icons.more_vert, size: 20),
+                        onSelected: (value) {
+                          if (value == 'view') onView();
+                          if (value == 'edit') onEdit();
+                          if (value == 'archive') onArchive();
+                        },
+                        itemBuilder: (_) => [
+                          const PopupMenuItem(
+                            value: 'view',
+                            child: Text('View'),
+                          ),
+                          const PopupMenuItem(
+                            value: 'edit',
+                            child: Text('Edit'),
+                          ),
+                          if (category.isActive)
+                            const PopupMenuItem(
+                              value: 'archive',
+                              child: Text('Archive'),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  Text(
+                    category.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.h4.copyWith(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Padding(
+                    padding: const EdgeInsets.only(right: AppSpacing.md),
+                    child: SizedBox(
+                      height: 40,
+                      child: Text(
+                        category.description,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTextStyles.bodySmall.copyWith(fontSize: 13),
                       ),
                     ),
                   ),
-                  PopupMenuButton<String>(
-                    tooltip: 'Category actions',
-                    onSelected: (value) {
-                      if (value == 'view') onView();
-                      if (value == 'edit') onEdit();
-                      if (value == 'archive') onArchive();
-                    },
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(value: 'view', child: Text('View')),
-                      const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                      if (category.isActive)
-                        const PopupMenuItem(
-                          value: 'archive',
-                          child: Text('Archive'),
-                        ),
-                    ],
-                  ),
                 ],
               ),
-              const SizedBox(height: AppSpacing.lg),
-              Text(
-                category.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            ),
+            Container(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg + 2,
+                AppSpacing.xs,
+                AppSpacing.sm,
+                AppSpacing.xs,
               ),
-              const SizedBox(height: AppSpacing.sm),
-              SizedBox(
-                height: 42,
-                child: Text(
-                  category.description,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colors.onSurfaceVariant,
-                  ),
-                ),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: AppColors.border)),
               ),
-              const Divider(height: AppSpacing.xxl),
-              Row(
+              child: Row(
                 children: [
-                  const Icon(Icons.inventory_2_outlined, size: 18),
+                  const Icon(
+                    Icons.inventory_2_outlined,
+                    size: 16,
+                    color: AppColors.brandGold,
+                  ),
                   const SizedBox(width: AppSpacing.sm),
                   Text(
                     '$productCount ${productCount == 1 ? 'product' : 'products'}',
-                    style: theme.textTheme.labelLarge,
+                    style: AppTextStyles.labelLarge,
                   ),
                   const Spacer(),
-                  TextButton(
+                  TextButton.icon(
                     onPressed: onView,
-                    child: const Text('View details'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.brandGold,
+                    ),
+                    iconAlignment: IconAlignment.end,
+                    icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                    label: const Text('View details'),
                   ),
                 ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

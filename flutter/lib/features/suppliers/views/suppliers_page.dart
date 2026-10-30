@@ -5,6 +5,7 @@ import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmodel.dart';
 import 'package:client/features/suppliers/widgets/suppliers_form_dialog.dart';
 import 'package:client/features/suppliers/widgets/suppliers_table.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -46,21 +47,20 @@ class _SuppliersPageState extends State<SuppliersPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  width: 330,
-                  child: TextField(
-                    onChanged: (value) => setState(() => _query = value),
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.search),
-                      hintText: 'Search suppliers',
-                    ),
+          FilterBar(
+            filters: [
+              SizedBox(
+                width: 330,
+                child: TextField(
+                  onChanged: (value) => setState(() => _query = value),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    hintText: 'Search suppliers',
                   ),
                 ),
               ),
-              const SizedBox(width: AppSpacing.md),
+            ],
+            trailing: [
               FilledButton.icon(
                 onPressed: _form,
                 icon: const Icon(Icons.add),

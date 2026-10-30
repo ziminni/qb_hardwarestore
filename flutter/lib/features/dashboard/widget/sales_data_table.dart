@@ -11,7 +11,6 @@ class SalesDataTable extends StatelessWidget {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
-        headingRowColor: WidgetStateProperty.all(const Color(0xFFF2F2F2)),
         columns: columns
             .map((column) => DataColumn(label: Text(column)))
             .toList(),

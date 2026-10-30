@@ -7,6 +7,7 @@ import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmod
 import 'package:client/features/suppliers/widgets/purchases_details_dialog.dart';
 import 'package:client/features/suppliers/widgets/purchases_form_dialog.dart';
 import 'package:client/features/suppliers/widgets/purchases_table.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -57,10 +58,8 @@ class _PurchasesPageState extends State<PurchasesPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: AppSpacing.md,
-            runSpacing: AppSpacing.md,
-            children: [
+          FilterBar(
+            filters: [
               SizedBox(
                 width: 320,
                 child: TextField(
@@ -91,6 +90,8 @@ class _PurchasesPageState extends State<PurchasesPage> {
                   onChanged: (value) => setState(() => _status = value),
                 ),
               ),
+            ],
+            trailing: [
               FilledButton.icon(
                 onPressed: _create,
                 icon: const Icon(Icons.add),

@@ -16,10 +16,22 @@ class AuthViewmodel extends ChangeNotifier {
   bool get isAuthenticated => user != null;
   String? get roleName => user?.role.name;
 
-  Future<void> initialize() async {
-    user = await repository.restoreSession();
-    isInitializing = false;
-    notifyListeners();
+  Future<void>? _initialization;
+
+  // Safe to call more than once; the session is only restored the first time.
+  Future<void> initialize() => _initialization ??= _restoreSession();
+
+  Future<void> _restoreSession() async {
+    try {
+      user = await repository.restoreSession();
+    } catch (_) {
+      // Secure storage can fail (e.g. missing keychain entitlement); fall back
+      // to the login screen instead of aborting startup.
+      user = null;
+    } finally {
+      isInitializing = false;
+      notifyListeners();
+    }
   }
 
   Future<bool> login(String identifier, String password) async {

@@ -1,6 +1,4 @@
-import 'package:client/core/constants/app_colors.dart';
-import 'package:client/core/constants/app_radii.dart';
-import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/shared/widgets/stat_tile.dart';
 import 'package:flutter/material.dart';
 
 class InventoryReportMetricCard extends StatelessWidget {
@@ -14,33 +12,7 @@ class InventoryReportMetricCard extends StatelessWidget {
   final String value;
   final IconData icon;
   @override
-  Widget build(BuildContext context) => Container(
-    width: 210,
-    padding: const EdgeInsets.all(AppSpacing.lg),
-    decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.surface,
-      border: Border.all(color: AppColors.border),
-      borderRadius: BorderRadius.circular(AppRadii.medium),
-    ),
-    child: Row(
-      children: [
-        Icon(icon),
-        const SizedBox(width: AppSpacing.md),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                value,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              Text(label, style: Theme.of(context).textTheme.bodySmall),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    return StatTile(icon: icon, label: label, value: value);
+  }
 }

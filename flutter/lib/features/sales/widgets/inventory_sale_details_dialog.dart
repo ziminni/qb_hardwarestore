@@ -1,62 +1,42 @@
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/features/sales/widgets/inventory_sales_status_badge.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
 
 class InventorySaleDetailsDialog extends StatelessWidget {
   const InventorySaleDetailsDialog({super.key, required this.sale});
   final InventorySale sale;
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: Text(sale.transactionNo),
-    content: SizedBox(
-      width: 680,
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        sale.customer,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      Text(
-                        '${sale.source} · ${sale.paymentMethod} · ${sale.cashier}',
-                      ),
-                    ],
-                  ),
-                ),
-                InventorySalesStatusBadge.sale(status: sale.status),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            const Divider(),
-            ...sale.lines.map(
-              (line) => ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text('${line.productName} — ${line.variantName}'),
-                subtitle: Text(
-                  '${line.sku} · ${line.quantity.toStringAsFixed(0)} × ₱${line.unitPrice.toStringAsFixed(2)}',
-                ),
-                trailing: Text('₱${line.subtotal.toStringAsFixed(2)}'),
-              ),
-            ),
-            const Divider(),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                'Total: ₱${sale.total.toStringAsFixed(2)}',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            ),
-          ],
+  Widget build(BuildContext context) => AppDialog(
+    icon: Icons.point_of_sale_outlined,
+    title: sale.transactionNo,
+    subtitle: sale.customer,
+    headerTrailing: InventorySalesStatusBadge.sale(status: sale.status),
+    width: 700,
+    content: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        DetailRow(label: 'Customer', value: sale.customer),
+        DetailRow(label: 'Source', value: sale.source),
+        DetailRow(label: 'Payment', value: sale.paymentMethod),
+        DetailRow(label: 'Cashier', value: sale.cashier),
+        const SizedBox(height: AppSpacing.xl),
+        DialogSectionLabel('Items (${sale.lines.length})'),
+        ...sale.lines.map(
+          (line) => LineItemTile(
+            title: '${line.productName} — ${line.variantName}',
+            subtitle:
+                '${line.sku} · ${line.quantity.toStringAsFixed(0)} × ₱${line.unitPrice.toStringAsFixed(2)}',
+            amount: '₱${line.subtotal.toStringAsFixed(2)}',
+          ),
         ),
-      ),
+        const SizedBox(height: AppSpacing.lg),
+        TotalBar(
+          label: 'Sale total',
+          value: '₱${sale.total.toStringAsFixed(2)}',
+        ),
+      ],
     ),
     actions: [
       FilledButton(

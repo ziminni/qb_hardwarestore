@@ -5,6 +5,7 @@ import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/widgets/inventory_sale_details_dialog.dart';
 import 'package:client/features/sales/widgets/inventory_sales_table.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -37,10 +38,8 @@ class _InventorySalesPageState extends State<InventorySalesPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: AppSpacing.md,
-            runSpacing: AppSpacing.md,
-            children: [
+          FilterBar(
+            filters: [
               SizedBox(
                 width: 330,
                 child: TextField(

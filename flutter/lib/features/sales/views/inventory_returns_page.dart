@@ -5,6 +5,7 @@ import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/widgets/inventory_return_form_dialog.dart';
 import 'package:client/features/sales/widgets/inventory_returns_table.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -58,10 +59,8 @@ class _InventoryReturnsPageState extends State<InventoryReturnsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: AppSpacing.md,
-            runSpacing: AppSpacing.md,
-            children: [
+          FilterBar(
+            filters: [
               SizedBox(
                 width: 330,
                 child: TextField(
@@ -92,6 +91,8 @@ class _InventoryReturnsPageState extends State<InventoryReturnsPage> {
                   onChanged: (value) => setState(() => _type = value),
                 ),
               ),
+            ],
+            trailing: [
               FilledButton.icon(
                 onPressed: _create,
                 icon: const Icon(Icons.add),

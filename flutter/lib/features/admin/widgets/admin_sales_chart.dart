@@ -1,3 +1,6 @@
+import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_radii.dart';
+import 'package:client/core/constants/app_text_styles.dart';
 import 'package:flutter/material.dart';
 
 class AdminSalesChart extends StatelessWidget {
@@ -29,12 +32,26 @@ class AdminSalesChart extends StatelessWidget {
                       alignment: Alignment.bottomCenter,
                       child: FractionallySizedBox(
                         heightFactor: values[index] / maximum,
-                        child: const ColoredBox(color: Colors.black26),
+                        child: const DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                AppColors.brandGoldLight,
+                                AppColors.brandGold,
+                              ],
+                            ),
+                            borderRadius: BorderRadius.vertical(
+                              top: Radius.circular(AppRadii.small),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Text(labels[index]),
+                  Text(labels[index], style: AppTextStyles.labelSmall),
                 ],
               ),
             ),

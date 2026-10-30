@@ -13,6 +13,7 @@ import 'package:client/features/products/widgets/products_inventory_simulator_di
 import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -101,8 +102,11 @@ class ProductsPage extends StatelessWidget {
   ) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Move product to archive?'),
+      builder: (context) => AppDialog(
+        icon: Icons.archive_outlined,
+        title: 'Move product to archive?',
+        subtitle: product.baseName,
+        width: 480,
         content: Text(
           '${product.baseName} will be removed from the product catalog and transaction selections.',
         ),
@@ -136,8 +140,10 @@ class ProductsPage extends StatelessWidget {
     final selectedIds = viewModel.selectedProductIds;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Archive ${selectedIds.length} products?'),
+      builder: (context) => AppDialog(
+        icon: Icons.archive_outlined,
+        title: 'Archive ${selectedIds.length} products?',
+        width: 480,
         content: const Text(
           'The selected products will no longer appear in the main product catalog.',
         ),

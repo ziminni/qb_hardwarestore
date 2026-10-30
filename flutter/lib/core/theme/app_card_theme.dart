@@ -8,7 +8,8 @@ class AppCardTheme {
   static CardThemeData card() {
     return CardThemeData(
       color: AppColors.cardBackground,
-      elevation: 2,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
       margin: EdgeInsets.all(AppSpacing.md),
       shape: RoundedRectangleBorder(
         side: const BorderSide(color: AppColors.border),
