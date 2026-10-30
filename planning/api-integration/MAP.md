@@ -176,6 +176,8 @@ when the slice order locked and is now simply sequenced at Phase 6.
 
 ## Fog of War (Not Yet Specified)
 
+**NEW EPIC parked 2026-10-30:** [CPMS ↔ POS material-token integration model](./decisions/21-cpms-token-integration-model.md) — the product owner described the target cross-system flow (foreman requests + PM approves in CPMS, CPMS mints a QR token, cashier scans at POS, project-as-customer, project payables in the collectibles ledger, requester record stays CPMS-side, material matching undecided). Six open questions, several undecided; **partly reopens** [Requisition UI Ownership](./decisions/09-requisition-ui-ownership.md) on *who approves*. It is its own future epic spanning the separate `qb_project_management_system/` repo; OUT OF SCOPE for the 2026-10-30 UI refresh. Do not build until grilled.
+
 **EMPTY of UNRECORDED items as of 2026-10-18** — but read this carefully. Every in-scope area is either
 a locked decision, an explicit Out of Scope entry, or built. **Two questions that were deferred inside
 closed decision files were found by an audit on 2026-10-17 and moved to the Active Frontier**, because a
