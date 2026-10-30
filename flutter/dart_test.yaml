@@ -1,0 +1,7 @@
+# The golden gallery (test/shared/widgets/components_golden_test.dart) loads the
+# real fonts and writes PNGs into .superpowers/sdd/ui-refresh/goldens/, so it is
+# opt in: it only runs when RUN_GOLDENS is passed with --dart-define.
+# Declaring the tag here keeps `flutter test` from warning about a tag that no
+# configuration knows about.
+tags:
+  golden: {}

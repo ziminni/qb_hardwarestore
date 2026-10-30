@@ -17,11 +17,11 @@ class AppButtonTheme {
   }
 
   static TextButtonThemeData textButton() {
+    // No textStyle here: a partial TextStyle replaces the labelLarge the other
+    // two button styles inherit from, which dropped every TextButton label to
+    // the platform font. Letting the theme supply it keeps the brand family.
     return TextButtonThemeData(
-      style: TextButton.styleFrom(
-        foregroundColor: AppColors.brandBlack,
-        textStyle: const TextStyle(fontWeight: FontWeight.w600),
-      ),
+      style: TextButton.styleFrom(foregroundColor: AppColors.brandBlack),
     );
   }
 
