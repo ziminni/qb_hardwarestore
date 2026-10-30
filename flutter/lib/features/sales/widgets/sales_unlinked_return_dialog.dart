@@ -7,6 +7,7 @@
 // the selling unit comes from the live catalogue (never a typed id): the
 // dialog cannot offer what the server does not sell.
 
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/customer.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/returns.dart';
@@ -275,7 +276,7 @@ class _UnlinkedReturnDialogState extends State<UnlinkedReturnDialog> {
                         DropdownMenuItem(
                           value: unit.id,
                           child: Text(
-                            '${unit.label} — ₱${unit.price.toStringAsFixed(2)}',
+                            '${unit.label} — ${formatPeso(unit.price)}',
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -325,7 +326,7 @@ class _UnlinkedReturnDialogState extends State<UnlinkedReturnDialog> {
           ),
         ),
         Text(
-          'Estimated value ₱${_linesTotal.toStringAsFixed(2)} at current prices — '
+          'Estimated value ${formatPeso(_linesTotal)} at current prices — '
           'the server reprices at posting.',
         ),
         const SizedBox(height: 12),
@@ -368,9 +369,9 @@ class _UnlinkedReturnDialogState extends State<UnlinkedReturnDialog> {
         Text('Return posted: ${result.returnNo}'),
         const SizedBox(height: 8),
         Text(
-          'Return value ₱${refund.returnValue.toStringAsFixed(2)} · debt reduced '
-          '₱${refund.debtReduced.toStringAsFixed(2)} · cash refunded '
-          '₱${refund.cashRefund.toStringAsFixed(2)}.',
+          'Return value ${formatPeso(refund.returnValue)} · debt reduced '
+          '${formatPeso(refund.debtReduced)} · cash refunded '
+          '${formatPeso(refund.cashRefund)}.',
         ),
       ],
     );

@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/data/services/customer_service.dart';
@@ -54,7 +55,7 @@ class _SalesReturnsPageState extends State<SalesReturnsPage> {
       title: item.reference,
       fields: [
         ('Original sale', item.relatedReference),
-        ('Date', '${item.date.month}/${item.date.day}/${item.date.year}'),
+        ('Date', formatDate(item.date)),
         ('Cashier', item.processedBy),
         ('Reason', item.reason),
         ('Status', item.status.label),
@@ -70,7 +71,7 @@ class _SalesReturnsPageState extends State<SalesReturnsPage> {
             unitPrice: line.unitPrice,
           ),
       ],
-      total: salesMoney(item.total),
+      total: formatPeso(item.total),
     );
   }
 
@@ -144,9 +145,7 @@ class _SalesReturnsPageState extends State<SalesReturnsPage> {
                 .map(
                   (item) => <Widget>[
                     Text(item.reference),
-                    Text(
-                      '${item.date.month}/${item.date.day}/${item.date.year}',
-                    ),
+                    Text(formatDate(item.date)),
                     Text(item.relatedReference),
                     Text('${item.productName} — ${item.variantName}'),
                     Text(item.quantity.toStringAsFixed(0)),

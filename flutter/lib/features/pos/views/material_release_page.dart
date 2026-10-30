@@ -1,3 +1,4 @@
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/requisition.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/viewmodels/material_release_viewmodel.dart';
@@ -201,9 +202,9 @@ class _ReceiptCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text('Sale ${result.transactionNo}'),
-            Text('Total ₱${result.grandTotal.toStringAsFixed(2)}'),
+            Text('Total ${formatPeso(result.grandTotal)}'),
             // A construction firm pays later, so this is the number the clerk must say out loud.
-            Text('Balance due ₱${result.balanceDue.toStringAsFixed(2)}'),
+            Text('Balance due ${formatPeso(result.balanceDue)}'),
           ],
         ),
       ),

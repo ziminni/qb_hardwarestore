@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/data/models/tender_method.dart';
@@ -38,7 +39,7 @@ class _SalesTransactionsPageState extends State<SalesTransactionsPage> {
       context,
       title: sale.transactionNo,
       fields: [
-        ('Date', '${sale.date.month}/${sale.date.day}/${sale.date.year}'),
+        ('Date', formatDate(sale.date)),
         ('Customer', sale.customer),
         ('Cashier', sale.cashier),
         ('Source', sale.source),
@@ -49,7 +50,7 @@ class _SalesTransactionsPageState extends State<SalesTransactionsPage> {
           for (final payment in sale.payments)
             (
               'Payment (${TenderMethod.labelFor(payment.method)})',
-              salesMoney(payment.amount),
+              formatPeso(payment.amount),
             ),
       ],
       lines: [
@@ -60,7 +61,7 @@ class _SalesTransactionsPageState extends State<SalesTransactionsPage> {
             unitPrice: line.unitPrice,
           ),
       ],
-      total: salesMoney(sale.total),
+      total: formatPeso(sale.total),
     );
   }
 
@@ -115,13 +116,11 @@ class _SalesTransactionsPageState extends State<SalesTransactionsPage> {
                 .map(
                   (sale) => <Widget>[
                     Text(sale.transactionNo),
-                    Text(
-                      '${sale.date.month}/${sale.date.day}/${sale.date.year}',
-                    ),
+                    Text(formatDate(sale.date)),
                     Text(sale.customer),
                     Text(sale.source),
                     Text(sale.paymentMethod),
-                    Text('₱${sale.total.toStringAsFixed(2)}'),
+                    Text(formatPeso(sale.total)),
                     InventorySalesStatusBadge.sale(status: sale.status),
                     TextButton(
                       onPressed: () => _showTransactionSheet(context, sale),

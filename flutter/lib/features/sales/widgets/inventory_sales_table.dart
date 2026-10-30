@@ -1,5 +1,6 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/features/sales/widgets/inventory_sales_status_badge.dart';
 import 'package:flutter/material.dart';
@@ -58,16 +59,12 @@ class InventorySalesTable extends StatelessWidget {
                               ),
                             ),
                           ),
-                          DataCell(
-                            Text(
-                              '${sale.date.year}-${sale.date.month.toString().padLeft(2, '0')}-${sale.date.day.toString().padLeft(2, '0')} ${sale.date.hour.toString().padLeft(2, '0')}:${sale.date.minute.toString().padLeft(2, '0')}',
-                            ),
-                          ),
+                          DataCell(Text(formatDateTime(sale.date))),
                           DataCell(Text(sale.customer)),
                           DataCell(Text(sale.source)),
                           DataCell(Text('${sale.lines.length}')),
                           DataCell(Text(sale.totalQuantity.toStringAsFixed(0))),
-                          DataCell(Text('₱${sale.total.toStringAsFixed(2)}')),
+                          DataCell(Text(formatPeso(sale.total))),
                           DataCell(Text(sale.paymentMethod)),
                           DataCell(
                             InventorySalesStatusBadge.sale(status: sale.status),

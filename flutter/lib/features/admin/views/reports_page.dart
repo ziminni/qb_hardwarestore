@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/features/admin/viewmodels/admin_reports_viewmodel.dart';
 import 'package:client/features/sales/widgets/sales_records_table.dart';
@@ -122,11 +123,10 @@ class _Tile extends StatelessWidget {
   }
 }
 
-String _money(double amount) => '₱${amount.toStringAsFixed(2)}';
-
 /// Quantities render without a trailing ".0" — a count that reads "10.0" looks
 /// estimated, and these come from exact batch arithmetic.
-String _qty(num amount) => amount % 1 == 0 ? '${amount.toInt()}' : '$amount';
+String _qty(num amount) =>
+    amount % 1 == 0 ? formatCount(amount.toInt()) : '$amount';
 
 /// A failed tab names the failure. A loading tab spins. Anything else is the
 /// caller's content — an error must never read as an empty report.
@@ -272,15 +272,15 @@ class _SalesTab extends StatelessWidget {
                 ),
                 _Tile(
                   label: 'Gross sales',
-                  value: _money(viewmodel.sales?.totalGross ?? 0),
+                  value: formatPeso(viewmodel.sales?.totalGross ?? 0),
                 ),
                 _Tile(
                   label: 'VAT',
-                  value: _money(viewmodel.sales?.totalVat ?? 0),
+                  value: formatPeso(viewmodel.sales?.totalVat ?? 0),
                 ),
                 _Tile(
                   label: 'Discounts',
-                  value: _money(viewmodel.sales?.totalDiscounts ?? 0),
+                  value: formatPeso(viewmodel.sales?.totalDiscounts ?? 0),
                 ),
               ],
             ),
@@ -299,9 +299,9 @@ class _SalesTab extends StatelessWidget {
                   [
                     Text(day.day),
                     Text('${day.transactions}'),
-                    Text(_money(day.gross)),
-                    Text(_money(day.vat)),
-                    Text(_money(day.discounts)),
+                    Text(formatPeso(day.gross)),
+                    Text(formatPeso(day.vat)),
+                    Text(formatPeso(day.discounts)),
                   ],
               ],
             ),
@@ -340,11 +340,11 @@ class _ValuationTab extends StatelessWidget {
                 ),
                 _Tile(
                   label: 'Value at cost',
-                  value: _money(viewmodel.valuation?.totalCost ?? 0),
+                  value: formatPeso(viewmodel.valuation?.totalCost ?? 0),
                 ),
                 _Tile(
                   label: 'Value at retail',
-                  value: _money(viewmodel.valuation?.totalRetail ?? 0),
+                  value: formatPeso(viewmodel.valuation?.totalRetail ?? 0),
                 ),
               ],
             ),
@@ -364,8 +364,8 @@ class _ValuationTab extends StatelessWidget {
                     Text(category.name),
                     Text('${category.batchCount}'),
                     Text(_qty(category.units)),
-                    Text(_money(category.cost)),
-                    Text(_money(category.retail)),
+                    Text(formatPeso(category.cost)),
+                    Text(formatPeso(category.retail)),
                   ],
               ],
             ),
@@ -414,7 +414,7 @@ class _MovementsTab extends StatelessWidget {
                 for (final day in viewmodel.movements?.receiptsByDay ?? [])
                   [
                     Text(day.date),
-                    Text('${day.receipts}'),
+                    Text(formatCount(day.receipts)),
                     Text(_qty(day.qtyIn)),
                   ],
               ],

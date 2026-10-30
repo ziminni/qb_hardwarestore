@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/data/models/sales_module.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
@@ -37,7 +38,7 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
       fields: [
         ('Customer', item.customer),
         ('Status', _orderStatusLabel(item.status)),
-        ('Order date', _shortDate(item.date)),
+        ('Order date', formatDate(item.date)),
         if ((item.notes ?? '').isNotEmpty) ('Notes', item.notes!),
       ],
       lines: [
@@ -48,7 +49,7 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
             unitPrice: line.unitPrice,
           ),
       ],
-      total: salesMoney(item.total),
+      total: formatPeso(item.total),
     );
   }
 
@@ -93,10 +94,8 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
                   (item) => <Widget>[
                     Text(item.number),
                     Text(item.customer),
-                    Text(
-                      '${item.date.month}/${item.date.day}/${item.date.year}',
-                    ),
-                    Text('₱${item.total.toStringAsFixed(2)}'),
+                    Text(formatDate(item.date)),
+                    Text(formatPeso(item.total)),
                     SalesStatusBadge(
                       label: _orderStatusLabel(item.status),
                       tone: tone(item.status),
@@ -117,5 +116,3 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
 
 String _orderStatusLabel(SalesOrderStatus value) =>
     value.name[0].toUpperCase() + value.name.substring(1);
-
-String _shortDate(DateTime date) => '${date.month}/${date.day}/${date.year}';

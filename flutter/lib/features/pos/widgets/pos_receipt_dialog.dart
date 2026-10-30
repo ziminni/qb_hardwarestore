@@ -1,3 +1,4 @@
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/data/models/tender_method.dart';
 import 'package:flutter/material.dart';
@@ -38,7 +39,7 @@ class PosReceiptDialog extends StatelessWidget {
                           '${line.productName} — ${line.variantName}\n${line.quantity.toStringAsFixed(2)} ${line.unit}',
                         ),
                       ),
-                      Text('₱${line.total.toStringAsFixed(2)}'),
+                      Text(formatPeso(line.total)),
                     ],
                   ),
                 ),
@@ -74,7 +75,7 @@ class PosReceiptDialog extends StatelessWidget {
     child: Row(
       children: [
         Expanded(child: Text(label)),
-        Text('₱${value.toStringAsFixed(2)}'),
+        Text(formatPeso(value)),
       ],
     ),
   );

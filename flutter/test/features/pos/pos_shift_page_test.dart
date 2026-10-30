@@ -138,7 +138,7 @@ void main() {
 
       expect(find.text('Shifts'), findsWidgets);
       expect(find.text('OPEN'), findsWidgets);
-      expect(find.textContaining('₱5000.00'), findsWidgets);
+      expect(find.textContaining('₱5,000.00'), findsWidgets);
       expect(
         find.text('Z-READING'),
         findsNothing,
@@ -168,15 +168,18 @@ void main() {
       // The heading names WHICH shift the figures belong to: on this tab the
       // reading is the last closed one, and an unlabelled Z-reading was the
       // second QA defect (stale money read as the live drawer).
-      expect(find.text('Last closed shift (2026-10-21 08:00)'), findsOneWidget);
-      expect(find.text('12'), findsOneWidget);
-      expect(find.text('₱8400.00'), findsOneWidget);
-      expect(find.text('₱4400.00'), findsOneWidget);
-      expect(find.text('₱2500.00'), findsOneWidget);
-      expect(find.text('₱1500.00'), findsOneWidget);
-      expect(find.text('₱9400.00'), findsOneWidget);
       expect(
-        find.text('₱-50.00'),
+        find.text('Last closed shift (Oct 21, 2026, 8:00 AM)'),
+        findsOneWidget,
+      );
+      expect(find.text('12'), findsOneWidget);
+      expect(find.text('₱8,400.00'), findsOneWidget);
+      expect(find.text('₱4,400.00'), findsOneWidget);
+      expect(find.text('₱2,500.00'), findsOneWidget);
+      expect(find.text('₱1,500.00'), findsOneWidget);
+      expect(find.text('₱9,400.00'), findsOneWidget);
+      expect(
+        find.text('-₱50.00'),
         findsNWidgets(2),
         reason:
             'a short drawer is the number the cashier must see — once in the '
@@ -307,7 +310,7 @@ void main() {
         findsWidgets,
         reason: 'the opened shift is shown on the page that opened it',
       );
-      expect(find.textContaining('₱1500.00'), findsWidgets);
+      expect(find.textContaining('₱1,500.00'), findsWidgets);
       expect(
         find.widgetWithText(FilledButton, 'Open shift'),
         findsNothing,
@@ -336,12 +339,12 @@ void main() {
       expect(find.text('₱315.00'), findsWidgets);
       expect(find.text('₱500.00'), findsOneWidget);
       expect(
-        find.text('Last closed shift (2026-10-21 08:00)'),
+        find.text('Last closed shift (Oct 21, 2026, 8:00 AM)'),
         findsNothing,
         reason: 'a live drawer must not be read off the previous shift',
       );
       expect(
-        find.text('₱9400.00'),
+        find.text('₱9,400.00'),
         findsNothing,
         reason: 'the previous shift\'s expected drawer is stale on an open one',
       );
@@ -376,7 +379,10 @@ void main() {
             'a cached "closed" answer would hide a shift opened at the till',
       );
       expect(service.listCalls, 2);
-      expect(find.text('Last closed shift (2026-10-21 08:00)'), findsOneWidget);
+      expect(
+        find.text('Last closed shift (Oct 21, 2026, 8:00 AM)'),
+        findsOneWidget,
+      );
     });
   });
 }

@@ -1,5 +1,6 @@
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/product_tracking.dart';
@@ -195,10 +196,10 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
                                 children: [
                                   Text('Unit: ${variant.baseUomCode}'),
                                   Text(
-                                    'Cost: ₱${(inventory.costFor(variant.id) ?? 0).toStringAsFixed(2)}',
+                                    'Cost: ${formatPeso((inventory.costFor(variant.id) ?? 0))}',
                                   ),
                                   Text(
-                                    'Selling: ₱${(inventory.priceFor(variant.id) ?? 0).toStringAsFixed(2)}',
+                                    'Selling: ${formatPeso((inventory.priceFor(variant.id) ?? 0))}',
                                   ),
                                   Text(
                                     'Stock: ${inventory.stockOnHandFor(variant.id).toStringAsFixed(0)}',

@@ -1,5 +1,6 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/supplier.dart';
 import 'package:client/features/suppliers/widgets/purchases_status_badge.dart';
 import 'package:flutter/material.dart';
@@ -28,9 +29,7 @@ class PurchasesTable extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    String date(DateTime? value) => value == null
-        ? '—'
-        : '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
+    String date(DateTime? value) => value == null ? '—' : formatDate(value);
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -84,7 +83,7 @@ class PurchasesTable extends StatelessWidget {
                               '${order.receivedQuantity.toStringAsFixed(0)} / ${order.orderedQuantity.toStringAsFixed(0)}',
                             ),
                           ),
-                          DataCell(Text('₱${order.total.toStringAsFixed(2)}')),
+                          DataCell(Text(formatPeso(order.total))),
                           DataCell(PurchasesStatusBadge(status: order.status)),
                           DataCell(
                             Row(

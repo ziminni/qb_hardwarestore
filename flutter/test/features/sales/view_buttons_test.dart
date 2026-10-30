@@ -312,7 +312,7 @@ void main() {
       expect(find.byType(SalesDocumentSheet), findsOneWidget);
       expect(_inSheet('SO-20261019-0001'), findsOneWidget);
       expect(_inSheet('Circuit Breaker 20A 1-pole'), findsOneWidget);
-      expect(_inSheet('₱1000.00'), findsWidgets);
+      expect(_inSheet('₱1,000.00'), findsWidgets);
     });
   });
 

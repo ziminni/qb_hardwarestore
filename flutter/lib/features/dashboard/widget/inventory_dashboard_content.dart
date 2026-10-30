@@ -1,3 +1,4 @@
+import 'package:client/core/format/format.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/dashboard/widget/inventory_action_button.dart';
 import 'package:client/features/dashboard/widget/inventory_data_table.dart';
@@ -63,7 +64,7 @@ class InventoryDashboardContent extends StatelessWidget {
     );
     final metrics = [
       ('Total products', '${viewmodel.products.length}'),
-      ('Inventory value', '₱${value.toStringAsFixed(2)}'),
+      ('Inventory value', formatPeso(value)),
       ('Low stock', '$lowStock'),
       ('Out of stock', '$outOfStock'),
     ];
@@ -90,8 +91,7 @@ class InventoryDashboardContent extends StatelessWidget {
           : movement.type.label;
       return InventoryListItem(
         title: movementTitle(movement.variantId),
-        subtitle:
-            '${movement.timestamp.month}/${movement.timestamp.day}/${movement.timestamp.year} · $detail',
+        subtitle: '${formatDate(movement.timestamp)} · $detail',
         trailing: '${qty >= 0 ? '+' : ''}${_qty(qty)}',
       );
     }).toList();

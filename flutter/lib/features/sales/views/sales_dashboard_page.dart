@@ -1,5 +1,6 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
@@ -141,7 +142,7 @@ class _SalesDashboardPageState extends State<SalesDashboardPage> {
                     width: width,
                     child: SalesDashboardMetricCard(
                       label: 'Completed revenue',
-                      value: '₱${revenue.toStringAsFixed(2)}',
+                      value: formatPeso(revenue),
                       caption: summary == null
                           ? '${completed.length} completed · $scopeCaption'
                           : '$transactionCount completed · $scopeCaption',
@@ -163,7 +164,7 @@ class _SalesDashboardPageState extends State<SalesDashboardPage> {
                     width: width,
                     child: SalesDashboardMetricCard(
                       label: 'Average sale',
-                      value: '₱${average.toStringAsFixed(2)}',
+                      value: formatPeso(average),
                       caption: 'Per completed transaction',
                       icon: Icons.trending_up,
                       color: AppColors.brandGold,

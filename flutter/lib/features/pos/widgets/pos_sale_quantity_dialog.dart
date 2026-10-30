@@ -1,3 +1,4 @@
+import 'package:client/core/format/format.dart';
 import 'package:client/core/units/whole_units.dart';
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:flutter/material.dart';
@@ -77,7 +78,7 @@ class _PosSaleQuantityDialogState extends State<PosSaleQuantityDialog> {
                         (item) => DropdownMenuItem(
                           value: item,
                           child: Text(
-                            '${item.unit} — ₱${item.unitPrice.toStringAsFixed(2)}',
+                            '${item.unit} — ${formatPeso(item.unitPrice)}',
                           ),
                         ),
                       )

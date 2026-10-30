@@ -1,6 +1,7 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:flutter/material.dart';
 
@@ -71,14 +72,14 @@ class SalesTopProducts extends StatelessWidget {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 Text(
-                                  '${product.value.quantity.toStringAsFixed(0)} sold',
+                                  '${formatCount(product.value.quantity.round())} sold',
                                   style: Theme.of(context).textTheme.bodySmall,
                                 ),
                               ],
                             ),
                           ),
                           Text(
-                            '₱${product.value.revenue.toStringAsFixed(2)}',
+                            formatPeso(product.value.revenue),
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
                         ],

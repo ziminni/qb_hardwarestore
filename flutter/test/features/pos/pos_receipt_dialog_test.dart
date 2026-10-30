@@ -30,7 +30,7 @@ void main() {
     expect(find.text('Balance due (utang)'), findsOneWidget);
     expect(find.text('₱314.00'), findsOneWidget);
     expect(find.text('Change'), findsNothing);
-    expect(find.textContaining('₱-'), findsNothing);
+    expect(find.textContaining('-₱'), findsNothing);
   });
 
   testWidgets('a fully paid receipt still shows the change', (tester) async {

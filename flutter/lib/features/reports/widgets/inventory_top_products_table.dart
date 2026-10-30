@@ -1,5 +1,6 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:flutter/material.dart';
 
@@ -57,7 +58,7 @@ class InventoryTopProductsTable extends StatelessWidget {
                     DataCell(Text(row.value.variant)),
                     DataCell(Text(row.value.sku)),
                     DataCell(Text(row.value.quantity.toStringAsFixed(0))),
-                    DataCell(Text('₱${row.value.revenue.toStringAsFixed(2)}')),
+                    DataCell(Text(formatPeso(row.value.revenue))),
                   ],
                 ),
               )

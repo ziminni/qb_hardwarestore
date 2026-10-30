@@ -1,5 +1,6 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/data/models/ledger_entry.dart';
 import 'package:client/features/sales/viewmodels/sales_receivables_viewmodel.dart';
@@ -66,7 +67,7 @@ class _ReceivablesView extends StatelessWidget {
                   label: 'Outstanding',
                   value: totalsUnknown
                       ? '—'
-                      : '₱${viewmodel.outstanding.toStringAsFixed(2)}',
+                      : formatPeso(viewmodel.outstanding),
                   caption: totalsUnknown
                       ? 'Not loaded'
                       : '${viewmodel.entries.length} open invoices',
@@ -78,9 +79,7 @@ class _ReceivablesView extends StatelessWidget {
                 width: 260,
                 child: SalesDashboardMetricCard(
                   label: 'Overdue',
-                  value: totalsUnknown
-                      ? '—'
-                      : '₱${viewmodel.overdue.toStringAsFixed(2)}',
+                  value: totalsUnknown ? '—' : formatPeso(viewmodel.overdue),
                   caption: 'Requires follow-up',
                   icon: Icons.warning_amber_outlined,
                   color: AppColors.error,
@@ -153,10 +152,10 @@ class _ReceivablesView extends StatelessWidget {
     return <Widget>[
       Text(entry.transactionNo),
       Text(entry.customerName),
-      Text('${entry.dueDate.month}/${entry.dueDate.day}/${entry.dueDate.year}'),
-      Text('₱${entry.originalAmount.toStringAsFixed(2)}'),
-      Text('₱${entry.paidAmount.toStringAsFixed(2)}'),
-      Text('₱${entry.balanceDue.toStringAsFixed(2)}'),
+      Text(formatDate(entry.dueDate)),
+      Text(formatPeso(entry.originalAmount)),
+      Text(formatPeso(entry.paidAmount)),
+      Text(formatPeso(entry.balanceDue)),
       SalesStatusBadge(label: status.label, tone: status.tone),
       // Decision 19: POST /ledger-payments/ is IsPOSOrReadOnly, so a Cashier may post —
       // the old "Admin-only" claim confused ledger-entry writes (staff-only) with payment

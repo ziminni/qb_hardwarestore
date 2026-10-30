@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/data/models/sales_module.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
@@ -40,8 +41,8 @@ class _SalesQuotationsPageState extends State<SalesQuotationsPage> {
       fields: [
         ('Customer', item.customer),
         ('Status', _quoteStatusLabel(item.status)),
-        ('Created', _shortDate(item.date)),
-        ('Valid until', _shortDate(item.validUntil)),
+        ('Created', formatDate(item.date)),
+        ('Valid until', formatDate(item.validUntil)),
         if ((item.notes ?? '').isNotEmpty) ('Notes', item.notes!),
       ],
       lines: [
@@ -52,7 +53,7 @@ class _SalesQuotationsPageState extends State<SalesQuotationsPage> {
             unitPrice: line.unitPrice,
           ),
       ],
-      total: salesMoney(item.total),
+      total: formatPeso(item.total),
     );
   }
 
@@ -99,13 +100,9 @@ class _SalesQuotationsPageState extends State<SalesQuotationsPage> {
                   (item) => <Widget>[
                     Text(item.number),
                     Text(item.customer),
-                    Text(
-                      '${item.date.month}/${item.date.day}/${item.date.year}',
-                    ),
-                    Text(
-                      '${item.validUntil.month}/${item.validUntil.day}/${item.validUntil.year}',
-                    ),
-                    Text('₱${item.total.toStringAsFixed(2)}'),
+                    Text(formatDate(item.date)),
+                    Text(formatDate(item.validUntil)),
+                    Text(formatPeso(item.total)),
                     SalesStatusBadge(
                       label: _quoteStatusLabel(item.status),
                       tone: tone(item.status),
@@ -126,5 +123,3 @@ class _SalesQuotationsPageState extends State<SalesQuotationsPage> {
 
 String _quoteStatusLabel(SalesQuoteStatus value) =>
     value.name[0].toUpperCase() + value.name.substring(1);
-
-String _shortDate(DateTime date) => '${date.month}/${date.day}/${date.year}';

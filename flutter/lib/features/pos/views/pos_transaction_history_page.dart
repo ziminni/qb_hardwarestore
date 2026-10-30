@@ -1,3 +1,4 @@
+import 'package:client/core/format/format.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
@@ -94,12 +95,10 @@ class _PosTransactionHistoryPageState extends State<PosTransactionHistoryPage> {
                   .map(
                     (sale) => <Widget>[
                       Text(sale.transactionNo),
-                      Text(
-                        '${sale.date.month}/${sale.date.day}/${sale.date.year}',
-                      ),
+                      Text(formatDate(sale.date)),
                       Text(sale.customer),
                       Text(sale.paymentMethod),
-                      Text('₱${sale.total.toStringAsFixed(2)}'),
+                      Text(formatPeso(sale.total)),
                       InventorySalesStatusBadge.sale(status: sale.status),
                     ],
                   )

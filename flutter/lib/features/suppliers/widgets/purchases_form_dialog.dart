@@ -1,6 +1,7 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/purchase_draft.dart';
 import 'package:client/data/models/supplier.dart';
@@ -417,7 +418,7 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
                         subtitle: Text(
                           '${item.variant.variantName}'
                           '${item.variant.barcode.isEmpty ? '' : ' · ${item.variant.barcode}'}'
-                          '\n₱${widget.costFor(item.variant.id).toStringAsFixed(2)}'
+                          '\n${formatPeso(widget.costFor(item.variant.id))}'
                           ' / ${item.variant.baseUomCode}',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -559,7 +560,7 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
               children: [
                 const Text('Order total'),
                 Text(
-                  '₱${_orderTotal.toStringAsFixed(2)}',
+                  formatPeso(_orderTotal),
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),

@@ -122,7 +122,7 @@ void main() {
 
       expect(repo.released, ['a-token']);
       expect(find.textContaining('TXN-20261017-0042'), findsWidgets);
-      expect(find.textContaining('2700'), findsWidgets);
+      expect(find.textContaining('2,700'), findsWidgets);
       // A released token cannot be released again, so the action must be gone.
       expect(
         find.widgetWithText(FilledButton, 'Release materials'),

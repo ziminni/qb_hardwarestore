@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:flutter/material.dart';
 
@@ -324,7 +325,7 @@ class _ProductCard extends StatelessWidget {
                     TextSpan(
                       children: [
                         TextSpan(
-                          text: '₱${product.unitPrice.toStringAsFixed(2)}',
+                          text: formatPeso(product.unitPrice),
                           style: const TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w700,

@@ -66,7 +66,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('₱9000.00'), findsOneWidget);
+    expect(find.text('₱9,000.00'), findsOneWidget);
     expect(find.text('40'), findsWidgets);
     expect(find.textContaining('Last 30 days · server'), findsWidgets);
     // The fold of zero rows would read 0 — that number must not appear.

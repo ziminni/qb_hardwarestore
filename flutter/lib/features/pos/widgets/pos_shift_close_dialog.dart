@@ -1,5 +1,6 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/shift.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_z_reading_summary.dart';
@@ -97,7 +98,7 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Opening float ₱${widget.shift.openingFloat.toStringAsFixed(2)}. '
+            'Opening float ${formatPeso(widget.shift.openingFloat)}. '
             'Count the drawer and enter the total cash.',
           ),
           // Decision 06 / Phase 3 Task 3: record-and-WARN, never block. The

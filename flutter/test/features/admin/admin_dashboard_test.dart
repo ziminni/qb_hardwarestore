@@ -290,7 +290,10 @@ void main() {
   ) async {
     await _pumpInventoryFailing(tester);
 
-    expect(find.textContaining('Stock data could not be loaded'), findsOneWidget);
+    expect(
+      find.textContaining('Stock data could not be loaded'),
+      findsOneWidget,
+    );
     expect(find.text('0'), findsNothing);
   });
 
@@ -309,7 +312,7 @@ void main() {
   ) async {
     await _pump(tester);
 
-    expect(find.textContaining('11716'), findsWidgets);
+    expect(find.textContaining('11,716'), findsWidgets);
     expect(find.textContaining('TRX-20261019-0001'), findsOneWidget);
     expect(find.text('84,250'), findsNothing);
     expect(find.textContaining('Maria Santos signed in'), findsNothing);

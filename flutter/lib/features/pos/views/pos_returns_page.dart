@@ -1,5 +1,6 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/returns.dart';
 import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/models/sale_transaction.dart';
@@ -365,7 +366,7 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
       children: [
         Expanded(child: Text(label)),
         Text(
-          '₱${amount.toStringAsFixed(2)}',
+          formatPeso(amount),
           style: TextStyle(
             fontWeight: emphasise ? FontWeight.bold : FontWeight.w600,
           ),
@@ -388,12 +389,10 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
           children: [
             Text('${returns.lines.length} line(s) coming back.'),
             const SizedBox(height: AppSpacing.sm),
-            Text('Return value ₱${returns.returnValue.toStringAsFixed(2)}'),
+            Text('Return value ${formatPeso(returns.returnValue)}'),
+            Text('Settles utang ${formatPeso(returns.debtReducedEstimate)}'),
             Text(
-              'Settles utang ₱${returns.debtReducedEstimate.toStringAsFixed(2)}',
-            ),
-            Text(
-              'Cash refund ₱${returns.cashRefundEstimate.toStringAsFixed(2)} '
+              'Cash refund ${formatPeso(returns.cashRefundEstimate)} '
               '(${returns.refundMethod})',
             ),
             const SizedBox(height: AppSpacing.sm),
@@ -499,12 +498,12 @@ class _SaleHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.xs),
-          Text('${sale.customerName} · ₱${sale.grandTotal.toStringAsFixed(2)}'),
+          Text('${sale.customerName} · ${formatPeso(sale.grandTotal)}'),
           // The debt is the reason a credit sale's refund does not all come
           // back as cash. Stated before the cashier touches a quantity.
           if (openDebt != null && openDebt > 0)
             Text(
-              'This sale still owes ₱${openDebt.toStringAsFixed(2)}',
+              'This sale still owes ${formatPeso(openDebt)}',
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
         ],
@@ -551,7 +550,7 @@ class _ReturnableLineRow extends StatelessWidget {
                 Text(
                   enabled
                       ? '${line.remainingQty} of ${line.soldQty} left · '
-                            '₱${line.unitPrice.toStringAsFixed(2)}'
+                            '${formatPeso(line.unitPrice)}'
                       : 'All ${line.soldQty} already returned',
                   style: TextStyle(
                     fontSize: 12,
@@ -613,14 +612,14 @@ class _RefundSummaryCard extends StatelessWidget {
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: AppSpacing.sm),
-          Text('Return value ₱${refund.returnValue.toStringAsFixed(2)}'),
-          Text('Utang reduced ₱${refund.debtReduced.toStringAsFixed(2)}'),
+          Text('Return value ${formatPeso(refund.returnValue)}'),
+          Text('Utang reduced ${formatPeso(refund.debtReduced)}'),
           Text(
-            'Cash refunded ₱${refund.cashRefund.toStringAsFixed(2)} '
+            'Cash refunded ${formatPeso(refund.cashRefund)} '
             '(${refund.refundMethod})',
           ),
           if (refund.ledgerBalance case final balance?)
-            Text('Ledger still owes ₱${balance.toStringAsFixed(2)}')
+            Text('Ledger still owes ${formatPeso(balance)}')
           else
             const Text('This sale had nothing owing.'),
         ],

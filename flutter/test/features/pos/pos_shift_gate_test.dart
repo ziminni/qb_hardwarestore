@@ -226,7 +226,7 @@ void main() {
     final service = _StubShifts()..current = _openShift(5000);
     await _pump(tester, ShiftViewmodel(service: service));
 
-    expect(find.textContaining('₱5000.00'), findsOneWidget);
+    expect(find.textContaining('₱5,000.00'), findsOneWidget);
     expect(find.widgetWithText(TextButton, 'Close shift'), findsOneWidget);
 
     await tester.tap(find.widgetWithText(TextButton, 'Close shift'));

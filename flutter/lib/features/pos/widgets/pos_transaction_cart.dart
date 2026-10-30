@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_utang_panel.dart';
 import 'package:flutter/material.dart';
@@ -197,7 +198,7 @@ class PosTransactionCart extends StatelessWidget {
 
   Widget _footer(BuildContext context, PosTransactionViewmodel state) {
     const tabular = [FontFeature.tabularFigures()];
-    final total = '₱${state.total.toStringAsFixed(2)}';
+    final total = formatPeso(state.total);
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
       decoration: const BoxDecoration(
@@ -216,7 +217,7 @@ class PosTransactionCart extends StatelessWidget {
                 ),
               ),
               Text(
-                '₱${state.subtotal.toStringAsFixed(2)}',
+                formatPeso(state.subtotal),
                 style: const TextStyle(
                   color: AppColors.textSecondary,
                   fontFeatures: tabular,
@@ -369,7 +370,7 @@ class PosTransactionCart extends StatelessWidget {
                         ),
                         Text(
                           '${line.variantName} · '
-                          '₱${line.unitPrice.toStringAsFixed(2)} per '
+                          '${formatPeso(line.unitPrice)} per '
                           '${line.unit.toLowerCase()}',
                           style: TextStyle(
                             fontSize: 12,
@@ -392,7 +393,7 @@ class PosTransactionCart extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                   Text(
-                    '₱${line.total.toStringAsFixed(2)}',
+                    formatPeso(line.total),
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
                       fontFeatures: [FontFeature.tabularFigures()],

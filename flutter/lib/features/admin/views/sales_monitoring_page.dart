@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/data/models/reports.dart';
 import 'package:client/data/repositories/reports_repository.dart';
@@ -120,7 +121,7 @@ class _SalesMonitoringPageState extends State<SalesMonitoringPage> {
             ),
             _Metric(
               label: 'Gross sales',
-              value: _money(summary?.totalGross ?? 0),
+              value: formatPeso(summary?.totalGross ?? 0),
               valueKey: const Key('sales-monitoring-gross'),
             ),
           ],
@@ -143,8 +144,6 @@ class _SalesMonitoringPageState extends State<SalesMonitoringPage> {
     );
   }
 }
-
-String _money(double amount) => '₱${amount.toStringAsFixed(2)}';
 
 class _Metric extends StatelessWidget {
   const _Metric({

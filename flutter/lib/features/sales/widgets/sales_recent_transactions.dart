@@ -1,6 +1,7 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/features/sales/widgets/inventory_sales_status_badge.dart';
 import 'package:flutter/material.dart';
@@ -74,14 +75,10 @@ class SalesRecentTransactions extends StatelessWidget {
                       (sale) => DataRow(
                         cells: [
                           DataCell(Text(sale.transactionNo)),
-                          DataCell(
-                            Text(
-                              '${sale.date.month}/${sale.date.day}/${sale.date.year}',
-                            ),
-                          ),
+                          DataCell(Text(formatDate(sale.date))),
                           DataCell(Text(sale.customer)),
                           DataCell(Text(sale.paymentMethod)),
-                          DataCell(Text('₱${sale.total.toStringAsFixed(2)}')),
+                          DataCell(Text(formatPeso(sale.total))),
                           DataCell(
                             InventorySalesStatusBadge.sale(status: sale.status),
                           ),

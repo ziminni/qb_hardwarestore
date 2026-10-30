@@ -1,5 +1,6 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/shift.dart';
 import 'package:flutter/material.dart';
 
@@ -42,24 +43,16 @@ class PosZReadingSummary extends StatelessWidget {
           Text(title, style: Theme.of(context).textTheme.labelSmall),
           const SizedBox(height: AppSpacing.md),
           _line(context, 'Transactions', '${reading.transactionCount}'),
-          _line(
-            context,
-            'Gross sales',
-            '₱${reading.grossSales.toStringAsFixed(2)}',
-          ),
-          _line(context, 'Cash', '₱${reading.cashSales.toStringAsFixed(2)}'),
-          _line(context, 'Card', '₱${reading.cardSales.toStringAsFixed(2)}'),
-          _line(context, 'GCash', '₱${reading.gcashSales.toStringAsFixed(2)}'),
-          _line(
-            context,
-            'Expected drawer',
-            '₱${reading.expectedDrawer.toStringAsFixed(2)}',
-          ),
+          _line(context, 'Gross sales', formatPeso(reading.grossSales)),
+          _line(context, 'Cash', formatPeso(reading.cashSales)),
+          _line(context, 'Card', formatPeso(reading.cardSales)),
+          _line(context, 'GCash', formatPeso(reading.gcashSales)),
+          _line(context, 'Expected drawer', formatPeso(reading.expectedDrawer)),
           if (variance != null)
             _line(
               context,
               'Variance',
-              '₱${variance.toStringAsFixed(2)}',
+              formatPeso(variance),
               color: variance == 0 ? null : AppColors.error,
             ),
           // Advisory (Phase 3 Task 3): parked carts are NOT part of the drawer

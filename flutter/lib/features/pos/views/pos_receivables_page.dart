@@ -1,5 +1,6 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/ledger_entry.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
@@ -53,9 +54,7 @@ class _PosReceivablesView extends StatelessWidget {
                 width: 260,
                 child: SalesDashboardMetricCard(
                   label: 'Outstanding',
-                  value: totalsUnknown
-                      ? '—'
-                      : '₱${vm.outstanding.toStringAsFixed(2)}',
+                  value: totalsUnknown ? '—' : formatPeso(vm.outstanding),
                   caption: totalsUnknown
                       ? 'Not loaded'
                       : '${vm.entries.length} open invoices',
@@ -67,9 +66,7 @@ class _PosReceivablesView extends StatelessWidget {
                 width: 260,
                 child: SalesDashboardMetricCard(
                   label: 'Overdue',
-                  value: totalsUnknown
-                      ? '—'
-                      : '₱${vm.overdue.toStringAsFixed(2)}',
+                  value: totalsUnknown ? '—' : formatPeso(vm.overdue),
                   caption: 'Requires follow-up',
                   icon: Icons.warning_amber_outlined,
                   color: AppColors.error,
@@ -138,10 +135,10 @@ class _PosReceivablesView extends StatelessWidget {
     return <Widget>[
       Text(entry.transactionNo),
       Text(entry.customerName),
-      Text('${entry.dueDate.month}/${entry.dueDate.day}/${entry.dueDate.year}'),
-      Text('₱${entry.originalAmount.toStringAsFixed(2)}'),
-      Text('₱${entry.paidAmount.toStringAsFixed(2)}'),
-      Text('₱${entry.balanceDue.toStringAsFixed(2)}'),
+      Text(formatDate(entry.dueDate)),
+      Text(formatPeso(entry.originalAmount)),
+      Text(formatPeso(entry.paidAmount)),
+      Text(formatPeso(entry.balanceDue)),
       SalesStatusBadge(label: status.label, tone: status.tone),
       Builder(
         builder: (rowContext) {

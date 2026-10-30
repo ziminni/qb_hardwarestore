@@ -318,7 +318,7 @@ void main() {
       expect(_inSheet('TRX-20261019-0001'), findsOneWidget);
       expect(_inSheet('Cashy Ir'), findsOneWidget);
       expect(_inSheet('Customer return'), findsWidgets);
-      expect(_inSheet('₱-130.00'), findsWidgets);
+      expect(_inSheet('-₱130.00'), findsWidgets);
       // Every line, with its quantity — not a collapsed total.
       expect(_inSheet('2 × ₱50.00'), findsOneWidget);
       expect(_inSheet('1 × ₱30.00'), findsOneWidget);

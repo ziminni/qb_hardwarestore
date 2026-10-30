@@ -1,6 +1,7 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -44,7 +45,7 @@ class PosCartBar extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    '₱${state.total.toStringAsFixed(2)}',
+                    formatPeso(state.total),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(

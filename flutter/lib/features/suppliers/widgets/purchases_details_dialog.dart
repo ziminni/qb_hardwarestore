@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/supplier.dart';
 import 'package:client/features/suppliers/widgets/purchases_status_badge.dart';
 import 'package:flutter/material.dart';
@@ -56,14 +57,14 @@ class PurchasesDetailsDialog extends StatelessWidget {
                     'Received ${item.receivedQuantity.toStringAsFixed(0)}',
                   ].join(' · '),
                 ),
-                trailing: Text('₱${item.subtotal.toStringAsFixed(2)}'),
+                trailing: Text(formatPeso(item.subtotal)),
               ),
             ),
             const Divider(),
             Align(
               alignment: Alignment.centerRight,
               child: Text(
-                'Total: ₱${order.total.toStringAsFixed(2)}',
+                'Total: ${formatPeso(order.total)}',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
             ),

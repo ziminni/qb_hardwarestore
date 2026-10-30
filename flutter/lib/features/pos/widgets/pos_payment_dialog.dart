@@ -1,3 +1,4 @@
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/tender_method.dart';
 import 'package:flutter/material.dart';
 
@@ -48,7 +49,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'Amount due: ₱${widget.total.toStringAsFixed(2)}',
+                  'Amount due: ${formatPeso(widget.total)}',
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
                 const SizedBox(height: 18),
@@ -105,7 +106,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
-                      '\u20b1${(widget.total - paid).toStringAsFixed(2)} will be left unpaid \u2014 this records an utang',
+                      '${formatPeso(widget.total - paid)} will be left unpaid. This records an utang.',
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.error,
                         fontWeight: FontWeight.bold,
@@ -114,7 +115,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                   ),
                 const SizedBox(height: 14),
                 Text(
-                  'Change: ₱${(paid - widget.total).clamp(0, double.infinity).toStringAsFixed(2)}',
+                  'Change: ${formatPeso((paid - widget.total).clamp(0, double.infinity))}',
                 ),
                 const SizedBox(height: 10),
                 const Text(

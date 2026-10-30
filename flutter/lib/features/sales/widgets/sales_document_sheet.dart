@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:flutter/material.dart';
 
@@ -21,8 +22,6 @@ class SalesDocumentLine {
 
   double get subtotal => qty * unitPrice;
 }
-
-String salesMoney(double amount) => '₱${amount.toStringAsFixed(2)}';
 
 /// Quantities render without a trailing ".0" — a count reading "10.0" looks
 /// estimated, and these come from exact batch arithmetic.
@@ -159,12 +158,12 @@ class SalesDocumentSheet extends StatelessWidget {
                       Expanded(child: Text(line.name)),
                       const SizedBox(width: AppSpacing.sm),
                       Text(
-                        '${salesQty(line.qty)} × ${salesMoney(line.unitPrice)}',
+                        '${salesQty(line.qty)} × ${formatPeso(line.unitPrice)}',
                       ),
                       SizedBox(
                         width: 120,
                         child: Text(
-                          salesMoney(line.subtotal),
+                          formatPeso(line.subtotal),
                           textAlign: TextAlign.right,
                         ),
                       ),

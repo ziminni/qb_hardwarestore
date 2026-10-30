@@ -192,7 +192,7 @@ void main() {
         tester
             .widget<Text>(find.byKey(const Key('sales-monitoring-gross')))
             .data,
-        '₱4500.00',
+        '₱4,500.00',
       );
     });
 
@@ -304,8 +304,8 @@ void main() {
       );
       expect(summary.metrics, [
         ('Total items', '120'),
-        ('Total cost value', '₱5000.00'),
-        ('Total retail value', '₱8000.00'),
+        ('Total cost value', '₱5,000.00'),
+        ('Total retail value', '₱8,000.00'),
         ('Batches', '7'),
       ]);
     });

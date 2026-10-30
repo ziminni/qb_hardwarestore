@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/customer.dart';
 import 'package:flutter/material.dart';
 
@@ -82,9 +83,7 @@ class PosUtangPanel extends StatelessWidget {
                 ),
               ),
               Text(
-                balance > 0
-                    ? '₱${balance.toStringAsFixed(2)} outstanding'
-                    : 'No utang',
+                balance > 0 ? '${formatPeso(balance)} outstanding' : 'No utang',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -127,8 +126,8 @@ class PosUtangPanel extends StatelessWidget {
     final over = projected - selected.totalCreditLimit;
     if (over <= 0) {
       return Text(
-        'Limit ₱${selected.totalCreditLimit.toStringAsFixed(2)} · '
-        '₱${(selected.totalCreditLimit - projected).toStringAsFixed(2)} headroom',
+        'Limit ${formatPeso(selected.totalCreditLimit)} · '
+        '${formatPeso((selected.totalCreditLimit - projected))} headroom',
         style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
       );
     }
@@ -136,8 +135,8 @@ class PosUtangPanel extends StatelessWidget {
     // ADVISORY, never a block: the limit defaults to 0 and a hard block would refuse a sale a
     // manager might well approve.
     return Text(
-      '⚠ This sale would take them ₱${over.toStringAsFixed(2)} over the '
-      '₱${selected.totalCreditLimit.toStringAsFixed(2)} limit.',
+      '⚠ This sale would take them ${formatPeso(over)} over the '
+      '${formatPeso(selected.totalCreditLimit)} limit.',
       style: const TextStyle(fontSize: 11, color: AppColors.error),
     );
   }

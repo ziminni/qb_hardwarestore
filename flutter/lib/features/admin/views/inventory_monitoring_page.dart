@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/data/models/reports.dart';
 import 'package:client/data/repositories/reports_repository.dart';
@@ -96,8 +97,8 @@ class _InventoryMonitoringPageState extends State<InventoryMonitoringPage> {
         AdminInventorySummary(
           metrics: [
             ('Total items', (valuation?.totalUnits ?? 0).toStringAsFixed(0)),
-            ('Total cost value', _money(valuation?.totalCost ?? 0)),
-            ('Total retail value', _money(valuation?.totalRetail ?? 0)),
+            ('Total cost value', formatPeso(valuation?.totalCost ?? 0)),
+            ('Total retail value', formatPeso(valuation?.totalRetail ?? 0)),
             ('Batches', '${valuation?.batchCount ?? 0}'),
           ],
         ),
@@ -105,5 +106,3 @@ class _InventoryMonitoringPageState extends State<InventoryMonitoringPage> {
     );
   }
 }
-
-String _money(double amount) => '₱${amount.toStringAsFixed(2)}';

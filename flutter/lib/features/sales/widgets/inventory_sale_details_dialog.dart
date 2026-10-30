@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/features/sales/widgets/inventory_sales_status_badge.dart';
 import 'package:flutter/material.dart';
@@ -41,16 +42,16 @@ class InventorySaleDetailsDialog extends StatelessWidget {
                 contentPadding: EdgeInsets.zero,
                 title: Text('${line.productName} — ${line.variantName}'),
                 subtitle: Text(
-                  '${line.sku} · ${line.quantity.toStringAsFixed(0)} × ₱${line.unitPrice.toStringAsFixed(2)}',
+                  '${line.sku} · ${line.quantity.toStringAsFixed(0)} × ${formatPeso(line.unitPrice)}',
                 ),
-                trailing: Text('₱${line.subtotal.toStringAsFixed(2)}'),
+                trailing: Text(formatPeso(line.subtotal)),
               ),
             ),
             const Divider(),
             Align(
               alignment: Alignment.centerRight,
               child: Text(
-                'Total: ₱${sale.total.toStringAsFixed(2)}',
+                'Total: ${formatPeso(sale.total)}',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
             ),

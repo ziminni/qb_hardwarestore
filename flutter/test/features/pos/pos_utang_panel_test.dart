@@ -150,7 +150,7 @@ void main() {
         thisSaleTotal: 300,
       );
 
-      expect(find.textContaining('Limit ₱1000.00'), findsOneWidget);
+      expect(find.textContaining('Limit ₱1,000.00'), findsOneWidget);
       expect(find.textContaining('₱500.00 headroom'), findsOneWidget);
       expect(find.textContaining('over the'), findsNothing);
     });
@@ -167,7 +167,7 @@ void main() {
 
         expect(
           find.textContaining(
-            'This sale would take them ₱150.00 over the ₱1000.00 limit',
+            'This sale would take them ₱150.00 over the ₱1,000.00 limit',
           ),
           findsOneWidget,
         );

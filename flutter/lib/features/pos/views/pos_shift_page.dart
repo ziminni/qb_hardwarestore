@@ -1,5 +1,6 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/shift.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
@@ -109,7 +110,7 @@ class _PosShiftView extends StatelessWidget {
                         ? (canOpen
                               ? 'No shift open — open one to start selling'
                               : 'The open shift could not be checked')
-                        : 'Opened ${_timestamp(current.openedAt)}',
+                        : 'Opened ${formatDateTime(current.openedAt)}',
                     icon: Icons.access_time,
                     color: current == null
                         ? AppColors.textSecondary
@@ -121,7 +122,7 @@ class _PosShiftView extends StatelessWidget {
                     width: 300,
                     child: SalesDashboardMetricCard(
                       label: 'Opening float',
-                      value: '₱${current.openingFloat.toStringAsFixed(2)}',
+                      value: formatPeso(current.openingFloat),
                       caption: 'Counted when the shift opened',
                       icon: Icons.savings_outlined,
                       color: AppColors.info,
@@ -156,7 +157,8 @@ class _PosShiftView extends StatelessWidget {
               const SizedBox(height: AppSpacing.xl),
               PosZReadingSummary(
                 reading: previousReading,
-                title: 'Last closed shift (${_timestamp(lastClosed.openedAt)})',
+                title:
+                    'Last closed shift (${formatDateTime(lastClosed.openedAt)})',
               ),
             ],
             const SizedBox(height: AppSpacing.xl),
@@ -183,22 +185,12 @@ class _PosShiftView extends StatelessWidget {
   List<Widget> _row(Shift shift) {
     final variance = shift.zReading?.variance;
     return <Widget>[
-      Text(_timestamp(shift.openedAt)),
+      Text(formatDateTime(shift.openedAt)),
       Text(shift.cashierName),
       Text(shift.status),
-      Text('₱${shift.openingFloat.toStringAsFixed(2)}'),
-      Text(
-        shift.closingCount == null
-            ? '—'
-            : '₱${shift.closingCount!.toStringAsFixed(2)}',
-      ),
-      Text(variance == null ? '—' : '₱${variance.toStringAsFixed(2)}'),
+      Text(formatPeso(shift.openingFloat)),
+      Text(shift.closingCount == null ? '—' : formatPeso(shift.closingCount!)),
+      Text(variance == null ? '—' : formatPeso(variance)),
     ];
   }
-
-  String _timestamp(DateTime value) =>
-      '${value.year}-${_two(value.month)}-${_two(value.day)} '
-      '${_two(value.hour)}:${_two(value.minute)}';
-
-  String _two(int value) => value.toString().padLeft(2, '0');
 }

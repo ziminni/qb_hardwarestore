@@ -1,6 +1,7 @@
 import 'package:client/core/constants/app_breakpoints.dart';
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/core/units/whole_units.dart';
 import 'package:client/data/models/held_cart.dart';
 import 'package:client/data/models/pos_transaction.dart';
@@ -359,7 +360,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
   List<Widget> _shiftActions(BuildContext context, ShiftViewmodel shift) {
     final current = shift.currentShift!;
     final narrow = MediaQuery.sizeOf(context).width < AppBreakpoints.rail;
-    final float = '₱${current.openingFloat.toStringAsFixed(2)}';
+    final float = formatPeso(current.openingFloat);
     return [
       Tooltip(
         message: 'Opening float $float',

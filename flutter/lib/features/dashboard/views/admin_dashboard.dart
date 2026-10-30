@@ -1,3 +1,4 @@
+import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/features/dashboard/viewmodels/admin_overview_viewmodel.dart';
 import 'package:client/features/dashboard/widget/admin_action_button.dart';
@@ -97,7 +98,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     // except after a successful load, where stale rows under the banner stand.
     final stockReady = inventory.hasLoaded && inventory.loadError == null;
     final metrics = [
-      ('Today sales', '₱${today.totalGross.toStringAsFixed(2)}'),
+      ('Today sales', formatPeso(today.totalGross)),
       if (stockReady) ('Products', '${inventory.products.length}'),
       if (stockReady) ('Low stock', '$lowStock'),
       if (stockReady) ('Out of stock', '$outOfStock'),
@@ -157,11 +158,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     children: [
                       Text(
                         'Today: ${today.totalTransactions} transactions · '
-                        '₱${today.totalGross.toStringAsFixed(2)} gross',
+                        '${formatPeso(today.totalGross)} gross',
                       ),
                       Text(
-                        'VAT ₱${today.totalVat.toStringAsFixed(2)} · '
-                        'Discounts ₱${today.totalDiscounts.toStringAsFixed(2)}',
+                        'VAT ${formatPeso(today.totalVat)} · '
+                        'Discounts ${formatPeso(today.totalDiscounts)}',
                       ),
                     ],
                   ),
@@ -215,9 +216,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
                                 title:
                                     '${row.transactionNo} · ${row.customerName}',
                                 subtitle:
-                                    '${row.transDate.month}/${row.transDate.day}/${row.transDate.year} · ${row.source}',
-                                trailing:
-                                    '₱${row.grandTotal.toStringAsFixed(2)}',
+                                    '${formatDate(row.transDate)} · ${row.source}',
+                                trailing: formatPeso(row.grandTotal),
                               ),
                           ],
                   ),

@@ -31,24 +31,55 @@ class _StubReportsRepository extends ReportsRepository {
     salesCalls++;
     lastFrom = from;
     lastTo = to;
-    if (failSales) throw const ReportsServiceException('The sales summary could not be loaded.');
-    return const SalesSummary(from: '', to: '', totalTransactions: 3, totalGross: 1500, totalVat: 0, totalDiscounts: 50, days: []);
+    if (failSales) {
+      throw const ReportsServiceException(
+        'The sales summary could not be loaded.',
+      );
+    }
+    return const SalesSummary(
+      from: '',
+      to: '',
+      totalTransactions: 3,
+      totalGross: 1500,
+      totalVat: 0,
+      totalDiscounts: 50,
+      days: [],
+    );
   }
 
   @override
   Future<InventoryValuation> fetchInventoryValuation() async {
     valuationCalls++;
-    return const InventoryValuation(batchCount: 2, totalUnits: 10, totalCost: 500, totalRetail: 800, categories: []);
+    return const InventoryValuation(
+      batchCount: 2,
+      totalUnits: 10,
+      totalCost: 500,
+      totalRetail: 800,
+      categories: [],
+    );
   }
 
   @override
   Future<StockMovements> fetchStockMovements({String? from, String? to}) async {
-    return const StockMovements(from: '', to: '', totalIn: 100, totalOut: 30, receiptsByDay: [], adjustmentsByType: []);
+    return const StockMovements(
+      from: '',
+      to: '',
+      totalIn: 100,
+      totalOut: 30,
+      receiptsByDay: [],
+      adjustmentsByType: [],
+    );
   }
 
   @override
   Future<RequisitionHistory> fetchRequisitionHistory() async {
-    return const RequisitionHistory(from: '', to: '', statusFilter: null, countByStatus: {}, requisitions: []);
+    return const RequisitionHistory(
+      from: '',
+      to: '',
+      statusFilter: null,
+      countByStatus: {},
+      requisitions: [],
+    );
   }
 }
 
@@ -59,7 +90,10 @@ void _sizeUp(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
-Future<_StubReportsRepository> _pump(WidgetTester tester, {bool failSales = false}) async {
+Future<_StubReportsRepository> _pump(
+  WidgetTester tester, {
+  bool failSales = false,
+}) async {
   _sizeUp(tester);
   final repository = _StubReportsRepository()..failSales = failSales;
   await tester.pumpWidget(
@@ -82,7 +116,7 @@ void main() {
         findsOneWidget,
       );
     }
-    expect(find.textContaining('1500'), findsWidgets);
+    expect(find.textContaining('1,500'), findsWidgets);
   });
 
   testWidgets('selecting valuation loads it once', (tester) async {
@@ -95,7 +129,9 @@ void main() {
     expect(find.textContaining('500'), findsWidgets);
   });
 
-  testWidgets('a failed sales tab names the failure and keeps the other tabs', (tester) async {
+  testWidgets('a failed sales tab names the failure and keeps the other tabs', (
+    tester,
+  ) async {
     await _pump(tester, failSales: true);
 
     expect(find.textContaining('could not be loaded'), findsOneWidget);
@@ -117,7 +153,9 @@ void main() {
     expect(repository.salesCalls, 1);
   });
 
-  testWidgets('a range change reloads sales with the new bounds', (tester) async {
+  testWidgets('a range change reloads sales with the new bounds', (
+    tester,
+  ) async {
     final repository = await _pump(tester);
 
     await tester.enterText(find.byKey(const Key('reports-from')), '2026-01-01');
