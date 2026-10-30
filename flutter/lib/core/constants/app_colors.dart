@@ -8,6 +8,10 @@ class AppColors {
   static const Color brandBlack = Color(0xFF050505);
   static const Color brandGold = Color(0xFFAC934F);
   static const Color brandGoldLight = Color(0xFFE1C684);
+
+  /// Brand gold as INK: the fill colour above is too pale for small text on
+  /// white, so labels and the brand subtitle use this darker shade.
+  static const Color brandGoldText = Color(0xFF6E5A22);
   static const Color brandWhite = Color(0xFFFFFFFF);
 
   // Theme aliases.

@@ -6,6 +6,7 @@ import 'package:client/shared/widgets/shared_sidebar.dart';
 import 'package:client/shared/widgets/system_brand.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// The frame every signed-in screen sits in: sidebar, header, body.
 ///
@@ -13,7 +14,7 @@ import 'package:provider/provider.dart';
 /// wide window, an icon rail when the window is resized narrower, and a
 /// drawer behind a menu button when it is about half a screen or less. The
 /// role shells (POS, inventory, sales, admin) only supply their menu.
-class AppShell extends StatelessWidget {
+class AppShell extends StatefulWidget {
   const AppShell({
     super.key,
     required this.title,
@@ -26,6 +27,7 @@ class AppShell extends StatelessWidget {
     this.fallbackUserName = '[ USER NAME ]',
     this.fallbackRoleLabel = '[ ROLE ]',
     this.scrollable = true,
+    this.loadMarkers,
   });
 
   final String title;
@@ -38,6 +40,11 @@ class AppShell extends StatelessWidget {
   final String fallbackRoleLabel;
   final Widget child;
 
+  /// Live counts for the sidebar, keyed by the flat destination index (the
+  /// same number [selectedIndex] uses). Read once when the shell mounts; a
+  /// failed read leaves every destination blank.
+  final Future<Map<int, int>> Function()? loadMarkers;
+
   /// When false the body gets the exact height left under the header instead
   /// of a scroll view, for screens that lay out their own scrolling regions
   /// (the till keeps its Pay button on screen this way).
@@ -46,19 +53,74 @@ class AppShell extends StatelessWidget {
   static const double headerHeight = 72;
 
   @override
+  State<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends State<AppShell> {
+  Map<int, int> _markers = const {};
+
+  /// The user's choice from the collapse button. Only consulted on a window
+  /// wide enough to show the full sidebar ([AppBreakpoints.expanded]); a
+  /// narrow window and the drawer ignore it.
+  bool _collapsedByUser = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreCollapse();
+    _loadMarkers();
+  }
+
+  Future<void> _restoreCollapse() async {
+    final stored = await SidebarCollapsePreference.read();
+    if (!mounted || stored == _collapsedByUser) return;
+    setState(() => _collapsedByUser = stored);
+  }
+
+  Future<void> _loadMarkers() async {
+    final load = widget.loadMarkers;
+    if (load == null) return;
+    final Map<int, int> counts;
+    try {
+      counts = await load();
+    } catch (_) {
+      // A sidebar marker is a convenience, never the page's own data: a failed
+      // read shows nothing and the page behind it reports its own errors.
+      return;
+    }
+    if (!mounted || counts.isEmpty) return;
+    final positive = {
+      for (final entry in counts.entries)
+        if (entry.value > 0) entry.key: entry.value,
+    };
+    if (positive.isEmpty) return;
+    setState(() => _markers = positive);
+  }
+
+  Future<void> _toggleCollapsed() async {
+    setState(() => _collapsedByUser = !_collapsedByUser);
+    await SidebarCollapsePreference.write(_collapsedByUser);
+  }
+
+  @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final mode = shellModeFor(constraints.maxWidth);
         final compact = mode == ShellMode.compact;
         final padding = compact ? AppSpacing.lg : AppSpacing.xl;
+        // The stored choice only ever turns the wide sidebar into the rail; it
+        // cannot widen a window that is too narrow for labels.
+        final rail =
+            mode == ShellMode.rail ||
+            (mode == ShellMode.expanded && _collapsedByUser);
 
-        final body = scrollable
+        final body = widget.scrollable
             ? SingleChildScrollView(
                 padding: EdgeInsets.all(padding),
-                child: child,
+                child: widget.child,
               )
-            : Padding(padding: EdgeInsets.all(padding), child: child);
+            : Padding(padding: EdgeInsets.all(padding), child: widget.child);
 
         return Scaffold(
           backgroundColor: AppColors.background,
@@ -67,7 +129,8 @@ class AppShell extends StatelessWidget {
                   width: SharedSidebar.width,
                   shape: const RoundedRectangleBorder(),
                   child: _SidebarPanel(
-                    shell: this,
+                    shell: widget,
+                    markers: _markers,
                     collapsed: false,
                     closeDrawerOnSelect: true,
                   ),
@@ -77,23 +140,25 @@ class AppShell extends StatelessWidget {
             children: [
               if (!compact)
                 Container(
-                  width: mode == ShellMode.rail
-                      ? SharedSidebar.railWidth
-                      : SharedSidebar.width,
+                  width: rail ? SharedSidebar.railWidth : SharedSidebar.width,
                   decoration: const BoxDecoration(
                     color: AppColors.cardBackground,
                     border: Border(right: BorderSide(color: AppColors.border)),
                   ),
                   child: _SidebarPanel(
-                    shell: this,
-                    collapsed: mode == ShellMode.rail,
+                    shell: widget,
+                    markers: _markers,
+                    collapsed: rail,
                     closeDrawerOnSelect: false,
+                    onToggleCollapsed: mode == ShellMode.expanded
+                        ? _toggleCollapsed
+                        : null,
                   ),
                 ),
               Expanded(
                 child: Column(
                   children: [
-                    _Header(shell: this, showMenuButton: compact),
+                    _Header(shell: widget, showMenuButton: compact),
                     Expanded(child: body),
                   ],
                 ),
@@ -106,16 +171,54 @@ class AppShell extends StatelessWidget {
   }
 }
 
+/// The collapse button's one stored value: whether the user chose the icon
+/// rail on a wide window. Read on mount, written on toggle, restored on the
+/// next build or app start.
+///
+/// Both halves swallow a failure on purpose: a missing or unreadable store
+/// (a test binding, a platform without the plugin) must not stop the shell
+/// from rendering, and the fallback is the wide window's own default.
+class SidebarCollapsePreference {
+  const SidebarCollapsePreference._();
+
+  static const key = 'sidebar_collapsed';
+
+  static Future<bool> read() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(key) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> write(bool collapsed) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(key, collapsed);
+    } catch (_) {
+      // Not worth a message: the sidebar still collapses for this session.
+    }
+  }
+}
+
 class _SidebarPanel extends StatelessWidget {
   const _SidebarPanel({
     required this.shell,
+    required this.markers,
     required this.collapsed,
     required this.closeDrawerOnSelect,
+    this.onToggleCollapsed,
   });
 
   final AppShell shell;
+  final Map<int, int> markers;
   final bool collapsed;
   final bool closeDrawerOnSelect;
+
+  /// Null in the drawer and when the window itself forces the rail, so the
+  /// button never offers a shape the window cannot show.
+  final VoidCallback? onToggleCollapsed;
 
   @override
   Widget build(BuildContext context) {
@@ -130,14 +233,30 @@ class _SidebarPanel extends StatelessWidget {
         children: [
           SizedBox(
             height: AppShell.headerHeight,
-            child: Center(
-              child: collapsed
-                  ? const SystemBrand(logoSize: 40, showName: false)
-                  : const SystemBrand(
-                      logoSize: 42,
-                      fontSize: 14,
-                      subtitle: '& CONSTRUCTION SUPPLIES',
+            child: Row(
+              children: [
+                Expanded(
+                  child: Center(
+                    child: collapsed
+                        ? const SystemBrand(logoSize: 40, showName: false)
+                        : const SystemBrand(
+                            logoSize: 42,
+                            fontSize: 14,
+                            subtitle: '& CONSTRUCTION SUPPLIES',
+                          ),
+                  ),
+                ),
+                if (onToggleCollapsed case final toggle?)
+                  IconButton(
+                    tooltip: collapsed ? 'Expand sidebar' : 'Collapse sidebar',
+                    onPressed: toggle,
+                    icon: Icon(
+                      collapsed ? Icons.chevron_right : Icons.chevron_left,
+                      size: 18,
+                      color: AppColors.textSecondary,
                     ),
+                  ),
+              ],
             ),
           ),
           const Divider(height: 1),
@@ -146,6 +265,7 @@ class _SidebarPanel extends StatelessWidget {
               sections: shell.sections,
               selectedIndex: shell.selectedIndex,
               collapsed: collapsed,
+              markers: markers,
               onDestinationSelected: onSelected == null
                   ? null
                   : (index) {

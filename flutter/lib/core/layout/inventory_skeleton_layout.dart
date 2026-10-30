@@ -1,3 +1,5 @@
+import 'package:client/data/repositories/inventory_repository.dart';
+import 'package:client/data/services/inventory_service.dart';
 import 'package:client/shared/widgets/app_shell.dart';
 import 'package:client/shared/widgets/notifications_button.dart';
 import 'package:client/shared/widgets/shared_sidebar.dart';
@@ -11,6 +13,7 @@ class InventorySkeletonLayout extends StatelessWidget {
     required this.selectedNavigationIndex,
     required this.child,
     this.onNavigationSelected,
+    this.loadMarkers = stockManagerMarkers,
   });
 
   final String title;
@@ -18,6 +21,16 @@ class InventorySkeletonLayout extends StatelessWidget {
   final int selectedNavigationIndex;
   final Widget child;
   final ValueChanged<int>? onNavigationSelected;
+
+  /// See [AppShell.loadMarkers].
+  final Future<Map<int, int>> Function() loadMarkers;
+
+  /// Flat sidebar index of Low stock, the destination the open-alert marker
+  /// belongs to: 0 Dashboard, 1 Products, 2 Categories, 3 Stock,
+  /// 4 Stock movements, 5 Low stock. Read by [stockManagerMarkers] and pinned by
+  /// `sidebar_pattern_test.dart`, because marking the wrong row is invisible in
+  /// a widget test that only checks "a marker appeared".
+  static const lowStockIndex = 5;
 
   static const _navigationSections = [
     SharedSidebarSection(
@@ -103,10 +116,23 @@ class InventorySkeletonLayout extends StatelessWidget {
       sections: _navigationSections,
       selectedIndex: selectedNavigationIndex,
       onDestinationSelected: onNavigationSelected,
+      loadMarkers: loadMarkers,
       actions: const [NotificationsButton()],
       fallbackUserName: 'Inventory Staff',
       fallbackRoleLabel: 'Inventory Staff',
       child: child,
     );
   }
+}
+
+/// Open stock alerts, the one live count on the stock manager's menu (ledger
+/// ruling, F4): unresolved alerts at index 4 (Low stock). Read once when the
+/// shell mounts; a failure shows no marker rather than a false 0.
+Future<Map<int, int>> stockManagerMarkers() async {
+  final alerts = await InventoryRepository(InventoryService()).loadAlerts();
+  return {
+    InventorySkeletonLayout.lowStockIndex: alerts
+        .where((alert) => !alert.isResolved)
+        .length,
+  };
 }

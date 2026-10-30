@@ -69,8 +69,11 @@ class SystemBrand extends StatelessWidget {
                   subtitle!,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.labelSmall?.copyWith(
-                    color: AppColors.brandGold,
-                    fontSize: 8,
+                    // 10 px in gold INK, not the 8 px fill gold: the fill
+                    // colour is a background, and at 8 px on white it was
+                    // barely legible.
+                    color: AppColors.brandGoldText,
+                    fontSize: 10,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 0.35,
                   ),

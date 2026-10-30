@@ -25,11 +25,17 @@ class SharedSidebar extends StatelessWidget {
     required this.selectedIndex,
     this.onDestinationSelected,
     this.collapsed = false,
+    this.markers = const {},
   });
 
   final List<SharedSidebarSection> sections;
   final int selectedIndex;
   final ValueChanged<int>? onDestinationSelected;
+
+  /// A live count per destination, keyed by the same flat index as
+  /// [selectedIndex]. Missing, zero or negative draws nothing at all: a marker
+  /// reading "0" is a claim about a queue, and a wrong one is worse than none.
+  final Map<int, int> markers;
 
   /// Icon rail: icons only, each label moved into a tooltip (which also
   /// carries it for screen readers).
@@ -52,64 +58,85 @@ class SharedSidebar extends StatelessWidget {
       final onTap = onDestinationSelected == null
           ? null
           : () => onDestinationSelected!(currentIndex);
+      final count = markers[currentIndex] ?? 0;
 
       if (collapsed) {
         return Padding(
           padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-          child: Tooltip(
-            message: destination.label,
-            preferBelow: false,
-            child: Material(
-              color: selected ? AppColors.selected : Colors.transparent,
-              borderRadius: BorderRadius.circular(AppRadii.medium),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(AppRadii.medium),
-                onTap: onTap,
-                child: SizedBox(
-                  height: 48,
-                  child: Center(
-                    child: Icon(
-                      destination.icon,
-                      size: 22,
-                      color: selected ? AppColors.textPrimary : null,
+          child: Stack(
+            children: [
+              Tooltip(
+                message: destination.label,
+                preferBelow: false,
+                child: Material(
+                  color: selected ? AppColors.selected : Colors.transparent,
+                  borderRadius: BorderRadius.circular(AppRadii.medium),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(AppRadii.medium),
+                    onTap: onTap,
+                    child: SizedBox(
+                      height: 48,
+                      child: Center(
+                        child: Icon(
+                          destination.icon,
+                          size: 22,
+                          color: selected ? AppColors.textPrimary : null,
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
+              if (selected) const _ActiveBar(inset: 12),
+              // The rail has no labels, so the count rides on the icon.
+              if (count > 0)
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: _MarkerCount(index: currentIndex, count: count),
+                ),
+            ],
           ),
         );
       }
 
       return Padding(
         padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-        child: Material(
-          color: selected ? AppColors.selected : Colors.transparent,
-          borderRadius: BorderRadius.circular(AppRadii.pill),
-          child: ListTile(
-            dense: true,
-            selected: selected,
-            selectedColor: AppColors.textPrimary,
-            minTileHeight: 44,
-            shape: RoundedRectangleBorder(
+        child: Stack(
+          children: [
+            Material(
+              color: selected ? AppColors.selected : Colors.transparent,
               borderRadius: BorderRadius.circular(AppRadii.pill),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.lg,
-            ),
-            horizontalTitleGap: AppSpacing.md,
-            leading: Icon(destination.icon, size: 19),
-            title: Text(
-              destination.label,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontSize: 13,
-                color: selected ? AppColors.textPrimary : null,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              child: ListTile(
+                dense: true,
+                selected: selected,
+                selectedColor: AppColors.textPrimary,
+                minTileHeight: 44,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadii.pill),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.lg,
+                ),
+                horizontalTitleGap: AppSpacing.md,
+                leading: Icon(destination.icon, size: 19),
+                title: Text(
+                  destination.label,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontSize: 13,
+                    color: selected ? AppColors.textPrimary : null,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+                trailing: count > 0
+                    ? _MarkerCount(index: currentIndex, count: count)
+                    : null,
+                onTap: onTap,
               ),
             ),
-            onTap: onTap,
-          ),
+            if (selected) const _ActiveBar(inset: 8),
+          ],
         ),
       );
     }
@@ -158,6 +185,64 @@ class SharedSidebar extends StatelessWidget {
             buildDestination(destination, destinationIndex++),
         ],
       ],
+    );
+  }
+}
+
+/// The gold bar on the selected destination: a fill shape on the left edge,
+/// drawn in the full sidebar and in the icon rail alike, so the current page
+/// reads the same at every width.
+class _ActiveBar extends StatelessWidget {
+  const _ActiveBar({required this.inset});
+
+  /// Vertical inset, so the bar is shorter than the row it marks.
+  final double inset;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: 0,
+      top: inset,
+      bottom: inset,
+      child: IgnorePointer(
+        child: Container(
+          key: const ValueKey('sidebar-active-bar'),
+          width: 3,
+          decoration: BoxDecoration(
+            color: AppColors.brandGold,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A live count beside its destination (or on its rail icon).
+class _MarkerCount extends StatelessWidget {
+  const _MarkerCount({required this.index, required this.count});
+
+  final int index;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: ValueKey('sidebar-marker-$index'),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: AppColors.brandGold,
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+      ),
+      child: Text(
+        '$count',
+        style: const TextStyle(
+          fontSize: 11,
+          height: 1.4,
+          fontWeight: FontWeight.w700,
+          color: AppColors.textPrimary,
+        ),
+      ),
     );
   }
 }
