@@ -15,6 +15,12 @@ class AppPanel extends StatelessWidget {
   /// Inside the border, on every side.
   static const double padding = 18;
 
+  /// What the panel's own frame takes, border and padding on both sides. A
+  /// child that must fill a panel handed a fixed slot subtracts this; the panel
+  /// itself stays free of layout callbacks so equal-height rows can still ask
+  /// it for its intrinsic size.
+  static const double chrome = padding * 2 + 2;
+
   final Widget child;
 
   /// Panel heading, left of [trailing] when one is given.

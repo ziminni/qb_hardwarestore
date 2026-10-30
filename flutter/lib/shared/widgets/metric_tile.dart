@@ -5,9 +5,9 @@ import 'package:flutter/material.dart';
 
 /// One dashboard number.
 ///
-/// Flexible width on purpose: put the tiles in a `Wrap` with `SizedBox`es of
-/// 220 px, so a 1440 px window fits four across and a 760 px window fits two
-/// instead of being squeezed into a fixed 260 or 300 px box.
+/// Lay tiles out with `MetricGrid`, never by hand: it fits as many tiles per
+/// line as the width allows (four across at 1440 px, two at 760 px) instead of
+/// squeezing each tile into a fixed 260 or 300 px box.
 class MetricTile extends StatelessWidget {
   const MetricTile({
     super.key,

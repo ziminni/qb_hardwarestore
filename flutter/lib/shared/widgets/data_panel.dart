@@ -34,6 +34,13 @@ class DataPanelColumn<T> {
 ///
 /// The first column is the card's title on a narrow panel; the remaining
 /// columns become label and value lines.
+///
+/// Long lists belong in a slot with a bounded height, an `Expanded` inside a
+/// `Column` or the body of a `Scaffold`. There the panel scrolls its own rows
+/// and builds only the visible ones, so a 2,000 row requisition list costs a
+/// screenful of widgets, not 2,000. Inside a page scroll view the panel has no
+/// height of its own and lays every row out at once: that is the right choice
+/// for a short list, and a nested scroll view for a long one.
 class DataPanel<T> extends StatelessWidget {
   const DataPanel({
     super.key,
@@ -107,16 +114,33 @@ class DataPanel<T> extends StatelessWidget {
       );
     }
 
-    return AppPanel(
-      child: Material(
-        type: MaterialType.transparency,
-        child: LayoutBuilder(
-          builder: (context, constraints) =>
-              constraints.maxWidth >= cardBreakpoint
-              ? _table(context, constraints.maxWidth)
-              : _cards(context, constraints.maxWidth),
-        ),
-      ),
+    // The bound has to be read here, outside the panel: AppPanel's own Column
+    // hands a plain child an unbounded height, and a LayoutBuilder inside the
+    // panel would break equal-height layouts that ask it for intrinsics.
+    return LayoutBuilder(
+      builder: (context, slot) {
+        final contentWidth = math.max(0.0, slot.maxWidth - AppPanel.chrome);
+        // A finite height means the page gave the panel a slot of its own (an
+        // Expanded), so it scrolls its own rows and builds only what is
+        // visible. Unbounded means the page scrolls: a ListView here would nest
+        // two scroll views.
+        final scrolls = slot.maxHeight.isFinite;
+        final bodyHeight = scrolls
+            ? math.max(0.0, slot.maxHeight - AppPanel.chrome)
+            : null;
+
+        return AppPanel(
+          child: SizedBox(
+            height: bodyHeight,
+            child: Material(
+              type: MaterialType.transparency,
+              child: contentWidth >= cardBreakpoint
+                  ? _table(context, contentWidth, scrolls)
+                  : _cards(context, contentWidth, scrolls),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -124,7 +148,16 @@ class DataPanel<T> extends StatelessWidget {
 
   /// Under 720 px of content a table would either clip or scroll sideways on
   /// every row, so each record becomes a card: the first column as its title.
-  Widget _cards(BuildContext context, double contentWidth) {
+  Widget _cards(BuildContext context, double contentWidth, bool scrolls) {
+    if (scrolls) {
+      return ListView.separated(
+        key: const ValueKey('DataPanel.cards'),
+        itemCount: rows.length,
+        separatorBuilder: (context, index) => const SizedBox(height: 12),
+        itemBuilder: (context, index) => _card(context, index),
+      );
+    }
+
     return Column(
       key: const ValueKey('DataPanel.cards'),
       mainAxisSize: MainAxisSize.min,
@@ -203,7 +236,7 @@ class DataPanel<T> extends StatelessWidget {
 
   // --------------------------------------------------------------- table
 
-  Widget _table(BuildContext context, double contentWidth) {
+  Widget _table(BuildContext context, double contentWidth, bool scrolls) {
     // The row can only be narrower than this if every column is squeezed below
     // its minimum, and then the table scrolls sideways rather than wrapping.
     final minimumWidth = columns.fold<double>(
@@ -217,12 +250,22 @@ class DataPanel<T> extends StatelessWidget {
       key: const ValueKey('DataPanel.table'),
       width: width,
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize: scrolls ? MainAxisSize.max : MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // The header stays above the scroll, so it does not slide away from
+          // the columns it labels.
           _headerRow(),
-          for (var index = 0; index < rows.length; index++)
-            _bodyRow(context, index),
+          if (scrolls)
+            Expanded(
+              child: ListView.builder(
+                itemCount: rows.length,
+                itemBuilder: (context, index) => _bodyRow(context, index),
+              ),
+            )
+          else
+            for (var index = 0; index < rows.length; index++)
+              _bodyRow(context, index),
         ],
       ),
     );

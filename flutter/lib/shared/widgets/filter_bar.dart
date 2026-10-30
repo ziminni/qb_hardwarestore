@@ -40,13 +40,37 @@ class FilterBar extends StatefulWidget {
 }
 
 class _FilterBarState extends State<FilterBar> {
-  late final TextEditingController _controller =
-      widget.searchController ?? TextEditingController();
+  late TextEditingController _controller;
+
+  /// Whether the current controller is this bar's to dispose.
+  late bool _ownsController;
+
+  @override
+  void initState() {
+    super.initState();
+    _bind(widget.searchController);
+  }
+
+  @override
+  void didUpdateWidget(FilterBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.searchController == oldWidget.searchController) return;
+    // The page changed its mind about the controller: drop the one we made (if
+    // it was ours) and follow the new one. The page's controller is never
+    // disposed here, it outlives this bar.
+    if (_ownsController) _controller.dispose();
+    _bind(widget.searchController);
+  }
+
+  void _bind(TextEditingController? parentController) {
+    _ownsController = parentController == null;
+    _controller = parentController ?? TextEditingController();
+  }
 
   @override
   void dispose() {
     // Only the controller this bar created is ours to dispose.
-    if (widget.searchController == null) {
+    if (_ownsController) {
       _controller.dispose();
     }
     super.dispose();

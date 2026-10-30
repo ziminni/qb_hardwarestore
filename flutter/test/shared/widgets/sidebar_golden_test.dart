@@ -149,17 +149,11 @@ Future<void> _pumpShell(WidgetTester tester, _Role role, Size size) async {
       value: AuthViewmodel(AuthRepository(AuthService())),
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        // AppTextTheme defines no `titleLarge`, so the header title is Material's
-        // default Roboto, which is not bundled: in the harness that draws one
-        // Ahem box per letter. Pinned to the brand body font here so the PNGs
-        // stay readable; the real app resolves Roboto. Finding logged for F4.
-        theme: AppTheme.lightTheme.copyWith(
-          textTheme: AppTheme.lightTheme.textTheme.copyWith(
-            titleLarge: AppTheme.lightTheme.textTheme.titleLarge?.copyWith(
-              fontFamily: 'OpenSans',
-            ),
-          ),
-        ),
+        // The real theme, with no per-gallery patches: the header title used to
+        // fall back to Roboto here because AppTextTheme had no `titleLarge`.
+        // That gap is fixed in the theme itself (see app_text_theme_test.dart),
+        // so these PNGs show what the app actually renders.
+        theme: AppTheme.lightTheme,
         home: RepaintBoundary(
           key: _galleryKey,
           child: ColoredBox(

@@ -326,6 +326,129 @@ void main() {
       },
     );
   }
+
+  // ---------------------------------------------------- long lists, bounded
+
+  /// A panel that owns its height, the way a page slot does: `Expanded` around
+  /// it. Page scrolling is not involved, so the panel must scroll its own rows.
+  Future<void> pumpBounded(WidgetTester tester, Size size, Widget child) async {
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: Scaffold(
+          body: Column(children: [Expanded(child: child)]),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  Finder builtRows() => find.byWidgetPredicate((widget) {
+    final key = widget.key;
+    return key is ValueKey<String> && key.value.startsWith('DataPanel.row.');
+  });
+
+  Finder builtCards() => find.byWidgetPredicate((widget) {
+    final key = widget.key;
+    return key is ValueKey<String> && key.value.startsWith('DataPanel.card.');
+  });
+
+  List<_StockRow> manyRows(int count) => List.generate(
+    count,
+    (index) =>
+        _StockRow('Row $index', 'bag', index, index.toDouble(), 'In stock'),
+  );
+
+  /// Scrolls the panel's own list to its end. Jumping beats dragging here:
+  /// 2,000 rows are tens of thousands of pixels long.
+  Future<void> scrollToEnd(WidgetTester tester, Finder within) async {
+    final scrollable = find
+        .descendant(of: within, matching: find.byType(Scrollable))
+        .first;
+    for (var attempt = 0; attempt < 5; attempt++) {
+      final position = tester.state<ScrollableState>(scrollable).position;
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pumpAndSettle();
+    }
+  }
+
+  testWidgets('2,000 rows in a bounded slot build only the visible ones', (
+    tester,
+  ) async {
+    await pumpBounded(
+      tester,
+      const Size(1440, 600),
+      panel(data: manyRows(2000)),
+    );
+
+    expect(find.byKey(table), findsOneWidget);
+    expect(
+      builtRows().evaluate().length,
+      lessThan(100),
+      reason: 'a 600 px slot must not build 2,000 row subtrees',
+    );
+    // The header is not part of the scrolling list.
+    expect(find.byKey(header), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the last of 2,000 rows is reachable and reports itself', (
+    tester,
+  ) async {
+    final taps = <_StockRow>[];
+    await pumpBounded(
+      tester,
+      const Size(1440, 600),
+      panel(data: manyRows(2000), onRowTap: taps.add),
+    );
+
+    await scrollToEnd(tester, find.byKey(table));
+
+    expect(find.text('Row 1999'), findsOneWidget);
+    await tester.tap(find.text('Row 1999'));
+    await tester.pumpAndSettle();
+    expect(taps, hasLength(1));
+    expect(taps.single.name, 'Row 1999');
+  });
+
+  testWidgets('2,000 cards in a bounded slot build only the visible ones', (
+    tester,
+  ) async {
+    await pumpBounded(
+      tester,
+      const Size(760, 600),
+      Center(
+        child: SizedBox(width: 700, child: panel(data: manyRows(2000))),
+      ),
+    );
+
+    expect(find.byKey(cards), findsOneWidget);
+    expect(
+      builtCards().evaluate().length,
+      lessThan(100),
+      reason: 'a 600 px slot must not build 2,000 card subtrees',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('an unbounded slot still builds every row at once', (
+    tester,
+  ) async {
+    // Inside a page scroll view the panel has no height of its own, so it must
+    // keep the plain Column: a ListView there would nest scroll views.
+    await pumpAt(
+      tester,
+      const Size(1440, 900),
+      panel(data: manyRows(50)),
+      settle: false,
+    );
+
+    expect(builtRows().evaluate().length, 50);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 class _StockRow {

@@ -1,6 +1,7 @@
 import 'package:client/core/constants/app_breakpoints.dart';
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/constants/app_text_styles.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/shared/widgets/shared_sidebar.dart';
 import 'package:client/shared/widgets/system_brand.dart';
@@ -288,7 +289,10 @@ class _SidebarPanel extends StatelessWidget {
                       foregroundColor: AppColors.brandGoldLight,
                       child: Text(
                         _initials(name),
+                        // Initials are a heading: the brand face, not the
+                        // platform font the bare TextStyle fell back to.
                         style: const TextStyle(
+                          fontFamily: AppTextStyles.cinzelFont,
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
                         ),

@@ -1,3 +1,5 @@
+import 'package:client/core/constants/app_text_styles.dart';
+import 'package:client/core/theme/app_theme.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
@@ -20,6 +22,9 @@ void main() {
       ChangeNotifierProvider<AuthViewmodel>.value(
         value: AuthViewmodel(AuthRepository(AuthService())),
         child: MaterialApp(
+          // The real app always carries the brand theme; without it these
+          // tests would read the platform text scale instead.
+          theme: AppTheme.lightTheme,
           home: DashboardShell(
             title: 'Point of Sale',
             subtitle: 'New transaction',
@@ -86,5 +91,30 @@ void main() {
       await pumpShell(tester, Size(width, 700));
       expect(tester.takeException(), isNull, reason: 'width $width');
     }
+  });
+
+  testWidgets('the rail avatar initials use the brand heading font', (
+    tester,
+  ) async {
+    // Only the rail shows the avatar. A TextStyle with no family renders the
+    // initials in the platform font, which is what the goldens caught.
+    await pumpShell(tester, const Size(1000, 800));
+
+    final initials = find.descendant(
+      of: find.byType(CircleAvatar),
+      matching: find.byType(Text),
+    );
+    expect(initials, findsOneWidget);
+    expect(
+      tester.widget<Text>(initials).style?.fontFamily,
+      AppTextStyles.cinzelFont,
+    );
+  });
+
+  testWidgets('the header title uses the brand heading font', (tester) async {
+    await pumpShell(tester, const Size(1400, 900));
+
+    final title = tester.widget<Text>(find.text('Point of Sale'));
+    expect(title.style?.fontFamily, AppTextStyles.cinzelFont);
   });
 }

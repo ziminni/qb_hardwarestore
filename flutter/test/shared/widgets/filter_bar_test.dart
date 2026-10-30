@@ -148,4 +148,103 @@ void main() {
 
     expect(fillOf('Cement'), isNot(fillOf('All')));
   });
+
+  // ------------------------------------------------------ controller swaps
+
+  /// Pumps the bar at one position, so a second pump updates the same state
+  /// (that is what `didUpdateWidget` sees) instead of building a new bar.
+  Future<void> pumpBar(
+    WidgetTester tester, {
+    TextEditingController? controller,
+    ValueChanged<String>? onSearchChanged,
+  }) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: FilterBar(
+                searchController: controller,
+                searchHint: 'Search products',
+                onSearchChanged: onSearchChanged,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  TextEditingController fieldController(WidgetTester tester) =>
+      tester.widget<TextField>(find.byType(TextField)).controller!;
+
+  void expectDisposed(TextEditingController controller) {
+    // A disposed controller throws the moment anything touches it again.
+    expect(
+      () => controller.addListener(() {}),
+      throwsA(isA<FlutterError>()),
+      reason: 'the bar should have disposed the controller it made',
+    );
+  }
+
+  void expectAlive(TextEditingController controller) {
+    // The bar must never dispose a controller the page handed it.
+    expect(() => controller.addListener(() {}), returnsNormally);
+  }
+
+  testWidgets(
+    'parent swaps in a controller: the bar follows and drops its own',
+    (tester) async {
+      final typed = <String>[];
+      await pumpBar(tester, onSearchChanged: typed.add);
+      final owned = fieldController(tester);
+
+      final parent = TextEditingController();
+      addTearDown(parent.dispose);
+      await pumpBar(tester, controller: parent, onSearchChanged: typed.add);
+
+      expect(fieldController(tester), same(parent));
+      expectDisposed(owned);
+      expectAlive(parent);
+
+      await tester.enterText(find.byType(TextField), 'cement');
+      await tester.pumpAndSettle();
+      expect(typed, ['cement']);
+      expect(parent.text, 'cement');
+
+      // Unmounting after the swap must not throw (no double dispose).
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(tester.takeException(), isNull);
+      expectAlive(parent);
+    },
+  );
+
+  testWidgets('parent swaps its controller away: the bar owns a fresh one', (
+    tester,
+  ) async {
+    final typed = <String>[];
+    final parent = TextEditingController();
+    addTearDown(parent.dispose);
+    await pumpBar(tester, controller: parent, onSearchChanged: typed.add);
+    expect(fieldController(tester), same(parent));
+
+    await pumpBar(tester, onSearchChanged: typed.add);
+
+    final own = fieldController(tester);
+    expect(own, isNot(same(parent)));
+    expectAlive(parent);
+
+    await tester.enterText(find.byType(TextField), 'plywood');
+    await tester.pumpAndSettle();
+    expect(typed, ['plywood']);
+    expect(own.text, 'plywood');
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(tester.takeException(), isNull);
+    expectDisposed(own);
+    expectAlive(parent);
+  });
 }
