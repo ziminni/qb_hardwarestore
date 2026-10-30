@@ -39,4 +39,14 @@ class AppColors {
   static const Color stockOk = success;
   static const Color stockLow = warning;
   static const Color stockCritical = error;
+
+  // Status text on a light tint. The status colors above are too faint for
+  // small text on white (under 4.5:1), so badges pair these darker shades
+  // with the matching tint background.
+  static const Color successText = Color(0xFF065F46);
+  static const Color successTint = Color(0xFFE7F6EF);
+  static const Color warningText = Color(0xFF7C2D12);
+  static const Color warningTint = Color(0xFFFEF3C7);
+  static const Color errorText = Color(0xFF991B1B);
+  static const Color errorTint = Color(0xFFFEE2E2);
 }

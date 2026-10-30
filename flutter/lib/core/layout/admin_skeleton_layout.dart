@@ -1,9 +1,8 @@
-import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
+import 'package:client/shared/widgets/app_shell.dart';
 import 'package:client/shared/widgets/notifications_button.dart';
-import 'package:client/shared/widgets/system_brand.dart';
+import 'package:client/shared/widgets/shared_sidebar.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:provider/provider.dart';
 
 class AdminSkeletonLayout extends StatelessWidget {
   const AdminSkeletonLayout({
@@ -34,126 +33,26 @@ class AdminSkeletonLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthViewmodel>();
-
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      body: Row(
-        children: [
-          Container(
-            width: 220,
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              border: Border(right: BorderSide(color: Colors.black26)),
-            ),
-            child: Column(
-              children: [
-                const SizedBox(
-                  height: 72,
-                  child: Center(
-                    child: SystemBrand(
-                      logoSize: 42,
-                      fontSize: 14,
-                      subtitle: '& CONSTRUCTION SUPPLIES',
-                    ),
-                  ),
-                ),
-                const Divider(height: 1),
-                Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(10),
-                    itemCount: _navigationItems.length,
-                    itemBuilder: (context, index) {
-                      final item = _navigationItems[index];
-                      final selected = index == selectedNavigationIndex;
-
-                      // The colour belongs on the Material, not on a Container: a ListTile
-                      // inside a ColoredBox makes Flutter assert "ListTile background color or
-                      // ink splashes may be invisible", because a ListTile paints its background
-                      // and splashes on its nearest Material ancestor. Same defect and same fix as
-                      // dashboard_shell.dart (commit 7d04bf2).
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Material(
-                          color: selected
-                              ? const Color(0xFFE5E5E5)
-                              : Colors.transparent,
-                          child: ListTile(
-                            dense: true,
-                            selected: selected,
-                            onTap: onNavigationSelected != null
-                                ? () => onNavigationSelected!(index)
-                                : () => context.go(item.$3),
-                            leading: Icon(item.$2, size: 19),
-                            title: Text(item.$1),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  title: Text(auth.user?.fullName ?? 'Administrator'),
-                  subtitle: Text(auth.user?.roleLabel ?? 'Admin'),
-                  trailing: IconButton(
-                    tooltip: 'Log out',
-                    onPressed: auth.logout,
-                    icon: const Icon(Icons.logout, size: 18),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Column(
-              children: [
-                Container(
-                  height: 72,
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    border: Border(bottom: BorderSide(color: Colors.black26)),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Text(
-                              subtitle,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Colors.black54,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const NotificationsButton(),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(20),
-                    child: child,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    return AppShell(
+      title: title,
+      subtitle: subtitle,
+      sections: [
+        SharedSidebarSection(
+          label: '',
+          destinations: [
+            for (final item in _navigationItems)
+              SharedSidebarDestination(label: item.$1, icon: item.$2),
+          ],
+        ),
+      ],
+      selectedIndex: selectedNavigationIndex,
+      onDestinationSelected:
+          onNavigationSelected ??
+          (index) => context.go(_navigationItems[index].$3),
+      actions: const [NotificationsButton()],
+      fallbackUserName: 'Administrator',
+      fallbackRoleLabel: 'Admin',
+      child: child,
     );
   }
 }
