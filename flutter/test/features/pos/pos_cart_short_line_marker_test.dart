@@ -104,13 +104,23 @@ void main() {
       findsOneWidget,
       reason: 'the cashier must be able to see which row to fix',
     );
-    final marked = tester.widget<ListTile>(
-      find.ancestor(
-        of: find.textContaining('Not enough stock'),
-        matching: find.byType(ListTile),
+    // The marker sits inside the row of the line that failed (rows are keyed
+    // `pos-cart-line-<index>` since the 2026-10-29 cart layout).
+    final markedRow = find.ancestor(
+      of: find.textContaining('Not enough stock'),
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget.key is ValueKey<String> &&
+            (widget.key! as ValueKey<String>).value.startsWith(
+              'pos-cart-line-',
+            ),
       ),
     );
-    expect((marked.title! as Text).data, target.name);
+    expect(markedRow, findsOneWidget);
+    expect(
+      find.descendant(of: markedRow, matching: find.text(target.name)),
+      findsOneWidget,
+    );
     expect(
       cart.lines.last.productName,
       isNot(target.name),

@@ -18,8 +18,13 @@ Customer _customer(int id, String name, {String type = 'REGULAR'}) =>
     Customer(id: id, name: name, customerType: type);
 
 /// Pumps the dialog and returns whatever it answers, plus a record of what was created.
-Future<({PosCustomerSelection? answer, List<({String name, CustomerType type})> created})>
-    _open(
+Future<
+  ({
+    PosCustomerSelection? answer,
+    List<({String name, CustomerType type})> created,
+  })
+>
+_open(
   WidgetTester tester, {
   List<Customer> customers = const [],
   String? loadError,
@@ -105,7 +110,10 @@ Future<PosCustomerSelection?> _tapFor(
 
 void main() {
   testWidgets('lists the named customers to choose from', (tester) async {
-    await _open(tester, customers: [_customer(1, 'Maria Santos'), _customer(2, 'Dela Cruz')]);
+    await _open(
+      tester,
+      customers: [_customer(1, 'Maria Santos'), _customer(2, 'Dela Cruz')],
+    );
 
     expect(find.text('Who is this sale for?'), findsOneWidget);
     expect(find.text('Maria Santos'), findsOneWidget);
@@ -113,7 +121,9 @@ void main() {
     expect(find.text('Walk-in (anonymous)'), findsOneWidget);
   });
 
-  testWidgets('does NOT list the Walk-in PLACEHOLDER as a pickable account', (tester) async {
+  testWidgets('does NOT list the Walk-in PLACEHOLDER as a pickable account', (
+    tester,
+  ) async {
     // It is offered as the explicit anonymous row instead. Listing it twice would let a cashier
     // select the shared placeholder as though it were a real customer.
     await _open(
@@ -128,63 +138,83 @@ void main() {
     expect(
       find.text(Customer.walkInName),
       findsNothing,
-      reason: 'the placeholder is not a real account, and anonymity has its own row',
+      reason:
+          'the placeholder is not a real account, and anonymity has its own row',
     );
   });
 
-  testWidgets('choosing "Walk-in (anonymous)" answers the anonymous selection', (tester) async {
-    final answer = await _tapFor(
-      tester,
-      'Walk-in (anonymous)',
-      customers: [_customer(1, 'Maria Santos')],
-    );
+  testWidgets(
+    'choosing "Walk-in (anonymous)" answers the anonymous selection',
+    (tester) async {
+      final answer = await _tapFor(
+        tester,
+        'Walk-in (anonymous)',
+        customers: [_customer(1, 'Maria Santos')],
+      );
 
-    expect(answer, isNotNull, reason: 'anonymous is a CHOICE, not a cancellation');
-    expect(answer!.isAnonymous, isTrue);
-    expect(answer.customer, isNull);
-  });
+      expect(
+        answer,
+        isNotNull,
+        reason: 'anonymous is a CHOICE, not a cancellation',
+      );
+      expect(answer!.isAnonymous, isTrue);
+      expect(answer.customer, isNull);
+    },
+  );
 
   testWidgets('choosing a customer answers that customer', (tester) async {
-    final answer = await _tapFor(tester, 'Maria Santos', customers: [_customer(7, 'Maria Santos')]);
+    final answer = await _tapFor(
+      tester,
+      'Maria Santos',
+      customers: [_customer(7, 'Maria Santos')],
+    );
 
     expect(answer, isNotNull);
     expect(answer!.isAnonymous, isFalse);
     expect(answer.customer?.id, 7);
   });
 
-  testWidgets('a cancelled dialog answers nothing, which is DIFFERENT from anonymous', (
+  testWidgets(
+    'a cancelled dialog answers nothing, which is DIFFERENT from anonymous',
+    (tester) async {
+      await _open(tester, customers: [_customer(1, 'Maria Santos')]);
+      Navigator.of(tester.element(find.text('Who is this sale for?'))).pop();
+      await tester.pumpAndSettle();
+
+      // Null means "change nothing"; the anonymous selection means "go back to anonymous". The
+      // wrapper type exists precisely so those two cannot be confused.
+      expect(find.text('Who is this sale for?'), findsNothing);
+    },
+  );
+
+  testWidgets('a failed load is stated, not shown as an empty list', (
     tester,
   ) async {
-    await _open(tester, customers: [_customer(1, 'Maria Santos')]);
-    Navigator.of(tester.element(find.text('Who is this sale for?'))).pop();
-    await tester.pumpAndSettle();
-
-    // Null means "change nothing"; the anonymous selection means "go back to anonymous". The
-    // wrapper type exists precisely so those two cannot be confused.
-    expect(find.text('Who is this sale for?'), findsNothing);
-  });
-
-  testWidgets('a failed load is stated, not shown as an empty list', (tester) async {
     await _open(tester, loadError: 'The customer list could not be loaded.');
 
     expect(find.text('The customer list could not be loaded.'), findsOneWidget);
   });
 
   group('recording a new customer', () {
-    testWidgets('asks only for a name and a type - never a TIN or a credit limit', (tester) async {
-      await _open(tester);
-      await tester.tap(find.text('New customer'));
-      await tester.pumpAndSettle();
+    testWidgets(
+      'asks only for a name and a type - never a TIN or a credit limit',
+      (tester) async {
+        await _open(tester);
+        await tester.tap(find.text('New customer'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('Name'), findsOneWidget);
-      expect(find.text('Type'), findsOneWidget);
-      expect(find.text('Save and use'), findsOneWidget);
-      // Credit control is not the till's job (decision 14, locked decision 1).
-      expect(find.textContaining('TIN'), findsNothing);
-      expect(find.textContaining('credit'), findsNothing);
-    });
+        expect(find.text('Name'), findsOneWidget);
+        expect(find.text('Type'), findsOneWidget);
+        expect(find.text('Save and use'), findsOneWidget);
+        // Credit control is not the till's job (decision 14, locked decision 1).
+        expect(find.textContaining('TIN'), findsNothing);
+        expect(find.textContaining('credit'), findsNothing);
+      },
+    );
 
-    testWidgets('does NOT offer Walk-in as a type for a NAMED record', (tester) async {
+    testWidgets('does NOT offer Walk-in as a type for a NAMED record', (
+      tester,
+    ) async {
       await _open(tester);
       await tester.tap(find.text('New customer'));
       await tester.pumpAndSettle();
@@ -196,12 +226,15 @@ void main() {
       expect(
         find.text('Walk-in'),
         findsNothing,
-        reason: 'a record typed walk-in is refused by the server AND hidden by this picker - '
+        reason:
+            'a record typed walk-in is refused by the server AND hidden by this picker - '
             'the dead end task 6 removed',
       );
     });
 
-    testWidgets('an empty name is refused WITHOUT calling the server', (tester) async {
+    testWidgets('an empty name is refused WITHOUT calling the server', (
+      tester,
+    ) async {
       final result = await _open(tester);
       await tester.tap(find.text('New customer'));
       await tester.pumpAndSettle();
@@ -214,10 +247,16 @@ void main() {
         isEmpty,
         reason: 'a blank name must not become a POST',
       );
-      expect(find.text('Who is this sale for?'), findsOneWidget, reason: 'the dialog stays open');
+      expect(
+        find.text('Who is this sale for?'),
+        findsOneWidget,
+        reason: 'the dialog stays open',
+      );
     });
 
-    testWidgets('a failed create shows the SERVER message and stays open', (tester) async {
+    testWidgets('a failed create shows the SERVER message and stays open', (
+      tester,
+    ) async {
       final result = await _open(
         tester,
         createError: 'A customer with that name already exists.',
@@ -228,64 +267,72 @@ void main() {
       await tester.tap(find.text('Save and use'));
       await tester.pumpAndSettle();
 
-      expect(find.text('A customer with that name already exists.'), findsOneWidget);
+      expect(
+        find.text('A customer with that name already exists.'),
+        findsOneWidget,
+      );
       // A create that failed must select NOTHING and must not close as though it worked.
       expect(result.answer, isNull);
       expect(result.created.single.name, 'Maria Santos');
     });
 
-    testWidgets('a successful create answers with it, and sends the CHOSEN type', (tester) async {
-      PosCustomerSelection? answer;
-      final created = <({String name, CustomerType type})>[];
+    testWidgets(
+      'a successful create answers with it, and sends the CHOSEN type',
+      (tester) async {
+        PosCustomerSelection? answer;
+        final created = <({String name, CustomerType type})>[];
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Builder(
-            builder: (context) => Scaffold(
-              body: Center(
-                child: ElevatedButton(
-                  onPressed: () async {
-                    answer = await showDialog<PosCustomerSelection>(
-                      context: context,
-                      builder: (_) => PosCustomerPickerDialog(
-                        customers: const [],
-                        loadError: null,
-                        onCreate: (name, type) async {
-                          created.add((name: name, type: type));
-                          return (_customer(77, name), null);
-                        },
-                      ),
-                    );
-                  },
-                  child: const Text('open'),
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: Center(
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      answer = await showDialog<PosCustomerSelection>(
+                        context: context,
+                        builder: (_) => PosCustomerPickerDialog(
+                          customers: const [],
+                          loadError: null,
+                          onCreate: (name, type) async {
+                            created.add((name: name, type: type));
+                            return (_customer(77, name), null);
+                          },
+                        ),
+                      );
+                    },
+                    child: const Text('open'),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      );
-      await tester.tap(find.text('open'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('New customer'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'New Person');
-      await tester.tap(find.text('Contractor'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Save and use'));
-      await tester.pumpAndSettle();
+        );
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('New customer'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField).last, 'New Person');
+        await tester.tap(find.text('Contractor'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Save and use'));
+        await tester.pumpAndSettle();
 
-      expect(answer?.customer?.name, 'New Person');
-      expect(created.single.name, 'New Person');
-      expect(
-        created.single.type,
-        CustomerType.contractor,
-        reason: 'the chip the cashier tapped is what gets sent, not the default',
-      );
-    });
-
+        expect(answer?.customer?.name, 'New Person');
+        expect(created.single.name, 'New Person');
+        expect(
+          created.single.type,
+          CustomerType.contractor,
+          reason:
+              'the chip the cashier tapped is what gets sent, not the default',
+        );
+      },
+    );
   });
 
-  testWidgets('a search that matches nothing says how to proceed', (tester) async {
+  testWidgets('a search that matches nothing says how to proceed', (
+    tester,
+  ) async {
     await _open(tester, customers: [_customer(1, 'Maria Santos')]);
     await tester.enterText(find.byType(TextField).first, 'zzz');
     await tester.pumpAndSettle();

@@ -9,6 +9,8 @@ class PosCatalogItem {
     required this.conversionFactor,
     required this.unitPrice,
     required this.availableBaseStock,
+    this.categoryName = '',
+    this.brandName = '',
   });
   final int variantUomId;
   final int variantId;
@@ -19,6 +21,10 @@ class PosCatalogItem {
   final double conversionFactor;
   final double unitPrice;
   final double availableBaseStock;
+
+  /// Shown on the till's product card and used by its category chips.
+  final String categoryName;
+  final String brandName;
   double get availableSaleQuantity => availableBaseStock / conversionFactor;
 }
 

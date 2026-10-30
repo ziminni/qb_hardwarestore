@@ -15,8 +15,12 @@ import 'package:client/features/pos/widgets/pos_utang_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Customer _customer({double creditLimit = 0}) =>
-    Customer(id: 6, name: 'Maria Santos', customerType: 'REGULAR', totalCreditLimit: creditLimit);
+Customer _customer({double creditLimit = 0}) => Customer(
+  id: 6,
+  name: 'Maria Santos',
+  customerType: 'REGULAR',
+  totalCreditLimit: creditLimit,
+);
 
 CustomerLedgerSummary _summary({
   double balance = 0,
@@ -54,7 +58,9 @@ Future<void> _pump(
 }
 
 void main() {
-  testWidgets('an anonymous sale says WHY there is nothing to show', (tester) async {
+  testWidgets('an anonymous sale says WHY there is nothing to show', (
+    tester,
+  ) async {
     await _pump(tester, customer: null);
 
     expect(find.textContaining('Anonymous sale'), findsOneWidget);
@@ -82,12 +88,15 @@ void main() {
     expect(
       find.text('No utang'),
       findsNothing,
-      reason: '0.00 is a claim that they owe nothing, and it is the more believable for being a number',
+      reason:
+          '0.00 is a claim that they owe nothing, and it is the more believable for being a number',
     );
     expect(find.textContaining('headroom'), findsNothing);
   });
 
-  testWidgets('a customer who owes money shows the balance and the counts', (tester) async {
+  testWidgets('a customer who owes money shows the balance and the counts', (
+    tester,
+  ) async {
     await _pump(
       tester,
       customer: _customer(),
@@ -99,7 +108,9 @@ void main() {
     expect(find.textContaining('Regular'), findsOneWidget);
   });
 
-  testWidgets('a customer with no debt says so instead of showing 0.00', (tester) async {
+  testWidgets('a customer with no debt says so instead of showing 0.00', (
+    tester,
+  ) async {
     await _pump(tester, customer: _customer(), summary: _summary());
 
     expect(find.text('No utang'), findsOneWidget);
@@ -109,23 +120,29 @@ void main() {
   });
 
   group('the credit-limit rule', () {
-    testWidgets('0 means NOT SET, so it is a neutral note and never a warning', (tester) async {
-      await _pump(
-        tester,
-        customer: _customer(creditLimit: 0),
-        summary: _summary(balance: 900),
-        thisSaleTotal: 500,
-      );
+    testWidgets(
+      '0 means NOT SET, so it is a neutral note and never a warning',
+      (tester) async {
+        await _pump(
+          tester,
+          customer: _customer(creditLimit: 0),
+          summary: _summary(balance: 900),
+          thisSaleTotal: 500,
+        );
 
-      expect(find.text('No credit limit set'), findsOneWidget);
-      expect(
-        find.textContaining('over the'),
-        findsNothing,
-        reason: 'warning on 0 would fire for every customer on every utang sale',
-      );
-    });
+        expect(find.text('No credit limit set'), findsOneWidget);
+        expect(
+          find.textContaining('over the'),
+          findsNothing,
+          reason:
+              'warning on 0 would fire for every customer on every utang sale',
+        );
+      },
+    );
 
-    testWidgets('within the limit it shows the remaining headroom', (tester) async {
+    testWidgets('within the limit it shows the remaining headroom', (
+      tester,
+    ) async {
       await _pump(
         tester,
         customer: _customer(creditLimit: 1000),
@@ -138,19 +155,24 @@ void main() {
       expect(find.textContaining('over the'), findsNothing);
     });
 
-    testWidgets('a sale that would exceed the limit warns by the exact overage', (tester) async {
-      await _pump(
-        tester,
-        customer: _customer(creditLimit: 1000),
-        summary: _summary(balance: 900),
-        thisSaleTotal: 250,
-      );
+    testWidgets(
+      'a sale that would exceed the limit warns by the exact overage',
+      (tester) async {
+        await _pump(
+          tester,
+          customer: _customer(creditLimit: 1000),
+          summary: _summary(balance: 900),
+          thisSaleTotal: 250,
+        );
 
-      expect(
-        find.textContaining('This sale would take them ₱150.00 over the ₱1000.00 limit'),
-        findsOneWidget,
-      );
-    });
+        expect(
+          find.textContaining(
+            'This sale would take them ₱150.00 over the ₱1000.00 limit',
+          ),
+          findsOneWidget,
+        );
+      },
+    );
 
     testWidgets('exactly at the limit is NOT over it', (tester) async {
       // The boundary decides whether a customer is warned at the moment they are still fine.
@@ -165,7 +187,9 @@ void main() {
       expect(find.textContaining('₱0.00 headroom'), findsOneWidget);
     });
 
-    testWidgets('the warning is ADVISORY: the balance and counts still render', (tester) async {
+    testWidgets('the warning is ADVISORY: the balance and counts still render', (
+      tester,
+    ) async {
       // "Never a hard block" is a property of this widget being presentational - it has no
       // callback it could refuse with. Asserted so that adding one has to break a test.
       await _pump(

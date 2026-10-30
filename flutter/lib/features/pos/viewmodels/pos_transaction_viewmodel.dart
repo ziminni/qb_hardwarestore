@@ -61,6 +61,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
   final List<PosCartLine> _lines = [];
   final List<PosReceipt> _receipts = [];
   String _query = '';
+  String? _category;
   bool _isSubmitting = false;
   String? _submitError;
 
@@ -359,7 +360,20 @@ class PosTransactionViewmodel extends ChangeNotifier {
     return null;
   }
 
-  List<PosCatalogItem> get _catalog {
+  /// The sellable rows, built once per inventory change.
+  ///
+  /// Building walks every variant and sums every batch, so it is cached: the
+  /// till reads it several times per keystroke (search, chips, cart checks).
+  /// [_inventoryChanged] drops the cache, so stock and prices stay live.
+  List<PosCatalogItem> get _catalog => _catalogCache ??= _buildCatalog();
+  List<PosCatalogItem>? _catalogCache;
+
+  /// How many times the catalogue was built. For tests of the cache.
+  @visibleForTesting
+  int catalogueBuilds = 0;
+
+  List<PosCatalogItem> _buildCatalog() {
+    catalogueBuilds++;
     final items = <PosCatalogItem>[];
     for (final record in _inventory.stockRecords) {
       if (!record.product.isActive ||
@@ -407,6 +421,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
             conversionFactor: uom.conversionFactor,
             unitPrice: uom.defaultSellingPrice,
             availableBaseStock: _inventory.stockOnHandFor(record.variant.id),
+            categoryName: record.product.categoryName,
+            brandName: record.product.brandName,
           ),
         );
       }
@@ -414,10 +430,32 @@ class PosTransactionViewmodel extends ChangeNotifier {
     return items;
   }
 
+  /// The till's category chips: each category in the catalogue once, sorted.
+  List<String> get categories {
+    final names = {
+      for (final item in _catalog)
+        if (item.categoryName.isNotEmpty) item.categoryName,
+    }.toList()..sort();
+    return names;
+  }
+
+  /// The chip in force, or null for all categories.
+  String? get selectedCategory => _category;
+
+  void setCategory(String? category) {
+    _category = category;
+    notifyListeners();
+  }
+
   List<PosCatalogItem> get filteredProducts {
-    final matched = _query.isEmpty
+    final inCategory = _category == null
         ? _catalog
         : _catalog
+              .where((item) => item.categoryName == _category)
+              .toList(growable: false);
+    final matched = _query.isEmpty
+        ? inCategory
+        : inCategory
               .where(
                 (item) =>
                     item.productName.toLowerCase().contains(_query) ||
@@ -503,7 +541,10 @@ class PosTransactionViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _inventoryChanged() => notifyListeners();
+  void _inventoryChanged() {
+    _catalogCache = null;
+    notifyListeners();
+  }
 
   @override
   void dispose() {
@@ -547,6 +588,28 @@ class PosTransactionViewmodel extends ChangeNotifier {
       _lines[index] = _lines[index].copyWith(quantity: cartQuantity + quantity);
     }
     // The payload changed, so any attempt already started is no longer this sale.
+    _dropAttemptKey();
+    notifyListeners();
+    return null;
+  }
+
+  /// One more or one fewer of a cart line's unit (the cart's +/- buttons).
+  ///
+  /// A + goes through [addLine], so it meets the same stock check as a scan;
+  /// a - that reaches zero removes the line. Returns the refusal, or null.
+  String? stepLine(int index, int delta) {
+    final line = _lines[index];
+    if (delta > 0) {
+      final row = _rowFor(line);
+      if (row == null) return 'This item is no longer in the catalogue.';
+      return addLine(row, delta.toDouble());
+    }
+    final quantity = line.quantity + delta;
+    if (quantity <= 0) {
+      removeLine(index);
+      return null;
+    }
+    _lines[index] = line.copyWith(quantity: quantity);
     _dropAttemptKey();
     notifyListeners();
     return null;

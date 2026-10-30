@@ -1,3 +1,4 @@
+import 'package:client/core/constants/app_breakpoints.dart';
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/units/whole_units.dart';
@@ -18,6 +19,7 @@ import 'package:client/features/pos/widgets/pos_underpayment_dialog.dart';
 import 'package:client/features/pos/widgets/pos_product_browser.dart';
 import 'package:client/features/pos/widgets/pos_receipt_dialog.dart';
 import 'package:client/features/pos/widgets/pos_sale_quantity_dialog.dart';
+import 'package:client/features/pos/widgets/pos_cart_bar.dart';
 import 'package:client/features/pos/widgets/pos_transaction_cart.dart';
 import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:flutter/material.dart';
@@ -165,7 +167,15 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
             selectedNavigationIndex: 0,
             navigationItems: posNavigationItems,
             onNavigationSelected: (i) => navigatePos(context, i),
+            // The till sizes itself to the window instead of scrolling, so
+            // the cart's Pay button never lands below the fold.
+            scrollable: false,
+            // Which shift the sales are counted in, and the way out of it.
+            actions: [
+              if (shift.currentShift != null) ..._shiftActions(context, shift),
+            ],
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (inventory.loadError != null)
                   Padding(
@@ -180,8 +190,15 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
                     message: shift.loadError!,
                     onRetry: shift.loadCurrent,
                   ),
-                if (shift.currentShift != null) _shiftStrip(context, shift),
-                _till(context, inventory, shift, transaction, products),
+                Expanded(
+                  child: _till(
+                    context,
+                    inventory,
+                    shift,
+                    transaction,
+                    products,
+                  ),
+                ),
               ],
             ),
           );
@@ -203,29 +220,37 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     List<PosCatalogItem> products,
   ) {
     if (shift.isLoading && shift.currentShift == null) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: AppSpacing.xxl),
-        child: Center(child: CircularProgressIndicator()),
+      return const SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: AppSpacing.xxl),
+          child: Center(child: CircularProgressIndicator()),
+        ),
       );
     }
     // A failed check is NOT "no shift": the banner above offers the retry, and
     // the open-shift form stays hidden so a second shift cannot be opened on
     // top of one that may still be running.
     if (shift.loadError != null && shift.currentShift == null) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: AppSpacing.xxl),
-        child: Center(child: Text('The shift could not be checked.')),
+      return const SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: AppSpacing.xxl),
+          child: Center(child: Text('The shift could not be checked.')),
+        ),
       );
     }
-    if (!shift.hasOpenShift) return const _OpenShiftGate();
+    if (!shift.hasOpenShift) {
+      return const SingleChildScrollView(child: _OpenShiftGate());
+    }
 
     // F2 page sweep: the product browser is the CATALOGUE, and until the first
     // fetch finishes it is unknown — not empty. Without this the grid said "No
     // products match your search." at a cashier who had not searched.
     if (inventory.isLoading && !inventory.hasLoaded) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: AppSpacing.xxl),
-        child: Center(child: CircularProgressIndicator()),
+      return const SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: AppSpacing.xxl),
+          child: Center(child: CircularProgressIndicator()),
+        ),
       );
     }
     // A failed catalogue is not a search that found nothing. The banner above
@@ -234,68 +259,161 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     final catalogueEmpty =
         inventory.loadError != null && inventory.products.isEmpty;
 
-    // The shift strip above the till eats its own height; without subtracting it
-    // the cart's Pay button lands below the viewport, where a tap misses it.
-    final stripHeight = shift.currentShift == null ? 0.0 : 48.0;
+    final browser = PosProductBrowser(
+      products: products,
+      emptyMessage: catalogueEmpty
+          ? 'The product catalogue could not be loaded.'
+          : 'No products match your search.',
+      searchController: _scanController,
+      searchFocusNode: _scanFocusNode,
+      onSubmitted: (value) => _handleScan(context, value),
+      onSearch: transaction.setQuery,
+      onSelect: (product) => _addProduct(context, product),
+      categories: transaction.categories,
+      selectedCategory: transaction.selectedCategory,
+      onCategorySelected: transaction.setCategory,
+    );
 
-    return SizedBox(
-      height: MediaQuery.sizeOf(context).height - 132 - stripHeight,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            flex: 3,
-            child: PosProductBrowser(
-              products: products,
-              emptyMessage: catalogueEmpty
-                  ? 'The product catalogue could not be loaded.'
-                  : 'No products match your search.',
-              searchController: _scanController,
-              searchFocusNode: _scanFocusNode,
-              onSubmitted: (value) => _handleScan(context, value),
-              onSearch: transaction.setQuery,
-              onSelect: (product) => _addProduct(context, product),
-            ),
-          ),
-          const SizedBox(width: 18),
-          Expanded(
-            flex: 2,
-            child: PosTransactionCart(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Wide enough for both: products and cart side by side, the cart at
+        // a readable fixed width so the product grid takes what is left.
+        if (constraints.maxWidth >= _sideBySideMinWidth) {
+          final cartWidth = (constraints.maxWidth * 0.38).clamp(340.0, 440.0);
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: browser),
+              const SizedBox(width: 18),
+              SizedBox(
+                width: cartWidth,
+                child: PosTransactionCart(
+                  onPayment: () => _pay(context),
+                  onClear: transaction.clear,
+                  onHold: () => _hold(context),
+                  onChangeCustomer: () => _changeCustomer(context),
+                ),
+              ),
+            ],
+          );
+        }
+        // A narrow window: the products get the screen, and the sale stays
+        // one tap away in a bar pinned under them.
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(child: browser),
+            const SizedBox(height: AppSpacing.md),
+            PosCartBar(
+              onViewCart: () => _openCartSheet(context),
               onPayment: () => _pay(context),
-              onClear: transaction.clear,
-              onHold: () => _hold(context),
-              onChangeCustomer: () => _changeCustomer(context),
             ),
-          ),
-        ],
-      ),
+          ],
+        );
+      },
     );
   }
 
-  /// Which shift the sales below are being counted in, and the way out of it.
-  Widget _shiftStrip(BuildContext context, ShiftViewmodel shift) {
-    final current = shift.currentShift!;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.md),
-      child: Row(
-        children: [
-          const Icon(Icons.access_time, size: 16),
-          const SizedBox(width: AppSpacing.xs),
-          Expanded(
-            child: Text(
-              'Shift open · opening float '
-              '₱${current.openingFloat.toStringAsFixed(2)}',
-              overflow: TextOverflow.ellipsis,
+  /// Below this till width the cart moves into [PosCartBar] and a sheet.
+  static const double _sideBySideMinWidth = 840;
+
+  /// The full cart on a narrow window. The sheet is a new route, outside this
+  /// page's providers, so the sale's viewmodel is handed in explicitly.
+  Future<void> _openCartSheet(BuildContext context) {
+    final transaction = context.read<PosTransactionViewmodel>();
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        void closeThen(VoidCallback action) {
+          Navigator.of(sheetContext).pop();
+          action();
+        }
+
+        return ChangeNotifierProvider<PosTransactionViewmodel>.value(
+          value: transaction,
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.85,
+              ),
+              child: PosTransactionCart(
+                onPayment: () => closeThen(() => _pay(context)),
+                onClear: transaction.clear,
+                onHold: () => closeThen(() => _hold(context)),
+                onChangeCustomer: () => _changeCustomer(context),
+              ),
             ),
           ),
-          TextButton.icon(
-            onPressed: () => showShiftCloseDialog(context, shift),
-            icon: const Icon(Icons.lock_outline, size: 16),
-            label: const Text('Close shift'),
-          ),
-        ],
-      ),
+        );
+      },
     );
+  }
+
+  /// The header's shift chip and Close shift button.
+  ///
+  /// On a narrow window the float drops out of the chip and the button keeps
+  /// only its icon, so the page title still has room.
+  List<Widget> _shiftActions(BuildContext context, ShiftViewmodel shift) {
+    final current = shift.currentShift!;
+    final narrow = MediaQuery.sizeOf(context).width < AppBreakpoints.rail;
+    final float = '₱${current.openingFloat.toStringAsFixed(2)}';
+    return [
+      Tooltip(
+        message: 'Opening float $float',
+        child: Container(
+          height: 36,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: AppColors.successTint,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: AppColors.successText,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                narrow ? 'Shift open' : 'Shift open · float $float',
+                style: const TextStyle(
+                  color: AppColors.successText,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(width: AppSpacing.md),
+      Tooltip(
+        // Only the icon shows on a narrow window, so the name moves here.
+        message: narrow ? 'Close shift' : 'Count the drawer and end the shift',
+        child: TextButton.icon(
+          onPressed: () => showShiftCloseDialog(context, shift),
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.textPrimary,
+            minimumSize: const Size(44, 44),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+              side: const BorderSide(color: AppColors.border),
+            ),
+          ),
+          icon: const Icon(Icons.lock_outline, size: 18),
+          label: narrow ? const SizedBox.shrink() : const Text('Close shift'),
+        ),
+      ),
+    ];
   }
 
   /// What a scanner just typed, end to end (decisions 13 + 17).

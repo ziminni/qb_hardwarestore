@@ -155,7 +155,12 @@ void main() {
   testWidgets('an EMPTY cart cannot reach payment at all', (tester) async {
     await _pump(tester);
 
-    final pay = tester.widget<FilledButton>(find.byType(FilledButton).first);
+    final pay = tester.widget<FilledButton>(
+      find.ancestor(
+        of: find.text('Proceed to payment'),
+        matching: find.byWidgetPredicate((widget) => widget is FilledButton),
+      ),
+    );
     expect(pay.onPressed, isNull, reason: 'a zero-value receipt is not a sale');
     expect(_pos.calls, 0);
   });
