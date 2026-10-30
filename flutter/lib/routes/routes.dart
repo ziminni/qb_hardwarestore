@@ -172,26 +172,15 @@ class AppRoutes {
     return CustomTransitionPage<void>(
       key: state.pageKey,
       child: child,
-      transitionDuration: AppDurations.normal,
-      reverseTransitionDuration: AppDurations.normal,
+      // Short and fade-only: every sidebar click goes through this, and the
+      // old 300 ms fade plus slide made switching tabs feel slow.
+      transitionDuration: AppDurations.fast,
+      reverseTransitionDuration: AppDurations.fast,
       transitionsBuilder: (context, animation, secondaryAnimation, child) {
         if (MediaQuery.disableAnimationsOf(context)) return child;
-
-        final curvedAnimation = CurvedAnimation(
-          parent: animation,
-          curve: Curves.easeOutCubic,
-          reverseCurve: Curves.easeInCubic,
-        );
-
         return FadeTransition(
-          opacity: curvedAnimation,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0.015, 0),
-              end: Offset.zero,
-            ).animate(curvedAnimation),
-            child: child,
-          ),
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          child: child,
         );
       },
     );

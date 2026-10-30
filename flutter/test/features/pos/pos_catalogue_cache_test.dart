@@ -1,6 +1,6 @@
 // The till's catalogue is built from every variant and every stock batch.
 // It used to be rebuilt on each read, several times per keystroke; now it is
-// built once per inventory change (temp/ui-refresh/PERFORMANCE.md, #3).
+// built once per inventory change.
 
 import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/services/pos_service.dart';
