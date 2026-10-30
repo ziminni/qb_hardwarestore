@@ -2,7 +2,7 @@ import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/data/models/requisition.dart';
 import 'package:client/features/admin/viewmodels/admin_requisitions_viewmodel.dart';
-import 'package:client/features/admin/widgets/requisition_token_panel.dart';
+import 'package:client/features/admin/widgets/admin_requisition_token_panel.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
 import 'package:flutter/material.dart';
 
@@ -188,7 +188,7 @@ class _RequisitionRow extends StatelessWidget {
             ],
             if (row.token != null) ...[
               const SizedBox(height: 12),
-              RequisitionTokenPanel(token: row.token!),
+              AdminRequisitionTokenPanel(token: row.token!),
             ],
             if (actionable) ...[
               const SizedBox(height: 12),

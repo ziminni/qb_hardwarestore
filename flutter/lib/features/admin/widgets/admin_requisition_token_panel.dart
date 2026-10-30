@@ -18,16 +18,18 @@ Future<void> copyReleaseToken(BuildContext context, String token) async {
 /// (whoever holds it can release the goods on credit, see `get_token` in the
 /// requisition serializer), so it stays hidden until asked for; Copy works
 /// either way.
-class RequisitionTokenPanel extends StatefulWidget {
-  const RequisitionTokenPanel({super.key, required this.token});
+class AdminRequisitionTokenPanel extends StatefulWidget {
+  const AdminRequisitionTokenPanel({super.key, required this.token});
 
   final String token;
 
   @override
-  State<RequisitionTokenPanel> createState() => _RequisitionTokenPanelState();
+  State<AdminRequisitionTokenPanel> createState() =>
+      _AdminRequisitionTokenPanelState();
 }
 
-class _RequisitionTokenPanelState extends State<RequisitionTokenPanel> {
+class _AdminRequisitionTokenPanelState
+    extends State<AdminRequisitionTokenPanel> {
   bool _shown = false;
 
   @override

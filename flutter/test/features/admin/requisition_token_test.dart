@@ -9,6 +9,7 @@ import 'package:client/data/repositories/requisition_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/features/admin/viewmodels/admin_requisitions_viewmodel.dart';
 import 'package:client/features/admin/views/requisitions_page.dart';
+import 'package:client/features/admin/widgets/admin_requisition_token_panel.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -123,6 +124,7 @@ void main() {
     await _pump(tester, vm);
 
     // A bearer credential: present, but not on screen until asked for.
+    expect(find.byType(AdminRequisitionTokenPanel), findsOneWidget);
     expect(find.text('Release token'), findsOneWidget);
     expect(find.text(_approvedToken), findsNothing);
 
@@ -144,6 +146,7 @@ void main() {
     );
     await _pump(tester, vm);
 
+    expect(find.byType(AdminRequisitionTokenPanel), findsNothing);
     expect(find.text('Release token'), findsNothing);
   });
 }
