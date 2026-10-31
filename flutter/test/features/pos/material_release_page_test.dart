@@ -58,8 +58,12 @@ class _StubRequisitions extends RequisitionRepository {
   }
 }
 
-Future<void> _pump(WidgetTester tester, MaterialReleaseViewmodel vm) async {
-  tester.view.physicalSize = const Size(1600, 1400);
+Future<void> _pump(
+  WidgetTester tester,
+  MaterialReleaseViewmodel vm, {
+  Size size = const Size(1600, 1400),
+}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
@@ -94,6 +98,8 @@ void main() {
 
         await _pump(tester, vm);
         await tester.enterText(find.byType(TextField), 'a-token');
+        // The field enables the button on its next frame.
+        await tester.pump();
         await tester.tap(find.widgetWithText(FilledButton, 'Verify'));
         await tester.pumpAndSettle();
 
@@ -115,6 +121,8 @@ void main() {
 
       await _pump(tester, vm);
       await tester.enterText(find.byType(TextField), 'a-token');
+      // The field enables the button on its next frame.
+      await tester.pump();
       await tester.tap(find.widgetWithText(FilledButton, 'Verify'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Release materials'));
@@ -127,6 +135,115 @@ void main() {
       expect(
         find.widgetWithText(FilledButton, 'Release materials'),
         findsNothing,
+      );
+    });
+
+    testWidgets('"Verify another token" clears the screen for the next one', (
+      tester,
+    ) async {
+      final vm = MaterialReleaseViewmodel(repository: _StubRequisitions());
+
+      await _pump(tester, vm);
+      await tester.enterText(find.byType(TextField), 'a-token');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Verify'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Release materials'));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(
+        find.widgetWithText(OutlinedButton, 'Verify another token'),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.widgetWithText(OutlinedButton, 'Verify another token'),
+      );
+      await tester.pumpAndSettle();
+
+      // The field and every step go back to their starting state: the next
+      // foreman's token must not be released against the last one's lines.
+      expect(find.text('a-token'), findsNothing);
+      expect(vm.verification, isNull);
+      expect(vm.result, isNull);
+      expect(find.text('REQ-20260925-0003'), findsNothing);
+      expect(find.textContaining('TXN-20261017-0042'), findsNothing);
+      expect(find.text('Review the requisition'), findsOneWidget);
+    });
+
+    testWidgets('Enter in the token field verifies the token', (tester) async {
+      final repo = _StubRequisitions();
+      final vm = MaterialReleaseViewmodel(repository: repo);
+
+      await _pump(tester, vm);
+      await tester.enterText(find.byType(TextField), 'a-token');
+      // The clerk has a printed token and a keyboard. Pressing Enter is the
+      // whole interaction; reaching for the button is a second step nobody
+      // does at a counter.
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+
+      expect(
+        repo.verifyCalls,
+        1,
+        reason: 'Enter in the one field on this screen must verify the token',
+      );
+      expect(find.text('REQ-20260925-0003'), findsOneWidget);
+    });
+
+    testWidgets('the page does not scroll inside the shell scroll', (
+      tester,
+    ) async {
+      final vm = MaterialReleaseViewmodel(repository: _StubRequisitions());
+
+      await _pump(tester, vm, size: const Size(1400, 900));
+
+      expect(
+        find.byType(SingleChildScrollView),
+        findsOneWidget,
+        reason:
+            'the shell already scrolls the page body; a second scroll view '
+            'cuts the content off at the bottom of a fixed box',
+      );
+      // 900 is the window height, so the old fixed box was 900 - 132 = 768.
+      expect(
+        find.byWidgetPredicate(
+          (widget) => widget is SizedBox && widget.height == 768,
+        ),
+        findsNothing,
+        reason:
+            'a height that subtracts the header from the window clips the page '
+            'on every window the design did not measure',
+      );
+    });
+
+    testWidgets('the three steps are shown in order, narrow first', (
+      tester,
+    ) async {
+      final vm = MaterialReleaseViewmodel(repository: _StubRequisitions());
+
+      await _pump(tester, vm, size: const Size(760, 900));
+
+      const titles = [
+        'Verify the token',
+        'Review the requisition',
+        'Release receipt',
+      ];
+      for (final title in titles) {
+        expect(
+          find.text(title),
+          findsOneWidget,
+          reason: 'the clerk must see step "$title" before doing it',
+        );
+      }
+
+      final tops = [
+        for (final title in titles) tester.getTopLeft(find.text(title)).dy,
+      ];
+      expect(
+        tops[0] < tops[1] && tops[1] < tops[2],
+        isTrue,
+        reason:
+            'verify, then review, then the receipt reads top to bottom: $tops',
       );
     });
   });

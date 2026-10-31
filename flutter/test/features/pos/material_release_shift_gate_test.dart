@@ -165,6 +165,8 @@ void main() {
         await pump(tester, repository: repo, visitedRoutes: visited);
 
         await tester.enterText(find.byType(TextField).first, 'b1e0-token');
+        // The field enables the button on its next frame.
+        await tester.pump();
         await tester.tap(find.widgetWithText(FilledButton, 'Verify'));
         await tester.pumpAndSettle();
 
@@ -208,6 +210,8 @@ void main() {
       await pump(tester, repository: repo);
 
       await tester.enterText(find.byType(TextField).first, 'b1e0-token');
+      // The field enables the button on its next frame.
+      await tester.pump();
       await tester.tap(find.widgetWithText(FilledButton, 'Verify'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Release materials'));
@@ -232,6 +236,8 @@ void main() {
       await pump(tester, repository: repo);
 
       await tester.enterText(find.byType(TextField).first, 'a-token');
+      // The field enables the button on its next frame.
+      await tester.pump();
       await tester.tap(find.widgetWithText(FilledButton, 'Verify'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Release materials'));

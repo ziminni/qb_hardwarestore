@@ -83,4 +83,17 @@ class MaterialReleaseViewmodel extends ChangeNotifier {
     notifyListeners();
     return true;
   }
+
+  /// Clears everything the last token put on screen, for the next customer.
+  ///
+  /// The guards above are what make a release safe; this is only the screen's
+  /// "next token" reset, so it never runs mid-request.
+  void reset() {
+    if (isBusy) return;
+    error = null;
+    needsOpenShift = false;
+    verification = null;
+    result = null;
+    notifyListeners();
+  }
 }
