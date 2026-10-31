@@ -1,16 +1,25 @@
+import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/constants/app_text_styles.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
+import 'package:client/data/models/inventory.dart';
+import 'package:client/data/models/reports.dart';
+import 'package:client/data/models/requisition.dart';
 import 'package:client/features/admin/viewmodels/admin_reports_viewmodel.dart';
-import 'package:client/features/sales/widgets/sales_records_table.dart';
+import 'package:client/shared/widgets/data_panel.dart';
+import 'package:client/shared/widgets/error_banner.dart';
+import 'package:client/shared/widgets/metric_grid.dart';
+import 'package:client/shared/widgets/metric_tile.dart';
+import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 /// The ONE admin/manager Reports screen (decision 16, as amended).
 ///
-/// Four tabs — Sales · Valuation · Movements · Requisitions — one report at a
-/// time. Sales and movements take a from/to range; valuation and requisition
-/// history do not. A failed tab names its failure without blanking the others.
+/// Four tabs: Sales, Valuation, Movements and Requisitions, one report at a
+/// time. A failed tab names its failure without blanking the other three.
 class ReportsPage extends StatelessWidget {
   const ReportsPage({super.key, this.viewmodel});
 
@@ -47,74 +56,224 @@ class _ReportsView extends StatelessWidget {
 /// The four-tab report body, **layout-agnostic on purpose**.
 ///
 /// It reads the `AdminReportsViewmodel` its host provides and renders nothing
-/// else — no shell, no sidebar. Two shells show these reports: the admin one
+/// else: no shell, no sidebar. Two shells show these reports: the admin one
 /// ([ReportsPage]) and the sales one (`SalesReportsPage`, decision D-01).
-/// Keeping the body here is what stops the second shell from becoming a copy
-/// of four tabs that drifts the first time a report changes.
-class ReportsContent extends StatelessWidget {
+/// Keeping the body here is what stops the second shell from becoming a copy of
+/// four reports that drifts the first time one of them changes.
+///
+/// The chosen period lives here, not in the viewmodel, because it is the same
+/// two dates for both ranged reports (Sales and Movements): switching tabs must
+/// not silently re-scope the numbers the reader is comparing.
+class ReportsContent extends StatefulWidget {
   const ReportsContent({super.key});
 
-  static const _tabs = ['Sales', 'Valuation', 'Movements', 'Requisitions'];
+  static const tabs = ['Sales', 'Valuation', 'Movements', 'Requisitions'];
+
+  @override
+  State<ReportsContent> createState() => _ReportsContentState();
+}
+
+/// The periods a report can cover, in the order the menu lists them.
+enum _ReportPeriod {
+  today('Today'),
+  thisWeek('This week'),
+  thisMonth('This month'),
+  last30Days('Last 30 days'),
+
+  /// Two days the reader picks; [boundsFor] cannot compute them.
+  custom('Custom range');
+
+  const _ReportPeriod(this.label);
+
+  final String label;
+
+  /// The two dates this period covers at [now], inclusive, or null for
+  /// [custom].
+  ///
+  /// Last 30 days is the server's own default (`DEFAULT_RANGE_DAYS = 30`:
+  /// `to` minus 30 days up to `to`), so leaving the period untouched and
+  /// choosing it ask for the same window.
+  DateTimeRange? boundsFor(DateTime now) {
+    final today = DateTime(now.year, now.month, now.day);
+    return switch (this) {
+      // Weeks start on Monday, the way the sales screens count them.
+      _ReportPeriod.today => DateTimeRange(start: today, end: today),
+      _ReportPeriod.thisWeek => DateTimeRange(
+        start: today.subtract(Duration(days: now.weekday - 1)),
+        end: today,
+      ),
+      _ReportPeriod.thisMonth => DateTimeRange(
+        start: DateTime(now.year, now.month),
+        end: today,
+      ),
+      _ReportPeriod.last30Days => DateTimeRange(
+        start: today.subtract(const Duration(days: 30)),
+        end: today,
+      ),
+      _ReportPeriod.custom => null,
+    };
+  }
+}
+
+class _ReportsContentState extends State<ReportsContent> {
+  _ReportPeriod _period = _ReportPeriod.last30Days;
+
+  /// The days the picker returned, kept so the control can name them.
+  DateTimeRange? _pickedRange;
+
+  /// The two days the report on screen covers.
+  DateTimeRange get _bounds => _period == _ReportPeriod.custom
+      ? (_pickedRange ?? _ReportPeriod.thisMonth.boundsFor(DateTime.now())!)
+      : _period.boundsFor(DateTime.now())!;
+
+  void _choose(_ReportPeriod period) {
+    setState(() => _period = period);
+    _send(period.boundsFor(DateTime.now())!);
+  }
+
+  Future<void> _chooseCustomRange() async {
+    final now = DateTime.now();
+    final selected = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 2),
+      lastDate: DateTime(now.year + 1),
+      // Opens on the range already applied: the reader always sees what they
+      // are narrowing, and Save with no taps is a valid choice.
+      initialDateRange: _period == _ReportPeriod.custom
+          ? _pickedRange
+          : _period.boundsFor(now),
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      _period = _ReportPeriod.custom;
+      _pickedRange = selected;
+    });
+    _send(selected);
+  }
+
+  void _send(DateTimeRange range) {
+    context.read<AdminReportsViewmodel>().setRange(
+      _isoDate(range.start),
+      _isoDate(range.end),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final viewmodel = context.watch<AdminReportsViewmodel>();
+    final periodControl = _PeriodControl(
+      period: _period,
+      rangeLabel: _period == _ReportPeriod.custom
+          ? '${formatDate(_bounds.start)} to ${formatDate(_bounds.end)}'
+          : null,
+      onSelected: _choose,
+      onCustom: _chooseCustomRange,
+    );
+
     return DefaultTabController(
-      length: _tabs.length,
+      length: ReportsContent.tabs.length,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           TabBar(
             isScrollable: true,
             onTap: (index) => viewmodel.selectTab(index),
-            tabs: [for (final tab in _tabs) Tab(text: tab)],
+            tabs: [for (final tab in ReportsContent.tabs) Tab(text: tab)],
           ),
           const SizedBox(height: AppSpacing.md),
-          // Fixed height, not Expanded: both shells lay their content out in an
-          // unbounded vertical scrollable, where flex has no meaning.
-          SizedBox(
-            height: 900,
-            child: TabBarView(
-              children: [
-                _SalesTab(viewmodel: viewmodel),
-                _ValuationTab(viewmodel: viewmodel),
-                _MovementsTab(viewmodel: viewmodel),
-                _RequisitionsTab(viewmodel: viewmodel),
-              ],
+          // No TabBarView: it demands a height of its own, and both shells hand
+          // the page an unbounded column inside their scroll view. The old
+          // fixed 900 px box was the answer to that, and it clipped the short
+          // reports. Only the selected tab is built, exactly like TabBarView.
+          switch (viewmodel.selectedTab) {
+            1 => _ValuationTab(viewmodel: viewmodel),
+            2 => _MovementsTab(
+              viewmodel: viewmodel,
+              periodControl: periodControl,
             ),
-          ),
+            3 => _RequisitionsTab(viewmodel: viewmodel),
+            _ => _SalesTab(viewmodel: viewmodel, periodControl: periodControl),
+          },
         ],
       ),
     );
   }
 }
 
-/// A small metric tile local to this screen.
-class _Tile extends StatelessWidget {
-  const _Tile({required this.label, required this.value});
+/// The period the two ranged reports cover: a menu of presets plus a date range
+/// picker for anything else.
+///
+/// One menu rather than a row of chips: `FilterBar` owns the chip look but it
+/// always renders a search field, and there is nothing to search in a table of
+/// daily totals (a5 report, "Differences from the plan").
+class _PeriodControl extends StatelessWidget {
+  const _PeriodControl({
+    required this.period,
+    required this.rangeLabel,
+    required this.onSelected,
+    required this.onCustom,
+  });
 
-  final String label;
-  final String value;
+  final _ReportPeriod period;
+
+  /// The two picked days in words, when [period] is custom.
+  final String? rangeLabel;
+
+  final ValueChanged<_ReportPeriod> onSelected;
+  final VoidCallback onCustom;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 220,
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    final label = rangeLabel ?? period.label;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: PopupMenuButton<_ReportPeriod>(
+        key: const Key('reports-period'),
+        tooltip: 'Report period',
+        initialValue: period,
+        onSelected: (value) =>
+            value == _ReportPeriod.custom ? onCustom() : onSelected(value),
+        itemBuilder: (context) => [
+          for (final option in _ReportPeriod.values)
+            PopupMenuItem<_ReportPeriod>(
+              value: option,
+              child: Text(option.label),
+            ),
+        ],
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 44),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppColors.cardBackground,
+            borderRadius: BorderRadius.circular(AppRadii.pill),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                value,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
+              const Icon(
+                Icons.event_outlined,
+                size: 16,
+                color: AppColors.textSecondary,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
                 ),
               ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(label),
+              const Icon(
+                Icons.arrow_drop_down,
+                size: 18,
+                color: AppColors.textSecondary,
+              ),
             ],
           ),
         ),
@@ -123,317 +282,404 @@ class _Tile extends StatelessWidget {
   }
 }
 
-/// Quantities render without a trailing ".0" — a count that reads "10.0" looks
-/// estimated, and these come from exact batch arithmetic.
-String _qty(num amount) =>
-    amount % 1 == 0 ? formatCount(amount.toInt()) : '$amount';
-
-/// A failed tab names the failure. A loading tab spins. Anything else is the
-/// caller's content — an error must never read as an empty report.
-class _TabBody extends StatelessWidget {
-  const _TabBody({
-    required this.isLoading,
+/// One tab's report, with the two rules every tab shares: a failed FIRST load is
+/// one banner and nothing else (a row of ₱0.00 tiles would read as a month
+/// nobody sold anything in), and a failed REFRESH keeps the numbers it already
+/// had and says why above them.
+class _ReportTab<T> extends StatelessWidget {
+  const _ReportTab({
+    required this.value,
     required this.error,
-    required this.child,
+    required this.onRetry,
+    required this.builder,
   });
 
-  final bool isLoading;
+  final T? value;
   final String? error;
-  final Widget child;
+  final VoidCallback onRetry;
+  final Widget Function(BuildContext context, T value) builder;
 
   @override
   Widget build(BuildContext context) {
-    if (isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (error != null) {
-      return Center(
-        child: Text(
-          error!,
-          style: TextStyle(color: Theme.of(context).colorScheme.error),
+    final data = value;
+    final failure = error;
+    if (data == null) {
+      if (failure != null) {
+        return Align(
+          alignment: Alignment.topCenter,
+          child: ErrorBanner(message: failure, onRetry: onRetry),
+        );
+      }
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: AppSpacing.xxl),
+          child: CircularProgressIndicator(),
         ),
       );
     }
-    return child;
-  }
-}
-
-class _RangeControls extends StatefulWidget {
-  const _RangeControls({required this.onApply});
-
-  final void Function(String? from, String? to) onApply;
-
-  @override
-  State<_RangeControls> createState() => _RangeControlsState();
-}
-
-class _RangeControlsState extends State<_RangeControls> {
-  final _from = TextEditingController();
-  final _to = TextEditingController();
-  String? _error;
-
-  @override
-  void dispose() {
-    _from.dispose();
-    _to.dispose();
-    super.dispose();
-  }
-
-  String? _clean(TextEditingController controller) {
-    final text = controller.text.trim();
-    return text.isEmpty ? null : text;
-  }
-
-  static final _datePattern = RegExp(r'^\d{4}-\d{2}-\d{2}$');
-
-  bool _valid(String? value) =>
-      value == null ||
-      (_datePattern.hasMatch(value) && DateTime.tryParse(value) != null);
-
-  @override
-  Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            SizedBox(
-              width: 180,
-              child: TextField(
-                key: const Key('reports-from'),
-                controller: _from,
-                decoration: const InputDecoration(
-                  labelText: 'From (YYYY-MM-DD)',
-                ),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            SizedBox(
-              width: 180,
-              child: TextField(
-                key: const Key('reports-to'),
-                controller: _to,
-                decoration: const InputDecoration(labelText: 'To (YYYY-MM-DD)'),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            OutlinedButton(
-              // A bad date never reaches the server: the tab keeps its fields
-              // and names the format, so a typo cannot brick the money tabs.
-              onPressed: () {
-                final from = _clean(_from);
-                final to = _clean(_to);
-                if (!_valid(from) || !_valid(to)) {
-                  setState(() => _error = 'Enter dates as YYYY-MM-DD.');
-                  return;
-                }
-                setState(() => _error = null);
-                widget.onApply(from, to);
-              },
-              child: const Text('Apply'),
-            ),
-          ],
-        ),
-        if (_error != null) ...[
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            _error!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-          ),
+        if (failure != null) ...[
+          ErrorBanner(message: failure, onRetry: onRetry),
+          const SizedBox(height: AppSpacing.md),
         ],
+        builder(context, data),
       ],
     );
   }
 }
 
+/// One day of sales, or the period's total: the total is a row of the same table
+/// so the money columns stay lined up down the decimal point.
+typedef _SalesRow = ({
+  String label,
+  int transactions,
+  double gross,
+  double vat,
+  bool isTotal,
+});
+
 class _SalesTab extends StatelessWidget {
-  const _SalesTab({required this.viewmodel});
+  const _SalesTab({required this.viewmodel, required this.periodControl});
 
   final AdminReportsViewmodel viewmodel;
+  final Widget periodControl;
+
+  List<DataPanelColumn<_SalesRow>> get _columns => [
+    DataPanelColumn<_SalesRow>(
+      label: 'Day',
+      flex: 3,
+      cell: (row) => _cell(row.label, bold: row.isTotal),
+    ),
+    DataPanelColumn<_SalesRow>(
+      label: 'Transactions',
+      numeric: true,
+      cell: (row) => _cell(formatCount(row.transactions), bold: row.isTotal),
+    ),
+    DataPanelColumn<_SalesRow>(
+      label: 'Gross',
+      numeric: true,
+      cell: (row) => _cell(formatPeso(row.gross), bold: row.isTotal),
+    ),
+    DataPanelColumn<_SalesRow>(
+      label: 'VAT',
+      numeric: true,
+      cell: (row) => _cell(formatPeso(row.vat), bold: row.isTotal),
+    ),
+  ];
+
+  List<_SalesRow> _rows(SalesSummary sales) => [
+    for (final day in sales.days)
+      (
+        label: _dateLabel(day.day),
+        transactions: day.transactions,
+        gross: day.gross,
+        vat: day.vat,
+        isTotal: false,
+      ),
+    if (sales.days.isNotEmpty)
+      (
+        label: 'Total',
+        transactions: sales.totalTransactions,
+        gross: sales.totalGross,
+        vat: sales.totalVat,
+        isTotal: true,
+      ),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    return _TabBody(
-      isLoading: viewmodel.isLoadingTab(0) && viewmodel.sales == null,
+    return _ReportTab<SalesSummary>(
+      value: viewmodel.sales,
       error: viewmodel.errorFor(0),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _RangeControls(onApply: (from, to) => viewmodel.setRange(from, to)),
-            const SizedBox(height: AppSpacing.md),
-            Wrap(
-              spacing: AppSpacing.md,
-              runSpacing: AppSpacing.md,
-              children: [
-                _Tile(
-                  label: 'Transactions',
-                  value: '${viewmodel.sales?.totalTransactions ?? 0}',
-                ),
-                _Tile(
-                  label: 'Gross sales',
-                  value: formatPeso(viewmodel.sales?.totalGross ?? 0),
-                ),
-                _Tile(
-                  label: 'VAT',
-                  value: formatPeso(viewmodel.sales?.totalVat ?? 0),
-                ),
-                _Tile(
-                  label: 'Discounts',
-                  value: formatPeso(viewmodel.sales?.totalDiscounts ?? 0),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.md),
-            SalesRecordsTable(
-              columns: const [
-                'Day',
-                'Transactions',
-                'Gross',
-                'VAT',
-                'Discounts',
-              ],
-              emptyMessage: 'No sales in this range.',
-              rows: [
-                for (final day in viewmodel.sales?.days ?? [])
-                  [
-                    Text(day.day),
-                    Text('${day.transactions}'),
-                    Text(formatPeso(day.gross)),
-                    Text(formatPeso(day.vat)),
-                    Text(formatPeso(day.discounts)),
-                  ],
-              ],
-            ),
-          ],
-        ),
+      onRetry: viewmodel.reload,
+      builder: (context, sales) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          periodControl,
+          const SizedBox(height: AppSpacing.md),
+          // D12: no Discounts tile. Checkout hard-zeroes the discount, so the
+          // tile could only ever read ₱0.00 and advertise a feature the system
+          // does not have.
+          MetricGrid(
+            children: [
+              MetricTile(
+                label: 'Transactions',
+                value: formatCount(sales.totalTransactions),
+                caption: 'Completed sales',
+              ),
+              MetricTile(
+                label: 'Gross sales',
+                value: formatPeso(sales.totalGross),
+              ),
+              MetricTile(label: 'VAT', value: formatPeso(sales.totalVat)),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          DataPanel<_SalesRow>(
+            columns: _columns,
+            rows: _rows(sales),
+            emptyMessage: 'No sales in this range.',
+          ),
+        ],
       ),
     );
   }
 }
+
+/// One category's valuation, or the total across every category on hand.
+typedef _ValuationRow = ({
+  String label,
+  int batches,
+  double units,
+  double cost,
+  double retail,
+  bool isTotal,
+});
 
 class _ValuationTab extends StatelessWidget {
   const _ValuationTab({required this.viewmodel});
 
   final AdminReportsViewmodel viewmodel;
 
+  List<DataPanelColumn<_ValuationRow>> get _columns => [
+    DataPanelColumn<_ValuationRow>(
+      label: 'Category',
+      flex: 3,
+      cell: (row) => _cell(row.label, bold: row.isTotal),
+    ),
+    DataPanelColumn<_ValuationRow>(
+      label: 'Batches',
+      numeric: true,
+      cell: (row) => _cell(formatCount(row.batches), bold: row.isTotal),
+    ),
+    DataPanelColumn<_ValuationRow>(
+      label: 'Units',
+      numeric: true,
+      cell: (row) => _cell(formatQuantity(row.units), bold: row.isTotal),
+    ),
+    DataPanelColumn<_ValuationRow>(
+      label: 'At cost',
+      numeric: true,
+      cell: (row) => _cell(formatPeso(row.cost), bold: row.isTotal),
+    ),
+    DataPanelColumn<_ValuationRow>(
+      label: 'At retail',
+      numeric: true,
+      cell: (row) => _cell(formatPeso(row.retail), bold: row.isTotal),
+    ),
+  ];
+
+  List<_ValuationRow> _rows(InventoryValuation valuation) => [
+    for (final category in valuation.categories)
+      (
+        label: category.name,
+        batches: category.batchCount,
+        units: category.units,
+        cost: category.cost,
+        retail: category.retail,
+        isTotal: false,
+      ),
+    if (valuation.categories.isNotEmpty)
+      (
+        label: 'Total',
+        batches: valuation.batchCount,
+        units: valuation.totalUnits,
+        cost: valuation.totalCost,
+        retail: valuation.totalRetail,
+        isTotal: true,
+      ),
+  ];
+
   @override
   Widget build(BuildContext context) {
-    return _TabBody(
-      isLoading: viewmodel.isLoadingTab(1) && viewmodel.valuation == null,
+    return _ReportTab<InventoryValuation>(
+      value: viewmodel.valuation,
       error: viewmodel.errorFor(1),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Wrap(
-              spacing: AppSpacing.md,
-              runSpacing: AppSpacing.md,
-              children: [
-                _Tile(
-                  label: 'Batches',
-                  value: '${viewmodel.valuation?.batchCount ?? 0}',
-                ),
-                _Tile(
-                  label: 'Units on hand',
-                  value: _qty(viewmodel.valuation?.totalUnits ?? 0),
-                ),
-                _Tile(
-                  label: 'Value at cost',
-                  value: formatPeso(viewmodel.valuation?.totalCost ?? 0),
-                ),
-                _Tile(
-                  label: 'Value at retail',
-                  value: formatPeso(viewmodel.valuation?.totalRetail ?? 0),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.md),
-            SalesRecordsTable(
-              columns: const [
-                'Category',
-                'Batches',
-                'Units',
-                'At cost',
-                'At retail',
-              ],
-              emptyMessage: 'No stock on hand.',
-              rows: [
-                for (final category in viewmodel.valuation?.categories ?? [])
-                  [
-                    Text(category.name),
-                    Text('${category.batchCount}'),
-                    Text(_qty(category.units)),
-                    Text(formatPeso(category.cost)),
-                    Text(formatPeso(category.retail)),
-                  ],
-              ],
-            ),
-          ],
-        ),
+      onRetry: viewmodel.reload,
+      builder: (context, valuation) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          MetricGrid(
+            children: [
+              MetricTile(
+                label: 'Batches',
+                value: formatCount(valuation.batchCount),
+              ),
+              MetricTile(
+                label: 'Units on hand',
+                value: formatQuantity(valuation.totalUnits),
+              ),
+              MetricTile(
+                label: 'Value at cost',
+                value: formatPeso(valuation.totalCost),
+              ),
+              MetricTile(
+                label: 'Value at retail',
+                value: formatPeso(valuation.totalRetail),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          DataPanel<_ValuationRow>(
+            columns: _columns,
+            rows: _rows(valuation),
+            emptyMessage: 'No stock on hand.',
+          ),
+        ],
       ),
     );
   }
 }
 
+/// One day of goods received, or the period's total.
+typedef _ReceiptRow = ({
+  String label,
+  int receipts,
+  double qtyIn,
+  bool isTotal,
+});
+
+/// One adjustment type, or the period's total.
+typedef _AdjustmentRow = ({
+  String label,
+  int movements,
+  double quantity,
+  bool isTotal,
+});
+
 class _MovementsTab extends StatelessWidget {
-  const _MovementsTab({required this.viewmodel});
+  const _MovementsTab({required this.viewmodel, required this.periodControl});
 
   final AdminReportsViewmodel viewmodel;
+  final Widget periodControl;
+
+  /// Says out loud what the server's "out" total counts. Sales and releases
+  /// never reach this endpoint, so an unlabelled total would read as the whole
+  /// stock movement.
+  static const String _note = 'Sales and releases are not included.';
+
+  List<DataPanelColumn<_ReceiptRow>> get _receiptColumns => [
+    DataPanelColumn<_ReceiptRow>(
+      label: 'Day',
+      flex: 3,
+      cell: (row) => _cell(row.label, bold: row.isTotal),
+    ),
+    DataPanelColumn<_ReceiptRow>(
+      label: 'Receipts',
+      numeric: true,
+      cell: (row) => _cell(formatCount(row.receipts), bold: row.isTotal),
+    ),
+    DataPanelColumn<_ReceiptRow>(
+      label: 'Quantity in',
+      numeric: true,
+      cell: (row) => _cell(formatQuantity(row.qtyIn), bold: row.isTotal),
+    ),
+  ];
+
+  List<DataPanelColumn<_AdjustmentRow>> get _adjustmentColumns => [
+    DataPanelColumn<_AdjustmentRow>(
+      label: 'Type',
+      flex: 3,
+      cell: (row) => _cell(row.label, bold: row.isTotal),
+    ),
+    DataPanelColumn<_AdjustmentRow>(
+      label: 'Adjustments',
+      numeric: true,
+      cell: (row) => _cell(formatCount(row.movements), bold: row.isTotal),
+    ),
+    DataPanelColumn<_AdjustmentRow>(
+      label: 'Quantity adjusted',
+      numeric: true,
+      cell: (row) => _cell(formatQuantity(row.quantity), bold: row.isTotal),
+    ),
+  ];
+
+  List<_ReceiptRow> _receipts(StockMovements movements) => [
+    for (final day in movements.receiptsByDay)
+      (
+        label: _dateLabel(day.date),
+        receipts: day.receipts,
+        qtyIn: day.qtyIn,
+        isTotal: false,
+      ),
+    if (movements.receiptsByDay.isNotEmpty)
+      (
+        label: 'Total',
+        receipts: movements.receiptsByDay.fold(0, (sum, d) => sum + d.receipts),
+        qtyIn: movements.totalIn,
+        isTotal: true,
+      ),
+  ];
+
+  List<_AdjustmentRow> _adjustments(StockMovements movements) => [
+    for (final type in movements.adjustmentsByType)
+      (
+        label: _adjustmentLabel(type.type),
+        movements: type.movements,
+        quantity: type.qtyOut,
+        isTotal: false,
+      ),
+    if (movements.adjustmentsByType.isNotEmpty)
+      (
+        label: 'Total',
+        movements: movements.adjustmentsByType.fold(
+          0,
+          (sum, t) => sum + t.movements,
+        ),
+        quantity: movements.totalOut,
+        isTotal: true,
+      ),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    return _TabBody(
-      isLoading: viewmodel.isLoadingTab(2) && viewmodel.movements == null,
+    return _ReportTab<StockMovements>(
+      value: viewmodel.movements,
       error: viewmodel.errorFor(2),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _RangeControls(onApply: (from, to) => viewmodel.setRange(from, to)),
-            const SizedBox(height: AppSpacing.md),
-            Wrap(
-              spacing: AppSpacing.md,
-              runSpacing: AppSpacing.md,
-              children: [
-                _Tile(
-                  label: 'Units in',
-                  value: _qty(viewmodel.movements?.totalIn ?? 0),
-                ),
-                _Tile(
-                  label: 'Units out',
-                  value: _qty(viewmodel.movements?.totalOut ?? 0),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.md),
-            SalesRecordsTable(
-              columns: const ['Day', 'Receipts', 'Qty in'],
-              emptyMessage: 'No receipts in this range.',
-              rows: [
-                for (final day in viewmodel.movements?.receiptsByDay ?? [])
-                  [
-                    Text(day.date),
-                    Text(formatCount(day.receipts)),
-                    Text(_qty(day.qtyIn)),
-                  ],
-              ],
-            ),
-            const SizedBox(height: AppSpacing.md),
-            SalesRecordsTable(
-              columns: const ['Type', 'Movements', 'Qty out'],
-              emptyMessage: 'No adjustments in this range.',
-              rows: [
-                for (final type in viewmodel.movements?.adjustmentsByType ?? [])
-                  [
-                    Text(type.type),
-                    Text('${type.movements}'),
-                    Text(_qty(type.qtyOut)),
-                  ],
-              ],
-            ),
-          ],
-        ),
+      onRetry: viewmodel.reload,
+      builder: (context, movements) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          periodControl,
+          const SizedBox(height: AppSpacing.md),
+          MetricGrid(
+            children: [
+              MetricTile(
+                label: 'Units in',
+                value: formatQuantity(movements.totalIn),
+                caption: 'Goods received',
+              ),
+              MetricTile(
+                label: 'Adjustments',
+                value: formatQuantity(movements.totalOut),
+                caption: 'Stock written off or corrected',
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          const Text(
+            _note,
+            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          const _SectionHeading(label: 'Goods received'),
+          const SizedBox(height: AppSpacing.sm),
+          DataPanel<_ReceiptRow>(
+            columns: _receiptColumns,
+            rows: _receipts(movements),
+            emptyMessage: 'No receipts in this range.',
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          const _SectionHeading(label: 'Adjustments by type'),
+          const SizedBox(height: AppSpacing.sm),
+          DataPanel<_AdjustmentRow>(
+            columns: _adjustmentColumns,
+            rows: _adjustments(movements),
+            emptyMessage: 'No adjustments in this range.',
+          ),
+        ],
       ),
     );
   }
@@ -444,53 +690,147 @@ class _RequisitionsTab extends StatelessWidget {
 
   final AdminReportsViewmodel viewmodel;
 
+  /// Widths measured at 1100 px: the requisition number, the status badge and
+  /// the two names hold their text, and the project name, the one long value in
+  /// the row, takes the rest of the width.
+  List<DataPanelColumn<RequisitionHistoryRow>> get _columns => [
+    DataPanelColumn<RequisitionHistoryRow>(
+      label: 'Requisition',
+      flex: 4,
+      cell: (row) => _cell(row.reqNumber),
+    ),
+    DataPanelColumn<RequisitionHistoryRow>(
+      label: 'Status',
+      flex: 4,
+      cell: (row) => StatusBadge(
+        label: _statusLabel(row.status),
+        tone: _statusTone(RequisitionStatus.fromApiValue(row.status)),
+      ),
+    ),
+    DataPanelColumn<RequisitionHistoryRow>(
+      label: 'Project',
+      flex: 10,
+      cell: (row) => _cell(row.project),
+    ),
+    DataPanelColumn<RequisitionHistoryRow>(
+      label: 'Requested by',
+      flex: 3,
+      cell: (row) => _cell(row.requestedBy),
+    ),
+    DataPanelColumn<RequisitionHistoryRow>(
+      label: 'Approved by',
+      flex: 3,
+      // D18: a word, not a lone dash, for "nobody approved this".
+      cell: (row) => _cell(row.approvedBy ?? 'Not approved'),
+    ),
+  ];
+
   @override
   Widget build(BuildContext context) {
-    final counts = viewmodel.history?.countByStatus ?? {};
-    return _TabBody(
-      isLoading: viewmodel.isLoadingTab(3) && viewmodel.history == null,
+    return _ReportTab<RequisitionHistory>(
+      value: viewmodel.history,
       error: viewmodel.errorFor(3),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      onRetry: viewmodel.reload,
+      builder: (context, history) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (history.countByStatus.isNotEmpty) ...[
             Wrap(
               spacing: AppSpacing.sm,
               runSpacing: AppSpacing.sm,
               children: [
-                for (final entry in counts.entries)
-                  Chip(label: Text('${entry.key}: ${entry.value}')),
+                for (final entry in history.countByStatus.entries)
+                  StatusBadge(
+                    label:
+                        '${_statusLabel(entry.key)}: '
+                        '${formatCount(entry.value)}',
+                    tone: _statusTone(
+                      RequisitionStatus.fromApiValue(entry.key),
+                    ),
+                  ),
               ],
             ),
             const SizedBox(height: AppSpacing.md),
-            SalesRecordsTable(
-              columns: const [
-                'Requisition',
-                'Status',
-                'Project',
-                'Requested by',
-                'Approved by',
-              ],
-              emptyMessage: 'No requisitions in this range.',
-              rows: [
-                for (final row in viewmodel.history?.requisitions ?? [])
-                  [
-                    Text(row.reqNumber),
-                    Text(
-                      row.status,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                    Text(row.project),
-                    Text(row.requestedBy),
-                    Text(row.approvedBy ?? '—'),
-                  ],
-              ],
-            ),
           ],
-        ),
+          DataPanel<RequisitionHistoryRow>(
+            columns: _columns,
+            rows: history.requisitions,
+            emptyMessage: 'No requisitions in this range.',
+          ),
+        ],
       ),
     );
   }
 }
+
+/// A panel heading above a table: `DataPanel` draws the white card itself, so
+/// its name lives outside it.
+class _SectionHeading extends StatelessWidget {
+  const _SectionHeading({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(
+        fontFamily: AppTextStyles.cinzelFont,
+        fontSize: 16,
+        fontWeight: FontWeight.w700,
+        color: AppColors.textPrimary,
+      ),
+    );
+  }
+}
+
+/// A table cell that shortens instead of pushing its row wider; the total row
+/// leans on weight alone, so no row grows a background stripe.
+Widget _cell(String text, {bool bold = false}) => Text(
+  text,
+  maxLines: 1,
+  overflow: TextOverflow.ellipsis,
+  style: TextStyle(
+    fontSize: 13,
+    fontWeight: bold ? FontWeight.w700 : FontWeight.w400,
+    color: AppColors.textPrimary,
+  ),
+);
+
+/// `2026-10-19` (the server's day) as `Oct 19, 2026` (D6). An unparsable day
+/// keeps the server's own word instead of showing a date nobody recorded.
+String _dateLabel(String value) {
+  final date = DateTime.tryParse(value);
+  return date == null ? value : formatDate(date);
+}
+
+/// The one shape the server's `from`/`to` query takes.
+String _isoDate(DateTime date) =>
+    '${date.year.toString().padLeft(4, '0')}-'
+    '${date.month.toString().padLeft(2, '0')}-'
+    '${date.day.toString().padLeft(2, '0')}';
+
+/// The server's adjustment type as words. A type the client has not been taught
+/// keeps the server's own token rather than being filed under a guess.
+String _adjustmentLabel(String type) {
+  for (final known in StockAdjustmentType.values) {
+    if (known.apiValue == type) return known.displayName;
+  }
+  return type;
+}
+
+/// A requisition status in words; an unknown status keeps the server's token.
+String _statusLabel(String apiValue) {
+  final status = RequisitionStatus.fromApiValue(apiValue);
+  return status == RequisitionStatus.unknown ? apiValue : status.label;
+}
+
+StatusTone _statusTone(RequisitionStatus status) => switch (status) {
+  RequisitionStatus.submitted => StatusTone.warning,
+  RequisitionStatus.approved => StatusTone.info,
+  RequisitionStatus.released => StatusTone.success,
+  RequisitionStatus.rejected => StatusTone.error,
+  RequisitionStatus.draft || RequisitionStatus.unknown => StatusTone.neutral,
+};

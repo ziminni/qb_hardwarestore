@@ -228,5 +228,18 @@ void main() {
       findsOneWidget,
       reason: 'the Sales tab must render live data, not an empty shell',
     );
+    // A5: the manager reads the SAME content as the admin, so the two fixes
+    // that changed it must be here too: no Discounts figure (D12) and the
+    // period picker instead of typed dates (D13).
+    expect(
+      find.text('Discounts'),
+      findsNothing,
+      reason: 'the sales shell must not keep a copy of the old Sales tab',
+    );
+    expect(
+      find.byKey(const Key('reports-period')),
+      findsOneWidget,
+      reason: 'the date range picker replaced the typed From/To fields',
+    );
   });
 }
