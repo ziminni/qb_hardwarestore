@@ -12,11 +12,16 @@
 import 'dart:io';
 
 import 'package:client/data/models/catalogue_option.dart';
+import 'package:client/data/models/product.dart';
+import 'package:client/data/services/products_service.dart';
 import 'package:client/features/categories/views/categories_page.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
+import 'package:client/shared/widgets/empty_state.dart';
+import 'package:client/shared/widgets/error_banner.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -25,10 +30,12 @@ import '../../no_dead_controls_test.dart' show stripDartComments;
 import '../../support/phase4_fakes.dart';
 
 void main() {
+  late _FlakyProductsRepository products;
   late FakeCatalogueRepository catalogue;
   late InventoryViewmodel inventory;
 
-  setUp(() async {
+  setUp(() {
+    products = _FlakyProductsRepository();
     catalogue = FakeCatalogueRepository(
       categories: [
         category(id: 1, name: 'Cement'),
@@ -38,14 +45,16 @@ void main() {
       units: const [UnitOfMeasure(id: 1, code: 'BAG', name: 'Bag')],
     );
     inventory = InventoryViewmodel(
-      products: FakeProductsRepository(),
+      products: products,
       inventory: FakeInventoryRepository(),
       catalogue: catalogue,
     );
-    await inventory.load();
   });
 
   Future<void> pumpPage(WidgetTester tester) async {
+    // The page reads the store and, if it was never loaded, fetches on open —
+    // the same path the live screen takes when the app opens on Categories.
+    await inventory.load();
     tester.view.physicalSize = const Size(2000, 1400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -62,6 +71,11 @@ void main() {
     );
     await tester.pumpAndSettle();
   }
+
+  /// A chip label lives in the filter bar; the same word may also be a status
+  /// badge on a card below it, so every chip tap is scoped to the bar.
+  Finder chip(String label) =>
+      find.descendant(of: find.byType(FilterBar), matching: find.text(label));
 
   testWidgets('creating a category POSTs it and the reload shows it', (
     tester,
@@ -139,6 +153,90 @@ void main() {
     expect(inventory.categories.firstWhere((c) => c.id == 1).name, 'Cement');
   });
 
+  // K3: a card that does not say how many products sit under a category makes
+  // archiving a blind choice. The number comes from the catalogue the store
+  // already loaded (every page of it), never from a new endpoint.
+  testWidgets('each card counts the products filed under its category', (
+    tester,
+  ) async {
+    products.setProducts([
+      product(id: 10, name: 'Portland Cement 40kg', categoryId: 1),
+      product(id: 11, name: 'Portland Cement 25kg', categoryId: 1),
+      product(id: 12, name: 'Masonry Cement', categoryId: 1),
+      product(id: 20, name: 'PVC Pipe 1/2 inch', categoryId: 2),
+    ]);
+
+    await pumpPage(tester);
+
+    expect(find.text('3 products'), findsOneWidget);
+    expect(find.text('1 product'), findsOneWidget);
+  });
+
+  // A failed reload must not throw the cards away: they are the last thing the
+  // server said, and the banner above them says why they may be stale.
+  testWidgets('a failed refresh keeps the cards under one retry banner', (
+    tester,
+  ) async {
+    await pumpPage(tester);
+    products.fail = true;
+
+    await inventory.load();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ErrorBanner), findsOneWidget);
+    expect(find.text('Cement'), findsOneWidget);
+    expect(find.text('Plumbing'), findsOneWidget);
+    expect(find.byType(EmptyState), findsNothing);
+  });
+
+  // The other half of the rule: with nothing loaded there is one failure and no
+  // empty state under it, because "no categories" is the one thing a failed
+  // fetch has not established.
+  testWidgets('a failed first load shows one failure and no empty state', (
+    tester,
+  ) async {
+    products.fail = true;
+
+    await pumpPage(tester);
+
+    expect(find.byType(ErrorBanner), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+    expect(find.byType(EmptyState), findsNothing);
+  });
+
+  testWidgets('the Archived chip narrows the grid to archived categories', (
+    tester,
+  ) async {
+    await pumpPage(tester);
+    expect(find.text('Cement'), findsOneWidget);
+    expect(find.text('Plumbing'), findsOneWidget);
+
+    await tester.tap(chip('Archived'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Plumbing'), findsOneWidget);
+    expect(find.text('Cement'), findsNothing);
+
+    await tester.tap(chip('Active'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Cement'), findsOneWidget);
+    expect(find.text('Plumbing'), findsNothing);
+  });
+
+  // "No categories yet" and "no categories match" are different facts, and the
+  // old screen said the second one for both.
+  testWidgets('an empty catalogue says there are no categories yet', (
+    tester,
+  ) async {
+    catalogue.setCategories(const []);
+
+    await pumpPage(tester);
+
+    expect(find.text('No categories yet.'), findsOneWidget);
+    expect(find.text('No categories match these filters.'), findsNothing);
+  });
+
   test('no screen claims a change lives in mock data', () {
     final offenders = <String>[];
     final files = Directory('lib')
@@ -166,4 +264,24 @@ void main() {
           'is the defect Phase 4 removed.\nFound in:\n${offenders.join('\n')}',
     );
   });
+}
+
+/// The products half of the catalogue, with a switch for the transport failure
+/// the live app shows when the server is unreachable — so a refresh can fail
+/// AFTER a good load and the page's stale-rows path is exercised.
+class _FlakyProductsRepository extends FakeProductsRepository {
+  bool fail = false;
+
+  void setProducts(List<Product> products) =>
+      setSnapshot(products: products, batches: const []);
+
+  @override
+  Future<ProductsSnapshot> loadCatalogue() async {
+    if (fail) {
+      throw const ProductsServiceException(
+        'Cannot connect to the BuildPro server.',
+      );
+    }
+    return super.loadCatalogue();
+  }
 }

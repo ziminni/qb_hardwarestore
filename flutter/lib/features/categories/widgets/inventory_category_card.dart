@@ -1,9 +1,18 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/category.dart';
+import 'package:client/shared/widgets/app_panel.dart';
+import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
 
+/// One category in the grid: what it is called, whether it is still offered,
+/// and how many products are filed under it.
+///
+/// The count is the point of the card (K3): archiving a category without
+/// knowing what sits under it was a blind choice. It is read off the catalogue
+/// the store already loaded, so it costs no request of its own.
 class InventoryCategoryCard extends StatelessWidget {
   const InventoryCategoryCard({
     super.key,
@@ -15,7 +24,10 @@ class InventoryCategoryCard extends StatelessWidget {
   });
 
   final Category category;
+
+  /// Products filed under this category in the loaded catalogue.
   final int productCount;
+
   final VoidCallback onView;
   final VoidCallback onEdit;
   final VoidCallback onArchive;
@@ -23,22 +35,18 @@ class InventoryCategoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    return Card(
-      margin: EdgeInsets.zero,
-      elevation: 0,
-      color: category.isActive
-          ? colors.surface
-          : colors.surfaceContainerHighest.withValues(alpha: .55),
-      shape: RoundedRectangleBorder(
-        side: const BorderSide(color: AppColors.border),
-        borderRadius: BorderRadius.circular(AppRadii.medium),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onView,
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
+    final productsLabel =
+        '${formatCount(productCount)} '
+        '${productCount == 1 ? 'product' : 'products'}';
+
+    return AppPanel(
+      // The whole card opens the details, so the tap area is the panel itself
+      // and not the "View details" label inside it.
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: onView,
+          borderRadius: BorderRadius.circular(AppRadii.medium),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -54,33 +62,19 @@ class InventoryCategoryCard extends StatelessWidget {
                     ),
                     child: const Icon(
                       Icons.category_outlined,
-                      color: AppColors.brandGold,
+                      color: AppColors.brandGoldText,
                     ),
                   ),
                   const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.sm,
-                      vertical: AppSpacing.xs,
-                    ),
-                    decoration: BoxDecoration(
-                      color:
-                          (category.isActive
-                                  ? AppColors.success
-                                  : AppColors.disabled)
-                              .withValues(alpha: .12),
-                      borderRadius: BorderRadius.circular(AppRadii.pill),
-                    ),
-                    child: Text(
-                      category.isActive ? 'Active' : 'Archived',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: category.isActive
-                            ? AppColors.success
-                            : AppColors.textSecondary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                  StatusBadge(
+                    label: category.isActive ? 'Active' : 'Archived',
+                    tone: category.isActive
+                        ? StatusTone.success
+                        : StatusTone.neutral,
                   ),
+                  // The menu is the card's action list. Archive and restore are
+                  // the same PATCH with the other flag: DELETE answers 405, so a
+                  // category is never removed.
                   PopupMenuButton<String>(
                     tooltip: 'Category actions',
                     onSelected: (value) {
@@ -91,8 +85,6 @@ class InventoryCategoryCard extends StatelessWidget {
                     itemBuilder: (_) => [
                       const PopupMenuItem(value: 'view', child: Text('View')),
                       const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                      // Archive and restore are the same PATCH with the other
-                      // flag — DELETE is 405, so a category is never removed.
                       if (category.isActive)
                         const PopupMenuItem(
                           value: 'archive',
@@ -110,27 +102,51 @@ class InventoryCategoryCard extends StatelessWidget {
               const SizedBox(height: AppSpacing.lg),
               Text(
                 category.name,
-                maxLines: 1,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: AppSpacing.sm),
-              // No description line: the server has no description column, and
-              // an empty paragraph reads as missing data (Phase 4 Task 4).
               const Divider(height: AppSpacing.xxl),
-              Row(
+              // Count on the left, the way into the details on the right. The
+              // count is the number a clerk checks before archiving.
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.xs,
                 children: [
-                  const Icon(Icons.inventory_2_outlined, size: 18),
-                  const SizedBox(width: AppSpacing.sm),
-                  Text(
-                    '$productCount ${productCount == 1 ? 'product' : 'products'}',
-                    style: theme.textTheme.labelLarge,
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.inventory_2_outlined,
+                        size: 18,
+                        color: category.isActive
+                            ? AppColors.textPrimary
+                            : AppColors.textSecondary,
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Text(
+                        productsLabel,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: category.isActive
+                              ? AppColors.textPrimary
+                              : AppColors.textSecondary,
+                          fontWeight: FontWeight.w600,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
                   ),
-                  const Spacer(),
                   TextButton(
                     onPressed: onView,
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(0, 44),
+                      foregroundColor: AppColors.brandGoldText,
+                    ),
                     child: const Text('View details'),
                   ),
                 ],
