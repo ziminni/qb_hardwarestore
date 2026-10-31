@@ -23,7 +23,8 @@ import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmod
 import 'package:client/features/suppliers/views/purchases_page.dart';
 import 'package:client/features/suppliers/views/suppliers_page.dart';
 import 'package:client/features/suppliers/widgets/purchases_details_dialog.dart';
-import 'package:client/features/sales/widgets/live_load_error_banner.dart';
+import 'package:client/shared/widgets/error_banner.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -377,7 +378,7 @@ void main() {
       await tester.pumpWidget(_app(const SuppliersPage(), repository));
       await tester.pumpAndSettle();
 
-      expect(find.byType(LiveLoadErrorBanner), findsOneWidget);
+      expect(find.byType(ErrorBanner), findsOneWidget);
       expect(
         find.text('Cannot connect to the BuildPro server.'),
         findsOneWidget,
@@ -390,7 +391,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(repository.supplierCalls, 2);
-      expect(find.byType(LiveLoadErrorBanner), findsNothing);
+      expect(find.byType(ErrorBanner), findsNothing);
       expect(find.text('Bohol Cement Traders'), findsOneWidget);
     });
   });
@@ -443,9 +444,15 @@ void main() {
       expect(find.text('PO-41'), findsOneWidget);
       expect(find.text('PO-40'), findsOneWidget);
 
-      await tester.tap(find.text('All statuses'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Complete').last);
+      // Card K7: the status dropdown became chips that carry their counts, so
+      // "Complete 1" is the chip and a row badge reading "Complete" cannot be
+      // mistaken for it. Chips are scoped to the filter bar for the same reason.
+      await tester.tap(
+        find.descendant(
+          of: find.byType(FilterBar),
+          matching: find.text('Complete 1'),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('PO-41'), findsNothing);
@@ -461,7 +468,7 @@ void main() {
       await tester.pumpWidget(_app(const PurchasesPage(), repository));
       await tester.pumpAndSettle();
 
-      expect(find.byType(LiveLoadErrorBanner), findsOneWidget);
+      expect(find.byType(ErrorBanner), findsOneWidget);
       expect(
         find.text('The purchase orders could not be loaded.'),
         findsOneWidget,
@@ -471,11 +478,10 @@ void main() {
       await tester.tap(find.text('Retry'));
       await tester.pumpAndSettle();
 
-      expect(find.byType(LiveLoadErrorBanner), findsNothing);
-      expect(
-        find.text('No purchase orders match these filters.'),
-        findsOneWidget,
-      );
+      expect(find.byType(ErrorBanner), findsNothing);
+      // Nothing is loaded and nothing is filtered, so the honest sentence is
+      // "none yet" (card K7's rule: empty and empty-because-filtered differ).
+      expect(find.text('No purchase orders yet.'), findsOneWidget);
     });
   });
 

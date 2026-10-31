@@ -231,69 +231,30 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
     final activeSuppliers = widget.suppliers
         .where((supplier) => supplier.isActive)
         .toList();
+    // Under this window width two panes side by side leave each field too narrow
+    // to show its own label, so they stack instead. Read from the window, not
+    // from a layout callback: AlertDialog asks for intrinsic sizes while it
+    // centres itself, and a LayoutBuilder cannot answer those.
+    final stacked = MediaQuery.sizeOf(context).width < _sideBySideBreakpoint;
 
     return AlertDialog(
       title: const Text('New purchase order'),
+      // The form sizes itself: each list pane has a viewport of its own and the
+      // dialog grows around them, so a short window SCROLLS the form instead of
+      // squeezing the two panes (the old `height - 190` formula did the reverse:
+      // the same content was 620 px tall on a tall window and 400 on a short
+      // one, whatever the panes needed).
+      scrollable: true,
+      insetPadding: const EdgeInsets.all(AppSpacing.lg),
       content: SizedBox(
-        width: 900,
-        height: (MediaQuery.sizeOf(context).height - 190).clamp(400.0, 620.0),
+        width: 880,
         child: Form(
           key: _formKey,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<int>(
-                      isExpanded: true,
-                      initialValue: _supplierId,
-                      decoration: const InputDecoration(labelText: 'Supplier'),
-                      items: activeSuppliers
-                          .map(
-                            (supplier) => DropdownMenuItem(
-                              value: supplier.id,
-                              child: Text(
-                                supplier.companyName,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          )
-                          .toList(),
-                      validator: (value) =>
-                          value == null ? 'Choose a supplier.' : null,
-                      onChanged: (value) => setState(() => _supplierId = value),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _pickExpectedDelivery,
-                      icon: const Icon(Icons.event_outlined),
-                      label: Text(
-                        _expectedDelivery == null
-                            ? 'Expected delivery (optional)'
-                            : PurchaseOrderDraft(
-                                    supplierId: _supplierId ?? 0,
-                                    lines: const [],
-                                    expectedDelivery: _expectedDelivery,
-                                  ).toJson()['expected_delivery']
-                                  as String,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (activeSuppliers.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.sm),
-                  child: Text(
-                    'No active supplier. Add one on the Suppliers screen first.',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colors.error,
-                    ),
-                  ),
-                ),
+              _headerRow(theme, colors, activeSuppliers),
               const SizedBox(height: AppSpacing.lg),
               if (_selectionError case final error?)
                 Padding(
@@ -305,16 +266,28 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
                     ),
                   ),
                 ),
-              Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(child: _cataloguePane(theme, filteredMaterials)),
-                    const SizedBox(width: AppSpacing.lg),
-                    Expanded(child: _linesPane(theme, colors)),
-                  ],
+              if (stacked) ...[
+                SizedBox(
+                  height: _stackedPaneHeight,
+                  child: _cataloguePane(theme, filteredMaterials),
                 ),
-              ),
+                const SizedBox(height: AppSpacing.md),
+                SizedBox(
+                  height: _stackedPaneHeight,
+                  child: _linesPane(theme, colors),
+                ),
+              ] else
+                SizedBox(
+                  height: _paneHeight,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(child: _cataloguePane(theme, filteredMaterials)),
+                      const SizedBox(width: AppSpacing.lg),
+                      Expanded(child: _linesPane(theme, colors)),
+                    ],
+                  ),
+                ),
               const SizedBox(height: AppSpacing.lg),
               TextFormField(
                 controller: _notesController,
@@ -342,6 +315,79 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
           icon: const Icon(Icons.send_outlined),
           label: const Text('Place order'),
         ),
+      ],
+    );
+  }
+
+  /// Window width under which the two panes stack: below it a pane is too
+  /// narrow for a labelled field and a price on one line.
+  static const double _sideBySideBreakpoint = 900;
+
+  /// Viewport height of each list pane. A list needs a bounded height to scroll
+  /// itself; these are the panes' own size, not the window's, so the dialog
+  /// keeps the same shape on every screen and scrolls when the window is short.
+  static const double _paneHeight = 320;
+  static const double _stackedPaneHeight = 220;
+
+  Widget _headerRow(
+    ThemeData theme,
+    ColorScheme colors,
+    List<Supplier> activeSuppliers,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<int>(
+                isExpanded: true,
+                initialValue: _supplierId,
+                decoration: const InputDecoration(labelText: 'Supplier'),
+                items: activeSuppliers
+                    .map(
+                      (supplier) => DropdownMenuItem(
+                        value: supplier.id,
+                        child: Text(
+                          supplier.companyName,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
+                    .toList(),
+                validator: (value) =>
+                    value == null ? 'Choose a supplier.' : null,
+                onChanged: (value) => setState(() => _supplierId = value),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _pickExpectedDelivery,
+                icon: const Icon(Icons.event_outlined),
+                label: Text(
+                  _expectedDelivery == null
+                      ? 'Expected delivery (optional)'
+                      : PurchaseOrderDraft(
+                              supplierId: _supplierId ?? 0,
+                              lines: const [],
+                              expectedDelivery: _expectedDelivery,
+                            ).toJson()['expected_delivery']
+                            as String,
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (activeSuppliers.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.sm),
+            child: Text(
+              'No active supplier. Add one on the Suppliers screen first.',
+              style: theme.textTheme.bodySmall?.copyWith(color: colors.error),
+            ),
+          ),
       ],
     );
   }
