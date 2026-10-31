@@ -259,7 +259,10 @@ class PosTransactionCart extends StatelessWidget {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
-              textStyle: const TextStyle(
+              // NOT a bare TextStyle: that replaces the labelLarge the button
+              // inherits from the theme, dropping the label to the platform font
+              // (the goldens drew it as boxes). Derived from the theme instead.
+              textStyle: Theme.of(context).textTheme.titleMedium?.copyWith(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
               ),
@@ -337,9 +340,8 @@ class PosTransactionCart extends StatelessWidget {
         // shows - the same defect the final review found, one layer up.
         final isShort = line.variantUomId == state.insufficientStockLineId;
         final scheme = Theme.of(context).colorScheme;
-        final quantity = line.quantity == line.quantity.roundToDouble()
-            ? line.quantity.toStringAsFixed(0)
-            : line.quantity.toStringAsFixed(2);
+        // One quantity format for the whole app (formatQuantity, D7).
+        final quantity = formatQuantity(line.quantity);
 
         void step(int delta) {
           final error = state.stepLine(index, delta);

@@ -206,4 +206,43 @@ void main() {
       expect(find.byType(FilledButton), findsNothing);
     });
   });
+
+  // Card C1 (D18): no em or en dash in any string this panel writes. The
+  // anonymous line was the last one left, and the dash rule has no exception for
+  // "it reads nicely" - a full stop says the same thing and is allowed.
+  group('D18: the panel copy carries no dash', () {
+    /// Every glyph the panel actually painted, so a dash added in a NEW state
+    /// fails here too instead of only in the committed PNG.
+    void expectNoDash(WidgetTester tester) {
+      for (final text in tester.widgetList<Text>(find.byType(Text))) {
+        final content = text.data ?? text.textSpan?.toPlainText() ?? '';
+        expect(
+          content,
+          isNot(anyOf(contains('—'), contains('–'))),
+          reason: 'no em or en dash in visible copy (D18): "$content"',
+        );
+      }
+    }
+
+    testWidgets('an anonymous sale says it without a dash', (tester) async {
+      await _pump(tester, customer: null);
+
+      expect(
+        find.text('Anonymous sale, so no account to charge.'),
+        findsOneWidget,
+      );
+      expectNoDash(tester);
+    });
+
+    testWidgets('a customer who owes money has no dash either', (tester) async {
+      await _pump(
+        tester,
+        customer: _customer(creditLimit: 1000),
+        summary: _summary(balance: 900, open: 2, overdue: 1),
+        thisSaleTotal: 250,
+      );
+
+      expectNoDash(tester);
+    });
+  });
 }
