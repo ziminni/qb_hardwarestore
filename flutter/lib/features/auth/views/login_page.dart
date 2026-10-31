@@ -1,15 +1,27 @@
-import 'package:client/core/constants/app_assets.dart';
-import 'package:client/core/constants/app_radii.dart';
+import 'dart:math' as math;
+
+import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/services/health_service.dart';
+import 'package:client/data/services/remembered_login_store.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
-import 'package:client/features/auth/widget/login_glass_card.dart';
-import 'package:client/shared/widgets/system_brand.dart';
+import 'package:client/features/auth/widget/login_brand_panel.dart';
+import 'package:client/shared/widgets/app_panel.dart';
+import 'package:client/shared/widgets/error_banner.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  const LoginPage({super.key, this.showTestServer = !kReleaseMode});
+
+  /// Whether this build offers the "Test server" health check.
+  ///
+  /// Defaults to the build flag (decision D15), so a release build carries no
+  /// developer control on the login screen. The parameter exists so a test can
+  /// pump the release appearance, which a compile-time constant otherwise makes
+  /// unreachable from `flutter test`.
+  final bool showTestServer;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -19,10 +31,17 @@ class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
   final _identifierController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _rememberedLogin = const RememberedLoginStore();
 
   bool _showPassword = false;
   bool _rememberMe = false;
   bool _isTestingServer = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreRememberedUsername();
+  }
 
   @override
   void dispose() {
@@ -31,13 +50,35 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
+  /// "Remember me" (decision D14) keeps the username only, so the next sign-in
+  /// starts from the same name after a sign-out.
+  Future<void> _restoreRememberedUsername() async {
+    final username = await _rememberedLogin.readUsername();
+    if (!mounted || username == null) return;
+    // Never overwrite what the user is already typing.
+    if (_identifierController.text.isNotEmpty) return;
+
+    setState(() {
+      _identifierController.text = username;
+      _rememberMe = true;
+    });
+  }
+
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
 
-    await context.read<AuthViewmodel>().login(
-      _identifierController.text.trim(),
+    final identifier = _identifierController.text.trim();
+    final signedIn = await context.read<AuthViewmodel>().login(
+      identifier,
       _passwordController.text,
     );
+    if (!mounted || !signedIn) return;
+
+    if (_rememberMe) {
+      await _rememberedLogin.saveUsername(identifier);
+    } else {
+      await _rememberedLogin.clearUsername();
+    }
   }
 
   Future<void> _testServer() async {
@@ -75,10 +116,9 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  /// No self-service reset exists: there is no reset endpoint, and passwords
-  /// are changed in User Management or the Django admin. The old control was a
-  /// `TextButton` with an empty callback; a dialog that names the only actor who
-  /// can help is more useful than a mailto: nothing answers.
+  /// No self-service reset exists: there is no reset endpoint and no reset
+  /// action anywhere in the app (decision D3). The dialog therefore names the
+  /// actor who can help and no screen, because no screen can.
   Future<void> _showForgotPasswordDialog(BuildContext context) {
     return showDialog<void>(
       context: context,
@@ -86,8 +126,7 @@ class _LoginPageState extends State<LoginPage> {
         title: const Text('Forgot password'),
         content: const Text(
           'Passwords are reset by a System Administrator. Ask an administrator '
-          'to reset your password from User Management, then sign in with the '
-          'new one.',
+          'to reset your password, then sign in with the new one.',
         ),
         actions: [
           TextButton(
@@ -101,51 +140,27 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-
     return Scaffold(
       resizeToAvoidBottomInset: true,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _isTestingServer ? null : _testServer,
-        icon: _isTestingServer
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Icon(Icons.cloud_done_outlined),
-        label: Text(_isTestingServer ? 'Testing...' : 'Test server'),
-      ),
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final cardPadding = constraints.maxWidth >= 900
-              ? AppSpacing.xxl
-              : AppSpacing.lg;
+          final wide = constraints.maxWidth >= 900;
+          final pane = _buildPane(
+            availableHeight: constraints.maxHeight,
+            wide: wide,
+          );
 
-          return Stack(
-            fit: StackFit.expand,
+          if (!wide) return pane;
+
+          // Cream form on the right, black brand panel on the left: the two
+          // colours the rest of the app is built from.
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const IgnorePointer(
-                child: Image(
-                  image: AssetImage(AppAssets.bgLogin),
-                  fit: BoxFit.cover,
-                ),
-              ),
-              IgnorePointer(
-                child: ColoredBox(
-                  color: colors.secondary.withValues(alpha: 0.62),
-                ),
-              ),
-              SingleChildScrollView(
-                padding: EdgeInsets.all(cardPadding),
-                keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    minHeight: constraints.maxHeight - (cardPadding * 2),
-                  ),
-                  child: Center(child: LoginGlassCard(child: _buildForm())),
-                ),
+              const Expanded(flex: 5, child: LoginBrandPanel()),
+              Expanded(
+                flex: 4,
+                child: ColoredBox(color: AppColors.background, child: pane),
               ),
             ],
           );
@@ -154,10 +169,58 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
+  Widget _buildPane({required double availableHeight, required bool wide}) {
+    final padding = wide ? AppSpacing.xxl : AppSpacing.xl;
+
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(padding),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 460,
+            // Centre the card in the window when it fits, and let it scroll
+            // from the top when it does not.
+            minHeight: math.max(0, availableHeight - padding * 2),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (!wide) ...[
+                const Center(child: LoginBrandPanel(compact: true)),
+                const SizedBox(height: AppSpacing.xl),
+              ],
+              AppPanel(child: _buildForm()),
+              if (widget.showTestServer) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: _isTestingServer ? null : _testServer,
+                    icon: _isTestingServer
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.cloud_done_outlined, size: 18),
+                    label: Text(
+                      _isTestingServer ? 'Testing...' : 'Test server',
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildForm() {
     final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final foreground = colors.onSecondary;
 
     return Form(
       key: _formKey,
@@ -165,41 +228,22 @@ class _LoginPageState extends State<LoginPage> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.md,
-              vertical: 6,
-            ),
-            decoration: BoxDecoration(
-              color: colors.primary,
-              borderRadius: BorderRadius.circular(AppRadii.pill),
-            ),
-            child: SystemBrand(
-              logoSize: 24,
-              fontSize: 11,
-              textColor: colors.onPrimary,
-              uppercase: true,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.xl),
           Text(
             'Login',
-            style: theme.textTheme.displayLarge?.copyWith(
-              fontSize: 34,
-              fontWeight: FontWeight.w600,
-              color: foreground,
-              letterSpacing: -0.5,
+            style: theme.textTheme.headlineMedium?.copyWith(
+              fontSize: 30,
+              fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: 6),
           Text(
             'Inventory, sales, and store management console',
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: foreground.withValues(alpha: 0.75),
+              color: AppColors.textSecondary,
             ),
           ),
           const SizedBox(height: 28),
-          _fieldLabel('Username or Email', foreground),
+          _fieldLabel('Username or Email'),
           const SizedBox(height: AppSpacing.sm),
           TextFormField(
             controller: _identifierController,
@@ -216,7 +260,7 @@ class _LoginPageState extends State<LoginPage> {
             },
           ),
           const SizedBox(height: AppSpacing.xl),
-          _fieldLabel('Password', foreground),
+          _fieldLabel('Password'),
           const SizedBox(height: AppSpacing.sm),
           TextFormField(
             controller: _passwordController,
@@ -233,7 +277,7 @@ class _LoginPageState extends State<LoginPage> {
                 icon: Icon(
                   _showPassword ? Icons.visibility_off : Icons.visibility,
                   size: 20,
-                  color: colors.onSurfaceVariant,
+                  color: AppColors.textSecondary,
                 ),
               ),
             ),
@@ -266,18 +310,13 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                   const SizedBox(width: AppSpacing.sm),
-                  Text(
-                    'Remember me',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: foreground.withValues(alpha: 0.85),
-                    ),
-                  ),
+                  Text('Remember me', style: theme.textTheme.bodyMedium),
                 ],
               ),
               TextButton(
                 onPressed: () => _showForgotPasswordDialog(context),
                 style: TextButton.styleFrom(
-                  foregroundColor: colors.primary,
+                  foregroundColor: AppColors.brandGoldText,
                   padding: EdgeInsets.zero,
                   minimumSize: const Size(0, 32),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -291,14 +330,11 @@ class _LoginPageState extends State<LoginPage> {
               final error = viewModel.error;
               if (error == null) return const SizedBox.shrink();
 
+              // The server's own prose: a wrong password and a lockout read as
+              // two different messages, and a lockout names the wait.
               return Padding(
-                padding: const EdgeInsets.only(top: AppSpacing.lg),
-                child: Text(
-                  error,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: colors.errorContainer,
-                  ),
-                ),
+                padding: const EdgeInsets.only(top: AppSpacing.md),
+                child: ErrorBanner(message: error),
               );
             },
           ),
@@ -314,12 +350,12 @@ class _LoginPageState extends State<LoginPage> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       if (viewModel.isLoading) ...[
-                        SizedBox(
+                        const SizedBox(
                           width: 16,
                           height: 16,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: colors.onPrimary,
+                            color: AppColors.brandBlack,
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -336,12 +372,12 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Widget _fieldLabel(String text, Color foreground) {
+  Widget _fieldLabel(String text) {
     return Text(
       text,
       style: Theme.of(context).textTheme.labelLarge?.copyWith(
-        fontWeight: FontWeight.w500,
-        color: foreground,
+        fontWeight: FontWeight.w600,
+        color: AppColors.textPrimary,
       ),
     );
   }
