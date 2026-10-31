@@ -34,7 +34,8 @@ class PurchasesDetailsDialog extends StatelessWidget {
               ],
             ),
             const SizedBox(height: AppSpacing.lg),
-            Text('Notes: ${order.notes.isEmpty ? '—' : order.notes}'),
+            // D18: no bare dash for "no value".
+            Text('Notes: ${order.notes.isEmpty ? 'None' : order.notes}'),
             const SizedBox(height: AppSpacing.lg),
             const Divider(),
             ...order.items.map(
@@ -42,13 +43,13 @@ class PurchasesDetailsDialog extends StatelessWidget {
                 contentPadding: EdgeInsets.zero,
                 // A live PO line carries only the variant name: `POItemSerializer`
                 // sends no product name and no SKU (decision D-02). Joining an
-                // empty product name would render " — Portland Cement 40kg" and
-                // an empty SKU a leading " · ", so both are dropped when absent
+                // empty product name would render a leading separator and an
+                // empty SKU a doubled one, so both are dropped when absent
                 // instead of inventing a label the server never sent.
                 title: Text(
                   item.productName.isEmpty
                       ? item.variantName
-                      : '${item.productName} — ${item.variantName}',
+                      : '${item.productName}: ${item.variantName}',
                 ),
                 subtitle: Text(
                   [

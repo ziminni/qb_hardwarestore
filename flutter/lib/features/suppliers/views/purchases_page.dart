@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
 import 'package:client/data/models/supplier.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
@@ -7,7 +8,8 @@ import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmod
 import 'package:client/features/suppliers/widgets/purchases_details_dialog.dart';
 import 'package:client/features/suppliers/widgets/purchases_form_dialog.dart';
 import 'package:client/features/suppliers/widgets/purchases_table.dart';
-import 'package:client/features/sales/widgets/live_load_error_banner.dart';
+import 'package:client/shared/widgets/error_banner.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -20,7 +22,7 @@ import 'package:provider/provider.dart';
 /// list — the `addPurchase` mock this screen deleted in Phase 1.
 ///
 /// Status filtering stays client-side — the list is one page-set of the whole PO
-/// book and a dropdown over it is cheaper than a round trip per keystroke.
+/// book and chips over it are cheaper than a round trip per tap.
 class PurchasesPage extends StatefulWidget {
   const PurchasesPage({super.key});
   @override
@@ -28,6 +30,8 @@ class PurchasesPage extends StatefulWidget {
 }
 
 class _PurchasesPageState extends State<PurchasesPage> {
+  static const String _allChip = 'All statuses';
+
   String _query = '';
   PurchaseStatus? _status;
 
@@ -106,57 +110,74 @@ class _PurchasesPageState extends State<PurchasesPage> {
     _announce(error ?? 'PO-${order.id} placed.');
   }
 
+  /// The goods are recorded on Receiving, which owns the receipt and the stock
+  /// it creates, so this only takes the reader there.
+  void _receive(PurchaseOrder order) => navigateInventory(context, 8);
+
+  void _openDetails(PurchaseOrder order) => showDialog<void>(
+    context: context,
+    builder: (_) => PurchasesDetailsDialog(order: order),
+  );
+
+  /// `All statuses 3`, `Ordered 2`, ... over the orders the search left.
+  ///
+  /// A count is shown even when it is zero: "Draft 0" says there is nothing
+  /// waiting to be placed, which an absent chip cannot.
+  List<String> _chips(List<PurchaseOrder> searched) => [
+    '$_allChip ${formatCount(searched.length)}',
+    for (final status in PurchaseStatus.values)
+      '${status.label} '
+          '${formatCount(searched.where((o) => o.status == status).length)}',
+  ];
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<SuppliersPurchasesViewmodel>();
-    final orders = state.filteredPurchases(query: _query, status: _status);
+    // The search narrows first, so a chip's count is the number of rows the
+    // reader will see if they tap it.
+    final searched = state.filteredPurchases(query: _query);
+    final chips = _chips(searched);
+    final orders = _status == null
+        ? searched
+        : searched.where((order) => order.status == _status).toList();
+    final selectedChip = _status == null
+        ? chips.first
+        : chips[PurchaseStatus.values.indexOf(_status!) + 1];
+
+    final failure = state.loadError;
+    final pending = state.isLoading;
+    // A failed refresh keeps the rows it already had and says why above them.
+    final staleRows = failure != null && orders.isNotEmpty;
+    final filtered = _query.isNotEmpty || _status != null;
+
     return InventorySkeletonLayout(
       title: 'Purchases',
       subtitle: 'Plan and monitor supplier purchase orders.',
       selectedNavigationIndex: 6,
+      // The list owns the scrolling: rows build only as they come on screen.
+      scrollable: false,
       onNavigationSelected: (index) => navigateInventory(context, index),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Wrap(
-            spacing: AppSpacing.md,
-            runSpacing: AppSpacing.md,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(
-                width: 320,
-                child: TextField(
-                  onChanged: (value) => setState(() => _query = value),
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search),
-                    hintText: 'Search PO or supplier',
-                  ),
+              Expanded(
+                child: FilterBar(
+                  searchHint: 'Search PO or supplier',
+                  onSearchChanged: (value) => setState(() => _query = value),
+                  options: chips,
+                  selected: selectedChip,
+                  onSelected: (chip) => setState(() {
+                    final index = chips.indexOf(chip);
+                    _status = index <= 0
+                        ? null
+                        : PurchaseStatus.values[index - 1];
+                  }),
                 ),
               ),
-              SizedBox(
-                width: 210,
-                child: DropdownButtonFormField<PurchaseStatus?>(
-                  initialValue: _status,
-                  // `isExpanded` is load-bearing: "Partially Received" is wider
-                  // than the 210px box, so without it the selected label
-                  // overflows the decoration by ~109px.
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Status'),
-                  items: [
-                    const DropdownMenuItem(
-                      value: null,
-                      child: Text('All statuses'),
-                    ),
-                    ...PurchaseStatus.values.map(
-                      (item) => DropdownMenuItem(
-                        value: item,
-                        child: Text(item.label),
-                      ),
-                    ),
-                  ],
-                  onChanged: (value) => setState(() => _status = value),
-                ),
-              ),
+              const SizedBox(width: AppSpacing.md),
               FilledButton.icon(
                 onPressed: _newOrder,
                 icon: const Icon(Icons.add),
@@ -164,21 +185,39 @@ class _PurchasesPageState extends State<PurchasesPage> {
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.xl),
-          if (state.isLoading)
-            const Center(child: CircularProgressIndicator())
-          else if (state.loadError case final error?)
-            LiveLoadErrorBanner(message: error, onRetry: state.load)
-          else
-            PurchasesTable(
-              orders: orders,
-              onView: (order) => showDialog<void>(
-                context: context,
-                builder: (_) => PurchasesDetailsDialog(order: order),
-              ),
-              onPlace: _place,
-              onCancel: _confirmCancel,
+          const SizedBox(height: AppSpacing.md),
+          if (staleRows)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: ErrorBanner(message: failure, onRetry: state.load),
             ),
+          Expanded(
+            // Top aligned and only as tall as its content: with nothing to
+            // scroll, a panel stretched down the page is a white void (or, on a
+            // failure, a red one). With rows, DataPanel still fills the slot and
+            // builds only the rows on screen.
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: SizedBox(
+                width: double.infinity,
+                child: PurchasesTable(
+                  orders: orders,
+                  onView: _openDetails,
+                  onPlace: _place,
+                  onCancel: _confirmCancel,
+                  onReceive: _receive,
+                  emptyMessage: filtered
+                      ? 'No purchase orders match these filters.'
+                      : 'No purchase orders yet.',
+                  // The spinner is for a first load with nothing to show: a
+                  // reload over rows must not take them away.
+                  isLoading: pending && orders.isEmpty,
+                  error: staleRows ? null : failure,
+                  onRetry: state.load,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
