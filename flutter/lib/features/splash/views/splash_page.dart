@@ -79,22 +79,15 @@ class _SplashPageState extends State<SplashPage>
   /// Restores the saved session behind the intro.
   ///
   /// Bounded: a restore that never answers must not hold the app on the splash
-  /// forever, so past the timeout the user is treated as signed out and sent to
-  /// the form.
+  /// forever. Past the timeout the viewmodel abandons its in-flight restore
+  /// (so the answer is dropped and startup counts as signed out), and the
+  /// hand-over below reaches the login form.
   Future<void> _restoreSession(AuthViewmodel auth) async {
     await auth.initialize().timeout(
       const Duration(seconds: 10),
-      onTimeout: _treatAsSignedOut,
+      onTimeout: auth.abandonRestore,
     );
   }
-
-  /// What a restore that never answers counts as.
-  ///
-  /// The hand-over below reads `isAuthenticated`, which no un-answered restore
-  /// has set, so the login screen is already the destination: nothing is left
-  /// to do here but let the wait end. (The dead-control guard bans an inline
-  /// empty callback; a named one says what the silence means.)
-  void _treatAsSignedOut() {}
 
   @override
   void dispose() {

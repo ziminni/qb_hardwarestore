@@ -26,29 +26,60 @@ class AuthViewmodel extends ChangeNotifier {
   /// The first call's restore, shared by every later caller.
   Future<void>? _initialization;
 
+  /// Which restore may still publish its result.
+  ///
+  /// Bumped when a restore is abandoned (the splash's timeout) or replaced by a
+  /// sign-in: a restore started under an older generation answers into the
+  /// void instead of signing someone in from behind the login form.
+  int _restoreGeneration = 0;
+
   /// Restores the saved session once; further calls await the same future.
   ///
   /// Two callers ask at startup (the router's redirect and the splash), and
   /// a doubled restore means two token reads and two `/auth/me/` calls.
   Future<void> initialize() => _initialization ??= _restoreSession();
 
+  /// Gives up on a restore that never answered (the splash's timeout).
+  ///
+  /// Startup counts as resolved with no session, so the router stops parking
+  /// every location on the splash and the login form is reachable. The restore
+  /// keeps running in the background; its late answer is dropped rather than
+  /// published, because a user typing their password must not be moved to a
+  /// dashboard by a lookup that started before the timeout.
+  void abandonRestore() {
+    if (!isInitializing) return;
+    _restoreGeneration++;
+    // A later `initialize()` would otherwise hand back this dead future.
+    _initialization = null;
+    isInitializing = false;
+    notifyListeners();
+  }
+
   Future<void> _restoreSession() async {
+    final generation = _restoreGeneration;
+    User? restored;
     try {
-      // A session already in hand (a warm start) needs no restore; startup is
-      // resolved as soon as that is known, which is what the flag means.
-      user ??= await repository.restoreSession();
+      // A session already in hand (a warm start) needs no restore.
+      restored = user ?? await repository.restoreSession();
     } catch (_) {
       // Secure storage can fail (a missing keychain entitlement on a fresh
       // desktop install, say). Falling back to the login screen beats a blank
       // window: the splash would otherwise wait on `isInitializing` forever.
-      user = null;
-    } finally {
-      isInitializing = false;
-      notifyListeners();
+      restored = null;
     }
+    // Abandoned or superseded while it was in flight: say nothing at all.
+    if (generation != _restoreGeneration) return;
+    user = restored;
+    isInitializing = false;
+    notifyListeners();
   }
 
   Future<bool> login(String identifier, String password) async {
+    // A restore still in flight belongs to a previous session and must not
+    // overwrite the account this sign-in is about to set.
+    _restoreGeneration++;
+    _initialization = null;
+
     isLoading = true;
     error = null;
     notifyListeners();

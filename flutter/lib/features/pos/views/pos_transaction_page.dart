@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:client/core/constants/app_breakpoints.dart';
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
@@ -684,6 +686,15 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     if (completedCartId != null) {
       heldCarts.forgetCart(completedCartId);
     }
+
+    // The sale took stock out of the batches, so the catalogue the product
+    // cards read is stale by exactly this basket. Reload it now, BEFORE the
+    // receipt, and without waiting for it: the dimmed card behind the dialog
+    // was still claiming the pre-sale count ("100 pc in stock" over a batch the
+    // server held at 99) until the cashier started a new transaction (QA wave
+    // 3b). The receipt stays instant — it is the proof of the sale, not a
+    // catalogue refresh.
+    unawaited(context.read<InventoryViewmodel>().load());
 
     await showDialog<void>(
       context: context,

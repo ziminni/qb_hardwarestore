@@ -23,9 +23,11 @@ class AdminUserTable extends StatelessWidget {
     required this.emptyMessage,
     required this.onToggleActive,
     required this.onChangeRole,
+    required this.isAdminViewer,
     this.isLoading = false,
     this.error,
     this.onRetry,
+    this.controller,
   });
 
   final List<User> users;
@@ -48,6 +50,28 @@ class AdminUserTable extends StatelessWidget {
 
   /// Opens the role picker for this account.
   final ValueChanged<User> onChangeRole;
+
+  /// The rows' own scroll position, so the page can hand it a wheel that landed
+  /// on its header. See [DataPanel.controller].
+  final ScrollController? controller;
+
+  /// Whether the person reading the list holds the admin role CODE ('admin').
+  ///
+  /// The server refuses a non-admin's change to an admin account with 403
+  /// `USER_ADMIN_FORBIDDEN`, so a Store Manager is offered no row actions on
+  /// those rows instead of a button that can only fail.
+  final bool isAdminViewer;
+
+  /// An account the server counts as admin: one 'admin' role CODE, which
+  /// `serializers.py` sends for both the Admin and System Administrator groups.
+  /// Compare the CODE, never the display label (Phase 4 lesson).
+  static bool _isAdminAccount(User user) => user.role?.name == 'admin';
+
+  /// Only an admin may act on an admin account. Phase 5 rules the server owns
+  /// still apply on top (LAST_ADMIN, self-approval); this only stops the client
+  /// from offering a write the server will refuse.
+  static bool mayActOn({required bool isAdminViewer, required User user}) =>
+      isAdminViewer || !_isAdminAccount(user);
 
   @override
   Widget build(BuildContext context) {
@@ -77,14 +101,17 @@ class AdminUserTable extends StatelessWidget {
         DataPanelColumn<User>(
           label: 'Actions',
           flex: 3,
-          cell: (user) => _Actions(
-            user: user,
-            onToggleActive: () => onToggleActive(user),
-            onChangeRole: () => onChangeRole(user),
-          ),
+          cell: (user) => mayActOn(isAdminViewer: isAdminViewer, user: user)
+              ? _Actions(
+                  user: user,
+                  onToggleActive: () => onToggleActive(user),
+                  onChangeRole: () => onChangeRole(user),
+                )
+              : const SizedBox.shrink(),
         ),
       ],
       rows: users,
+      controller: controller,
       emptyMessage: emptyMessage,
       isLoading: isLoading,
       error: error,

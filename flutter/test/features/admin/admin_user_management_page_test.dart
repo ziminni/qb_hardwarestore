@@ -22,6 +22,7 @@ import 'package:client/features/admin/views/admin_user_management_page.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -32,6 +33,27 @@ const _storeManagerRole = Role(
   displayName: 'Store Manager',
 );
 const _cashierRole = Role(id: 4, name: 'pos', displayName: 'Cashier');
+
+/// The admin tier as the wire sends it: one 'admin' CODE for both Admin and
+/// System Administrator groups (serializers.py maps both onto it).
+const _adminRole = Role(id: 1, name: 'admin', displayName: 'Admin');
+
+/// The other admin-tier group, as `serializers.py` sends it: the System
+/// Administrator group maps onto the SAME 'admin' code as Admin, so a role-CODE
+/// comparison covers both without naming either label.
+const _systemAdminRole = Role(
+  id: 2,
+  name: 'admin',
+  displayName: 'System Administrator',
+);
+
+const _adminAccount = User(
+  id: 1,
+  username: 'admin',
+  email: 'admin@example.com',
+  fullName: 'Ada Min',
+  role: _adminRole,
+);
 
 const _manager = User(
   id: 2,
@@ -104,6 +126,55 @@ class _StubUsersService extends UserService {
     fullName: 'New Cashier',
     role: _cashierRole,
   );
+}
+
+/// The three fixture accounts plus the Admin account, so the authority rule is
+/// readable on one screen.
+class _WithAdminStub extends _StubUsersService {
+  @override
+  Future<List<User>> fetchUsers({String? search}) async {
+    return const [_adminAccount, _manager, _cashier];
+  }
+}
+
+/// Both admin-tier groups in one list: Admin and System Administrator.
+class _WithBothAdminGroupsStub extends _StubUsersService {
+  @override
+  Future<List<User>> fetchUsers({String? search}) async {
+    return const [
+      _adminAccount,
+      User(
+        id: 9,
+        username: 'sysadmin',
+        email: 'sysadmin@example.com',
+        fullName: 'Sys Admin',
+        role: _systemAdminRole,
+      ),
+      _cashier,
+    ];
+  }
+}
+
+/// Twelve working accounts: a store big enough that the list cannot fit on a
+/// 760 x 900 window, which is where the wheels stopped moving (QA wave 3b).
+class _TwelveAccountsStub extends _StubUsersService {
+  static final List<User> rows = [
+    for (var index = 1; index <= 12; index++)
+      User(
+        id: index,
+        username: 'staff$index',
+        email: 'staff$index@demo.ph',
+        fullName: 'Staff $index',
+        role: index.isEven ? _cashierRole : _storeManagerRole,
+      ),
+  ];
+
+  @override
+  Future<List<User>> fetchUsers({String? search}) async => rows;
+
+  @override
+  Future<UserStats> fetchUserStats() async =>
+      const UserStats(total: 12, active: 12, inactive: 0, rolesAssigned: 2);
 }
 
 /// Counts deactivate/reactivate + role writes, and reloads after each so the
@@ -187,6 +258,19 @@ Future<void> _pump(
 Finder _chip(String label) =>
     find.descendant(of: find.byType(FilterBar), matching: find.text(label));
 
+/// One account row or card, by the key the table gives it.
+Finder _row(int userId) => find.byKey(ValueKey('admin.user.$userId'));
+
+/// The search field inside the filter bar.
+Finder get _searchField => find.descendant(
+  of: find.byType(FilterBar),
+  matching: find.byType(TextField),
+);
+
+/// Any row action inside [userId]'s row.
+Finder _rowActions(int userId) =>
+    find.descendant(of: _row(userId), matching: find.byType(TextButton));
+
 void main() {
   // ---------------------------------------------------------------- summary
 
@@ -218,6 +302,123 @@ void main() {
 
   // ------------------------------------------------------------- both shells
 
+  testWidgets('every account is reachable by scrolling at 760 x 900', (
+    tester,
+  ) async {
+    // FX7 (QA wave 3b): two cards fit, the rest could not be reached: the wheel
+    // and PageDown moved nothing. A list that builds lazily must still scroll.
+    await _pump(
+      tester,
+      size: const Size(760, 900),
+      viewmodel: AdminUsersViewmodel(users: _TwelveAccountsStub()),
+    );
+
+    final lastRow = _row(12);
+    expect(
+      lastRow,
+      findsNothing,
+      reason: 'a lazy list has not built the twelfth account yet',
+    );
+
+    await tester.scrollUntilVisible(
+      lastRow,
+      200,
+      scrollable: find.descendant(
+        of: find.byKey(const ValueKey('DataPanel.cards')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find
+          .descendant(
+            of: lastRow,
+            matching: find.widgetWithText(TextButton, 'Change role'),
+          )
+          .hitTestable(),
+      findsOneWidget,
+      reason: "the last account's action must be tappable",
+    );
+  });
+
+  testWidgets('a wheel outside the list still moves the list at 760 x 900', (
+    tester,
+  ) async {
+    // FX7 (QA wave 3b): the reported gesture was the WHEEL, and it moved
+    // nothing. The list scrolls under its own pointer (the two tests above),
+    // but the page has no scroll view of its own — the summary, the search
+    // field and the wrapped chip rows hold the top third of a 760 x 900 window
+    // — so a wheel there hit no scrollable at all and the remaining accounts
+    // were unreachable until the pointer found the list.
+    await _pump(
+      tester,
+      size: const Size(760, 900),
+      viewmodel: AdminUsersViewmodel(users: _TwelveAccountsStub()),
+    );
+
+    final lastAction = find.descendant(
+      of: _row(12),
+      matching: find.widgetWithText(TextButton, 'Change role'),
+    );
+    expect(lastAction.hitTestable(), findsNothing);
+
+    // Over the filter chips: the part of the page with no scroll view.
+    final point = tester.getCenter(
+      find.descendant(
+        of: find.byType(FilterBar),
+        matching: find.text('All roles'),
+      ),
+    );
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: point);
+    addTearDown(gesture.removePointer);
+    for (var i = 0; i < 10; i++) {
+      await tester.sendEventToBinding(
+        PointerScrollEvent(position: point, scrollDelta: const Offset(0, 300)),
+      );
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+
+    expect(
+      lastAction.hitTestable(),
+      findsOneWidget,
+      reason: "the wheel must reach the last account's action from anywhere",
+    );
+  });
+
+  testWidgets('every account is reachable by scrolling at 1366 x 768', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      size: const Size(1366, 768),
+      viewmodel: AdminUsersViewmodel(users: _TwelveAccountsStub()),
+    );
+
+    final lastRow = _row(12);
+    await tester.scrollUntilVisible(
+      lastRow,
+      200,
+      scrollable: find.descendant(
+        of: find.byKey(const ValueKey('DataPanel.table')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find
+          .descendant(
+            of: lastRow,
+            matching: find.widgetWithText(TextButton, 'Change role'),
+          )
+          .hitTestable(),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('the admin shell and the Store Manager shell show one list', (
     tester,
   ) async {
@@ -242,6 +443,140 @@ void main() {
     expect(find.text('Change role'), findsWidgets);
     // Creation stays Admin-only server-side, so the manager is not offered it.
     expect(find.text('Create account'), findsNothing);
+  });
+
+  // ------------------------------------------------- authority on admin rows
+
+  testWidgets('a Store Manager gets no row actions on an admin account', (
+    tester,
+  ) async {
+    // FX3: the server refuses these with 403 USER_ADMIN_FORBIDDEN, so offering
+    // them is a dead control. The rule is the role CODE ('admin'), the same
+    // comparison the shell and the role picker use.
+    await _pump(
+      tester,
+      roleCode: 'sales',
+      roleLabel: 'Store Manager',
+      viewmodel: AdminUsersViewmodel(users: _WithAdminStub()),
+    );
+
+    expect(
+      _rowActions(1),
+      findsNothing,
+      reason: 'no Deactivate or Change role on the Admin row',
+    );
+    // The working account is still manageable.
+    expect(
+      find.descendant(
+        of: _row(4),
+        matching: find.widgetWithText(TextButton, 'Change role'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: _row(4),
+        matching: find.widgetWithText(TextButton, 'Deactivate'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'a System Administrator account is an admin account for a manager too',
+    (tester) async {
+      // The two admin groups have different LABELS and one CODE. The authority
+      // rule reads the code, so the System Administrator row is protected
+      // without the client knowing its label at all.
+      await _pump(
+        tester,
+        roleCode: 'sales',
+        roleLabel: 'Store Manager',
+        viewmodel: AdminUsersViewmodel(users: _WithBothAdminGroupsStub()),
+      );
+
+      expect(_rowActions(1), findsNothing, reason: 'Admin has no actions');
+      expect(
+        _rowActions(9),
+        findsNothing,
+        reason: 'System Administrator has no actions either',
+      );
+      expect(
+        find.descendant(
+          of: _row(4),
+          matching: find.widgetWithText(TextButton, 'Change role'),
+        ),
+        findsOneWidget,
+        reason: 'a cashier is still manageable',
+      );
+    },
+  );
+
+  testWidgets('an Admin gets row actions on every account, admin included', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      viewmodel: AdminUsersViewmodel(users: _WithAdminStub()),
+    );
+
+    expect(
+      find.descendant(
+        of: _row(1),
+        matching: find.widgetWithText(TextButton, 'Change role'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: _row(1),
+        matching: find.widgetWithText(TextButton, 'Deactivate'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  // ---------------------------------------------------------- clear filters
+
+  testWidgets('a search that hides rows offers Clear filters', (tester) async {
+    // FX5: the summary line keeps saying "12 accounts" while three rows are on
+    // screen, so a reader needs one obvious way back to the whole list.
+    await _pump(tester);
+
+    expect(
+      find.text('Clear filters'),
+      findsNothing,
+      reason: 'nothing is filtered yet',
+    );
+
+    await tester.enterText(_searchField, 'zzz');
+    await tester.pumpAndSettle();
+
+    expect(find.text('No accounts match these filters.'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, 'Clear filters'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mana Ger'), findsWidgets);
+    expect(find.text('Clear filters'), findsNothing);
+    expect(
+      tester.widget<TextField>(_searchField).controller?.text,
+      isEmpty,
+      reason: 'the field is cleared with the rows',
+    );
+  });
+
+  testWidgets('Clear filters also drops the chip filters', (tester) async {
+    await _pump(tester);
+
+    await tester.tap(_chip('Cashier'));
+    await tester.pumpAndSettle();
+    expect(find.text('Mana Ger'), findsNothing);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Clear filters'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mana Ger'), findsWidgets);
+    expect(find.text('Clear filters'), findsNothing);
   });
 
   // ---------------------------------------------------------------- filters

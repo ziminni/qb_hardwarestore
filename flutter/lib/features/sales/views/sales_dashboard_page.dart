@@ -2,6 +2,7 @@ import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/data/models/sales.dart';
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/sales_dashboard_alerts_viewmodel.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
@@ -58,6 +59,12 @@ class _DashboardViewState extends State<_DashboardView> {
 
   Future<void> _loadSales() async {
     final sales = context.read<InventorySalesViewmodel>();
+    // The top-products panel names what sold, and the sales wire carries only
+    // the selling unit's id and code: the catalogue is where a name lives. One
+    // shared read, once per session (the products and low-stock screens guard
+    // the same way); a failure leaves the panel on the code.
+    final inventory = context.read<InventoryViewmodel?>();
+    if (inventory != null && !inventory.hasLoaded) inventory.load();
     // Rows and tiles fail independently: the list feeds the table, the summary
     // feeds the tiles, and neither blocks the other.
     sales.loadSummary();

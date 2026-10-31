@@ -65,6 +65,7 @@ class DataPanel<T> extends StatelessWidget {
     this.onRetry,
     this.onRowTap,
     this.rowKey,
+    this.controller,
   });
 
   /// Below this content width the table becomes cards.
@@ -99,6 +100,13 @@ class DataPanel<T> extends StatelessWidget {
 
   /// Stable key per row, when the caller has an id to spare.
   final Key Function(T row)? rowKey;
+
+  /// The rows' vertical scroll position, when the page wants a say in it.
+  ///
+  /// A page whose own header fills the window (`a 760 x 900 staff list spends a
+  /// third of it above the first card`) can hand a wheel that landed on the
+  /// header straight to the rows through this. Null lets the panel own one.
+  final ScrollController? controller;
 
   @override
   Widget build(BuildContext context) {
@@ -177,6 +185,7 @@ class DataPanel<T> extends StatelessWidget {
     if (scrolls) {
       return ListView.separated(
         key: const ValueKey('DataPanel.cards'),
+        controller: controller,
         itemCount: rows.length,
         separatorBuilder: (context, index) => const SizedBox(height: 12),
         itemBuilder: (context, index) => _card(context, index),
@@ -284,6 +293,7 @@ class DataPanel<T> extends StatelessWidget {
           if (scrolls)
             Expanded(
               child: ListView.builder(
+                controller: controller,
                 itemCount: rows.length,
                 itemBuilder: (context, index) => _bodyRow(context, index),
               ),

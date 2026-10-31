@@ -13,6 +13,8 @@
 // shared skeleton whose own layout assertions fire under a widget test, which
 // would make a routing failure look like a layout failure.
 
+import 'dart:async';
+
 import 'package:client/data/models/role.dart';
 import 'package:client/data/models/user.dart';
 import 'package:client/data/repositories/auth_repository.dart';
@@ -162,6 +164,41 @@ void main() {
       );
     });
 
+    testWidgets('a restore that never answers reaches the login form', (
+      tester,
+    ) async {
+      // FX1: secure storage or `/auth/me/` can hang. The splash bounds the wait
+      // at 10 s; if `isInitializing` stays true the redirect parks `/login`
+      // back on `/splash?from=/login`, so the timeout lands nowhere.
+      final gate = Completer<User?>();
+      await _pumpSplash(tester, _FakeRepository(restoreGate: gate));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 11));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(_login),
+        findsOneWidget,
+        reason: 'the timeout must reach the form, not bounce back to splash',
+      );
+
+      // The restore answers late. Nobody may be signed in behind the form, and
+      // the route must not move under a user who is now typing credentials.
+      gate.complete(
+        User(
+          id: 5,
+          username: 'staff',
+          email: 'staff@queenbuilders.local',
+          fullName: 'Ana Reyes',
+          role: Role(id: 1, name: 'admin', displayName: 'Admin'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(_login), findsOneWidget);
+      expect(find.text(_adminDashboard), findsNothing);
+    });
+
     testWidgets('reduced motion skips the intro animation', (tester) async {
       await _pumpSplash(tester, _FakeRepository(), reduceMotion: true);
       // Two frames: the restore already answered, so a skipped animation
@@ -243,10 +280,14 @@ Future<void> _pumpSplash(
   );
 }
 
-/// Restores the saved session (or fails like secure storage does).
+/// Restores the saved session (or fails like secure storage does, or hangs).
 class _FakeRepository extends AuthRepository {
-  _FakeRepository({this.role, this.restore = false, this.throwsOnRestore})
-    : super(_FakeAuthService());
+  _FakeRepository({
+    this.role,
+    this.restore = false,
+    this.throwsOnRestore,
+    this.restoreGate,
+  }) : super(_FakeAuthService());
 
   final String? role;
 
@@ -254,8 +295,13 @@ class _FakeRepository extends AuthRepository {
   final bool restore;
   final bool? throwsOnRestore;
 
+  /// A restore that only answers when the test completes it.
+  final Completer<User?>? restoreGate;
+
+  /// Marks the gate complete if the test ends without answering it.
   @override
   Future<User?> restoreSession() async {
+    if (restoreGate != null) return restoreGate!.future;
     if (throwsOnRestore ?? false) {
       throw StateError('secure storage unavailable');
     }

@@ -197,6 +197,7 @@ InventorySale _sale({
   status: status,
   lines: const [
     InventorySaleLine(
+      variantUomId: 7,
       productName: 'Portland Cement',
       variantName: '40 kg bag',
       sku: 'CEM-40KG',

@@ -1,6 +1,7 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/shared/widgets/app_panel.dart';
 import 'package:flutter/material.dart';
@@ -57,11 +58,18 @@ class SalesRevenueTrend extends StatelessWidget {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        Text(
-                          values[index] == 0
-                              ? 'None'
-                              : '₱${(values[index] / 1000).toStringAsFixed(1)}k',
-                          style: Theme.of(context).textTheme.labelSmall,
+                        // D1: one money format, so a day reads ₱1,141.00 instead
+                        // of ₱1141.0k. A day with no sales carries no number at
+                        // all: the empty string holds the line's height, which
+                        // keeps the bars aligned without claiming "None".
+                        // Scaled down, never wrapped: seven columns on a 1100 px
+                        // window leave the widest label barely its own width.
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            values[index] == 0 ? '' : formatPeso(values[index]),
+                            style: Theme.of(context).textTheme.labelSmall,
+                          ),
                         ),
                         const SizedBox(height: AppSpacing.xs),
                         Flexible(

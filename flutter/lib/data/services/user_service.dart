@@ -29,16 +29,21 @@ class UserService {
 
   final ApiClient _client;
 
+  /// Every account, walked page by page.
+  ///
+  /// The screen counts, filters and searches this list, so one DRF page would
+  /// misreport the staff: a manager's 51st account would simply be missing, and
+  /// the summary line would undercount. [ApiClient.getAll] is the same walk the
+  /// other counting screens use.
   Future<List<User>> fetchUsers({String? search}) async {
     try {
       final query = <String, dynamic>{};
       if (search != null && search.isNotEmpty) query['search'] = search;
-      final page = await _client.getList<User>(
+      return await _client.getAll<User>(
         usersPath,
         User.fromJson,
         queryParameters: query.isEmpty ? null : query,
       );
-      return page.items.toList();
     } on DioException catch (error) {
       throw UsersServiceException(
         _message(error, 'The staff list could not be loaded.'),

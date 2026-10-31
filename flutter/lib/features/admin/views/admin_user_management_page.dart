@@ -10,6 +10,7 @@ import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -55,6 +56,41 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
   /// The search text. Narrows the rows already loaded, so typing costs no
   /// request and the reader sees the list shrink as they type.
   String _query = '';
+
+  /// Owned here, not by the bar, so "Clear filters" can empty the field too.
+  final TextEditingController _searchController = TextEditingController();
+
+  /// The rows' scroll position, so a wheel that lands on the header still
+  /// moves them. The page lays out its own scrolling regions
+  /// (`scrollable: false`: the list builds rows lazily inside an `Expanded`),
+  /// which leaves the summary, the search field and the wrapped chip rows — a
+  /// third of a 760 x 900 window — with no scrollable at all. A wheel there
+  /// moved nothing, and the accounts below the fold looked unreachable
+  /// (QA wave 3b).
+  final ScrollController _listScroll = ScrollController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _listScroll.dispose();
+    super.dispose();
+  }
+
+  /// Hands a wheel that landed OUTSIDE the list to the list.
+  ///
+  /// Pointer signals are resolved deepest-first, so a wheel over the rows still
+  /// reaches their own `Scrollable`; only the rest of the page arrives here.
+  /// [ScrollPosition.pointerScroll] is the same call the framework makes for a
+  /// wheel over a scroll view, so the rows move with the same physics.
+  void _forwardWheelToRows(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    GestureBinding.instance.pointerSignalResolver.register(event, (event) {
+      if (!_listScroll.hasClients) return;
+      _listScroll.position.pointerScroll(
+        (event as PointerScrollEvent).scrollDelta.dy,
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -109,90 +145,122 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
         _query.trim().isNotEmpty ||
         viewmodel.roleFilter != null ||
         viewmodel.activeFilter != null;
+    // Fewer rows than the server counts is what "hidden by a filter" means; the
+    // way back only earns its place when something is actually missing.
+    final filtersHideRows =
+        filtered && rows.length < (stats?.total ?? viewmodel.users.length);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            // The summary line the four metric cards became. Absent until the
-            // server has answered, so a failed first load never shows a zero.
-            Expanded(
-              child: stats == null
-                  ? const SizedBox.shrink()
-                  : Text(
-                      _summary(stats),
-                      style: const TextStyle(fontSize: 14, height: 1.4),
-                    ),
-            ),
-            // Creation stays Admin-only server-side (`register_view` is
-            // `IsAdminRole`), so non-admins are not offered it.
-            if (isAdmin)
-              AdminUserActionButton(
-                label: 'Create account',
-                icon: Icons.person_add_outlined,
-                onPressed: () => _openCreateDialog(context, viewmodel),
+    return Listener(
+      onPointerSignal: _forwardWheelToRows,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              // The summary line the four metric cards became. Absent until the
+              // server has answered, so a failed first load never shows a zero.
+              Expanded(
+                child: stats == null
+                    ? const SizedBox.shrink()
+                    : Text(
+                        _summary(stats),
+                        style: const TextStyle(fontSize: 14, height: 1.4),
+                      ),
               ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        if (firstLoadFailed)
-          ErrorBanner(message: viewmodel.loadError!, onRetry: viewmodel.load)
-        else ...[
-          FilterBar(
-            searchHint: 'Search name, username, or email',
-            onSearchChanged: (value) => setState(() => _query = value),
-            // Only the roles the loaded rows actually carry, plus "No role":
-            // filtering to a group nobody has would be an empty promise.
-            options: [_anyRole, ...viewmodel.availableRoles],
-            selected: viewmodel.roleFilter ?? _anyRole,
-            onSelected: (chip) =>
-                viewmodel.setRoleFilter(chip == _anyRole ? null : chip),
-            extraOptions: const [_anyStatus, 'Active', 'Inactive'],
-            extraSelected: switch (viewmodel.activeFilter) {
-              true => 'Active',
-              false => 'Inactive',
-              null => _anyStatus,
-            },
-            onExtraSelected: (chip) => viewmodel.setActiveFilter(switch (chip) {
-              'Active' => true,
-              'Inactive' => false,
-              _ => null,
-            }),
+              // FX5: beside the summary, so a reader who wonders where the other
+              // accounts went has the way back in the same line as the count.
+              if (filtersHideRows)
+                TextButton(
+                  onPressed: () => _clearFilters(viewmodel),
+                  child: const Text('Clear filters'),
+                ),
+              // Creation stays Admin-only server-side (`register_view` is
+              // `IsAdminRole`), so non-admins are not offered it.
+              if (isAdmin)
+                AdminUserActionButton(
+                  label: 'Create account',
+                  icon: Icons.person_add_outlined,
+                  onPressed: () => _openCreateDialog(context, viewmodel),
+                ),
+            ],
           ),
-          const SizedBox(height: AppSpacing.md),
-          // A refused write (403 USER_ADMIN_FORBIDDEN, 400 LAST_ADMIN) names
-          // itself here, above the rows it did not change.
-          if (viewmodel.actionError != null) ...[
-            ErrorBanner(
-              message: viewmodel.actionError!,
-              onRetry: viewmodel.clearActionError,
+          const SizedBox(height: AppSpacing.lg),
+          if (firstLoadFailed)
+            ErrorBanner(message: viewmodel.loadError!, onRetry: viewmodel.load)
+          else ...[
+            FilterBar(
+              searchController: _searchController,
+              searchHint: 'Search name, username, or email',
+              onSearchChanged: (value) => setState(() => _query = value),
+              // Only the roles the loaded rows actually carry, plus "No role":
+              // filtering to a group nobody has would be an empty promise.
+              options: [_anyRole, ...viewmodel.availableRoles],
+              selected: viewmodel.roleFilter ?? _anyRole,
+              onSelected: (chip) =>
+                  viewmodel.setRoleFilter(chip == _anyRole ? null : chip),
+              extraOptions: const [_anyStatus, 'Active', 'Inactive'],
+              extraSelected: switch (viewmodel.activeFilter) {
+                true => 'Active',
+                false => 'Inactive',
+                null => _anyStatus,
+              },
+              onExtraSelected: (chip) =>
+                  viewmodel.setActiveFilter(switch (chip) {
+                    'Active' => true,
+                    'Inactive' => false,
+                    _ => null,
+                  }),
             ),
             const SizedBox(height: AppSpacing.md),
-          ],
-          // A refresh that failed under rows already read: the rows are still
-          // the server's last answer, so they stay and the banner explains.
-          if (viewmodel.hasLoaded && viewmodel.loadError != null) ...[
-            ErrorBanner(message: viewmodel.loadError!, onRetry: viewmodel.load),
-            const SizedBox(height: AppSpacing.md),
-          ],
-          Expanded(
-            child: AdminUserTable(
-              users: rows,
-              emptyMessage: filtered
-                  ? 'No accounts match these filters.'
-                  : 'No staff accounts yet.',
-              // Only a first read may take the slot: a refresh keeps its rows.
-              isLoading: viewmodel.isLoading && !viewmodel.hasLoaded,
-              onToggleActive: (user) =>
-                  _openToggleDialog(context, viewmodel, user),
-              onChangeRole: (user) =>
-                  _openRoleDialog(context, viewmodel, user, isAdmin: isAdmin),
+            // A refused write (403 USER_ADMIN_FORBIDDEN, 400 LAST_ADMIN) names
+            // itself here, above the rows it did not change.
+            if (viewmodel.actionError != null) ...[
+              ErrorBanner(
+                message: viewmodel.actionError!,
+                onRetry: viewmodel.clearActionError,
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
+            // A refresh that failed under rows already read: the rows are still
+            // the server's last answer, so they stay and the banner explains.
+            if (viewmodel.hasLoaded && viewmodel.loadError != null) ...[
+              ErrorBanner(
+                message: viewmodel.loadError!,
+                onRetry: viewmodel.load,
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
+            Expanded(
+              child: AdminUserTable(
+                users: rows,
+                controller: _listScroll,
+                // Authority comes from the viewer's role CODE, not a label: the
+                // server refuses a non-admin's write on an admin account with
+                // 403 USER_ADMIN_FORBIDDEN, so the actions are not offered there.
+                isAdminViewer: isAdmin,
+                emptyMessage: filtered
+                    ? 'No accounts match these filters.'
+                    : 'No staff accounts yet.',
+                // Only a first read may take the slot: a refresh keeps its rows.
+                isLoading: viewmodel.isLoading && !viewmodel.hasLoaded,
+                onToggleActive: (user) =>
+                    _openToggleDialog(context, viewmodel, user),
+                onChangeRole: (user) =>
+                    _openRoleDialog(context, viewmodel, user, isAdmin: isAdmin),
+              ),
             ),
-          ),
+          ],
         ],
-      ],
+      ),
     );
+  }
+
+  /// Puts the whole loaded list back: the search field, the chips, and the
+  /// rows the server holds (the reload is the viewmodel's own path).
+  void _clearFilters(AdminUsersViewmodel viewmodel) {
+    _searchController.clear();
+    setState(() => _query = '');
+    viewmodel.clearFilters();
   }
 
   /// `12 accounts, 10 active, 2 inactive` (D7: grouped counts).

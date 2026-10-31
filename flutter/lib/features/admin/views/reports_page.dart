@@ -231,6 +231,12 @@ class _PeriodControl extends StatelessWidget {
         key: const Key('reports-period'),
         tooltip: 'Report period',
         initialValue: period,
+        // The five periods are on screen together or the last one is a promise
+        // the reader cannot press: the stock menu reveals itself by growing its
+        // Material's height, so for the first ~290 ms of its 300 ms open the
+        // fifth item is clipped out of the panel (QA wave 3b reported exactly
+        // that sliver at 1440 x 900). A filter menu has nothing to stage.
+        popUpAnimationStyle: AnimationStyle.noAnimation,
         onSelected: (value) =>
             value == _ReportPeriod.custom ? onCustom() : onSelected(value),
         itemBuilder: (context) => [

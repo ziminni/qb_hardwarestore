@@ -125,11 +125,12 @@ class InventorySalesViewmodel extends ChangeNotifier {
         ),
     ],
     lines: [
-      // The wire carries no product names — only the selling-unit code — and
-      // line details render nowhere today, so the code stands in for both the
-      // product name and the SKU rather than inventing either.
+      // The wire carries no product names — only the selling unit's id and code
+      // — so the code stands in for both the product name and the SKU here, and
+      // the screen resolves the name from the catalogue when it has one.
       for (final i in r.items)
         InventorySaleLine(
+          variantUomId: i.variantUomId,
           productName: i.variantUomCode,
           variantName: i.variantUomCode,
           sku: i.variantUomCode,
@@ -162,6 +163,7 @@ class InventorySalesViewmodel extends ChangeNotifier {
       lines: [
         for (final i in r.items)
           InventorySaleLine(
+            variantUomId: i.variantUomId,
             productName: i.variantUomCode,
             variantName: i.variantUomCode,
             sku: i.variantUomCode,

@@ -220,9 +220,13 @@ class ApiClient {
   ///
   /// `next` — not a short page — is the signal, which is the same rule
   /// [parsePaged] documents.
+  ///
+  /// [queryParameters] are sent with every page: a filtered list must filter all
+  /// of it, not just the page the user happens to be looking at.
   Future<List<T>> getAll<T>(
     String path,
     T Function(Map<String, dynamic> json) fromJson, {
+    Map<String, dynamic>? queryParameters,
     int maxPages = maxListPages,
   }) async {
     final all = <T>[];
@@ -231,7 +235,7 @@ class ApiClient {
       final result = await getList<T>(
         path,
         fromJson,
-        queryParameters: {'page': page},
+        queryParameters: {...?queryParameters, 'page': page},
       );
       all.addAll(result.items);
       if (!result.hasMore) return all;

@@ -114,18 +114,15 @@ class _StubReportsRepository extends ReportsRepository {
   }
 }
 
-void _sizeUp(WidgetTester tester) {
-  tester.view.physicalSize = const Size(1600, 1400);
-  tester.view.devicePixelRatio = 1.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-}
-
 Future<_StubReportsRepository> _pump(
   WidgetTester tester, {
   bool failSales = false,
+  Size size = const Size(1600, 1400),
 }) async {
-  _sizeUp(tester);
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
   final repository = _StubReportsRepository()..failSales = failSales;
   await tester.pumpWidget(
     _app(ReportsPage(viewmodel: AdminReportsViewmodel(repository: repository))),
@@ -257,6 +254,38 @@ void main() {
     expect(repository.lastTo, _iso(today));
     expect(repository.salesCalls, 3);
   });
+
+  // FX8 (QA wave 3b): the browser at 1440 x 900 showed a period menu of Today /
+  // This week / This month / Last 30 days and a clipped, faded sliver where
+  // Custom range should be, so the date range picker could not be opened on a
+  // laptop window. The cause is the open animation, not the layout: the menu's
+  // Material reveals itself through `Align(heightFactor:)`
+  // (`popup_menu.dart`, `_PopupMenuState.build`), so until the 300 ms animation
+  // ends the panel is shorter than its own item list and the last item is
+  // clipped out of it. `_PeriodControl` therefore opens without that grow.
+  for (final size in const [Size(1440, 900), Size(1100, 900), Size(760, 900)]) {
+    testWidgets('Custom range is in the menu the moment it opens at '
+        '${size.width.toInt()} x ${size.height.toInt()}', (tester) async {
+      await _pump(tester, size: size);
+
+      await tester.tap(find.byKey(const Key('reports-period')));
+      // A glance's worth of frames, not the whole animation: a menu that
+      // reveals itself item by item is a menu whose last choice cannot be
+      // pressed until it finishes.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+
+      expect(
+        find.text('Custom range').hitTestable(),
+        findsOneWidget,
+        reason: 'every one of the five periods must be tappable at once',
+      );
+
+      await tester.tap(find.text('Custom range'));
+      await tester.pumpAndSettle();
+      expect(find.byType(DateRangePickerDialog), findsOneWidget);
+    });
+  }
 
   testWidgets('Custom range opens the picker and sends the days it returns', (
     tester,

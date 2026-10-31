@@ -20,6 +20,7 @@ import 'package:client/data/services/requisition_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/sales_dashboard_alerts_viewmodel.dart';
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/sales/views/sales_dashboard_page.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:flutter/material.dart';
@@ -28,6 +29,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../support/phase4_fakes.dart';
 import '../../support/transactions_fixtures.dart';
 
 /// The fallback visual check for card M1 (00-shared/VERIFY.md, fallback 3): the
@@ -235,6 +237,73 @@ SalesDashboardAlertsViewmodel _queues({
         ),
 );
 
+/// The catalogue the four fixture selling units belong to, named the way the
+/// products screen names them.
+InventoryViewmodel _catalogue() {
+  final inventory = InventoryViewmodel(
+    products: FakeProductsRepository(
+      products: [
+        product(
+          id: 1,
+          name: 'Portland Cement',
+          categoryName: 'Cement',
+          brandName: 'Holcim',
+          variants: [
+            variant(
+              id: 1,
+              productId: 1,
+              name: '40 kg bag',
+              sellingUoms: [
+                variantUom(id: 42, variantId: 1, price: 260, uomCode: 'BAG'),
+              ],
+            ),
+          ],
+        ),
+        product(
+          id: 2,
+          name: 'PVC Pipe',
+          categoryName: 'Plumbing',
+          brandName: 'Neltex',
+          variants: [
+            variant(
+              id: 2,
+              productId: 2,
+              name: '2 inch',
+              sellingUoms: [
+                variantUom(id: 43, variantId: 2, price: 240, uomCode: 'PC'),
+              ],
+            ),
+          ],
+        ),
+        product(
+          id: 3,
+          name: 'Ceramic Tile',
+          categoryName: 'Finishing',
+          brandName: 'Mariwasa',
+          variants: [
+            variant(
+              id: 3,
+              productId: 3,
+              name: '60 x 60',
+              sellingUoms: [
+                variantUom(id: 44, variantId: 3, price: 320, uomCode: 'PC'),
+              ],
+            ),
+          ],
+        ),
+      ],
+      batches: [
+        batch(id: 1, variantId: 1, qty: 100),
+        batch(id: 2, variantId: 2, qty: 100),
+        batch(id: 3, variantId: 3, qty: 100),
+      ],
+    ),
+    inventory: FakeInventoryRepository(),
+    catalogue: FakeCatalogueRepository(),
+  );
+  return inventory..load();
+}
+
 ({InventorySalesViewmodel sales, SalesDashboardAlertsViewmodel alerts})
 _loaded() => (
   sales: InventorySalesViewmodel(
@@ -354,6 +423,11 @@ Future<void> _pump(
           ChangeNotifierProvider<InventorySalesViewmodel>.value(
             value: stores.sales,
           ),
+          // FX4: the sales wire carries the selling unit's id and code, so the
+          // top-products panel can only print a NAME when the app-scoped
+          // catalogue (which the dashboard reads) has been loaded. The PNG is
+          // the visual proof that it does.
+          ChangeNotifierProvider<InventoryViewmodel>.value(value: _catalogue()),
         ],
         child: MaterialApp(
           debugShowCheckedModeBanner: false,

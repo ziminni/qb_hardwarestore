@@ -100,9 +100,19 @@ Widget transactionsApp({
   );
 }
 
+/// One selling unit id per code. The wire sends a unique `variant_uom` per
+/// selling unit, and the dashboard's top-products list groups by that id, so a
+/// shared id would merge four products into one seller.
+const Map<String, int> _unitIds = {
+  'CEM-40KG': 42,
+  'PIPE-2IN': 43,
+  'TILE-60': 44,
+  'BAG': 45,
+};
+
 TransactionLineItem _line(String code, double qty, double unitPrice) =>
     TransactionLineItem(
-      variantUomId: 42,
+      variantUomId: _unitIds[code] ?? 42,
       variantUomCode: code,
       qty: qty,
       unitPrice: unitPrice,

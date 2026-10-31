@@ -89,7 +89,7 @@ class _PosSaleQuantityDialogState extends State<PosSaleQuantityDialog> {
                 ),
                 const SizedBox(height: 14),
                 Text(
-                  '${_selected.availableSaleQuantity.toStringAsFixed(2)} ${_selected.unit} currently available',
+                  '${formatQuantity(_selected.availableSaleQuantity)} ${_selected.unit} currently available',
                 ),
                 const SizedBox(height: 14),
                 TextFormField(
@@ -113,7 +113,7 @@ class _PosSaleQuantityDialogState extends State<PosSaleQuantityDialog> {
                       return 'Use a whole number for ${_selected.unit}';
                     }
                     if (number > _selected.availableSaleQuantity) {
-                      return 'Only ${_selected.availableSaleQuantity.toStringAsFixed(2)} available';
+                      return 'Only ${formatQuantity(_selected.availableSaleQuantity)} available';
                     }
                     return null;
                   },

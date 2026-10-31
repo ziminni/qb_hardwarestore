@@ -22,6 +22,7 @@ import 'package:client/data/services/reports_service.dart';
 import 'package:client/data/services/requisition_service.dart';
 import 'package:client/data/services/sales_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/sales_dashboard_alerts_viewmodel.dart';
 import 'package:client/features/sales/views/sales_dashboard_page.dart';
@@ -31,6 +32,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+
+import '../../support/phase4_fakes.dart';
 
 class _StubSalesService extends SalesService {
   _StubSalesService({this.transactions = const []}) : super();
@@ -178,16 +181,21 @@ InventorySalesViewmodel _emptySales() => InventorySalesViewmodel(
   reports: _StubReportsRepository(),
 );
 
-Widget _app(Widget child, {required InventorySalesViewmodel sales}) =>
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider<AuthViewmodel>.value(
-          value: AuthViewmodel(AuthRepository(AuthService())),
-        ),
-        ChangeNotifierProvider<InventorySalesViewmodel>.value(value: sales),
-      ],
-      child: child,
-    );
+Widget _app(
+  Widget child, {
+  required InventorySalesViewmodel sales,
+  InventoryViewmodel? inventory,
+}) => MultiProvider(
+  providers: [
+    ChangeNotifierProvider<AuthViewmodel>.value(
+      value: AuthViewmodel(AuthRepository(AuthService())),
+    ),
+    ChangeNotifierProvider<InventorySalesViewmodel>.value(value: sales),
+    if (inventory != null)
+      ChangeNotifierProvider<InventoryViewmodel>.value(value: inventory),
+  ],
+  child: child,
+);
 
 void _sizeUp(WidgetTester tester) {
   tester.view.physicalSize = const Size(2400, 1600);
@@ -263,6 +271,48 @@ void main() {
     expect(find.textContaining('Last 30 days'), findsWidgets);
     // The fold of zero rows would read 0 — that number must not appear.
     expect(find.text('₱0.00'), findsNothing);
+  });
+
+  testWidgets('the dashboard reads the catalogue the product names live in', (
+    tester,
+  ) async {
+    // FX4: the sales wire carries the selling unit's id and code only, so the
+    // top-products panel can only name a product once the app-scoped catalogue
+    // has been read. One shared read, guarded like the products screen.
+    _sizeUp(tester);
+    final products = FakeProductsRepository(
+      products: [
+        product(
+          id: 1,
+          name: 'Cement Bag',
+          variants: [
+            variant(
+              id: 5,
+              productId: 1,
+              name: '40 kg',
+              sellingUoms: [variantUom(id: 8, variantId: 5)],
+            ),
+          ],
+        ),
+      ],
+      batches: [batch(id: 1, variantId: 5, qty: 100)],
+    );
+    final inventory = InventoryViewmodel(
+      products: products,
+      inventory: FakeInventoryRepository(),
+      catalogue: FakeCatalogueRepository(),
+    );
+
+    await tester.pumpWidget(
+      _app(
+        const MaterialApp(home: SalesDashboardPage()),
+        sales: _emptySales(),
+        inventory: inventory,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(products.loadCount, 1);
   });
 
   testWidgets('the page repeats no heading above its numbers', (tester) async {

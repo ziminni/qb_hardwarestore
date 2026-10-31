@@ -27,12 +27,17 @@ enum InventoryReturnStatus {
 
 class InventorySaleLine {
   const InventorySaleLine({
+    required this.variantUomId,
     required this.productName,
     required this.variantName,
     required this.sku,
     required this.quantity,
     required this.unitPrice,
   });
+
+  /// The selling unit's id. The only field the wire sends that identifies WHICH
+  /// product was sold: names must be resolved against the catalogue.
+  final int variantUomId;
   final String productName;
   final String variantName;
   final String sku;

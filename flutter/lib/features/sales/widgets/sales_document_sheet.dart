@@ -23,10 +23,13 @@ class SalesDocumentLine {
   double get subtotal => qty * unitPrice;
 }
 
-/// Quantities render without a trailing ".0" — a count reading "10.0" looks
-/// estimated, and these come from exact batch arithmetic.
-String salesQty(num amount) =>
-    amount % 1 == 0 ? '${amount.toInt()}' : '$amount';
+/// A quantity in the app's one quantity format (D7).
+///
+/// Kept as a named helper because three call sites read better with it, but the
+/// rule is [formatQuantity]'s: a whole count keeps no decimals, a fractional one
+/// drops trailing zeros, and thousands are grouped. The old local rule printed
+/// `1248` where every other screen prints `1,248`.
+String salesQty(num amount) => formatQuantity(amount);
 
 /// Resolves a `variant_uom` id to a readable line name.
 ///

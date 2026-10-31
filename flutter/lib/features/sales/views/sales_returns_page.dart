@@ -127,6 +127,9 @@ class _SalesReturnsPageState extends State<SalesReturnsPage> {
   /// Compared by role CODE, never label (Phase 4 lesson).
   bool _mayPostUnlinked(BuildContext context) {
     final role = context.watch<AuthViewmodel>().roleName;
+    // 'admin' stays although [AppRoutes.redirectFor] keeps an admin out of
+    // /sales today: the server admits it (`IsManagerRole`), and a role rule
+    // change must not silently take the action away. Drop it with the route.
     return role == 'sales' || role == 'admin';
   }
 

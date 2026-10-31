@@ -65,11 +65,13 @@ void main() {
   ) async {
     await show(tester, isAnonymous: false);
 
+    // FX6: the dialog's amounts went through the one money format, so each line
+    // reads as a peso amount instead of a bare decimal.
     expect(find.text('Total'), findsOneWidget);
-    expect(find.text('750.00'), findsOneWidget);
+    expect(find.text('₱750.00'), findsOneWidget);
     expect(find.text('Paid'), findsOneWidget);
-    expect(find.text('500.00'), findsOneWidget);
-    expect(find.text('250.00'), findsOneWidget, reason: '750 - 500');
+    expect(find.text('₱500.00'), findsOneWidget);
+    expect(find.text('₱250.00'), findsOneWidget, reason: '₱750 - ₱500');
   });
 
   group('a NAMED customer keeps the Phase 3 behaviour', () {

@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:flutter/material.dart';
 
 /// What the cashier chose when a sale came up short.
@@ -140,7 +141,7 @@ class PosUnderpaymentDialog extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label, style: style),
-        Text(value.toStringAsFixed(2), style: style),
+        Text(formatPeso(value), style: style),
       ],
     );
   }

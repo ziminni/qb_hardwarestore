@@ -36,7 +36,7 @@ class PosReceiptDialog extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          '${line.productName} — ${line.variantName}\n${line.quantity.toStringAsFixed(2)} ${line.unit}',
+                          '${line.productName} — ${line.variantName}\n${formatQuantity(line.quantity)} ${line.unit}',
                         ),
                       ),
                       Text(formatPeso(line.total)),

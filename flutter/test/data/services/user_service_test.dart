@@ -92,6 +92,41 @@ void main() {
     expect(lastRequest?.queryParameters['search'], 'mana');
   });
 
+  test('the staff list walks every page, and the search with it', () async {
+    // FX2: the screen counts, filters and searches this list, so one DRF page
+    // is a lie. DRF's `next` — not a short page — is the signal.
+    final requested = <Map<String, dynamic>>[];
+    adapter.respond = (options) {
+      lastRequest = options;
+      requested.add(Map<String, dynamic>.from(options.queryParameters));
+      if (options.queryParameters['page'] == 2) {
+        return _json({
+          'count': 2,
+          'next': null,
+          'previous': 'http://api/api/v1/users/?page=1',
+          'results': [_user(id: 51, username: 'lastonpage')],
+        });
+      }
+      return _json({
+        'count': 2,
+        'next': 'http://api/api/v1/users/?page=2',
+        'previous': null,
+        'results': [_user()],
+      });
+    };
+
+    final users = await service.fetchUsers(search: 'mana');
+
+    expect(users, hasLength(2), reason: 'both pages make up the staff list');
+    expect(users.last.username, 'lastonpage');
+    expect(requested, hasLength(2), reason: 'the walk stopped after one page');
+    expect(
+      requested.map((query) => query['search']),
+      everyElement('mana'),
+      reason: 'the search must apply to every page of the walk',
+    );
+  });
+
   test('a role-less row parses as a null role, not a failure', () {
     // `GET /users/` really returns `role: null` for a groupless account (a
     // superuser, an account whose group was removed). Phase 3 Task 0: that row
