@@ -2,6 +2,7 @@ import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/models/sales.dart';
+import 'package:client/shared/widgets/app_panel.dart';
 import 'package:flutter/material.dart';
 
 class SalesRevenueTrend extends StatelessWidget {
@@ -37,27 +38,17 @@ class SalesRevenueTrend extends StatelessWidget {
       0,
       (value, item) => item > value ? item : value,
     );
-    return Container(
-      height: 270,
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        border: Border.all(color: AppColors.border),
-        borderRadius: BorderRadius.circular(AppRadii.medium),
-      ),
+    // The bars grow to fill their box, so the CHART has a bounded height; the
+    // panel around it sizes to its content and never clips a longer caption.
+    return AppPanel(
+      title: 'Sales trend',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Sales trend',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: AppSpacing.xs),
           const Text('Completed sales over the latest seven-day period'),
           const SizedBox(height: AppSpacing.lg),
-          Expanded(
+          SizedBox(
+            height: 190,
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
@@ -68,7 +59,7 @@ class SalesRevenueTrend extends StatelessWidget {
                       children: [
                         Text(
                           values[index] == 0
-                              ? '—'
+                              ? 'None'
                               : '₱${(values[index] / 1000).toStringAsFixed(1)}k',
                           style: Theme.of(context).textTheme.labelSmall,
                         ),

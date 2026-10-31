@@ -1,8 +1,8 @@
 import 'package:client/core/constants/app_colors.dart';
-import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/sales.dart';
+import 'package:client/shared/widgets/app_panel.dart';
 import 'package:flutter/material.dart';
 
 class SalesTopProducts extends StatelessWidget {
@@ -26,27 +26,17 @@ class SalesTopProducts extends StatelessWidget {
     }
     final products = totals.entries.toList()
       ..sort((a, b) => b.value.revenue.compareTo(a.value.revenue));
-    return Container(
-      height: 270,
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        border: Border.all(color: AppColors.border),
-        borderRadius: BorderRadius.circular(AppRadii.medium),
-      ),
+    // The ranked list scrolls inside a bounded box, so the panel sizes to its
+    // content and five products never stretch the page.
+    return AppPanel(
+      title: 'Top-selling products',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Top-selling products',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: AppSpacing.xs),
           const Text('Ranked by completed-sales revenue'),
           const Divider(height: AppSpacing.xl),
-          Expanded(
+          SizedBox(
+            height: 170,
             child: products.isEmpty
                 ? const Center(child: Text('No completed sales yet.'))
                 : ListView.separated(
