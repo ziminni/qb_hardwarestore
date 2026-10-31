@@ -84,17 +84,25 @@ void main() {
   });
 
   group('stocker InventorySettingsPage', () {
+    // Card K10 (UI refresh): the stocker's Settings screen now shows the SAME
+    // read-only "Store information" card as the admin one (card A6), instead of
+    // three disabled fields that looked like a form waiting to be enabled.
     testWidgets('shows the same constants, read-only, with no Save', (
       tester,
     ) async {
       await _pump(tester, const InventorySettingsPage());
 
-      expect(_fieldValues(tester), [_storeName, _storeEmail, _storePhone]);
+      expect(find.text('Store information'), findsOneWidget);
+      // Same three literals as the admin card: one store, one name (D-03, D10).
+      // `_fieldValues` would be empty here by design, so the values are read as
+      // text rather than from fields that no longer exist.
+      expect(_fieldValues(tester), isEmpty);
+      expect(find.text(_storeName), findsOneWidget);
+      expect(find.text(_storeEmail), findsOneWidget);
+      expect(find.text(_storePhone), findsOneWidget);
       expect(
-        tester
-            .widgetList<TextFormField>(find.byType(TextFormField))
-            .every((field) => field.enabled == false),
-        isTrue,
+        find.byType(TextFormField),
+        findsNothing,
         reason: 'a stocker cannot change store settings',
       );
       expect(find.text('Save settings'), findsNothing);
