@@ -25,6 +25,8 @@ import 'package:client/features/sales/views/sales_orders_page.dart';
 import 'package:client/features/sales/views/sales_quotations_page.dart';
 import 'package:client/features/sales/views/sales_transactions_page.dart';
 import 'package:client/features/sales/widgets/sales_document_sheet.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
+import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -99,23 +101,33 @@ Future<InventoryViewmodel> _inventory() async {
   return inventory;
 }
 
-QuotationRecord _quotation({List<QuotationLineItem> items = const []}) =>
-    QuotationRecord(
-      id: 1,
-      number: 'QT-20261019-0001',
-      customerId: 3,
-      status: 'SENT',
-      validUntil: '2026-11-19',
-      createdAt: '2026-10-19T08:00:00Z',
-      items: items,
-    );
+QuotationRecord _quotation({
+  int id = 1,
+  String number = 'QT-20261019-0001',
+  String status = 'SENT',
+  String validUntil = '2026-11-19',
+  List<QuotationLineItem> items = const [],
+}) => QuotationRecord(
+  id: id,
+  number: number,
+  customerId: 3,
+  status: status,
+  validUntil: validUntil,
+  createdAt: '2026-10-19T08:00:00Z',
+  items: items,
+);
 
-SalesOrderRow _order({List<OrderLineItem> items = const []}) => SalesOrderRow(
-  id: 7,
-  number: 'SO-20261019-0001',
+SalesOrderRow _order({
+  int id = 7,
+  String number = 'SO-20261019-0001',
+  String status = 'CONFIRMED',
+  List<OrderLineItem> items = const [],
+}) => SalesOrderRow(
+  id: id,
+  number: number,
   customerId: 3,
   quotationId: 1,
-  status: 'CONFIRMED',
+  status: status,
   createdAt: '2026-10-19T08:00:00Z',
   items: items,
 );
@@ -190,12 +202,14 @@ void main() {
     Future<void> pump(
       WidgetTester tester, {
       InventoryViewmodel? inventory,
+      List<QuotationRecord>? quotations,
+      DateTime Function()? now,
       List<QuotationLineItem> items = const [
         QuotationLineItem(variantUomId: 42, qty: 2, unitPrice: 250),
       ],
     }) async {
       _sizeUp(tester);
-      sales.quotations = [_quotation(items: items)];
+      sales.quotations = quotations ?? [_quotation(items: items)];
       await tester.pumpWidget(
         _app(
           ChangeNotifierProvider<SalesModuleViewmodel>(
@@ -203,7 +217,7 @@ void main() {
               service: sales,
               customerService: _StubCustomerService(),
             ),
-            child: const SalesQuotationsPage(),
+            child: SalesQuotationsPage(now: now ?? DateTime.now),
           ),
           inventory: inventory,
         ),
@@ -279,6 +293,143 @@ void main() {
 
       expect(_inSheet('No items'), findsOneWidget);
     });
+
+    testWidgets('a quotation past its valid date reads Expired, not Sent', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        quotations: [_quotation(validUntil: '2020-12-31', status: 'SENT')],
+      );
+
+      expect(
+        find.descendant(
+          of: find.byType(StatusBadge),
+          matching: find.text('Expired'),
+        ),
+        findsOneWidget,
+        reason: 'a quote nobody can order from must not look like a live one',
+      );
+      expect(
+        // Scoped to the badge: the FilterBar has a "Sent" chip of its own.
+        find.descendant(
+          of: find.byType(StatusBadge),
+          matching: find.text('Sent'),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a quotation inside its valid date keeps its status', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        quotations: [_quotation(validUntil: '2060-01-01', status: 'SENT')],
+      );
+
+      expect(
+        find.descendant(
+          of: find.byType(StatusBadge),
+          matching: find.text('Sent'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        // Scoped to the badge: the FilterBar has an "Expired" chip of its own.
+        find.descendant(
+          of: find.byType(StatusBadge),
+          matching: find.text('Expired'),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.text('Jan 1, 2060'),
+        findsOneWidget,
+        reason: 'the reader checks the date the expiry rule judged',
+      );
+    });
+
+    testWidgets('an expired quotation says Expired on its document too', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        quotations: [_quotation(validUntil: '2020-12-31', status: 'SENT')],
+      );
+      await _tapView(tester);
+
+      expect(_inSheet('Expired'), findsWidgets);
+    });
+
+    testWidgets('the expiry rule reads the clock the page is given', (
+      tester,
+    ) async {
+      // Well inside its valid date by the wall clock, past it by the given one:
+      // only an injected clock can make this read Expired.
+      await pump(
+        tester,
+        quotations: [_quotation(validUntil: '2060-01-01', status: 'SENT')],
+        now: () => DateTime(2061, 1, 1),
+      );
+
+      expect(
+        find.descendant(
+          of: find.byType(StatusBadge),
+          matching: find.text('Expired'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the list can be searched by number', (tester) async {
+      await pump(
+        tester,
+        quotations: [
+          _quotation(),
+          _quotation(id: 2, number: 'QT-20261020-0002'),
+        ],
+      );
+
+      expect(
+        find.byType(FilterBar),
+        findsOneWidget,
+        reason: 'a list of quotations the reader cannot narrow is the defect',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(FilterBar),
+          matching: find.byType(TextField),
+        ),
+        'QT-20261020',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('QT-20261020-0002'), findsOneWidget);
+      expect(find.text('QT-20261019-0001'), findsNothing);
+    });
+
+    testWidgets('a search that matches nothing says so, and says which', (
+      tester,
+    ) async {
+      await pump(tester);
+
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(FilterBar),
+          matching: find.byType(TextField),
+        ),
+        'nothing is called this',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('No quotations match these filters.'), findsOneWidget);
+      expect(
+        find.text('No quotations available.'),
+        findsNothing,
+        reason: 'the system has quotations; the search hid them',
+      );
+    });
   });
 
   group('sales orders', () {
@@ -313,6 +464,73 @@ void main() {
       expect(_inSheet('SO-20261019-0001'), findsOneWidget);
       expect(_inSheet('Circuit Breaker 20A 1-pole'), findsOneWidget);
       expect(_inSheet('₱1,000.00'), findsWidgets);
+    });
+
+    testWidgets('the list can be filtered by status chip', (tester) async {
+      _sizeUp(tester);
+      sales.orders = [
+        _order(),
+        _order(id: 8, number: 'SO-20261020-0002', status: 'COMPLETED'),
+      ];
+      await tester.pumpWidget(
+        _app(
+          ChangeNotifierProvider<SalesModuleViewmodel>(
+            create: (_) => SalesModuleViewmodel(
+              service: sales,
+              customerService: _StubCustomerService(),
+            ),
+            child: const SalesOrdersPage(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Scoped to the bar: a row badge carries the same word as its chip.
+      await tester.tap(
+        find.descendant(
+          of: find.byType(FilterBar),
+          matching: find.text('Completed'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('SO-20261020-0002'), findsOneWidget);
+      expect(find.text('SO-20261019-0001'), findsNothing);
+      expect(
+        find.text('View'),
+        findsOneWidget,
+        reason: 'the surviving order still opens its document',
+      );
+    });
+
+    testWidgets('an empty result says which kind of empty it is', (
+      tester,
+    ) async {
+      _sizeUp(tester);
+      sales.orders = [_order()];
+      await tester.pumpWidget(
+        _app(
+          ChangeNotifierProvider<SalesModuleViewmodel>(
+            create: (_) => SalesModuleViewmodel(
+              service: sales,
+              customerService: _StubCustomerService(),
+            ),
+            child: const SalesOrdersPage(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.descendant(
+          of: find.byType(FilterBar),
+          matching: find.text('Ready'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('No sales orders match these filters.'), findsOneWidget);
+      expect(find.text('No sales orders available.'), findsNothing);
     });
   });
 
