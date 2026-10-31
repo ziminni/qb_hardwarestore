@@ -1,32 +1,47 @@
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
+import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/system_alert.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_low_stock_table.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
-import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmodel.dart';
 import 'package:client/features/suppliers/widgets/purchases_form_dialog.dart';
+import 'package:client/shared/widgets/error_banner.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+/// Status as the filter offers it: chips that add up to "all or one".
+///
+/// The values are the filter's state, the keys its copy. "All" is null so the
+/// page holds one nullable field instead of an "all" enum member the stock
+/// status model does not have.
+const _statusChips = <String, InventoryStockStatus?>{
+  'All': null,
+  'Out of stock': InventoryStockStatus.outOfStock,
+  'Low': InventoryStockStatus.lowStock,
+};
+
+const _showResolvedChip = 'Show resolved';
 
 /// Low stock, live (Phase 4 Task 4).
 ///
 /// Two controls that used to lie now work:
 ///
-///  * **Reorder** opened "Future Purchasing connection — will connect to the
-///    Purchasing module in a future implementation". It now opens the real New
-///    purchase order dialog, prefilled with that variant and a suggested
+///  * **Reorder** opened "Future Purchasing connection" and now opens the real
+///    New purchase order dialog, prefilled with that variant and a suggested
 ///    quantity (`max_stock_level − on hand` when positive, else the threshold).
 ///  * **Resolve** did not exist, so a cleared alert stayed open forever. It calls
-///    `POST /alerts/{id}/resolve/` and shows who resolved it and when — and only
-///    the roles the server admits (Stock Manager / Admin) see it at all.
+///    `POST /alerts/{id}/resolve/` and shows who resolved it and when.
 ///
 /// Membership still comes from the server's alerts, not from a client predicate
 /// (decision 13): the list is what the server alerted, which is why it can be
-/// shorter than the stock screen's own low-stock count.
+/// shorter than the stock screen's own low-stock count. The page filters those
+/// alerts and words the empty states; the table orders them by urgency and
+/// renders them.
 class InventoryLowStockPage extends StatefulWidget {
   const InventoryLowStockPage({super.key});
   @override
@@ -36,6 +51,11 @@ class InventoryLowStockPage extends StatefulWidget {
 class _InventoryLowStockPageState extends State<InventoryLowStockPage> {
   String _query = '';
   bool _showResolved = false;
+  InventoryStockStatus? _status;
+
+  /// The chip that matches the current status. Always one: "All" is null.
+  String get _statusChip =>
+      _statusChips.entries.firstWhere((entry) => entry.value == _status).key;
 
   @override
   void initState() {
@@ -126,9 +146,15 @@ class _InventoryLowStockPageState extends State<InventoryLowStockPage> {
     for (final alert in visibleAlerts) {
       for (final record in inventory.stockRecords) {
         if (record.variant.id != alert.variantId) continue;
-        if (!'${record.product.baseName} ${record.variant.variantName} ${record.variant.barcode}'
-            .toLowerCase()
-            .contains(_query.toLowerCase())) {
+        final matchesQuery =
+            '${record.product.baseName} '
+                    '${record.variant.variantName} '
+                    '${record.variant.barcode}'
+                .toLowerCase()
+                .contains(_query.toLowerCase());
+        if (!matchesQuery) continue;
+        if (_status != null &&
+            inventory.statusForVariant(record.variant.id) != _status) {
           continue;
         }
         rows.add(
@@ -143,65 +169,63 @@ class _InventoryLowStockPageState extends State<InventoryLowStockPage> {
 
     final failure = inventory.loadError;
     final pending = inventory.isLoading || !inventory.hasLoaded;
+    // A failed read keeps the alerts it already had and says why above them, in
+    // one banner the page owns. With nothing to keep there is no list at all:
+    // an empty panel would read as "the server flagged nothing", which is the
+    // one thing a failed fetch has not established.
+    final firstLoadFailed = failure != null && rows.isEmpty && !pending;
+    final filtered = _query.trim().isNotEmpty || _status != null;
 
     return InventorySkeletonLayout(
       title: 'Low Stock',
       subtitle: 'Variants the server has alerted as low or out of stock.',
       selectedNavigationIndex: 5,
       onNavigationSelected: (index) => navigateInventory(context, index),
-      // Loading, then error, then data — the precedence `AsyncView` documents.
-      // Nothing is claimed here before the first attempt finishes, and a failed
-      // attempt is never reported as an empty result: see F2.
-      child: pending
-          ? const Center(
-              child: Padding(
-                padding: EdgeInsets.all(AppSpacing.xxl),
-                child: CircularProgressIndicator(),
-              ),
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (failure != null)
-                  LiveLoadErrorBanner(
-                    message: failure,
-                    onRetry: inventory.load,
-                  ),
-                Row(
-                  children: [
-                    SizedBox(
-                      width: 340,
-                      child: TextField(
-                        onChanged: (value) => setState(() => _query = value),
-                        decoration: const InputDecoration(
-                          prefixIcon: Icon(Icons.search),
-                          hintText: 'Search low-stock items',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.lg),
-                    FilterChip(
-                      label: const Text('Show resolved'),
-                      selected: _showResolved,
-                      onSelected: (value) =>
-                          setState(() => _showResolved = value),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.xl),
-                // A failed load with nothing retained shows the banner INSTEAD of
-                // the table, so the table's "no low-stock products" copy cannot
-                // speak for a fetch that never succeeded. Rows kept from an
-                // earlier good load stay visible under the banner.
-                if (failure == null || rows.isNotEmpty)
-                  InventoryLowStockTable(
+      // The alert list can grow to one row per variant, so it builds its rows
+      // lazily inside the panel's own slot instead of all at once in a page
+      // scroll view. That needs a bounded body, hence `scrollable: false`.
+      scrollable: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          FilterBar(
+            searchHint: 'Search low-stock items',
+            options: _statusChips.keys.toList(),
+            selected: _statusChip,
+            onSearchChanged: (value) => setState(() => _query = value),
+            onSelected: (label) =>
+                setState(() => _status = _statusChips[label]),
+            extraOptions: const [_showResolvedChip],
+            extraSelected: _showResolved ? _showResolvedChip : null,
+            onExtraSelected: (_) =>
+                setState(() => _showResolved = !_showResolved),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          if (failure != null && !pending)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: ErrorBanner(message: failure, onRetry: inventory.load),
+            ),
+          Expanded(
+            child: firstLoadFailed
+                ? const SizedBox.shrink()
+                : InventoryLowStockTable(
                     rows: rows,
                     inventory: inventory,
                     onReorder: _reorder,
                     onResolve: canResolve ? _resolve : null,
+                    // Distinguish "nothing to fix" from "your filter hides it".
+                    emptyMessage: filtered
+                        ? 'No low-stock products match this search.'
+                        : 'No low-stock alerts right now.',
+                    // The spinner is for a first load with nothing to show. A
+                    // reload over rows must not wipe them: the banner above
+                    // already says the rows are the last good ones.
+                    isLoading: pending && rows.isEmpty,
                   ),
-              ],
-            ),
+          ),
+        ],
+      ),
     );
   }
 }

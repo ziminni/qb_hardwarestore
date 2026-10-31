@@ -126,9 +126,13 @@ void main() {
     suppliers = _StubSupplierRepository();
   });
 
-  Future<void> pump(WidgetTester tester, {String? role}) async {
+  Future<void> pump(
+    WidgetTester tester, {
+    String? role,
+    Size size = const Size(3600, 1600),
+  }) async {
     await inventory.load();
-    tester.view.physicalSize = const Size(3600, 1600);
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
@@ -200,7 +204,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Resolved by Ana Lopez'), findsOneWidget);
-    expect(find.textContaining('2026-10-25 14:30'), findsOneWidget);
+    // D6 (locked): the whole app dates a moment as `Oct 25, 2026, 2:30 PM`, so
+    // this screen stops printing the server's `2026-10-25 14:30`.
+    expect(find.textContaining('Oct 25, 2026, 2:30 PM'), findsOneWidget);
     // A resolved alert is not offered for resolving again.
     expect(find.text('Resolve'), findsNothing);
   });
@@ -214,6 +220,68 @@ void main() {
       expect(find.text('Resolve'), findsOneWidget);
     });
   }
+
+  testWidgets('Reorder and Resolve stay reachable at 760 px, as cards', (
+    tester,
+  ) async {
+    // The ten column DataTable this screen used to show put both actions off
+    // the right edge below about 1300 px, so on the narrowest window the two
+    // things the screen exists for were unreachable.
+    await pump(tester, role: 'Stock Manager', size: const Size(760, 900));
+
+    expect(find.byKey(const ValueKey('DataPanel.cards')), findsOneWidget);
+    for (final action in ['Reorder', 'Resolve']) {
+      expect(
+        tester.getRect(find.text(action)).right,
+        lessThanOrEqualTo(760),
+        reason: '$action must be inside the window, not pushed off it',
+      );
+    }
+
+    await tester.tap(find.text('Resolve'));
+    await tester.pumpAndSettle();
+
+    expect(alerts.resolvedAlertIds, [41]);
+  });
+
+  testWidgets('Reorder and Resolve stay inside a 1100 px window, as a table', (
+    tester,
+  ) async {
+    await pump(tester, role: 'Stock Manager', size: const Size(1100, 900));
+
+    expect(find.byKey(const ValueKey('DataPanel.table')), findsOneWidget);
+    // Inside the window, not scrolled past its right edge.
+    for (final action in ['Reorder', 'Resolve']) {
+      expect(tester.getRect(find.text(action)).right, lessThanOrEqualTo(1100));
+    }
+
+    // The dialog the button opens is still prefilled for THIS item. It is
+    // checked here and not at 760 because the purchase-order dialog is K7's file
+    // and it overflows its own footer below ~1000 px (reported, not fixed here).
+    await tester.tap(find.text('Reorder'));
+    await tester.pumpAndSettle();
+    expect(find.byType(PurchasesFormDialog), findsOneWidget);
+    final qty = tester.widget<TextFormField>(
+      find.byKey(const ValueKey('po-qty-8')),
+    );
+    expect(qty.controller?.text, '47');
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    // Resolving takes the row off the open list (it is now on "Show resolved"),
+    // so it is the last thing this test does.
+    await tester.tap(find.text('Resolve'));
+    await tester.pumpAndSettle();
+    expect(alerts.resolvedAlertIds, [41]);
+  });
+
+  testWidgets('both actions stay inside a 1440 px window', (tester) async {
+    await pump(tester, role: 'Stock Manager', size: const Size(1440, 900));
+
+    for (final action in ['Reorder', 'Resolve']) {
+      expect(tester.getRect(find.text(action)).right, lessThanOrEqualTo(1440));
+    }
+  });
 
   testWidgets('a cashier does not see Resolve at all', (tester) async {
     await pump(tester, role: 'Cashier');

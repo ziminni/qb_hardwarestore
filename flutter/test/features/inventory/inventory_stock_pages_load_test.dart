@@ -69,7 +69,10 @@ InventoryViewmodel _store(
   catalogue: FakeCatalogueRepository(),
 );
 
-const _lowStockEmpty = 'No low-stock products match this search.';
+// The low-stock screen now separates "the server flagged nothing" from "your
+// filter hides everything", so its no-rows copy is the first of the two
+// (wave-1 binding rule; the filtered one is unchanged).
+const _lowStockEmpty = 'No low-stock alerts right now.';
 const _stockEmpty = 'No stock records match these filters.';
 // K5 (D2): the screen is "Stock adjustments", so its empty copy names
 // adjustments. Changed on purpose with the page's title.
