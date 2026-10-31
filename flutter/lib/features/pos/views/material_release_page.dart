@@ -363,14 +363,14 @@ class _RequisitionLines extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
             Text(
-              _quantity(items[index].quantity),
+              formatQuantity(items[index].quantity),
               textAlign: TextAlign.right,
               style: const TextStyle(
                 fontFeatures: [FontFeature.tabularFigures()],
               ),
             ),
             Text(
-              _quantity(items[index].remaining),
+              formatQuantity(items[index].remaining),
               textAlign: TextAlign.right,
               style: const TextStyle(
                 fontFeatures: [FontFeature.tabularFigures()],
@@ -509,7 +509,5 @@ class _MoneyLine extends StatelessWidget {
   }
 }
 
-/// A requisition quantity as a person writes it: whole bags are not "10.0".
-String _quantity(double value) => value == value.roundToDouble()
-    ? formatCount(value.round())
-    : value.toStringAsFixed(2);
+/// A requisition quantity, written the one way the app writes quantities (D7):
+/// whole bags are not "10.0".

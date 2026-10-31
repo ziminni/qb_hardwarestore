@@ -2,7 +2,6 @@ import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/inventory.dart';
-import 'package:client/features/dashboard/widget/inventory_dashboard_quantity.dart';
 import 'package:client/features/dashboard/widget/inventory_panel_header.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:flutter/material.dart';

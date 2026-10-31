@@ -82,6 +82,11 @@ class ReceivingViewmodel extends ChangeNotifier {
   /// Loads the orders that can be received. A failed load keeps the rows already
   /// shown: emptying the table would read as "nothing on order".
   Future<void> load() async {
+    // Taken FIRST, before the read: the hand-off belongs to the visit that the
+    // Receive tap started, so a load that fails must drop it too. Taken only on
+    // success it outlived the visit and preselected that PO on a later one,
+    // possibly after a sign-out and for another user.
+    final pendingId = _takePendingPurchaseOrderId();
     _isLoading = true;
     _loadError = null;
     notifyListeners();
@@ -103,12 +108,12 @@ class ReceivingViewmodel extends ChangeNotifier {
             break;
           }
         }
-      } else if (_takePendingPurchaseOrderId() case final wanted?) {
+      } else if (pendingId != null) {
         // First load after a Receive tap on Purchases: open on that order.
         // An order the server will not let this screen receive (a DRAFT, or one
         // finished since the list was read) simply stays unpicked.
         for (final order in _orders) {
-          if (order.id == wanted) {
+          if (order.id == pendingId) {
             _selected = order;
             break;
           }

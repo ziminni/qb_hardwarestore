@@ -53,6 +53,26 @@ String formatCount(int value) {
   return '$sign${_groupThousands(digits)}';
 }
 
+/// One stock quantity as text, for the whole app (D7).
+///
+/// A whole quantity is a count: grouped thousands and no decimals, because a
+/// quantity was never `38.0`. A fractional one keeps at most two decimals with
+/// the trailing zeros dropped (`0.5`, `2.25`), so a batch of half a cubic metre
+/// reads as the number somebody wrote down. A negative keeps its sign.
+String formatQuantity(num value) {
+  final fixed = value.abs().toStringAsFixed(2);
+  // A tiny negative rounds to zero; "-0" would be nonsense.
+  final sign = value < 0 && fixed != '0.00' ? '-' : '';
+  final dot = fixed.indexOf('.');
+  final whole = _groupThousands(fixed.substring(0, dot));
+  final decimals = fixed.substring(dot).replaceFirst(RegExp(r'\.?0+$'), '');
+  return '$sign$whole$decimals';
+}
+
+/// A signed quantity change, for an adjustment: `+10`, `-2`, `-0.5`.
+String formatSignedQuantity(num value) =>
+    '${value >= 0 ? '+' : '-'}${formatQuantity(value.abs())}';
+
 String _groupThousands(String digits) {
   final buffer = StringBuffer();
   for (var i = 0; i < digits.length; i++) {

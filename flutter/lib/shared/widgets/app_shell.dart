@@ -29,6 +29,7 @@ class AppShell extends StatefulWidget {
     this.fallbackRoleLabel = '[ ROLE ]',
     this.scrollable = true,
     this.loadMarkers,
+    this.markers,
   });
 
   final String title;
@@ -46,6 +47,13 @@ class AppShell extends StatefulWidget {
   /// failed read leaves every destination blank.
   final Future<Map<int, int>> Function()? loadMarkers;
 
+  /// Counts the caller already holds, keyed like [loadMarkers], for a page whose
+  /// own data IS the count (Low stock's open alerts). Read on EVERY build and
+  /// used instead of [loadMarkers], so resolving the last alert clears the
+  /// badge on the same screen instead of on the next visit. A zero is drawn as
+  /// nothing, and a caller with nothing confirmed passes nothing.
+  final Map<int, int>? markers;
+
   /// When false the body gets the exact height left under the header instead
   /// of a scroll view, for screens that lay out their own scrolling regions
   /// (the till keeps its Pay button on screen this way).
@@ -58,7 +66,12 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
-  Map<int, int> _markers = const {};
+  Map<int, int> _loadedMarkers = const {};
+
+  /// [AppShell.markers] when the caller has its own counts, else whatever the
+  /// one-off read answered. Both are filtered to positive counts by their
+  /// producers or by [SharedSidebar].
+  Map<int, int> get _markers => widget.markers ?? _loadedMarkers;
 
   /// The user's choice from the collapse button. Only consulted on a window
   /// wide enough to show the full sidebar ([AppBreakpoints.expanded]); a
@@ -69,7 +82,9 @@ class _AppShellState extends State<AppShell> {
   void initState() {
     super.initState();
     _restoreCollapse();
-    _loadMarkers();
+    // A caller that supplies its own counts owns them; a second read here would
+    // be a duplicate request whose answer the caller cannot see.
+    if (widget.markers == null) _loadMarkers();
   }
 
   Future<void> _restoreCollapse() async {
@@ -89,14 +104,16 @@ class _AppShellState extends State<AppShell> {
       // read shows nothing and the page behind it reports its own errors.
       return;
     }
-    if (!mounted || counts.isEmpty) return;
-    final positive = {
-      for (final entry in counts.entries)
-        if (entry.value > 0) entry.key: entry.value,
-    };
-    if (positive.isEmpty) return;
-    setState(() => _markers = positive);
+    if (!mounted) return;
+    // A later read replaces the whole map, so a count that dropped to zero
+    // clears its badge instead of leaving the mount-time number on screen.
+    setState(() => _loadedMarkers = _positiveMarkers(counts));
   }
+
+  static Map<int, int> _positiveMarkers(Map<int, int> counts) => {
+    for (final entry in counts.entries)
+      if (entry.value > 0) entry.key: entry.value,
+  };
 
   Future<void> _toggleCollapsed() async {
     setState(() => _collapsedByUser = !_collapsedByUser);

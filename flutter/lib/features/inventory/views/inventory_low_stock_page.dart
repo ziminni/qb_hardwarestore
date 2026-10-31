@@ -182,6 +182,19 @@ class _InventoryLowStockPageState extends State<InventoryLowStockPage> {
       subtitle: 'Variants the server has alerted as low or out of stock.',
       selectedNavigationIndex: 5,
       onNavigationSelected: (index) => navigateInventory(context, index),
+      // FX3 (wave 3a fix pass): the sidebar badge is THIS page's own count, read
+      // from the store the page resolves through, so Resolve clears it on the
+      // screen it happened on. The shell's one-off read could not see a resolve
+      // and left the badge at its mount-time number until another route mounted.
+      // Before a successful read there is no marker at all: a blank badge beats
+      // a false 0, and the banner above the table reports the failure.
+      markers: inventory.hasLoaded && failure == null
+          ? {
+              InventorySkeletonLayout.lowStockIndex: inventory.alerts
+                  .where((alert) => !alert.isResolved)
+                  .length,
+            }
+          : const {},
       // The alert list can grow to one row per variant, so it builds its rows
       // lazily inside the panel's own slot instead of all at once in a page
       // scroll view. That needs a bounded body, hence `scrollable: false`.

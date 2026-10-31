@@ -1,8 +1,8 @@
-import 'package:client/data/models/inventory.dart';
-import 'package:client/features/dashboard/widget/inventory_dashboard_quantity.dart';
-import 'package:client/features/dashboard/widget/inventory_panel_header.dart';
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
+import 'package:client/data/models/inventory.dart';
+import 'package:client/features/dashboard/widget/inventory_panel_header.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
@@ -127,7 +127,10 @@ class InventoryRestockQueuePanel extends StatelessWidget {
         if (hidden > 0) ...[
           const SizedBox(height: AppSpacing.sm),
           Text(
-            '+$hidden more need restocking',
+            // `+1 more items` reads as a typo, so the singular has its own words.
+            hidden == 1
+                ? '+1 more item needs restocking'
+                : '+$hidden more items need restocking',
             style: const TextStyle(
               fontSize: 13,
               color: AppColors.textSecondary,

@@ -15,6 +15,7 @@ class InventorySkeletonLayout extends StatelessWidget {
     this.onNavigationSelected,
     this.scrollable = true,
     this.loadMarkers = stockManagerMarkers,
+    this.markers,
   });
 
   final String title;
@@ -29,6 +30,11 @@ class InventorySkeletonLayout extends StatelessWidget {
 
   /// See [AppShell.loadMarkers].
   final Future<Map<int, int>> Function() loadMarkers;
+
+  /// See [AppShell.markers]. A page that already holds the live count (Low
+  /// stock and its open alerts) passes it here, so the badge follows the store
+  /// the page resolves through instead of a one-off read at mount.
+  final Map<int, int>? markers;
 
   /// Flat sidebar index of Low stock, the destination the open-alert marker
   /// belongs to: 0 Dashboard, 1 Products, 2 Categories, 3 Stock,
@@ -124,6 +130,7 @@ class InventorySkeletonLayout extends StatelessWidget {
       selectedIndex: selectedNavigationIndex,
       onDestinationSelected: onNavigationSelected,
       loadMarkers: loadMarkers,
+      markers: markers,
       scrollable: scrollable,
       actions: const [NotificationsButton()],
       fallbackUserName: 'Inventory Staff',

@@ -48,10 +48,11 @@ class PosReturnsLineRow extends StatelessWidget {
                 ),
                 Text(
                   enabled
-                      ? '${line.remainingQty} of ${line.soldQty} left · '
-                            '${line.returnedQty} already returned · '
-                            '${formatPeso(line.unitPrice)}'
-                      : 'All ${line.soldQty} already returned',
+                      ? '${formatQuantity(line.remainingQty)} of '
+                            '${formatQuantity(line.soldQty)} left · '
+                            '${formatQuantity(line.returnedQty)} already '
+                            'returned · ${formatPeso(line.unitPrice)}'
+                      : 'All ${formatQuantity(line.soldQty)} already returned',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -71,7 +72,7 @@ class PosReturnsLineRow extends StatelessWidget {
           SizedBox(
             width: 44,
             child: Text(
-              quantity.toStringAsFixed(0),
+              formatQuantity(quantity),
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontSize: 18,

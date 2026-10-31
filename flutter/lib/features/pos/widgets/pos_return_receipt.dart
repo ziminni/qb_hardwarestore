@@ -64,7 +64,7 @@ class PosReturnReceipt extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(bottom: AppSpacing.xs),
                 child: Text(
-                  '${line.qty.toStringAsFixed(0)} ${line.uom} '
+                  '${formatQuantity(line.qty)} ${line.uom} '
                   '${line.name}',
                 ),
               ),

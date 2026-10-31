@@ -240,9 +240,11 @@ void main() {
             'the debt is WHY a credit sale does not refund all cash, and the '
             'cashier must see it before choosing a quantity',
       );
-      expect(find.textContaining('8.0 of 10.0 left'), findsOneWidget);
+      // D7 (changed on purpose, FX4): one quantity format prints a whole count
+      // as "8", never the double's "8.0".
+      expect(find.textContaining('8 of 10 left'), findsOneWidget);
       expect(
-        find.textContaining('All 5.0 already returned'),
+        find.textContaining('All 5 already returned'),
         findsOneWidget,
         reason: 'a returned-out line is shown, disabled — not hidden',
       );

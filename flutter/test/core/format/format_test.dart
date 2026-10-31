@@ -70,4 +70,36 @@ void main() {
       expect(formatCount(-1248), '-1,248');
     });
   });
+
+  group('formatQuantity', () {
+    // FX4 (wave 3a fix pass): one quantity format for the app. D7: quantities
+    // are counts when they are whole. "38.0 of 40.0 left" was a double leaking
+    // through a display format, not a unit of measure.
+    test('a whole quantity is a grouped count with no decimals', () {
+      expect(formatQuantity(38), '38');
+      expect(formatQuantity(38.0), '38');
+      expect(formatQuantity(1200), '1,200');
+      expect(formatQuantity(0.0), '0');
+    });
+
+    test('a fractional quantity keeps up to two decimals, no padding', () {
+      expect(formatQuantity(0.5), '0.5');
+      expect(formatQuantity(2.25), '2.25');
+      expect(formatQuantity(1234.5), '1,234.5');
+    });
+
+    test('a negative quantity keeps its sign', () {
+      expect(formatQuantity(-2), '-2');
+      expect(formatQuantity(-0.5), '-0.5');
+    });
+  });
+
+  group('formatSignedQuantity', () {
+    test('a change carries its sign, a drop included', () {
+      expect(formatSignedQuantity(10), '+10');
+      expect(formatSignedQuantity(-2), '-2');
+      expect(formatSignedQuantity(-0.5), '-0.5');
+      expect(formatSignedQuantity(1200), '+1,200');
+    });
+  });
 }

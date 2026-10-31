@@ -200,13 +200,13 @@ class _InventoryStockMovementsPageState
 
   /// A quantity with thousands grouped, signed when it moved: `+1,234 BAG`,
   /// `-2 BAG`. The unit is dropped when the catalogue no longer lists it.
+  ///
+  /// The number itself is [formatQuantity] (FX4: one quantity format), and only
+  /// the sign and the unit are this table's own.
   String _quantity(_AdjustmentRow row) {
     final value = row.adjustment.quantityAdjusted;
-    final magnitude = value == value.roundToDouble()
-        ? formatCount(value.abs().toInt())
-        : value.abs().toStringAsFixed(2);
     final sign = value > 0 ? '+' : (value < 0 ? '-' : '');
-    final amount = '$sign$magnitude';
+    final amount = '$sign${formatQuantity(value.abs())}';
     return row.unit.isEmpty ? amount : '$amount ${row.unit}';
   }
 

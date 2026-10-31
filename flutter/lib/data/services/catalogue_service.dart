@@ -38,10 +38,16 @@ class CatalogueService {
   static const brandsPath = '/api/v1/brands/';
   static const unitsPath = '/api/v1/uoms/';
 
+  /// **Every** category, not one DRF page (FX2, wave 3a fix pass).
+  ///
+  /// `getList` answers one page (PAGE_SIZE 50), so the categories screen and the
+  /// product form's category picker read as the complete catalogue while every
+  /// category past the fiftieth was missing. Same walk as
+  /// `InventoryService.fetchPurchaseOrders`.
   Future<List<Category>> fetchCategories() => _guard(
-    () => _client.getList<Category>(categoriesPath, Category.fromJson),
+    () => _client.getAll<Category>(categoriesPath, Category.fromJson),
     'The categories could not be read.',
-  ).then((page) => page.items);
+  );
 
   Future<List<Brand>> fetchBrands() => _guard(
     () => _client.getList<Brand>(brandsPath, Brand.fromJson),

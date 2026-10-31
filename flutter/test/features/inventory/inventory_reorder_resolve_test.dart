@@ -211,6 +211,32 @@ void main() {
     expect(find.text('Resolve'), findsNothing);
   });
 
+  testWidgets('the sidebar badge clears on Resolve, without leaving the screen', (
+    tester,
+  ) async {
+    // QA wave 3a: the badge stayed at 1 until another route mounted. It was read
+    // once by the shell, from its own alerts call, so the Resolve that emptied
+    // this page could not reach it. It now follows the store this page resolves
+    // through, so the same rebuild that empties the table empties the badge.
+    await pump(tester, role: 'Stock Manager');
+
+    expect(
+      find.byKey(const ValueKey('sidebar-marker-5')),
+      findsOneWidget,
+      reason: 'one open alert, one badge on Low stock',
+    );
+
+    await tester.tap(find.text('Resolve'));
+    await tester.pumpAndSettle();
+
+    expect(alerts.resolvedAlertIds, [41]);
+    expect(
+      find.byKey(const ValueKey('sidebar-marker-5')),
+      findsNothing,
+      reason: 'no open alerts are left, so a 0 badge would be a false count',
+    );
+  });
+
   for (final role in ['Store Manager', 'System Administrator']) {
     testWidgets('$role is offered Resolve too (server: IsInventoryRole)', (
       tester,

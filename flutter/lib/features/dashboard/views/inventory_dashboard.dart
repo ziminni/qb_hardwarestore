@@ -29,7 +29,8 @@ class _InventoryDashboardState extends State<InventoryDashboard> {
   Widget build(BuildContext context) {
     return InventorySkeletonLayout(
       title: 'Inventory Dashboard',
-      subtitle: 'Track stock levels, movements, and replenishment needs.',
+      // D2 (FX5): the screen lists stock ADJUSTMENTS, not movements.
+      subtitle: 'Track stock levels, adjustments and what needs restocking.',
       selectedNavigationIndex: 0,
       onNavigationSelected: (index) => navigateInventory(context, index),
       child: const InventoryDashboardContent(),

@@ -137,6 +137,10 @@ Future<_StubInventoryService> _pump(
 }
 
 void main() {
+  // The Receive hand-off is a static, so one test leaving it set would bend the
+  // next test's first load.
+  tearDown(() => ReceivingViewmodel.pendingPurchaseOrderId = null);
+
   testWidgets('purchase orders render and a receipt can be recorded', (
     tester,
   ) async {
@@ -287,6 +291,33 @@ void main() {
     // Taken once: a later visit from the sidebar must not reopen on it.
     expect(ReceivingViewmodel.pendingPurchaseOrderId, isNull);
   });
+
+  test(
+    'a FAILED first load drops the Receive hand-off instead of keeping it',
+    () async {
+      // The hand-off is parked before navigating, so the load that follows is the
+      // one that must eat it. It used to be taken only on a successful read, which
+      // left it parked across a failed visit, a sign-out and a role switch: the
+      // next person to open Receiving opened preselected on somebody else's PO.
+      ReceivingViewmodel.pendingPurchaseOrderId = 2;
+      final service = _StubInventoryService()
+        ..failure = 'Cannot connect to the BuildPro server.';
+      final viewmodel = ReceivingViewmodel(service: service);
+
+      await viewmodel.load();
+
+      expect(viewmodel.loadError, 'Cannot connect to the BuildPro server.');
+      expect(ReceivingViewmodel.pendingPurchaseOrderId, isNull);
+
+      // And the later, successful load opens on nothing: the intent belonged to
+      // the visit that failed.
+      service
+        ..failure = null
+        ..orders = [_order(), _order(id: 2)];
+      await viewmodel.load();
+      expect(viewmodel.selected, isNull);
+    },
+  );
 
   testWidgets('a DRAFT order is not offered for receiving', (tester) async {
     await _pump(tester, orders: [_order(status: 'DRAFT')]);
