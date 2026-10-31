@@ -6,9 +6,22 @@ import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_adjust_stock_dialog.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:client/features/inventory/widgets/inventory_stock_table.dart';
-import 'package:client/features/sales/widgets/live_load_error_banner.dart';
+import 'package:client/shared/widgets/error_banner.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+/// Stock status as the search bar offers it: chips that add up to "all or one".
+///
+/// The values are the filter's state, the keys its copy. "All" is null so the
+/// page holds one nullable field instead of an "all" enum member the status
+/// model does not have.
+const _statusChips = <String, InventoryStockStatus?>{
+  'All': null,
+  'In stock': InventoryStockStatus.inStock,
+  'Low stock': InventoryStockStatus.lowStock,
+  'Out of stock': InventoryStockStatus.outOfStock,
+};
 
 class InventoryStockPage extends StatefulWidget {
   const InventoryStockPage({super.key});
@@ -22,6 +35,10 @@ class _InventoryStockPageState extends State<InventoryStockPage> {
   InventoryStockStatus? _status;
   String? _location;
   bool _ascending = true;
+
+  /// The chip that matches the current status. Always one: "All" is null.
+  String get _statusChip =>
+      _statusChips.entries.firstWhere((entry) => entry.value == _status).key;
 
   @override
   void initState() {
@@ -74,7 +91,7 @@ class _InventoryStockPageState extends State<InventoryStockPage> {
   @override
   Widget build(BuildContext context) {
     final inventory = context.watch<InventoryViewmodel>();
-    final locations =
+    final shelfNotes =
         inventory.stockRecords
             .map((item) => inventory.locationHintFor(item.variant.id))
             .where((location) => location.isNotEmpty)
@@ -99,133 +116,102 @@ class _InventoryStockPageState extends State<InventoryStockPage> {
         );
     final failure = inventory.loadError;
     final pending = inventory.isLoading || !inventory.hasLoaded;
+    // A failed refresh keeps the rows it already had and says why above them.
+    // With nothing loaded the panel states the failure itself, because a failed
+    // fetch must never be dressed as an empty stock book.
+    final staleRows = failure != null && records.isNotEmpty;
 
     return InventorySkeletonLayout(
       title: 'Stock',
       subtitle: 'Current quantity for every product variant.',
       selectedNavigationIndex: 3,
       onNavigationSelected: (index) => navigateInventory(context, index),
-      // Loading outranks error, error outranks empty (the rule `AsyncView`
-      // documents): a failed fetch must never be dressed as an empty stock book.
-      child: pending
-          ? const Center(
-              child: Padding(
-                padding: EdgeInsets.all(AppSpacing.xxl),
-                child: CircularProgressIndicator(),
-              ),
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (failure != null)
-                  LiveLoadErrorBanner(
-                    message: failure,
-                    onRetry: inventory.load,
-                  ),
-                Wrap(
-                  spacing: AppSpacing.md,
-                  runSpacing: AppSpacing.md,
-                  children: [
-                    SizedBox(
-                      width: 280,
-                      child: TextField(
-                        onChanged: (value) => setState(() => _query = value),
-                        decoration: const InputDecoration(
-                          prefixIcon: Icon(Icons.search),
-                          hintText: 'Search product, variant, or SKU',
-                        ),
-                      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          FilterBar(
+            searchHint: 'Search product, variant, or SKU',
+            options: _statusChips.keys.toList(),
+            selected: _statusChip,
+            onSearchChanged: (value) => setState(() => _query = value),
+            onSelected: (label) =>
+                setState(() => _status = _statusChips[label]),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Wrap(
+            spacing: AppSpacing.md,
+            runSpacing: AppSpacing.md,
+            children: [
+              SizedBox(
+                width: 200,
+                child: DropdownButtonFormField<String?>(
+                  initialValue: _category,
+                  // Load-bearing, like the Purchases filter: the selected label
+                  // plus the arrow does not fit the fixed box without it, and an
+                  // overflowing Row clips the label.
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Category'),
+                  items: [
+                    const DropdownMenuItem(
+                      value: null,
+                      child: Text('All categories'),
                     ),
-                    SizedBox(
-                      width: 180,
-                      child: DropdownButtonFormField<String?>(
-                        initialValue: _category,
-                        // Load-bearing, like the Purchases filter: the selected label
-                        // plus the arrow does not fit the fixed 180px box without it,
-                        // and an overflowing Row clips the label.
-                        isExpanded: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Category',
-                        ),
-                        items: [
-                          const DropdownMenuItem(
-                            value: null,
-                            child: Text('All categories'),
-                          ),
-                          ...inventory.categories.map(
-                            (item) => DropdownMenuItem(
-                              value: item.name,
-                              child: Text(item.name),
-                            ),
-                          ),
-                        ],
-                        onChanged: (value) => setState(() => _category = value),
+                    ...inventory.categories.map(
+                      (item) => DropdownMenuItem(
+                        value: item.name,
+                        child: Text(item.name),
                       ),
-                    ),
-                    SizedBox(
-                      width: 180,
-                      child: DropdownButtonFormField<InventoryStockStatus?>(
-                        initialValue: _status,
-                        isExpanded: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Stock status',
-                        ),
-                        items: [
-                          const DropdownMenuItem(
-                            value: null,
-                            child: Text('All statuses'),
-                          ),
-                          ...InventoryStockStatus.values.map(
-                            (item) => DropdownMenuItem(
-                              value: item,
-                              child: Text(item.label),
-                            ),
-                          ),
-                        ],
-                        onChanged: (value) => setState(() => _status = value),
-                      ),
-                    ),
-                    SizedBox(
-                      width: 170,
-                      child: DropdownButtonFormField<String?>(
-                        initialValue: _location,
-                        isExpanded: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Location',
-                        ),
-                        items: [
-                          const DropdownMenuItem(
-                            value: null,
-                            child: Text('All locations'),
-                          ),
-                          ...locations.map(
-                            (item) => DropdownMenuItem(
-                              value: item,
-                              child: Text(item),
-                            ),
-                          ),
-                        ],
-                        onChanged: (value) => setState(() => _location = value),
-                      ),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () => setState(() => _ascending = !_ascending),
-                      icon: const Icon(Icons.sort_by_alpha),
-                      label: Text(_ascending ? 'Name A–Z' : 'Name Z–A'),
                     ),
                   ],
+                  onChanged: (value) => setState(() => _category = value),
                 ),
-                const SizedBox(height: AppSpacing.xl),
-                // Withhold the table when the load failed and nothing was retained, so
-                // its empty copy cannot speak for a fetch that never succeeded.
-                if (failure == null || records.isNotEmpty)
-                  InventoryStockTable(
-                    records: records,
-                    inventory: inventory,
-                    onAdjust: _adjust,
+              ),
+              SizedBox(
+                width: 260,
+                child: DropdownButtonFormField<String?>(
+                  initialValue: _location,
+                  isExpanded: true,
+                  // D9: these notes are kept on this computer, so the filter
+                  // says where the value comes from instead of looking shared.
+                  decoration: const InputDecoration(
+                    labelText: 'Shelf note (this computer)',
                   ),
-              ],
+                  items: [
+                    const DropdownMenuItem(
+                      value: null,
+                      child: Text('All shelf notes'),
+                    ),
+                    ...shelfNotes.map(
+                      (item) =>
+                          DropdownMenuItem(value: item, child: Text(item)),
+                    ),
+                  ],
+                  onChanged: (value) => setState(() => _location = value),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => setState(() => _ascending = !_ascending),
+                icon: const Icon(Icons.sort_by_alpha),
+                label: Text(_ascending ? 'Name A to Z' : 'Name Z to A'),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          if (staleRows)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: ErrorBanner(message: failure, onRetry: inventory.load),
             ),
+          InventoryStockTable(
+            records: records,
+            inventory: inventory,
+            onAdjust: _adjust,
+            isLoading: pending,
+            error: staleRows ? null : failure,
+            onRetry: inventory.load,
+          ),
+        ],
+      ),
     );
   }
 }
