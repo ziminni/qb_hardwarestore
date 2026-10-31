@@ -518,6 +518,18 @@ void main() {
     expect(find.textContaining('11,716'), findsWidgets);
   });
 
+  // D12: a discount is not built (checkout hard-zeroes it), so this row could
+  // only ever read ₱0.00 and advertise a feature the system does not have. The
+  // Reports screen dropped its Discounts figure for the same reason (card A5).
+  testWidgets('the Today sales panel shows no Discounts row (D12)', (
+    tester,
+  ) async {
+    await _pump(tester);
+
+    expect(find.text('Discounts'), findsNothing);
+    expect(find.text('Gross sales'), findsOneWidget);
+  });
+
   testWidgets('a failed first load is one banner, never zero tiles', (
     tester,
   ) async {
