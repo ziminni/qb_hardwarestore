@@ -1,14 +1,17 @@
+import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
-import 'package:client/features/admin/widgets/admin_settings_form.dart';
+import 'package:client/shared/widgets/app_panel.dart';
 import 'package:flutter/material.dart';
 
-/// Store details shown on the admin Settings screen (decision D-03).
+/// Store details shown on the admin Settings screen (decisions D-03, D10).
 ///
 /// Inlined here rather than read from `AdminMockData`: a "mock data" bag holding
 /// the store's own name and contact details made the one screen of real store
 /// facts read as fake, and it was the last thing keeping that file alive. There
-/// is no settings endpoint — D-03 accepted static text over inventing an API
-/// call — so these three constants ARE the store's details this client knows.
+/// is no settings endpoint (D19), so these three constants ARE the store's
+/// details this client knows, and D10 keeps them as they are until the store
+/// confirms them.
 ///
 /// The stocker's `InventorySettingsPage` shows the same literals, because both
 /// screens describe the same store.
@@ -21,25 +24,73 @@ class SettingsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const AdminSkeletonLayout(
+    return AdminSkeletonLayout(
       title: 'Settings',
-      subtitle: 'Configure general system and store information.',
+      subtitle: 'Store details this system keeps.',
       selectedNavigationIndex: 7,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'General settings',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+      child: Align(
+        alignment: Alignment.topLeft,
+        child: ConstrainedBox(
+          // A full width card on a 1440 window is three short lines with empty
+          // space beside them; a reading column keeps the pairs together.
+          constraints: const BoxConstraints(maxWidth: 640),
+          child: AppPanel(
+            title: 'Store information',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const _Field(label: 'Store name', value: _storeName),
+                const SizedBox(height: AppSpacing.lg),
+                const _Field(label: 'Contact email', value: _storeEmail),
+                const SizedBox(height: AppSpacing.lg),
+                const _Field(label: 'Contact number', value: _storePhone),
+                const SizedBox(height: AppSpacing.lg),
+                // Read-only on purpose: a field the admin could type in, or a
+                // Save button with nothing behind it, would promise an editing
+                // path the system does not have.
+                const Text(
+                  'Editing store details is not available yet.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
           ),
-          SizedBox(height: 16),
-          AdminSettingsForm(
-            storeName: _storeName,
-            email: _storeEmail,
-            phone: _storePhone,
-          ),
-        ],
+        ),
       ),
+    );
+  }
+}
+
+/// One labelled store fact. The label sits above the value so a long store name
+/// wraps inside the card instead of shortening next to a fixed label column.
+class _Field extends StatelessWidget {
+  const _Field({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 15, color: AppColors.textPrimary),
+        ),
+      ],
     );
   }
 }
