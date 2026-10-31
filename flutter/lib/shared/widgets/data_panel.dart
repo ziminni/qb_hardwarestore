@@ -12,7 +12,8 @@ class DataPanelColumn<T> {
     required this.label,
     required this.cell,
     this.numeric = false,
-  });
+    this.flex = 1,
+  }) : assert(flex >= 1, 'a column cannot take less than one share');
 
   final String label;
 
@@ -24,6 +25,10 @@ class DataPanelColumn<T> {
   /// Money and counts: right aligned with tabular digits, so a column of
   /// amounts can be read down the decimal point.
   final bool numeric;
+
+  /// How many shares of the table's width this column takes, relative to its
+  /// siblings. Must be at least 1.
+  final int flex;
 }
 
 /// A list of records as a table when it is wide enough, a stack of cards when
@@ -34,6 +39,10 @@ class DataPanelColumn<T> {
 ///
 /// The first column is the card's title on a narrow panel; the remaining
 /// columns become label and value lines.
+///
+/// Give the primary text column (a product name) a larger [DataPanelColumn.flex]
+/// such as 3 and leave status or action columns at 1, so long names get room
+/// instead of ellipsizing into a column as wide as the badge next to it.
 ///
 /// Long lists belong in a slot with a bounded height, an `Expanded` inside a
 /// `Column` or the body of a `Scaffold`. There the panel scrolls its own rows
@@ -356,5 +365,9 @@ class DataPanel<T> extends StatelessWidget {
     );
   }
 
-  int _flex(DataPanelColumn<T> column) => column.numeric ? 2 : 3;
+  /// Shares of the row's width: the caller's [DataPanelColumn.flex], scaled so
+  /// a money column never takes as much room as a name column. The default
+  /// flex of 1 therefore splits the row exactly as it did before flex existed.
+  int _flex(DataPanelColumn<T> column) =>
+      column.flex * (column.numeric ? 2 : 3);
 }

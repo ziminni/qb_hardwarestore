@@ -136,6 +136,96 @@ void main() {
     expect(tester.getSize(find.byKey(row0)).height, greaterThanOrEqualTo(44));
   });
 
+  // ------------------------------------------------------------ column flex
+
+  /// Widths the header row hands each column, in column order. Header and body
+  /// rows share one flex split, so the header is enough to read it.
+  List<double> columnWidths(WidgetTester tester) {
+    final cells = find.descendant(
+      of: find.byKey(header),
+      matching: find.byType(Expanded),
+    );
+    return [
+      for (var index = 0; index < cells.evaluate().length; index++)
+        tester.getSize(cells.at(index)).width,
+    ];
+  }
+
+  List<DataPanelColumn<_StockRow>> textColumns(List<int> flexes) => [
+    for (var index = 0; index < flexes.length; index++)
+      DataPanelColumn<_StockRow>(
+        label: 'Column $index',
+        flex: flexes[index],
+        cell: (row) =>
+            Text(row.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+      ),
+  ];
+
+  testWidgets('a flex of 3 makes the name column three times as wide', (
+    tester,
+  ) async {
+    await pumpAt(
+      tester,
+      const Size(1440, 900),
+      panel(cols: textColumns([3, 1, 1])),
+    );
+
+    final widths = columnWidths(tester);
+    expect(widths, hasLength(3));
+    expect(
+      widths[0],
+      closeTo(3 * widths[1], 2),
+      reason: 'the name column must not share the badge columns width',
+    );
+    expect(widths[2], closeTo(widths[1], 2));
+  });
+
+  testWidgets('columns left at the default flex lay out as they do today', (
+    tester,
+  ) async {
+    // The real column set: two text columns, then money and count columns.
+    await pumpAt(tester, const Size(1440, 900), panel());
+
+    final widths = columnWidths(tester);
+    expect(widths, hasLength(5));
+    expect(widths[1], closeTo(widths[0], 1), reason: 'defaults stay equal');
+    expect(
+      widths[0],
+      closeTo(1.5 * widths[2], 1),
+      reason: 'a default column keeps the numeric/text split it has today',
+    );
+  });
+
+  testWidgets('eight columns too wide for the slot scroll sideways', (
+    tester,
+  ) async {
+    // 760 px of slot is 722 px of panel content: past the 720 card breakpoint,
+    // but eight text columns need far more. The table must scroll, not crush.
+    await pumpAt(
+      tester,
+      const Size(760, 900),
+      panel(cols: textColumns([1, 1, 1, 1, 1, 1, 1, 1])),
+    );
+
+    expect(find.byKey(cards), findsNothing);
+    expect(
+      tester.getSize(find.byKey(table)).width,
+      greaterThan(760 - 38),
+      reason: 'below the minimums the table grows instead of squeezing',
+    );
+
+    final sideways = tester
+        .widgetList<SingleChildScrollView>(
+          find.ancestor(
+            of: find.byKey(table),
+            matching: find.byType(SingleChildScrollView),
+          ),
+        )
+        .where((view) => view.scrollDirection == Axis.horizontal);
+    expect(sideways, hasLength(1));
+    expect(tester.takeException(), isNull);
+  });
+
   // ------------------------------------------------------------ narrow cards
 
   testWidgets('at 760 px inside a panel under 720 px wide renders cards', (
