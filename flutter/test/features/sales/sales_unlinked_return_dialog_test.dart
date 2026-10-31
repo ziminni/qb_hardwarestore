@@ -19,6 +19,9 @@ class _StubReturnsService extends ReturnsService {
   Map<String, dynamic>? sent;
   int posts = 0;
 
+  /// When set, the POST is refused with this instead of answering.
+  ReturnsServiceException? refusal;
+
   @override
   Future<ReturnResult> postUnlinkedReturn({
     required int customerId,
@@ -27,6 +30,8 @@ class _StubReturnsService extends ReturnsService {
     required List<ReturnRequestLine> lines,
   }) async {
     posts++;
+    final refusal = this.refusal;
+    if (refusal != null) throw refusal;
     sent = {
       'customer': customerId,
       'reason': reason,
@@ -171,5 +176,38 @@ void main() {
 
     expect(returns.posts, 0);
     expect(find.textContaining('reason is required'), findsOneWidget);
+    // D18: the refusal is written with a full stop, not a dash.
+    expect(find.textContaining('\u2014'), findsNothing);
+  });
+
+  testWidgets('a manager-only refusal keeps the dialog open and says why', (
+    tester,
+  ) async {
+    final returns = _StubReturnsService()
+      ..refusal = const ReturnsServiceException(
+        'A cashier returns against the receipt in hand. Only a Store Manager '
+        'can post a return with no original sale.',
+        code: 'UNLINKED_RETURN_FORBIDDEN',
+      );
+    var posted = 0;
+    await _pump(tester, returns: returns, onPosted: () => posted++);
+
+    await tester.tap(find.byType(DropdownButtonFormField<int>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Dela Cruz Construction').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Reason for the return (required)'),
+      'bag burst in transit',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Post return'));
+    await tester.pumpAndSettle();
+
+    expect(returns.posts, 1, reason: 'the refusal came FROM the server');
+    expect(find.textContaining('Only a Store Manager'), findsOneWidget);
+    // Still the form: a refusal is not a receipt, and the list is not reloaded.
+    expect(find.widgetWithText(FilledButton, 'Post return'), findsOneWidget);
+    expect(find.textContaining('Return posted'), findsNothing);
+    expect(posted, 0);
   });
 }

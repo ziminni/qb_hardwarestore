@@ -7,6 +7,9 @@
 // the selling unit comes from the live catalogue (never a typed id): the
 // dialog cannot offer what the server does not sell.
 
+import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_radii.dart';
+import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/customer.dart';
 import 'package:client/data/models/product.dart';
@@ -158,7 +161,7 @@ class _UnlinkedReturnDialogState extends State<UnlinkedReturnDialog> {
     }
     if (reason.isEmpty) {
       setState(
-        () => _error = 'A reason is required — every refund explains itself.',
+        () => _error = 'A reason is required. Every refund explains itself.',
       );
       return;
     }
@@ -188,12 +191,22 @@ class _UnlinkedReturnDialogState extends State<UnlinkedReturnDialog> {
     }
   }
 
+  /// How wide the form wants to be, and how much the window will actually give
+  /// it. A hard 460 on a 760 px window squeezed the selling unit's name AND its
+  /// price into an ellipsis; the figure the manager judges the refund by must be
+  /// readable, so the form takes the wider box when the window allows it.
+  double _formWidth(BuildContext context) {
+    // AlertDialog's own insetPadding is 40 px a side, so this is the room left.
+    final available = MediaQuery.sizeOf(context).width - 80;
+    return available < 560 ? available : 560;
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Unlinked return'),
       content: SizedBox(
-        width: 460,
+        width: _formWidth(context),
         child: SingleChildScrollView(
           child: _loading
               ? const Padding(
@@ -276,7 +289,7 @@ class _UnlinkedReturnDialogState extends State<UnlinkedReturnDialog> {
                         DropdownMenuItem(
                           value: unit.id,
                           child: Text(
-                            '${unit.label} — ${formatPeso(unit.price)}',
+                            '${unit.label} · ${formatPeso(unit.price)}',
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -326,8 +339,9 @@ class _UnlinkedReturnDialogState extends State<UnlinkedReturnDialog> {
           ),
         ),
         Text(
-          'Estimated value ${formatPeso(_linesTotal)} at current prices — '
-          'the server reprices at posting.',
+          'Estimated value ${formatPeso(_linesTotal)} at current prices. The '
+          'server reprices at posting.',
+          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
         ),
         const SizedBox(height: 12),
         TextField(
@@ -349,14 +363,34 @@ class _UnlinkedReturnDialogState extends State<UnlinkedReturnDialog> {
             if (value != null) setState(() => _method = value);
           },
         ),
-        if (_error != null) ...[
-          const SizedBox(height: 8),
-          Text(
-            _error!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
+        if (_error != null) ...[const SizedBox(height: 12), _errorNote()],
+      ],
+    );
+  }
+
+  /// A refusal, said where the reader is looking rather than in a colour the
+  /// theme happens to pick. The server's own words are preferred (they name the
+  /// rule, e.g. UNLINKED_RETURN_FORBIDDEN), so this only adds the frame.
+  Widget _errorNote() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.errorTint,
+        borderRadius: BorderRadius.circular(AppRadii.medium),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline, size: 18, color: AppColors.errorText),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              _error!,
+              style: const TextStyle(fontSize: 13, color: AppColors.errorText),
+            ),
           ),
         ],
-      ],
+      ),
     );
   }
 
