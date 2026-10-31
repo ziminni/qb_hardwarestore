@@ -326,6 +326,33 @@ void main() {
     expect(find.text('Portland Cement'), findsNothing);
   });
 
+  testWidgets('the Low stock chip uses the same words as the row badge', (
+    tester,
+  ) async {
+    // FX5: the chip said "Low" while every badge and every other screen said
+    // "Low stock". One state, one word.
+    final store = _urgencyStore();
+    await store.load();
+
+    await pumpPage(tester, store);
+    final chip = find.descendant(
+      of: find.byType(FilterBar),
+      matching: find.text('Low stock'),
+    );
+    expect(chip, findsOneWidget);
+
+    await tester.tap(chip);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Portland Cement'), findsOneWidget);
+    expect(find.text('PVC Pipe'), findsOneWidget);
+    expect(
+      find.text('Tiles 60x60'),
+      findsNothing,
+      reason: 'the out-of-stock row belongs to the other chip',
+    );
+  });
+
   testWidgets('a filter that hides every row says so', (tester) async {
     // Two low rows and no out-of-stock one: the Out of stock chip empties the
     // list. The copy has to name the filter, not claim the server is quiet.

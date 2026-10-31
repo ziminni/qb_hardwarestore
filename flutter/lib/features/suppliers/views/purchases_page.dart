@@ -192,30 +192,22 @@ class _PurchasesPageState extends State<PurchasesPage> {
               child: ErrorBanner(message: failure, onRetry: state.load),
             ),
           Expanded(
-            // Top aligned and only as tall as its content: with nothing to
-            // scroll, a panel stretched down the page is a white void (or, on a
-            // failure, a red one). With rows, DataPanel still fills the slot and
-            // builds only the rows on screen.
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: SizedBox(
-                width: double.infinity,
-                child: PurchasesTable(
-                  orders: orders,
-                  onView: _openDetails,
-                  onPlace: _place,
-                  onCancel: _confirmCancel,
-                  onReceive: _receive,
-                  emptyMessage: filtered
-                      ? 'No purchase orders match these filters.'
-                      : 'No purchase orders yet.',
-                  // The spinner is for a first load with nothing to show: a
-                  // reload over rows must not take them away.
-                  isLoading: pending && orders.isEmpty,
-                  error: staleRows ? null : failure,
-                  onRetry: state.load,
-                ),
-              ),
+            // DataPanel hugs its own empty and error states and fills the slot
+            // once there are rows, so no page-level wrapper is needed here.
+            child: PurchasesTable(
+              orders: orders,
+              onView: _openDetails,
+              onPlace: _place,
+              onCancel: _confirmCancel,
+              onReceive: _receive,
+              emptyMessage: filtered
+                  ? 'No purchase orders match these filters.'
+                  : 'No purchase orders yet.',
+              // The spinner is for a first load with nothing to show: a
+              // reload over rows must not take them away.
+              isLoading: pending && orders.isEmpty,
+              error: staleRows ? null : failure,
+              onRetry: state.load,
             ),
           ),
         ],

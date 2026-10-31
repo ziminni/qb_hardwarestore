@@ -17,6 +17,7 @@ import 'package:client/data/services/ledger_service.dart';
 import 'package:client/features/sales/viewmodels/sales_receivables_viewmodel.dart';
 import 'package:client/features/sales/views/sales_receivables_page.dart';
 import 'package:client/shared/widgets/data_panel.dart';
+import 'package:client/shared/widgets/empty_state.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
@@ -153,18 +154,55 @@ void main() {
     );
   });
 
-  testWidgets('a failed load does NOT read as "no receivables"', (
+  testWidgets('a failed load shows ONE failure, never an empty state too', (
     tester,
   ) async {
     await _pump(tester, failure: 'The receivables could not be loaded.');
 
+    // FX3: the failure is the banner, once, with its retry.
+    expect(find.byType(ErrorBanner), findsOneWidget);
+    expect(find.text('The receivables could not be loaded.'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+    // Repinned on purpose (wave-2 fix pass): the panel used to add a second
+    // failure under the banner, white inbox icon and all, and an inbox icon
+    // reads as "nothing owed" rather than "this did not load".
+    expect(find.text('Receivables could not be loaded.'), findsNothing);
+    expect(
+      find.byType(EmptyState),
+      findsNothing,
+      reason: 'a failed read is the banner\'s job, not an empty-state card',
+    );
     expect(
       find.text('No receivables available.'),
       findsNothing,
       reason:
           'that would state the store is owed nothing, which this screen cannot know',
     );
-    expect(find.text('Receivables could not be loaded.'), findsOneWidget);
+  });
+
+  testWidgets('a failed RELOAD keeps the rows it already had', (tester) async {
+    _sizeUp(tester);
+    final repository = _StubLedgerRepository()..rows = [_entry()];
+    final viewmodel = SalesReceivablesViewmodel(repository: repository);
+    await tester.pumpWidget(_app(SalesReceivablesPage(viewmodel: viewmodel)));
+    await tester.pumpAndSettle();
+    expect(find.text('Dela Cruz Construction'), findsOneWidget);
+
+    repository.failureMessage = 'The receivables could not be refreshed.';
+    await viewmodel.load();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ErrorBanner), findsOneWidget);
+    expect(
+      find.text('The receivables could not be refreshed.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Dela Cruz Construction'),
+      findsOneWidget,
+      reason: 'a failed refresh must not blank the rows on screen',
+    );
+    expect(find.byType(EmptyState), findsNothing);
   });
 
   testWidgets('a load that succeeds after a failure clears the error', (

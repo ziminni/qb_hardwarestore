@@ -13,6 +13,7 @@ class AdminSkeletonLayout extends StatelessWidget {
     required this.selectedNavigationIndex,
     required this.child,
     this.onNavigationSelected,
+    this.scrollable = true,
     this.loadMarkers = adminMarkers,
   });
 
@@ -21,6 +22,10 @@ class AdminSkeletonLayout extends StatelessWidget {
   final int selectedNavigationIndex;
   final Widget child;
   final ValueChanged<int>? onNavigationSelected;
+
+  /// See [AppShell.scrollable]. A page whose list must build rows lazily passes
+  /// false and gives the list an `Expanded` slot of its own.
+  final bool scrollable;
 
   /// See [AppShell.loadMarkers].
   final Future<Map<int, int>> Function() loadMarkers;
@@ -58,6 +63,7 @@ class AdminSkeletonLayout extends StatelessWidget {
       subtitle: subtitle,
       sections: _sections,
       selectedIndex: selectedNavigationIndex,
+      scrollable: scrollable,
       loadMarkers: loadMarkers,
       onDestinationSelected:
           onNavigationSelected ??

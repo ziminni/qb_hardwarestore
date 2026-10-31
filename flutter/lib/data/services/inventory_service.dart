@@ -22,8 +22,9 @@ class InventoryServiceException implements Exception {
 /// low stock is whatever the server has alerted, and movement history is
 /// whatever the server has recorded. The client's job is to read and to report.
 ///
-/// Both reads go through [ApiClient.getList], so the DRF envelope is unwrapped by
-/// `parsePaged` in exactly one place (decision 03). Verified contracts
+/// Both reads walk EVERY page through [ApiClient.getAll], so the DRF envelope is
+/// unwrapped by `parsePaged` in exactly one place (decision 03) and rows past the
+/// first page of 50 are not silently missing. Verified contracts
 /// (2026-10-16):
 ///
 /// * `SystemAlertSerializer` — `id, alert_type, variant, message, is_resolved, created_at`
@@ -45,26 +46,28 @@ class InventoryService {
   /// server generated**, not a live view. A variant that drops below its
   /// threshold without going through an alerted path will not appear here until
   /// an alert exists. That is the price of one authority.
-  Future<List<SystemAlert>> fetchAlerts() async {
-    final page = await _guard(
-      () => _client.getList<SystemAlert>(alertsPath, SystemAlert.fromJson),
-      'The alerts could not be read.',
-    );
-    return page.items;
-  }
+  ///
+  /// Every page, for the same reason as [fetchAdjustments]: a truncated alert
+  /// list reads as a quiet server, and "nothing to fix" is a claim.
+  Future<List<SystemAlert>> fetchAlerts() => _guard(
+    () => _client.getAll<SystemAlert>(alertsPath, SystemAlert.fromJson),
+    'The alerts could not be read.',
+  );
 
   /// Recorded stock adjustments, newest first (the backend orders by
   /// `-timestamp`).
-  Future<List<StockAdjustment>> fetchAdjustments() async {
-    final page = await _guard(
-      () => _client.getList<StockAdjustment>(
-        adjustmentsPath,
-        StockAdjustment.fromJson,
-      ),
-      'The stock movements could not be read.',
-    );
-    return page.items;
-  }
+  ///
+  /// FX1: this reads EVERY page, like [fetchPurchaseOrders]. `getList` answers
+  /// one DRF page (50), so the stock adjustments screen showed the newest fifty
+  /// writes as the whole book, and its empty message ("No adjustments recorded
+  /// for this period.") asserted a fact about a truncated read.
+  Future<List<StockAdjustment>> fetchAdjustments() => _guard(
+    () => _client.getAll<StockAdjustment>(
+      adjustmentsPath,
+      StockAdjustment.fromJson,
+    ),
+    'The stock adjustments could not be read.',
+  );
 
   /// Records an adjustment on the server and returns the stored row.
   ///

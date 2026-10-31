@@ -77,9 +77,9 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
   }
 
   /// "Nothing exists yet" and "these filters hide everything" are different
-  /// facts, and a failed load is a third: it must never read as "nothing owed".
+  /// facts. A failed load is a third, and it is said by the banner, not here:
+  /// an inbox icon under the banner reads as "nothing owed".
   String _emptyMessage(SalesReceivablesViewmodel viewmodel) {
-    if (viewmodel.loadError != null) return 'Receivables could not be loaded.';
     if (_query.trim().isNotEmpty || viewmodel.statusFilter != null) {
       return 'No receivables match these filters.';
     }
@@ -92,8 +92,14 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
     // Read once per build: a status computed from a moving clock could change
     // halfway down the list at midnight.
     final now = DateTime.now();
-    final totalsUnknown = viewmodel.loadError != null && !viewmodel.hasEntries;
+    final failure = viewmodel.loadError;
+    final totalsUnknown = failure != null && !viewmodel.hasEntries;
     final rows = _visibleRows(viewmodel);
+    // FX3: a first load that failed is ONE banner. Nothing goes under it: a
+    // panel empty state there would state the store is owed nothing, which is
+    // the one fact a failed read has not established. Rows already read stay
+    // on screen under the banner, because they are still true.
+    final firstLoadFailed = failure != null && viewmodel.entries.isEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -126,7 +132,7 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
         ),
         // A refresh that fails keeps the rows it already had, so the failure
         // needs to be said out loud above them.
-        if (viewmodel.loadError case final failure?) ...[
+        if (failure != null) ...[
           const SizedBox(height: AppSpacing.md),
           ErrorBanner(message: failure, onRetry: viewmodel.load),
         ],
@@ -134,25 +140,30 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
         // The panel takes the height the page has left over, which is what lets
         // it scroll its own rows instead of building the whole ledger at once.
         Expanded(
-          child: LayoutBuilder(
-            builder: (context, slot) {
-              // DataPanel turns the table into cards on its own content width.
-              // Total and Paid only join as columns on a card: as two more table
-              // columns they pushed the balance and the action off a 1100 px
-              // window, which is the defect this screen is being rebuilt for.
-              final cards =
-                  slot.maxWidth - AppPanel.chrome < DataPanel.cardBreakpoint;
-              return DataPanel<LedgerEntry>(
-                columns: _columns(viewmodel, now, cards: cards),
-                rows: rows,
-                emptyMessage: _emptyMessage(viewmodel),
-                // Rows already on screen outlive a refresh: the spinner is only
-                // for a first load with nothing to show yet.
-                isLoading: viewmodel.isLoading && viewmodel.entries.isEmpty,
-                rowKey: (entry) => ValueKey(entry.id),
-              );
-            },
-          ),
+          child: firstLoadFailed
+              ? const SizedBox.shrink()
+              : LayoutBuilder(
+                  builder: (context, slot) {
+                    // DataPanel turns the table into cards on its own content
+                    // width. Total and Paid only join as columns on a card: as
+                    // two more table columns they pushed the balance and the
+                    // action off a 1100 px window, which is the defect this
+                    // screen is being rebuilt for.
+                    final cards =
+                        slot.maxWidth - AppPanel.chrome <
+                        DataPanel.cardBreakpoint;
+                    return DataPanel<LedgerEntry>(
+                      columns: _columns(viewmodel, now, cards: cards),
+                      rows: rows,
+                      emptyMessage: _emptyMessage(viewmodel),
+                      // Rows already on screen outlive a refresh: the spinner
+                      // is only for a first load with nothing to show yet.
+                      isLoading:
+                          viewmodel.isLoading && viewmodel.entries.isEmpty,
+                      rowKey: (entry) => ValueKey(entry.id),
+                    );
+                  },
+                ),
         ),
       ],
     );

@@ -156,26 +156,20 @@ class _SuppliersPageState extends State<SuppliersPage> {
               child: ErrorBanner(message: failure, onRetry: state.load),
             ),
           Expanded(
-            // See the Purchases page: hugs its content until there are rows to
-            // scroll, so an empty or failed panel is not a full-height box.
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: SizedBox(
-                width: double.infinity,
-                child: SuppliersTable(
-                  suppliers: suppliers,
-                  openOrderCount: _openOrdersFor,
-                  onEdit: _openForm,
-                  onToggle: _toggle,
-                  onNewOrder: _newOrderFor,
-                  emptyMessage: _query.isEmpty
-                      ? 'No suppliers yet.'
-                      : 'No suppliers match this search.',
-                  isLoading: state.isLoading && suppliers.isEmpty,
-                  error: staleRows ? null : failure,
-                  onRetry: state.load,
-                ),
-              ),
+            // DataPanel hugs its own empty and error states and fills the slot
+            // once there are rows, so no page-level wrapper is needed here.
+            child: SuppliersTable(
+              suppliers: suppliers,
+              openOrderCount: _openOrdersFor,
+              onEdit: _openForm,
+              onToggle: _toggle,
+              onNewOrder: _newOrderFor,
+              emptyMessage: _query.isEmpty
+                  ? 'No suppliers yet.'
+                  : 'No suppliers match this search.',
+              isLoading: state.isLoading && suppliers.isEmpty,
+              error: staleRows ? null : failure,
+              onRetry: state.load,
             ),
           ),
         ],

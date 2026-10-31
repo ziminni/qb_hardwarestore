@@ -22,7 +22,8 @@ import 'package:provider/provider.dart';
 const _statusChips = <String, InventoryStockStatus?>{
   'All': null,
   'Out of stock': InventoryStockStatus.outOfStock,
-  'Low': InventoryStockStatus.lowStock,
+  // The row badge's word, not a shortening of it: one state, one word.
+  'Low stock': InventoryStockStatus.lowStock,
 };
 
 const _showResolvedChip = 'Show resolved';

@@ -50,6 +50,10 @@ class DataPanelColumn<T> {
 /// screenful of widgets, not 2,000. Inside a page scroll view the panel has no
 /// height of its own and lays every row out at once: that is the right choice
 /// for a short list, and a nested scroll view for a long one.
+///
+/// The empty and error states never take the slot: in a bounded slot they sit at
+/// the top of it at their own height, so a failed read is one banner and an
+/// empty list is one small card, not a full-height pink block or a white void.
 class DataPanel<T> extends StatelessWidget {
   const DataPanel({
     super.key,
@@ -114,12 +118,24 @@ class DataPanel<T> extends StatelessWidget {
 
     final failure = error;
     if (failure != null) {
-      return ErrorBanner(message: failure, onRetry: onRetry);
+      // Top aligned in a loose box: the slot (an `Expanded`) hands down a tight
+      // height, and a banner stretched over it read as a full-page error. Align
+      // loosens the constraint, so the banner keeps its own one-line height and
+      // still spans the width.
+      return Align(
+        alignment: Alignment.topCenter,
+        child: ErrorBanner(message: failure, onRetry: onRetry),
+      );
     }
 
     if (rows.isEmpty) {
-      return AppPanel(
-        child: EmptyState(icon: Icons.inbox_outlined, message: emptyMessage),
+      // Same reason as the failure above: the card hugs its message at the top
+      // of the slot instead of a white void with the icon halfway down it.
+      return Align(
+        alignment: Alignment.topCenter,
+        child: AppPanel(
+          child: EmptyState(icon: Icons.inbox_outlined, message: emptyMessage),
+        ),
       );
     }
 

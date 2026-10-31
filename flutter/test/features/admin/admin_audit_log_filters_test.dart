@@ -103,14 +103,41 @@ Widget _app(Widget child) => ChangeNotifierProvider<AuthViewmodel>.value(
   child: MaterialApp(home: child),
 );
 
-Future<void> _pump(WidgetTester tester, AuditLogRepository repository) async {
-  tester.view.physicalSize = const Size(1600, 1400);
+Future<void> _pump(
+  WidgetTester tester,
+  AuditLogRepository repository, {
+  Size size = const Size(1600, 1400),
+}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   await tester.pumpWidget(_app(AuditLogsPage(repository: repository)));
   await tester.pumpAndSettle();
 }
+
+/// One full server page: 50 actions, the DRF `PAGE_SIZE` the endpoint uses. A
+/// short page hides the layout defect this file pins (the list grows past the
+/// window and takes the pager with it).
+_PagedAuditLogRepository _fullPage() => _PagedAuditLogRepository({
+  1: [
+    for (var index = 1; index <= 50; index++)
+      _log(
+        id: index,
+        userEmail: 'staff$index@qb.local',
+        actionType: 'SALE',
+        description:
+            'Completed sale TRX-20261030-${index.toString().padLeft(4, '0')}',
+        timestamp: DateTime(
+          2026,
+          10,
+          22,
+          14,
+          5,
+        ).subtract(Duration(minutes: index)),
+      ),
+  ],
+});
 
 /// A row badge with [label]. Chips share the same words, so expectations on a
 /// badge are scoped to the badge and expectations on a chip to the bar.
@@ -288,5 +315,58 @@ void main() {
         reason: 'a failed refresh must not blank the audit rows on screen',
       );
     });
+
+    testWidgets('a new page drops a filter the new page cannot show', (
+      tester,
+    ) async {
+      // The chips are built from the page on screen, so an action kept across
+      // pages can vanish from the bar and leave a filter nothing names.
+      await _pump(tester, _twoPages());
+      await tester.tap(_chip('Stock adjustment'));
+      await tester.pumpAndSettle();
+      expect(find.text('ana.lopez@qb.local'), findsNothing);
+
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Page 2'), findsOneWidget);
+      expect(
+        tester.widget<FilterBar>(find.byType(FilterBar)).selected,
+        'All',
+        reason: 'page 2 holds no stock adjustment, so its chip cannot exist',
+      );
+      expect(
+        find.text('maria.santos@qb.local'),
+        findsOneWidget,
+        reason: 'the new page must be shown whole, not hidden by a stale chip',
+      );
+    });
+  });
+
+  group('AuditLogsPage layout', () {
+    // A full page of 50 actions is the shape that breaks: in a page scroll view
+    // every row builds and the pager sits below the fold.
+    for (final size in const [
+      Size(1440, 900),
+      Size(1100, 900),
+      Size(760, 900),
+      Size(1366, 768),
+    ]) {
+      testWidgets(
+        'a full page of logs fits ${size.width.toInt()}x${size.height.toInt()}',
+        (tester) async {
+          await _pump(tester, _fullPage(), size: size);
+
+          expect(tester.takeException(), isNull);
+          expect(find.text('Page 1'), findsOneWidget);
+          expect(find.text('staff1@qb.local'), findsOneWidget);
+          expect(
+            tester.getRect(find.text('Next')).bottom,
+            lessThanOrEqualTo(size.height),
+            reason: 'the pager stays on screen; only the rows scroll',
+          );
+        },
+      );
+    }
   });
 }

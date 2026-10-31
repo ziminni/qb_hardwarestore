@@ -1,6 +1,8 @@
 import 'package:client/core/format/format.dart';
 import 'package:client/core/theme/app_theme.dart';
+import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/data_panel.dart';
+import 'package:client/shared/widgets/empty_state.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
@@ -538,6 +540,68 @@ void main() {
 
     expect(builtRows().evaluate().length, 50);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a failure in a bounded slot is one banner, top aligned', (
+    tester,
+  ) async {
+    // S1 and every long-list wave-2 page put the panel in an `Expanded`. A tight
+    // constraint used to stretch the error banner down the whole slot, so the
+    // reader got a full-height pink block with the words halfway down it.
+    await pumpBounded(
+      tester,
+      const Size(760, 900),
+      panel(
+        data: const [],
+        error: 'Stock could not be loaded.',
+        onRetry: () {},
+      ),
+    );
+
+    final banner = tester.getRect(find.byType(ErrorBanner));
+    expect(
+      banner.height,
+      lessThan(200),
+      reason: 'a one line failure must not paint the whole slot',
+    );
+    expect(
+      banner.top,
+      lessThan(24),
+      reason: 'the banner belongs at the top of the slot, not mid screen',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('an empty list in a bounded slot hugs its own card', (
+    tester,
+  ) async {
+    await pumpBounded(tester, const Size(760, 900), panel(data: const []));
+
+    expect(find.text('No stock records yet.'), findsOneWidget);
+    expect(
+      tester.getSize(find.byType(AppPanel)).height,
+      lessThan(200),
+      reason: 'the panel frame hugs the message instead of a white void',
+    );
+    expect(tester.getSize(find.byType(EmptyState)).height, lessThan(200));
+    expect(
+      tester.getRect(find.byType(EmptyState)).top,
+      lessThan(80),
+      reason: 'an empty state is not centred halfway down the slot',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('rows in a bounded slot still fill it', (tester) async {
+    // The fix is for the two states without rows: a list with rows must keep
+    // taking the slot, so the header stays put and the rows scroll inside it.
+    await pumpBounded(tester, const Size(1440, 600), panel());
+
+    expect(
+      tester.getSize(find.byKey(table)).height,
+      greaterThan(600 - 60),
+      reason: 'the table keeps owning the height the page gave it',
+    );
   });
 }
 

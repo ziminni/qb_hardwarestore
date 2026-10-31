@@ -110,6 +110,10 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
       if (!mounted) return;
       setState(() {
         _logs = result.items;
+        // The chips are built from the page on screen, so a filter kept across
+        // pages can vanish from the bar while still hiding rows. A new page is
+        // a new dataset: start it unfiltered.
+        if (page != _page) _action = _anyAction;
         _page = page;
         _hasMore = result.hasMore;
       });
@@ -138,6 +142,9 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
       title: 'Audit Logs',
       subtitle: 'Review recorded activity across the system.',
       selectedNavigationIndex: 6,
+      // The trail owns the scrolling: a 50 row server page builds only the rows
+      // on screen, and the pager below never scrolls out of reach.
+      scrollable: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -160,17 +167,19 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
             ErrorBanner(message: failure, onRetry: () => _load(_page)),
             const SizedBox(height: AppSpacing.md),
           ],
-          AdminAuditLogTable(
-            logs: rows,
-            emptyMessage: _filtered
-                ? 'No audit logs match these filters.'
-                : 'No audit logs recorded.',
-            // Only the first read may replace the list with a spinner, and only
-            // while there is nothing to show yet.
-            isLoading: _isLoading && !hasRows,
-            error: hasRows ? null : failure,
-            onRetry: () => _load(_page),
-            onRowTap: _showEntry,
+          Expanded(
+            child: AdminAuditLogTable(
+              logs: rows,
+              emptyMessage: _filtered
+                  ? 'No audit logs match these filters.'
+                  : 'No audit logs recorded.',
+              // Only the first read may replace the list with a spinner, and
+              // only while there is nothing to show yet.
+              isLoading: _isLoading && !hasRows,
+              error: hasRows ? null : failure,
+              onRetry: () => _load(_page),
+              onRowTap: _showEntry,
+            ),
           ),
           if (hasRows) ...[const SizedBox(height: AppSpacing.md), _pager()],
         ],

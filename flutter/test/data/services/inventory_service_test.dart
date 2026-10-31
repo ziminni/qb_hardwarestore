@@ -256,6 +256,86 @@ void main() {
     });
   });
 
+  group('InventoryService paging (getAll)', () {
+    test('fetchAlerts reads every page, not only the newest one', () async {
+      // `getList` answers ONE DRF page (PAGE_SIZE 50). A truncated alert list
+      // reads exactly like a quiet server, so the low-stock screen would say
+      // "nothing to fix" while alerts 51+ sat unread.
+      final paged = _PagedAdapter([
+        {
+          'count': 3,
+          'next': 'http://test$_alertsPath?page=2',
+          'previous': null,
+          'results': [_alert(id: 1), _alert(id: 2)],
+        },
+        {
+          'count': 3,
+          'next': null,
+          'previous': 'http://test$_alertsPath?page=1',
+          'results': [_alert(id: 3, type: 'OUT_OF_STOCK')],
+        },
+      ]);
+      client.dio.httpClientAdapter = paged;
+
+      final alerts = await service().fetchAlerts();
+
+      expect(alerts.map((alert) => alert.id).toList(), [1, 2, 3]);
+      expect(
+        paged.requestedPages,
+        ['1', '2'],
+        reason: 'the walk must ask for the second page, not stop at the first',
+      );
+    });
+
+    test('fetchAdjustments reads every page, not only the newest one', () async {
+      // K5's screen states "No adjustments recorded for this period" over this
+      // read, so a one-page read turns a truncated trail into a false fact.
+      final paged = _PagedAdapter([
+        {
+          'count': 3,
+          'next': 'http://test$_adjustmentsPath?page=2',
+          'previous': null,
+          'results': [_adjustment(id: 1), _adjustment(id: 2)],
+        },
+        {
+          'count': 3,
+          'next': null,
+          'previous': 'http://test$_adjustmentsPath?page=1',
+          'results': [_adjustment(id: 3, type: 'DAMAGE', qty: '-1.00')],
+        },
+      ]);
+      client.dio.httpClientAdapter = paged;
+
+      final rows = await service().fetchAdjustments();
+
+      expect(rows.map((row) => row.id).toList(), [1, 2, 3]);
+      expect(
+        paged.requestedPages,
+        ['1', '2'],
+        reason: 'the walk must ask for the second page, not stop at the first',
+      );
+    });
+
+    test('a broken adjustments body names the adjustments screen', () async {
+      // K5 renamed the screen to "Stock adjustments"; the message a failed read
+      // produces has to name what the reader is looking at.
+      useBodies({
+        _adjustmentsPath: {'count': 1, 'next': null, 'previous': null},
+      });
+
+      await expectLater(
+        service().fetchAdjustments(),
+        throwsA(
+          isA<InventoryServiceException>().having(
+            (error) => error.message,
+            'message',
+            contains('The stock adjustments could not be read.'),
+          ),
+        ),
+      );
+    });
+  });
+
   group('InventoryService.fetchPurchaseOrders', () {
     test('follows pagination, so receiving sees every order', () async {
       // One page is 50 rows (DRF PAGE_SIZE). A single-page read silently hid
