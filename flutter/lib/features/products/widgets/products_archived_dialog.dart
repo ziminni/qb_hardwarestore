@@ -2,6 +2,7 @@ import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/features/products/widgets/products_image.dart';
+import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
 
 /// Archived products, with a Restore action (Phase 4 Task 4).
@@ -109,7 +110,12 @@ class _ProductsArchivedDialogState extends State<ProductsArchivedDialog> {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Chip(label: Text('Archived')),
+                          // An archived row says so in words plus color, the
+                          // same pill as every other status in the app.
+                          const StatusBadge(
+                            label: 'Archived',
+                            tone: StatusTone.neutral,
+                          ),
                           const SizedBox(width: AppSpacing.sm),
                           OutlinedButton(
                             onPressed: _busy ? null : () => _restore(product),

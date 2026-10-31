@@ -10,6 +10,8 @@ import 'package:client/features/products/widgets/products_details_dialog.dart';
 import 'package:client/features/products/widgets/products_form_dialog.dart';
 import 'package:client/features/products/widgets/products_catalog_overview.dart';
 import 'package:client/features/products/widgets/products_table.dart';
+import 'package:client/shared/widgets/app_panel.dart';
+import 'package:client/shared/widgets/empty_state.dart';
 import 'package:client/features/labels/label_document.dart';
 import 'package:client/features/labels/label_print_dialog.dart';
 import 'package:client/features/products/widgets/products_toolbar.dart';
@@ -164,8 +166,9 @@ class _ProductsPageState extends State<ProductsPage> {
     final requests = <LabelRequest>[
       for (final product in products)
         for (final variant in product.variants)
-          for (final unit in inventory.variantFor(variant.id)?.sellingUoms ??
-              variant.sellingUoms)
+          for (final unit
+              in inventory.variantFor(variant.id)?.sellingUoms ??
+                  variant.sellingUoms)
             LabelRequest(
               code: unit.barcodeQr,
               productName: product.baseName,
@@ -232,10 +235,15 @@ class _ProductsPageState extends State<ProductsPage> {
             // with the precedence baked in so the builder only runs with data.
             // `!hasLoaded` keeps the spinner up for the frame before the first
             // load attempt, when the store is still empty rather than mock.
+            //
+            // The catalogue's own empty state is NOT AsyncView's: that one is a
+            // bare sentence in the middle of a blank screen, with no way out.
+            // An empty catalogue is a panel with an action, so the builder draws
+            // it below, from the shared EmptyState.
             child: AsyncView(
               isLoading: inventory.isLoading || !inventory.hasLoaded,
               error: inventory.loadError,
-              isEmpty: inventory.products.isEmpty,
+              isEmpty: false,
               emptyMessage: 'No products in the catalogue yet.',
               onRetry: inventory.load,
               builder: (context) => Column(
@@ -295,32 +303,52 @@ class _ProductsPageState extends State<ProductsPage> {
                     ),
                   ],
                   const SizedBox(height: AppSpacing.xl),
-                  ProductsTable(
-                    products: viewModel.visibleProducts,
-                    selectedProductIds: viewModel.selectedProductIds,
-                    firstItem: viewModel.firstVisibleItem,
-                    lastItem: viewModel.lastVisibleItem,
-                    totalItems: viewModel.filteredProducts.length,
-                    currentPage: viewModel.currentPage,
-                    totalPages: viewModel.totalPages,
-                    rowsPerPage: viewModel.rowsPerPage,
-                    onSelectProduct: viewModel.toggleSelection,
-                    onSelectAll: viewModel.selectVisibleProducts,
-                    onViewProduct: (product) =>
-                        _showProductDetails(context, product),
-                    onEditProduct: (product) =>
-                        _showProductForm(context, viewModel, product),
-                    onArchiveProduct: (product) =>
-                        _archiveProduct(context, viewModel, product),
-                    onPrintLabels: (product) =>
-                        _printLabels(context, [product]),
-                    onClearFilters: viewModel.clearFilters,
-                    onPageChanged: viewModel.goToPage,
-                    onRowsPerPageChanged: viewModel.setRowsPerPage,
-                    archivedCount: viewModel.archivedProducts,
-                    onShowArchived: () =>
-                        _showArchivedProducts(context, viewModel),
-                  ),
+                  if (inventory.products.isEmpty)
+                    AppPanel(
+                      child: EmptyState(
+                        icon: Icons.inventory_2_outlined,
+                        message: 'No products in the catalogue yet.',
+                        actionLabel: 'Add product',
+                        onAction: () => _showProductForm(context, viewModel),
+                      ),
+                    )
+                  else
+                    ProductsTable(
+                      products: viewModel.visibleProducts,
+                      selectedProductIds: viewModel.selectedProductIds,
+                      firstItem: viewModel.firstVisibleItem,
+                      lastItem: viewModel.lastVisibleItem,
+                      totalItems: viewModel.filteredProducts.length,
+                      currentPage: viewModel.currentPage,
+                      totalPages: viewModel.totalPages,
+                      rowsPerPage: viewModel.rowsPerPage,
+                      onSelectProduct: viewModel.toggleSelection,
+                      onSelectAll: viewModel.selectVisibleProducts,
+                      onViewProduct: (product) =>
+                          _showProductDetails(context, product),
+                      onEditProduct: (product) =>
+                          _showProductForm(context, viewModel, product),
+                      onArchiveProduct: (product) =>
+                          _archiveProduct(context, viewModel, product),
+                      onPrintLabels: (product) =>
+                          _printLabels(context, [product]),
+                      onClearFilters: viewModel.clearFilters,
+                      onPageChanged: viewModel.goToPage,
+                      onRowsPerPageChanged: viewModel.setRowsPerPage,
+                      archivedCount: viewModel.archivedProducts,
+                      onShowArchived: () =>
+                          _showArchivedProducts(context, viewModel),
+                      // Stock state is per variant, not per product: the row shows
+                      // the product's first variant, which is the one the catalogue
+                      // lists under the product name. A product without a variant
+                      // yet has no count at all, so the badge says so instead of
+                      // claiming it is out of stock.
+                      stockStatusFor: (product) => product.variants.isEmpty
+                          ? null
+                          : inventory.statusForVariant(
+                              product.variants.first.id,
+                            ),
+                    ),
                 ],
               ),
             ),
