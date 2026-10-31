@@ -50,7 +50,37 @@ LedgerEntry _entry({double balance = 472}) => LedgerEntry(
 );
 
 void main() {
-  testWidgets('Record payment opens an amount dialog prefilled with the balance', (
+  testWidgets(
+    'Record payment opens an amount dialog prefilled with the balance',
+    (tester) async {
+      tester.view.physicalSize = const Size(1600, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repository = _StubPayingRepository()..rows = [_entry()];
+      await tester.pumpWidget(
+        _app(
+          SalesReceivablesPage(
+            viewmodel: SalesReceivablesViewmodel(repository: repository),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The rows are cards or a table depending on width; scroll the action into
+      // view before tapping, or the tap misses.
+      await tester.ensureVisible(find.text('Record payment'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Record payment'));
+      await tester.pumpAndSettle();
+
+      // A TextField renders its content as an EditableText, not a Text widget.
+      expect(find.widgetWithText(TextField, '472.00'), findsOneWidget);
+      expect(repository.recordCalls, 0);
+    },
+  );
+
+  testWidgets('an amount above the balance is refused without posting', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1600, 1400);
@@ -59,30 +89,11 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final repository = _StubPayingRepository()..rows = [_entry()];
     await tester.pumpWidget(
-      _app(SalesReceivablesPage(viewmodel: SalesReceivablesViewmodel(repository: repository))),
-    );
-    await tester.pumpAndSettle();
-
-    // The records table scrolls horizontally and the Action column starts off-screen
-    // at this surface size — scroll it into view before tapping, or the tap misses.
-    await tester.ensureVisible(find.text('Record payment'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Record payment'));
-    await tester.pumpAndSettle();
-
-    // A TextField renders its content as an EditableText, not a Text widget.
-    expect(find.widgetWithText(TextField, '472.00'), findsOneWidget);
-    expect(repository.recordCalls, 0);
-  });
-
-  testWidgets('an amount above the balance is refused without posting', (tester) async {
-    tester.view.physicalSize = const Size(1600, 1400);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    final repository = _StubPayingRepository()..rows = [_entry()];
-    await tester.pumpWidget(
-      _app(SalesReceivablesPage(viewmodel: SalesReceivablesViewmodel(repository: repository))),
+      _app(
+        SalesReceivablesPage(
+          viewmodel: SalesReceivablesViewmodel(repository: repository),
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -90,7 +101,15 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Record payment'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '500');
+    await tester.enterText(
+      // Scoped to the dialog: the page behind it now has a search field too
+      // (card S2 gave both receivables screens the same FilterBar).
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      '500',
+    );
     await tester.tap(find.text('Record', skipOffstage: false).last);
     await tester.pumpAndSettle();
 

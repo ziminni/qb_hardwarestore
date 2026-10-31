@@ -16,6 +16,9 @@ import 'package:client/data/repositories/ledger_repository.dart';
 import 'package:client/data/services/ledger_service.dart';
 import 'package:client/features/sales/viewmodels/sales_receivables_viewmodel.dart';
 import 'package:client/features/sales/views/sales_receivables_page.dart';
+import 'package:client/shared/widgets/data_panel.dart';
+import 'package:client/shared/widgets/error_banner.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -41,17 +44,23 @@ class _StubLedgerRepository extends LedgerRepository {
   }
 }
 
-LedgerEntry _entry({double balance = 472, bool isOverdue = false}) =>
-    LedgerEntry(
-      id: 1,
-      customerId: 3,
-      customerName: 'Dela Cruz Construction',
-      transactionNo: 'TRX-20261016-0001',
-      originalAmount: 5000,
-      balanceDue: balance,
-      dueDate: DateTime.now().add(const Duration(days: 30)),
-      isOverdue: isOverdue,
-    );
+LedgerEntry _entry({
+  int id = 1,
+  String customerName = 'Dela Cruz Construction',
+  String transactionNo = 'TRX-20261016-0001',
+  double originalAmount = 5000,
+  double balance = 472,
+  bool isOverdue = false,
+}) => LedgerEntry(
+  id: id,
+  customerId: 3,
+  customerName: customerName,
+  transactionNo: transactionNo,
+  originalAmount: originalAmount,
+  balanceDue: balance,
+  dueDate: DateTime.now().add(const Duration(days: 30)),
+  isOverdue: isOverdue,
+);
 
 /// The skeleton layout is a full sidebar-plus-content shell, which overflows the default
 /// 800x600 test surface. Sized here rather than tolerated, so an overflow cannot be mistaken for
@@ -67,8 +76,12 @@ Future<void> _pump(
   WidgetTester tester, {
   List<LedgerEntry> rows = const [],
   String? failure,
+  Size size = const Size(1600, 1400),
 }) async {
-  _sizeUp(tester);
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
   final repository = _StubLedgerRepository()
     ..rows = rows
     ..failureMessage = failure;
@@ -103,7 +116,14 @@ void main() {
     );
     expect(find.text('Dela Cruz Construction'), findsNWidgets(2));
 
-    await tester.tap(find.widgetWithText(FilterChip, 'Overdue'));
+    await tester.tap(
+      // Scoped to the bar: the row badge beside a due date says "Overdue" too,
+      // and FilterBar draws its own chips (not a Material FilterChip).
+      find.descendant(
+        of: find.byType(FilterBar),
+        matching: find.text('Overdue'),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Dela Cruz Construction'), findsOneWidget);
@@ -166,5 +186,103 @@ void main() {
 
     expect(find.text('Boom.'), findsNothing);
     expect(find.text('Dela Cruz Construction'), findsOneWidget);
+  });
+
+  // ---- Card S2: one shared content, read here and on the cashier's page.
+
+  testWidgets('at 760 the manager gets a search field and the status chips', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      size: const Size(760, 900),
+      rows: [_entry(balance: 472), _entry(balance: 100, isOverdue: true)],
+    );
+
+    expect(find.byType(FilterBar), findsOneWidget);
+    for (final chip in const ['All', 'Current', 'Due Soon', 'Overdue']) {
+      expect(
+        find.descendant(of: find.byType(FilterBar), matching: find.text(chip)),
+        findsOneWidget,
+        reason: 'chip "$chip" is missing from the filter bar',
+      );
+    }
+  });
+
+  testWidgets('a search narrows the list to the customer typed', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      rows: [
+        _entry(balance: 472),
+        _entry(
+          id: 2,
+          customerName: 'Reyes Trading',
+          transactionNo: 'TRX-20261016-0002',
+          balance: 100,
+        ),
+      ],
+    );
+
+    await tester.enterText(find.byType(TextField), 'reyes');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Reyes Trading'), findsOneWidget);
+    expect(find.text('Dela Cruz Construction'), findsNothing);
+    expect(
+      find.text('No receivables match these filters.'),
+      findsNothing,
+      reason: 'one row still matches the search',
+    );
+  });
+
+  testWidgets(
+    'an empty search result is worded differently from an empty store',
+    (tester) async {
+      await _pump(tester, rows: [_entry()]);
+
+      await tester.enterText(find.byType(TextField), 'zzz');
+      await tester.pumpAndSettle();
+
+      expect(find.text('No receivables match these filters.'), findsOneWidget);
+      expect(find.text('No receivables available.'), findsNothing);
+    },
+  );
+
+  testWidgets('at 760 the rows are cards, not a sideways table', (
+    tester,
+  ) async {
+    await _pump(tester, size: const Size(760, 900), rows: [_entry()]);
+
+    expect(find.byType(DataPanel<LedgerEntry>), findsOneWidget);
+    expect(find.byType(DataTable), findsNothing);
+    expect(find.text('Record payment'), findsOneWidget);
+  });
+
+  testWidgets('a failed load uses the shared ErrorBanner', (tester) async {
+    await _pump(tester, failure: 'Cannot connect to the BuildPro server.');
+
+    expect(find.byType(ErrorBanner), findsOneWidget);
+    expect(find.text('Cannot connect to the BuildPro server.'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+  });
+
+  testWidgets('a 7 digit balance is grouped, not clipped', (tester) async {
+    await _pump(
+      tester,
+      size: const Size(1100, 900),
+      rows: [
+        _entry(
+          customerName:
+              'Northern Mindanao Builders and Hardware Trading Corporation',
+          originalAmount: 1148000,
+          balance: 1148000,
+        ),
+      ],
+    );
+
+    expect(find.text('₱1,148,000.00'), findsWidgets);
+    expect(tester.takeException(), isNull);
   });
 }
