@@ -32,8 +32,20 @@ List<String> _sidebarLabels() =>
         .map((m) => m.group(1)!)
         .toList();
 
-/// `Returns` -> `inventoryReturns`, `Stock movements` -> `inventoryStockMovements`.
+/// `Returns` -> `inventoryReturns`, `Stock adjustments` ->
+/// `inventoryStockMovements`.
+///
+/// D2 renamed the destination but kept its route: the path
+/// `/inventory/stock-movements` is in the router, the route constants and every
+/// bookmark, so only the label moved. That is why the one renamed entry is
+/// listed here instead of being derived from its words.
+const _renamedRoutes = <String, String>{
+  'Stock adjustments': 'inventoryStockMovements',
+};
+
 String _routeForLabel(String label) {
+  final renamed = _renamedRoutes[label];
+  if (renamed != null) return renamed;
   final words = label.split(' ');
   final camel = [
     words.first,

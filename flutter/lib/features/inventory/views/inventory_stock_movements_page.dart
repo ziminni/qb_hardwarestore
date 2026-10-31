@@ -1,20 +1,50 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
 import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
-import 'package:client/features/inventory/widgets/inventory_movement_details_dialog.dart';
-import 'package:client/features/inventory/widgets/inventory_movement_filters.dart';
-import 'package:client/features/inventory/widgets/inventory_movement_summary_card.dart';
-import 'package:client/features/inventory/widgets/inventory_movement_tabs.dart';
-import 'package:client/features/inventory/widgets/inventory_movements_table.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
-import 'package:client/features/inventory/widgets/inventory_stock_balance_table.dart';
-import 'package:client/features/sales/widgets/live_load_error_banner.dart';
+import 'package:client/shared/widgets/data_panel.dart';
+import 'package:client/shared/widgets/error_banner.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
+import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+/// The type chips: the model's own words, so a chip and the badge on a row read
+/// the same. "All types" is null, so the page holds one nullable field.
+final _typeChips = <String, StockAdjustmentType?>{
+  'All types': null,
+  for (final type in StockAdjustmentType.values) type.displayName: type,
+};
+
+/// The period chips, keyed by their copy. The value is the filter's state.
+final _periodChips = <String, InventoryDatePreset>{
+  for (final preset in InventoryDatePreset.values) preset.label: preset,
+};
+
+/// One row of the list: the server's adjustment plus the names it does not
+/// carry. `StockAdjustmentSerializer` sends a variant id, so the product and
+/// variant names come from the catalogue, and the actor is an id too.
+typedef _AdjustmentRow = ({
+  StockAdjustment adjustment,
+  String product,
+  String variant,
+  String unit,
+});
+
+/// Stock adjustments (D2): what was written off, damaged, corrected or sent
+/// back, and nothing else.
+///
+/// This screen used to be "Stock Movements" with STOCK IN / STOCK OUT totals,
+/// incoming and outgoing tabs and Previous / New columns. It reads
+/// `GET /api/v1/adjustments/`, and an adjustment is only ever shrinkage, damage,
+/// a count correction or a return to a supplier: sales and goods receipts never
+/// appear here, and the server sends a delta rather than a before and after
+/// pair. Renaming the screen to what it lists is the whole of the fix; a real
+/// movement history needs a backend endpoint the refresh does not add (D19).
 class InventoryStockMovementsPage extends StatefulWidget {
   const InventoryStockMovementsPage({super.key});
 
@@ -26,25 +56,20 @@ class InventoryStockMovementsPage extends StatefulWidget {
 class _InventoryStockMovementsPageState
     extends State<InventoryStockMovementsPage> {
   final _search = TextEditingController();
-  InventoryMovementView _view = InventoryMovementView.all;
   InventoryDatePreset _datePreset = InventoryDatePreset.thisMonth;
   DateTimeRange? _customRange;
   String _query = '';
-  String? _category;
-  InventoryMovementType? _type;
-  bool _newestFirst = true;
-  int _page = 1;
-  int _rows = 10;
+  StockAdjustmentType? _type;
 
   @override
   void initState() {
     super.initState();
     // F2: this screen read the store but never fetched it, so a refresh on
-    // /inventory/stock-movements showed an empty period — zero movements, zero
-    // stock items and "No stock movements match your filters." — before anything
-    // had been read. Deferred past the first frame (`load()` notifies
-    // synchronously) and guarded by `hasLoaded` because the store is app-scoped
-    // and another screen has usually already fetched it.
+    // /inventory/stock-movements showed an empty period (zero adjustments and
+    // "No stock movements match your filters.") before anything had been read.
+    // Deferred past the first frame (`load()` notifies synchronously) and guarded
+    // by `hasLoaded` because the store is app-scoped and another screen has
+    // usually already fetched it.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final inventory = context.read<InventoryViewmodel>();
@@ -83,31 +108,16 @@ class _InventoryStockMovementsPageState
     };
   }
 
+  /// The chosen period in words (D6, D18: "to", never a dash).
   String get _rangeLabel {
     final range = _range;
-    String date(DateTime value) => '${value.month}/${value.day}/${value.year}';
-    return '${date(range.start)}–${date(range.end.subtract(const Duration(days: 1)))}';
+    return '${formatDate(range.start)} to '
+        '${formatDate(range.end.subtract(const Duration(days: 1)))}';
   }
 
-  ({Product product, ProductVariant variant}) _record(
-    InventoryViewmodel inventory,
-    InventoryMovement movement,
-  ) {
-    final product = inventory.products.firstWhere(
-      (item) => item.id == movement.productId,
-    );
-    return (
-      product: product,
-      variant: product.variants.firstWhere(
-        (item) => item.id == movement.variantId,
-      ),
-    );
-  }
-
-  bool _inRange(InventoryMovement movement) {
+  bool _inRange(DateTime timestamp) {
     final range = _range;
-    return !movement.timestamp.isBefore(range.start) &&
-        movement.timestamp.isBefore(range.end);
+    return !timestamp.isBefore(range.start) && timestamp.isBefore(range.end);
   }
 
   Future<void> _changeDate(InventoryDatePreset value) async {
@@ -122,6 +132,8 @@ class _InventoryStockMovementsPageState
       if (selected == null || !mounted) return;
       setState(() {
         _datePreset = value;
+        // The picker returns whole days; the range is half-open, so the end day
+        // is included by moving the bound to the next midnight.
         _customRange = DateTimeRange(
           start: DateTime(
             selected.start.year,
@@ -134,308 +146,251 @@ class _InventoryStockMovementsPageState
             selected.end.day + 1,
           ),
         );
-        _page = 1;
       });
       return;
     }
-    setState(() {
-      _datePreset = value;
-      _page = 1;
-    });
+    setState(() => _datePreset = value);
   }
 
-  void _viewHistory(Product product, ProductVariant variant) {
-    final query = '${product.baseName} ${variant.variantName}';
-    _search.text = query;
-    setState(() {
-      _query = query;
-      _view = InventoryMovementView.all;
-      _page = 1;
-    });
+  String _productName(InventoryViewmodel inventory, ProductVariant variant) {
+    for (final product in inventory.products) {
+      if (product.id == variant.productId) return product.baseName;
+    }
+    return 'Product not in the catalogue';
   }
 
-  void _showDetails(InventoryViewmodel inventory, InventoryMovement movement) {
-    final record = _record(inventory, movement);
-    showDialog<void>(
-      context: context,
-      builder: (_) => InventoryMovementDetailsDialog(
-        movement: movement,
-        product: record.product,
-        variant: record.variant,
-      ),
+  /// The adjustment as a row. A variant the catalogue no longer lists still
+  /// belongs on the screen: the server recorded it, so it is reported, and the
+  /// name says why it is missing instead of hiding the write-off.
+  _AdjustmentRow _row(
+    InventoryViewmodel inventory,
+    StockAdjustment adjustment,
+  ) {
+    final variant = inventory.variantFor(adjustment.variantId);
+    return (
+      adjustment: adjustment,
+      product: variant == null
+          ? 'Product not in the catalogue'
+          : _productName(inventory, variant),
+      variant: variant?.variantName ?? 'Variant not in the catalogue',
+      unit: variant?.baseUomCode ?? '',
     );
   }
+
+  /// The adjustments in the period that pass the filters, newest first.
+  List<_AdjustmentRow> _rows(InventoryViewmodel inventory) {
+    return [
+        for (final adjustment in inventory.adjustments)
+          if (_inRange(adjustment.timestamp)) _row(inventory, adjustment),
+      ].where((row) {
+        if (_type != null && row.adjustment.adjustmentType != _type) {
+          return false;
+        }
+        if (_query.isEmpty) return true;
+        final text =
+            '${row.product} ${row.variant} ${row.adjustment.remarks} '
+                    'user ${row.adjustment.userId}'
+                .toLowerCase();
+        return text.contains(_query);
+      }).toList()
+      ..sort(
+        (a, b) => b.adjustment.timestamp.compareTo(a.adjustment.timestamp),
+      );
+  }
+
+  /// A quantity with thousands grouped, signed when it moved: `+1,234 BAG`,
+  /// `-2 BAG`. The unit is dropped when the catalogue no longer lists it.
+  String _quantity(_AdjustmentRow row) {
+    final value = row.adjustment.quantityAdjusted;
+    final magnitude = value == value.roundToDouble()
+        ? formatCount(value.abs().toInt())
+        : value.abs().toStringAsFixed(2);
+    final sign = value > 0 ? '+' : (value < 0 ? '-' : '');
+    final amount = '$sign$magnitude';
+    return row.unit.isEmpty ? amount : '$amount ${row.unit}';
+  }
+
+  StatusTone _tone(StockAdjustmentType type) => switch (type) {
+    StockAdjustmentType.shrinkage => StatusTone.warning,
+    StockAdjustmentType.damage => StatusTone.error,
+    StockAdjustmentType.correction => StatusTone.info,
+    StockAdjustmentType.returnToSupplier => StatusTone.neutral,
+  };
+
+  List<DataPanelColumn<_AdjustmentRow>> _columns() => [
+    // The first column is a card's title under 720 px of panel width, so it is
+    // the product rather than the date, and it takes the most room.
+    DataPanelColumn(
+      label: 'Product and variant',
+      flex: 3,
+      cell: (row) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            row.product,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          Text(
+            row.variant,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    ),
+    DataPanelColumn(
+      label: 'Type',
+      flex: 2,
+      cell: (row) => StatusBadge(
+        label: row.adjustment.adjustmentType.displayName,
+        tone: _tone(row.adjustment.adjustmentType),
+      ),
+    ),
+    DataPanelColumn(
+      label: 'Change',
+      flex: 3,
+      numeric: true,
+      cell: (row) {
+        final quantity = row.adjustment.quantityAdjusted;
+        return Text(
+          _quantity(row),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: quantity > 0
+                ? AppColors.successText
+                : (quantity < 0 ? AppColors.errorText : AppColors.textPrimary),
+          ),
+        );
+      },
+    ),
+    DataPanelColumn(
+      label: 'Reason',
+      flex: 2,
+      cell: (row) => Text(
+        row.adjustment.remarks.isEmpty
+            ? 'No reason given'
+            : row.adjustment.remarks,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+      ),
+    ),
+    // The API sends the actor's id, not their name (StockAdjustmentSerializer
+    // has `user`), so the row says what it has instead of inventing a name.
+    DataPanelColumn(
+      label: 'By',
+      cell: (row) => Text(
+        'User ${row.adjustment.userId}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+      ),
+    ),
+    DataPanelColumn(
+      label: 'When',
+      flex: 2,
+      cell: (row) => Text(
+        formatDateTime(row.adjustment.timestamp),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+      ),
+    ),
+  ];
 
   @override
   Widget build(BuildContext context) {
     final inventory = context.watch<InventoryViewmodel>();
-    final periodMovements = inventory.movements.where(_inRange).toList();
-    final incomingCount = periodMovements
-        .where((item) => item.isIncoming)
-        .length;
-    final outgoingCount = periodMovements
-        .where((item) => item.isOutgoing)
-        .length;
-    final stockItemCount = inventory.stockRecords.length;
-
-    final filtered =
-        periodMovements.where((movement) {
-          final record = _record(inventory, movement);
-          final text =
-              '${record.product.baseName} ${record.variant.variantName} ${record.variant.barcode} ${movement.reference} ${movement.reason}'
-                  .toLowerCase();
-          final directionMatches = switch (_view) {
-            InventoryMovementView.stockIn => movement.isIncoming,
-            InventoryMovementView.stockOut => movement.isOutgoing,
-            _ => true,
-          };
-          return directionMatches &&
-              text.contains(_query.toLowerCase()) &&
-              (_type == null || movement.type == _type) &&
-              (_category == null || record.product.categoryName == _category);
-        }).toList()..sort(
-          (a, b) => _newestFirst
-              ? b.timestamp.compareTo(a.timestamp)
-              : a.timestamp.compareTo(b.timestamp),
-        );
-
-    final balances = <InventoryBalanceRecord>[];
-    for (final record in inventory.stockRecords) {
-      final searchText =
-          '${record.product.baseName} ${record.variant.variantName} ${record.variant.barcode}'
-              .toLowerCase();
-      if (!searchText.contains(_query.toLowerCase()) ||
-          (_category != null && record.product.categoryName != _category)) {
-        continue;
-      }
-      final history =
-          inventory.movements
-              .where((item) => item.variantId == record.variant.id)
-              .toList()
-            ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-      final before = history.where(
-        (item) => item.timestamp.isBefore(_range.start),
-      );
-      final within = history.where(_inRange).toList();
-      final opening = before.isNotEmpty
-          ? before.last.newStock
-          : within.isNotEmpty
-          ? within.first.previousStock
-          : 0.0;
-      final stockIn = within
-          .where((item) => item.isIncoming)
-          .fold<double>(0, (sum, item) => sum + item.quantityChange);
-      final stockOut = within
-          .where((item) => item.isOutgoing)
-          .fold<double>(0, (sum, item) => sum + item.quantityChange.abs());
-      final closing = opening + stockIn - stockOut;
-      final status = closing <= 0
-          ? InventoryStockStatus.outOfStock
-          : closing <= record.variant.minStockThreshold
-          ? InventoryStockStatus.lowStock
-          : InventoryStockStatus.inStock;
-      balances.add((
-        product: record.product,
-        variant: record.variant,
-        opening: opening,
-        stockIn: stockIn,
-        stockOut: stockOut,
-        closing: closing,
-        status: status,
-      ));
-    }
-
-    final pages = (filtered.length / _rows).ceil().clamp(1, 999);
-    _page = _page.clamp(1, pages);
-    final start = (_page - 1) * _rows;
-    final visible = filtered.skip(start).take(_rows).toList();
-    final emptyMessage = switch (_view) {
-      InventoryMovementView.stockIn =>
-        'No incoming stock movements were found for this period.',
-      InventoryMovementView.stockOut =>
-        'No outgoing stock movements were found for this period.',
-      _ => 'No stock movements match your filters.',
-    };
-
-    final content = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        LayoutBuilder(
-          builder: (context, constraints) {
-            const gap = AppSpacing.md;
-            final columns = constraints.maxWidth >= 980
-                ? 4
-                : constraints.maxWidth >= 520
-                ? 2
-                : 1;
-            final width =
-                (constraints.maxWidth - gap * (columns - 1)) / columns;
-            return Wrap(
-              spacing: gap,
-              runSpacing: gap,
-              children: [
-                SizedBox(
-                  width: width,
-                  child: InventoryMovementSummaryCard(
-                    label: 'STOCK IN',
-                    value: '$incomingCount movements',
-                    caption: _datePreset.label,
-                    icon: Icons.south_west,
-                    color: AppColors.success,
-                  ),
-                ),
-                SizedBox(
-                  width: width,
-                  child: InventoryMovementSummaryCard(
-                    label: 'STOCK OUT',
-                    value: '$outgoingCount movements',
-                    caption: _datePreset.label,
-                    icon: Icons.north_east,
-                    color: AppColors.error,
-                  ),
-                ),
-                SizedBox(
-                  width: width,
-                  child: InventoryMovementSummaryCard(
-                    label: 'TOTAL MOVEMENTS',
-                    value: '${periodMovements.length}',
-                    caption: _datePreset.label,
-                    icon: Icons.swap_vert,
-                    color: AppColors.info,
-                  ),
-                ),
-                SizedBox(
-                  width: width,
-                  child: InventoryMovementSummaryCard(
-                    label: 'STOCK ITEMS',
-                    value: '$stockItemCount',
-                    caption: 'Tracked variants',
-                    icon: Icons.inventory_2_outlined,
-                    color: AppColors.brandGold,
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-        const SizedBox(height: AppSpacing.xl),
-        InventoryMovementTabs(
-          selected: _view,
-          onSelected: (value) => setState(() {
-            _view = value;
-            _page = 1;
-          }),
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        InventoryMovementFilters(
-          view: _view,
-          searchController: _search,
-          type: _type,
-          category: _category,
-          datePreset: _datePreset,
-          categories: inventory.categories,
-          dateLabel: _rangeLabel,
-          onSearch: (value) => setState(() {
-            _query = value;
-            _page = 1;
-          }),
-          onTypeChanged: (value) => setState(() {
-            _type = value;
-            _page = 1;
-          }),
-          onCategoryChanged: (value) => setState(() {
-            _category = value;
-            _page = 1;
-          }),
-          onDateChanged: _changeDate,
-          onSort: () => setState(() => _newestFirst = !_newestFirst),
-          newestFirst: _newestFirst,
-        ),
-        const SizedBox(height: AppSpacing.xl),
-        if (_view == InventoryMovementView.balance)
-          InventoryStockBalanceTable(
-            records: balances,
-            onViewHistory: _viewHistory,
-          )
-        else ...[
-          InventoryMovementsTable(
-            movements: visible,
-            products: inventory.products,
-            emptyMessage: emptyMessage,
-            onView: (movement) => _showDetails(inventory, movement),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              Text(
-                '${filtered.isEmpty ? 0 : start + 1}–${start + visible.length} of ${filtered.length}',
-              ),
-              const SizedBox(width: AppSpacing.md),
-              DropdownButton<int>(
-                value: _rows,
-                items: const [10, 20, 30]
-                    .map(
-                      (value) => DropdownMenuItem(
-                        value: value,
-                        child: Text('$value rows'),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) => setState(() {
-                  _rows = value ?? 10;
-                  _page = 1;
-                }),
-              ),
-              IconButton(
-                onPressed: _page > 1 ? () => setState(() => _page--) : null,
-                icon: const Icon(Icons.chevron_left),
-              ),
-              Text('$_page of $pages'),
-              IconButton(
-                onPressed: _page < pages ? () => setState(() => _page++) : null,
-                icon: const Icon(Icons.chevron_right),
-              ),
-            ],
-          ),
-        ],
-      ],
-    );
-
+    final rows = _rows(inventory);
     final failure = inventory.loadError;
     final pending = inventory.isLoading || !inventory.hasLoaded;
-    // A failed fetch is not an empty period: the "no movements" copy may only
-    // speak after a load that WORKED. Rows kept from an earlier good load stay
-    // visible under the banner.
-    final hasContent =
-        periodMovements.isNotEmpty || inventory.stockRecords.isNotEmpty;
+    // A failed fetch is not an empty period: rows kept from an earlier good load
+    // stay visible under the banner, and with no rows at all the page states the
+    // failure instead of a "nothing recorded" it cannot know.
+    final staleRows = failure != null && rows.isNotEmpty;
+    final failedWithNothing = failure != null && rows.isEmpty;
+    final filtersActive = _query.isNotEmpty || _type != null;
 
     return InventorySkeletonLayout(
-      title: 'Stock Movements',
-      subtitle:
-          'Track inventory coming in, going out, and current stock balances.',
+      title: 'Stock adjustments',
+      subtitle: 'Losses, damage, count corrections and returns to suppliers.',
       selectedNavigationIndex: 4,
       onNavigationSelected: (index) => navigateInventory(context, index),
-      // Loading outranks error, error outranks empty (the precedence `AsyncView`
-      // documents): see F2.
-      child: pending
-          ? const Center(
-              child: Padding(
-                padding: EdgeInsets.all(AppSpacing.xxl),
-                child: CircularProgressIndicator(),
+      // A stock book records adjustments for years: the list builds its rows as
+      // they scroll into view instead of laying every one out at once, which
+      // needs the shell to hand the page the height under its header.
+      scrollable: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          FilterBar(
+            searchController: _search,
+            searchHint: 'Search product, variant, reason, or user',
+            options: _periodChips.keys.toList(),
+            selected: _datePreset.label,
+            onSelected: (label) => _changeDate(_periodChips[label]!),
+            onSearchChanged: (value) => setState(() {
+              _query = value.trim().toLowerCase();
+            }),
+            extraOptions: _typeChips.keys.toList(),
+            extraSelected: _type?.displayName ?? 'All types',
+            onExtraSelected: (label) => setState(() {
+              _type = _typeChips[label];
+            }),
+          ),
+          // The chips show which period is chosen; a custom one also needs its
+          // two dates, which no chip label can carry.
+          if (_datePreset == InventoryDatePreset.custom)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.sm),
+              child: Text(
+                'Custom range: $_rangeLabel',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                ),
               ),
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (failure != null)
-                  LiveLoadErrorBanner(
-                    message: failure,
+            ),
+          const SizedBox(height: AppSpacing.md),
+          if (failure != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: ErrorBanner(message: failure, onRetry: inventory.load),
+            ),
+          Expanded(
+            child: failedWithNothing
+                // The banner above already says why: an empty state here would
+                // claim nothing was recorded, which nobody has checked.
+                ? const SizedBox.shrink()
+                : DataPanel<_AdjustmentRow>(
+                    columns: _columns(),
+                    rows: rows,
+                    emptyMessage: filtersActive
+                        ? 'No adjustments match these filters.'
+                        : 'No adjustments recorded for this period.',
+                    // The spinner is for a first load with nothing to show:
+                    // handing it to a reload would wipe rows, contradicting the
+                    // banner that says they are kept (wave 1, I3).
+                    isLoading: pending && rows.isEmpty,
+                    error: staleRows ? null : failure,
                     onRetry: inventory.load,
                   ),
-                if (failure == null || hasContent) content,
-              ],
-            ),
+          ),
+        ],
+      ),
     );
   }
 }

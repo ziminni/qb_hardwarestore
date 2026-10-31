@@ -32,7 +32,7 @@ class InventorySkeletonLayout extends StatelessWidget {
 
   /// Flat sidebar index of Low stock, the destination the open-alert marker
   /// belongs to: 0 Dashboard, 1 Products, 2 Categories, 3 Stock,
-  /// 4 Stock movements, 5 Low stock. Read by [stockManagerMarkers] and pinned by
+  /// 4 Stock adjustments, 5 Low stock. Read by [stockManagerMarkers] and pinned by
   /// `sidebar_pattern_test.dart`, because marking the wrong row is invisible in
   /// a widget test that only checks "a marker appeared".
   static const lowStockIndex = 5;
@@ -62,8 +62,10 @@ class InventorySkeletonLayout extends StatelessWidget {
           label: 'Stock',
           icon: Icons.warehouse_outlined,
         ),
+        // D2: the destination keeps its index and route; only the label says
+        // what the screen now lists.
         SharedSidebarDestination(
-          label: 'Stock movements',
+          label: 'Stock adjustments',
           icon: Icons.swap_vert_rounded,
         ),
         SharedSidebarDestination(

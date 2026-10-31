@@ -71,7 +71,9 @@ InventoryViewmodel _store(
 
 const _lowStockEmpty = 'No low-stock products match this search.';
 const _stockEmpty = 'No stock records match these filters.';
-const _movementsEmpty = 'No stock movements match your filters.';
+// K5 (D2): the screen is "Stock adjustments", so its empty copy names
+// adjustments. Changed on purpose with the page's title.
+const _adjustmentsEmpty = 'No adjustments recorded for this period.';
 
 /// One page under test: how to seed the row it renders, and the empty copy only
 /// a COMPLETED load may show.
@@ -146,9 +148,9 @@ void main() {
       emptyMessage: _stockEmpty,
     ),
     _Subject(
-      name: 'Stock movements',
+      name: 'Stock adjustments',
       page: const InventoryStockMovementsPage(),
-      emptyMessage: _movementsEmpty,
+      emptyMessage: _adjustmentsEmpty,
       rows: [_adjustment()],
     ),
   ];
