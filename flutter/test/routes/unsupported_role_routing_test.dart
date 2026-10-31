@@ -159,15 +159,22 @@ void main() {
   });
 
   group('UnsupportedRolePage', () {
-    Future<void> pump(WidgetTester tester, {String? role}) async {
+    // [roleLabel] is the server's `display_name`: the words a person reads. It
+    // is deliberately DIFFERENT from [role] (the code) in the copy tests, so a
+    // page that leaks the code cannot pass by accident.
+    Future<void> pump(
+      WidgetTester tester, {
+      String? role,
+      String? roleLabel,
+    }) async {
       final auth = AuthViewmodel(AuthRepository(AuthService()));
       if (role != null) {
         auth.user = User(
           id: 1,
           username: role,
           email: '$role@example.com',
-          fullName: 'Test $role',
-          role: Role(id: 1, name: role, displayName: role),
+          fullName: 'Fore Man',
+          role: Role(id: 1, name: role, displayName: roleLabel ?? role),
           isActive: true,
         );
       }
@@ -180,10 +187,65 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('names the role so the user can act on it', (tester) async {
-      await pump(tester, role: 'site_foreman');
+    // Card L2 (decision D5): a Site Foreman is not a POS user. The page must
+    // say which role the account holds in the WORDS the server sends, because
+    // `site_foreman` is a database value and reads like an error message.
+    testWidgets('shows the role display label, never the raw role code', (
+      tester,
+    ) async {
+      await pump(tester, role: 'site_foreman', roleLabel: 'Site Foreman');
 
-      expect(find.textContaining('site_foreman'), findsWidgets);
+      expect(find.textContaining('Site Foreman'), findsWidgets);
+      expect(
+        find.textContaining('site_foreman'),
+        findsNothing,
+        reason: 'the code is a database value; a person reads the display name',
+      );
+    });
+
+    testWidgets('an unknown role also reads as a label, not a code', (
+      tester,
+    ) async {
+      await pump(tester, role: 'something_new', roleLabel: 'Something New');
+
+      expect(find.textContaining('Something New'), findsWidgets);
+      expect(find.textContaining('something_new'), findsNothing);
+    });
+
+    testWidgets('a Site Foreman is pointed at CPMS, their real system', (
+      tester,
+    ) async {
+      // Decision D5: foreman tools are out of scope HERE, so the screen must
+      // name the system that does own them rather than imply a fault.
+      await pump(tester, role: 'site_foreman', roleLabel: 'Site Foreman');
+
+      expect(
+        find.textContaining('Construction Project Management System'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('still in development'), findsOneWidget);
+    });
+
+    testWidgets('greets the foreman with the account name the server sent', (
+      tester,
+    ) async {
+      // Plan copy: "Hello, Fore Man." The demo foreman is seeded with exactly
+      // that full name, so this is the account's data, not a literal.
+      await pump(tester, role: 'site_foreman', roleLabel: 'Site Foreman');
+
+      expect(find.text('Hello, Fore Man.'), findsOneWidget);
+    });
+
+    testWidgets('every word on it uses no em or en dash', (tester) async {
+      // D18, the user's rule: no em or en dashes in anything we write.
+      await pump(tester, role: 'site_foreman', roleLabel: 'Site Foreman');
+      final written = tester
+          .widgetList<Text>(find.byType(Text))
+          .map((text) => text.data ?? '')
+          .join(' ');
+
+      expect(written, isNot(contains('\u2014')), reason: 'em dash');
+      expect(written, isNot(contains('\u2013')), reason: 'en dash');
     });
 
     testWidgets('explains a role-less account without naming a role', (
