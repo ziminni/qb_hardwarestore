@@ -10,9 +10,11 @@ import 'package:client/data/services/inventory_service.dart';
 import 'package:client/data/services/products_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/dashboard/views/inventory_dashboard.dart';
-import 'package:client/features/dashboard/widget/inventory_list_item.dart';
-import 'package:client/features/dashboard/widget/inventory_section.dart';
+import 'package:client/features/dashboard/widget/inventory_restock_queue_panel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
+import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmodel.dart';
+import 'package:client/data/repositories/supplier_repository.dart';
+import 'package:client/data/models/supplier.dart';
 import '../../support/phase4_fakes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -145,6 +147,17 @@ InventoryBatch _stockBatch({required int id, required double qty}) =>
       createdAt: DateTime(2026, 10, 19),
     );
 
+/// K1 added the "Waiting to receive" panel, which reads the purchase orders the
+/// Purchasing screens already load. An empty, loaded store keeps it out of these
+/// inventory assertions without inventing an order.
+class _EmptySupplierRepository extends SupplierRepository {
+  @override
+  Future<List<Supplier>> fetchSuppliers() async => const [];
+
+  @override
+  Future<List<PurchaseOrder>> fetchPurchaseOrders() async => const [];
+}
+
 Future<void> _pump(WidgetTester tester, InventoryViewmodel inventory) async {
   tester.view.physicalSize = const Size(1600, 1400);
   tester.view.devicePixelRatio = 1.0;
@@ -154,8 +167,15 @@ Future<void> _pump(WidgetTester tester, InventoryViewmodel inventory) async {
   await tester.pumpWidget(
     ChangeNotifierProvider<AuthViewmodel>.value(
       value: AuthViewmodel(AuthRepository(AuthService())),
-      child: ChangeNotifierProvider<InventoryViewmodel>.value(
-        value: inventory,
+      child: MultiProvider(
+        providers: [
+          ChangeNotifierProvider<InventoryViewmodel>.value(value: inventory),
+          ChangeNotifierProvider<SuppliersPurchasesViewmodel>(
+            create: (_) => SuppliersPurchasesViewmodel(
+              repository: _EmptySupplierRepository(),
+            ),
+          ),
+        ],
         child: const MaterialApp(home: InventoryDashboard()),
       ),
     ),
@@ -235,25 +255,20 @@ void main() {
     await _pump(tester, inventory);
 
     // Out-of-stock leads, lows follow by coverage (F 0.1, B 0.2, D 0.5):
-    // C, G, F, B, D shown; E (0.8) cut with an overflow signal. Scoped to
-    // the queue subtree — the table lists every variant, so bare text
-    // finders cannot tell the two apart.
-    final queue = find.descendant(
-      of: find.widgetWithText(InventorySection, 'Restock queue'),
-      matching: find.byType(InventoryListItem),
+    // C, G, F, B, D shown; E (0.8) cut with an overflow signal. Read off the
+    // panel's own rows: a bare text finder cannot tell the queue from any other
+    // list on the page.
+    final panel = tester.widget<InventoryRestockQueuePanel>(
+      find.byType(InventoryRestockQueuePanel),
     );
-    final titles = tester
-        .widgetList<InventoryListItem>(queue)
-        .map((item) => item.title)
-        .toList();
-    expect(titles, [
+    expect(panel.rows.map((row) => row.item), [
       'Out C v3',
       'Out G v7',
       'Low F v6',
       'Low B v2',
       'Low D v4',
-      startsWith('+1 more'),
     ]);
+    expect(panel.total, 6);
     expect(find.textContaining('+1 more'), findsOneWidget);
   });
 
