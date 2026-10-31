@@ -46,28 +46,40 @@ List<String?> _fieldValues(WidgetTester tester) => tester
 
 void main() {
   group('admin SettingsPage', () {
-    testWidgets('shows the inlined store constants', (tester) async {
-      await _pump(tester, const SettingsPage());
-
-      expect(_fieldValues(tester), [_storeName, _storeEmail, _storePhone]);
-    });
-
-    testWidgets('no AdminMockData literal survives in the fields', (
+    // Card A6 (UI refresh): the three store facts are now a read-only
+    // "Store information" card instead of three disabled text fields. A
+    // disabled field looks like a form waiting to be enabled, and there is no
+    // settings endpoint to enable it (D-03), so the values are shown, not
+    // implied to be editable. The values themselves are unchanged (D10).
+    testWidgets('shows the store constants in a read-only card', (
       tester,
     ) async {
       await _pump(tester, const SettingsPage());
 
-      // Scoped to the fields on purpose: the sidebar brand legitimately renders
-      // the shop's trading name (`SystemBrand`), so a bare `find.text('Queen
-      // Builders')` would flag the chrome rather than the settings data.
-      expect(_fieldValues(tester), isNot(contains('Queen Builders')));
+      expect(find.text('Store information'), findsOneWidget);
+      expect(find.text(_storeName), findsOneWidget);
+      expect(find.text(_storeEmail), findsOneWidget);
+      expect(find.text(_storePhone), findsOneWidget);
       expect(
-        _fieldValues(tester),
-        isNot(contains('admin@queenbuilders.local')),
+        find.text('Editing store details is not available yet.'),
+        findsOneWidget,
       );
-      expect(_fieldValues(tester), isNot(contains('+63 900 000 0000')));
+      expect(
+        find.byType(TextFormField),
+        findsNothing,
+        reason: 'no field may imply these values can be edited',
+      );
+      expect(find.text('Save settings'), findsNothing);
+    });
+
+    testWidgets('no AdminMockData literal survives', (tester) async {
+      await _pump(tester, const SettingsPage());
+
+      // The sidebar brand legitimately renders the shop's trading name
+      // (`SystemBrand`), so only the settings data is checked here.
       expect(find.text('admin@queenbuilders.local'), findsNothing);
       expect(find.text('+63 900 000 0000'), findsNothing);
+      expect(find.text(_storeName), findsOneWidget);
     });
   });
 

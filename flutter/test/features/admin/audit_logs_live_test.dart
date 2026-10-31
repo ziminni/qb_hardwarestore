@@ -4,10 +4,20 @@
 // is worse than an empty one.
 //
 // The replacement is `AuditLogRepository` over `GET /api/v1/audit-logs/`
-// (admin-only, ordered `-timestamp` server-side). These tests pin:
-//   * the table is fed EXACTLY the repository's rows, mapped to
-//     `[time, userEmail, actionType, description]` — the `AdminAuditLogTable`
-//     contract,
+// (admin-only, ordered `-timestamp` server-side).
+//
+// Card A6 (UI refresh) changed what the table renders, so three expectations
+// below were changed on purpose: the rows are now `AuditLog` objects (not the
+// raw `[time, email, code, description]` strings), the action is a readable
+// badge word ("Sale", not "SALE"), and the timestamp goes through
+// `formatDateTime` (D6: one date format for the whole app). The failure banner
+// is the shared `ErrorBanner` now, not the sales-local `LiveLoadErrorBanner`.
+// What the file exists to prove is unchanged: the table is fed EXACTLY the
+// repository's rows, an empty trail says so, and a failure names itself and
+// retries.
+//
+// These tests pin:
+//   * the table is fed EXACTLY the repository's rows,
 //   * a load in flight shows a spinner rather than an empty table (an empty
 //     audit table reads as "nothing happened"),
 //   * a failure names itself and offers a retry that actually re-fetches,
@@ -25,7 +35,7 @@ import 'package:client/data/services/auth_service.dart';
 import 'package:client/features/admin/views/audit_logs_page.dart';
 import 'package:client/features/admin/widgets/admin_audit_log_table.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
-import 'package:client/features/sales/widgets/live_load_error_banner.dart';
+import 'package:client/shared/widgets/error_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -110,25 +120,29 @@ void main() {
       final table = tester.widget<AdminAuditLogTable>(
         find.byType(AdminAuditLogTable),
       );
-      expect(table.rows, [
+      // The rows come straight from the repository: same order, same facts.
+      expect(
+        table.logs.map(
+          (log) => [log.userEmail, log.actionType, log.description],
+        ),
         [
-          '10/22/2026 14:05',
-          'ana.lopez@qb.local',
-          'SALE',
-          'Completed sale #S-2291',
+          ['ana.lopez@qb.local', 'SALE', 'Completed sale #S-2291'],
+          [
+            'ben.cruz@qb.local',
+            'STOCK_ADJUST',
+            'Adjusted PVC pipe stock by -4',
+          ],
         ],
-        [
-          '10/22/2026 9:07',
-          'ben.cruz@qb.local',
-          'STOCK_ADJUST',
-          'Adjusted PVC pipe stock by -4',
-        ],
-      ]);
+      );
 
       // And the rendered cells, so the assertion is not table-shape-only.
       expect(find.text('ana.lopez@qb.local'), findsOneWidget);
-      expect(find.text('SALE'), findsOneWidget);
       expect(find.text('ben.cruz@qb.local'), findsOneWidget);
+      // Words, not the server's code (card A6).
+      expect(find.text('Sale'), findsWidgets);
+      expect(find.text('SALE'), findsNothing);
+      // One date format (D6).
+      expect(find.text('Oct 22, 2026, 2:05 PM'), findsOneWidget);
 
       // The old mock rows must be gone: their invented actions have no server
       // counterpart here, and a leftover row would mean mock data still feeds
@@ -165,7 +179,11 @@ void main() {
       );
       // First frame only: the fetch is triggered from a post-frame callback.
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
-      expect(find.byType(AdminAuditLogTable), findsNothing);
+      expect(
+        find.text('No audit logs recorded.'),
+        findsNothing,
+        reason: 'a load in flight is not an empty trail',
+      );
 
       await tester.pumpAndSettle();
       expect(find.byType(CircularProgressIndicator), findsNothing);
@@ -180,15 +198,15 @@ void main() {
       await tester.pumpWidget(_app(AuditLogsPage(repository: repository)));
       await tester.pumpAndSettle();
 
-      expect(find.byType(LiveLoadErrorBanner), findsOneWidget);
+      expect(find.byType(ErrorBanner), findsOneWidget);
       expect(
         find.text('No permission to view the audit trail.'),
         findsOneWidget,
       );
       expect(
-        find.byType(AdminAuditLogTable),
+        find.text('No audit logs recorded.'),
         findsNothing,
-        reason: 'a failed load must not render an empty audit table',
+        reason: 'a failed load must not render an empty audit trail',
       );
 
       repository
@@ -206,7 +224,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(repository.calls, 2);
-      expect(find.byType(LiveLoadErrorBanner), findsNothing);
+      expect(find.byType(ErrorBanner), findsNothing);
       expect(find.text('ana.lopez@qb.local'), findsOneWidget);
     });
 
@@ -221,9 +239,14 @@ void main() {
 
       expect(find.text('No audit logs recorded.'), findsOneWidget);
       expect(
-        find.byType(AdminAuditLogTable),
+        find.byType(CircularProgressIndicator),
         findsNothing,
-        reason: 'an empty DataTable under a header reads as a broken screen',
+        reason: 'an empty trail is not still loading',
+      );
+      expect(
+        find.text('No audit logs match these filters.'),
+        findsNothing,
+        reason: 'nothing was filtered: the trail itself is empty',
       );
     });
   });
