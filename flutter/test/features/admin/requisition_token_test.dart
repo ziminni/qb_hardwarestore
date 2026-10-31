@@ -2,6 +2,12 @@
 // type it at Release materials. Before 2026-10-30 no screen showed it, and the
 // viewmodel dropped the one the approve call returned, so the approve, token,
 // release flow could not be finished in the app.
+//
+// The queue is a table since card A4, so the token lives in the requisition's
+// detail (the same panel, opened from the row). The four behaviours pinned here
+// are unchanged: the approve call keeps its token, the token is handed over
+// straight after an approval, it stays masked until asked for, and a row
+// without a token shows no panel at all.
 
 import 'package:client/data/models/requisition.dart';
 import 'package:client/data/repositories/auth_repository.dart';
@@ -54,6 +60,12 @@ Future<void> _pump(WidgetTester tester, AdminRequisitionsViewmodel vm) async {
   await tester.pumpAndSettle();
 }
 
+/// Opens one requisition's detail, where its token lives.
+Future<void> _openDetails(WidgetTester tester, String reqNumber) async {
+  await tester.tap(find.text(reqNumber));
+  await tester.pumpAndSettle();
+}
+
 /// Captures what the app writes to the clipboard.
 String? _clipboard;
 void _mockClipboard(WidgetTester tester) {
@@ -98,6 +110,14 @@ void main() {
 
     await tester.tap(find.widgetWithText(FilledButton, 'Approve'));
     await tester.pumpAndSettle();
+    // D16: the approval is confirmed before anything is written.
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.widgetWithText(FilledButton, 'Approve'),
+      ),
+    );
+    await tester.pumpAndSettle();
 
     final dialog = find.byType(AlertDialog);
     expect(dialog, findsOneWidget);
@@ -122,6 +142,7 @@ void main() {
       ]),
     );
     await _pump(tester, vm);
+    await _openDetails(tester, 'REQ-0001');
 
     // A bearer credential: present, but not on screen until asked for.
     expect(find.byType(AdminRequisitionTokenPanel), findsOneWidget);
@@ -137,6 +158,26 @@ void main() {
     expect(_clipboard, _approvedToken);
   });
 
+  testWidgets('a released requisition keeps its token, labelled Used (D17)', (
+    tester,
+  ) async {
+    final vm = AdminRequisitionsViewmodel(
+      repository: _StubRequisitions([
+        _req(1, 'RELEASED', token: _approvedToken),
+      ]),
+    );
+    await _pump(tester, vm);
+    await _openDetails(tester, 'REQ-0001');
+
+    expect(find.byType(AdminRequisitionTokenPanel), findsOneWidget);
+    expect(find.text('Release token'), findsOneWidget);
+    expect(
+      find.text('Used'),
+      findsOneWidget,
+      reason: 'a released token is spent, and says so',
+    );
+  });
+
   testWidgets('a row without a token shows no token panel', (tester) async {
     final vm = AdminRequisitionsViewmodel(
       repository: _StubRequisitions([
@@ -146,6 +187,16 @@ void main() {
     );
     await _pump(tester, vm);
 
+    expect(find.byType(AdminRequisitionTokenPanel), findsNothing);
+    expect(find.text('Release token'), findsNothing);
+
+    // Not on the queue at all, and not inside either row's detail: the server
+    // sent no token, so the screen must not pretend otherwise.
+    await _openDetails(tester, 'REQ-0001');
+    expect(find.byType(AdminRequisitionTokenPanel), findsNothing);
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+    await _openDetails(tester, 'REQ-0002');
     expect(find.byType(AdminRequisitionTokenPanel), findsNothing);
     expect(find.text('Release token'), findsNothing);
   });

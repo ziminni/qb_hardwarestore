@@ -1,4 +1,6 @@
 import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -19,9 +21,18 @@ Future<void> copyReleaseToken(BuildContext context, String token) async {
 /// requisition serializer), so it stays hidden until asked for; Copy works
 /// either way.
 class AdminRequisitionTokenPanel extends StatefulWidget {
-  const AdminRequisitionTokenPanel({super.key, required this.token});
+  const AdminRequisitionTokenPanel({
+    super.key,
+    required this.token,
+    this.used = false,
+  });
 
   final String token;
+
+  /// Whether the goods have already been released with this token (D17). The
+  /// panel stays, labelled "Used", because the token is still the record of how
+  /// they went out; it simply cannot release anything again.
+  final bool used;
 
   @override
   State<AdminRequisitionTokenPanel> createState() =>
@@ -46,13 +57,21 @@ class _AdminRequisitionTokenPanelState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Release token',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textSecondary,
-            ),
+          Row(
+            children: [
+              const Text(
+                'Release token',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              if (widget.used) ...[
+                const SizedBox(width: AppSpacing.sm),
+                const StatusBadge(label: 'Used', tone: StatusTone.neutral),
+              ],
+            ],
           ),
           const SizedBox(height: 6),
           Wrap(
@@ -80,10 +99,17 @@ class _AdminRequisitionTokenPanelState
             ],
           ),
           const SizedBox(height: 4),
-          const Text(
-            'Give this to the foreman. The cashier enters it at Release '
-            'materials. Whoever has it can release the goods.',
-            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          Text(
+            widget.used
+                ? 'Used. These goods were released with this token, so it '
+                      'cannot release anything again. The cashier verifies it '
+                      'as used.'
+                : 'Give this to the foreman. The cashier enters it at Release '
+                      'materials. Whoever has it can release the goods.',
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
           ),
         ],
       ),
