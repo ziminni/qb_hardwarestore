@@ -251,7 +251,11 @@ class _ProductCard extends StatelessWidget {
   const _ProductCard({required this.product, required this.onAdd});
 
   /// Card content width below which the price and Add button stack.
-  static const double sideBySidePriceWidth = 180;
+  ///
+  /// 210 rather than 180 because the price is a full `₱1,480.50 / sheet` on one
+  /// line: at 198 the money fit beside the button but the unit ran out of room
+  /// and the card read `₱1,480.50 / she…` (seen in the C1 goldens at 760).
+  static const double sideBySidePriceWidth = 210;
 
   final PosCatalogItem product;
   final VoidCallback onAdd;
@@ -397,9 +401,8 @@ class _StockBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final amount = quantity == quantity.roundToDouble()
-        ? quantity.toStringAsFixed(0)
-        : quantity.toStringAsFixed(2);
+    // One quantity format for the whole app (formatQuantity, D7).
+    final amount = formatQuantity(quantity);
     final unitLabel = unit.toLowerCase();
     final (Color text, Color tint, String label) = quantity <= 0
         ? (AppColors.errorText, AppColors.errorTint, 'Out of stock')

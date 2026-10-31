@@ -36,11 +36,12 @@ class PosUtangPanel extends StatelessWidget {
 
     // An anonymous sale cannot owe (decision 14), so there is no balance to show - and saying
     // so is better than an empty box, because it tells the cashier WHY there is nothing.
+    // Two plain sentences, no dash (D18).
     if (selected == null) {
       return const Padding(
         padding: EdgeInsets.only(top: 4),
         child: Text(
-          'Anonymous sale — no account to charge.',
+          'Anonymous sale, so no account to charge.',
           style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
         ),
       );
