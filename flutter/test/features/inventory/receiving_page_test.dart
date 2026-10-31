@@ -76,20 +76,24 @@ class _StubInventoryService extends InventoryService {
 /// ORDERED, not DRAFT: the screen now lists only the orders the server will let
 /// it receive (ORDERED / PARTIAL). A DRAFT one answers 400 PO_NOT_ORDERED, so
 /// offering it was a button that could only produce a refusal.
-PurchaseOrderRecord _order({String status = 'ORDERED'}) => PurchaseOrderRecord(
-  id: 1,
+PurchaseOrderRecord _order({
+  int id = 1,
+  String status = 'ORDERED',
+  double receivedQty = 0,
+}) => PurchaseOrderRecord(
+  id: id,
   supplierId: 2,
   status: status,
   notes: '',
-  items: const [
+  items: [
     PurchaseOrderItem(
-      id: 11,
-      poId: 1,
+      id: id * 10 + 1,
+      poId: id,
       variantId: 8,
       variantName: 'Portland 40kg',
       orderedQty: 10,
       unitCost: 50,
-      receivedQty: 0,
+      receivedQty: receivedQty,
     ),
   ],
 );
@@ -138,12 +142,15 @@ void main() {
   ) async {
     final service = await _pump(tester);
 
-    expect(find.textContaining('PO-1'), findsOneWidget);
+    expect(find.byKey(const Key('receiving-order-1')), findsOneWidget);
 
-    await tester.tap(find.textContaining('PO-1'));
+    await tester.tap(find.byKey(const Key('receiving-order-1')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('receiving-qty-11')), '4');
-    await tester.tap(find.text('Record receipt'));
+    // The Record button is enabled by what was counted, so it needs the frame
+    // that reads the new quantity.
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Record receipt'));
     await tester.pumpAndSettle();
 
     expect(service.recordCalls, 1);
@@ -155,30 +162,61 @@ void main() {
   ) async {
     await _pump(tester);
 
-    await tester.tap(find.textContaining('PO-1'));
+    await tester.tap(find.byKey(const Key('receiving-order-1')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('receiving-qty-11')), '4');
-    await tester.tap(find.text('Record receipt'));
+    // The Record button is enabled by what was counted, so it needs the frame
+    // that reads the new quantity.
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Process into stock'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Record receipt'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Process into stock'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Process into stock'), findsNothing);
+    expect(
+      find.widgetWithText(FilledButton, 'Process into stock'),
+      findsNothing,
+    );
     expect(find.textContaining('batch'), findsWidgets);
   });
 
   testWidgets('processing a receipt offers the process action', (tester) async {
     final service = await _pump(tester);
 
-    await tester.tap(find.textContaining('PO-1'));
+    await tester.tap(find.byKey(const Key('receiving-order-1')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('receiving-qty-11')), '4');
-    await tester.tap(find.text('Record receipt'));
+    // The Record button is enabled by what was counted, so it needs the frame
+    // that reads the new quantity.
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Process into stock'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Record receipt'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Process into stock'));
     await tester.pumpAndSettle();
 
     expect(service.processCalls, 1);
+  });
+
+  testWidgets('the three steps are visible and Process waits for Record', (
+    tester,
+  ) async {
+    final service = await _pump(tester);
+
+    // K8: the plan's whole point is that recording and processing are TWO
+    // confirmations, and the old screen only showed the second one after the
+    // first had already been pressed.
+    expect(find.text('1 Pick a purchase order'), findsOneWidget);
+    expect(find.text('2 Record receipt'), findsOneWidget);
+    expect(find.text('3 Process into stock'), findsOneWidget);
+
+    // The guard is visible and dead, not absent: a button that does not exist
+    // cannot tell the reader that processing is the later step.
+    final process = find.widgetWithText(FilledButton, 'Process into stock');
+    expect(process, findsOneWidget);
+    expect(tester.widget<FilledButton>(process).onPressed, isNull);
+    await tester.tap(process, warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(service.processCalls, 0);
   });
 
   testWidgets('a failed load reports the error, not "no order is waiting"', (
@@ -197,10 +235,57 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Cannot connect'), findsOneWidget);
+    // One failure, with the way out of it.
+    expect(find.text('Retry'), findsOneWidget);
     expect(
       find.textContaining('No order is waiting to be received'),
       findsNothing,
     );
+  });
+
+  testWidgets('the whole flow: pick, count, record, process, then labels', (
+    tester,
+  ) async {
+    final service = await _pump(tester);
+
+    await tester.tap(find.byKey(const Key('receiving-order-1')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('receiving-qty-11')), '4');
+    await tester.pumpAndSettle();
+
+    // record/ moves the order's received quantity server-side, so the panel has
+    // to show the SERVER's copy, not the one it was opened from.
+    service.orders = [_order(status: 'PARTIAL', receivedQty: 4)];
+    await tester.tap(find.widgetWithText(FilledButton, 'Record receipt'));
+    await tester.pumpAndSettle();
+    expect(find.text('PO-1 · PARTIAL'), findsOneWidget);
+    expect(find.textContaining('4 received'), findsOneWidget);
+
+    // process/ is where the server flips the status to COMPLETE.
+    service.orders = [_order(status: 'COMPLETE', receivedQty: 10)];
+    await tester.tap(find.widgetWithText(FilledButton, 'Process into stock'));
+    await tester.pumpAndSettle();
+    expect(find.text('PO-1 · COMPLETE'), findsOneWidget);
+    expect(
+      find.textContaining('1 batch created from receipt #5'),
+      findsOneWidget,
+    );
+    // Labels are offered only for the delivery this screen just created.
+    expect(find.text('Print labels for this delivery'), findsOneWidget);
+  });
+
+  testWidgets('Receive on Purchases opens Receiving with that order picked', (
+    tester,
+  ) async {
+    // What the Purchases row's Receive action parks before it navigates: the
+    // receiving route carries no query string, so the choice rides over here.
+    ReceivingViewmodel.pendingPurchaseOrderId = 2;
+
+    await _pump(tester, orders: [_order(), _order(id: 2)]);
+
+    expect(find.text('PO-2 · ORDERED'), findsOneWidget);
+    // Taken once: a later visit from the sidebar must not reopen on it.
+    expect(ReceivingViewmodel.pendingPurchaseOrderId, isNull);
   });
 
   testWidgets('a DRAFT order is not offered for receiving', (tester) async {

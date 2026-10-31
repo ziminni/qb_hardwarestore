@@ -3,6 +3,7 @@ import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
 import 'package:client/data/models/supplier.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
+import 'package:client/features/inventory/viewmodels/receiving_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmodel.dart';
 import 'package:client/features/suppliers/widgets/purchases_details_dialog.dart';
@@ -111,8 +112,16 @@ class _PurchasesPageState extends State<PurchasesPage> {
   }
 
   /// The goods are recorded on Receiving, which owns the receipt and the stock
-  /// it creates, so this only takes the reader there.
-  void _receive(PurchaseOrder order) => navigateInventory(context, 8);
+  /// it creates, so this only takes the reader there, with the order it came
+  /// from already picked.
+  ///
+  /// The route (`AppRoutes.inventoryReceiving`) carries no query string, so the
+  /// chosen order rides on the receiving viewmodel and is taken by its first
+  /// load. Tapping the sidebar's Receiving afterwards opens on nothing.
+  void _receive(PurchaseOrder order) {
+    ReceivingViewmodel.pendingPurchaseOrderId = order.id;
+    navigateInventory(context, 8);
+  }
 
   void _openDetails(PurchaseOrder order) => showDialog<void>(
     context: context,

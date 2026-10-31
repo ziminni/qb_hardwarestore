@@ -63,6 +63,22 @@ class ReceivingViewmodel extends ChangeNotifier {
   /// because process/ has no receipt-level guard against a second run client-side.
   bool get isProcessed => _lastReceiptId != null && _lastBatches.isNotEmpty;
 
+  /// Something has been counted, so recording is worth offering.
+  bool get hasQuantities => _quantities.isNotEmpty;
+
+  /// The purchase order the Purchases row's Receive action asked for.
+  ///
+  /// `AppRoutes.inventoryReceiving` carries no query string and `routes.dart` is
+  /// outside this card, so the intent is parked here for ONE load: the panel
+  /// opens on that order, and a later visit from the sidebar opens on none.
+  static int? pendingPurchaseOrderId;
+
+  static int? _takePendingPurchaseOrderId() {
+    final id = pendingPurchaseOrderId;
+    pendingPurchaseOrderId = null;
+    return id;
+  }
+
   /// Loads the orders that can be received. A failed load keeps the rows already
   /// shown: emptying the table would read as "nothing on order".
   Future<void> load() async {
@@ -83,6 +99,16 @@ class ReceivingViewmodel extends ChangeNotifier {
       if (selectedId != null) {
         for (final order in orders) {
           if (order.id == selectedId) {
+            _selected = order;
+            break;
+          }
+        }
+      } else if (_takePendingPurchaseOrderId() case final wanted?) {
+        // First load after a Receive tap on Purchases: open on that order.
+        // An order the server will not let this screen receive (a DRAFT, or one
+        // finished since the list was read) simply stays unpicked.
+        for (final order in _orders) {
+          if (order.id == wanted) {
             _selected = order;
             break;
           }
