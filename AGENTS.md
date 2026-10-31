@@ -44,8 +44,8 @@ the same commit that breaks it.
 - **THE INVARIANT IS SUPERSEDED.** The old "no new endpoints, no model or migration changes" rule is
   not binding; audit-remediation phases add backend work deliberately (Phase 6 adds a `VariantUOM`
   constraint + backfill migration and a `?barcode=` filter).
-- **Last session:** `docs/sessions/2026-10-30-ui-refresh-f1-f2.md` — UI-refresh foundation F1 (token panel rename, `6592f91`) + F2 (one money/date format, `2eeeb1e`) committed; CPMS integration parked as fog epic. **Gate:** flutter **878/878**, analyze clean, peso gate 0.
-  **Next:** answer pending — dispatch F3 `DataPanel` or user runs the app (1440/1100/760 look at new `₱1,480.00` format) first; `git push` (user); thermal print still hardware-only.
+- **Last session:** `docs/sessions/2026-10-31-ui-refresh-foundation-wave1.md` — UI-refresh foundation F1-F4 + review fixes and screen wave 1 (S1 transactions, K2 products, K4 stock) + review fixes committed through `d5550b3`. **Gate:** flutter **1004 passed / 40 opt-in goldens skipped**, analyze clean. Plan `temp/ui-refresh/TASKS.md`, ledger `.superpowers/sdd/ui-refresh/progress.md`.
+  **Next:** finish wave 2 (S2, K5, K6, K7, K9, A6 in `.superpowers/worktrees/*`): verify, merge, review; then wave 3, Z1 copy sweep, Z2 whole-app pass. `git push` (user).
 - **The standard this project now holds:** a test is not accepted as covering a fix until it has been run
   against the code **without** the fix and seen to fail — and a mutation or a test that breaks
   **compilation/errors** proves nothing. **A claim not followed by its command output in the same message
