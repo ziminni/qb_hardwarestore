@@ -1,29 +1,43 @@
 import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/returns.dart';
-import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/models/sale_transaction.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/viewmodels/pos_returns_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
+import 'package:client/features/pos/widgets/pos_return_receipt.dart';
+import 'package:client/features/pos/widgets/pos_returns_bar.dart';
+import 'package:client/features/pos/widgets/pos_returns_line_row.dart';
 import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:client/routes/routes.dart';
+import 'package:client/shared/widgets/app_panel.dart';
+import 'package:client/shared/widgets/empty_state.dart';
+import 'package:client/shared/widgets/error_banner.dart';
+import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 /// The till's Returns tab (index 6, decision 05).
 ///
-/// A customer comes back with goods and a slip. The cashier searches the sale,
-/// the screen shows what is LEFT to return and what the sale still owes, and the
-/// server decides the money: the return value settles the utang first and only
-/// the excess leaves the drawer.
+/// A customer comes back with goods and a slip. The cashier works through three
+/// numbered steps: find the original sale, choose what comes back, then refund.
+/// The server decides the money: the return value settles the utang first and
+/// only the excess leaves the drawer.
 ///
 /// No open shift, no refund: a refund is cash out of a drawer, and a drawer is a
-/// shift. The gate is the same one the till uses, and for the same reason — an
+/// shift. The gate is the same one the till uses, and for the same reason, an
 /// orphan refund makes the Z-reading's expected drawer too high.
+///
+/// Layout (C7): narrow windows stack the steps and pin the refund and Confirm to
+/// the bottom ([PosReturnsBar]); a wide window puts steps 2 and 3 side by side so
+/// the summary stays visible while the cashier steps quantities. The page owns
+/// its one scroll region ([DashboardShell.scrollable] is false), so there is no
+/// scroll inside a scroll and the padding is the shell's own.
 ///
 /// [viewmodel] and [shiftViewmodel] are injectable so a test can drive the whole
 /// flow without a server; production passes nothing.
@@ -44,6 +58,19 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
   final _search = TextEditingController();
   final _reason = TextEditingController();
 
+  /// The one scroll region the page owns, so a failed refund can bring the
+  /// reason it failed to the top of the screen instead of leaving it below the
+  /// fold (and below the pinned bar) where the cashier never sees it.
+  final _scroll = ScrollController();
+
+  /// Below this content width steps 2 and 3 stack and the refund pins to the
+  /// bottom. Measured on the content box, not the window, so the sidebar can
+  /// take its width first.
+  static const double _sideBySideMinWidth = 900;
+
+  /// The refund summary's fixed column when the steps sit side by side.
+  static const double _refundPanelWidth = 360;
+
   @override
   void initState() {
     super.initState();
@@ -56,6 +83,7 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
   void dispose() {
     _search.dispose();
     _reason.dispose();
+    _scroll.dispose();
     // Only dispose the ones we own; an injected viewmodel belongs to the caller.
     if (widget.viewmodel == null) _returns.dispose();
     if (widget.shiftViewmodel == null) _shift.dispose();
@@ -75,29 +103,27 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
           return DashboardShell(
             title: 'Returns',
             subtitle:
-                'Return goods against the original sale — utang first, '
-                'then cash.',
+                'Return goods against the original sale. Utang is cleared '
+                'first, then cash.',
             selectedNavigationIndex: 6,
             navigationItems: posNavigationItems,
             onNavigationSelected: (i) => navigatePos(context, i),
-            child: SizedBox(
-              height: MediaQuery.sizeOf(context).height - 132,
-              child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.lg),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (shift.loadError != null)
-                        LiveLoadErrorBanner(
-                          message: shift.loadError!,
-                          onRetry: shift.loadCurrent,
-                        ),
-                      _gate(context, shift),
-                    ],
+            // The page keeps the refund bar on screen by scrolling its own
+            // steps, so the shell hands it the height under the header.
+            scrollable: false,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (shift.loadError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                    child: LiveLoadErrorBanner(
+                      message: shift.loadError!,
+                      onRetry: shift.loadCurrent,
+                    ),
                   ),
-                ),
-              ),
+                Expanded(child: _gate(context, shift)),
+              ],
             ),
           );
         },
@@ -109,133 +135,303 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
   /// "no shift"), and none. Only the last one shows the way to the Shifts tab.
   Widget _gate(BuildContext context, ShiftViewmodel shift) {
     if (shift.isLoading && shift.currentShift == null) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
-        child: Center(child: CircularProgressIndicator()),
-      );
+      return const Center(child: CircularProgressIndicator());
     }
     if (shift.loadError != null && shift.currentShift == null) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
-        child: Center(child: Text('The shift could not be checked.')),
-      );
+      return const Center(child: Text('The shift could not be checked.'));
     }
-    if (!shift.hasOpenShift) return const _NoShiftGate();
+    if (!shift.hasOpenShift) {
+      return const SingleChildScrollView(child: _NoShiftGate());
+    }
     return _returnsFlow(context);
   }
 
   Widget _returnsFlow(BuildContext context) {
     final returns = context.watch<PosReturnsViewmodel>();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Find the original sale',
-          style: Theme.of(context).textTheme.titleMedium,
+
+    // Done: the server's own numbers, and the only way out is another return.
+    if (returns.result case final posted?) {
+      return SingleChildScrollView(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: PosReturnReceipt(
+              result: posted,
+              transactionNo: returns.sale?.transactionNo,
+              lines: _returnedLines(returns),
+              onStartAnother: () => _startAnother(returns),
+            ),
+          ),
         ),
-        const SizedBox(height: AppSpacing.sm),
-        const Text(
-          'Type the transaction number on the slip or the OR number on the '
-          'receipt. Only your own sales can be returned.',
-        ),
-        const SizedBox(height: AppSpacing.md),
-        Row(
+      );
+    }
+
+    final preflight = returns.preflight;
+    final refundable = preflight != null && preflight.returnable;
+    // Nothing looked up yet: say what this screen is for, rather than leaving
+    // the lower half of the window blank.
+    final untouched =
+        returns.sale == null &&
+        !returns.searchedMiss &&
+        !returns.isSearching &&
+        returns.searchError == null &&
+        returns.preflightError == null;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= _sideBySideMinWidth;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(
-              child: TextField(
-                controller: _search,
-                decoration: const InputDecoration(
-                  labelText: 'Transaction or receipt number',
-                  border: OutlineInputBorder(),
+              child: SingleChildScrollView(
+                controller: _scroll,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // ONE failure, above the steps: the refund's refusal must not
+                    // hide under the pinned bar where the cashier tapped.
+                    if (returns.submitError case final error?) ...[
+                      ErrorBanner(message: error),
+                      if (returns.needsOpenShift)
+                        Padding(
+                          padding: const EdgeInsets.only(top: AppSpacing.sm),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: OutlinedButton.icon(
+                              onPressed: () => context.go(AppRoutes.posShifts),
+                              icon: const Icon(Icons.access_time),
+                              label: const Text('Go to Shifts'),
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: AppSpacing.lg),
+                    ],
+                    _findPanel(context, returns),
+                    if (untouched) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      AppPanel(
+                        child: EmptyState(
+                          icon: Icons.assignment_return_outlined,
+                          message:
+                              'No sale chosen yet. Search the number on the '
+                              'slip and the goods that can still come back are '
+                              'listed here.',
+                        ),
+                      ),
+                    ],
+                    if (preflight != null && !preflight.returnable) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      _refusalPanel(context, returns),
+                    ] else if (preflight != null) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      if (wide)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: _choosePanel(context, returns, preflight),
+                            ),
+                            const SizedBox(width: AppSpacing.lg),
+                            SizedBox(
+                              width: _refundPanelWidth,
+                              // Confirm lives in the step here: both panels are
+                              // on screen, so nothing needs pinning.
+                              child: _refundPanel(
+                                context,
+                                returns,
+                                showConfirm: true,
+                              ),
+                            ),
+                          ],
+                        )
+                      else ...[
+                        _choosePanel(context, returns, preflight),
+                        const SizedBox(height: AppSpacing.lg),
+                        // Confirm is in the bar below, never twice on screen.
+                        _refundPanel(context, returns, showConfirm: false),
+                      ],
+                    ],
+                  ],
                 ),
-                onSubmitted: (_) => returns.search(_search.text),
               ),
             ),
-            const SizedBox(width: AppSpacing.md),
-            FilledButton.icon(
-              onPressed: returns.isSearching
-                  ? null
-                  : () => returns.search(_search.text),
-              icon: const Icon(Icons.search),
-              label: const Text('Search sale'),
+            if (!wide && refundable) ...[
+              const SizedBox(height: AppSpacing.md),
+              PosReturnsBar(
+                returnValue: returns.returnValue,
+                cashRefund: returns.cashRefundEstimate,
+                canConfirm: returns.canSubmit,
+                onConfirm: () => _confirmAndSubmit(context, returns),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  /// What came back, named, for the receipt. The chosen quantities are still on
+  /// the viewmodel until the cashier starts another return.
+  List<({String name, String uom, double qty})> _returnedLines(
+    PosReturnsViewmodel returns,
+  ) => [
+    for (final line in returns.preflight?.lines ?? const <ReturnableLine>[])
+      if (returns.quantityFor(line.variantUomId) > 0)
+        (
+          name: line.name,
+          uom: line.uom,
+          qty: returns.quantityFor(line.variantUomId),
+        ),
+  ];
+
+  /// Step 1: the original sale, and what the server says the cashier may do
+  /// with it.
+  Widget _findPanel(BuildContext context, PosReturnsViewmodel returns) {
+    final sale = returns.sale;
+    return AppPanel(
+      title: '1 Find the sale',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Type the transaction number on the slip or the OR number on the '
+            'receipt. Only your own sales can be returned.',
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _search,
+                  decoration: const InputDecoration(
+                    labelText: 'Transaction or receipt number',
+                    border: OutlineInputBorder(),
+                  ),
+                  onSubmitted: (_) => returns.search(_search.text),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              FilledButton.icon(
+                onPressed: returns.isSearching
+                    ? null
+                    : () => returns.search(_search.text),
+                style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
+                icon: const Icon(Icons.search),
+                label: const Text('Search sale'),
+              ),
+            ],
+          ),
+          if (returns.isSearching)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+              child: LinearProgressIndicator(),
+            ),
+          if (returns.searchError != null)
+            _errorText(context, returns.searchError!),
+          if (returns.searchedMiss) ...[
+            const SizedBox(height: AppSpacing.md),
+            const Text(
+              'No sale of yours matches that number. Check the slip with the '
+              'customer, because another till\'s sale cannot be returned here.',
+              style: TextStyle(color: AppColors.textSecondary),
             ),
           ],
-        ),
-        if (returns.isSearching)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
-            child: LinearProgressIndicator(),
+          if (returns.preflightError != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            LiveLoadErrorBanner(
+              message: returns.preflightError!,
+              onRetry: returns.reloadPreflight,
+            ),
+          ],
+          if (sale != null && returns.preflight != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            _SaleHeader(sale: sale, preflight: returns.preflight),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Step 2: one row per selling unit, each with the till's stepper.
+  Widget _choosePanel(
+    BuildContext context,
+    PosReturnsViewmodel returns,
+    ReturnableSale preflight,
+  ) {
+    return AppPanel(
+      title: '2 Choose items',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Step the quantities that are coming back. The stepper stops at '
+            'what the sale still has.',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
           ),
-        if (returns.searchError != null)
-          _errorText(context, returns.searchError!),
-        if (returns.searchedMiss) ...[
+          for (final line in preflight.lines)
+            PosReturnsLineRow(
+              line: line,
+              quantity: returns.quantityFor(line.variantUomId),
+              onIncrement: () => returns.increment(line.variantUomId),
+              onDecrement: () => returns.decrement(line.variantUomId),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Step 3: why, how the excess is paid, and the live split between the utang
+  /// and the drawer.
+  Widget _refundPanel(
+    BuildContext context,
+    PosReturnsViewmodel returns, {
+    required bool showConfirm,
+  }) {
+    return AppPanel(
+      title: '3 Refund',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _reasonField(returns),
           const SizedBox(height: AppSpacing.md),
-          Text(
-            'No sale of yours matches that number. Check the slip with the '
-            'customer — another till\'s sale cannot be returned here.',
-            style: TextStyle(color: AppColors.textSecondary),
-          ),
-        ],
-        if (returns.preflightError != null) ...[
+          _refundMethodField(returns),
           const SizedBox(height: AppSpacing.md),
-          LiveLoadErrorBanner(
-            message: returns.preflightError!,
-            onRetry: returns.reloadPreflight,
-          ),
-        ],
-        if (returns.sale case final sale?) ...[
-          const SizedBox(height: AppSpacing.lg),
-          _SaleHeader(sale: sale, preflight: returns.preflight),
-        ],
-        if (returns.preflight case final preflight?)
-          if (!preflight.returnable)
-            _refusal(context, returns)
-          else ...[
-            const SizedBox(height: AppSpacing.lg),
-            _lines(context, returns, preflight),
-            const SizedBox(height: AppSpacing.lg),
-            _reasonField(returns),
-            const SizedBox(height: AppSpacing.lg),
-            _refundMethodField(returns),
-            const SizedBox(height: AppSpacing.lg),
-            _totals(context, returns),
-            if (returns.submitError != null) ...[
-              const SizedBox(height: AppSpacing.md),
-              _errorText(context, returns.submitError!),
-              if (returns.needsOpenShift)
-                Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.sm),
-                  child: OutlinedButton.icon(
-                    onPressed: () => context.go(AppRoutes.posShifts),
-                    icon: const Icon(Icons.access_time),
-                    label: const Text('Go to Shifts'),
-                  ),
-                ),
-            ],
+          _summary(context, returns),
+          if (showConfirm) ...[
             const SizedBox(height: AppSpacing.lg),
             FilledButton.icon(
               onPressed: returns.canSubmit
                   ? () => _confirmAndSubmit(context, returns)
                   : null,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(56),
+              ),
               icon: const Icon(Icons.assignment_return_outlined),
               label: const Text('Confirm return'),
             ),
           ],
-        if (returns.result case final posted?) ...[
-          const SizedBox(height: AppSpacing.lg),
-          _RefundSummaryCard(result: posted),
-          const SizedBox(height: AppSpacing.md),
-          OutlinedButton.icon(
-            onPressed: () {
-              _search.clear();
-              _reason.clear();
-              returns.reset();
-            },
-            icon: const Icon(Icons.refresh),
-            label: const Text('New return'),
+        ],
+      ),
+    );
+  }
+
+  /// The server said this document cannot be reversed. Said ONCE, in the
+  /// server's own code's words, with no stepper to mislead the cashier.
+  Widget _refusalPanel(BuildContext context, PosReturnsViewmodel returns) {
+    return AppPanel(
+      child: Row(
+        children: [
+          const Icon(Icons.block, color: AppColors.errorText),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              returns.refusalMessage ?? '',
+              style: const TextStyle(color: AppColors.errorText),
+            ),
           ),
         ],
-      ],
+      ),
     );
   }
 
@@ -246,51 +442,6 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
       style: TextStyle(color: Theme.of(context).colorScheme.error),
     ),
   );
-
-  /// The server said this document cannot be reversed. Said ONCE, in the
-  /// server's own code's words, with no stepper to mislead the cashier.
-  Widget _refusal(BuildContext context, PosReturnsViewmodel returns) => Padding(
-    padding: const EdgeInsets.only(top: AppSpacing.lg),
-    child: Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.error.withValues(alpha: 0.08),
-        border: Border.all(color: AppColors.error),
-        borderRadius: BorderRadius.circular(AppSpacing.sm),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.block, color: AppColors.error),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(child: Text(returns.refusalMessage ?? '')),
-        ],
-      ),
-    ),
-  );
-
-  Widget _lines(
-    BuildContext context,
-    PosReturnsViewmodel returns,
-    ReturnableSale preflight,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'What is left to return',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        for (final line in preflight.lines)
-          _ReturnableLineRow(
-            line: line,
-            quantity: returns.quantityFor(line.variantUomId),
-            onIncrement: () => returns.increment(line.variantUomId),
-            onDecrement: () => returns.decrement(line.variantUomId),
-          ),
-      ],
-    );
-  }
 
   Widget _reasonField(PosReturnsViewmodel returns) => TextField(
     controller: _reason,
@@ -304,50 +455,67 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
 
   Widget _refundMethodField(PosReturnsViewmodel returns) => Row(
     children: [
-      const Text('Refund the excess by'),
-      const SizedBox(width: AppSpacing.md),
-      DropdownButton<TenderMethod>(
-        value: returns.refundMethod,
-        onChanged: (value) {
-          if (value != null) returns.setRefundMethod(value);
-        },
-        // Labels on screen, codes on the wire (C1): the refund POST carries
-        // `payment_method: 'CASH'`, never the word the cashier read.
-        items: [
-          for (final method in PosReturnsViewmodel.refundMethods)
-            DropdownMenuItem(value: method, child: Text(method.label)),
-        ],
+      const Expanded(child: Text('Refund the excess by')),
+      // Boxed like the till's fields: a bare underlined dropdown read as loose
+      // text next to the bordered inputs above it.
+      DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(color: AppColors.border),
+          borderRadius: BorderRadius.circular(AppRadii.medium),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<TenderMethod>(
+              value: returns.refundMethod,
+              onChanged: (value) {
+                if (value != null) returns.setRefundMethod(value);
+              },
+              // Labels on screen, codes on the wire (C1): the refund POST carries
+              // `payment_method: 'CASH'`, never the word the cashier read.
+              items: [
+                for (final method in PosReturnsViewmodel.refundMethods)
+                  DropdownMenuItem(value: method, child: Text(method.label)),
+              ],
+            ),
+          ),
+        ),
       ),
     ],
   );
 
-  /// The estimate, stated as an estimate: the POSTED `refund_summary` is the
-  /// authority, and this line only exists so the cashier can count the money
-  /// before committing.
-  Widget _totals(BuildContext context, PosReturnsViewmodel returns) {
+  /// The estimate, stated as a sentence the cashier can say to the customer,
+  /// plus the breakdown behind it. The POSTED `refund_summary` is the authority;
+  /// this only exists so the cashier can count the money before committing.
+  Widget _summary(BuildContext context, PosReturnsViewmodel returns) {
     final value = returns.returnValue;
     final debt = returns.debtReducedEstimate;
     final cash = returns.cashRefundEstimate;
     return Container(
-      width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+        color: AppColors.selected,
         border: Border.all(color: AppColors.border),
-        borderRadius: BorderRadius.circular(AppSpacing.sm),
+        borderRadius: BorderRadius.circular(AppRadii.medium),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _totalLine(context, 'Return value', value),
-          _totalLine(context, 'Settles utang first', debt),
-          _totalLine(context, 'Cash out of the drawer', cash, emphasise: true),
+          Text(
+            _summarySentence(debt: debt, cash: cash),
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _totalLine('Return value', value),
+          _totalLine('Settles utang first', debt),
+          _totalLine('Cash out of the drawer', cash, emphasise: true),
           if (debt > 0)
             const Padding(
               padding: EdgeInsets.only(top: AppSpacing.xs),
               child: Text(
                 'This sale still owes money, so the return pays that down '
                 'before any cash is handed over.',
+                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
               ),
             ),
         ],
@@ -355,30 +523,54 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
     );
   }
 
-  Widget _totalLine(
-    BuildContext context,
-    String label,
-    double amount, {
-    bool emphasise = false,
-  }) => Padding(
-    padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-    child: Row(
-      children: [
-        Expanded(child: Text(label)),
-        Text(
-          formatPeso(amount),
-          style: TextStyle(
-            fontWeight: emphasise ? FontWeight.bold : FontWeight.w600,
-          ),
+  /// One sentence, always both figures: what the utang absorbs and what leaves
+  /// the drawer. A zero is never dressed up as a refund.
+  static String _summarySentence({required double debt, required double cash}) {
+    if (debt <= 0 && cash <= 0) {
+      return 'Nothing to refund yet. Choose the quantities that are coming '
+          'back.';
+    }
+    if (debt > 0 && cash > 0) {
+      return 'Clears ${formatPeso(debt)} of utang, refunds ${formatPeso(cash)} '
+          'in cash.';
+    }
+    if (debt > 0) {
+      return 'Clears ${formatPeso(debt)} of utang. No cash leaves the drawer.';
+    }
+    return 'Refunds ${formatPeso(cash)} in cash.';
+  }
+
+  Widget _totalLine(String label, double amount, {bool emphasise = false}) =>
+      Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+        child: Row(
+          children: [
+            Expanded(child: Text(label)),
+            Text(
+              formatPeso(amount),
+              style: TextStyle(
+                fontWeight: emphasise ? FontWeight.bold : FontWeight.w600,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
         ),
-      ],
-    ),
-  );
+      );
+
+  void _startAnother(PosReturnsViewmodel returns) {
+    _search.clear();
+    _reason.clear();
+    returns.reset();
+  }
 
   Future<void> _confirmAndSubmit(
     BuildContext context,
     PosReturnsViewmodel returns,
   ) async {
+    // Confirm is the end of the typing: drop the keyboard BEFORE the dialog, so
+    // a failed refund is not out-scrolled by the reason field taking focus back
+    // and Flutter scrolling it into view again.
+    FocusScope.of(context).unfocus();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -415,12 +607,19 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
       ),
     );
     if (confirmed != true) return;
-    await returns.submit();
+    final posted = await returns.submit();
+    // A refusal is stated at the TOP of the page; bring it into view rather
+    // than leaving the cashier looking at a Confirm button that did nothing.
+    if (!posted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _scroll.hasClients) _scroll.jumpTo(0);
+      });
+    }
   }
 }
 
 /// No open shift: the refund cannot be posted, and the way out is the Shifts
-/// tab — not a retry that cannot work.
+/// tab, not a retry that cannot work.
 class _NoShiftGate extends StatelessWidget {
   const _NoShiftGate();
 
@@ -433,9 +632,9 @@ class _NoShiftGate extends StatelessWidget {
           constraints: const BoxConstraints(maxWidth: 460),
           padding: const EdgeInsets.all(AppSpacing.xl),
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
+            color: AppColors.cardBackground,
             border: Border.all(color: AppColors.border),
-            borderRadius: BorderRadius.circular(AppSpacing.sm),
+            borderRadius: BorderRadius.circular(AppRadii.large),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -455,6 +654,7 @@ class _NoShiftGate extends StatelessWidget {
                 alignment: Alignment.centerRight,
                 child: FilledButton.icon(
                   onPressed: () => context.go(AppRoutes.posShifts),
+                  style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
                   icon: const Icon(Icons.access_time),
                   label: const Text('Go to Shifts'),
                 ),
@@ -467,6 +667,7 @@ class _NoShiftGate extends StatelessWidget {
   }
 }
 
+/// The sale the goods came back from, and what it still owes.
 class _SaleHeader extends StatelessWidget {
   const _SaleHeader({required this.sale, required this.preflight});
 
@@ -477,28 +678,34 @@ class _SaleHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final openDebt = preflight?.openDebt;
     return Container(
-      width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+        color: AppColors.background,
         border: Border.all(color: AppColors.border),
-        borderRadius: BorderRadius.circular(AppSpacing.sm),
+        borderRadius: BorderRadius.circular(AppRadii.medium),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Text(
-                sale.transactionNo,
-                style: const TextStyle(fontWeight: FontWeight.bold),
+              Flexible(
+                child: Text(
+                  sale.transactionNo,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
               ),
               const SizedBox(width: AppSpacing.md),
-              Chip(label: Text(sale.source)),
+              StatusBadge(label: sale.source),
             ],
           ),
           const SizedBox(height: AppSpacing.xs),
-          Text('${sale.customerName} · ${formatPeso(sale.grandTotal)}'),
+          Text(
+            '${sale.customerName} · ${formatPeso(sale.grandTotal)} · '
+            '${formatDate(sale.transDate)}',
+          ),
           // The debt is the reason a credit sale's refund does not all come
           // back as cash. Stated before the cashier touches a quantity.
           if (openDebt != null && openDebt > 0)
@@ -506,122 +713,6 @@ class _SaleHeader extends StatelessWidget {
               'This sale still owes ${formatPeso(openDebt)}',
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
-        ],
-      ),
-    );
-  }
-}
-
-/// One selling unit with a stepper capped at what is left.
-///
-/// A line with nothing left is DISABLED rather than hidden: the cashier must see
-/// that the sale had that line and it has already come back.
-class _ReturnableLineRow extends StatelessWidget {
-  const _ReturnableLineRow({
-    required this.line,
-    required this.quantity,
-    required this.onIncrement,
-    required this.onDecrement,
-  });
-
-  final ReturnableLine line;
-  final double quantity;
-  final VoidCallback onIncrement;
-  final VoidCallback onDecrement;
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = line.hasRemaining;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 3,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${line.name} (${line.uom})',
-                  style: TextStyle(
-                    color: enabled ? null : AppColors.textSecondary,
-                  ),
-                ),
-                Text(
-                  enabled
-                      ? '${line.remainingQty} of ${line.soldQty} left · '
-                            '${formatPeso(line.unitPrice)}'
-                      : 'All ${line.soldQty} already returned',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            onPressed: enabled && quantity > 0 ? onDecrement : null,
-            icon: const Icon(Icons.remove_circle_outline),
-            tooltip: 'One fewer',
-          ),
-          SizedBox(
-            width: 40,
-            child: Text(
-              quantity.toStringAsFixed(0),
-              textAlign: TextAlign.center,
-            ),
-          ),
-          IconButton(
-            onPressed: enabled && quantity < line.remainingQty
-                ? onIncrement
-                : null,
-            icon: const Icon(Icons.add_circle_outline),
-            tooltip: 'One more',
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The POSTED refund, in the server's own numbers.
-///
-/// Debt reduced comes before cash refund because that is the order the money
-/// moved: the utang dropped first, and only the excess left the drawer.
-class _RefundSummaryCard extends StatelessWidget {
-  const _RefundSummaryCard({required this.result});
-
-  final ReturnResult result;
-
-  @override
-  Widget build(BuildContext context) {
-    final refund = result.refund;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(AppSpacing.sm),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Return posted: ${result.returnNo}',
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Text('Return value ${formatPeso(refund.returnValue)}'),
-          Text('Utang reduced ${formatPeso(refund.debtReduced)}'),
-          Text(
-            'Cash refunded ${formatPeso(refund.cashRefund)} '
-            '(${refund.refundMethod})',
-          ),
-          if (refund.ledgerBalance case final balance?)
-            Text('Ledger still owes ${formatPeso(balance)}')
-          else
-            const Text('This sale had nothing owing.'),
         ],
       ),
     );
