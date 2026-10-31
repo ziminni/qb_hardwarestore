@@ -1,6 +1,7 @@
 import 'package:client/core/theme/app_scroll_behavior.dart';
 import 'package:client/core/theme/app_theme.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
+import 'package:client/features/auth/widget/login_transition_overlay.dart';
 import 'package:client/routes/routes.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -32,6 +33,10 @@ class _MyAppState extends State<MyApp> {
       scrollBehavior: const AppScrollBehavior(),
       debugShowCheckedModeBanner: false,
       routerConfig: _router,
+      // Sits above every route so it can cover the login-to-dashboard swap. It
+      // is the only place it lives: a page test never meets it.
+      builder: (context, child) =>
+          LoginTransitionOverlay(child: child ?? const SizedBox.shrink()),
     );
   }
 }

@@ -8,6 +8,7 @@ import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/auth/widget/login_brand_panel.dart';
 import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
+import 'package:client/shared/widgets/measure_ruler.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -160,7 +161,17 @@ class _LoginPageState extends State<LoginPage> {
               const Expanded(flex: 5, child: LoginBrandPanel()),
               Expanded(
                 flex: 4,
-                child: ColoredBox(color: AppColors.background, child: pane),
+                child: ColoredBox(
+                  color: AppColors.background,
+                  child: Column(
+                    children: [
+                      // The tape-measure edge the design system puts on the top
+                      // of a work surface.
+                      const MeasureRuler(height: 8),
+                      Expanded(child: pane),
+                    ],
+                  ),
+                ),
               ),
             ],
           );

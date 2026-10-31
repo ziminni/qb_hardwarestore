@@ -1,9 +1,12 @@
 import 'package:client/core/constants/app_breakpoints.dart';
 import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/constants/app_text_styles.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/shared/widgets/shared_sidebar.dart';
+import 'package:client/shared/widgets/blueprint.dart';
+import 'package:client/shared/widgets/measure_ruler.dart';
 import 'package:client/shared/widgets/system_brand.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -145,6 +148,7 @@ class _AppShellState extends State<AppShell> {
           drawer: compact
               ? Drawer(
                   width: SharedSidebar.width,
+                  backgroundColor: AppColors.chrome,
                   shape: const RoundedRectangleBorder(),
                   child: _SidebarPanel(
                     shell: widget,
@@ -160,8 +164,12 @@ class _AppShellState extends State<AppShell> {
                 Container(
                   width: rail ? SharedSidebar.railWidth : SharedSidebar.width,
                   decoration: const BoxDecoration(
-                    color: AppColors.cardBackground,
-                    border: Border(right: BorderSide(color: AppColors.border)),
+                    // The dark chrome: one black surface behind the whole nav
+                    // column, with a hairline against the cream page body.
+                    color: AppColors.chrome,
+                    border: Border(
+                      right: BorderSide(color: AppColors.chromeBorder),
+                    ),
                   ),
                   child: _SidebarPanel(
                     shell: widget,
@@ -246,94 +254,139 @@ class _SidebarPanel extends StatelessWidget {
     final onSelected = shell.onDestinationSelected;
 
     return Material(
-      color: AppColors.cardBackground,
-      child: Column(
+      color: AppColors.chrome,
+      child: Stack(
+        fit: StackFit.expand,
         children: [
-          SizedBox(
-            height: AppShell.headerHeight,
-            child: Row(
-              children: [
-                Expanded(
-                  child: Center(
-                    child: collapsed
-                        ? const SystemBrand(logoSize: 40, showName: false)
-                        : const SystemBrand(
-                            logoSize: 42,
-                            fontSize: 14,
-                            subtitle: '& CONSTRUCTION SUPPLIES',
-                          ),
-                  ),
-                ),
-                if (onToggleCollapsed case final toggle?)
-                  IconButton(
-                    tooltip: collapsed ? 'Expand sidebar' : 'Collapse sidebar',
-                    onPressed: toggle,
-                    icon: Icon(
-                      collapsed ? Icons.chevron_right : Icons.chevron_left,
-                      size: 18,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-              ],
+          const IgnorePointer(
+            child: RepaintBoundary(
+              child: CustomPaint(painter: _SidebarGridPainter()),
             ),
           ),
-          const Divider(height: 1),
-          Expanded(
-            child: SharedSidebar(
-              sections: shell.sections,
-              selectedIndex: shell.selectedIndex,
-              collapsed: collapsed,
-              markers: markers,
-              onDestinationSelected: onSelected == null
-                  ? null
-                  : (index) {
-                      if (closeDrawerOnSelect) Navigator.of(context).pop();
-                      onSelected(index);
-                    },
-            ),
-          ),
-          const Divider(height: 1),
-          if (collapsed)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-              child: Column(
-                children: [
-                  Tooltip(
-                    message: '$name · $role',
-                    child: CircleAvatar(
-                      radius: 18,
-                      backgroundColor: AppColors.brandBlack,
-                      foregroundColor: AppColors.brandGoldLight,
-                      child: Text(
-                        _initials(name),
-                        // Initials are a heading: the brand face, not the
-                        // platform font the bare TextStyle fell back to.
-                        style: const TextStyle(
-                          fontFamily: AppTextStyles.cinzelFont,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
+          Column(
+            children: [
+              SizedBox(
+                height: AppShell.headerHeight,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Center(
+                        child: collapsed
+                            ? const SystemBrand(logoSize: 40, showName: false)
+                            : const SystemBrand(
+                                logoSize: 42,
+                                fontSize: 14,
+                                subtitle: '& CONSTRUCTION SUPPLIES',
+                                textColor: AppColors.brandWhite,
+                                subtitleColor: AppColors.brandGold,
+                              ),
                       ),
                     ),
-                  ),
-                  IconButton(
-                    tooltip: 'Log out',
-                    onPressed: auth.logout,
-                    icon: const Icon(Icons.logout, size: 18),
-                  ),
-                ],
+                    if (onToggleCollapsed case final toggle?)
+                      IconButton(
+                        tooltip: collapsed
+                            ? 'Expand sidebar'
+                            : 'Collapse sidebar',
+                        onPressed: toggle,
+                        icon: Icon(
+                          collapsed ? Icons.chevron_right : Icons.chevron_left,
+                          size: 18,
+                          color: AppColors.chromeText,
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            )
-          else
-            ListTile(
-              title: Text(name, overflow: TextOverflow.ellipsis),
-              subtitle: Text(role, overflow: TextOverflow.ellipsis),
-              trailing: IconButton(
-                tooltip: 'Log out',
-                onPressed: auth.logout,
-                icon: const Icon(Icons.logout, size: 18),
+              const Divider(height: 1, color: AppColors.chromeBorder),
+              Expanded(
+                child: SharedSidebar(
+                  sections: shell.sections,
+                  selectedIndex: shell.selectedIndex,
+                  collapsed: collapsed,
+                  markers: markers,
+                  onDestinationSelected: onSelected == null
+                      ? null
+                      : (index) {
+                          if (closeDrawerOnSelect) Navigator.of(context).pop();
+                          onSelected(index);
+                        },
+                ),
               ),
-            ),
+              const Divider(height: 1, color: AppColors.chromeBorder),
+              if (collapsed)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                  child: Column(
+                    children: [
+                      Tooltip(
+                        message: '$name · $role',
+                        child: CircleAvatar(
+                          radius: 18,
+                          backgroundColor: AppColors.chromeRaised,
+                          foregroundColor: AppColors.brandGoldLight,
+                          child: Text(
+                            _initials(name),
+                            // Initials are a heading: the brand face, not the
+                            // platform font the bare TextStyle fell back to.
+                            style: const TextStyle(
+                              fontFamily: AppTextStyles.cinzelFont,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Log out',
+                        onPressed: auth.logout,
+                        icon: const Icon(Icons.logout, size: 18),
+                        color: AppColors.chromeText,
+                      ),
+                    ],
+                  ),
+                )
+              else
+                // The signed-in account, on the raised dark surface the rest of
+                // the chrome is drawn on.
+                // The signed-in account, on the raised dark surface the rest
+                // of the chrome is drawn on. The tile paints its own
+                // background: a ListTile inside a coloured box hides its ink
+                // splashes, and the framework asserts on exactly that.
+                Padding(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: ListTile(
+                    tileColor: AppColors.chromeRaised,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadii.medium),
+                      side: const BorderSide(color: AppColors.chromeBorder),
+                    ),
+                    title: Text(
+                      name,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.brandWhite,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    subtitle: Text(
+                      role,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.brandGold,
+                        fontSize: 11,
+                      ),
+                    ),
+                    trailing: IconButton(
+                      tooltip: 'Log out',
+                      onPressed: auth.logout,
+                      icon: const Icon(Icons.logout, size: 18),
+                      color: AppColors.chromeText,
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ],
       ),
     );
@@ -360,52 +413,75 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
+    return SizedBox(
       height: AppShell.headerHeight,
-      padding: EdgeInsets.symmetric(
-        horizontal: showMenuButton ? AppSpacing.sm : AppSpacing.xl,
-      ),
-      decoration: const BoxDecoration(
+      child: ColoredBox(
         color: AppColors.cardBackground,
-        border: Border(bottom: BorderSide(color: AppColors.border)),
-      ),
-      child: Row(
-        children: [
-          if (showMenuButton) ...[
-            IconButton(
-              tooltip: 'Open menu',
-              onPressed: () => Scaffold.of(context).openDrawer(),
-              icon: const Icon(Icons.menu),
+        child: Column(
+          children: [
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: showMenuButton ? AppSpacing.sm : AppSpacing.xl,
+                ),
+                child: Row(
+                  children: [
+                    if (showMenuButton) ...[
+                      IconButton(
+                        tooltip: 'Open menu',
+                        onPressed: () => Scaffold.of(context).openDrawer(),
+                        icon: const Icon(Icons.menu),
+                      ),
+                      const SizedBox(width: AppSpacing.xs),
+                    ],
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            shell.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            shell.subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    ...shell.actions,
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(width: AppSpacing.xs),
+            // The tape-measure edge the design system uses on brand surfaces.
+            const MeasureRuler(height: 7),
           ],
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  shell.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  shell.subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          ...shell.actions,
-        ],
+        ),
       ),
     );
   }
+}
+
+/// The faint blueprint grid the dark chrome carries, so the sidebar reads as
+/// one drawn surface rather than a flat black band.
+class _SidebarGridPainter extends CustomPainter {
+  const _SidebarGridPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    Blueprint.paintGrid(canvas, size, opacity: 0.55);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SidebarGridPainter oldDelegate) => false;
 }

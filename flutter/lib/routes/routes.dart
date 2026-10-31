@@ -40,6 +40,7 @@ import 'package:client/features/suppliers/views/suppliers_page.dart';
 import 'package:client/features/sales/views/inventory_sales_page.dart';
 import 'package:client/features/sales/views/sales_requisitions_page.dart';
 import 'package:client/features/sales/views/sales_staff_page.dart';
+import 'package:client/features/splash/views/splash_page.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -47,6 +48,8 @@ import 'package:provider/provider.dart';
 class AppRoutes {
   AppRoutes._();
 
+  /// The branded intro every start passes through while the session restores.
+  static const String splash = '/splash';
   static const String login = '/login';
 
   /// Where an authenticated account with no POS dashboard is sent.
@@ -113,11 +116,50 @@ class AppRoutes {
   /// same skeleton, whose existing layout assertions fire under a widget test,
   /// so a routing test that rendered one would fail for a reason that has
   /// nothing to do with routing.
+  /// Where the splash sits while the session is still being restored, carrying
+  /// the location that was asked for.
+  static String splashFrom(String location) =>
+      '$splash?from=${Uri.encodeComponent(location)}';
+
+  /// Where the splash hands over once the session is known.
+  ///
+  /// [from] is the `?from=` a pre-restore redirect carried (a deep link). The
+  /// wanted page wins when the role may open it; otherwise the existing role
+  /// rules in [redirectFor] decide (dashboard, unsupported-role screen, login).
+  static String splashDestination({
+    required bool isAuthenticated,
+    required String? role,
+    String? from,
+  }) {
+    final wanted =
+        (from == null || from.isEmpty || from == '/' || from == splash)
+        ? login
+        : from;
+    return redirectFor(
+          isAuthenticated: isAuthenticated,
+          role: role,
+          location: wanted,
+        ) ??
+        wanted;
+  }
+
   static String? redirectFor({
     required bool isAuthenticated,
     required String? role,
     required String location,
+    bool isInitializing = false,
   }) {
+    // The splash owns its own exit: it hands over once the restore settles, so
+    // a redirect must not cut its intro short or bounce it to the login screen.
+    if (location == splash) return null;
+
+    // Startup: the session is not known yet. Park the requested location on the
+    // splash instead of answering the role question with "not signed in", which
+    // would drop a deep link on the login screen.
+    // shortcut: only the path survives, not its query string (no deep link in
+    // the app carries one today); rebuild from state.uri when one does.
+    if (isInitializing) return splashFrom(location);
+
     final isLogin = location == login;
     final isUnsupported = location == unsupportedRole;
 
@@ -197,14 +239,22 @@ class AppRoutes {
 
   static GoRouter createRouter(AuthViewmodel auth) {
     return GoRouter(
-      initialLocation: login,
+      initialLocation: splash,
       refreshListenable: auth,
       redirect: (context, state) => redirectFor(
         isAuthenticated: auth.isAuthenticated,
         role: auth.roleName,
         location: state.matchedLocation,
+        isInitializing: auth.isInitializing,
       ),
       routes: [
+        GoRoute(
+          path: splash,
+          name: 'splash',
+          // No transition: the page is the first frame, not a navigation.
+          pageBuilder: (context, state) =>
+              NoTransitionPage(key: state.pageKey, child: const SplashPage()),
+        ),
         GoRoute(
           path: login,
           name: 'login',

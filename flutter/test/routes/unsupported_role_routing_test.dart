@@ -32,6 +32,25 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dio/dio.dart';
 import 'package:provider/provider.dart';
 
+/// No saved session: secure storage answers "nothing here", so the splash can
+/// hand over to the login screen.
+class _NoSessionRepository extends AuthRepository {
+  _NoSessionRepository() : super(_FakeAuthService());
+
+  @override
+  Future<User?> restoreSession() async => null;
+}
+
+class _FakeAuthService extends AuthService {
+  @override
+  Future<AuthSession> login(String identifier, String password) async {
+    throw const AuthException('not used in this test');
+  }
+
+  @override
+  Future<void> logout() async {}
+}
+
 /// [redirectFor] with a signed-in actor, so each case states only what it varies.
 String? _redirectFor(String? role, String location, {bool signedIn = true}) =>
     AppRoutes.redirectFor(
@@ -269,7 +288,10 @@ void main() {
     testWidgets('a signed-out launch still reaches the login page', (
       tester,
     ) async {
-      final auth = AuthViewmodel(AuthRepository(AuthService()));
+      // The launch path is splash then login (card SYNC), and the restore has to
+      // answer for the splash to hand over, so the repository is stubbed
+      // instead of reaching secure storage.
+      final auth = AuthViewmodel(_NoSessionRepository());
 
       await tester.pumpWidget(
         ChangeNotifierProvider<AuthViewmodel>.value(

@@ -9,6 +9,7 @@ class SystemBrand extends StatelessWidget {
     this.logoSize = 40,
     this.fontSize = 15,
     this.textColor,
+    this.subtitleColor,
     this.uppercase = false,
     this.subtitle,
     this.showName = true,
@@ -17,6 +18,10 @@ class SystemBrand extends StatelessWidget {
   final double logoSize;
   final double fontSize;
   final Color? textColor;
+
+  /// The subtitle's ink. Defaults to the gold INK that reads on white; the
+  /// dark sidebar chrome passes the fill gold, which reads on black.
+  final Color? subtitleColor;
   final bool uppercase;
   final String? subtitle;
 
@@ -72,7 +77,7 @@ class SystemBrand extends StatelessWidget {
                     // 10 px in gold INK, not the 8 px fill gold: the fill
                     // colour is a background, and at 8 px on white it was
                     // barely legible.
-                    color: AppColors.brandGoldText,
+                    color: subtitleColor ?? AppColors.brandGoldText,
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 0.35,

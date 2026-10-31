@@ -95,7 +95,14 @@ class AdminSalesChart extends StatelessWidget {
                                 child: Container(
                                   key: ValueKey('admin-sales-chart-bar-$index'),
                                   decoration: const BoxDecoration(
-                                    color: AppColors.brandGold,
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        AppColors.brandGoldLight,
+                                        AppColors.brandGold,
+                                      ],
+                                    ),
                                     borderRadius: BorderRadius.vertical(
                                       top: Radius.circular(AppRadii.small),
                                     ),

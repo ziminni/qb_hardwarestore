@@ -1,3 +1,6 @@
+import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_radii.dart';
+import 'package:client/core/constants/app_text_styles.dart';
 import 'package:flutter/material.dart';
 
 class AdminInventorySummary extends StatelessWidget {
@@ -16,22 +19,25 @@ class AdminInventorySummary extends StatelessWidget {
               width: 190,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border.all(color: Colors.black26),
+                color: AppColors.cardBackground,
+                border: Border.all(color: AppColors.border),
+                borderRadius: BorderRadius.circular(AppRadii.medium),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     metric.$1,
-                    style: const TextStyle(color: Colors.black54),
+                    style: AppTextStyles.labelSmall.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     metric.$2,
-                    style: const TextStyle(
+                    style: AppTextStyles.bodyLarge.copyWith(
                       fontSize: 22,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ],

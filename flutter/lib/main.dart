@@ -21,7 +21,9 @@ Future<void> main() async {
   final authService = AuthService();
   final authRepository = AuthRepository(authService);
   final authViewmodel = AuthViewmodel(authRepository);
-  await authViewmodel.initialize();
+  // Not awaited: the session restores behind the splash screen, which is the
+  // router's initial location. A slow or failing restore no longer holds the
+  // first frame on a blank window.
 
   // Storage-location hints are store-local, not API data (decision 10). Loaded
   // once here so the widgets can read them synchronously.

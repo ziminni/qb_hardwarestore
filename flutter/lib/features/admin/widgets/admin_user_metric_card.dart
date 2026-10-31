@@ -1,3 +1,6 @@
+import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_radii.dart';
+import 'package:client/core/constants/app_text_styles.dart';
 import 'package:flutter/material.dart';
 
 class AdminUserMetricCard extends StatelessWidget {
@@ -16,21 +19,26 @@ class AdminUserMetricCard extends StatelessWidget {
       constraints: const BoxConstraints(minWidth: 150),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: Colors.black26),
-        borderRadius: BorderRadius.circular(4),
+        color: AppColors.cardBackground,
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(AppRadii.medium),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style: const TextStyle(fontSize: 12, color: Colors.black54),
+            style: AppTextStyles.labelSmall.copyWith(
+              color: AppColors.textSecondary,
+            ),
           ),
           const SizedBox(height: 10),
           Text(
             value,
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            style: AppTextStyles.bodyLarge.copyWith(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),
