@@ -1,3 +1,5 @@
+import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/shift.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/services/auth_service.dart';
@@ -5,6 +7,10 @@ import 'package:client/data/services/shift_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/views/pos_shift_page.dart';
+import 'package:client/features/pos/widgets/pos_z_reading_summary.dart';
+import 'package:client/shared/widgets/data_panel.dart';
+import 'package:client/shared/widgets/metric_tile.dart';
+import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -80,6 +86,39 @@ const _running = ZReading(
   variance: null,
 );
 
+/// The same shift counted correctly, counted one cent short, and counted over.
+/// Three readings because variance has three meanings and the screen must not
+/// paint two of them the same (card C6).
+const _short = ZReading(
+  transactionCount: 12,
+  grossSales: 8400,
+  cashSales: 4400,
+  cardSales: 2500,
+  gcashSales: 1500,
+  expectedDrawer: 9400,
+  variance: -50,
+);
+
+const _over = ZReading(
+  transactionCount: 12,
+  grossSales: 8400,
+  cashSales: 4400,
+  cardSales: 2500,
+  gcashSales: 1500,
+  expectedDrawer: 9400,
+  variance: 25.5,
+);
+
+const _exact = ZReading(
+  transactionCount: 12,
+  grossSales: 8400,
+  cashSales: 4400,
+  cardSales: 2500,
+  gcashSales: 1500,
+  expectedDrawer: 9400,
+  variance: 0,
+);
+
 Shift _shift({
   int id = 1,
   String status = Shift.openStatus,
@@ -137,7 +176,15 @@ void main() {
       await _pump(tester, ShiftViewmodel(service: service));
 
       expect(find.text('Shifts'), findsWidgets);
-      expect(find.text('OPEN'), findsWidgets);
+      // Card C6 replaced the 300 px card whose big value was the raw word OPEN
+      // with the same green chip the till header shows.
+      expect(
+        find.descendant(
+          of: find.byType(StatusBadge),
+          matching: find.text('Shift open'),
+        ),
+        findsOneWidget,
+      );
       expect(find.textContaining('₱5,000.00'), findsWidgets);
       expect(
         find.text('Z-READING'),
@@ -272,7 +319,19 @@ void main() {
       final service = _StubShifts();
       await _pump(tester, ShiftViewmodel(service: service));
 
-      expect(find.text('CLOSED'), findsWidgets);
+      // Card C6: the absence of a shift is words a cashier can act on, not the
+      // word CLOSED printed as the page's biggest number.
+      expect(
+        find.descendant(
+          of: find.byType(StatusBadge),
+          matching: find.text('No shift open'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.text('No shift open. Open one to start selling.'),
+        findsOneWidget,
+      );
       final openButton = find.widgetWithText(FilledButton, 'Open shift');
       expect(openButton, findsOneWidget);
 
@@ -349,6 +408,209 @@ void main() {
         reason: 'the previous shift\'s expected drawer is stale on an open one',
       );
       expect(find.text('12'), findsNothing);
+    });
+
+    testWidgets('OPEN and CLOSED are status badges, not bare words', (
+      tester,
+    ) async {
+      final service = _StubShifts()
+        ..current = _shift(id: 1)
+        ..history = [
+          _shift(id: 3, status: Shift.closedStatus, closingCount: 9350),
+          _shift(id: 1),
+        ];
+      await _pump(tester, ShiftViewmodel(service: service));
+
+      expect(
+        find.descendant(
+          of: find.byType(StatusBadge),
+          matching: find.text('Shift open'),
+        ),
+        findsOneWidget,
+        reason: 'the live shift is a green chip, the same one the till shows',
+      );
+      expect(
+        find.descendant(
+          of: find.byType(StatusBadge),
+          matching: find.text(Shift.openStatus),
+        ),
+        findsOneWidget,
+        reason: 'the history row state is a badge, and keeps the word OPEN',
+      );
+      expect(
+        find.descendant(
+          of: find.byType(StatusBadge),
+          matching: find.text(Shift.closedStatus),
+        ),
+        findsOneWidget,
+        reason: 'the history row state is a badge, and keeps the word CLOSED',
+      );
+    });
+
+    testWidgets('a short drawer is red with a minus sign', (tester) async {
+      final service = _StubShifts()
+        ..history = [
+          _shift(
+            id: 2,
+            status: Shift.closedStatus,
+            closingCount: 9350,
+            zReading: _short,
+          ),
+        ];
+      await _pump(tester, ShiftViewmodel(service: service));
+
+      final inReading = tester.widget<Text>(
+        find.descendant(
+          of: find.byType(PosZReadingSummary),
+          matching: find.text('-₱50.00'),
+        ),
+      );
+      expect(
+        inReading.style?.color,
+        AppColors.errorText,
+        reason: 'a short drawer is the one number that means count again',
+      );
+
+      final inHistory = tester.widget<Text>(
+        find.descendant(
+          of: find.byType(DataPanel<Shift>),
+          matching: find.text('-₱50.00'),
+        ),
+      );
+      expect(inHistory.style?.color, AppColors.errorText);
+    });
+
+    testWidgets('an over drawer is green with a plus sign', (tester) async {
+      final service = _StubShifts()
+        ..history = [
+          _shift(
+            id: 2,
+            status: Shift.closedStatus,
+            closingCount: 9425.5,
+            zReading: _over,
+          ),
+        ];
+      await _pump(tester, ShiftViewmodel(service: service));
+
+      final inReading = tester.widget<Text>(
+        find.descendant(
+          of: find.byType(PosZReadingSummary),
+          matching: find.text('+₱25.50'),
+        ),
+      );
+      expect(
+        inReading.style?.color,
+        AppColors.successText,
+        reason: 'over has to read differently from short at a glance',
+      );
+
+      final inHistory = tester.widget<Text>(
+        find.descendant(
+          of: find.byType(DataPanel<Shift>),
+          matching: find.text('+₱25.50'),
+        ),
+      );
+      expect(inHistory.style?.color, AppColors.successText);
+    });
+
+    testWidgets('a drawer that counts exactly is neither red nor green', (
+      tester,
+    ) async {
+      final service = _StubShifts()
+        ..history = [
+          _shift(
+            id: 2,
+            status: Shift.closedStatus,
+            closingCount: 9400,
+            zReading: _exact,
+          ),
+        ];
+      await _pump(tester, ShiftViewmodel(service: service));
+
+      final inHistory = tester.widget<Text>(
+        find.descendant(
+          of: find.byType(DataPanel<Shift>),
+          matching: find.text(formatPeso(0)),
+        ),
+      );
+      expect(
+        inHistory.style?.color,
+        AppColors.textSecondary,
+        reason: 'zero is not a warning and not a win',
+      );
+      expect(
+        find.text('+₱0.00'),
+        findsNothing,
+        reason: 'an exact drawer has no direction to point in',
+      );
+      expect(find.text('Exact'), findsOneWidget);
+    });
+
+    testWidgets('the reading is a metric row and the opened date is a date', (
+      tester,
+    ) async {
+      final service = _StubShifts()
+        ..history = [
+          _shift(
+            id: 2,
+            status: Shift.closedStatus,
+            closingCount: 9350,
+            zReading: _short,
+          ),
+        ];
+      await _pump(tester, ShiftViewmodel(service: service));
+
+      expect(
+        find.descendant(
+          of: find.byType(PosZReadingSummary),
+          matching: find.byType(MetricTile),
+        ),
+        findsNWidgets(6),
+        reason: 'transactions, gross, cash, card, GCash, expected drawer',
+      );
+      expect(
+        find.text(formatDate(DateTime(2026, 10, 21))),
+        findsOneWidget,
+        reason: 'the Opened column is a date, not a raw server timestamp',
+      );
+    });
+
+    testWidgets('a shift nobody counted yet says so in words, not a dash', (
+      tester,
+    ) async {
+      final service = _StubShifts()
+        ..current = _shift(id: 1)
+        ..history = [_shift(id: 1)];
+      await _pump(tester, ShiftViewmodel(service: service));
+
+      expect(
+        find.text('Not counted yet'),
+        findsNWidgets(2),
+        reason: 'closing count and variance are both unset on an open row',
+      );
+      expect(find.text('—'), findsNothing, reason: 'no dashes in copy (D18)');
+    });
+
+    testWidgets('a shift that could not be checked offers no guess', (
+      tester,
+    ) async {
+      final service = _StubShifts()
+        ..failCurrent = const ShiftServiceException('Cannot connect.');
+      await _pump(tester, ShiftViewmodel(service: service));
+
+      expect(
+        find.descendant(
+          of: find.byType(StatusBadge),
+          matching: find.text('Shift not known'),
+        ),
+        findsOneWidget,
+        reason: '"could not ask" must not be printed as "no shift open"',
+      );
+      expect(
+        find.text('No shift open. Open one to start selling.'),
+        findsNothing,
+        reason: 'the failed read says nothing about whether a drawer is open',
+      );
     });
 
     testWidgets('revisiting the tab re-reads the current shift and history', (
