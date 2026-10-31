@@ -18,6 +18,8 @@ import 'package:client/data/services/user_service.dart';
 import 'package:client/features/admin/viewmodels/admin_users_viewmodel.dart';
 import 'package:client/features/admin/views/admin_user_management_page.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
+import 'package:client/shared/widgets/data_panel.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -127,8 +129,22 @@ void main() {
 
       expect(find.text('Root Operator'), findsOneWidget);
       expect(find.text('Mana Ger'), findsOneWidget);
-      expect(find.text('No role'), findsOneWidget);
-      expect(find.text('Store Manager'), findsOneWidget);
+      // One badge in the row, one chip in the filter bar: a groupless account
+      // is a real row AND a filter value (that is how an admin finds it).
+      expect(
+        find.descendant(
+          of: find.byType(DataPanel<User>),
+          matching: find.text('No role'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(DataPanel<User>),
+          matching: find.text('Store Manager'),
+        ),
+        findsOneWidget,
+      );
       expect(
         find.textContaining('Missing required object field'),
         findsNothing,
@@ -140,9 +156,12 @@ void main() {
     ) async {
       await _pumpPage(tester);
 
-      await tester.tap(find.text('All roles'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('No role').last);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(FilterBar),
+          matching: find.text('No role'),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Root Operator'), findsOneWidget);
