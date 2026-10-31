@@ -52,8 +52,12 @@ class InventoryStockTable extends StatelessWidget {
       rowKey: (row) => ValueKey('InventoryStockTable.row.${row.variant.id}'),
       onRowTap: (row) => _showRowDetails(context, row),
       columns: [
+        // The product name is the row's reason to exist, so it takes two shares
+        // while Category and Status hold one short word each. On hand takes two
+        // as well: seven digits plus a unit code need the room.
         DataPanelColumn<InventoryStockRow>(
           label: 'Product',
+          flex: 2,
           cell: (row) => Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -87,6 +91,7 @@ class InventoryStockTable extends StatelessWidget {
         DataPanelColumn<InventoryStockRow>(
           label: 'On hand',
           numeric: true,
+          flex: 2,
           // The unit rides along as a smaller, quieter run of the same line:
           // spelled at the number's size, a seven digit quantity plus "CU.M"
           // pushed the column past its width and cut the digits themselves.
@@ -114,6 +119,9 @@ class InventoryStockTable extends StatelessWidget {
         DataPanelColumn<InventoryStockRow>(
           label: 'Reorder level',
           numeric: true,
+          // Two shares: one clipped the label to "Reorder le..." beside a
+          // category column holding one word.
+          flex: 2,
           cell: (row) => Text(
             formatCount(row.variant.minStockThreshold.round()),
             maxLines: 1,
@@ -122,6 +130,9 @@ class InventoryStockTable extends StatelessWidget {
         ),
         DataPanelColumn<InventoryStockRow>(
           label: 'Status',
+          // Two shares like the name: a one-line badge wrapped onto two lines
+          // in a narrower column, which reads as a broken label.
+          flex: 2,
           cell: (row) {
             final status = inventory.statusForVariant(row.variant.id);
             return StatusBadge(label: status.label, tone: _toneFor(status));
@@ -129,6 +140,9 @@ class InventoryStockTable extends StatelessWidget {
         ),
         DataPanelColumn<InventoryStockRow>(
           label: 'Adjust',
+          // The one action on the row takes two shares: one wrapped its label
+          // onto a second line, which reads as a broken button.
+          flex: 2,
           cell: (row) => OutlinedButton.icon(
             onPressed: () => onAdjust(row.product, row.variant),
             icon: const Icon(Icons.tune, size: 16),

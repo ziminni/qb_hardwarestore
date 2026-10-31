@@ -2,6 +2,7 @@
 // the cashier's history, plus the Source column and a per-row View that opens the
 // document sheet.
 
+import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/views/sales_transactions_page.dart';
@@ -56,6 +57,74 @@ void main() {
       reason: 'the pinned View action still opens the document',
     );
   });
+
+  // FX1 (wave-1 review I1): the manager lost how a sale was paid when the four
+  // money columns became one panel. The method rides under the customer, the
+  // way the sale's source does, so it shows at every width the table fits.
+  testWidgets('the payment method rides under the customer', (tester) async {
+    await pump(tester);
+
+    expect(
+      find.text('Cash'),
+      findsOneWidget,
+      reason: 'how the walk-in sale was paid',
+    );
+    expect(find.text('Bank transfer'), findsOneWidget);
+    expect(
+      find.text('No payment'),
+      findsOneWidget,
+      reason: 'the void sale carries no payment rows, and a word says so',
+    );
+  });
+
+  // FX4 (wave-1 review I4): the list sits in a bounded slot, so the panel
+  // builds the rows on screen instead of all 2,000 the service can load.
+  testWidgets('a 2,000 row list builds only what is on screen', (tester) async {
+    await pump(tester, viewmodel: _manyRows());
+
+    final built = _builtRows(tester);
+    expect(
+      built,
+      lessThan(100),
+      reason: 'eager layout would build all 2,000 cards and rows',
+    );
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('TRX-002000')),
+      1000,
+      maxScrolls: 400,
+      scrollable: find.descendant(
+        of: find.byKey(const ValueKey('DataPanel.table')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    expect(
+      find.byKey(const ValueKey('TRX-002000')),
+      findsOneWidget,
+      reason: 'the last row is reachable by scrolling',
+    );
+  });
+
+  for (final size in const [
+    Size(1440, 900),
+    Size(1440, 768),
+    Size(1100, 900),
+    Size(760, 900),
+    Size(1366, 768),
+  ]) {
+    testWidgets('no overflow at ${size.width.toInt()}x${size.height.toInt()}', (
+      tester,
+    ) async {
+      await pump(tester, size: size);
+
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'the filters sit above a bounded panel at every size',
+      );
+      expect(find.byType(DataPanel<InventorySale>), findsOneWidget);
+    });
+  }
 
   testWidgets('a status chip narrows the list to that status', (tester) async {
     await pump(tester);
@@ -133,3 +202,48 @@ void main() {
     );
   });
 }
+
+/// The 40 pages the service can load, at the size that made eager layout hurt.
+InventorySalesViewmodel _manyRows() => InventorySalesViewmodel(
+  service: StubSalesService(
+    rows: [
+      for (var index = 1; index <= 2000; index++)
+        TransactionRecord(
+          id: index,
+          transactionNo: 'TRX-${index.toString().padLeft(6, '0')}',
+          transDate: DateTime(2026, 10, 30).subtract(Duration(minutes: index)),
+          customerId: 3,
+          customerName: 'Customer $index',
+          cashierName: 'Ana Reyes',
+          source: 'WALK_IN',
+          originalTransactionId: null,
+          status: 'COMPLETED',
+          grandTotal: 100,
+          items: const [
+            TransactionLineItem(
+              variantUomId: 42,
+              variantUomCode: 'BAG',
+              qty: 1,
+              unitPrice: 100,
+              subtotal: 100,
+            ),
+          ],
+          payments: const [
+            TransactionPayment(method: 'CASH', amountTendered: 100),
+          ],
+        ),
+    ],
+  ),
+);
+
+/// How many transaction rows the panel actually built: each carries its
+/// document number as its key.
+int _builtRows(WidgetTester tester) => tester
+    .widgetList(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget.key is ValueKey<String> &&
+            (widget.key! as ValueKey<String>).value.startsWith('TRX-'),
+      ),
+    )
+    .length;

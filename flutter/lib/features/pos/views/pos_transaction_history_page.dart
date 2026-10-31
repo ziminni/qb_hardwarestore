@@ -41,6 +41,9 @@ class _PosTransactionHistoryPageState extends State<PosTransactionHistoryPage> {
       selectedNavigationIndex: 1,
       navigationItems: posNavigationItems,
       onNavigationSelected: (i) => navigatePos(context, i),
+      // See the manager page: the list owns the scrolling, so it builds only the
+      // rows on screen.
+      scrollable: false,
       child: SalesTransactionsContent(
         role: SalesTransactionsRole.cashier,
         sales: viewmodel.sales,

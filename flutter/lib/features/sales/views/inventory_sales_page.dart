@@ -32,6 +32,9 @@ class _InventorySalesPageState extends State<InventorySalesPage> {
       title: 'Sales',
       subtitle: 'Review inventory deducted through completed sales.',
       selectedNavigationIndex: 9,
+      // See the manager page: the list owns the scrolling, so it builds only the
+      // rows on screen.
+      scrollable: false,
       onNavigationSelected: (index) => navigateInventory(context, index),
       child: SalesTransactionsContent(
         role: SalesTransactionsRole.stockManager,

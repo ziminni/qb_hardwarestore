@@ -246,4 +246,55 @@ void main() {
       });
     });
   }
+
+  // FX3 (wave-1 review I3): K4 promises that a failed refresh keeps the rows it
+  // already had and says why above them. On Retry the panel was handed
+  // `isLoading: pending` unguarded, so the whole table collapsed into a
+  // panel-sized spinner mid-reload: the rows vanished exactly while the reader
+  // was being told they were kept. Only a first load with nothing to show may
+  // take the spinner.
+  testWidgets('Stock: Retry keeps the rows it already had on screen', (
+    tester,
+  ) async {
+    final products = _ScriptedProductsRepository()..snapshot = _oneProduct();
+    final store = _store(products);
+
+    await pumpPage(tester, store, const InventoryStockPage());
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Portland Cement'), findsWidgets);
+
+    // A failed refresh: the rows stay and the banner carries the reason.
+    products.failure = const ProductsServiceException(
+      'Cannot connect to the BuildPro server.',
+    );
+    await store.load();
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Portland Cement'), findsWidgets);
+    expect(find.text('Cannot connect to the BuildPro server.'), findsOneWidget);
+
+    // The retry is in flight: the rows must still be there, not a spinner.
+    final gate = Completer<void>();
+    products.failure = null;
+    products.snapshot = _oneProduct();
+    products.gate = gate.future;
+    await tester.tap(find.widgetWithText(TextButton, 'Retry'));
+    await tester.pump();
+
+    expect(
+      find.byType(CircularProgressIndicator),
+      findsNothing,
+      reason: 'a reload over rows is not a first load',
+    );
+    expect(
+      find.textContaining('Portland Cement'),
+      findsWidgets,
+      reason: 'the rows the banner promised to keep stay visible',
+    );
+
+    gate.complete();
+    await tester.pumpAndSettle();
+    // Open, the failed refresh above, and the Retry: three catalogue reads.
+    expect(products.calls, 3);
+    expect(find.textContaining('Portland Cement'), findsWidgets);
+  });
 }

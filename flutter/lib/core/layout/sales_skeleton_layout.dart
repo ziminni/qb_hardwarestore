@@ -12,6 +12,7 @@ class SalesSkeletonLayout extends StatelessWidget {
     required this.selectedNavigationIndex,
     required this.child,
     this.onNavigationSelected,
+    this.scrollable = true,
     this.loadMarkers = salesMarkers,
   });
 
@@ -20,6 +21,10 @@ class SalesSkeletonLayout extends StatelessWidget {
   final int selectedNavigationIndex;
   final Widget child;
   final ValueChanged<int>? onNavigationSelected;
+
+  /// See [AppShell.scrollable]. A page whose list must build rows lazily passes
+  /// false and gives the list an `Expanded` slot of its own.
+  final bool scrollable;
 
   /// See [AppShell.loadMarkers].
   final Future<Map<int, int>> Function() loadMarkers;
@@ -110,6 +115,7 @@ class SalesSkeletonLayout extends StatelessWidget {
       selectedIndex: selectedNavigationIndex,
       onDestinationSelected: onNavigationSelected,
       loadMarkers: loadMarkers,
+      scrollable: scrollable,
       actions: const [NotificationsButton()],
       fallbackUserName: 'Sales Staff',
       fallbackRoleLabel: 'Sales Staff',

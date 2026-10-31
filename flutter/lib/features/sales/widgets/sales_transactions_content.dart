@@ -30,14 +30,15 @@ enum SalesTransactionsRole {
 
 /// The one transaction list, shared by the three role screens.
 ///
-/// Owns only presentation state (the search text and the active status chip) and
-/// reads the rows the page's viewmodel already loaded. It never fetches, so the
-/// same widget cannot disagree with its page about what a sale is.
+/// Owns only presentation state (the search text, the active status chip and the
+/// manager's date range) and reads the rows the page's viewmodel already loaded.
+/// It never fetches, so the same widget cannot disagree with its page about what
+/// a sale is.
 ///
-/// shortcut: the panel sits in the role shell's own scroll view, so every row is
-/// built at once instead of lazily. Fine for the list the service loads (40 pages
-/// capped); give it a bounded slot (an `Expanded` with `AppShell.scrollable`
-/// false) if this list ever outgrows that.
+/// The page gives it a bounded slot (`AppShell.scrollable` false, this widget's
+/// own `Expanded`), so the panel scrolls its rows and builds only the visible
+/// ones: the service can load 40 pages, and eager layout built every row of
+/// them at first paint.
 class SalesTransactionsContent extends StatefulWidget {
   const SalesTransactionsContent({
     super.key,
@@ -46,6 +47,7 @@ class SalesTransactionsContent extends StatefulWidget {
     this.isLoading = false,
     this.loadError,
     this.onRetry,
+    this.now = DateTime.now,
   });
 
   final SalesTransactionsRole role;
@@ -57,6 +59,10 @@ class SalesTransactionsContent extends StatefulWidget {
   final bool isLoading;
   final String? loadError;
   final VoidCallback? onRetry;
+
+  /// The clock the date range chips read. Injected so a test can fix "today"
+  /// instead of following the wall clock into another week.
+  final DateTime Function() now;
 
   @override
   State<SalesTransactionsContent> createState() =>
@@ -76,17 +82,47 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
     'Void',
   ];
 
+  /// The date range that filters nothing.
+  static const String _anyDate = 'All dates';
+
+  /// The manager's date range, over the rows already loaded (the plan's answer
+  /// to "review one day or one refund"). "All dates" rather than a second "All"
+  /// next to the status chips: two chips with the same word, one above the
+  /// other, would be a guessing game.
+  static const List<String> _dateChips = [
+    _anyDate,
+    'Today',
+    'This week',
+    'This month',
+  ];
+
+  /// Says out loud that a range is a client filter, not a fresh fetch.
+  static const String _dateCaption =
+      'Date ranges count only the transactions already loaded.';
+
   String _query = '';
   String _status = _anyStatus;
+  String _date = _anyDate;
+
+  bool get _dateFiltered => _date != _anyDate;
 
   /// True once the reader has narrowed the list, which changes what "nothing to
   /// show" means: an empty system and an empty filter are different facts.
-  bool get _filtered => _query.isNotEmpty || _status != _anyStatus;
+  bool get _filtered =>
+      _query.isNotEmpty || _status != _anyStatus || _dateFiltered;
 
-  List<InventorySale> get _visible => [
-    for (final sale in widget.sales)
-      if (_matchesQuery(sale) && _matchesStatus(sale)) sale,
-  ];
+  List<InventorySale> get _visible {
+    // Read once per build: a range computed from a moving clock could narrow
+    // halfway through the list at midnight.
+    final now = widget.now();
+    return [
+      for (final sale in widget.sales)
+        if (_matchesQuery(sale) &&
+            _matchesStatus(sale) &&
+            _matchesDate(sale, now))
+          sale,
+    ];
+  }
 
   bool _matchesQuery(InventorySale sale) {
     final query = _query.trim().toLowerCase();
@@ -111,11 +147,31 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
     _ => true,
   };
 
+  /// The manager's date range over the loaded rows. Weeks start on Monday and
+  /// every comparison is local time, because the dates the reader sees are.
+  bool _matchesDate(InventorySale sale, DateTime now) => switch (_date) {
+    'Today' => _sameDay(sale.date, now),
+    'This week' => _inWeekOf(sale.date, now),
+    'This month' => sale.date.year == now.year && sale.date.month == now.month,
+    _ => true,
+  };
+
+  static bool _sameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  static bool _inWeekOf(DateTime date, DateTime now) {
+    final today = DateTime(now.year, now.month, now.day);
+    // weekday: Monday is 1, Sunday is 7.
+    final monday = today.subtract(Duration(days: today.weekday - 1));
+    final nextMonday = monday.add(const Duration(days: 7));
+    return !date.isBefore(monday) && date.isBefore(nextMonday);
+  }
+
   @override
   Widget build(BuildContext context) {
     final rows = _visible;
+    final storeManager = widget.role == SalesTransactionsRole.storeManager;
     return Column(
-      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         FilterBar(
@@ -130,30 +186,46 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
           options: _statusChips,
           selected: _status,
           onSelected: (chip) => setState(() => _status = chip),
+          // The date range is the store manager's filter: a cashier reads the
+          // till's own shift, and the stock manager reads what left the shelf.
+          extraOptions: storeManager ? _dateChips : const <String>[],
+          extraSelected: _date,
+          onExtraSelected: (chip) => setState(() => _date = chip),
         ),
+        if (storeManager) ...[
+          const SizedBox(height: AppSpacing.sm),
+          const Text(
+            _dateCaption,
+            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          ),
+        ],
         const SizedBox(height: AppSpacing.lg),
-        LayoutBuilder(
-          builder: (context, slot) {
-            // DataPanel turns the table into cards on its own content width; the
-            // View action only belongs to the table, because on a card the whole
-            // card is the tap target.
-            final cards =
-                slot.maxWidth - AppPanel.chrome < DataPanel.cardBreakpoint;
-            return DataPanel<InventorySale>(
-              columns: _columns(withAction: !cards),
-              rows: rows,
-              emptyMessage: _filtered
-                  ? 'No transactions match these filters.'
-                  : 'No transactions found.',
-              // The rows already on screen outlive a refresh, so the spinner is
-              // only for a first load with nothing to show yet.
-              isLoading: widget.isLoading && widget.sales.isEmpty,
-              error: widget.loadError,
-              onRetry: widget.onRetry,
-              onRowTap: (sale) => _openDocument(context, sale),
-              rowKey: (sale) => ValueKey(sale.transactionNo),
-            );
-          },
+        // The panel takes the height the page has left over, which is what lets
+        // it scroll its own rows and build only the ones on screen.
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, slot) {
+              // DataPanel turns the table into cards on its own content width;
+              // the View action only belongs to the table, because on a card
+              // the whole card is the tap target.
+              final cards =
+                  slot.maxWidth - AppPanel.chrome < DataPanel.cardBreakpoint;
+              return DataPanel<InventorySale>(
+                columns: _columns(withAction: !cards),
+                rows: rows,
+                emptyMessage: _filtered
+                    ? 'No transactions match these filters.'
+                    : 'No transactions found.',
+                // The rows already on screen outlive a refresh, so the spinner
+                // is only for a first load with nothing to show yet.
+                isLoading: widget.isLoading && widget.sales.isEmpty,
+                error: widget.loadError,
+                onRetry: widget.onRetry,
+                onRowTap: (sale) => _openDocument(context, sale),
+                rowKey: (sale) => ValueKey(sale.transactionNo),
+              );
+            },
+          ),
         ),
       ],
     );
@@ -171,15 +243,20 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
       SalesTransactionsRole.storeManager => [
         _transactionColumn(),
         _dateColumn(),
-        // Source rides under the customer rather than in a column of its own:
-        // with six columns a seven digit total lost its last digits at 1100 px
-        // (the plan's own complaint about this table), and "who, and where it
-        // came from" reads as one fact anyway.
-        _customerColumn(withSource: true),
+        // Source and payment ride under the customer rather than in columns of
+        // their own: with six columns a seven digit total lost its last digits
+        // at 1100 px (the plan's own complaint about this table), and "who,
+        // where it came from, and how it was paid" reads as one fact anyway.
+        // The Payment column the plan asks for lost the money column its digits
+        // when it was tried as a seventh column, so the value rides here.
+        _customerColumn(withSource: true, withPayment: true, flex: 3),
         _totalColumn(),
         if (withAction)
           DataPanelColumn<InventorySale>(
+            // Action is a button, not a name: it gets one share so Customer can
+            // take three and stop ellipsizing while a short column sits empty.
             label: 'Action',
+            flex: 1,
             cell: (sale) => Align(
               alignment: Alignment.centerLeft,
               child: TextButton(
@@ -223,9 +300,14 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
   /// separate Status column pushed the manager's View action off a 1100 px
   /// window and squeezed every document number into an ellipsis, and the narrow
   /// card already lays the two out exactly like this.
-  DataPanelColumn<InventorySale> _transactionColumn() {
+  ///
+  /// Two shares, like the customer: the document number is what a reader looks
+  /// for first, and a single share cut it to an ellipsis beside columns holding
+  /// one short word.
+  DataPanelColumn<InventorySale> _transactionColumn({int flex = 2}) {
     return DataPanelColumn<InventorySale>(
       label: 'Transaction',
+      flex: flex,
       cell: (sale) => Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -250,52 +332,60 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
   DataPanelColumn<InventorySale> _dateColumn() {
     return DataPanelColumn<InventorySale>(
       label: 'Date and time',
+      flex: 2,
       // Two lines are what the format needs; one line in a narrow column would
       // cut the time off, which is the half that tells two sales apart.
       cell: (sale) => _text(formatDateTime(sale.date), maxLines: 2),
     );
   }
 
-  DataPanelColumn<InventorySale> _customerColumn({bool withSource = false}) {
+  /// The customer, with the facts that belong to them underneath: where the
+  /// sale came from (manager) and how it was paid (manager).
+  DataPanelColumn<InventorySale> _customerColumn({
+    bool withSource = false,
+    bool withPayment = false,
+    int flex = 2,
+  }) {
     return DataPanelColumn<InventorySale>(
       label: 'Customer',
-      cell: (sale) => withSource
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _text(sale.customer, maxLines: 2),
-                const SizedBox(height: 2),
-                Text(
-                  sale.source,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            )
-          : _text(sale.customer, maxLines: 2),
-    );
-  }
-
-  DataPanelColumn<InventorySale> _paymentColumn() {
-    return DataPanelColumn<InventorySale>(
-      label: 'Payment',
-      cell: (sale) => _text(
-        // The viewmodel writes a bare dash for a sale with no payment rows; a
-        // word says the same thing and cannot be mistaken for a loaded value.
-        sale.payments.isEmpty ? 'No payment' : sale.paymentMethod,
+      flex: flex,
+      cell: (sale) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _text(sale.customer, maxLines: 2),
+          if (withSource) ...[const SizedBox(height: 2), _caption(sale.source)],
+          if (withPayment) ...[
+            const SizedBox(height: 2),
+            _caption(_paymentOf(sale)),
+          ],
+        ],
       ),
     );
   }
 
+  DataPanelColumn<InventorySale> _paymentColumn({int flex = 2}) {
+    return DataPanelColumn<InventorySale>(
+      label: 'Payment',
+      flex: flex,
+      cell: (sale) => _text(_paymentOf(sale)),
+    );
+  }
+
+  /// How the sale was paid, or a word for the sales that were not.
+  ///
+  /// The viewmodel writes a bare dash for a sale with no payment rows; a word
+  /// says the same thing and cannot be mistaken for a loaded value.
+  String _paymentOf(InventorySale sale) =>
+      sale.payments.isEmpty ? 'No payment' : sale.paymentMethod;
+
+  /// Two shares, not one: money is what the manager scans down, and a single
+  /// share clipped a seven digit total beside columns holding one word.
   DataPanelColumn<InventorySale> _totalColumn() {
     return DataPanelColumn<InventorySale>(
       label: 'Total',
       numeric: true,
+      flex: 2,
       cell: (sale) => _text(formatPeso(sale.total)),
     );
   }
@@ -307,6 +397,16 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
       overflow: TextOverflow.ellipsis,
       style:
           style ?? const TextStyle(fontSize: 14, color: AppColors.textPrimary),
+    );
+  }
+
+  /// The quieter second line under a name: the source and the payment method.
+  Widget _caption(String value) {
+    return Text(
+      value,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
     );
   }
 

@@ -15,6 +15,9 @@ class FilterBar extends StatefulWidget {
     this.options = const <String>[],
     this.selected,
     this.onSelected,
+    this.extraOptions = const <String>[],
+    this.extraSelected,
+    this.onExtraSelected,
   });
 
   /// Owned by the page when it needs to clear or prefill the field; the bar
@@ -34,6 +37,17 @@ class FilterBar extends StatefulWidget {
   /// it back through [selected], so a filter can be driven from the data layer.
   /// A page that needs a way out of the filter gives the bar an "All" chip.
   final ValueChanged<String>? onSelected;
+
+  /// A second, independent chip group under the first, for a page whose two
+  /// filters combine (a status AND a date range). It keeps its own selection, so
+  /// neither group can silently clear the other.
+  final List<String> extraOptions;
+
+  /// The active chip in [extraOptions], if any.
+  final String? extraSelected;
+
+  /// Reports a tap in [extraOptions].
+  final ValueChanged<String>? onExtraSelected;
 
   @override
   State<FilterBar> createState() => _FilterBarState();
@@ -98,19 +112,35 @@ class _FilterBarState extends State<FilterBar> {
         ),
         if (widget.options.isNotEmpty) ...[
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final option in widget.options)
-                _FilterChipButton(
-                  label: option,
-                  selected: option == widget.selected,
-                  onTap: () => widget.onSelected?.call(option),
-                ),
-            ],
+          _chipRow(widget.options, widget.selected, widget.onSelected),
+        ],
+        if (widget.extraOptions.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          _chipRow(
+            widget.extraOptions,
+            widget.extraSelected,
+            widget.onExtraSelected,
           ),
         ],
+      ],
+    );
+  }
+
+  Widget _chipRow(
+    List<String> options,
+    String? selected,
+    ValueChanged<String>? onSelected,
+  ) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final option in options)
+          _FilterChipButton(
+            label: option,
+            selected: option == selected,
+            onTap: () => onSelected?.call(option),
+          ),
       ],
     );
   }

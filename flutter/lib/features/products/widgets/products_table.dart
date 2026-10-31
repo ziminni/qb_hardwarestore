@@ -271,7 +271,10 @@ class _ProductsTableState extends State<ProductsTable> {
   Widget _table() {
     return DataPanel<Product>(
       columns: [
-        DataPanelColumn<Product>(label: 'Product', cell: _productCell),
+        // The name is what this table is scanned for, so it takes three shares
+        // and stops ellipsizing while Variants holds a single digit. Price takes
+        // two so a seven figure amount keeps its centavos.
+        DataPanelColumn<Product>(label: 'Product', flex: 3, cell: _productCell),
         DataPanelColumn<Product>(
           label: 'Variants',
           numeric: true,
@@ -284,6 +287,7 @@ class _ProductsTableState extends State<ProductsTable> {
         DataPanelColumn<Product>(
           label: 'Price',
           numeric: true,
+          flex: 2,
           cell: (product) => Text(
             _price(product),
             maxLines: 1,
@@ -291,7 +295,9 @@ class _ProductsTableState extends State<ProductsTable> {
           ),
         ),
         DataPanelColumn<Product>(label: 'Stock', cell: _stockBadge),
-        DataPanelColumn<Product>(label: 'Actions', cell: _actionsCell),
+        // Three icon buttons at the 44 px touch target do not fit one share: two
+        // shares keep them inside the row instead of overflowing it.
+        DataPanelColumn<Product>(label: 'Actions', flex: 2, cell: _actionsCell),
       ],
       rows: products,
       emptyMessage: 'No products found',

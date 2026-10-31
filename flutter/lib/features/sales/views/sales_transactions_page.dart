@@ -28,6 +28,9 @@ class _SalesTransactionsPageState extends State<SalesTransactionsPage> {
       title: 'Sales Transactions',
       subtitle: 'Review completed, refunded, and voided sales.',
       selectedNavigationIndex: 1,
+      // The list scrolls and builds inside its own bounded slot: the service can
+      // load 40 pages, and a page scroll view would lay every row out at once.
+      scrollable: false,
       onNavigationSelected: (index) => navigateSales(context, index),
       child: SalesTransactionsContent(
         role: SalesTransactionsRole.storeManager,

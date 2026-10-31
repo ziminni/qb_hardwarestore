@@ -206,7 +206,11 @@ class _InventoryStockPageState extends State<InventoryStockPage> {
             records: records,
             inventory: inventory,
             onAdjust: _adjust,
-            isLoading: pending,
+            // The spinner is for a first load with nothing to show. A reload
+            // over rows must not wipe them: the banner above already says the
+            // rows on screen are the last good ones, and a spinner would
+            // contradict it by taking them away.
+            isLoading: pending && records.isEmpty,
             error: staleRows ? null : failure,
             onRetry: inventory.load,
           ),
