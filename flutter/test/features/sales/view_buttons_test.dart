@@ -430,6 +430,18 @@ void main() {
         reason: 'the system has quotations; the search hid them',
       );
     });
+
+    testWidgets('the row itself opens the document, like its View action', (
+      tester,
+    ) async {
+      await pump(tester, inventory: await _inventory());
+
+      await tester.tap(find.text('QT-20261019-0001'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SalesDocumentSheet), findsOneWidget);
+      expect(_inSheet('Dela Cruz Construction'), findsOneWidget);
+    });
   });
 
   group('sales orders', () {
