@@ -1,28 +1,33 @@
+import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/data/models/user.dart';
 import 'package:client/features/admin/viewmodels/admin_users_viewmodel.dart';
-import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/admin/widgets/admin_user_action_button.dart';
-import 'package:client/features/admin/widgets/admin_user_filters.dart';
-import 'package:client/features/admin/widgets/admin_user_metric_card.dart';
-import 'package:client/features/admin/widgets/admin_user_section.dart';
 import 'package:client/features/admin/widgets/admin_user_table.dart';
-import 'package:client/features/sales/widgets/live_load_error_banner.dart';
+import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
+import 'package:client/shared/widgets/error_banner.dart';
+import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-/// The admin User Management screen.
+/// The admin User Management screen, also the Store Manager's Staff screen.
 ///
-/// Lists staff accounts with server-computed totals, searches server-side,
-/// filters role/status client-side, creates accounts through the register
-/// shape (admins only — creation stays Admin-only server-side), and offers
-/// deactivate/reactivate + role change per row (Phase 5: Store Managers act
-/// on non-admin staff; the server refuses admin-bound changes with 403
-/// `USER_ADMIN_FORBIDDEN` and the last-admin strip with 400 `LAST_ADMIN`).
-/// Role identity is compared by GROUP name (what `assign_role` takes), never
-/// by display label or client role code.
+/// Lists staff accounts with the server-computed totals, narrows them by search
+/// and role/status chips, creates accounts through the register shape (admins
+/// only: creation stays Admin-only server-side), and offers deactivate/reactivate
+/// plus role change per row (Phase 5: Store Managers act on non-admin staff; the
+/// server refuses admin-bound changes with 403 `USER_ADMIN_FORBIDDEN` and the
+/// last-admin strip with 400 `LAST_ADMIN`, both shown in the page banner).
+/// Role identity is compared by GROUP name (what `assign_role` takes), never by
+/// display label or client role code.
+///
+/// Layout: one summary line replaces the four metric cards (a list of a handful
+/// of people was spending more screen on its totals than on the people), and the
+/// rows are a `DataPanel` inside an `Expanded`, so a long list builds only the
+/// rows on screen and a 760 px window gets cards with the actions inside them.
 class AdminUserManagementPage extends StatefulWidget {
   const AdminUserManagementPage({
     super.key,
@@ -43,6 +48,14 @@ class AdminUserManagementPage extends StatefulWidget {
 }
 
 class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
+  /// The chip that filters nothing.
+  static const String _anyRole = 'All roles';
+  static const String _anyStatus = 'All statuses';
+
+  /// The search text. Narrows the rows already loaded, so typing costs no
+  /// request and the reader sees the list shrink as they type.
+  String _query = '';
+
   @override
   Widget build(BuildContext context) {
     // Page-scoped viewmodel: loaded in create (no listeners attached yet, so
@@ -56,89 +69,7 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
           // Role CODE comparison (Phase 4 lesson): the server sends codes
           // ('admin', 'sales', ...); display labels belong on screen only.
           final isAdmin = context.read<AuthViewmodel>().roleName == 'admin';
-          final content = Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Staff accounts',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  // Creation stays Admin-only server-side (`register_view`
-                  // is `IsAdminRole`), so non-admins are not offered it.
-                  if (isAdmin)
-                    AdminUserActionButton(
-                      label: 'Create account',
-                      icon: Icons.person_add_outlined,
-                      onPressed: () => _openCreateDialog(context, viewmodel),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              if (viewmodel.isLoading && !viewmodel.hasLoaded)
-                const Center(child: CircularProgressIndicator())
-              else if (!viewmodel.hasLoaded && viewmodel.loadError != null)
-                LiveLoadErrorBanner(
-                  message: viewmodel.loadError!,
-                  onRetry: viewmodel.load,
-                )
-              else ...[
-                _Metrics(viewmodel: viewmodel),
-                const SizedBox(height: 16),
-                AdminUserSection(
-                  title: 'Search and filters',
-                  child: AdminUserFilters(
-                    initialQuery: viewmodel.searchQuery,
-                    availableRoles: viewmodel.availableRoles,
-                    roleFilter: viewmodel.roleFilter,
-                    activeFilter: viewmodel.activeFilter,
-                    onSearch: (query) => viewmodel.load(search: query),
-                    onRoleChanged: viewmodel.setRoleFilter,
-                    onActiveChanged: viewmodel.setActiveFilter,
-                    onClear: viewmodel.clearFilters,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (viewmodel.actionError != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: LiveLoadErrorBanner(
-                      message: viewmodel.actionError!,
-                      onRetry: viewmodel.clearActionError,
-                    ),
-                  ),
-                AdminUserSection(
-                  title: 'User accounts',
-                  child: viewmodel.users.isEmpty
-                      ? const Text('No staff accounts found.')
-                      : AdminUserTable(
-                          users: viewmodel.users,
-                          onToggleActive: (user) =>
-                              _openToggleDialog(context, viewmodel, user),
-                          onChangeRole: (user) => _openRoleDialog(
-                            context,
-                            viewmodel,
-                            user,
-                            isAdmin: isAdmin,
-                          ),
-                        ),
-                ),
-              ],
-              if (viewmodel.hasLoaded && viewmodel.loadError != null) ...[
-                const SizedBox(height: 16),
-                LiveLoadErrorBanner(
-                  message: viewmodel.loadError!,
-                  onRetry: viewmodel.load,
-                ),
-              ],
-            ],
-          );
+          final content = _body(context, viewmodel, isAdmin: isAdmin);
           const subtitle = 'View and manage staff accounts.';
           if (widget.inSalesShell) {
             return SalesSkeletonLayout(
@@ -146,6 +77,9 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
               subtitle: subtitle,
               selectedNavigationIndex: 8,
               onNavigationSelected: (index) => navigateSales(context, index),
+              // The list owns its scrolling: `Expanded` below needs a bounded
+              // body, and a long list must build only the rows on screen.
+              scrollable: false,
               child: content,
             );
           }
@@ -153,11 +87,139 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
             title: 'User Management',
             subtitle: subtitle,
             selectedNavigationIndex: 1,
+            scrollable: false,
             child: content,
           );
         },
       ),
     );
+  }
+
+  Widget _body(
+    BuildContext context,
+    AdminUsersViewmodel viewmodel, {
+    required bool isAdmin,
+  }) {
+    final stats = viewmodel.stats;
+    // A FIRST read that failed is one banner: the rows below it would be an
+    // empty panel, and a zero summary would claim the store has no staff.
+    final firstLoadFailed = !viewmodel.hasLoaded && viewmodel.loadError != null;
+    final rows = _matchingQuery(viewmodel.users);
+    final filtered =
+        _query.trim().isNotEmpty ||
+        viewmodel.roleFilter != null ||
+        viewmodel.activeFilter != null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            // The summary line the four metric cards became. Absent until the
+            // server has answered, so a failed first load never shows a zero.
+            Expanded(
+              child: stats == null
+                  ? const SizedBox.shrink()
+                  : Text(
+                      _summary(stats),
+                      style: const TextStyle(fontSize: 14, height: 1.4),
+                    ),
+            ),
+            // Creation stays Admin-only server-side (`register_view` is
+            // `IsAdminRole`), so non-admins are not offered it.
+            if (isAdmin)
+              AdminUserActionButton(
+                label: 'Create account',
+                icon: Icons.person_add_outlined,
+                onPressed: () => _openCreateDialog(context, viewmodel),
+              ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        if (firstLoadFailed)
+          ErrorBanner(message: viewmodel.loadError!, onRetry: viewmodel.load)
+        else ...[
+          FilterBar(
+            searchHint: 'Search name, username, or email',
+            onSearchChanged: (value) => setState(() => _query = value),
+            // Only the roles the loaded rows actually carry, plus "No role":
+            // filtering to a group nobody has would be an empty promise.
+            options: [_anyRole, ...viewmodel.availableRoles],
+            selected: viewmodel.roleFilter ?? _anyRole,
+            onSelected: (chip) =>
+                viewmodel.setRoleFilter(chip == _anyRole ? null : chip),
+            extraOptions: const [_anyStatus, 'Active', 'Inactive'],
+            extraSelected: switch (viewmodel.activeFilter) {
+              true => 'Active',
+              false => 'Inactive',
+              null => _anyStatus,
+            },
+            onExtraSelected: (chip) => viewmodel.setActiveFilter(switch (chip) {
+              'Active' => true,
+              'Inactive' => false,
+              _ => null,
+            }),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          // A refused write (403 USER_ADMIN_FORBIDDEN, 400 LAST_ADMIN) names
+          // itself here, above the rows it did not change.
+          if (viewmodel.actionError != null) ...[
+            ErrorBanner(
+              message: viewmodel.actionError!,
+              onRetry: viewmodel.clearActionError,
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
+          // A refresh that failed under rows already read: the rows are still
+          // the server's last answer, so they stay and the banner explains.
+          if (viewmodel.hasLoaded && viewmodel.loadError != null) ...[
+            ErrorBanner(message: viewmodel.loadError!, onRetry: viewmodel.load),
+            const SizedBox(height: AppSpacing.md),
+          ],
+          Expanded(
+            child: AdminUserTable(
+              users: rows,
+              emptyMessage: filtered
+                  ? 'No accounts match these filters.'
+                  : 'No staff accounts yet.',
+              // Only a first read may take the slot: a refresh keeps its rows.
+              isLoading: viewmodel.isLoading && !viewmodel.hasLoaded,
+              onToggleActive: (user) =>
+                  _openToggleDialog(context, viewmodel, user),
+              onChangeRole: (user) =>
+                  _openRoleDialog(context, viewmodel, user, isAdmin: isAdmin),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// `12 accounts, 10 active, 2 inactive` (D7: grouped counts).
+  ///
+  /// The words match the row badges on purpose: one word per state per screen.
+  static String _summary(UserStats stats) {
+    final accounts = stats.total == 1 ? 'account' : 'accounts';
+    return '${formatCount(stats.total)} $accounts, '
+        '${formatCount(stats.active)} active, '
+        '${formatCount(stats.inactive)} inactive';
+  }
+
+  /// The rows whose name, username or email contains the search text.
+  ///
+  /// Client-side: `fetchUsers` reads one server page, so a server search would
+  /// only ever match what one page already holds. (Reported: the read must move
+  /// to every-page before this list can be searched server-side.)
+  List<User> _matchingQuery(List<User> rows) {
+    final query = _query.trim().toLowerCase();
+    if (query.isEmpty) return rows;
+    return [
+      for (final user in rows)
+        if ('${user.fullName} ${user.username} ${user.email}'
+            .toLowerCase()
+            .contains(query))
+          user,
+    ];
   }
 
   Future<void> _openCreateDialog(
@@ -305,38 +367,12 @@ class _ChangeRoleDialogState extends State<_ChangeRoleDialog> {
   }
 }
 
-class _Metrics extends StatelessWidget {
-  const _Metrics({required this.viewmodel});
-
-  final AdminUsersViewmodel viewmodel;
-
-  @override
-  Widget build(BuildContext context) {
-    final stats = viewmodel.stats;
-    if (stats == null) return const SizedBox.shrink();
-    final cards = [
-      ('Total accounts', '${stats.total}'),
-      ('Active accounts', '${stats.active}'),
-      ('Inactive accounts', '${stats.inactive}'),
-      ('Roles assigned', '${stats.rolesAssigned}'),
-    ];
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: [
-        for (final card in cards)
-          SizedBox(
-            width: 190,
-            child: AdminUserMetricCard(label: card.$1, value: card.$2),
-          ),
-      ],
-    );
-  }
-}
-
 /// Account creation. The group is mandatory: the register endpoint rejects a
 /// groupless account. (An account can still LOSE its group later — the list
 /// shows those as "No role"; see [User.noRoleLabel].)
+///
+/// On a window of 700 px or more the four fields sit in two columns, so the
+/// dialog is one screenful tall instead of two.
 class _CreateAccountDialog extends StatefulWidget {
   const _CreateAccountDialog({required this.viewmodel});
 
@@ -394,48 +430,71 @@ class _CreateAccountDialogState extends State<_CreateAccountDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // Two columns only on a window wide enough to read them side by side; a
+    // 760 px window gets the single stack, where each field is full width.
+    final wide = MediaQuery.sizeOf(context).width >= 800;
+    final error = _error;
+    final identity = <Widget>[
+      TextField(
+        controller: _username,
+        decoration: const InputDecoration(labelText: 'Username'),
+      ),
+      TextField(
+        controller: _email,
+        decoration: const InputDecoration(labelText: 'Email'),
+      ),
+      TextField(
+        controller: _fullName,
+        decoration: const InputDecoration(labelText: 'Full name'),
+      ),
+      TextField(
+        controller: _password,
+        decoration: const InputDecoration(labelText: 'Password'),
+        obscureText: true,
+      ),
+      DropdownButtonFormField<String>(
+        isExpanded: true,
+        initialValue: _group,
+        decoration: const InputDecoration(labelText: 'Role'),
+        items: [
+          for (final group in _groups)
+            DropdownMenuItem(value: group, child: Text(group)),
+        ],
+        onChanged: (value) {
+          if (value != null) setState(() => _group = value);
+        },
+      ),
+    ];
+
     return AlertDialog(
       title: const Text('Create account'),
       content: SizedBox(
-        width: 360,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(_error!, style: const TextStyle(color: Colors.red)),
-              ),
-            TextField(
-              controller: _username,
-              decoration: const InputDecoration(labelText: 'Username'),
-            ),
-            TextField(
-              controller: _email,
-              decoration: const InputDecoration(labelText: 'Email'),
-            ),
-            TextField(
-              controller: _fullName,
-              decoration: const InputDecoration(labelText: 'Full name'),
-            ),
-            TextField(
-              controller: _password,
-              decoration: const InputDecoration(labelText: 'Password'),
-              obscureText: true,
-            ),
-            DropdownButtonFormField<String>(
-              isExpanded: true,
-              initialValue: _group,
-              decoration: const InputDecoration(labelText: 'Role'),
-              items: [
-                for (final group in _groups)
-                  DropdownMenuItem(value: group, child: Text(group)),
-              ],
-              onChanged: (value) {
-                if (value != null) setState(() => _group = value);
-              },
-            ),
-          ],
+        width: wide ? 520 : 360,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (error != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(error, style: const TextStyle(color: Colors.red)),
+                ),
+              // Two fields per column on a wide window, one stack on a narrow
+              // one: same fields, same order, only the arrangement changes.
+              if (wide)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: _stack(identity.sublist(0, 3))),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(child: _stack(identity.sublist(3))),
+                  ],
+                )
+              else
+                _stack(identity),
+            ],
+          ),
         ),
       ),
       actions: [
@@ -456,4 +515,15 @@ class _CreateAccountDialogState extends State<_CreateAccountDialog> {
       ],
     );
   }
+
+  static Widget _stack(List<Widget> fields) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      for (var i = 0; i < fields.length; i++) ...[
+        if (i > 0) const SizedBox(height: AppSpacing.sm),
+        fields[i],
+      ],
+    ],
+  );
 }
