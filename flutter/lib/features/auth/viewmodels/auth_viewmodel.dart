@@ -23,10 +23,29 @@ class AuthViewmodel extends ChangeNotifier {
   /// the login form (decision 04).
   String? get roleName => user?.role?.name;
 
-  Future<void> initialize() async {
-    user = await repository.restoreSession();
-    isInitializing = false;
-    notifyListeners();
+  /// The first call's restore, shared by every later caller.
+  Future<void>? _initialization;
+
+  /// Restores the saved session once; further calls await the same future.
+  ///
+  /// Two callers ask at startup (the router's redirect and the splash), and
+  /// a doubled restore means two token reads and two `/auth/me/` calls.
+  Future<void> initialize() => _initialization ??= _restoreSession();
+
+  Future<void> _restoreSession() async {
+    try {
+      // A session already in hand (a warm start) needs no restore; startup is
+      // resolved as soon as that is known, which is what the flag means.
+      user ??= await repository.restoreSession();
+    } catch (_) {
+      // Secure storage can fail (a missing keychain entitlement on a fresh
+      // desktop install, say). Falling back to the login screen beats a blank
+      // window: the splash would otherwise wait on `isInitializing` forever.
+      user = null;
+    } finally {
+      isInitializing = false;
+      notifyListeners();
+    }
   }
 
   Future<bool> login(String identifier, String password) async {

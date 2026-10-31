@@ -47,7 +47,6 @@ class SharedSidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colors = theme.colorScheme;
     var destinationIndex = 0;
 
     Widget buildDestination(
@@ -69,18 +68,23 @@ class SharedSidebar extends StatelessWidget {
                 message: destination.label,
                 preferBelow: false,
                 child: Material(
-                  color: selected ? AppColors.selected : Colors.transparent,
+                  color: selected
+                      ? AppColors.brandGold.withValues(alpha: 0.14)
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(AppRadii.medium),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(AppRadii.medium),
                     onTap: onTap,
+                    hoverColor: AppColors.brandWhite.withValues(alpha: 0.06),
                     child: SizedBox(
                       height: 48,
                       child: Center(
                         child: Icon(
                           destination.icon,
                           size: 22,
-                          color: selected ? AppColors.textPrimary : null,
+                          color: selected
+                              ? AppColors.brandGoldLight
+                              : AppColors.chromeText,
                         ),
                       ),
                     ),
@@ -105,12 +109,21 @@ class SharedSidebar extends StatelessWidget {
         child: Stack(
           children: [
             Material(
-              color: selected ? AppColors.selected : Colors.transparent,
+              color: selected
+                  ? AppColors.brandGold.withValues(alpha: 0.14)
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(AppRadii.pill),
               child: ListTile(
                 dense: true,
                 selected: selected,
-                selectedColor: AppColors.textPrimary,
+                selectedColor: AppColors.brandGoldLight,
+                // Both tile colours are set here on purpose: the theme's
+                // cream selected tile is the light-screen default and turns
+                // this row unreadable on the dark chrome.
+                selectedTileColor: AppColors.brandGold.withValues(alpha: 0.14),
+                // The sidebar is the dark chrome, so hover lifts the text
+                // towards white instead of the theme's cream tint.
+                hoverColor: AppColors.brandWhite.withValues(alpha: 0.05),
                 minTileHeight: 44,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(AppRadii.pill),
@@ -119,13 +132,21 @@ class SharedSidebar extends StatelessWidget {
                   horizontal: AppSpacing.lg,
                 ),
                 horizontalTitleGap: AppSpacing.md,
-                leading: Icon(destination.icon, size: 19),
+                leading: Icon(
+                  destination.icon,
+                  size: 19,
+                  color: selected
+                      ? AppColors.brandGoldLight
+                      : AppColors.chromeText,
+                ),
                 title: Text(
                   destination.label,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontSize: 13,
-                    color: selected ? AppColors.textPrimary : null,
+                    color: selected
+                        ? AppColors.brandGoldLight
+                        : AppColors.chromeText,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                   ),
                 ),
@@ -172,9 +193,9 @@ class SharedSidebar extends StatelessWidget {
                   sections[sectionIndex].label.toUpperCase(),
                   style: theme.textTheme.labelSmall?.copyWith(
                     fontSize: 10,
-                    color: colors.onSurfaceVariant,
+                    color: AppColors.brandGold.withValues(alpha: 0.75),
                     fontWeight: FontWeight.w700,
-                    letterSpacing: 0.6,
+                    letterSpacing: 2,
                   ),
                 ),
               ),

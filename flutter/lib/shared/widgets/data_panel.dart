@@ -307,6 +307,9 @@ class DataPanel<T> extends StatelessWidget {
       key: const ValueKey('DataPanel.header'),
       padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: const BoxDecoration(
+        // The tinted header band: it separates the labels from the rows
+        // without another hairline doing the same job.
+        color: AppColors.tableHeader,
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
       child: Row(children: columns.map(_headerCell).toList()),

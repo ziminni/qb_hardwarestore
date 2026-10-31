@@ -18,9 +18,18 @@ class AppColorScheme {
       onSecondaryContainer: AppColors.brandBlack,
       surface: AppColors.cardBackground,
       onSurface: AppColors.textPrimary,
+      onSurfaceVariant: AppColors.textSecondary,
+      surfaceContainerLowest: AppColors.background,
+      surfaceContainerLow: AppColors.surfaceSunken,
+      surfaceContainer: AppColors.surfaceSunken,
+      surfaceContainerHigh: AppColors.surfaceMuted,
+      surfaceContainerHighest: AppColors.surfaceMuted,
       outline: AppColors.border,
+      outlineVariant: AppColors.border,
       error: AppColors.error,
       onError: AppColors.brandWhite,
+      inverseSurface: AppColors.brandBlack,
+      onInverseSurface: AppColors.brandGoldLight,
     );
   }
 
