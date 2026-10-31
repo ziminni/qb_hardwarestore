@@ -145,8 +145,9 @@ Future<void> _pump(
   required ReturnsRepository returns,
   bool openShift = true,
   List<String>? visits,
+  Size window = const Size(1600, 1400),
 }) async {
-  tester.view.physicalSize = const Size(1600, 1400);
+  tester.view.physicalSize = window;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
 
@@ -350,7 +351,10 @@ void main() {
       expect(find.text('Cash refunded ₱200.00 (CASH)'), findsOneWidget);
       expect(find.text('Ledger still owes ₱0.00'), findsOneWidget);
       // The next return starts from a clean screen, not the last customer's.
-      expect(find.widgetWithText(OutlinedButton, 'New return'), findsOneWidget);
+      expect(
+        find.widgetWithText(OutlinedButton, 'Start another return'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('a NO_OPEN_SHIFT refusal offers the Shifts tab', (
@@ -423,6 +427,160 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('TRX-20261024-0007'), findsNothing);
+    });
+  });
+
+  // C7: the screen as the canvas draws it. Three numbered steps, one scroll
+  // region, and a refund summary the cashier can read out loud.
+  group('the three steps', () {
+    testWidgets('are numbered and shown in order once a sale is found', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        returns: _StubReturns(found: _sale(), preflight: _preflight()),
+      );
+      await _search(tester, 'OR-1');
+
+      expect(find.text('1 Find the sale'), findsOneWidget);
+      expect(find.text('2 Choose items'), findsOneWidget);
+      expect(find.text('3 Refund'), findsOneWidget);
+
+      final findTop = tester.getTopLeft(find.text('1 Find the sale')).dy;
+      final choose = tester.getRect(find.text('2 Choose items'));
+      final refund = tester.getRect(find.text('3 Refund'));
+      expect(findTop, lessThan(choose.top));
+      if (choose.left == refund.left) {
+        // Stacked: step 3 sits under step 2.
+        expect(choose.top, lessThan(refund.top));
+      } else {
+        // Wide: the summary column sits to the RIGHT of the lines.
+        expect(choose.left, lessThan(refund.left));
+      }
+    });
+
+    testWidgets('own the page scroll instead of nesting a scroll in a scroll', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        returns: _StubReturns(found: _sale(), preflight: _preflight()),
+      );
+      await _search(tester, 'OR-1');
+
+      expect(
+        find.byType(SingleChildScrollView),
+        findsOneWidget,
+        reason:
+            'the page used to sit in a height - 132 box with its own scroll '
+            'inside the shell scroll: two scrollbars and doubled padding',
+      );
+    });
+
+    testWidgets('state the refund split as one sentence the cashier can say', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        returns: _StubReturns(found: _sale(), preflight: _preflight()),
+      );
+      await _search(tester, 'OR-1');
+
+      expect(find.textContaining('Nothing to refund yet'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('One more').first);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Clears ₱100.00 of utang'),
+        findsOneWidget,
+        reason: 'one bag of 100 against 600 of utang: all of it clears debt',
+      );
+
+      // Eight bags: 800 of value against 600 of utang, so 200 leaves the drawer.
+      for (var i = 0; i < 7; i++) {
+        await tester.tap(find.byTooltip('One more').first);
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Clears ₱600.00 of utang, refunds ₱200.00 in cash'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('keep the total and Confirm on screen at 760 px', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        returns: _StubReturns(found: _sale(), preflight: _preflight()),
+        window: const Size(760, 900),
+      );
+      await _search(tester, 'OR-1');
+
+      final bar = find.byKey(const ValueKey('pos-returns-bar'));
+      expect(
+        bar,
+        findsOneWidget,
+        reason: 'a narrow window pins the refund to the bottom of the screen',
+      );
+
+      await tester.tap(find.byTooltip('One more').first);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'cracked sacks');
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getRect(bar).bottom,
+        lessThanOrEqualTo(900),
+        reason: 'the bar must be inside the window, not below the fold',
+      );
+
+      final confirm = find.descendant(
+        of: bar,
+        matching: find.widgetWithText(FilledButton, 'Confirm return'),
+      );
+      expect(confirm, findsOneWidget);
+      expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull);
+      expect(find.textContaining('Cash refund'), findsWidgets);
+    });
+
+    testWidgets('finish on the sale that was returned and offer another', (
+      tester,
+    ) async {
+      final returns = _StubReturns(found: _sale(), preflight: _preflight());
+      await _pump(tester, returns: returns);
+      await _search(tester, 'OR-1');
+      await tester.tap(find.byTooltip('One more').first);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'cracked sacks');
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Confirm return'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Post return'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Against TRX-20261024-0007'), findsOneWidget);
+      expect(find.text('2 Choose items'), findsNothing);
+      expect(find.text('3 Refund'), findsNothing);
+      expect(
+        find.widgetWithText(OutlinedButton, 'Start another return'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('carry a subtitle with no dash in it', (tester) async {
+      await _pump(tester, returns: _StubReturns());
+
+      expect(
+        find.text(
+          'Return goods against the original sale. Utang is cleared '
+          'first, then cash.',
+        ),
+        findsOneWidget,
+      );
     });
   });
 }
