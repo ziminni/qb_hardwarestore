@@ -51,6 +51,23 @@ void main() {
     );
   });
 
+  // Card L1 (UI refresh), decision D3: the dialog cannot name a screen,
+  // because no screen can reset a password. "User Management" was named here
+  // and offers no such action, so the user was sent somewhere that could not
+  // help. The actor who CAN help (a System Administrator) stays named.
+  testWidgets('the dialog names no screen', (tester) async {
+    await _pump(tester);
+    await tester.tap(find.text('Forgot password?'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('User Management'),
+      findsNothing,
+      reason: 'D3: no reset exists, so no screen may be named as the place',
+    );
+    expect(find.textContaining('System Administrator'), findsOneWidget);
+  });
+
   testWidgets('the dialog closes and leaves the form usable', (tester) async {
     await _pump(tester);
     await tester.tap(find.text('Forgot password?'));
