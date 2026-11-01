@@ -54,8 +54,8 @@ class PurchasesDetailsDialog extends StatelessWidget {
                 subtitle: Text(
                   [
                     if (item.sku.isNotEmpty) item.sku,
-                    'Ordered ${item.quantity.toStringAsFixed(0)}',
-                    'Received ${item.receivedQuantity.toStringAsFixed(0)}',
+                    'Ordered ${formatQuantity(item.quantity)}',
+                    'Received ${formatQuantity(item.receivedQuantity)}',
                   ].join(' · '),
                 ),
                 trailing: Text(formatPeso(item.subtotal)),

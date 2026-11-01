@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/product.dart';
 import 'package:flutter/material.dart';
 
@@ -69,7 +70,7 @@ class _InventoryAdjustStockDialogState
                 Text(widget.variant.variantName),
                 const SizedBox(height: AppSpacing.lg),
                 Text(
-                  'Current system quantity: ${widget.currentStock.toStringAsFixed(0)}',
+                  'Current system quantity: ${formatQuantity(widget.currentStock)}',
                 ),
                 const SizedBox(height: AppSpacing.md),
                 TextFormField(
@@ -90,7 +91,7 @@ class _InventoryAdjustStockDialogState
                 ),
                 const SizedBox(height: AppSpacing.md),
                 Text(
-                  'Difference: ${difference > 0 ? '+' : ''}${difference.toStringAsFixed(0)}',
+                  'Difference: ${formatSignedQuantity(difference)}',
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     color: difference < 0 ? Colors.red : Colors.green,

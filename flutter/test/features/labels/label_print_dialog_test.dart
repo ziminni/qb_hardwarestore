@@ -105,7 +105,8 @@ void main() {
       printer: printer,
     );
 
-    expect(find.text('Factory barcode — skipped'), findsOneWidget);
+    // Z1 (D18): no em dash in visible copy; a colon carries the same fact.
+    expect(find.text('Factory barcode: skipped'), findsOneWidget);
     expect(
       find.byType(TextFormField),
       findsOneWidget,

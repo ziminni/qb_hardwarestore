@@ -209,7 +209,7 @@ class RequisitionService {
   static const Map<String, String> _ruleIntros = {
     // Separation of duties (decision 04): approving is the second signature.
     'SELF_APPROVAL':
-        'You cannot approve a requisition you requested — approval needs a '
+        'You cannot approve a requisition you requested. Approval needs a '
         'second person.',
     // Immutable after submit (P2 ruling R): the lines may no longer change.
     'REQUISITION_LOCKED':
@@ -219,7 +219,7 @@ class RequisitionService {
     // against the cashier's open shift, so the Z-reading counts it in the
     // transaction count and gross sales. No shift, no release.
     'NO_OPEN_SHIFT':
-        'Open a shift before releasing materials — a release is recorded '
+        'Open a shift before releasing materials. A release is recorded '
         'against a shift, so the Z-reading counts it in the day\'s sales.',
   };
 

@@ -400,7 +400,7 @@ void main() {
           isA<ProductsServiceException>().having(
             (error) => error.message,
             'message',
-            'Check the barcode — the check digit or characters are not valid.',
+            'Check the barcode. The check digit or characters are not valid.',
           ),
         ),
       );

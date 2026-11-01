@@ -57,7 +57,7 @@ class InventoryTopProductsTable extends StatelessWidget {
                     ),
                     DataCell(Text(row.value.variant)),
                     DataCell(Text(row.value.sku)),
-                    DataCell(Text(row.value.quantity.toStringAsFixed(0))),
+                    DataCell(Text(formatQuantity(row.value.quantity))),
                     DataCell(Text(formatPeso(row.value.revenue))),
                   ],
                 ),

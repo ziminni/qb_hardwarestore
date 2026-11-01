@@ -117,10 +117,11 @@ class _SalesReturnsPageState extends State<SalesReturnsPage> {
   };
 
   /// The original sale, or a word when the wire has none.
+  ///
+  /// The viewmodel writes an EMPTY reference for a return tied to no sale, so
+  /// emptiness is the only test here (Z1: the old dash sentinel is gone).
   String _related(InventoryReturn item) =>
-      item.relatedReference.isEmpty || item.relatedReference == '—'
-      ? _notLinked
-      : item.relatedReference;
+      item.relatedReference.isEmpty ? _notLinked : item.relatedReference;
 
   /// The unlinked correction is a manager act: the server 403s anyone else
   /// with `UNLINKED_RETURN_FORBIDDEN`, so the button is not offered to them.

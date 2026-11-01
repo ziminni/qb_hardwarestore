@@ -36,7 +36,9 @@ class PosReceiptDialog extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          '${line.productName} — ${line.variantName}\n${formatQuantity(line.quantity)} ${line.unit}',
+                          // Z1 (D18): the product and its variant are two parts
+                          // of one line, joined by a middle dot.
+                          '${line.productName} · ${line.variantName}\n${formatQuantity(line.quantity)} ${line.unit}',
                         ),
                       ),
                       Text(formatPeso(line.total)),

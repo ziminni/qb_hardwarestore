@@ -40,9 +40,10 @@ class InventorySaleDetailsDialog extends StatelessWidget {
             ...sale.lines.map(
               (line) => ListTile(
                 contentPadding: EdgeInsets.zero,
-                title: Text('${line.productName} — ${line.variantName}'),
+                // Z1 (D18): two parts of one line read "Product · Variant".
+                title: Text('${line.productName} · ${line.variantName}'),
                 subtitle: Text(
-                  '${line.sku} · ${line.quantity.toStringAsFixed(0)} × ${formatPeso(line.unitPrice)}',
+                  '${line.sku} · ${formatQuantity(line.quantity)} × ${formatPeso(line.unitPrice)}',
                 ),
                 trailing: Text(formatPeso(line.subtotal)),
               ),

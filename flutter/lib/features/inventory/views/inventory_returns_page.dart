@@ -46,8 +46,8 @@ class _InventoryReturnsPageState extends State<InventoryReturnsPage> {
     'Rejected',
   ];
 
-  /// Said instead of the dash the viewmodel writes for a return the wire did not
-  /// tie to an original sale (D18: a word, never a dash).
+  /// Said instead of the empty reference the viewmodel writes for a return the
+  /// wire did not tie to an original sale (D18: a word, never a dash).
   static const String _notLinked = 'Not linked';
 
   String _query = '';
@@ -93,10 +93,11 @@ class _InventoryReturnsPageState extends State<InventoryReturnsPage> {
   };
 
   /// The original sale, or a word when the wire has none.
+  ///
+  /// The viewmodel writes an EMPTY reference for a return tied to no sale, so
+  /// emptiness is the only test here (Z1: the old dash sentinel is gone).
   String _related(InventoryReturn item) =>
-      item.relatedReference.isEmpty || item.relatedReference == '—'
-      ? _notLinked
-      : item.relatedReference;
+      item.relatedReference.isEmpty ? _notLinked : item.relatedReference;
 
   @override
   Widget build(BuildContext context) {

@@ -78,7 +78,7 @@ class _PosSaleQuantityDialogState extends State<PosSaleQuantityDialog> {
                         (item) => DropdownMenuItem(
                           value: item,
                           child: Text(
-                            '${item.unit} — ${formatPeso(item.unitPrice)}',
+                            '${item.unit} · ${formatPeso(item.unitPrice)}',
                           ),
                         ),
                       )

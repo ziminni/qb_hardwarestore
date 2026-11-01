@@ -108,7 +108,7 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
           if (widget.shift.heldCartCount > 0) ...[
             const SizedBox(height: AppSpacing.sm),
             Text(
-              '${widget.shift.heldCartCount} held cart(s) remain — they stay '
+              '${widget.shift.heldCartCount} held cart(s) remain. They stay '
               'held and can be resumed later.',
               style: TextStyle(
                 color: AppColors.warning,

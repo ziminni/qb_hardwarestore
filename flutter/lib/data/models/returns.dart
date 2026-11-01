@@ -12,7 +12,7 @@ import 'package:client/data/models/json_field.dart';
 /// prose (a proxy, a DRF field error, a bare `{"code": ...}`).
 const Map<String, String> returnCodeMessages = {
   'NO_OPEN_SHIFT':
-      'You have no open shift. Open a shift before posting a return — a refund '
+      'You have no open shift. Open a shift before posting a return. A refund '
       'is cash out of a drawer, and a drawer is a shift.',
   'RETURN_REASON_REQUIRED':
       'A return needs a reason before it can be posted: say why the customer '

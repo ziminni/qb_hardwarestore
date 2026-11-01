@@ -116,7 +116,7 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
                         Text('Base unit: ${tracking.baseUnit}'),
                         Text('Stock form: ${tracking.stockForm.label}'),
                         Text(
-                          'Total available: ${tracking.totalBaseQuantity.toStringAsFixed(3)} ${tracking.baseUnit}',
+                          'Total available: ${formatQuantity(tracking.totalBaseQuantity)} ${tracking.baseUnit}',
                         ),
                         Text('Location: ${tracking.storageLocation}'),
                       ],
@@ -145,7 +145,7 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
                                 'Piece #${(index + 1).toString().padLeft(3, '0')}',
                               ),
                               trailing: Text(
-                                '${remaining.toStringAsFixed(3)} ${tracking.baseUnit} · ${full ? 'Full' : 'Cut'}',
+                                '${formatQuantity(remaining)} ${tracking.baseUnit} · ${full ? 'Full' : 'Cut'}',
                               ),
                             );
                           },
@@ -202,10 +202,10 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
                                     'Selling: ${formatPeso((inventory.priceFor(variant.id) ?? 0))}',
                                   ),
                                   Text(
-                                    'Stock: ${inventory.stockOnHandFor(variant.id).toStringAsFixed(0)}',
+                                    'Stock: ${formatQuantity(inventory.stockOnHandFor(variant.id))}',
                                   ),
                                   Text(
-                                    'Reorder: ${variant.minStockThreshold.toStringAsFixed(0)}',
+                                    'Reorder: ${formatQuantity(variant.minStockThreshold)}',
                                   ),
                                   Text(
                                     'Location: ${inventory.locationHintFor(variant.id)}',
@@ -233,7 +233,7 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
                           '${movement.reference} · ${movement.reason}',
                         ),
                         trailing: Text(
-                          '${movement.quantityChange > 0 ? '+' : ''}${movement.quantityChange.toStringAsFixed(0)}',
+                          formatSignedQuantity(movement.quantityChange),
                         ),
                       ),
                 ],
@@ -289,10 +289,9 @@ class _UnitCodes extends StatelessWidget {
   }
 
   String _line(VariantUom unit) {
-    final factor = unit.conversionFactor;
-    final shown = factor == factor.roundToDouble()
-        ? factor.toStringAsFixed(0)
-        : '$factor';
+    // A conversion factor is a count of base units, so it is grouped like one
+    // (Z1c: formatQuantity, never a bare toStringAsFixed).
+    final shown = formatQuantity(unit.conversionFactor);
     final code = unit.barcodeQr.isEmpty ? 'no code yet' : unit.barcodeQr;
     return '${unit.uomCode} · ×$shown · $code';
   }

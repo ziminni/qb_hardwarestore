@@ -62,7 +62,9 @@ Paged<T> parsePaged<T>(
   if (results is! List) {
     throw const FormatException(
       'Paginated envelope has no "results" list. '
-      'Only list endpoints are paginated — check the path.',
+      // Z1 (D18): five services put this message in front of the user as
+      // "<something> could not be loaded. (<this>)", so it keeps no dash.
+      'Only list endpoints are paginated. Check the path.',
     );
   }
 

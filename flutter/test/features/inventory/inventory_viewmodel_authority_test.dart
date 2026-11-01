@@ -311,7 +311,9 @@ void main() {
       expect(sent.variantId, 8);
       expect(sent.quantity, -10, reason: 'the delta, not the new count');
       expect(sent.type, StockAdjustmentType.shrinkage);
-      expect(sent.remarks, 'Shrinkage / Loss — Pallet was short.');
+      // Z1 (D18): the remarks string is echoed back into the dashboard and the
+      // stock adjustments page, so its separator is a colon, never a dash.
+      expect(sent.remarks, 'Shrinkage / Loss: Pallet was short.');
     });
 
     test(

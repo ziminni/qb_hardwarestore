@@ -38,7 +38,7 @@ class ProductsPagination extends StatelessWidget {
           Text(
             totalItems == 0
                 ? '0 products'
-                : 'Showing $firstItem–$lastItem of $totalItems products',
+                : 'Showing $firstItem to $lastItem of $totalItems products',
             style: theme.textTheme.bodySmall,
           ),
           Row(

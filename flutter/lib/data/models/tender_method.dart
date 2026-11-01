@@ -64,11 +64,14 @@ enum TenderMethod {
   /// An unknown value is returned VERBATIM rather than blanked or thrown on: a method
   /// this client does not know (a server that gains one) is still a fact about the sale,
   /// and a receipt with no method line is worse than one with an unfamiliar word.
+  ///
+  /// A value the wire never sent is "Not set" (D18): the receipt prints this after
+  /// "Payment: ", where a lone dash reads as a missing print, not a missing value.
   static String labelFor(String? value) {
     final method = fromWire(value);
     if (method != null) return method.label;
     final trimmed = value?.trim() ?? '';
-    return trimmed.isEmpty ? '—' : trimmed;
+    return trimmed.isEmpty ? 'Not set' : trimmed;
   }
 
   /// `'Bank Transfer'`, `'bank_transfer'` and `'BANK_TRANSFER'` all become `BANK_TRANSFER`.

@@ -233,7 +233,9 @@ void main() {
             'Z-reading and once on the history row',
       );
       expect(find.text('Ana Cruz'), findsWidgets);
-      expect(find.text('CLOSED'), findsWidgets);
+      // Z1 (C6): the history badge is sentence case, like every other
+      // StatusBadge in the app.
+      expect(find.text('Closed'), findsWidgets);
     });
 
     testWidgets('a failed load is VISIBLE with a working retry', (
@@ -310,7 +312,7 @@ void main() {
             'page cannot read a page-scoped provider',
       );
       expect(service.openedWith, 500);
-      expect(find.text('OPEN'), findsWidgets);
+      expect(find.text('Open'), findsWidgets);
     });
 
     testWidgets('with no open shift the tab OPENS one instead of dead-ending', (
@@ -365,7 +367,7 @@ void main() {
         reason: 'the dialog closes once the server accepted the shift',
       );
       expect(
-        find.text('OPEN'),
+        find.text('Open'),
         findsWidgets,
         reason: 'the opened shift is shown on the page that opened it',
       );
@@ -410,7 +412,7 @@ void main() {
       expect(find.text('12'), findsNothing);
     });
 
-    testWidgets('OPEN and CLOSED are status badges, not bare words', (
+    testWidgets('Open and Closed are status badges, not bare words', (
       tester,
     ) async {
       final service = _StubShifts()
@@ -429,21 +431,23 @@ void main() {
         findsOneWidget,
         reason: 'the live shift is a green chip, the same one the till shows',
       );
+      // Z1 (C6): the row state reads as the same sentence case every other
+      // StatusBadge uses. The wire code stays OPEN; only the label changed.
       expect(
         find.descendant(
           of: find.byType(StatusBadge),
-          matching: find.text(Shift.openStatus),
+          matching: find.text('Open'),
         ),
         findsOneWidget,
-        reason: 'the history row state is a badge, and keeps the word OPEN',
+        reason: 'the history row state is a badge reading "Open"',
       );
       expect(
         find.descendant(
           of: find.byType(StatusBadge),
-          matching: find.text(Shift.closedStatus),
+          matching: find.text('Closed'),
         ),
         findsOneWidget,
-        reason: 'the history row state is a badge, and keeps the word CLOSED',
+        reason: 'the history row state is a badge reading "Closed"',
       );
     });
 

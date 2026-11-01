@@ -44,8 +44,10 @@ void main() {
     expect(TenderMethod.fromWire('MAYA'), isNull);
     expect(TenderMethod.fromWire(null), isNull);
     expect(TenderMethod.labelFor('MAYA'), 'MAYA');
-    expect(TenderMethod.labelFor(null), '—');
-    expect(TenderMethod.labelFor('  '), '—');
+    // Z1 (D18): a method the wire never sent is a word, not a dash, because
+    // this label reaches the receipt as "Payment: ...".
+    expect(TenderMethod.labelFor(null), 'Not set');
+    expect(TenderMethod.labelFor('  '), 'Not set');
   });
 
   test('labelFor never crashes on a legacy label value', () {

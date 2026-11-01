@@ -514,7 +514,10 @@ class InventoryViewmodel extends ChangeNotifier {
         variantId: variantId,
         type: _serverTypeFor(reason),
         quantity: delta,
-        remarks: trimmed.isEmpty ? reason : '$reason — $trimmed',
+        // A colon, not a dash (D18): the server stores this string verbatim and
+        // the dashboard and Stock adjustments page print it back to the user.
+        // Nothing parses it, so the separator is free to change.
+        remarks: trimmed.isEmpty ? reason : '$reason: $trimmed',
       );
     } on InventoryServiceException catch (error) {
       _loadError = error.message;

@@ -73,6 +73,13 @@ void main() {
       findsOneWidget,
       reason: 'the cart says 2.5, so the receipt must not say 2.50',
     );
+    // Z1 (D18): the product and its variant are two parts of one line, so a
+    // middle dot joins them, not an em dash.
+    expect(
+      find.textContaining('Marine Plywood · 3/4 in x 4 x 8 ft'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('—'), findsNothing);
   });
 
   testWidgets('the quantity dialog writes available stock as a quantity', (
@@ -90,6 +97,9 @@ void main() {
     );
 
     expect(find.textContaining('38.5 SQM currently available'), findsOneWidget);
+    // Z1 (D18): the selling-unit option is "unit · price", not "unit — price".
+    expect(find.text('SQM · ₱640.00'), findsOneWidget);
+    expect(find.text('SQM — ₱640.00'), findsNothing);
   });
 }
 

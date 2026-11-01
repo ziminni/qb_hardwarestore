@@ -141,7 +141,7 @@ class _LabelPrintDialogState extends State<LabelPrintDialog> {
                 ),
               ),
               if (!request.code.startsWith('QB'))
-                const Text('Factory barcode — skipped')
+                const Text('Factory barcode: skipped')
               else
                 SizedBox(
                   width: 110,
@@ -160,8 +160,8 @@ class _LabelPrintDialogState extends State<LabelPrintDialog> {
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                'Received $received — capped at $labelMaxCopies labels per print; '
-                'print again for the rest.',
+                'Received $received, capped at $labelMaxCopies labels per print. '
+                'Print again for the rest.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),

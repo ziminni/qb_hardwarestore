@@ -110,8 +110,10 @@ class InventorySalesViewmodel extends ChangeNotifier {
     customer: r.customerName,
     cashier: r.cashierName,
     // A row built for the screen shows the LABEL; the code stays on the wire (C1).
+    // A sale with no payment row is a word, not a dash (D18): this string is
+    // printed at the top of the View sheet.
     paymentMethod: r.payments.isEmpty
-        ? '—'
+        ? 'No payment'
         : TenderMethod.labelFor(r.payments.first.method),
     source: _sourceLabel(r.source),
     status: _saleStatus(r.status),
@@ -149,12 +151,17 @@ class InventorySalesViewmodel extends ChangeNotifier {
       reference: r.transactionNo,
       date: r.transDate,
       type: InventoryReturnType.customer,
+      // Empty, not a dash (D18): a return the wire tied to no original sale has
+      // no reference at all, and both returns pages read an empty one as
+      // "Not linked". The pair moves together — see _related in both pages.
       relatedReference: original == null
-          ? '—'
+          ? ''
           : (transactionNos[original] ?? 'TRX-$original'),
-      productName: r.items.isEmpty ? '—' : r.items.first.variantUomCode,
-      variantName: r.items.isEmpty ? '—' : r.items.first.variantUomCode,
-      sku: r.items.isEmpty ? '—' : r.items.first.variantUomCode,
+      // Empty for a return with no line items. These three fields are the old
+      // single-line summary; the pages render `lines`, so nothing prints them.
+      productName: r.items.isEmpty ? '' : r.items.first.variantUomCode,
+      variantName: r.items.isEmpty ? '' : r.items.first.variantUomCode,
+      sku: r.items.isEmpty ? '' : r.items.first.variantUomCode,
       quantity: r.items.fold<double>(0, (sum, i) => sum + i.qty.abs()),
       reason: 'Customer return',
       status: _returnStatus(r.status),

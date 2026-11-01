@@ -159,7 +159,10 @@ class _PosShiftView extends StatelessWidget {
     DataPanelColumn<Shift>(
       label: 'Status',
       cell: (shift) => StatusBadge(
-        label: shift.status,
+        // Z1 (C6): every other badge in the app reads as a sentence, so the
+        // history row says "Open"/"Closed" rather than shouting the wire code.
+        // The code itself is untouched: `shift.isOpen` still compares to 'OPEN'.
+        label: shift.isOpen ? 'Open' : 'Closed',
         // Same colour language as the panel above: green while the drawer is
         // live, neutral once it is a record.
         tone: shift.isOpen ? StatusTone.success : StatusTone.neutral,
