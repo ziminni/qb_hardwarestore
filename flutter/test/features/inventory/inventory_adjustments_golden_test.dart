@@ -13,6 +13,7 @@ import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/views/inventory_stock_movements_page.dart';
 import 'package:client/shared/widgets/error_banner.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -215,7 +216,7 @@ Future<InventoryViewmodel> _pumpPage(
 /// The dates hang off the start of the CURRENT month, so every row is inside the
 /// page's default "This Month" period whatever day the goldens are generated.
 InventoryViewmodel _loadedStore() {
-  final now = DateTime.now();
+  final now = appClock.now();
   final monthStart = DateTime(now.year, now.month, 1, 9, 20);
   DateTime on(int day, [int hour = 9, int minute = 20]) => monthStart.add(
     Duration(days: day - 1, hours: hour - 9, minutes: minute - 20),

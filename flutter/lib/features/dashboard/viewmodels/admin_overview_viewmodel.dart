@@ -5,6 +5,7 @@ import 'package:client/data/repositories/requisition_repository.dart';
 import 'package:client/data/services/reports_service.dart';
 import 'package:client/data/services/requisition_service.dart';
 import 'package:client/data/services/sales_service.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/foundation.dart';
 
 /// Owns the Admin Overview screen's live sections.
@@ -61,7 +62,7 @@ class AdminOverviewViewmodel extends ChangeNotifier {
     _loadError = null;
     notifyListeners();
     try {
-      final now = DateTime.now();
+      final now = appClock.now();
       final day =
           '${now.year}-${now.month.toString().padLeft(2, '0')}-'
           '${now.day.toString().padLeft(2, '0')}';

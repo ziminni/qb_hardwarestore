@@ -9,6 +9,7 @@ import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/empty_state.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -89,7 +90,7 @@ class _PosHeldTransactionsView extends StatelessWidget {
     final viewmodel = context.watch<HeldCartViewmodel>();
     // Read once per build: an age computed from a moving clock could change
     // halfway down the list.
-    final now = DateTime.now();
+    final now = appClock.now();
     final failure = viewmodel.loadError;
     // A first load that failed is ONE banner. Nothing goes under it: an empty
     // state there would state that no basket is parked, which is the one fact a

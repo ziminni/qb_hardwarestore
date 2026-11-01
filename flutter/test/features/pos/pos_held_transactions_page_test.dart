@@ -8,6 +8,7 @@ import 'package:client/features/pos/views/pos_held_transactions_page.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/routes/routes.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -63,7 +64,7 @@ HeldCart _cart({
           unitPrice: unitPrice,
         ),
     ],
-    createdAt: DateTime.now().subtract(heldFor),
+    createdAt: appClock.now().subtract(heldFor),
   );
 }
 

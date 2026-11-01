@@ -15,6 +15,7 @@ import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/pos/views/pos_receivables_page.dart';
 import 'package:client/features/sales/viewmodels/sales_receivables_viewmodel.dart';
 import 'package:client/features/sales/views/sales_receivables_page.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -182,7 +183,7 @@ List<LedgerEntry> _rows() {
       transactionNo: 'TRX-20261016-0003',
       originalAmount: 9000,
       balanceDue: 9000,
-      dueDate: DateTime.now().add(const Duration(days: 3)),
+      dueDate: appClock.now().add(const Duration(days: 3)),
       isOverdue: false,
     ),
     LedgerEntry(

@@ -20,6 +20,7 @@ import 'package:client/features/admin/views/reports_page.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -242,7 +243,7 @@ void main() {
     tester,
   ) async {
     final repository = await _pump(tester);
-    final today = DateTime.now();
+    final today = appClock.now();
 
     await _pickPeriod(tester, 'Today');
     expect(repository.lastFrom, _iso(today));
@@ -291,7 +292,7 @@ void main() {
     tester,
   ) async {
     final repository = await _pump(tester);
-    final today = DateTime.now();
+    final today = appClock.now();
     // The picker opens on the period already applied, which is Last 30 days:
     // the server's own default window (`to` minus 30 days).
     final applied = DateTime(

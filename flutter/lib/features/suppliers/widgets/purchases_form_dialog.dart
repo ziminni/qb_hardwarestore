@@ -5,6 +5,7 @@ import 'package:client/core/format/format.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/purchase_draft.dart';
 import 'package:client/data/models/supplier.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 
 /// What the purchase-order dialog produced: the draft, and whether the user
@@ -213,12 +214,15 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
   }
 
   Future<void> _pickExpectedDelivery() async {
-    final now = DateTime.now();
+    final now = appClock.now();
     final picked = await showDatePicker(
       context: context,
       initialDate: _expectedDelivery ?? now,
       firstDate: now,
       lastDate: now.add(const Duration(days: 365)),
+      // The "today" ring follows the app's clock, not the framework's own
+      // `DateTime.now()`.
+      currentDate: now,
     );
     if (picked != null) setState(() => _expectedDelivery = picked);
   }

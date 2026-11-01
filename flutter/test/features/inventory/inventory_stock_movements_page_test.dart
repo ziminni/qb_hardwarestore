@@ -25,6 +25,7 @@ import 'package:client/features/inventory/views/inventory_stock_movements_page.d
 import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:client/shared/widgets/shared_sidebar.dart';
 import 'package:client/shared/widgets/status_badge.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -52,7 +53,7 @@ StockAdjustment _adjustment({
   quantityAdjusted: quantity,
   remarks: remarks,
   // Inside the page's default "this month" period.
-  timestamp: timestamp ?? DateTime.now().subtract(const Duration(hours: 1)),
+  timestamp: timestamp ?? appClock.now().subtract(const Duration(hours: 1)),
 );
 
 List<Product> _catalogue() => [
@@ -166,7 +167,7 @@ void main() {
   testWidgets('a row says what happened, how much, why, who and when', (
     tester,
   ) async {
-    final when = DateTime.now().subtract(const Duration(hours: 3));
+    final when = appClock.now().subtract(const Duration(hours: 3));
     await _pumpPage(
       tester,
       _store(
@@ -275,7 +276,7 @@ void main() {
         _adjustment(
           id: index + 1,
           remarks: 'Row $index remark.',
-          timestamp: DateTime.now().subtract(Duration(hours: index + 1)),
+          timestamp: appClock.now().subtract(Duration(hours: index + 1)),
         ),
     ];
     await _pumpPage(

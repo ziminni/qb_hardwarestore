@@ -10,6 +10,7 @@ import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:client/shared/widgets/status_badge.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -84,7 +85,7 @@ class _InventoryStockMovementsPageState
   }
 
   DateTimeRange get _range {
-    final now = DateTime.now();
+    final now = appClock.now();
     final today = DateTime(now.year, now.month, now.day);
     return switch (_datePreset) {
       InventoryDatePreset.today => DateTimeRange(
@@ -122,11 +123,14 @@ class _InventoryStockMovementsPageState
 
   Future<void> _changeDate(InventoryDatePreset value) async {
     if (value == InventoryDatePreset.custom) {
-      final now = DateTime.now();
+      final now = appClock.now();
       final selected = await showDateRangePicker(
         context: context,
         firstDate: DateTime(now.year - 2),
         lastDate: DateTime(now.year + 1),
+        // The "today" ring follows the app's clock, not the framework's own
+        // `DateTime.now()`.
+        currentDate: now,
         initialDateRange: _customRange,
       );
       if (selected == null || !mounted) return;

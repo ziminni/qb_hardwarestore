@@ -38,6 +38,7 @@ import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
 import 'package:client/shared/widgets/status_badge.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -230,7 +231,7 @@ String _stamp(DateTime day) =>
 /// narrow whatever day the suite runs on: 1,000 today, 500 yesterday, 4,000 ten
 /// days ago.
 _StubReportsRepository _monthOfSales() {
-  final today = DateTime.now();
+  final today = appClock.now();
   SalesDay day(int back, {required int transactions, required double gross}) =>
       SalesDay(
         day: _stamp(today.subtract(Duration(days: back))),
@@ -417,7 +418,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final today = DateTime.now();
+      final today = appClock.now();
       expect(repository.salesCalls, 1);
       expect(repository.lastTo, _stamp(today));
       expect(
@@ -476,7 +477,7 @@ void main() {
       tester,
     ) async {
       _sizeUp(tester);
-      final today = DateTime.now();
+      final today = appClock.now();
       await tester.pumpWidget(
         _app(SalesMonitoringPage(repository: _monthOfSales())),
       );
@@ -495,7 +496,7 @@ void main() {
 
     testWidgets('a search narrows the days on screen', (tester) async {
       _sizeUp(tester);
-      final today = DateTime.now();
+      final today = appClock.now();
       await tester.pumpWidget(
         _app(SalesMonitoringPage(repository: _monthOfSales())),
       );

@@ -28,6 +28,7 @@ import 'package:client/features/sales/viewmodels/sales_dashboard_alerts_viewmode
 import 'package:client/features/sales/views/sales_dashboard_page.dart';
 import 'package:client/routes/routes.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -438,7 +439,7 @@ void main() {
     tester,
   ) async {
     _sizeUp(tester);
-    final today = DateTime.now();
+    final today = appClock.now();
     await tester.pumpWidget(
       _app(
         MaterialApp(

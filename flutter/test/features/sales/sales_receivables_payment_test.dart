@@ -5,6 +5,7 @@ import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/repositories/ledger_repository.dart';
 import 'package:client/data/services/ledger_service.dart';
 import 'package:client/features/sales/viewmodels/sales_receivables_viewmodel.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _StubPayingRepository extends LedgerRepository {
@@ -44,17 +45,20 @@ class _StubPayingRepository extends LedgerRepository {
   }
 }
 
-LedgerEntry _entry({int id = 1, double original = 5000, double balance = 472}) =>
-    LedgerEntry(
-      id: id,
-      customerId: 3,
-      customerName: 'Dela Cruz Construction',
-      transactionNo: 'TRX-20261016-0001',
-      originalAmount: original,
-      balanceDue: balance,
-      dueDate: DateTime.now().add(const Duration(days: 30)),
-      isOverdue: false,
-    );
+LedgerEntry _entry({
+  int id = 1,
+  double original = 5000,
+  double balance = 472,
+}) => LedgerEntry(
+  id: id,
+  customerId: 3,
+  customerName: 'Dela Cruz Construction',
+  transactionNo: 'TRX-20261016-0001',
+  originalAmount: original,
+  balanceDue: balance,
+  dueDate: appClock.now().add(const Duration(days: 30)),
+  isOverdue: false,
+);
 
 void main() {
   late _StubPayingRepository repository;
@@ -65,18 +69,21 @@ void main() {
     viewmodel = SalesReceivablesViewmodel(repository: repository);
   });
 
-  test('a payment posts the ledger id and amount, then reloads the rows', () async {
-    repository.rows = [_entry(balance: 0, original: 5000)];
+  test(
+    'a payment posts the ledger id and amount, then reloads the rows',
+    () async {
+      repository.rows = [_entry(balance: 0, original: 5000)];
 
-    final ok = await viewmodel.recordPayment(entry: _entry(), amount: 472);
+      final ok = await viewmodel.recordPayment(entry: _entry(), amount: 472);
 
-    expect(ok, isTrue);
-    expect(repository.recordCalls, 1);
-    expect(repository.lastCollectibleId, 1);
-    expect(repository.lastAmount, 472);
-    expect(viewmodel.entries.single.balanceDue, 0);
-    expect(viewmodel.payError, isNull);
-  });
+      expect(ok, isTrue);
+      expect(repository.recordCalls, 1);
+      expect(repository.lastCollectibleId, 1);
+      expect(repository.lastAmount, 472);
+      expect(viewmodel.entries.single.balanceDue, 0);
+      expect(viewmodel.payError, isNull);
+    },
+  );
 
   test('an amount above the balance never reaches the repository', () async {
     final ok = await viewmodel.recordPayment(entry: _entry(), amount: 500);
@@ -131,4 +138,3 @@ void main() {
     expect(viewmodel.entries, hasLength(1));
   });
 }
-

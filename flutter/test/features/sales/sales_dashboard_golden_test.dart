@@ -23,6 +23,7 @@ import 'package:client/features/sales/viewmodels/sales_dashboard_alerts_viewmode
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/sales/views/sales_dashboard_page.dart';
 import 'package:client/shared/widgets/error_banner.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -150,7 +151,7 @@ const pageKey = ValueKey('SalesDashboardGolden');
 /// A branch's Tuesday: five recorded sales, two returns earlier today, a
 /// seven-digit day, one very long customer name.
 List<TransactionRecord> _transactions() {
-  final now = DateTime.now();
+  final now = appClock.now();
   return [
     ...transactionsFixture(),
     _return(

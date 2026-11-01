@@ -9,6 +9,7 @@ import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/data/repositories/ledger_repository.dart';
 import 'package:client/features/sales/viewmodels/sales_receivables_viewmodel.dart';
 import 'package:client/features/sales/views/sales_receivables_page.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -45,7 +46,7 @@ LedgerEntry _entry({double balance = 472}) => LedgerEntry(
   transactionNo: 'TRX-20261016-0001',
   originalAmount: 5000,
   balanceDue: balance,
-  dueDate: DateTime.now().add(const Duration(days: 30)),
+  dueDate: appClock.now().add(const Duration(days: 30)),
   isOverdue: false,
 );
 

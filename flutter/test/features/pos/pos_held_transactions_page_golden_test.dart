@@ -13,6 +13,7 @@ import 'package:client/data/services/held_cart_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/held_cart_viewmodel.dart';
 import 'package:client/features/pos/views/pos_held_transactions_page.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -128,7 +129,7 @@ class _CartsFake extends HeldCartService {
 /// runs to seven digits, and two small ones. The long customer name and the
 /// seven digit total are the two values that used to clip.
 List<HeldCart> get _baskets {
-  final now = DateTime.now();
+  final now = appClock.now();
   return [
     HeldCart(
       id: 1,

@@ -13,6 +13,7 @@ import 'package:client/features/sales/widgets/sales_top_products.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -87,7 +88,7 @@ class _DashboardViewState extends State<_DashboardView> {
   /// Returns already recorded today, counted from the rows the page has.
   /// The server posts a return final, so there is no "pending" state to count.
   int _returnsToday(List<InventoryReturn> returns) {
-    final now = DateTime.now();
+    final now = appClock.now();
     return returns
         .where(
           (item) =>

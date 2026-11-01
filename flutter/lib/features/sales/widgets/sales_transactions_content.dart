@@ -8,6 +8,7 @@ import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:client/shared/widgets/status_badge.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 
 /// Which role is reading the transaction list. The three screens that show it
@@ -47,7 +48,7 @@ class SalesTransactionsContent extends StatefulWidget {
     this.isLoading = false,
     this.loadError,
     this.onRetry,
-    this.now = DateTime.now,
+    this.now,
   });
 
   final SalesTransactionsRole role;
@@ -61,8 +62,9 @@ class SalesTransactionsContent extends StatefulWidget {
   final VoidCallback? onRetry;
 
   /// The clock the date range chips read. Injected so a test can fix "today"
-  /// instead of following the wall clock into another week.
-  final DateTime Function() now;
+  /// instead of following the wall clock into another week. Nullable because a
+  /// default value has to be const, so it falls back to `clock.now`.
+  final DateTime Function()? now;
 
   @override
   State<SalesTransactionsContent> createState() =>
@@ -114,7 +116,7 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
   List<InventorySale> get _visible {
     // Read once per build: a range computed from a moving clock could narrow
     // halfway through the list at midnight.
-    final now = widget.now();
+    final now = widget.now?.call() ?? appClock.now();
     return [
       for (final sale in widget.sales)
         if (_matchesQuery(sale) &&

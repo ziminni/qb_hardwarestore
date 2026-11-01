@@ -3,6 +3,7 @@ import 'package:client/data/repositories/ledger_repository.dart';
 import 'package:client/data/repositories/requisition_repository.dart';
 import 'package:client/data/services/ledger_service.dart';
 import 'package:client/data/services/requisition_service.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/foundation.dart';
 
 /// The two counts the Store Manager dashboard cannot fold from its own rows:
@@ -59,7 +60,7 @@ class SalesDashboardAlertsViewmodel extends ChangeNotifier {
 
     try {
       final rows = await _ledgers.fetchLedgers();
-      final now = DateTime.now();
+      final now = appClock.now();
       _overdueReceivables = rows
           .where((row) => row.statusAt(now) == LedgerStatus.overdue)
           .length;

@@ -13,6 +13,7 @@ import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
 import 'package:client/shared/widgets/status_badge.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -123,20 +124,24 @@ class _ReportsContentState extends State<ReportsContent> {
 
   /// The two days the report on screen covers.
   DateTimeRange get _bounds => _period == _ReportPeriod.custom
-      ? (_pickedRange ?? _ReportPeriod.thisMonth.boundsFor(DateTime.now())!)
-      : _period.boundsFor(DateTime.now())!;
+      ? (_pickedRange ?? _ReportPeriod.thisMonth.boundsFor(appClock.now())!)
+      : _period.boundsFor(appClock.now())!;
 
   void _choose(_ReportPeriod period) {
     setState(() => _period = period);
-    _send(period.boundsFor(DateTime.now())!);
+    _send(period.boundsFor(appClock.now())!);
   }
 
   Future<void> _chooseCustomRange() async {
-    final now = DateTime.now();
+    final now = appClock.now();
     final selected = await showDateRangePicker(
       context: context,
       firstDate: DateTime(now.year - 2),
       lastDate: DateTime(now.year + 1),
+      // The "today" ring follows the app's clock, not the framework's own
+      // `DateTime.now()`, so the picker cannot disagree with the range it opens
+      // on.
+      currentDate: now,
       // Opens on the range already applied: the reader always sees what they
       // are narrowing, and Save with no taps is a valid choice.
       initialDateRange: _period == _ReportPeriod.custom

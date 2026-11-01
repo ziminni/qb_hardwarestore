@@ -11,6 +11,7 @@ import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 
 /// Live sales & POS monitoring (decision D-03, refreshed by card A3).
@@ -80,7 +81,7 @@ class _SalesMonitoringPageState extends State<SalesMonitoringPage> {
   static String _label(SalesDay day) => formatDate(DateTime.parse(day.day));
 
   Future<void> _load() async {
-    final now = DateTime.now();
+    final now = appClock.now();
     setState(() {
       _isLoading = true;
       _error = null;
@@ -117,7 +118,7 @@ class _SalesMonitoringPageState extends State<SalesMonitoringPage> {
     final daysBack = _daysBackFor(_period);
     final from = daysBack == null
         ? null
-        : _stamp(DateTime.now().subtract(Duration(days: daysBack)));
+        : _stamp(appClock.now().subtract(Duration(days: daysBack)));
     final query = _query.trim().toLowerCase();
     final rows = [
       for (final day in summary.days)

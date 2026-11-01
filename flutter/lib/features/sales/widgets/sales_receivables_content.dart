@@ -10,6 +10,7 @@ import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
 import 'package:client/shared/widgets/status_badge.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -91,7 +92,7 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
     final viewmodel = context.watch<SalesReceivablesViewmodel>();
     // Read once per build: a status computed from a moving clock could change
     // halfway down the list at midnight.
-    final now = DateTime.now();
+    final now = appClock.now();
     final failure = viewmodel.loadError;
     final totalsUnknown = failure != null && !viewmodel.hasEntries;
     final rows = _visibleRows(viewmodel);

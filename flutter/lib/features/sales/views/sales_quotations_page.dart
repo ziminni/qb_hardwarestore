@@ -7,6 +7,7 @@ import 'package:client/features/sales/widgets/sales_document_list_content.dart';
 import 'package:client/features/sales/widgets/sales_document_sheet.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
 import 'package:client/shared/widgets/status_badge.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -18,11 +19,12 @@ import 'package:provider/provider.dart';
 /// this screen read-only and no create screen or endpoint exists, so the button
 /// could only ever do nothing.
 class SalesQuotationsPage extends StatefulWidget {
-  const SalesQuotationsPage({super.key, this.now = DateTime.now});
+  const SalesQuotationsPage({super.key, this.now});
 
   /// The clock the "Expired" rule reads. Injected so a test can pin the date a
-  /// quotation is judged by instead of following the wall clock.
-  final DateTime Function() now;
+  /// quotation is judged by instead of following the wall clock. Nullable
+  /// because a default value has to be const, so it falls back to `clock.now`.
+  final DateTime Function()? now;
 
   @override
   State<SalesQuotationsPage> createState() => _SalesQuotationsPageState();
@@ -76,7 +78,7 @@ class _SalesQuotationsPageState extends State<SalesQuotationsPage> {
     final quotations = viewmodel.quotations;
     // Read once per build: an expiry computed from a moving clock could change
     // halfway down the list at midnight.
-    final now = widget.now();
+    final now = widget.now?.call() ?? appClock.now();
 
     return SalesSkeletonLayout(
       title: 'Quotations',

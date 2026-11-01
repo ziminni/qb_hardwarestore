@@ -18,6 +18,7 @@ import 'package:client/features/admin/views/sales_monitoring_page.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -338,7 +339,7 @@ final SalesSummary _noSales = const SalesSummary(
 );
 
 SalesSummary _salesSummary({required int days}) {
-  final today = DateTime.now();
+  final today = appClock.now();
   final rows = <SalesDay>[];
   var gross = 0.0;
   var transactions = 0;

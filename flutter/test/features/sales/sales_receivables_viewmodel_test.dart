@@ -12,6 +12,7 @@ import 'package:client/data/models/ledger_entry.dart';
 import 'package:client/data/repositories/ledger_repository.dart';
 import 'package:client/data/services/ledger_service.dart';
 import 'package:client/features/sales/viewmodels/sales_receivables_viewmodel.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _StubLedgerRepository extends LedgerRepository {
@@ -48,7 +49,7 @@ LedgerEntry _entry({
   transactionNo: 'TRX-20261016-0001',
   originalAmount: original,
   balanceDue: balance,
-  dueDate: dueDate ?? DateTime.now().add(const Duration(days: 30)),
+  dueDate: dueDate ?? appClock.now().add(const Duration(days: 30)),
   isOverdue: isOverdue,
 );
 
@@ -74,7 +75,7 @@ void main() {
   test('an overdue chip narrows to late debts only', () async {
     repository.rows = [
       _entry(id: 1, isOverdue: true),
-      _entry(id: 2, dueDate: DateTime.now().add(const Duration(days: 30))),
+      _entry(id: 2, dueDate: appClock.now().add(const Duration(days: 30))),
     ];
     await viewmodel.load();
 
@@ -111,7 +112,7 @@ void main() {
       _entry(
         id: 3,
         balance: 28,
-        dueDate: DateTime.now().subtract(const Duration(days: 1)),
+        dueDate: appClock.now().subtract(const Duration(days: 1)),
       ),
     ];
 

@@ -1,6 +1,7 @@
 import 'package:client/data/models/ledger_entry.dart';
 import 'package:client/data/repositories/ledger_repository.dart';
 import 'package:client/data/services/ledger_service.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/foundation.dart';
 
 /// Owns the receivables screen's data: the real collectibles ledger.
@@ -33,7 +34,7 @@ class SalesReceivablesViewmodel extends ChangeNotifier {
   List<LedgerEntry> get filteredEntries {
     final filter = _statusFilter;
     if (filter == null) return List.unmodifiable(_entries);
-    final now = DateTime.now();
+    final now = appClock.now();
     return List.unmodifiable(
       _entries.where((entry) => entry.statusAt(now) == filter),
     );
@@ -53,7 +54,7 @@ class SalesReceivablesViewmodel extends ChangeNotifier {
   /// Computed with the terminal's clock via `statusAt`, the same source the rows use, so the
   /// tile and the rows cannot disagree about which debts are late.
   double get overdue {
-    final now = DateTime.now();
+    final now = appClock.now();
     return _entries
         .where((entry) => entry.statusAt(now) == LedgerStatus.overdue)
         .fold<double>(0, (sum, entry) => sum + entry.balanceDue);

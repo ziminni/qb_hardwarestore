@@ -22,6 +22,7 @@ import 'package:client/features/sales/viewmodels/sales_receivables_viewmodel.dar
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -73,7 +74,7 @@ LedgerEntry _entry({
   transactionNo: transactionNo,
   originalAmount: original,
   balanceDue: balance,
-  dueDate: dueDate ?? DateTime.now().add(const Duration(days: 30)),
+  dueDate: dueDate ?? appClock.now().add(const Duration(days: 30)),
   isOverdue: isOverdue,
 );
 

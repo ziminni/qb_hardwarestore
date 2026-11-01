@@ -4,6 +4,7 @@ import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/shared/widgets/app_panel.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 
 class SalesRevenueTrend extends StatelessWidget {
@@ -17,7 +18,7 @@ class SalesRevenueTrend extends StatelessWidget {
         .where((sale) => sale.status == InventorySaleStatus.completed)
         .toList();
     final dates = completed.map((sale) => sale.date).toList()..sort();
-    final lastDate = dates.isEmpty ? DateTime.now() : dates.last;
+    final lastDate = dates.isEmpty ? appClock.now() : dates.last;
     final days = List.generate(
       7,
       (index) =>

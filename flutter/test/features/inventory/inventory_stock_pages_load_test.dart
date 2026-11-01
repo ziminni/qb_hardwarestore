@@ -29,6 +29,7 @@ import 'package:client/features/inventory/views/inventory_low_stock_page.dart';
 import 'package:client/features/inventory/views/inventory_stock_movements_page.dart';
 import 'package:client/features/inventory/views/inventory_stock_page.dart';
 import '../../support/phase4_fakes.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -111,7 +112,7 @@ StockAdjustment _adjustment() => StockAdjustment(
   quantityAdjusted: -2,
   remarks: 'Cracked casing.',
   // Inside the movements page's default "this month" range.
-  timestamp: DateTime.now().subtract(const Duration(hours: 1)),
+  timestamp: appClock.now().subtract(const Duration(hours: 1)),
 );
 
 void main() {
