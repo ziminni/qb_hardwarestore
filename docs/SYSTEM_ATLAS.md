@@ -1,6 +1,6 @@
 # SYSTEM ATLAS — BuildPro POS / Inventory System
 
-> **Generated:** 2026-10-15 · **Refreshed:** 2026-10-29 (audit-remediation Phases 2–6 re-verified in source: Phases 2–5 as before, plus Phase 6 barcodes — unique normalised codes with GS1/QB validation, auto-derived QB codes with backfill, `?barcode=` lookup, till scan-to-unit with server fallback, 50×30 mm sticker labels via `pdf`+`printing`, per-unit code edit) · **Branch:** `feature/backend-integration`
+> **Generated:** 2026-10-15 · **Refreshed:** 2026-11-02 (UI-refresh waves 1–3b re-verified in source: shared DataPanel/FilterBar/AppShell sidebar, all roles on panels; Z1 copy sweep per D18; test clock pinned `test/flutter_test_config.dart` → `lib/core/time/app_clock.dart`) · **Branch:** `feature/backend-integration` @ `96137b1`
 > **Method:** every claim below was verified against source — imports, route tables, model FKs, serializer fields, viewmodel bodies. `README.md`, `PHASE_*.md` and `ENDPOINTS.md` were **not** trusted.
 > **Companion:** [`docs/system-atlas.html`](./system-atlas.html) — interactive cockpit (KPIs, filterable Truth Matrix, guided study path).
 
@@ -13,9 +13,9 @@ Two processes, one database. A Flutter client talks to a Django REST API; the AP
 ```mermaid
 flowchart LR
   subgraph Client["Flutter client — flutter/"]
-    UI["features/*/views<br/>37 routes"]
-    VM["features/*/viewmodels<br/>18 viewmodels"]
-    NET["core/network/api_client.dart<br/>Dio + JWT refresh + Idempotency-Key"]
+    UI["features/*/views<br/>40 routes"]
+    VM["features/*/viewmodels<br/>19 viewmodels"]
+    NET["core/network/api_client.dart<br/>Dio + JWT refresh + Idempotency-Key + getAll page walk"]
     CAT["data/services/catalogue_service.dart<br/>brands + uoms + categories (Phase 4)"]
     SEC["TokenStore seam<br/>secure / prefs-per-platform"]
     UI --> VM --> NET
@@ -138,7 +138,9 @@ Legend: 🟢 Live (screen's *primary* data comes from an API response) · 🟡 P
 | Inventory sales | `sales/views/inventory_sales_page.dart` | `inventory_sales_viewmodel` | `GET /api/v1/transactions/` | 🟢 Live |
 | Inventory returns | `sales/views/inventory_returns_page.dart` | `inventory_sales_viewmodel` | `GET /api/v1/transactions/?source=RETURN` | 🟢 Live |
 | Inventory reports | `inventory/views/inventory_reports_page.dart` | static manager-access banner (read-only scope, D-02) | — | 🟢 Live (static) |
-| Admin users | `admin/views/admin_user_management_page.dart` | `admin_users_viewmodel` (deactivate/reactivate + role change; Create admin-only) | `GET /users/` + `/stats/` + `PATCH` + `/assign_role/` (Store Manager admitted) | 🟢 Live |
+| Admin users | `admin/views/admin_user_management_page.dart` | `admin_users_viewmodel` (deactivate/reactivate + role change; Create admin-only) | `GET /users/` + `/stats/` + `PATCH` + `/assign_role/` (Store Manager admitted; admin rows hide actions for non-admin viewers) | 🟢 Live |
+| Sales staff (Store Manager) | `admin/views/admin_user_management_page.dart` (sales shell) | same `admin_users_viewmodel` | same user endpoints via `/sales/staff` | 🟢 Live |
+| Sales requisitions (Store Manager) | `admin/views/requisitions_page.dart` (sales shell) | same `admin_requisitions_viewmodel` | same requisition endpoints via `/sales/requisitions` | 🟢 Live |
 | Admin audit logs | `admin/views/audit_logs_page.dart` | `audit_log_repository` → `GET /api/v1/audit-logs/?page=` | `GET /api/v1/audit-logs/` | 🟢 Live |
 | Admin requisitions (approve/reject queue) | `admin/views/requisitions_page.dart` | `admin/viewmodels/admin_requisitions_viewmodel.dart` | `GET /api/v1/requisitions/` · `POST /{id}/approve/` · `POST /{id}/reject/` | 🟢 Live |
 | Admin reports | `admin/views/reports_page.dart` | `admin/viewmodels/admin_reports_viewmodel.dart` | `GET /api/v1/reports/*` | 🟢 Live |
@@ -153,7 +155,7 @@ Legend: 🟢 Live (screen's *primary* data comes from an API response) · 🟡 P
 | POS held transactions | `pos/views/pos_held_transactions_page.dart` | `pos/viewmodels/held_cart_viewmodel.dart` | `GET /held-carts/` + hold/complete/void | 🟢 Live |
 | POS shifts + Z-reading | `pos/views/pos_shift_page.dart` | `pos/viewmodels/shift_viewmodel.dart` | `GET /shifts/` + open/close/current | 🟢 Live |
 
-**Score: 34 live · 1 partial · 0 mock · 2 dead (37 rows).** Client references **37 distinct `/api/v1/` paths** through 17 `ApiClient`-backed services; **37 `GoRoute`s**; **18 viewmodels**. No routes/screens added since Phase 1 — Phases 2–5 hardened authority, returns, catalog, and user management. No mock rows remain.
+**Score: 36 live · 1 partial · 0 mock · 2 dead (39 rows).** Client references **26 `/api/v1/` resource prefixes** through 18 `ApiClient`-backed services (22 files); **40 `GoRoute`s**; **19 viewmodels**. UI-refresh added the sales-shell aliases (`/sales/staff`, `/sales/requisitions`, `/sales/reports`) reusing the admin screens. No mock rows remain.
 
 ## 4. Vibe-Debt Hotspots
 
@@ -197,7 +199,7 @@ Legend: 🟢 Live (screen's *primary* data comes from an API response) · 🟡 P
 | # | File | Read | Why it matters |
 | --- | --- | --- | --- |
 | 1 | `flutter/lib/main.dart` (~90 L) | whole file | Bootstrap + the `MultiProvider` list. Six providers; `Products`/`PosTransaction` VMs are deliberately screen-scoped (decision 11). |
-| 2 | `flutter/lib/routes/routes.dart` (~430 L) | `redirectFor` (pure), the role map, the 37 routes | Single source of navigation truth. Roles gate by group; `/admin/users` + `/admin/reports` + `/admin/requisitions` also admit `sales` (Store Manager). |
+| 2 | `flutter/lib/routes/routes.dart` (~530 L) | `redirectFor` (pure), the role map, the 40 routes | Single source of navigation truth. Roles gate by group; `/admin/users` + `/admin/reports` + `/admin/requisitions` also admit `sales` (Store Manager); typed `/admin/*` URLs render the admin shell and bounce (Z2 candidate). Splash owns restore with a 10 s abandon (`abandonRestore`); app time comes from `lib/core/time/app_clock.dart`, pinned in tests. |
 | 3 | `flutter/lib/core/network/api_client.dart` (~180 L) | `init()`, interceptors, `post(path, {headers})` | The only network layer: Dio, JWT, refresh-on-401, `Idempotency-Key` passthrough. `init()` is **not idempotent** (`dio` is `late final`). |
 | 4 | `flutter/lib/core/network/paged.dart` (~70 L) | whole file | Unwraps the DRF `{count,next,previous,results}` envelope in one place. `hasMore` comes from `next`, not row count. |
 | 5 | `flutter/lib/features/inventory/viewmodels/inventory_viewmodel.dart` (~250 L) | `load()`, `isLoading`/`loadError`/`hasLoaded`, `batchesFor`, `stockOnHandFor` | The product list's ONLY home. `load()` mutates in place; on failure keeps the catalogue. |
@@ -212,10 +214,10 @@ Legend: 🟢 Live (screen's *primary* data comes from an API response) · 🟡 P
 
 ## 6. Verification Notes
 
-**Verified against source 2026-10-26:** route tables (`routes.dart` 37 `GoRoute`s, role constants), model declarations + FK targets (35 models), `main.dart` provider list, `grep ApiClient` (17 services, zero mock files in `lib/`), `grep /api/v1/` (37 distinct paths), Phase 5 markers (`IsUserManagerRole`, `USER_ADMIN_FORBIDDEN`, `postUnlinkedReturn`, `loadSummary`, `setStatusFilter`, `assignableGroups`), `temp/audit` dossier left untracked.
+**Verified against source 2026-11-02:** route tables (`routes.dart` 40 `GoRoute`s, role constants), model declarations + FK targets (35 models), `main.dart` provider list, `grep ApiClient` (18 backed services of 22 files, zero mock files in `lib/` — hits are comments), `grep /api/v1/` (26 resource prefixes), UI-refresh markers (`abandonRestore`, `DataPanel` controller + wheel-forward, `popUpAnimationStyle: noAnimation`, `variantUomId` catalogue names, `appClock`), `temp/audit` dossier left untracked.
 
 **Not verified:** `flutter run` pixels (standing caveat); true-concurrency behavior beyond qa-tester's 10-way live probe; CPMS repo (out of scope).
 
-- Gates: backend **497/497**, flutter **839/839**, `flutter analyze` clean (fresh 2026-10-29: `docker exec buildpro_backend python manage.py test` → Ran 497 OK; `flutter test` → +839 All passed).
+- Gates: backend **497/497** (2026-10-29), flutter **+1243 ~224 All passed** + golden compare **+224 All passed**, `flutter analyze` clean (fresh 2026-11-02 @ `96137b1`; backend suite not re-run, no backend files touched).
 - Known and deliberately unfixed: products toolbar `RenderFlex` overflow at ~1600px widths (`products_toolbar.dart:113`, `products_catalog_overview.dart:156`).
 - Deferred minors (ledger `.superpowers/sdd/audit-remediation/progress.md`): release `remaining<=0` race, seed re-forcing Maria's limit, dead duplicate method check in `process_return`, credit-limit TOCTOU (fails closed), pre-`ae514ee` replay hashes now 409.

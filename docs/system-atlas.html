@@ -35,7 +35,7 @@
       <div>
         <h1 class="text-2xl font-bold tracking-tight text-white">System Atlas — BuildPro POS / Inventory</h1>
         <p class="text-sm text-slate-400 mt-1">
-          Reverse-engineered from source · branch <span class="mdcode">feature/backend-integration</span> · refreshed 2026-10-29 (audit-remediation Phases 2–6: Phases 2–5 as before, plus barcodes — unique QB/EAN codes, ?barcode= lookup, scan-to-unit, 50×30 mm labels, per-unit code edit)
+          Reverse-engineered from source · branch <span class="mdcode">feature/backend-integration</span> @ 96137b1 · refreshed 2026-11-02 (UI-refresh waves 1–3b + Z1 copy sweep + test clock pin; gates flutter +1243, golden +224)
         </p>
         <div class="flex flex-wrap gap-2 mt-3 text-xs">
           <span class="px-2 py-1 rounded bg-sky-500/10 text-sky-300 border border-sky-500/30">Django 5.2 LTS</span>
@@ -60,15 +60,15 @@
     <div class="card rounded-xl p-5">
       <div class="text-3xl font-bold text-white">10</div>
       <div class="text-sm text-slate-400 mt-1">Frontend Modules</div>
-      <div class="text-xs text-slate-500 mt-1">37 routes · 18 viewmodels · 17 ApiClient services</div>
+      <div class="text-xs text-slate-500 mt-1">40 routes · 19 viewmodels · 18 ApiClient services</div>
     </div>
     <div class="card rounded-xl p-5 border-l-4 border-l-emerald-500">
-      <div class="text-3xl font-bold text-emerald-400">34<span class="text-lg text-slate-500"> / 37</span></div>
+      <div class="text-3xl font-bold text-emerald-400">36<span class="text-lg text-slate-500"> / 39</span></div>
       <div class="text-sm text-slate-400 mt-1">🟢 Live &amp; API-wired</div>
       <div class="text-xs text-slate-500 mt-1">zero mock rows — only 1 partial (movements)</div>
     </div>
     <div class="card rounded-xl p-5 border-l-4 border-l-rose-500">
-      <div class="text-3xl font-bold text-rose-400">1<span class="text-lg text-slate-500"> / 37</span></div>
+      <div class="text-3xl font-bold text-rose-400">1<span class="text-lg text-slate-500"> / 39</span></div>
       <div class="text-sm text-slate-400 mt-1">🟡 Partial or ⚫ dead</div>
       <div class="text-xs text-slate-500 mt-1">partial: movements · dead: payments/receipts, projects</div>
     </div>
@@ -200,7 +200,7 @@ erDiagram
 
 <section data-panel="matrix" class="hidden">
   <h2 class="text-lg font-semibold text-white mb-1">The Truth Matrix</h2>
-  <p class="text-sm text-slate-400 mb-4">What the UI actually does versus what the backend offers. 37 rows, verified 2026-10-29 (routes 37 · models 35 · services 17 · viewmodels 18 · gates 497/839).</p>
+  <p class="text-sm text-slate-400 mb-4">What the UI actually does versus what the backend offers. 39 rows, verified 2026-11-02 (routes 40 · models 35 · services 18 · viewmodels 19 · gates flutter +1243/golden +224).</p>
 
   <div class="flex flex-wrap items-center gap-2 mb-4">
     <button class="pill on px-3 py-1.5 rounded-full text-xs font-medium" data-filter="all">All <span class="opacity-70" id="c-all"></span></button>
@@ -316,7 +316,9 @@ const MATRIX = [
   { f:'Inventory sales', ui:'sales/views/inventory_sales_page.dart', vm:'inventory_sales_viewmodel', ep:'GET /transactions/', s:'live', n:'Live since 6C.' },
   { f:'Inventory returns', ui:'sales/views/inventory_returns_page.dart', vm:'inventory_sales_viewmodel', ep:'GET /transactions/?source=RETURN', s:'live', n:'Read-only (D-02); returns entry UI is Phase 3 scope.' },
   { f:'Inventory reports', ui:'inventory/views/inventory_reports_page.dart', vm:'static manager-access banner', ep:'— (read-only scope, D-02)', s:'live', n:'Static banner, not mock data: stocker sees access message, no Valuation/Movements tabs.' },
-  { f:'Admin users', ui:'admin/views/admin_user_management_page.dart', vm:'admin_users_viewmodel (deactivate/reactivate + role change; Create admin-only)', ep:'GET /users/ + /users/stats/ + PATCH + /assign_role/', s:'live', n:'Phase 5: Store Manager admitted; USER_ADMIN_FORBIDDEN + LAST_ADMIN guardrails surfaced as banners. Null role fails loudly into loadError.' },
+  { f:'Admin users', ui:'admin/views/admin_user_management_page.dart', vm:'admin_users_viewmodel (deactivate/reactivate + role change; Create admin-only)', ep:'GET /users/ + /users/stats/ + PATCH + /assign_role/', s:'live', n:'Phase 5: Store Manager admitted; USER_ADMIN_FORBIDDEN + LAST_ADMIN guardrails surfaced as banners. Null role fails loudly into loadError. UI-refresh: summary line + DataPanel, getAll page walk, admin rows hide actions for non-admin viewers, Clear filters.' },
+  { f:'Sales staff (Store Manager)', ui:'admin/views/admin_user_management_page.dart (sales shell)', vm:'same admin_users_viewmodel', ep:'same user endpoints via /sales/staff', s:'live', n:'UI-refresh: same screen in the sales shell; list scrolls at 760 via wheel-forward to the DataPanel controller.' },
+  { f:'Sales requisitions (Store Manager)', ui:'admin/views/requisitions_page.dart (sales shell)', vm:'same admin_requisitions_viewmodel', ep:'same requisition endpoints via /sales/requisitions', s:'live', n:'UI-refresh: approve confirm names goods + quantities; token panel opens right after Approve; used tokens read Used.' },
   { f:'Admin audit logs', ui:'admin/views/audit_logs_page.dart', vm:'audit_log_repository → GET /audit-logs/?page=', ep:'GET /audit-logs/', s:'live', n:'Live paginated list, latest-first, load-on-open with error banner + retry. No filter (D-01).' },
   { f:'Admin requisitions (approve/reject queue)', ui:'admin/views/requisitions_page.dart', vm:'admin/viewmodels/admin_requisitions_viewmodel.dart', ep:'GET /requisitions/ + approve/ + reject/', s:'live', n:'Only SUBMITTED rows get a button — the server refuses illegal transitions, so the client must not offer what the server will reject.' },
   { f:'Admin reports', ui:'admin/views/reports_page.dart', vm:'admin/viewmodels/admin_reports_viewmodel.dart', ep:'GET /reports/* (sales-summary + valuation + movements + requisition-history)', s:'live', n:'Four tabs, lazy per-tab load, per-tab errors. Open to sales role.' },
@@ -333,11 +335,11 @@ const MATRIX = [
 ];
 
 const FLOW = [
-  { k:'UI', body:'37 routes under `features/*/views/`, each reading its viewmodel via Provider. Every screen reads live API data except two static settings screens and two static-scope banners.' },
-  { k:'ViewModel', body:'18 viewmodels across 10 features. `PosTransactionViewmodel` and `ProductsViewmodel` are absent from `main.dart` **by design** (decision 11) — screen-scoped, provided by their own pages. `PosTransactionViewmodel` owns the checkout attempt key: minted per payment try, reused on retry, dropped on success or cart/customer change.' },
+  { k:'UI', body:'40 routes under `features/*/views/`, each reading its viewmodel via Provider. Every screen reads live API data except two static settings screens and two static-scope banners. UI-refresh: shared DataPanel/FilterBar/AppShell sidebar, splash with 10 s restore abandon, noAnimation popup menus, catalogue-resolved product names, appClock pinned in tests.' },
+  { k:'ViewModel', body:'19 viewmodels across 10 features. `PosTransactionViewmodel` and `ProductsViewmodel` are absent from `main.dart` **by design** (decision 11) — screen-scoped, provided by their own pages. `PosTransactionViewmodel` owns the checkout attempt key: minted per payment try, reused on retry, dropped on success or cart/customer change.' },
   { k:'ApiClient', body:'`core/network/api_client.dart` (~180 L) — Dio instance, base URL from `api_config.dart`, JWT in `flutter_secure_storage`, single refresh-on-401 retry, optional per-request `headers` for `Idempotency-Key`. The *only* egress point. `init()` is **not idempotent**.' },
   { k:'paged.dart', body:'`core/network/paged.dart` — unwraps `{count,next,previous,results}` in exactly one place (decision 03). `hasMore` comes from the `next` link, NOT the row count.' },
-  { k:'Django routing', body:'`config/urls.py` mounts 6 apps under `/api/v1/` plus `/api/health/` — 27 router paths. The client references 37 paths; 37 `GoRoute`s exist client-side with role gates (`redirectFor`: admin-only overview/audit/settings, sales admitted to users + reports + requisitions, inventory fence on stock screens).' },
+  { k:'Django routing', body:'`config/urls.py` mounts 6 apps under `/api/v1/` plus `/api/health/` — 27 router paths. The client references 26 resource prefixes; 40 `GoRoute`s exist client-side with role gates (`redirectFor`: admin-only overview/audit/settings, sales admitted to users + reports + requisitions, inventory fence on stock screens).' },
   { k:'ViewSet / Serializer', body:'DRF ModelViewSets with per-role permission classes. Nested sale items/payments are read-only on the serializer — the views pass raw arrays to the service, which validates. The **service layer** defines the true contract, not the docs.' },
   { k:'services.py', body:'The real logic: `process_sale` (validate → shift gate → server price → qty × CF → FIFO → payments → receipt → credit-limit), `process_return`, `next_number` (locked counter), `replayed_transaction` (200 replay / 409 conflict), `process_goods_receipt` (own-lines batching), `release_materials` (NO_BASE_UOM guard). **All of it is exercised by the client** plus RED-first backend tests.' }
 ];
@@ -382,7 +384,7 @@ const DEBT = [
     { k:'⚠️ Products toolbar overflow', v:'`isExpanded: true` + ellipsis shipped for all dropdowns (`42b6f77`); clean at 1024/1280/1366px. Residual risk only at ~1600px+ ultra-wide widths.' }
   ]},
   { title:'Disconnected endpoints', tone:'sky', items:[
-    { k:'5 endpoints unreachable', v:'Client references 37 paths (count-verified 2026-10-26). Uncalled: receipts, payments, req-items, tokens (list), projects. No screen needs them today.' },
+    { k:'5 endpoints unreachable', v:'Client references 26 resource prefixes (count-verified 2026-11-02). Uncalled: receipts, payments, req-items, tokens (list), projects. No screen needs them today.' },
     { k:'Lost integration code — superseded', v:'Commit `22c7c26` added an early `pos_service.dart`; merge `27a853e` dropped it. The staged model swap has since delivered this properly. Read the old file as a REFERENCE only.' }
   ]},
   { title:'Critical business logic (backend)', tone:'violet', items:[
@@ -397,7 +399,7 @@ const DEBT = [
 
 const STUDY = [
   { id:'s1', t:'flutter/lib/main.dart', l:'~90 L — whole file', w:'Bootstrap and the `MultiProvider` list. Six providers — and knowing **why** the other two are deliberately absent (decision 11) is what stops someone re-adding them.', p:'/skill:codebase-xray Walk me through flutter/lib/main.dart line by line: the startup sequence, window_manager setup, and exactly which viewmodels are registered in MultiProvider — and why the other two must NOT be.' },
-  { id:'s2', t:'flutter/lib/routes/routes.dart', l:'~430 L — `redirectFor`, role map, 37 routes', w:'Single source of truth for navigation. `redirectFor` is PURE so the routing rules are testable without rendering. Role gates: admin-only overview/audit/settings, sales (Store Manager) admitted to `/admin/users` + `/admin/reports` + `/admin/requisitions`, inventory fence on stock screens.', p:'/skill:codebase-xray Walk me through flutter/lib/routes/routes.dart: the redirect/role map, all 37 routes, and how the inventory, sales and admin guards work.' },
+  { id:'s2', t:'flutter/lib/routes/routes.dart', l:'~530 L — `redirectFor`, role map, 40 routes', w:'Single source of truth for navigation. `redirectFor` is PURE so the routing rules are testable without rendering. Role gates: admin-only overview/audit/settings, sales (Store Manager) admitted to `/admin/users` + `/admin/reports` + `/admin/requisitions`, inventory fence on stock screens. Splash abandons hung restores; app time via `lib/core/time/app_clock.dart`.', p:'/skill:codebase-xray Walk me through flutter/lib/routes/routes.dart: the redirect/role map, all 40 routes, and how the inventory, sales and admin guards work.' },
   { id:'s3', t:'flutter/lib/core/network/api_client.dart', l:'~180 L — init, interceptors, get/post/getList + headers', w:'The only network layer: Dio setup, JWT persistence, single refresh-on-401 retry, per-request `headers` for the `Idempotency-Key`. Note `init()` is **not idempotent** — `dio` is `late final`.', p:'/skill:codebase-xray Walk me through flutter/lib/core/network/api_client.dart: base URL resolution, token storage, the 401 refresh interceptor, the headers passthrough, and failure modes.' },
   { id:'s4', t:'flutter/lib/core/network/paged.dart', l:'~70 L — whole file', w:'Unwraps the DRF `{count,next,previous,results}` envelope in exactly one place (decision 03). `hasMore` comes from the `next` link, NOT the row count — the exact bug a review caught.', p:'/skill:codebase-xray Walk me through flutter/lib/core/network/paged.dart: the Paged type, parsePaged strictness, and why hasMore is derived from the next link rather than the row count.' },
   { id:'s5', t:'flutter/lib/features/inventory/viewmodels/inventory_viewmodel.dart', l:'~250 L — load, isLoading/loadError/hasLoaded, batchesFor, stockOnHandFor', w:'The product list\u2019s ONLY home, and so the hinge of the whole integration: loading it lights up products, inventory AND POS at once. `load()` mutates in place (`_products`/`_batches` are `final List`) and on failure KEEPS the catalogue rather than emptying it.', p:'/skill:codebase-xray Walk me through InventoryViewmodel: the constructor, why products and batches are the single store, how load() replaces them in place, and the failure path that deliberately leaves the catalogue intact.' },

@@ -28,23 +28,23 @@ Every P0/P1 finding in the 2026-10-23 audit (`temp/audit/pos_inventory_system/ve
 
 ## Decisions So Far
 
-- [UOM and price authority](./decisions/01-uom-and-price-authority.md): server multiplies selling qty × `conversion_factor` before FIFO; server records `default_selling_price`, client price ignored.
-- [Data scoping](./decisions/02-data-scoping.md): cashier sees own transactions; any POS-role cashier may list/resume held carts; non-POS roles denied held carts; manager/admin see all.
-- [Release shift](./decisions/03-release-shift.md): material release requires OPEN shift and attaches it; counts in Z gross, not cash drawer.
-- [Admin authority](./decisions/04-admin-authority.md): Admin group is the single authority; `IsAdminUser` → `IsAdminRole`; `is_staff` only for Django `/admin`.
-- [Returns policy](./decisions/05-returns-policy.md): cashier returns from a new till Returns tab, open shift, linked sale required + qty cap; unlinked only Store Manager with reason; return value reduces open debt first, cash refunds only excess.
-- [Alert resolve](./decisions/06-alert-resolve.md): Stock Manager + Admin resolve; resolver recorded.
-- [Audit depth](./decisions/07-audit-depth.md): app-level append-only audit written in-transaction for business events; no update/delete; user FK PROTECT + username snapshot.
-- [Credit limit](./decisions/08-credit-limit.md): server hard block `CREDIT_LIMIT_EXCEEDED`; nullable limit, null = unlimited, existing 0 migrated to null.
-- [Integrity mechanics](./decisions/09-integrity-mechanics.md): `Idempotency-Key` header stored unique on transaction; locked counter for numbers; receipt-line deltas; zero-stock adjustment creates batch.
-- [Barcode baseline](./decisions/11-barcode-baseline.md): case-insensitive partial-unique `barcode_qr` (blanks allowed), trim+upper on write and scan, `400 BARCODE_TAKEN`, inventory-role writes, barcode before/after audited; scan-unit, dialog-preselect and 50-row catalogue truncation are build defects.
-- [Code source & format](./decisions/12-code-source-format.md): factory EAN/UPC kept (GS1 check validated); else `QB` + 6-digit id + `-` + GS1 check (`QB000013-0`); `QB` prefix reserved; labels Code 128.
-- [Scan resolution](./decisions/13-scan-resolution.md): complete loaded catalogue first, miss → `GET /variant-uoms/?barcode=` → reload; archived and not-found named separately.
-- [Label printing](./decisions/14-label-printing.md): barcode stickers (not RFID) on a driver-installed thermal printer via client `pdf`+`printing`, one 50×30 mm page per sticker, no price, QB units only, Products + post-Receiving entry.
-- [Camera scanning](./decisions/15-camera-scan.md): USB/Bluetooth keyboard-wedge only; camera waits for HTTPS.
-- [Code assignment](./decisions/16-code-assignment.md): model-level invariant — no unit ever blank; save derives `QB`, PATCH `''` restores it, data migration backfills.
-- [Scan-to-cart](./decisions/17-scan-to-cart.md): whole units add 1 instantly (re-scan merges); measured units open the dialog with the scanned unit preselected.
-- [Selling-unit codes UI](./decisions/18-unit-codes-ui.md): details dialog shows and edits every existing unit's code; no create-unit UI.
+- [UOM and price authority](./decisions/01-uom-and-price-authority.md): server multiplies selling qty × `conversion_factor` before FIFO; server records `default_selling_price`, client price ignored. (by: ?)
+- [Data scoping](./decisions/02-data-scoping.md): cashier sees own transactions; any POS-role cashier may list/resume held carts; non-POS roles denied held carts; manager/admin see all. (by: ?)
+- [Release shift](./decisions/03-release-shift.md): material release requires OPEN shift and attaches it; counts in Z gross, not cash drawer. (by: ?)
+- [Admin authority](./decisions/04-admin-authority.md): Admin group is the single authority; `IsAdminUser` → `IsAdminRole`; `is_staff` only for Django `/admin`. (by: ?)
+- [Returns policy](./decisions/05-returns-policy.md): cashier returns from a new till Returns tab, open shift, linked sale required + qty cap; unlinked only Store Manager with reason; return value reduces open debt first, cash refunds only excess. (by: ?)
+- [Alert resolve](./decisions/06-alert-resolve.md): Stock Manager + Admin resolve; resolver recorded. (by: ?)
+- [Audit depth](./decisions/07-audit-depth.md): app-level append-only audit written in-transaction for business events; no update/delete; user FK PROTECT + username snapshot. (by: ?)
+- [Credit limit](./decisions/08-credit-limit.md): server hard block `CREDIT_LIMIT_EXCEEDED`; nullable limit, null = unlimited, existing 0 migrated to null. (by: ?)
+- [Integrity mechanics](./decisions/09-integrity-mechanics.md): `Idempotency-Key` header stored unique on transaction; locked counter for numbers; receipt-line deltas; zero-stock adjustment creates batch. (by: delegated)
+- [Barcode baseline](./decisions/11-barcode-baseline.md): case-insensitive partial-unique `barcode_qr` (blanks allowed), trim+upper on write and scan, `400 BARCODE_TAKEN`, inventory-role writes, barcode before/after audited; scan-unit, dialog-preselect and 50-row catalogue truncation are build defects. (by: delegated)
+- [Code source & format](./decisions/12-code-source-format.md): factory EAN/UPC kept (GS1 check validated); else `QB` + 6-digit id + `-` + GS1 check (`QB000013-0`); `QB` prefix reserved; labels Code 128. (by: me)
+- [Scan resolution](./decisions/13-scan-resolution.md): complete loaded catalogue first, miss → `GET /variant-uoms/?barcode=` → reload; archived and not-found named separately. (by: me)
+- [Label printing](./decisions/14-label-printing.md): barcode stickers (not RFID) on a driver-installed thermal printer via client `pdf`+`printing`, one 50×30 mm page per sticker, no price, QB units only, Products + post-Receiving entry. (by: me)
+- [Camera scanning](./decisions/15-camera-scan.md): USB/Bluetooth keyboard-wedge only; camera waits for HTTPS. (by: me)
+- [Code assignment](./decisions/16-code-assignment.md): model-level invariant — no unit ever blank; save derives `QB`, PATCH `''` restores it, data migration backfills. (by: me)
+- [Scan-to-cart](./decisions/17-scan-to-cart.md): whole units add 1 instantly (re-scan merges); measured units open the dialog with the scanned unit preselected. (by: me)
+- [Selling-unit codes UI](./decisions/18-unit-codes-ui.md): details dialog shows and edits every existing unit's code; no create-unit UI. (by: me)
 
 ## Active Frontier
 
