@@ -172,8 +172,15 @@ class _Overview extends StatelessWidget {
       builder: (context, constraints) {
         // Four tiles in a row when four comfortable ones fit, otherwise two:
         // an in-between minimum leaves the fourth tile stranded on its own line.
+        // The minimum grows with the text scale, because a tile is mostly words:
+        // at 1.3x the same width holds 30% fewer characters, and four tiles that
+        // width cut "Landed cost of stock on hand" to "Landed cost of stock on
+        // ...". Two wider tiles keep the caption whole.
         final width = constraints.maxWidth;
-        final minTileWidth = width >= 4 * 235 + 36 ? 235.0 : (width - 12) / 2;
+        final scale = MediaQuery.textScalerOf(context).scale(1);
+        final minTileWidth = width >= 4 * 235 * scale + 36
+            ? 235.0
+            : (width - 12) / 2;
         return MetricGrid(minTileWidth: minTileWidth, children: tiles);
       },
     );

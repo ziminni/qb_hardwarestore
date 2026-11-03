@@ -229,7 +229,9 @@ class _MissingAmount extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Text(
     message,
-    maxLines: 1,
+    // Two lines: "Not counted yet" is a sentence, and at a raised text scale
+    // one line of a money column cut it to "Not count...".
+    maxLines: 2,
     overflow: TextOverflow.ellipsis,
     style: const TextStyle(color: AppColors.textSecondary),
   );

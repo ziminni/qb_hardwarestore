@@ -13,7 +13,8 @@ void main() {
         role: 'sales',
         location: AppRoutes.adminUserManagement,
       ),
-      isNull,
+      AppRoutes.salesStaff,
+      reason: 'Z2: the manager keeps their own shell',
     );
   });
 

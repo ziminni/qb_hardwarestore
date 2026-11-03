@@ -271,15 +271,25 @@ class _SidebarPanel extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Center(
-                        child: collapsed
-                            ? const SystemBrand(logoSize: 40, showName: false)
-                            : const SystemBrand(
-                                logoSize: 42,
-                                fontSize: 14,
-                                subtitle: '& CONSTRUCTION SUPPLIES',
-                                textColor: AppColors.brandWhite,
-                                subtitleColor: AppColors.brandGold,
-                              ),
+                        // Scale down, never ellipsize: the brand sits in a fixed
+                        // 260 px column, and "& CONSTRUCTION SUPPLIES" is wider
+                        // than the text area left beside the logo once the text
+                        // scale goes up - so the company name was cut to
+                        // "& CONSTRUCTION SUP...". A FittedBox lays the subtitle
+                        // out in full and shrinks the block to the column when it
+                        // has to; at the default scale it changes nothing.
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: collapsed
+                              ? const SystemBrand(logoSize: 40, showName: false)
+                              : const SystemBrand(
+                                  logoSize: 42,
+                                  fontSize: 14,
+                                  subtitle: '& CONSTRUCTION SUPPLIES',
+                                  textColor: AppColors.brandWhite,
+                                  subtitleColor: AppColors.brandGold,
+                                ),
+                        ),
                       ),
                     ),
                     if (onToggleCollapsed case final toggle?)

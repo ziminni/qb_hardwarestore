@@ -308,7 +308,9 @@ class _InventoryStockMovementsPageState
       flex: 2,
       cell: (row) => Text(
         formatDateTime(row.adjustment.timestamp),
-        maxLines: 1,
+        // Two lines: at a raised text scale the time is one line too much for
+        // this column, and "Nov 2, 2026, 10..." is a stamp with no time.
+        maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
       ),

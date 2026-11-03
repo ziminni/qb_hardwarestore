@@ -6,6 +6,7 @@ import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
@@ -13,10 +14,16 @@ import 'package:provider/provider.dart';
 /// Every role shell wraps the same AppShell, so the POS shell stands in for
 /// all of them here.
 void main() {
-  Future<List<int>> pumpShell(WidgetTester tester, Size size) async {
+  Future<List<int>> pumpShell(
+    WidgetTester tester,
+    Size size, {
+    double textScale = 1.0,
+  }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = textScale;
     addTearDown(tester.view.reset);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
     final taps = <int>[];
     await tester.pumpWidget(
       ChangeNotifierProvider<AuthViewmodel>.value(
@@ -109,6 +116,24 @@ void main() {
       tester.widget<Text>(initials).style?.fontFamily,
       AppTextStyles.cinzelFont,
     );
+  });
+
+  testWidgets('the brand subtitle is never truncated', (tester) async {
+    // Z2 fix task B (D-08): the subtitle was one clipped line, so a wide window
+    // with a raised text scale read "& CONSTRUCTION SUP..." - the company name
+    // cut in half. The brand block now fits itself into the sidebar instead.
+    for (final scale in [1.0, 1.3]) {
+      await pumpShell(tester, const Size(1440, 900), textScale: scale);
+
+      final subtitle = find.text('& CONSTRUCTION SUPPLIES');
+      expect(subtitle, findsOneWidget, reason: 'scale $scale');
+      final paragraph = tester.renderObject<RenderParagraph>(subtitle);
+      expect(
+        paragraph.didExceedMaxLines,
+        isFalse,
+        reason: 'the whole subtitle is laid out at scale $scale',
+      );
+    }
   });
 
   testWidgets('the header title uses the brand heading font', (tester) async {

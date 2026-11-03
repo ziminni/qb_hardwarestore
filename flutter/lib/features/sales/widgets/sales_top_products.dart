@@ -44,8 +44,11 @@ class SalesTopProducts extends StatelessWidget {
     }
     final products = totals.entries.toList()
       ..sort((a, b) => b.value.revenue.compareTo(a.value.revenue));
-    // The ranked list scrolls inside a bounded box, so the panel sizes to its
-    // content and five products never stretch the page.
+    // A plain column, not a scroll view in a fixed 170 px box: the panel ranks
+    // at most four products, and that box cut the fourth row in half (and the
+    // third row's "sold" line once the text scale went up). A column grows with
+    // its rows, so the panel sizes to what it lists and nothing it ranks is
+    // hidden.
     return AppPanel(
       title: 'Top-selling products',
       child: Column(
@@ -53,57 +56,63 @@ class SalesTopProducts extends StatelessWidget {
         children: [
           const Text('Ranked by completed-sales revenue'),
           const Divider(height: AppSpacing.xl),
-          SizedBox(
-            height: 170,
-            child: products.isEmpty
-                ? const Center(child: Text('No completed sales yet.'))
-                : ListView.separated(
-                    itemCount: products.take(4).length,
-                    separatorBuilder: (_, _) => const Divider(height: 16),
-                    itemBuilder: (context, index) {
-                      final product = products[index];
-                      final name = names[product.key];
-                      final sold = formatCount(product.value.quantity.round());
-                      return Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 14,
-                            backgroundColor: AppColors.selected,
-                            child: Text('${index + 1}'),
-                          ),
-                          const SizedBox(width: AppSpacing.md),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  name ?? product.value.code,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                // With a name above, the code sits here as the
-                                // muted second line; without one the code IS the
-                                // title, so repeating it would say nothing.
-                                Text(
-                                  name == null
-                                      ? '$sold sold'
-                                      : '${product.value.code} · $sold sold',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              ],
-                            ),
-                          ),
-                          Text(
-                            formatPeso(product.value.revenue),
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                        ],
-                      );
-                    },
+          if (products.isEmpty)
+            const Center(child: Text('No completed sales yet.'))
+          else
+            for (var index = 0; index < products.take(4).length; index++) ...[
+              if (index > 0) const Divider(height: 16),
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 14,
+                    backgroundColor: AppColors.selected,
+                    child: Text('${index + 1}'),
                   ),
-          ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          names[products[index].key] ??
+                              products[index].value.code,
+                          // Two lines: a product name is what the manager reads
+                          // this panel for, and "GI Sheet Plain 0.9mm x…" no
+                          // longer says which sheet sold at a raised text scale.
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        // With a name above, the code sits here as the muted
+                        // second line; without one the code IS the title, so
+                        // repeating it would say nothing.
+                        Text(
+                          _soldLine(
+                            names[products[index].key],
+                            products[index].value,
+                          ),
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    formatPeso(products[index].value.revenue),
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ],
         ],
       ),
     );
+  }
+
+  /// "PC · 6 sold", or just "6 sold" when the code is already the title.
+  String _soldLine(
+    String? name,
+    ({String code, double quantity, double revenue}) product,
+  ) {
+    final sold = formatCount(product.quantity.round());
+    return name == null ? '$sold sold' : '${product.code} · $sold sold';
   }
 }

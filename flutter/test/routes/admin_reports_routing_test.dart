@@ -5,14 +5,15 @@ import 'package:client/routes/routes.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('a store manager stays on the reports screen', () {
+  test('a store manager typing /admin/reports lands on /sales/reports', () {
     expect(
       AppRoutes.redirectFor(
         isAuthenticated: true,
         role: 'sales',
         location: AppRoutes.adminReports,
       ),
-      isNull,
+      AppRoutes.salesReports,
+      reason: 'Z2: the manager keeps their own shell',
     );
   });
 

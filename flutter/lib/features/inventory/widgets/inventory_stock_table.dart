@@ -53,8 +53,8 @@ class InventoryStockTable extends StatelessWidget {
       onRowTap: (row) => _showRowDetails(context, row),
       columns: [
         // The product name is the row's reason to exist, so it takes two shares
-        // while Category and Status hold one short word each. On hand takes two
-        // as well: seven digits plus a unit code need the room.
+        // while Status holds one short word. On hand takes two as well: seven
+        // digits plus a unit code need the room.
         DataPanelColumn<InventoryStockRow>(
           label: 'Product',
           flex: 2,
@@ -82,6 +82,11 @@ class InventoryStockTable extends StatelessWidget {
         ),
         DataPanelColumn<InventoryStockRow>(
           label: 'Category',
+          // Two shares, like the name beside it: a category is ONE word, so a
+          // raised text scale cannot wrap it - it has to fit or it is cut to
+          // "Plumbi...". One share measured 1 px short of "Plumbing" at 1100 px
+          // and 1.3x text.
+          flex: 2,
           cell: (row) => Text(
             row.product.categoryName,
             maxLines: 1,

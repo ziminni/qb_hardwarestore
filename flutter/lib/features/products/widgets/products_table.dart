@@ -273,11 +273,15 @@ class _ProductsTableState extends State<ProductsTable> {
       columns: [
         // The name is what this table is scanned for, so it takes three shares
         // and stops ellipsizing while Variants holds a single digit. Price takes
-        // two so a seven figure amount keeps its centavos.
+        // two so a seven figure amount keeps its centavos. At a 1.3x text scale
+        // Variants and Price each take one share more: a header one word long
+        // ("Variants") and a centavo-accurate amount both outgrew one line of
+        // their column, and the header was cut to "Varia...".
         DataPanelColumn<Product>(label: 'Product', flex: 3, cell: _productCell),
         DataPanelColumn<Product>(
           label: 'Variants',
           numeric: true,
+          flex: 2,
           cell: (product) => Text(
             formatCount(product.variants.length),
             maxLines: 1,
@@ -287,14 +291,16 @@ class _ProductsTableState extends State<ProductsTable> {
         DataPanelColumn<Product>(
           label: 'Price',
           numeric: true,
-          flex: 2,
+          flex: 3,
           cell: (product) => Text(
             _price(product),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
         ),
-        DataPanelColumn<Product>(label: 'Stock', cell: _stockBadge),
+        // Two shares, like the rest: one share cut the "Out of Stock" badge
+        // onto two lines once Variants and Price took the room they need.
+        DataPanelColumn<Product>(label: 'Stock', flex: 2, cell: _stockBadge),
         // Three icon buttons at the 44 px touch target do not fit one share: two
         // shares keep them inside the row instead of overflowing it.
         DataPanelColumn<Product>(label: 'Actions', flex: 2, cell: _actionsCell),

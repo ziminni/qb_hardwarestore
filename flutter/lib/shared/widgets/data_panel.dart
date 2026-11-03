@@ -19,7 +19,9 @@ class DataPanelColumn<T> {
 
   /// Builds the cell for one row. A `Text` with `overflow: ellipsis` and
   /// `maxLines: 1` is the usual shape, so long names shorten instead of
-  /// pushing the row wider.
+  /// pushing the row wider. Give a value that must never be cut in half - a
+  /// date and its time, "Not counted yet" - `maxLines: 2`: at a raised text
+  /// scale a narrow column then wraps it rather than losing the end of it.
   final Widget Function(T row) cell;
 
   /// Money and counts: right aligned with tabular digits, so a column of
@@ -337,7 +339,11 @@ class DataPanel<T> extends StatelessWidget {
               : Alignment.centerLeft,
           child: Text(
             column.label,
-            maxLines: 1,
+            // Two lines, not one: "Reorder level" and "Closing count" are one
+            // word too wide for their column once the text scale goes up, and a
+            // heading cut to "Reorder le..." names nothing. A label longer than
+            // that still ends in an ellipsis.
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               fontSize: 11,

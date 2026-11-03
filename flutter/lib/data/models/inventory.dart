@@ -84,9 +84,11 @@ enum InventoryMovementView {
 
 enum InventoryDatePreset {
   today('Today'),
-  thisWeek('This Week'),
-  thisMonth('This Month'),
-  custom('Custom Range');
+  // Sentence case, like every other period picker in the app (sales
+  // transactions, admin reports): "This week", not "This Week".
+  thisWeek('This week'),
+  thisMonth('This month'),
+  custom('Custom range');
 
   const InventoryDatePreset(this.label);
   final String label;

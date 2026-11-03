@@ -108,6 +108,18 @@ class AppRoutes {
   static const String salesRequisitions = '/sales/requisitions';
   static const String salesStaff = '/sales/staff';
 
+  /// The sales-shell twin of an admin screen the Store Manager may use, or null
+  /// when [location] has no twin.
+  ///
+  /// A manager who types `/admin/reports` should land on the same screen in
+  /// their own shell, not the Admin sidebar whose other links bounce them.
+  static String? salesTwinOf(String location) => switch (location) {
+    adminReports => salesReports,
+    adminRequisitions => salesRequisitions,
+    adminUserManagement => salesStaff,
+    _ => null,
+  };
+
   /// The pure routing decision: where a request to [location] should go, or null
   /// to stay.
   ///
@@ -181,12 +193,9 @@ class AppRoutes {
       // IsUserManagerRole admits them server-side, so user management opens
       // too. Audit logs and settings stay admin-only; Cashier ('pos') and
       // Stock Manager ('inventory') still bounce everywhere here.
-      if ((location == adminReports ||
-              location == adminRequisitions ||
-              location == adminUserManagement) &&
-          role == 'sales') {
-        return null;
-      }
+      // Decisions 16 and 20 + Phase 5 still hold: the manager reaches reports,
+      // the approve queue and staff, but in the sales shell (Z2).
+      if (role == 'sales') return salesTwinOf(location) ?? dashboard;
       return dashboard;
     }
     if (location.startsWith('/inventory/') && role != 'inventory') {
