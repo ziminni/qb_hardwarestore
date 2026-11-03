@@ -7,17 +7,17 @@ Rule: **One home per fact.** Follow the pointers; never paste a copy of a fact t
 | Setup, run, demo credentials, ports | `README.md` |
 | Architecture & Live/Mock matrix (+ cockpit) | `docs/SYSTEM_ATLAS.md` · `docs/system-atlas.html` |
 | API contract: endpoints, auth, role matrix | `ENDPOINTS.md` |
-| Unbuilt work, decisions, roadmap | `planning/MAP.md` (index) → `planning/audit-remediation/MAP.md` (all 6 phases built) |
-| UI-refresh plan (in flight) + ledger | `temp/ui-refresh/TASKS.md` · `.superpowers/sdd/ui-refresh/progress.md` (both untracked) |
+| Unbuilt work, decisions, roadmap | `planning/MAP.md` (index) → active map `planning/pos-evolution/MAP.md` |
+| UI-refresh plan (complete) + ledger | `temp/ui-refresh/TASKS.md` · `.superpowers/sdd/ui-refresh/progress.md` (both untracked) |
 | QA how-to: run the app, roles, flows | `docs/testing/QA-PROFILE.md` |
-| My knowledge gaps | `docs/learning/` (`gaps.md`, created by `wrap-up` on first run) |
+| My knowledge gaps | `docs/learning/gaps.md` |
 | Session history & gotchas | `docs/sessions/` — newest date first |
 | Branch, commit & review conventions | `CONTRIBUTING.md` |
 | Django backend (6 apps + `services.py`) | `backend_django/apps/{users,inventory,pos,collectibles,requisitions,reports}/` |
 | Flutter MVVM client | `flutter/lib/features/` · models `flutter/lib/data/models/` · routes `flutter/lib/routes/routes.dart` |
 | Network layer (Dio, JWT, refresh-on-401) | `flutter/lib/core/network/api_client.dart` |
 
-Every pointer must resolve (the one exception is marked "created by"); a broken pointer is fixed in the commit that breaks it.
+Every pointer must resolve; a broken pointer is fixed in the commit that breaks it.
 
 ## Test & lint
 
@@ -31,8 +31,8 @@ Every pointer must resolve (the one exception is marked "created by"); a broken 
 
 ## Current Status & Next Step
 
-- **Branch:** `feature/backend-integration` — 72 ahead of `origin/` (user `git push` pending; count stales on the next commit).
-- **Last session:** `docs/sessions/2026-11-02-ui-refresh-wave3b-z1-clock.md` — wave 3b + Z1 copy sweep + test clock pin through `96137b1`; gate analyze clean, flutter `+1243 ~224`, goldens `+224`.
-- **Next:** Z2 whole-app pass (`temp/ui-refresh/TASKS.md`). Blocked on user: reseed dev DB, teammate's 7 design items, adjustments "By" column, offline web till, "Movements" tab rename.
+- **Branch:** `feature/backend-integration`, pushed through `4a853b2` (count stales on the next commit).
+- **Last session:** `docs/sessions/2026-11-03-ui-refresh-z2-whole-app-pass.md` — Z2 closed the UI refresh; audit-remediation and UI-refresh plans both complete. Gate: analyze clean, flutter `+1257 ~224`, goldens `+224`, backend `Ran 497` OK.
+- **Next:** `wayfinder` on `planning/pos-evolution/MAP.md` — resolve "How approved requests reach the POS" (Phase 1 is blocked on it). Undecided Lows are in the last session note.
 - **Proof standard:** a test covers a fix only after it fails without the fix; a claim without its command output in the same message is unverified.
 - **Caveats:** desktop pixels are user-verified only (`flutter run -d linux`); `.superpowers/` is gitignored, so ledgers live only on this machine.

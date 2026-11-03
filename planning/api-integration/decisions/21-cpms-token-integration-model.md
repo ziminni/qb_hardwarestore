@@ -1,6 +1,6 @@
 # CPMS ↔ POS material-token integration model
 
-**Mode:** grill + domain-model · **Status:** 🌫️ FOG (opened 2026-10-30, not started) · **Scope:** its own future epic — OUT OF SCOPE for the 2026-10-30 UI refresh and for audit-remediation.
+**Mode:** grill + domain-model · **Status:** 🟡 being resolved in [POS Evolution MAP](../../pos-evolution/MAP.md) Phase 1 (from 2026-11-03) · **Scope:** that map owns the answers; this note keeps the product owner's original intent.
 **Refines:** [Requisition UI Ownership](./09-requisition-ui-ownership.md) (locked Option B: POS builds approve + release). This note may move approval itself to CPMS, so it partly reopens 09 — do not treat 09 as final on *who approves* until this is resolved.
 
 ## Target gist (product owner, 2026-10-30, verbatim intent)
@@ -15,12 +15,12 @@
 
 ## Open questions (fog — each needs its own grill before building)
 
-1. **Who approves?** CPMS PM only, or does the POS Store Manager retain an approve action (decision 09 Option B)? This changes whether the POS Approvals screen built in T0 stays.
+1. **Who approves?** ✅ Answered 2026-11-03: CPMS project manager only; POS keeps a read-only copy ([Requisitions after the foreman](../../pos-evolution/decisions/01-requisitions-after-foreman.md)).
 2. **Token carrier & pattern.** Current POS `MaterialToken` is a server-side `UUID` (`is_used`, `used_by`); the target wants a QR the two systems independently recognize. What is the shared, verifiable pattern (signed payload? namespaced code? check digit)? How does POS validate a token CPMS minted without a shared DB (pre-shared key, API handshake, offline signature)?
 3. **Project-as-customer.** Is a CPMS project mapped onto the existing `Customer` model, a new entity, or a flag? How is the project↔customer identity exchanged between systems?
 4. **Project payables.** How do released materials post to the collectibles ledger against the project, and how does CPMS learn the balance / settlement?
 5. **Material matching.** Auto-match CPMS line items to POS `VariantUOM`s, cashier manual match, or search-assist? What happens on a no-match or partial stock?
-6. **Transport.** REST call CPMS→POS at approval, POS→CPMS at release, or token-only (no live link)? This is the crux: "not physically connected" suggests token-only, but payables sync implies some channel.
+6. **Transport.** (with Q2, now [How approved requests reach the POS](../../pos-evolution/decisions/02-request-transport.md)) REST call CPMS→POS at approval, POS→CPMS at release, or token-only (no live link)? This is the crux: "not physically connected" suggests token-only, but payables sync implies some channel.
 
 ## Current POS reality (what already exists, as scaffolding)
 

@@ -1,0 +1,51 @@
+# POS Evolution MAP
+
+## Phase Progress
+
+| Phase | Scope | Blocking Decisions | Status |
+|---|---|---|---|
+| 1 | Foreman out, CPMS boundary: requisitions become a read-only copy of CPMS-approved requests; projects known for utang/payables; cashier token release stays | ✅ [Requisitions after the foreman](./decisions/01-requisitions-after-foreman.md) · ✅ [How approved requests reach the POS](./decisions/02-request-transport.md) · ✅ [Projects and their payables](./decisions/03-projects-and-payables.md) · ✅ [What CPMS sends for each item](./decisions/04-request-item-matching.md) · ✅ [Releasing when stock is short](./decisions/05-short-stock-release.md) · ✅ [Closing a partly released request](./decisions/06-closing-partial-requests.md) · ✅ [How CPMS learns what was released and owed](./decisions/07-cpms-sees-releases.md) · ✅ [Migrating today's foreman data](./decisions/08-foreman-data-migration.md) | 🟡 [Plan](./phase-1-plan.md) ready to build |
+| 2 | Multiple roles per account: sidebar and dashboard built from the union of the account's permissions | fog | [ ] Pending |
+| 3 | Excel import/export: template export, edit, re-import; fresh-store bulk load of current materials | fog | [ ] Pending |
+
+## Destination
+
+No foreman in the POS; one account can hold several roles; the catalogue and stock can round-trip through an Excel file.
+
+## Notes & Invariants
+
+- **Server is the trust boundary** (audit-remediation invariant): role checks, import validation and stock rules live in Django, Flutter is UX.
+- **Proof rule (AGENTS.md):** a test counts only after it fails without the fix.
+- **Multi-role head start (verified 2026-11-03):** `has_role` already accepts any of a user's groups (`apps/users/permissions.py:73-84`); only `UserSerializer.get_role` reports the first group (`apps/users/serializers.py:34-51`) and the Flutter shell routes on that single role (`flutter/lib/routes/routes.dart` `redirectFor`).
+- **Excel today:** no Excel/CSV package in `flutter/pubspec.yaml` or backend requirements; no import/export endpoint.
+- **CPMS is a separate repo** (`../qb_project_management_system/`). Phase 1 defines the POS side and a contract doc; editing CPMS needs the product owner to lift that boundary explicitly.
+
+## Decisions So Far
+
+- [Requisitions after the foreman](./decisions/01-requisitions-after-foreman.md): POS keeps a read-only copy of CPMS-approved requests (project, items, token, requester name as text); POS Approvals screens and the foreman role go; cashier token release stays. (by: me)
+- [How approved requests reach the POS](./decisions/02-request-transport.md): CPMS pushes each approved request to a new POS import endpoint with its own revocable service account; retry-safe; the till never calls CPMS. Locked "for now". (by: me)
+- [Projects and their payables in the POS](./decisions/03-projects-and-payables.md): contractor stays the payer with one credit limit; `Project` gets a CPMS id, utang gets an optional project link, so receivables total per contractor or per project. (by: me)
+- [What CPMS sends for each requested item](./decisions/04-request-item-matching.md): POS publishes a read-only list of selling units (name, unit, POS code; no stock or prices) to the CPMS account; CPMS sends POS codes + quantities; unavailable items must be handled at release. (by: me)
+- [Releasing when stock is short](./decisions/05-short-stock-release.md): release what is in stock (one sale + one project-tagged utang), the rest stays open on the same token as Partially released; the remainder can be closed and what was released stays payable. (by: me)
+- [Closing a partly released request](./decisions/06-closing-partial-requests.md): only CPMS closes the remainder, by a retry-safe call on the same service account; POS marks it closed and the token dead, released utang untouched, no new POS screen. (by: me)
+- [How CPMS learns what was released and owed](./decisions/07-cpms-sees-releases.md): CPMS reads per request (released/outstanding) and per project (utang total, paid, balance) from the POS on demand; the POS makes no outbound calls. (by: me)
+- [Migrating today's foreman data](./decisions/08-foreman-data-migration.md): copy names to text fields and drop the user FKs; Draft/Submitted become Cancelled; foreman account deactivated (audit rows protect it), group deleted; seed rewritten as CPMS pushes. (by: delegated)
+
+## Active Frontier
+
+_(Phase 1 frontier empty; Phases 2 and 3 still in fog)_
+
+## Blocked
+
+_(none yet)_
+
+## Fog of War
+
+- **Multi-role model:** keep Django groups as roles, or move to finer permissions; how the dashboard merges tiles from several roles; who may grant which roles (Phase 5 `USER_ADMIN_FORBIDDEN` / `LAST_ADMIN`).
+- **Excel scope:** which data (products, selling units, prices, categories, suppliers, stock); match key on re-import (barcode? SKU?); server-side parsing and validation.
+- **Excel vs locked stock rule:** audit-remediation locked "first stock arrives via purchase order + Receiving, Add product creates catalogue only". A fresh-store import with quantities reopens that rule.
+
+## Out of Scope
+
+- Editing the CPMS repo until the product owner lifts the boundary.
+- Camera scanning, payment gateways, discounts/VAT (unchanged from audit-remediation).

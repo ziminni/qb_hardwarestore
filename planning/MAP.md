@@ -13,7 +13,9 @@ neither — it is an index, and a second home for a fact is how the two drift.
 Work runs as **Wayfinder maps** — a low-resolution index plus one file per open decision, so each stays
 workable across many sessions without loading everything at once.
 
-**[planning/audit-remediation/MAP.md](audit-remediation/MAP.md)** — **ACTIVE (opened 2026-10-24).** Fix every P0/P1 audit finding with security enforced per phase, then role phases, then Barcode/QR. Prior maps (cashier, stocker, sales-manager, admin) complete.
+**[planning/pos-evolution/MAP.md](pos-evolution/MAP.md)** — **ACTIVE (opened 2026-11-03).** Foreman out + CPMS boundary, then multiple roles per account, then Excel import/export.
+
+**[planning/audit-remediation/MAP.md](audit-remediation/MAP.md)** — **COMPLETE** (6 phases built, closed 2026-10-29). Prior maps (cashier, stocker, sales-manager, admin) complete; the UI refresh (`temp/ui-refresh/TASKS.md`) closed 2026-11-03.
 
 **[planning/api-integration/MAP.md](api-integration/MAP.md)** — **COMPLETE, closed.** The integration epic
 (Phases 0–6 built). Its invariants still bind new maps.
