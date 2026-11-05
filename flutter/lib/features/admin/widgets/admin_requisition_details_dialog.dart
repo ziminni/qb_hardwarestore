@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 Future<void> showAdminRequisitionDetails(
   BuildContext context, {
   required Requisition row,
+  Future<void> Function(BuildContext context, Requisition row)? onPrintSlip,
 }) {
   return showDialog<void>(
     context: context,
@@ -64,6 +65,9 @@ Future<void> showAdminRequisitionDetails(
                     // D17: a released token is spent. The panel stays so the
                     // token can be checked, and says it can no longer release.
                     used: row.status == RequisitionStatus.released,
+                    onPrintSlip: onPrintSlip == null
+                        ? null
+                        : () => onPrintSlip(dialogContext, row),
                   ),
                 ],
                 const SizedBox(height: AppSpacing.md),

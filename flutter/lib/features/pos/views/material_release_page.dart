@@ -435,7 +435,9 @@ class _TokenField extends StatelessWidget {
       onSubmitted: onSubmitted,
       style: const TextStyle(fontSize: 16),
       decoration: InputDecoration(
-        hintText: 'Paste or type the token',
+        // A 2D scanner types the slip's QR into this field and presses Enter,
+        // which submits it like a typed token.
+        hintText: 'Scan the slip QR or type the token',
         filled: true,
         fillColor: const Color(0xFFFFFDF7),
         contentPadding: const EdgeInsets.symmetric(

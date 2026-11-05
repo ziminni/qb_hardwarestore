@@ -16,6 +16,7 @@ import 'package:client/data/services/auth_service.dart';
 import 'package:client/features/admin/viewmodels/admin_requisitions_viewmodel.dart';
 import 'package:client/features/admin/views/requisitions_page.dart';
 import 'package:client/features/admin/widgets/admin_requisition_token_panel.dart';
+import 'package:client/features/admin/widgets/release_slip_document.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -47,14 +48,28 @@ Requisition _req(int id, String status, {String? token}) => Requisition(
 
 const _approvedToken = '7f3c2a10-0000-4000-8000-000000000001';
 
-Future<void> _pump(WidgetTester tester, AdminRequisitionsViewmodel vm) async {
+/// Records which requisitions would have been printed.
+class _FakeSlipPrinter implements ReleaseSlipPrinter {
+  final printed = <Requisition>[];
+
+  @override
+  Future<void> print(Requisition requisition) async => printed.add(requisition);
+}
+
+Future<void> _pump(
+  WidgetTester tester,
+  AdminRequisitionsViewmodel vm, {
+  ReleaseSlipPrinter? slipPrinter,
+}) async {
   tester.view.physicalSize = const Size(1600, 1400);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     ChangeNotifierProvider<AuthViewmodel>.value(
       value: AuthViewmodel(AuthRepository(AuthService())),
-      child: MaterialApp(home: RequisitionsPage(viewmodel: vm)),
+      child: MaterialApp(
+        home: RequisitionsPage(viewmodel: vm, slipPrinter: slipPrinter),
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -199,5 +214,112 @@ void main() {
     await _openDetails(tester, 'REQ-0002');
     expect(find.byType(AdminRequisitionTokenPanel), findsNothing);
     expect(find.text('Release token'), findsNothing);
+  });
+
+  // The release slip (UC-20): the token printed as a QR, which a 2D scanner
+  // types into Release materials. Added 2026-11-04; before it the token could
+  // only be copied and read out.
+  group('release slip', () {
+    test('the QR holds the token and nothing else', () {
+      final content = ReleaseSlipContent(
+        _req(1, 'APPROVED', token: _approvedToken),
+      );
+
+      // A scanner types exactly this and presses Enter; any prefix would fail
+      // verification at the counter.
+      expect(content.qrData, _approvedToken);
+      expect(content.reqNumber, 'REQ-0001');
+      expect(content.details, contains('Project: 2-Storey House - Mandaue'));
+    });
+
+    test('the slip lists what the foreman collects', () {
+      final row = Requisition(
+        id: 1,
+        reqNumber: 'REQ-0001',
+        rawStatus: 'APPROVED',
+        projectName: 'P',
+        projectCustomerName: 'C',
+        requestedByName: 'Fore Man',
+        items: const [
+          RequisitionItem(
+            id: 1,
+            variantId: 7,
+            variantName: 'Portland Cement 40 kg',
+            quantity: 12,
+            releasedQty: 0,
+          ),
+        ],
+        token: _approvedToken,
+      );
+
+      expect(ReleaseSlipContent(row).lines.single, (
+        name: 'Portland Cement 40 kg',
+        quantity: '12',
+      ));
+    });
+
+    test('the slip renders to a PDF', () async {
+      final bytes = await buildReleaseSlipPdf(
+        _req(1, 'APPROVED', token: _approvedToken),
+      );
+
+      expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+    });
+
+    testWidgets('right after Approve, the slip prints for that requisition', (
+      tester,
+    ) async {
+      final printer = _FakeSlipPrinter();
+      final vm = AdminRequisitionsViewmodel(
+        repository: _StubRequisitions([_req(1, 'SUBMITTED')]),
+      );
+      await _pump(tester, vm, slipPrinter: printer);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Approve'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.widgetWithText(FilledButton, 'Approve'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Print release slip'));
+      await tester.pumpAndSettle();
+
+      expect(printer.printed.single.reqNumber, 'REQ-0001');
+      expect(printer.printed.single.token, _approvedToken);
+    });
+
+    testWidgets('an approved row prints its slip from the detail', (
+      tester,
+    ) async {
+      final printer = _FakeSlipPrinter();
+      final vm = AdminRequisitionsViewmodel(
+        repository: _StubRequisitions([
+          _req(1, 'APPROVED', token: _approvedToken),
+        ]),
+      );
+      await _pump(tester, vm, slipPrinter: printer);
+      await _openDetails(tester, 'REQ-0001');
+
+      await tester.tap(find.text('Print release slip'));
+      await tester.pumpAndSettle();
+
+      expect(printer.printed.single.token, _approvedToken);
+    });
+
+    testWidgets('a used token offers no slip', (tester) async {
+      final vm = AdminRequisitionsViewmodel(
+        repository: _StubRequisitions([
+          _req(1, 'RELEASED', token: _approvedToken),
+        ]),
+      );
+      await _pump(tester, vm, slipPrinter: _FakeSlipPrinter());
+      await _openDetails(tester, 'REQ-0001');
+
+      expect(find.text('Print release slip'), findsNothing);
+    });
   });
 }

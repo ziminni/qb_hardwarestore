@@ -7,6 +7,7 @@ import 'package:client/data/models/requisition.dart';
 import 'package:client/features/admin/viewmodels/admin_requisitions_viewmodel.dart';
 import 'package:client/features/admin/widgets/admin_requisition_details_dialog.dart';
 import 'package:client/features/admin/widgets/admin_requisition_token_panel.dart';
+import 'package:client/features/admin/widgets/release_slip_document.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
@@ -33,9 +34,13 @@ class RequisitionsPage extends StatefulWidget {
     super.key,
     this.viewmodel,
     this.inSalesShell = false,
+    this.slipPrinter,
   });
 
   final AdminRequisitionsViewmodel? viewmodel;
+
+  /// Injected by tests; the app prints through [PdfReleaseSlipPrinter].
+  final ReleaseSlipPrinter? slipPrinter;
 
   /// Draw inside the Store Manager's shell (sales sidebar, index 7) instead of
   /// the admin one. See `SalesRequisitionsPage`.
@@ -115,17 +120,23 @@ class _RequisitionsPageState extends State<RequisitionsPage> {
     if (!await _confirmApprove(row)) return;
     final approved = await _viewmodel.approve(row.id);
     if (!approved || !mounted) return;
-    String? token;
+    Requisition? match;
     for (final current in _viewmodel.requisitions) {
-      if (current.id == row.id) token = current.token;
+      if (current.id == row.id) match = current;
     }
-    if (token == null) return;
+    final approvedRow = match;
+    final token = approvedRow?.token;
+    if (approvedRow == null || token == null) return;
     await showApprovedTokenDialog(
       context,
       reqNumber: row.reqNumber,
       token: token,
+      onPrintSlip: (slipContext) => _printSlip(slipContext, approvedRow),
     );
   }
+
+  Future<void> _printSlip(BuildContext slipContext, Requisition row) =>
+      printReleaseSlip(slipContext, row, printer: widget.slipPrinter);
 
   /// Rejects in two steps too, but the confirmation names no reason: the
   /// endpoint takes none (checked 2026-10-30, `apps/requisitions/views.py:224`).
@@ -211,7 +222,7 @@ class _RequisitionsPageState extends State<RequisitionsPage> {
   }
 
   Future<void> _showDetails(Requisition row) =>
-      showAdminRequisitionDetails(context, row: row);
+      showAdminRequisitionDetails(context, row: row, onPrintSlip: _printSlip);
 
   Widget _body(BuildContext context) {
     final viewmodel = _viewmodel;

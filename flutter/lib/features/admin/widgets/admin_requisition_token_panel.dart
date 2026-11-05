@@ -25,9 +25,15 @@ class AdminRequisitionTokenPanel extends StatefulWidget {
     super.key,
     required this.token,
     this.used = false,
+    this.onPrintSlip,
   });
 
   final String token;
+
+  /// Prints the release slip with the token as a QR. Offered only while the
+  /// token can still release: a used token's slip would send the foreman to a
+  /// counter that must refuse them.
+  final VoidCallback? onPrintSlip;
 
   /// Whether the goods have already been released with this token (D17). The
   /// panel stays, labelled "Used", because the token is still the record of how
@@ -96,6 +102,12 @@ class _AdminRequisitionTokenPanelState
                 icon: const Icon(Icons.copy, size: 16),
                 label: const Text('Copy token'),
               ),
+              if (widget.onPrintSlip case final print? when !widget.used)
+                OutlinedButton.icon(
+                  onPressed: print,
+                  icon: const Icon(Icons.qr_code_2, size: 16),
+                  label: const Text('Print release slip'),
+                ),
             ],
           ),
           const SizedBox(height: 4),
@@ -122,6 +134,7 @@ Future<void> showApprovedTokenDialog(
   BuildContext context, {
   required String reqNumber,
   required String token,
+  Future<void> Function(BuildContext context)? onPrintSlip,
 }) {
   return showDialog<void>(
     context: context,
@@ -170,6 +183,12 @@ Future<void> showApprovedTokenDialog(
           icon: const Icon(Icons.copy, size: 16),
           label: const Text('Copy token'),
         ),
+        if (onPrintSlip != null)
+          TextButton.icon(
+            onPressed: () => onPrintSlip(dialogContext),
+            icon: const Icon(Icons.qr_code_2, size: 16),
+            label: const Text('Print release slip'),
+          ),
         FilledButton(
           onPressed: () => Navigator.of(dialogContext).pop(),
           child: const Text('Done'),

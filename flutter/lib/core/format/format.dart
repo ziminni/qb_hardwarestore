@@ -34,6 +34,13 @@ String formatPeso(num amount) {
   return '$sign$_peso$whole${fixed.substring(dot)}';
 }
 
+/// [formatPeso] for paper: `PHP 1,234.50`.
+///
+/// The bundled OpenSans has no ₱ glyph (U+20B1), so a printed receipt or slip
+/// spells the currency the way Philippine thermal receipts already do.
+String formatPesoForPrint(num amount) =>
+    formatPeso(amount).replaceFirst(_peso, 'PHP ');
+
 /// `DateTime(2026, 10, 29)` becomes `Oct 29, 2026`.
 String formatDate(DateTime value) =>
     '${_months[value.month - 1]} ${value.day}, ${value.year}';
