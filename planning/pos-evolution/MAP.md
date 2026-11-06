@@ -5,6 +5,8 @@
 | Phase | Scope | Blocking Decisions | Status |
 |---|---|---|---|
 | 1 | Foreman out, CPMS boundary: requisitions become a read-only copy of CPMS-approved requests; projects known for utang/payables; cashier token release stays | ✅ [Requisitions after the foreman](./decisions/01-requisitions-after-foreman.md) · ✅ [How approved requests reach the POS](./decisions/02-request-transport.md) · ✅ [Projects and their payables](./decisions/03-projects-and-payables.md) · ✅ [What CPMS sends for each item](./decisions/04-request-item-matching.md) · ✅ [Releasing when stock is short](./decisions/05-short-stock-release.md) · ✅ [Closing a partly released request](./decisions/06-closing-partial-requests.md) · ✅ [How CPMS learns what was released and owed](./decisions/07-cpms-sees-releases.md) · ✅ [Migrating today's foreman data](./decisions/08-foreman-data-migration.md) | 🟡 [Plan](./phase-1-plan.md): Tasks 0–10 built; left: 11 contract approval, 12 QA + atlas |
+| 1b | Store accepts/declines pushed requests (whole or per line, with reason); release only after Accept; expected amount readable by CPMS | ✅ [The store accepts or declines a pushed request](./decisions/09-store-accepts-requests.md) · ✅ [Declining single lines of a request](./decisions/10-line-level-decline.md) · ✅ [When the project starts to owe](./decisions/11-when-utang-starts.md) · [ ] Request states after Accept | [ ] Pending |
+| 1c | Payment receipts from CPMS: PM uploads amount + reference + photo, Store Manager approves (posted to project utang, partial allowed) or declines | ✅ [Paying project utang with an uploaded receipt](./decisions/12-payment-receipts.md) · [ ] Receipt storage and allocation | [ ] Pending |
 | 2 | Multiple roles per account: sidebar and dashboard built from the union of the account's permissions | fog | [ ] Pending |
 | 3 | Excel import/export: template export, edit, re-import; fresh-store bulk load of current materials | fog | [ ] Pending |
 
@@ -30,10 +32,15 @@ No foreman in the POS; one account can hold several roles; the catalogue and sto
 - [Closing a partly released request](./decisions/06-closing-partial-requests.md): only CPMS closes the remainder, by a retry-safe call on the same service account; POS marks it closed and the token dead, released utang untouched, no new POS screen. (by: me)
 - [How CPMS learns what was released and owed](./decisions/07-cpms-sees-releases.md): CPMS reads per request (released/outstanding) and per project (utang total, paid, balance) from the POS on demand; the POS makes no outbound calls. (by: me)
 - [Migrating today's foreman data](./decisions/08-foreman-data-migration.md): copy names to text fields and drop the user FKs; Draft/Submitted become Cancelled; foreman account deactivated (audit rows protect it), group deleted; seed rewritten as CPMS pushes. (by: delegated)
+- [The store accepts or declines a pushed request](./decisions/09-store-accepts-requests.md): pushed requests wait for a Store Manager's Accept/Decline (reason required); no stock reservation; token releases only after Accept; CPMS reads the status; CPMS prints the token-only QR, POS prints no slip. (by: me)
+- [Declining single lines of a request](./decisions/10-line-level-decline.md): Accept may mark lines Not available with a reason; whole Decline when nothing can be served; short accepted lines still go through partial release. (by: me)
+- [When the project starts to owe](./decisions/11-when-utang-starts.md): utang only at release; an accepted request exposes a non-debt expected amount to CPMS. (by: me)
+- [Paying project utang with an uploaded receipt](./decisions/12-payment-receipts.md): online payments arrive from CPMS as amount + reference + photo, Store Manager approves (partial OK) or declines with reason; cash stays at the counter. (by: me)
 
 ## Active Frontier
 
-_(Phase 1 frontier empty; Phases 2 and 3 still in fog)_
+- [ ] Request states after Accept (Phase 1b) — domain-model: status names and transitions (waiting, accepted, declined vs approved/partial/released/closed), what today's APPROVED rows become, whether CPMS may close a waiting request
+- [ ] Receipt storage and allocation (Phase 1c) — grill + research: image storage and size/type limits, which ledger rows a payment applies to, overpayment, what CPMS sees after a decline
 
 ## Blocked
 
@@ -47,5 +54,5 @@ _(none yet)_
 
 ## Out of Scope
 
-- Editing the CPMS repo until the product owner lifts the boundary.
+- Editing the CPMS repo until the product owner lifts the boundary (reaffirmed 2026-11-06). CPMS-side: foreman free-text requests, PM matching, QR printing, notifying PM/foreman/client, the read-only **client** user.
 - Camera scanning, payment gateways, discounts/VAT (unchanged from audit-remediation).

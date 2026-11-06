@@ -280,7 +280,7 @@ curl -s -X POST "$POS/requests/" -H "Authorization: Bearer $TOKEN" \
 # -> 400 {"items": {"0": {"quantity": ["Ensure that there are no more than 2 decimal places."]}}}
 ```
 
-> **The token is a bearer credential.** Whoever holds the UUID can take goods out on the project's credit. It is printed on the CPMS side and never read back by CPMS from the POS: no integration endpoint returns it, and no POS audit row ever records it.
+> **The token is a bearer credential.** Whoever holds the UUID can take goods out on the project's credit. It is printed on the CPMS side, as a QR code holding **only the token string**, so the cashier's 2D scanner types it straight into Release materials (decision [The store accepts or declines a pushed request](../../planning/pos-evolution/decisions/09-store-accepts-requests.md)). It is never read back by CPMS from the POS: no integration endpoint returns it, and no POS audit row ever records it.
 
 ### 4.4 `GET requests/{cpms_request_id}/` — status and quantities
 
