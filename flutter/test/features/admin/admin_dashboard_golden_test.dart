@@ -8,7 +8,6 @@ import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/reports.dart';
-import 'package:client/data/models/requisition.dart';
 import 'package:client/data/models/role.dart';
 import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/models/system_alert.dart';
@@ -16,7 +15,6 @@ import 'package:client/data/models/user.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/repositories/inventory_repository.dart';
 import 'package:client/data/repositories/products_repository.dart';
-import 'package:client/data/repositories/requisition_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/inventory_service.dart';
 import 'package:client/data/services/products_service.dart';
@@ -225,9 +223,6 @@ Future<void> _pumpOverview(
       summary: empty ? _noSales : null,
     ),
     sales: _GoldenSalesService(sales: empty || failed ? const [] : _sales),
-    requisitions: _GoldenRequisitionRepository(
-      requisitions: empty || failed ? const [] : _requisitions,
-    ),
   );
   await overview.load();
 
@@ -345,36 +340,6 @@ final List<TransactionRecord> _sales = [
     customer: 'Walk in customer',
     amount: 8600,
     at: DateTime(2026, 10, 29, 11, 32),
-  ),
-];
-
-final List<Requisition> _requisitions = [
-  const Requisition(
-    id: 3,
-    reqNumber: 'REQ-20261029-0003',
-    rawStatus: 'SUBMITTED',
-    projectName: 'Hillside Phase 2',
-    projectCustomerName: 'Hillside Realty',
-    requestedByName: 'Reyes, Mario',
-    items: [],
-  ),
-  const Requisition(
-    id: 2,
-    reqNumber: 'REQ-20261029-0002',
-    rawStatus: 'SUBMITTED',
-    projectName: 'Cogon Bridge Repair',
-    projectCustomerName: 'Cogon LGU',
-    requestedByName: 'Bautista, Liza',
-    items: [],
-  ),
-  const Requisition(
-    id: 1,
-    reqNumber: 'REQ-20261028-0001',
-    rawStatus: 'APPROVED',
-    projectName: 'Hillside Phase 2',
-    projectCustomerName: 'Hillside Realty',
-    requestedByName: 'Reyes, Mario',
-    items: [],
   ),
 ];
 
@@ -524,13 +489,4 @@ class _GoldenSalesService extends SalesService {
 
   @override
   Future<List<SalesOrderRow>> fetchSalesOrders() => throw UnimplementedError();
-}
-
-class _GoldenRequisitionRepository extends RequisitionRepository {
-  _GoldenRequisitionRepository({required this.requisitions});
-
-  final List<Requisition> requisitions;
-
-  @override
-  Future<List<Requisition>> fetchRequisitions() async => requisitions;
 }

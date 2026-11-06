@@ -15,15 +15,13 @@ import 'package:provider/provider.dart';
 /// they could sit there indefinitely. This screen replaces that silence with an
 /// explanation and a way out.
 ///
-/// Two cases arrive here, and both are handled honestly rather than being made
-/// to look like a signed-out session:
+/// Two cases arrive here, and both read the same, honest explanation rather
+/// than being made to look like a signed-out session:
 ///
-/// - **A known role with no dashboard**: `site_foreman`. Not an oversight
-///   (decision D5): a Site Foreman is a CPMS-side identity and not a POS user.
-///   POS models the role only because `Requisition.requested_by` needs an
-///   actor, so there is deliberately no POS screen to send them to. Their real
-///   tools live in the Construction Project Management System, and the copy
-///   says so instead of reading like a fault.
+/// - **A role with no POS dashboard**: a CPMS service account, or any role the
+///   POS has no screen for. Decision 01 removed the last special case (the
+///   Site Foreman), because that group no longer exists: the requesters and
+///   approvers are CPMS users who never sign in here.
 /// - **A role-less or unrecognised account**: `roleName` is nullable, so this
 ///   is reachable without any role at all.
 ///
@@ -31,9 +29,6 @@ import 'package:provider/provider.dart';
 /// pure `AppRoutes.redirectFor`).
 class UnsupportedRolePage extends StatelessWidget {
   const UnsupportedRolePage({super.key});
-
-  /// The one role whose tools exist, in another system (decision D5).
-  static const String foremanRole = 'site_foreman';
 
   /// The words a person reads, never the database code: `site_foreman` in a
   /// sentence looks like a crash. Falls back to the code only for a payload
@@ -51,21 +46,11 @@ class UnsupportedRolePage extends StatelessWidget {
     final auth = context.watch<AuthViewmodel>();
     final role = auth.user?.role;
     final label = _labelOf(role?.name, role?.displayName);
-    final isForeman = role?.name == foremanRole;
-    // "Hello, Fore Man." comes from the account the server sent, not from a
-    // string written here (the demo foreman is seeded with that full name).
-    final fullName = auth.user?.fullName.trim() ?? '';
-    final title = isForeman && fullName.isNotEmpty
-        ? 'Hello, $fullName.'
-        : 'No dashboard for this account';
+    const title = 'No dashboard for this account';
 
     final body = label == null
         ? 'Your account has no role assigned, so there is no POS screen to '
               'open. Ask an administrator to assign one.'
-        : isForeman
-        ? '$label tools are part of the Construction Project Management '
-              'System, which is still in development. There is no POS screen '
-              'for this account.'
         : 'This role has no POS dashboard. If you believe you should have '
               'one, ask an administrator to check your role.';
 
@@ -103,9 +88,7 @@ class UnsupportedRolePage extends StatelessWidget {
                                 shape: BoxShape.circle,
                               ),
                               child: Icon(
-                                isForeman
-                                    ? Icons.engineering_outlined
-                                    : Icons.no_accounts_outlined,
+                                Icons.no_accounts_outlined,
                                 size: 28,
                                 color: AppColors.brandGoldText,
                               ),

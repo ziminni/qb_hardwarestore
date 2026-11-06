@@ -48,6 +48,8 @@ class _StubRequisitions extends RequisitionRepository {
             variantName: '40kg',
             quantity: 10,
             remaining: 10,
+            availability: LineAvailability.full,
+            releasable: 10,
           ),
         ],
       );
@@ -59,6 +61,8 @@ class _StubRequisitions extends RequisitionRepository {
     return const ReleaseResult(
       transactionId: 42,
       transactionNo: 'TXN-20261024-0042',
+      status: ReleaseStatus.released,
+      items: [],
       grandTotal: 2700,
       ledgerId: 9,
       balanceDue: 2700,

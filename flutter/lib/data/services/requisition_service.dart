@@ -3,12 +3,11 @@ import 'package:client/core/network/paged.dart';
 import 'package:client/data/models/requisition.dart';
 import 'package:dio/dio.dart';
 
-/// Raised for anything the requisition screens must show to a human.
+/// Raised for anything the release screens must show to a human.
 ///
-/// It carries the SERVER's prose whenever the server sent any. The lifecycle guards refuse an
-/// illegal transition with a specific reason ("Cannot approve a DRAFT requisition."), and
-/// replacing that with a generic message throws away the only explanation the manager gets for a
-/// button that did nothing.
+/// It carries the SERVER's prose whenever the server sent any: a release refused for stock or
+/// for a closed request explains itself far better than any generic wording could, and replacing
+/// that prose with "something went wrong" throws away the only explanation the clerk gets.
 class RequisitionServiceException implements Exception {
   const RequisitionServiceException(this.message, {this.code});
 
@@ -26,11 +25,12 @@ class RequisitionServiceException implements Exception {
   String toString() => message;
 }
 
-/// The POS half of the requisition lifecycle (decision 09, locked 2026-10-17).
+/// The POS's read on approved requisitions, plus the two token calls (decision 01, locked
+/// 2026-11-03).
 ///
-/// Approve · reject · verify token · release. Create and submit are deliberately ABSENT: they need
-/// a Site Foreman, which is a CPMS identity that never logs into POS, so building them here would
-/// duplicate CPMS and demand a role this client does not have.
+/// Read · verify token · release. Create, submit, approve and reject are deliberately ABSENT:
+/// requests are made and approved in CPMS by people who never log into the POS, so a client-side
+/// write here would duplicate CPMS and demand a role this client does not have.
 class RequisitionService {
   RequisitionService({ApiClient? client})
     : _client = client ?? ApiClient.instance;
@@ -76,28 +76,6 @@ class RequisitionService {
     throw const RequisitionServiceException(
       'The requisition list did not finish loading. Try again.',
     );
-  }
-
-  /// Approves a SUBMITTED requisition and returns the token the server minted.
-  ///
-  /// The token is generated server-side inside the approval transaction, so this returns it
-  /// rather than expecting the caller to re-read the requisition.
-  Future<String> approve(int requisitionId) async {
-    final body = await _post('$requisitionsPath$requisitionId/approve/');
-    final token = body['token'] as String?;
-    if (token == null) {
-      // Approval succeeded but no token came back, which means the cashier cannot release the
-      // material. Failing loudly beats showing a success the counter cannot act on.
-      throw const RequisitionServiceException(
-        'The requisition was approved but no release token was returned. Try again.',
-      );
-    }
-    return token;
-  }
-
-  /// Rejects a SUBMITTED requisition.
-  Future<void> reject(int requisitionId) async {
-    await _post('$requisitionsPath$requisitionId/reject/');
   }
 
   /// Verifies a token and returns what it is for. Moves NOTHING.
@@ -170,18 +148,10 @@ class RequisitionService {
 
   String _messageFor(DioException error) {
     final code = _serverCode(error);
-    if (code == 'NO_BASE_UOM') {
-      // Phase 1 Task 5: `release_materials` refuses a variant with no
-      // conversion-factor-1 selling unit BEFORE any write, because the old fallback
-      // priced it at zero and killed the sale halfway through. A clerk needs the
-      // instruction that unblocks the counter, not 'The requisitions could not be
-      // loaded.' — so the server's own detail is kept, prefixed with what it means.
-      const intro =
-          'The release was refused: this material has no base unit in the '
-          'catalogue.';
-      final detail = _serverDetail(error);
-      return detail == null ? intro : '$intro $detail';
-    }
+    // Phase 1 Task 9 (decision 05): a FACT about the shelf or the request, in words a
+    // clerk can act on. The server's detail is written for a developer.
+    if (_plainCopy[code] case final copy?) return copy;
+    if (_statusRefusalCopy[code] case final copy?) return copy;
     if (_ruleIntros[code] case final intro?) {
       // Phase 2 Tasks 3/7: these two refusals are RULES, not failures, and they are the whole
       // reason a manager's Approve button does nothing. The server's detail already explains it,
@@ -202,25 +172,46 @@ class RequisitionService {
     return 'The requisitions could not be loaded.';
   }
 
-  /// What each business-rule `code` means, in words a manager can act on.
+  /// What each business-rule `code` means, in words a clerk can act on.
   ///
   /// Keyed by the stable codes from ENDPOINTS.md §3.6, so a new rule is one line here instead of
-  /// another branch inside [_messageFor].
+  /// another branch inside [_messageFor]. Only codes the POS can still RECEIVE belong here: the
+  /// approval-era ones (SELF_APPROVAL, REQUISITION_LOCKED) went with the approve/reject actions
+  /// (decision 01), and NO_BASE_UOM went with the pricing fallback it guarded (Phase 1 Task 5).
   static const Map<String, String> _ruleIntros = {
-    // Separation of duties (decision 04): approving is the second signature.
-    'SELF_APPROVAL':
-        'You cannot approve a requisition you requested. Approval needs a '
-        'second person.',
-    // Immutable after submit (P2 ruling R): the lines may no longer change.
-    'REQUISITION_LOCKED':
-        'This requisition can no longer be changed: only a DRAFT requisition '
-        'can be edited. Create a new requisition instead.',
     // Decision 03 (Phase 3 Task 1): a release now writes a SalesTransaction
     // against the cashier's open shift, so the Z-reading counts it in the
     // transaction count and gross sales. No shift, no release.
     'NO_OPEN_SHIFT':
         'Open a shift before releasing materials. A release is recorded '
         'against a shift, so the Z-reading counts it in the day\'s sales.',
+  };
+
+  /// Refusals the till answers with its OWN words, replacing the server's detail.
+  ///
+  /// Both are FACTS rather than failures. `NOTHING_TO_RELEASE` writes nothing and leaves
+  /// the token valid, and the three dead-end statuses are decisions made in CPMS — so a
+  /// clerk gets an instruction, not a sentence about rows and dead tokens (decision 05).
+  static const Map<String, String> _plainCopy = {
+    'NOTHING_TO_RELEASE':
+        'Nothing on this request is in stock right now. Try the same token again '
+        'after the next delivery.',
+  };
+
+  /// The dead-end statuses, in the clerk's words.
+  ///
+  /// A CLOSED request is the project's decision made somewhere else, so the only useful
+  /// next step is asking the project for a new one.
+  static const Map<String, String> _statusRefusalCopy = {
+    'REQUISITION_CLOSED':
+        'This request was closed in the project system. Ask the project to send a '
+        'new one.',
+    'REQUISITION_RELEASED':
+        'Everything on this request was already released. There is nothing left to '
+        'hand over.',
+    'REQUISITION_CANCELLED':
+        'This request was cancelled in the project system, so nothing can be '
+        'released for it.',
   };
 
   /// The stable machine-readable `code` a business-rule refusal carries, if any.

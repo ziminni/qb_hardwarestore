@@ -13,9 +13,9 @@ void navigateSales(BuildContext context, int index) {
     // Index 6 — Reports. Omitting it made the sidebar's Reports tab a silent
     // no-op: the index fell outside this list and nothing happened (D-01).
     AppRoutes.salesReports,
-    // Indexes 7 and 8 — Approvals and Staff, appended so no earlier index
-    // moves. Same silent no-op risk as D-01 if a path is missing here.
-    AppRoutes.salesRequisitions,
+    // Index 7 - Staff, appended so no earlier index moves. Approvals used to sit
+    // here and is gone (decision 01: CPMS approves). Same silent no-op risk as
+    // D-01 if a path is missing here.
     AppRoutes.salesStaff,
   ];
   if (index >= 0 && index < paths.length) context.go(paths[index]);

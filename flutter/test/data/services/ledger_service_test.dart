@@ -47,10 +47,13 @@ Map<String, dynamic> _row({
   String balance = '472.00',
   String dueDate = '2026-11-15',
   bool isOverdue = false,
+  String? projectName,
 }) => {
   'id': id,
   'customer': 3,
   'customer_name': customerName,
+  // Absent on a counter sale's utang, exactly as the server sends it.
+  'project_name': ?projectName,
   'transaction': 9,
   'transaction_no': transactionNo,
   'original_amount': original,
@@ -85,32 +88,85 @@ void main() {
   }
 
   tearDown(() {
-    if (adapter.replaced != null) client.dio.httpClientAdapter = adapter.replaced!;
+    if (adapter.replaced != null) {
+      client.dio.httpClientAdapter = adapter.replaced!;
+    }
   });
 
-  test('parses a ledger row, deriving what was paid from the original and the balance', () async {
-    serve((options) {
-      requestedPages.add('${options.queryParameters['page']}');
-      return _json({'count': 1, 'next': null, 'results': [_row()]});
-    });
+  test(
+    'parses a ledger row, deriving what was paid from the original and the balance',
+    () async {
+      serve((options) {
+        requestedPages.add('${options.queryParameters['page']}');
+        return _json({
+          'count': 1,
+          'next': null,
+          'results': [_row()],
+        });
+      });
 
-    final entries = await LedgerService(client: client).fetchLedgers();
+      final entries = await LedgerService(client: client).fetchLedgers();
 
-    expect(entries, hasLength(1));
-    final entry = entries.single;
-    expect(entry.customerName, 'Dela Cruz Construction');
-    expect(entry.transactionNo, 'TRX-20261016-0001');
-    expect(entry.originalAmount, 5000);
-    expect(entry.balanceDue, 472);
-    expect(
-      entry.paidAmount,
-      4528,
-      reason: 'derived from original - balance, NOT summed from recent_payments (100)',
-    );
-    expect(entry.dueDate, DateTime.parse('2026-11-15'));
-    expect(entry.isOverdue, isFalse);
-    expect(requestedPages, contains('1'));
-  });
+      expect(entries, hasLength(1));
+      final entry = entries.single;
+      expect(entry.customerName, 'Dela Cruz Construction');
+      expect(entry.transactionNo, 'TRX-20261016-0001');
+      expect(entry.originalAmount, 5000);
+      expect(entry.balanceDue, 472);
+      expect(
+        entry.paidAmount,
+        4528,
+        reason:
+            'derived from original - balance, NOT summed from recent_payments (100)',
+      );
+      expect(entry.dueDate, DateTime.parse('2026-11-15'));
+      expect(entry.isOverdue, isFalse);
+      expect(requestedPages, contains('1'));
+    },
+  );
+
+  test(
+    'a release-made utang carries the project it was released for',
+    () async {
+      serve(
+        (_) => _json({
+          'count': 1,
+          'next': null,
+          'results': [_row(projectName: '2-Storey House Mandaue')],
+        }),
+      );
+
+      final entries = await LedgerService(client: client).fetchLedgers();
+
+      expect(
+        entries.single.projectName,
+        '2-Storey House Mandaue',
+        reason: 'decision 03: the utang says which project owes it',
+      );
+    },
+  );
+
+  test(
+    'a counter sale utang has no project, and the missing key is not an error',
+    () async {
+      serve(
+        (_) => _json({
+          'count': 1,
+          'next': null,
+          'results': [_row()],
+        }),
+      );
+
+      final entries = await LedgerService(client: client).fetchLedgers();
+
+      expect(
+        entries.single.projectName,
+        isNull,
+        reason:
+            'walk-in and counter sales carry no project, so null is the answer',
+      );
+    },
+  );
 
   test('follows the pages, so a long ledger is not silently cut off', () async {
     serve((options) {
@@ -126,7 +182,9 @@ void main() {
       return _json({
         'count': 2,
         'next': null,
-        'results': [_row(id: 2, customerName: 'Maria Santos', dueDate: '2026-10-01')],
+        'results': [
+          _row(id: 2, customerName: 'Maria Santos', dueDate: '2026-10-01'),
+        ],
       });
     });
 
@@ -185,13 +243,17 @@ void main() {
       isOverdue: isOverdue,
     );
 
-    test('the server calling it overdue wins, even when the date is in the future', () {
-      expect(
-        due('2026-12-01', isOverdue: true).statusAt(now),
-        LedgerStatus.overdue,
-        reason: 'a receivable the server calls overdue must never render as current',
-      );
-    });
+    test(
+      'the server calling it overdue wins, even when the date is in the future',
+      () {
+        expect(
+          due('2026-12-01', isOverdue: true).statusAt(now),
+          LedgerStatus.overdue,
+          reason:
+              'a receivable the server calls overdue must never render as current',
+        );
+      },
+    );
 
     test('a past due date is overdue even when the server flag is false', () {
       expect(due('2026-10-01').statusAt(now), LedgerStatus.overdue);

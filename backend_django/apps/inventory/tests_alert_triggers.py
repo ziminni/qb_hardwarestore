@@ -28,12 +28,13 @@ from django.contrib.auth.models import Group
 from django.utils.crypto import get_random_string
 
 from apps.pos.models import Customer, Shift
-from apps.requisitions.models import Project, Requisition, RequisitionItem
-from apps.requisitions.services import (
-    approve_requisition,
-    release_materials,
-    submit_requisition,
+from apps.requisitions.models import (
+    MaterialToken,
+    Project,
+    Requisition,
+    RequisitionItem,
 )
+from apps.requisitions.services import release_materials
 
 from .exceptions import InsufficientStock
 from .models import SystemAlert, VariantUOM
@@ -51,10 +52,6 @@ class AlertTriggerTestBase(InventoryTestBase):
         self.password = get_random_string(16)
         self.cashier = self._make_user('alert_trig_cashier', 'Cashier')
         self.manager = self._make_user('alert_trig_manager', 'Store Manager')
-        # A release needs a requisition SOMEBODY ELSE requested: `approve_requisition`
-        # refuses the requester (separation of duties), so the foreman raises it and the
-        # store manager approves.
-        self.foreman = self._make_user('alert_trig_foreman', 'Site Foreman')
         self.shift = Shift.objects.create(
             cashier=self.cashier, opening_float=Decimal('5000'))
         self.customer = Customer.objects.create(
@@ -102,17 +99,20 @@ class AlertTriggerTestBase(InventoryTestBase):
         )
 
     def _release(self, qty):
-        """Release `qty` base units against an approved requisition token."""
+        """Release `qty` base units against an APPROVED request's token.
+
+        Decision 01: the request arrives approved from CPMS, so the fixture stores it the
+        way `import_request` does instead of walking a submit/approve flow.
+        """
         project = Project.objects.create(
             name='House Build', customer=self.customer)
         requisition = Requisition.objects.create(
-            project=project, requested_by=self.foreman)
+            project=project, requester_name='Rey Quester',
+            status=Requisition.Status.APPROVED)
         RequisitionItem.objects.create(
-            requisition=requisition, variant=self.variant,
+            requisition=requisition, variant_uom=self.vuom,
             quantity=Decimal(str(qty)))
-        submit_requisition(requisition=requisition)
-        token = approve_requisition(
-            requisition=requisition, approver=self.manager)
+        token = MaterialToken.objects.create(requisition=requisition)
         return release_materials(
             token_value=str(token.token), cashier=self.cashier)
 

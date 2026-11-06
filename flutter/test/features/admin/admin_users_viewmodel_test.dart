@@ -288,6 +288,18 @@ void main() {
     );
   });
 
+  // Decision 01: the Site Foreman group no longer exists (it was a CPMS
+  // identity), so an admin must not be able to hand it out.
+  test('Site Foreman is not assignable', () {
+    for (final isAdmin in const [false, true]) {
+      expect(
+        AdminUsersViewmodel.assignableGroups(isAdmin: isAdmin),
+        isNot(contains('Site Foreman')),
+        reason: 'isAdmin: $isAdmin',
+      );
+    }
+  });
+
   test('create refuses a short password without touching the server', () async {
     final ok = await viewmodel.create(
       username: 'x',

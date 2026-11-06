@@ -31,7 +31,8 @@ class SettingsPage extends StatelessWidget {
     return AdminSkeletonLayout(
       title: 'Settings',
       subtitle: 'Store details this system keeps.',
-      selectedNavigationIndex: 7,
+      // 6, not 7: Requisitions left the sidebar (decision 01).
+      selectedNavigationIndex: 6,
       // A full width card on a 1440 window is three short lines with empty
       // space beside them, so the card keeps a reading width there. Below that
       // width it fills the content area: a 640 px box in a 760 window used to

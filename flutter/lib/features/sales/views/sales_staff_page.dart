@@ -2,7 +2,7 @@ import 'package:client/features/admin/viewmodels/admin_users_viewmodel.dart';
 import 'package:client/features/admin/views/admin_user_management_page.dart';
 import 'package:flutter/material.dart';
 
-/// The Store Manager's staff list (sales sidebar index 8).
+/// The Store Manager's staff list (sales sidebar index 7).
 ///
 /// Phase 5 lets the manager offboard staff (decision 20), but the screen lived
 /// only under /admin/ with the admin sidebar. This is the same screen in the

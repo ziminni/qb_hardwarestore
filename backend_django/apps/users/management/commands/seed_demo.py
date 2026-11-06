@@ -7,6 +7,7 @@
 #
 # `reportGeneralTypeIssues` covers `with db_txn.atomic():`, which reads as a function
 # call rather than a context manager for the same missing-stubs reason.
+import uuid
 from datetime import timedelta
 from decimal import Decimal
 
@@ -16,25 +17,36 @@ from django.utils import timezone
 
 from apps.collectibles.models import CollectibleLedger
 from apps.inventory.models import (
-    Brand, Category, GoodsReceipt, InventoryBatch, Product,
-    ProductVariant, PurchaseOrder, POItem, StockAdjustment, Supplier,
+    Brand,
+    Category,
+    GoodsReceipt,
+    InventoryBatch,
+    POItem,
+    Product,
+    ProductVariant,
+    PurchaseOrder,
+    StockAdjustment,
+    Supplier,
     UnitOfMeasure,
 )
 from apps.inventory.services import (
-    allocate_fifo, apply_stock_adjustment, process_goods_receipt,
+    allocate_fifo,
+    apply_stock_adjustment,
+    process_goods_receipt,
 )
 from apps.pos.models import Customer
 from apps.pos.services import process_sale
-from apps.requisitions.models import Project, Requisition, RequisitionItem
-from apps.requisitions.services import generate_req_number
-from apps.requisitions.services import (
-    approve_requisition, release_materials, submit_requisition,
-)
+from apps.requisitions.models import Requisition
+from apps.requisitions.services import import_request, release_materials
 from apps.users.models import User
 
-PASSWORD = 'demo1234'
+PASSWORD = 'demo1234'  # noqa: S105 - documented demo login (AGENTS.md)
 ROLES = ['System Administrator', 'Store Manager', 'Stock Manager',
-         'Cashier', 'Site Foreman']
+         'Cashier',
+         # Phase 1 (decision 02): the group CPMS's service account lives in. It is not a
+         # POS role - the fence in `apps/users/authentication.py` keeps it inside
+         # `/api/v1/integration/cpms/` - and the foreman role is gone (decision 01).
+         'CPMS Service']
 
 USERS = [
     # username, full_name, group, is_superuser, is_staff
@@ -42,7 +54,8 @@ USERS = [
     ('manager', 'Mana Ger',        'Store Manager',        False, False),
     ('stocker', 'Stock Er',        'Stock Manager',        False, False),
     ('cashier', 'Cashi Er',        'Cashier',              False, False),
-    ('foreman', 'Fore Man',        'Site Foreman',         False, False),
+    # Decision 02: the machine account CPMS logs in as. Not staff, not a superuser.
+    ('cpms_service', 'CPMS Service', 'CPMS Service',       False, False),
 ]
 
 # category, brand, product, [(variant_name, unit_cost, selling_price), ...]
@@ -129,11 +142,14 @@ class Command(BaseCommand):
                     defaults={'base_uom': uoms['PC'],
                               'min_stock_threshold': Decimal('20')},
                 )
-                variant.selling_uoms.get_or_create(
+                vuom, _ = variant.selling_uoms.get_or_create(
                     uom=variant.base_uom,
                     defaults={'conversion_factor': Decimal('1'),
                               'default_selling_price': price})
-                variants[v_name] = {'variant': variant, 'cost': cost}
+                # Decision 04: a requisition line keys on the selling unit, so the
+                # demo requests quote the base unit CPMS would have been shown.
+                variants[v_name] = {
+                    'variant': variant, 'vuom': vuom, 'cost': cost}
         self.stdout.write(self.style.SUCCESS(f'Catalog seeded ({len(variants)} variants)'))
         return variants
 
@@ -145,7 +161,7 @@ class Command(BaseCommand):
             company_name='Cebu Building Supply',
             defaults={'contact_person': 'Lito Ramos', 'phone': '0917-111-2222'})
         low_stock_variant = None
-        for i, (v_name, info) in enumerate(variants.items()):
+        for i, (_v_name, info) in enumerate(variants.items()):
             po = PurchaseOrder.objects.create(
                 supplier=supplier, created_by=stocker,
                 status=PurchaseOrder.Status.ORDERED,
@@ -232,7 +248,7 @@ class Command(BaseCommand):
         # reason. Found by actually running the command, not by reading it.
         from django.db import transaction as db_txn
         with db_txn.atomic():
-            for (adjustment_type, qty, remarks), variant in zip(plan, targets):
+            for (adjustment_type, qty, remarks), variant in zip(plan, targets, strict=False):
                 adjustment = StockAdjustment.objects.create(
                     variant=variant,
                     user=stocker,
@@ -332,35 +348,34 @@ class Command(BaseCommand):
         if Requisition.objects.exists():
             self.stdout.write(self.style.WARNING('Requisitions already seeded - skipping'))
             return
-        project, _ = Project.objects.get_or_create(
-            name='2-Storey House - Mandaue',
-            defaults={'customer': customers['Dela Cruz Construction']})
         v_names = list(variants.keys())
+        # Decision 03: CPMS owns the project list, so the demo project is identified by
+        # its CPMS id and billed to the contractor customer.
+        project = {
+            'cpms_project_id': 'CPMS-P-1001',
+            'name': '2-Storey House - Mandaue',
+            'payer': customers['Dela Cruz Construction'].pk,
+        }
 
-        # DRAFT
-        draft = Requisition.objects.create(req_number=generate_req_number(), project=project, requested_by=users['foreman'])
-        RequisitionItem.objects.create(
-            requisition=draft, variant=variants[v_names[1]]['variant'], quantity=Decimal('10'))
+        def push(cpms_request_id, variant_name, quantity):
+            """One APPROVED request, exactly as CPMS pushes it (decisions 02 and 04)."""
+            token = uuid.uuid4()
+            import_request(
+                cpms_request_id=cpms_request_id,
+                token=token,
+                project=project,
+                requester_name='Rey Quester',
+                approver_name=users['manager'].full_name,
+                items=[{'code': variants[variant_name]['vuom'].barcode_qr,
+                        'quantity': Decimal(quantity)}],
+            )
+            return token
 
-        # SUBMITTED
-        submitted = Requisition.objects.create(req_number=generate_req_number(), project=project, requested_by=users['foreman'])
-        RequisitionItem.objects.create(
-            requisition=submitted, variant=variants[v_names[2]]['variant'], quantity=Decimal('5'))
-        submit_requisition(requisition=submitted)
+        # APPROVED (token ready for the POS release demo)
+        token = push('CPMS-R-1001', v_names[0], '8')
 
-        # APPROVED (token ready for POS release demo)
-        approved = Requisition.objects.create(req_number=generate_req_number(), project=project, requested_by=users['foreman'])
-        RequisitionItem.objects.create(
-            requisition=approved, variant=variants[v_names[0]]['variant'], quantity=Decimal('8'))
-        submit_requisition(requisition=approved)
-        token = approve_requisition(requisition=approved, approver=users['manager'])
-
-        # RELEASED (full flow - deducts stock, posts ledger)
-        released = Requisition.objects.create(req_number=generate_req_number(), project=project, requested_by=users['foreman'])
-        RequisitionItem.objects.create(
-            requisition=released, variant=variants[v_names[3]]['variant'], quantity=Decimal('4'))
-        submit_requisition(requisition=released)
-        rel_token = approve_requisition(requisition=released, approver=users['manager'])
+        # RELEASED (the full flow - deducts stock, posts the project's utang)
+        rel_token = push('CPMS-R-1002', v_names[3], '4')
         # Phase 3 (decision 03): a release needs the cashier's OPEN shift, and `_seed_sales`
         # already closed the one it sold through. Reopen (or reuse) here and leave it open:
         # the release belongs inside a shift's Z-reading, and an open shift is also what the
@@ -374,11 +389,24 @@ class Command(BaseCommand):
             self.stdout.write(
                 f'  + shift {shift.id} opened for {users["cashier"].username} '
                 '(release shift, left open for the demo)')
-        release_materials(token_value=str(rel_token.token), cashier=users['cashier'])
+        release_materials(token_value=str(rel_token), cashier=users['cashier'])
+
+        # PARTIAL (decision 05: the shelf is short, the token survives the visit). The
+        # line asks for MORE than the shelf holds, derived from the shelf itself so the
+        # demo cannot drift into "everything fit after all".
+        partial_variant = variants[v_names[2]]['variant']
+        on_hand = sum(
+            partial_variant.batches.values_list('current_qty', flat=True))
+        partial_token = push('CPMS-R-1003', v_names[2], on_hand + 5)
+        partial = release_materials(
+            token_value=str(partial_token), cashier=users['cashier'])
 
         self.stdout.write(self.style.SUCCESS(
-            'Requisitions seeded (DRAFT/SUBMITTED/APPROVED/RELEASED)'))
-        self.stdout.write(f'  APPROVED token (ready for POS release): {token.token}')
+            'Requisitions seeded (APPROVED/PARTIAL/RELEASED, pushed by CPMS)'))
+        self.stdout.write(f'  APPROVED token (ready for POS release): {token}')
+        self.stdout.write(
+            f'  PARTIAL token (scan again after a goods receipt): {partial_token} '
+            f'({partial["status"]}, {partial["items"][0]["outstanding"]} outstanding)')
 
     def _print_summary(self, users):
         from apps.pos.models import SalesTransaction

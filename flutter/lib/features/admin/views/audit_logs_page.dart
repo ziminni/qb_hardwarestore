@@ -141,7 +141,8 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
     return AdminSkeletonLayout(
       title: 'Audit Logs',
       subtitle: 'Review recorded activity across the system.',
-      selectedNavigationIndex: 6,
+      // 5, not 6: Requisitions left the sidebar (decision 01).
+      selectedNavigationIndex: 5,
       // The trail owns the scrolling: a 50 row server page builds only the rows
       // on screen, and the pager below never scrolls out of reach.
       scrollable: false,

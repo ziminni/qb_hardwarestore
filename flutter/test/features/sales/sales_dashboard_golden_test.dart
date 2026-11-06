@@ -7,16 +7,13 @@ import 'package:client/core/constants/app_assets.dart';
 import 'package:client/core/theme/app_theme.dart';
 import 'package:client/data/models/ledger_entry.dart';
 import 'package:client/data/models/reports.dart';
-import 'package:client/data/models/requisition.dart';
 import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/repositories/ledger_repository.dart';
 import 'package:client/data/repositories/reports_repository.dart';
-import 'package:client/data/repositories/requisition_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/ledger_service.dart';
 import 'package:client/data/services/reports_service.dart';
-import 'package:client/data/services/requisition_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/sales_dashboard_alerts_viewmodel.dart';
@@ -95,7 +92,6 @@ void main() {
       expect(find.byType(ErrorBanner), findsNothing);
       // What needs the manager, then the numbers, all on screen.
       expect(find.text('Needs you'), findsOneWidget);
-      expect(find.text('Requisitions waiting'), findsOneWidget);
       expect(find.text('Overdue receivables'), findsOneWidget);
       expect(find.text('Returns today'), findsOneWidget);
       // Seven digits, so the money grouping is tested on a real width.
@@ -197,46 +193,28 @@ TransactionRecord _return({
   payments: const [],
 );
 
-/// Three requisitions waiting and two receivables already past due.
-SalesDashboardAlertsViewmodel _queues({
-  int awaiting = 3,
-  int overdue = 2,
-  bool failing = false,
-}) => SalesDashboardAlertsViewmodel(
-  requisitions: failing
-      ? _FailingRequisitions()
-      : _StubRequisitions(
-          rows: [
-            for (var i = 1; i <= awaiting; i++)
-              Requisition(
-                id: i,
-                reqNumber: 'REQ-20261030-000$i',
-                rawStatus: RequisitionStatus.submitted.apiValue,
-                projectName: 'Dela Cruz Residence',
-                projectCustomerName: 'Dela Cruz Construction',
-                requestedByName: 'Eng. Reyes',
-                items: const [],
-              ),
-          ],
-        ),
-  ledgers: failing
-      ? _FailingLedgers()
-      : _StubLedgers(
-          rows: [
-            for (var i = 1; i <= overdue; i++)
-              LedgerEntry(
-                id: i,
-                customerId: i,
-                customerName: 'Customer $i',
-                transactionNo: 'TRX-20261030-000$i',
-                originalAmount: 48000,
-                balanceDue: 24000,
-                dueDate: DateTime(2026, 9, 30),
-                isOverdue: true,
-              ),
-          ],
-        ),
-);
+/// Two receivables already past due. The requisition queue that used to be
+/// counted here is gone (decision 01: CPMS approves).
+SalesDashboardAlertsViewmodel _queues({int overdue = 2, bool failing = false}) =>
+    SalesDashboardAlertsViewmodel(
+      ledgers: failing
+          ? _FailingLedgers()
+          : _StubLedgers(
+              rows: [
+                for (var i = 1; i <= overdue; i++)
+                  LedgerEntry(
+                    id: i,
+                    customerId: i,
+                    customerName: 'Customer $i',
+                    transactionNo: 'TRX-20261030-000$i',
+                    originalAmount: 48000,
+                    balanceDue: 24000,
+                    dueDate: DateTime(2026, 9, 30),
+                    isOverdue: true,
+                  ),
+              ],
+            ),
+    );
 
 /// The catalogue the four fixture selling units belong to, named the way the
 /// products screen names them.
@@ -320,7 +298,7 @@ _empty() => (
     service: StubSalesService(),
     reports: _SummaryRepository(totalGross: 0, totalTransactions: 0),
   ),
-  alerts: _queues(awaiting: 0, overdue: 0),
+  alerts: _queues(overdue: 0),
 );
 
 ({InventorySalesViewmodel sales, SalesDashboardAlertsViewmodel alerts})
@@ -362,25 +340,6 @@ class _FailingReports extends ReportsRepository {
   @override
   Future<SalesSummary> fetchSalesSummary({String? from, String? to}) async =>
       throw const ReportsServiceException('Summary unavailable.');
-}
-
-class _StubRequisitions extends RequisitionRepository {
-  _StubRequisitions({required this.rows}) : super();
-
-  final List<Requisition> rows;
-
-  @override
-  Future<List<Requisition>> fetchRequisitions() async => rows;
-}
-
-class _FailingRequisitions extends RequisitionRepository {
-  _FailingRequisitions() : super();
-
-  @override
-  Future<List<Requisition>> fetchRequisitions() async =>
-      throw const RequisitionServiceException(
-        'The requisition list could not be loaded. Try again.',
-      );
 }
 
 class _StubLedgers extends LedgerRepository {

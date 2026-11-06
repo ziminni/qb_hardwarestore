@@ -42,11 +42,13 @@ class AdminUsersViewmodel extends ChangeNotifier {
   /// Compare by GROUP name (what `assign_role` takes), never by display
   /// label or client role code — the Phase 4 Resolve outage was a test that
   /// used a label where the wire carries a code.
+  /// `Site Foreman` is deliberately ABSENT (decision 01): it was a CPMS
+  /// identity with no POS screen, and the group no longer exists server-side,
+  /// so offering it here would create an account that cannot be used.
   static List<String> assignableGroups({required bool isAdmin}) => [
     'Cashier',
     'Stock Manager',
     'Store Manager',
-    'Site Foreman',
     if (isAdmin) ...['Admin', 'System Administrator'],
   ];
 

@@ -2,14 +2,20 @@ import 'package:client/data/models/json_field.dart';
 
 /// Where a requisition stands in its lifecycle.
 ///
-/// `unknown` exists so a status the client has not been taught does not read as DRAFT — the
-/// approve queue's whole job is to show what is WAITING, and a row that silently disappeared (or
-/// claimed to be a draft) would be material nobody releases.
+/// `unknown` exists so a status the client has not been taught does not read as DRAFT: the
+/// reports tab shows every status CPMS can leave behind, and a row filed under the wrong word
+/// is worse than one that admits the client is behind.
+///
+/// The POS no longer approves anything (decision 01), so `submitted` survives only to describe
+/// a legacy row; `partial` and `closed` are the two CPMS and the till write today.
 enum RequisitionStatus {
   draft('DRAFT', 'Draft'),
   submitted('SUBMITTED', 'Awaiting approval'),
   approved('APPROVED', 'Approved'),
+  partial('PARTIAL', 'Partially released'),
   released('RELEASED', 'Released'),
+  closed('CLOSED', 'Closed'),
+  cancelled('CANCELLED', 'Cancelled'),
   rejected('REJECTED', 'Rejected'),
   unknown('', 'Unknown');
 
@@ -17,9 +23,6 @@ enum RequisitionStatus {
 
   final String apiValue;
   final String label;
-
-  /// Only SUBMITTED can be approved or rejected, mirroring the server's guards.
-  bool get isAwaitingApproval => this == submitted;
 
   static RequisitionStatus fromApiValue(String? value) {
     for (final status in values) {
@@ -108,7 +111,36 @@ class Requisition {
   );
 }
 
-/// One line of a VERIFIED token, carrying what is still outstanding.
+/// What the till can hand over from one requested line, as the token check reports it
+/// (decision 05).
+///
+/// The server sends one of these four words for every line. A word this build was never
+/// taught reads as [unavailable]: promising stock that is not on the shelf is the one
+/// release error that cannot be undone, so the unknown case fails towards "nothing goes".
+enum LineAvailability {
+  full('FULL'),
+  short('SHORT'),
+  unavailable('UNAVAILABLE'),
+  done('DONE');
+
+  const LineAvailability(this.apiValue);
+
+  final String apiValue;
+
+  static LineAvailability fromApiValue(String? value) {
+    for (final known in values) {
+      if (known.apiValue == value) return known;
+    }
+    return unavailable;
+  }
+}
+
+/// One line of a VERIFIED token, carrying what is still outstanding and what can leave
+/// the store now.
+///
+/// [releasable] is capped by [remaining] and by the shelf on the server, so a short line
+/// says exactly how much goes today ([goesNow]) and how much stays on the token
+/// ([outstanding]).
 class VerifiedRequisitionItem {
   const VerifiedRequisitionItem({
     required this.id,
@@ -116,6 +148,8 @@ class VerifiedRequisitionItem {
     required this.variantName,
     required this.quantity,
     required this.remaining,
+    required this.availability,
+    required this.releasable,
   });
 
   final int id;
@@ -123,7 +157,31 @@ class VerifiedRequisitionItem {
   final String variantName;
   final double quantity;
   final double remaining;
+  final LineAvailability availability;
 
+  /// What the server says can leave the store on this scan, capped by [remaining].
+  final double releasable;
+
+  /// True when this line hands something over today.
+  ///
+  /// Read off [availability] as well as the quantity, because a line the server called
+  /// [LineAvailability.unavailable] or [LineAvailability.done] must never be released
+  /// whatever number rode along with it.
+  bool get isReleasable =>
+      (availability == LineAvailability.full ||
+          availability == LineAvailability.short) &&
+      releasable > 0;
+
+  /// What leaves the store on this scan.
+  double get goesNow => isReleasable ? releasable : 0;
+
+  /// What stays open on this token after the release: the project comes back for it.
+  double get outstanding => remaining > goesNow ? remaining - goesNow : 0;
+
+  /// Parses one line, tolerating a response without the two availability fields.
+  ///
+  /// An older server that does not send them reads as "nothing can go", which disables
+  /// the confirm press instead of promising stock nobody counted.
   static VerifiedRequisitionItem fromJson(Map<String, dynamic> json) =>
       VerifiedRequisitionItem(
         id: intField(json, 'id'),
@@ -131,6 +189,12 @@ class VerifiedRequisitionItem {
         variantName: stringField(json, 'variant_name'),
         quantity: decimalField(json, 'quantity'),
         remaining: decimalField(json, 'remaining'),
+        availability: LineAvailability.fromApiValue(
+          json['availability'] as String?,
+        ),
+        releasable: json['releasable'] == null
+            ? 0
+            : decimalField(json, 'releasable'),
       );
 }
 
@@ -165,13 +229,58 @@ class TokenVerification {
       project: stringField(req, 'project'),
       customer: stringField(req, 'customer'),
       items: ((json['items'] as List?) ?? const [])
-          .map((row) => VerifiedRequisitionItem.fromJson(row as Map<String, dynamic>))
+          .map(
+            (row) =>
+                VerifiedRequisitionItem.fromJson(row as Map<String, dynamic>),
+          )
           .toList(growable: false),
     );
   }
 }
 
-/// What `POST /api/v1/tokens/release/` answers — the sale the release created.
+/// Where the REQUEST stands after a release (decision 05): [partial] means the token is
+/// still alive because some lines kept their outstanding quantity.
+enum ReleaseStatus {
+  released('RELEASED'),
+  partial('PARTIAL'),
+  unknown('');
+
+  const ReleaseStatus(this.apiValue);
+
+  final String apiValue;
+
+  static ReleaseStatus fromApiValue(String? value) {
+    for (final known in values) {
+      if (known != unknown && known.apiValue == value) return known;
+    }
+    return unknown;
+  }
+}
+
+/// One line of the release answer: what this scan moved and what is still owed on it.
+class ReleasedLine {
+  const ReleasedLine({
+    required this.code,
+    required this.releasedNow,
+    required this.outstanding,
+  });
+
+  /// The material's barcode/QR code — the server's handle for a line, not its name.
+  final String code;
+  final double releasedNow;
+  final double outstanding;
+
+  bool get isOpen => outstanding > 0;
+
+  static ReleasedLine fromJson(Map<String, dynamic> json) => ReleasedLine(
+    code: stringField(json, 'code'),
+    releasedNow: decimalField(json, 'released_now'),
+    outstanding: decimalField(json, 'outstanding'),
+  );
+}
+
+/// What `POST /api/v1/tokens/release/` answers — the sale the release created, and what
+/// is left on the request.
 ///
 /// A release is a SALE, not a stock adjustment: the server FIFO-deducts through the same
 /// allocator the checkout uses and creates a `SalesTransaction` with `source=REQUISITION`.
@@ -181,6 +290,8 @@ class ReleaseResult {
   const ReleaseResult({
     required this.transactionId,
     required this.transactionNo,
+    required this.status,
+    required this.items,
     required this.grandTotal,
     required this.ledgerId,
     required this.balanceDue,
@@ -188,13 +299,31 @@ class ReleaseResult {
 
   final int transactionId;
   final String transactionNo;
+  final ReleaseStatus status;
+
+  /// What this scan moved and what is still owed, one entry per requested line.
+  final List<ReleasedLine> items;
+
   final double grandTotal;
   final int ledgerId;
   final double balanceDue;
 
+  /// Lines a later scan still has to hand over.
+  int get openLineCount => items.where((line) => line.isOpen).length;
+
+  /// True when the request is still partly open.
+  ///
+  /// The lines decide, not only the status word: a status this build has not been taught
+  /// must not tell a clerk the request is finished while a line still owes goods.
+  bool get isPartial => status == ReleaseStatus.partial || openLineCount > 0;
+
   static ReleaseResult fromJson(Map<String, dynamic> json) => ReleaseResult(
     transactionId: intField(json, 'transaction_id'),
     transactionNo: stringField(json, 'transaction_no'),
+    status: ReleaseStatus.fromApiValue(json['status'] as String?),
+    items: ((json['items'] as List?) ?? const [])
+        .map((row) => ReleasedLine.fromJson(row as Map<String, dynamic>))
+        .toList(growable: false),
     grandTotal: decimalField(json, 'grand_total'),
     ledgerId: intField(json, 'ledger_id'),
     balanceDue: decimalField(json, 'balance_due'),

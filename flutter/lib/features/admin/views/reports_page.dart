@@ -48,7 +48,9 @@ class _ReportsView extends StatelessWidget {
     return const AdminSkeletonLayout(
       title: 'Reports',
       subtitle: 'Managerial reports over live operations data.',
-      selectedNavigationIndex: 5,
+      // 4, not 5: Requisitions left the admin sidebar (decision 01), so
+      // Reports moved up one. A stale number here highlights Audit logs.
+      selectedNavigationIndex: 4,
       child: ReportsContent(),
     );
   }
@@ -841,7 +843,13 @@ String _statusLabel(String apiValue) {
 StatusTone _statusTone(RequisitionStatus status) => switch (status) {
   RequisitionStatus.submitted => StatusTone.warning,
   RequisitionStatus.approved => StatusTone.info,
+  // Partly released: stock still owes the project, so it reads as work outstanding.
+  RequisitionStatus.partial => StatusTone.warning,
   RequisitionStatus.released => StatusTone.success,
   RequisitionStatus.rejected => StatusTone.error,
-  RequisitionStatus.draft || RequisitionStatus.unknown => StatusTone.neutral,
+  // Closed is a finished, quiet state: CPMS shut the remainder, nothing to chase.
+  RequisitionStatus.closed ||
+  RequisitionStatus.cancelled ||
+  RequisitionStatus.draft ||
+  RequisitionStatus.unknown => StatusTone.neutral,
 };

@@ -39,7 +39,6 @@ from apps.inventory.models import SystemAlert
 from apps.inventory.tests import InventoryTestBase
 from apps.pos.models import Customer, SalesTransaction, Shift
 from apps.pos.tests import POSTestBase
-from apps.requisitions.services import submit_requisition
 from apps.requisitions.tests import RequisitionTestBase
 
 from .admin import AuditLogAdmin
@@ -345,19 +344,23 @@ class ShiftAuditTests(AuditAssertions, _RoleUsersMixin, POSTestBase):
 
 
 # ---------------------------------------------------------------------------
-# Requisitions: approve, reject, release
+# Requisitions: release
 # ---------------------------------------------------------------------------
 
 class RequisitionAuditTests(AuditAssertions, _RoleUsersMixin, RequisitionTestBase):
-    """Approval, rejection and release are the credit-bearing events of a requisition."""
+    """A release is the credit-bearing event of a requisition.
+
+    Approval and rejection used to be audited here too. Decision 01 moved both to CPMS,
+    so those rows are written by the integration import (`apps.integration.tests_import`)
+    and the POS no longer has the actions to test.
+    """
 
     def setUp(self):
         super().setUp()
         self._init_password()
-        for user in (self.manager, self.foreman, self.cashier):
+        for user in (self.manager, self.cashier):
             self._reset_password(user)
         self.manager.groups.add(Group.objects.get_or_create(name='Store Manager')[0])
-        self.foreman.groups.add(Group.objects.get_or_create(name='Site Foreman')[0])
         self.cashier.groups.add(Group.objects.get_or_create(name='Cashier')[0])
         self.requisition.req_number = 'REQ-AUDIT-0001'
         self.requisition.save(update_fields=['req_number'])
@@ -368,48 +371,9 @@ class RequisitionAuditTests(AuditAssertions, _RoleUsersMixin, RequisitionTestBas
         Shift.objects.create(cashier=self.manager, opening_float=Decimal('5000'))
         self.client = APIClient()
 
-    def test_approve_writes_one_row_with_the_req_number(self):
-        submit_requisition(requisition=self.requisition)
-        response = self.client.post(
-            f'/api/v1/requisitions/{self.requisition.pk}/approve/',
-            format='json', **self._auth(self.manager))
-        self.assertEqual(response.status_code, 200, response.data)
-        self.assert_one_row(
-            'REQ_APPROVE', actor=self.manager,
-            contains=['REQ-AUDIT-0001'])
-        # The token UUID is a bearer credential: it may not reach the audit text.
-        self.assertNotIn(response.data['token'], self.rows(
-            'REQ_APPROVE').get().description)
-
-    def test_reject_writes_one_row_with_the_req_number(self):
-        submit_requisition(requisition=self.requisition)
-        response = self.client.post(
-            f'/api/v1/requisitions/{self.requisition.pk}/reject/',
-            format='json', **self._auth(self.manager))
-        self.assertEqual(response.status_code, 200, response.data)
-        self.assert_one_row(
-            'REQ_REJECT', actor=self.manager,
-            contains=['REQ-AUDIT-0001'])
-
-    def test_self_approval_writes_no_row(self):
-        self.requisition.requested_by = self.manager
-        self.requisition.save(update_fields=['requested_by'])
-        submit_requisition(requisition=self.requisition)
-
-        response = self.client.post(
-            f'/api/v1/requisitions/{self.requisition.pk}/approve/',
-            format='json', **self._auth(self.manager))
-        self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data['code'], 'SELF_APPROVAL')
-        self.assert_no_rows('REQ_APPROVE')
-
     def test_release_writes_one_row_without_the_token_uuid(self):
-        submit_requisition(requisition=self.requisition)
-        approve = self.client.post(
-            f'/api/v1/requisitions/{self.requisition.pk}/approve/',
-            format='json', **self._auth(self.manager))
-        self.assertEqual(approve.status_code, 200, approve.data)
-        token = approve.data['token']
+        # Decision 02: the CPMS push mints the token with the APPROVED request.
+        token = str(self._mint_token().token)
 
         response = self.client.post(
             TOKENS_RELEASE_URL, {'token': token},

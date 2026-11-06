@@ -31,8 +31,9 @@ Every pointer must resolve; a broken pointer is fixed in the commit that breaks 
 
 ## Current Status & Next Step
 
-- **Branch:** `feature/backend-integration`, pushed through `4a853b2` (count stales on the next commit).
-- **Last session:** `docs/sessions/2026-11-03-ui-refresh-z2-whole-app-pass.md` — Z2 closed the UI refresh; audit-remediation and UI-refresh plans both complete. Gate: analyze clean, flutter `+1257 ~224`, goldens `+224`, backend `Ran 497` OK.
-- **Next:** `wayfinder` on `planning/pos-evolution/MAP.md` — resolve "How approved requests reach the POS" (Phase 1 is blocked on it). Undecided Lows are in the last session note.
+- **Branch:** `feat/pos-evolution-phase-1` (off `4e791eb`); Phase 1 Tasks 0–10 built, **staged, not committed**. CPMS repo untouched.
+- **Last session:** `docs/sessions/2026-11-06-pos-evolution-phase-1-build.md`. Gate: backend `Ran 598` OK, flutter `+1277 ~221`, goldens `+221`; **analyze: 1 info** at `flutter/test/data/services/ledger_service_test.dart:92` (braces).
+- **Next:** fix that info and re-stage → review `docs/integration/CPMS-CONTRACT.md` (Task 11, 🧑) → `execute-phase` Task 12 (QA, atlas, MAP ✅) → commit.
+- **Demo accounts:** `admin`, `manager`, `stocker`, `cashier`, `cpms_service` / `demo1234` (no foreman any more).
 - **Proof standard:** a test covers a fix only after it fails without the fix; a claim without its command output in the same message is unverified.
-- **Caveats:** desktop pixels are user-verified only (`flutter run -d linux`); `.superpowers/` is gitignored, so ledgers live only on this machine.
+- **Caveats:** desktop pixels are user-verified only (`flutter run -d linux`); `.superpowers/` is gitignored, so ledgers and goldens live only on this machine; the editor hook re-formats staged Dart files, so re-stage after edits.

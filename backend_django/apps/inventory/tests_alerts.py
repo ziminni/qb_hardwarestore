@@ -50,7 +50,6 @@ class AlertResolveTestBase(InventoryTestBase):
         self.stocker = self._make_user('alert_stocker', 'Stock Manager')
         self.manager = self._make_user('alert_manager', 'Store Manager')
         self.cashier = self._make_user('alert_cashier', 'Cashier')
-        self.foreman = self._make_user('alert_foreman', 'Site Foreman')
         # Deny by default: a user with no role group at all.
         self.nobody = self._make_user('alert_nobody')
         self.alert = SystemAlert.objects.create(
@@ -121,9 +120,6 @@ class ResolveDeniedTests(AlertResolveTestBase):
 
     def test_cashier_cannot_resolve(self):
         self._assert_denied(self.cashier)
-
-    def test_foreman_cannot_resolve(self):
-        self._assert_denied(self.foreman)
 
     def test_groupless_user_cannot_resolve(self):
         self._assert_denied(self.nobody)

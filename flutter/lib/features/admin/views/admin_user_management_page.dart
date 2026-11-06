@@ -111,7 +111,9 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
             return SalesSkeletonLayout(
               title: 'Staff',
               subtitle: subtitle,
-              selectedNavigationIndex: 8,
+              // Staff is index 7 in the sales sidebar: Approvals (decision 01)
+              // used to occupy 7 and is gone.
+              selectedNavigationIndex: 7,
               onNavigationSelected: (index) => navigateSales(context, index),
               // The list owns its scrolling: `Expanded` below needs a bounded
               // body, and a long list must build only the rows on screen.

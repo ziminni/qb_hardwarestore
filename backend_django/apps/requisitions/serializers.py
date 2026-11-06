@@ -3,7 +3,7 @@
 from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
 
-from apps.users.permissions import ROLE_SITE_FOREMAN, IsManagerRole, has_role
+from apps.users.permissions import IsManagerRole, has_role
 
 from .models import (
     MaterialToken,
@@ -19,7 +19,7 @@ class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
         fields = [
-            'id', 'name', 'customer', 'customer_name',
+            'id', 'name', 'cpms_project_id', 'customer', 'customer_name',
             'location', 'start_date', 'end_date',
             'is_active', 'notes', 'created_at', 'updated_at',
         ]
@@ -27,12 +27,21 @@ class ProjectSerializer(serializers.ModelSerializer):
 
 
 class RequisitionItemSerializer(serializers.ModelSerializer):
-    variant_name = serializers.CharField(source='variant.variant_name', read_only=True)
+    """A requisition line, priced and counted in its SELLING unit (decision 04).
+
+    `variant` and `variant_name` stay on the wire exactly as they were, read-only and
+    derived from `variant_uom`: the Flutter `RequisitionItem` model still decodes those two
+    keys, and dropping them would break the release screen. Writes take `variant_uom`.
+    """
+    variant = serializers.IntegerField(
+        source='variant_uom.variant_id', read_only=True)
+    variant_name = serializers.CharField(
+        source='variant_uom.variant.variant_name', read_only=True)
 
     class Meta:
         model = RequisitionItem
         fields = [
-            'id', 'requisition', 'variant', 'variant_name',
+            'id', 'requisition', 'variant_uom', 'variant', 'variant_name',
             'quantity', 'released_qty', 'notes',
         ]
         read_only_fields = ['id']
@@ -40,8 +49,10 @@ class RequisitionItemSerializer(serializers.ModelSerializer):
 
 class RequisitionSerializer(serializers.ModelSerializer):
     items = RequisitionItemSerializer(many=True, read_only=True)
+    # Same wire key the Flutter model reads; the value now comes from CPMS, not a FK.
     requested_by_name = serializers.CharField(
-        source='requested_by.full_name', read_only=True)
+        source='requester_name', read_only=True)
+    approver_name = serializers.CharField(read_only=True)
     project_name = serializers.CharField(source='project.name', read_only=True)
     # Decision 09: the approve queue must show WHERE a requisition came from, and the
     # list endpoint is that queue's only data source. A read-only representation field
@@ -54,12 +65,11 @@ class RequisitionSerializer(serializers.ModelSerializer):
         model = Requisition
         fields = [
             'id', 'project', 'project_name', 'project_customer_name', 'req_number',
-            'requested_by', 'requested_by_name',
-            'approved_by', 'status', 'notes',
+            'requested_by_name', 'approver_name', 'cpms_request_id', 'status', 'notes',
             'items', 'token', 'created_at', 'updated_at',
         ]
         read_only_fields = [
-            'id', 'req_number', 'approved_by',
+            'id', 'req_number', 'cpms_request_id',
             # `status` is ACTION-only (review F2): it moves through
             # `submit` / `approve` / `reject` and nowhere else. It used to be writable,
             # so `PATCH {"status": "APPROVED"}` walked a DRAFT to APPROVED (or RELEASED)
@@ -70,16 +80,13 @@ class RequisitionSerializer(serializers.ModelSerializer):
             'status',
             'created_at', 'updated_at',
         ]
-        extra_kwargs = {
-            'requested_by': {'read_only': True},
-        }
 
     def get_token(self, obj):
         """The material token UUID — a BEARER credential, so it needs a named reader.
 
         Whoever holds this UUID can release the goods on credit, so `GET /requisitions/`
-        must not hand it to anyone who can log in. Only a manager/admin (any row) or the
-        requesting foreman sees it; everyone else gets `None`.
+        must not hand it to anyone who can log in. Only a manager/admin sees it; everyone
+        else gets `None`.
 
         The key stays PRESENT with `null` because the Flutter `Requisition` model reads a
         nullable `token` — dropping the key would break that decode.
@@ -101,9 +108,7 @@ class RequisitionSerializer(serializers.ModelSerializer):
             # No request context (a direct serializer use, a test): nothing to authorise
             # against, so the credential is not disclosed.
             return False
-        if has_role(user, IsManagerRole.required_roles):
-            return True
-        return has_role(user, [ROLE_SITE_FOREMAN]) and obj.requested_by_id == user.pk
+        return has_role(user, IsManagerRole.required_roles)
 
 
 class TokenVerifySerializer(serializers.Serializer):

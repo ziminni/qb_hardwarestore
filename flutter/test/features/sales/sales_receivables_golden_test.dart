@@ -164,6 +164,8 @@ List<LedgerEntry> _rows() {
       balanceDue: 472,
       dueDate: today.add(const Duration(days: 30)),
       isOverdue: false,
+      // Task 10: a release-made utang names its project under the payer.
+      projectName: 'Two Storey House Mandaue',
     ),
     LedgerEntry(
       id: 2,
@@ -195,6 +197,7 @@ List<LedgerEntry> _rows() {
       balanceDue: 1200,
       dueDate: today.add(const Duration(days: 45)),
       isOverdue: false,
+      // A counter sale: no project, so this row shows no project line at all.
     ),
   ];
 }

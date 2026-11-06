@@ -31,6 +31,46 @@ class MaterialReleaseViewmodel extends ChangeNotifier {
   bool get hasVerified => verification != null;
   bool get isReleased => result != null;
 
+  /// The lines this scan can hand over (decision 05).
+  Iterable<VerifiedRequisitionItem> get releasableLines =>
+      (verification?.items ?? const <VerifiedRequisitionItem>[]).where(
+        (line) => line.isReleasable,
+      );
+
+  /// True when anything can leave the store on this scan.
+  bool get hasReleasable => releasableLines.isNotEmpty;
+
+  int get releasableLineCount => releasableLines.length;
+  int get totalLineCount => verification?.items.length ?? 0;
+
+  /// True when the release will leave lines open on this token.
+  ///
+  /// Read per line rather than from the request's status, because a SHORT line keeps its
+  /// remainder: the token stays valid and the project comes back for it.
+  bool get leavesLinesOpen =>
+      (verification?.items ?? const <VerifiedRequisitionItem>[]).any(
+        (line) => line.outstanding > 0,
+      );
+
+  /// Why the confirm press is not offered, in the clerk's words. Null when it is.
+  ///
+  /// A pressed button that can only fail is a server error at the counter, so the reason
+  /// replaces the button. The two cases are different instructions: an empty shelf means
+  /// "come back after a delivery", a finished token means "this paper is done".
+  String? get confirmBlockedReason {
+    if (verification == null || hasReleasable) return null;
+    final allReleased = verification!.items.every(
+      (line) => line.availability == LineAvailability.done,
+    );
+    if (allReleased) {
+      return 'Everything on this request was already released.';
+    }
+    return 'Nothing on this request is in stock right now. The token stays valid.';
+  }
+
+  /// Lines a later scan still has to hand over, from the server's own release answer.
+  int get openLineCount => result?.openLineCount ?? 0;
+
   /// True when the last RELEASE was refused with `NO_OPEN_SHIFT`.
   ///
   /// Decision 03 (Phase 3): a release is recorded against the cashier's open
@@ -63,6 +103,9 @@ class MaterialReleaseViewmodel extends ChangeNotifier {
   Future<bool> release() async {
     final token = verification?.token;
     if (token == null || result != null) return false;
+    // Decision 05: nothing releasable writes nothing at all on the server, so the press
+    // is refused HERE, where the clerk can still be told why.
+    if (!hasReleasable) return false;
 
     error = null;
     needsOpenShift = false;

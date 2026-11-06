@@ -32,6 +32,15 @@ class CollectibleLedger(models.Model):
         on_delete=models.PROTECT,
         related_name='collectible_ledgers',
     )
+    # Decision 03: the contractor stays the payer, but the utang has to say WHICH project
+    # owes it. Set by `release_materials` only, so walk-in sales carry none.
+    project = models.ForeignKey(
+        'requisitions.Project',
+        on_delete=models.PROTECT,
+        related_name='ledger_entries',
+        null=True,
+        blank=True,
+    )
     original_amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,

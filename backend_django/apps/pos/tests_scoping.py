@@ -62,7 +62,6 @@ class ScopingTestBase(POSTestBase):
         self.cashier_b = self._make_user('scope_cashier_b', 'Cashier')
         self.manager = self._make_user('scope_manager', 'Store Manager')
         self.stocker = self._make_user('scope_stocker', 'Stock Manager')
-        self.foreman = self._make_user('scope_foreman', 'Site Foreman')
         # Deny by default: a user with no role group at all.
         self.nobody = self._make_user('scope_nobody')
         self.txn_a = self._ring_sale(self.cashier_a, 2)  # 20.00
@@ -151,8 +150,8 @@ class TransactionScopingTests(ScopingTestBase):
         self.assertEqual(
             Decimal(str(manager_response.data['total_sales'])), Decimal('30.00') + Decimal('20.00'))
 
-    def test_foreman_and_groupless_are_refused_sales_reads(self):
-        for user in (self.foreman, self.nobody):
+    def test_groupless_is_refused_sales_reads(self):
+        for user in (self.nobody,):
             with self.subTest(user=user.username):
                 self.assertEqual(
                     self._get(TRANSACTIONS_URL, user).status_code, 403)
@@ -196,8 +195,8 @@ class PaymentAndReceiptScopingTests(ScopingTestBase):
                 self.assertEqual(
                     self._get(RECEIPTS_URL, user).data['count'], 2)
 
-    def test_foreman_and_groupless_cannot_read_payments_or_receipts(self):
-        for user in (self.foreman, self.nobody):
+    def test_groupless_cannot_read_payments_or_receipts(self):
+        for user in (self.nobody,):
             with self.subTest(user=user.username):
                 self.assertEqual(self._get(PAYMENTS_URL, user).status_code, 403)
                 self.assertEqual(self._get(RECEIPTS_URL, user).status_code, 403)
@@ -216,10 +215,10 @@ class HeldCartAccessTests(ScopingTestBase):
         self.assertEqual(response.status_code, 201, response.data)
         return response.data
 
-    def test_inventory_and_foreman_are_refused_held_carts(self):
+    def test_inventory_and_groupless_are_refused_held_carts(self):
         cart = self._hold(self.cashier_a)
 
-        for user in (self.stocker, self.foreman, self.nobody):
+        for user in (self.stocker, self.nobody):
             with self.subTest(user=user.username):
                 self.assertEqual(
                     self._get(HELD_CARTS_URL, user).status_code, 403)
@@ -256,8 +255,8 @@ class HeldCartAccessTests(ScopingTestBase):
 class CustomerAccessTests(ScopingTestBase):
     """Customer reads need a sales role; the credit limit is manager-only money."""
 
-    def test_foreman_and_groupless_cannot_read_customers(self):
-        for user in (self.foreman, self.nobody):
+    def test_groupless_cannot_read_customers(self):
+        for user in (self.nobody,):
             with self.subTest(user=user.username):
                 self.assertEqual(self._get(CUSTOMERS_URL, user).status_code, 403)
 
@@ -340,8 +339,8 @@ class CustomerAccessTests(ScopingTestBase):
 class QuotationAndOrderReadAccessTests(ScopingTestBase):
     """Quotations and sales orders are sales surfaces: sales readers only."""
 
-    def test_foreman_and_groupless_cannot_read_quotations_or_orders(self):
-        for user in (self.foreman, self.nobody):
+    def test_groupless_cannot_read_quotations_or_orders(self):
+        for user in (self.nobody,):
             for url in (QUOTATIONS_URL, SALES_ORDERS_URL):
                 with self.subTest(user=user.username, url=url):
                     self.assertEqual(self._get(url, user).status_code, 403)

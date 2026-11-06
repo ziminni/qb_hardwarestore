@@ -40,8 +40,8 @@ const _salesPaths = [
   '/sales/receivables',
   '/sales/returns',
   '/sales/reports',
-  // Appended 2026-10-30: Approvals and Staff (sales_management_routing_test).
-  '/sales/requisitions',
+  // Appended: Staff (sales_management_routing_test). Approvals was removed by
+  // decision 01 - CPMS approves requests, so the POS has no queue.
   '/sales/staff',
 ];
 
@@ -141,15 +141,15 @@ void main() {
     expect(AppRoutes.salesReports, '/sales/reports');
   });
 
-  test('the sales sidebar has nine destinations', () {
+  test('the sales sidebar has eight destinations', () {
     expect(
       SalesSkeletonLayout.navigationSections
           .expand((section) => section.destinations)
           .length,
-      9,
+      8,
       reason:
           'index 6 (Reports) is only reachable if the sidebar renders it; '
-          '7 and 8 are Approvals and Staff',
+          '7 is Staff. Approvals was removed by decision 01',
     );
   });
 

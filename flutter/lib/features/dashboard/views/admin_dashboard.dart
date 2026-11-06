@@ -25,8 +25,8 @@ import 'package:provider/provider.dart';
 ///
 /// Every number comes from a live read: today's sales summary and the latest
 /// transactions (reports and sales services, owned by
-/// [AdminOverviewViewmodel]), the requisition queue, and stock counts from the
-/// shared [InventoryViewmodel], the same derivation the stock screens use, so
+/// [AdminOverviewViewmodel]), and stock counts from the shared
+/// [InventoryViewmodel], the same derivation the stock screens use, so
 /// this page can never contradict them about the same row.
 ///
 /// Pages the admin cannot open are not offered: D11 removed "Add product",
@@ -187,14 +187,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 ),
                 child: _SalesSummary(summary: today),
               );
+              // Decision 01: approval happens in CPMS, so the admin's own work
+              // here is the alert feed; there is no requisition queue to clear.
               final attention = AdminNeedsAttentionPanel(
                 items: [
-                  AdminAttentionItem(
-                    label: 'Requisitions waiting for approval',
-                    value: formatCount(overview.awaitingApproval),
-                    actionLabel: 'Review requisitions',
-                    onAction: () => _go(AppRoutes.adminRequisitions),
-                  ),
                   // Only when the alert feed answered: an unloaded count would
                   // read as "nothing is wrong".
                   if (stockReady)

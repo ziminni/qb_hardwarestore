@@ -113,6 +113,46 @@ void main() {
       await _expectPng(tester, goldenDir, 'c3-released-${width.$1}.png');
     }, skip: !enabled);
 
+    testWidgets('partial lines at ${width.$1} px', (tester) async {
+      await _pumpRelease(
+        tester,
+        width.$2,
+        _StubRequisitions()..mixed = true,
+      );
+      await _verify(tester);
+
+      expect(find.text('Short'), findsOneWidget);
+      expect(find.text('18 of 48 available'), findsOneWidget);
+      expect(find.text('Unavailable'), findsOneWidget);
+      expect(find.text('Already released'), findsOneWidget);
+      expect(
+        find.text('Releases 2 of 4 lines now. The rest stays open on this token.'),
+        findsOneWidget,
+      );
+
+      await _expectPng(tester, goldenDir, 'c3-partial-lines-${width.$1}.png');
+    }, skip: !enabled);
+
+    testWidgets('partially released at ${width.$1} px', (tester) async {
+      await _pumpRelease(
+        tester,
+        width.$2,
+        _StubRequisitions()
+          ..mixed = true
+          ..partialRelease = true,
+      );
+      await _verify(tester);
+      await _release(tester);
+
+      expect(find.text('Partially released'), findsOneWidget);
+      expect(
+        find.text('Partially released: 2 lines still open on this token.'),
+        findsOneWidget,
+      );
+
+      await _expectPng(tester, goldenDir, 'c3-partially-released-${width.$1}.png');
+    }, skip: !enabled);
+
     testWidgets('no open shift at ${width.$1} px', (tester) async {
       await _pumpRelease(
         tester,
@@ -147,6 +187,12 @@ const pageKey = ValueKey('MaterialReleasePageGolden');
 class _StubRequisitions extends RequisitionRepository {
   Object? failRelease;
 
+  /// Decision 05: the partial-lines state, where the shelf cannot cover every line.
+  bool mixed = false;
+
+  /// Whether the release leaves lines open on the token.
+  bool partialRelease = false;
+
   @override
   Future<TokenVerification> verifyToken(String token) async =>
       TokenVerification(
@@ -155,44 +201,113 @@ class _StubRequisitions extends RequisitionRepository {
         reqNumber: 'REQ-20261024-0117',
         project: '2-Storey Residential House - Mandaue City',
         customer: 'Dela Cruz Construction and Supply Corporation',
-        items: const [
-          VerifiedRequisitionItem(
-            id: 1,
-            variantId: 7,
-            variantName: 'Portland Cement 40 kg',
-            quantity: 120,
-            remaining: 120,
-          ),
-          VerifiedRequisitionItem(
-            id: 2,
-            variantId: 9,
-            variantName: 'Deformed Steel Bar 10 mm x 6 m Grade 60',
-            quantity: 48,
-            remaining: 48,
-          ),
-          VerifiedRequisitionItem(
-            id: 3,
-            variantId: 12,
-            variantName: 'Marine Plywood 3/4 in',
-            quantity: 24,
-            remaining: 12,
-          ),
-          VerifiedRequisitionItem(
-            id: 4,
-            variantId: 15,
-            variantName: 'PVC Pipe 2 in x 3 m',
-            quantity: 6,
-            remaining: 6,
-          ),
-        ],
+        items: mixed
+            ? const [
+                VerifiedRequisitionItem(
+                  id: 1,
+                  variantId: 7,
+                  variantName: 'Portland Cement 40 kg',
+                  quantity: 120,
+                  remaining: 120,
+                  availability: LineAvailability.full,
+                  releasable: 120,
+                ),
+                VerifiedRequisitionItem(
+                  id: 2,
+                  variantId: 9,
+                  variantName: 'Deformed Steel Bar 10 mm x 6 m Grade 60',
+                  quantity: 48,
+                  remaining: 48,
+                  availability: LineAvailability.short,
+                  releasable: 18,
+                ),
+                VerifiedRequisitionItem(
+                  id: 3,
+                  variantId: 12,
+                  variantName: 'Marine Plywood 3/4 in',
+                  quantity: 24,
+                  remaining: 12,
+                  availability: LineAvailability.unavailable,
+                  releasable: 0,
+                ),
+                VerifiedRequisitionItem(
+                  id: 4,
+                  variantId: 15,
+                  variantName: 'PVC Pipe 2 in x 3 m',
+                  quantity: 6,
+                  remaining: 0,
+                  availability: LineAvailability.done,
+                  releasable: 0,
+                ),
+              ]
+            : const [
+                VerifiedRequisitionItem(
+                  id: 1,
+                  variantId: 7,
+                  variantName: 'Portland Cement 40 kg',
+                  quantity: 120,
+                  remaining: 120,
+                  availability: LineAvailability.full,
+                  releasable: 120,
+                ),
+                VerifiedRequisitionItem(
+                  id: 2,
+                  variantId: 9,
+                  variantName: 'Deformed Steel Bar 10 mm x 6 m Grade 60',
+                  quantity: 48,
+                  remaining: 48,
+                  availability: LineAvailability.full,
+                  releasable: 48,
+                ),
+                VerifiedRequisitionItem(
+                  id: 3,
+                  variantId: 12,
+                  variantName: 'Marine Plywood 3/4 in',
+                  quantity: 24,
+                  remaining: 12,
+                  availability: LineAvailability.full,
+                  releasable: 12,
+                ),
+                VerifiedRequisitionItem(
+                  id: 4,
+                  variantId: 15,
+                  variantName: 'PVC Pipe 2 in x 3 m',
+                  quantity: 6,
+                  remaining: 6,
+                  availability: LineAvailability.full,
+                  releasable: 6,
+                ),
+              ],
       );
 
   @override
   Future<ReleaseResult> release(String token) async {
     if (failRelease case final failure?) throw failure;
+    if (partialRelease) {
+      return const ReleaseResult(
+        transactionId: 184,
+        transactionNo: 'TXN-20261030-0184',
+        status: ReleaseStatus.partial,
+        items: [
+          ReleasedLine(code: 'CEM-40', releasedNow: 120, outstanding: 0),
+          ReleasedLine(code: 'STL-10', releasedNow: 18, outstanding: 30),
+          ReleasedLine(code: 'PLY-34', releasedNow: 0, outstanding: 12),
+        ],
+        grandTotal: 1234567.89,
+        ledgerId: 41,
+        balanceDue: 1234567.89,
+      );
+    }
     return const ReleaseResult(
       transactionId: 184,
       transactionNo: 'TXN-20261030-0184',
+      status: ReleaseStatus.released,
+      items: [
+        ReleasedLine(code: 'CEM-40', releasedNow: 120, outstanding: 0),
+        ReleasedLine(code: 'STL-10', releasedNow: 48, outstanding: 0),
+        ReleasedLine(code: 'PLY-34', releasedNow: 12, outstanding: 0),
+        ReleasedLine(code: 'PVC-2', releasedNow: 6, outstanding: 0),
+      ],
       grandTotal: 1234567.89,
       ledgerId: 41,
       balanceDue: 1234567.89,

@@ -18,8 +18,8 @@ class AdminAttentionItem {
   /// Already formatted by the caller (a count through `formatCount`).
   final String value;
 
-  /// Worded by the caller, because "Review requisitions" and "Open monitoring"
-  /// are different jobs.
+  /// Worded by the caller, because "Open monitoring" and "Open receivables" are
+  /// different jobs.
   final String actionLabel;
   final VoidCallback onAction;
 }

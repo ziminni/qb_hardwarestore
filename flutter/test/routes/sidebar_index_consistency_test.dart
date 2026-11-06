@@ -74,11 +74,11 @@ void main() {
     );
     expect(
       salesOrder.length,
-      9,
+      8,
       reason:
-          'the sales sidebar has 9 destinations — Reports (index 6) was added by '
+          'the sales sidebar has 8 destinations — Reports (index 6) was added by '
           'decision D-01 so the manager can reach live reports inside their own shell; '
-          'Approvals (7) and Staff (8) were APPENDED on 2026-10-30 for the same reason',
+          'Staff (7) was APPENDED the same way. Approvals is gone (decision 01: CPMS approves)',
     );
     expect(inventoryOrder.length, 13);
     expect(
@@ -94,8 +94,7 @@ void main() {
       'salesReports',
       reason: 'index 6 is Reports — the tab that used to be a silent no-op',
     );
-    expect(salesOrder[7], 'salesRequisitions');
-    expect(salesOrder[8], 'salesStaff');
+    expect(salesOrder[7], 'salesStaff');
     // Receiving must sit at 8, not 9: the sidebar's index 9 is "Returns".
     // When this was the other way round the Returns tab opened Receiving.
     expect(inventoryOrder[8], 'inventoryReceiving');
@@ -167,6 +166,65 @@ void main() {
           reason:
               '$className declares index $index, but $route sits at $expected in the '
               '$sidebar sidebar - so its own entry is not the one highlighted',
+        );
+      });
+    }
+  });
+
+  // The admin sidebar is not covered by the loop above: its menu lives in a
+  // private list of tuples in the layout, and one page (user management)
+  // declares TWO indexes because it also renders in the sales shell. So the
+  // order is restated here on purpose, the same way `_salesPaths` restates the
+  // sales contract, and each page must declare the index its own entry sits at.
+  //
+  // Removing one destination silently renumbers the ones after it. The admin
+  // menu lost Requisitions (decision 01) and three pages kept their old
+  // numbers, which the regenerated a5-requisitions golden showed as the WRONG
+  // row highlighted.
+  group('the admin pages highlight their own entry', () {
+    const adminOrder = [
+      'Overview',
+      'User management',
+      'Inventory',
+      'Sales & POS',
+      'Reports',
+      'Audit logs',
+      'Settings',
+    ];
+
+    const expected = {
+      'dashboard/views/admin_dashboard.dart': 'Overview',
+      'admin/views/admin_user_management_page.dart': 'User management',
+      'admin/views/inventory_monitoring_page.dart': 'Inventory',
+      'admin/views/sales_monitoring_page.dart': 'Sales & POS',
+      'admin/views/reports_page.dart': 'Reports',
+      'admin/views/audit_logs_page.dart': 'Audit logs',
+      'admin/views/settings_page.dart': 'Settings',
+    };
+
+    test('the restated menu really is the layout\'s menu', () {
+      // Without this the map above could name a destination the sidebar does
+      // not have, and every index check below would pass against nothing.
+      final layout = _read('lib/core/layout/admin_skeleton_layout.dart');
+      final items = RegExp(
+        r"\(\'(\w[^\']*)\', Icons",
+      ).allMatches(layout).map((m) => m.group(1)!).toList();
+      expect(items, adminOrder);
+    });
+
+    for (final entry in expected.entries) {
+      test('${entry.key} is ${entry.value}', () {
+        final source = _read('lib/features/${entry.key}');
+        final declared = RegExp(
+          r'selectedNavigationIndex:\s*(\d+)',
+        ).allMatches(source).map((m) => int.parse(m.group(1)!)).toList();
+        expect(declared, isNotEmpty, reason: 'no index declared at all');
+        expect(
+          declared,
+          contains(adminOrder.indexOf(entry.value)),
+          reason:
+              '${entry.key} declares $declared, but ${entry.value} sits at '
+              '${adminOrder.indexOf(entry.value)} in the admin sidebar',
         );
       });
     }

@@ -175,7 +175,7 @@ def requisition_history_view(request):
 
     qs = Requisition.objects.filter(
         created_at__date__range=(frm, to),
-    ).select_related('project', 'requested_by', 'approved_by')
+    ).select_related('project')
 
     status_filter = request.query_params.get('status', '').upper()
     valid_statuses = set(Requisition.Status.values)
@@ -204,9 +204,11 @@ def requisition_history_view(request):
                 'req_number': r.req_number,
                 'status': r.status,
                 'project': r.project.name,
-                'requested_by': r.requested_by.full_name,
-                'approved_by': (
-                    r.approved_by.full_name if r.approved_by else None),
+                # Same wire keys the reports screen reads; both values are CPMS's
+                # names now (decision 08), so `approved_by` stays null when nobody
+                # approved instead of an empty string.
+                'requested_by': r.requester_name,
+                'approved_by': r.approver_name or None,
                 'created_at': r.created_at,
             }
             for r in qs.order_by('-created_at')[:200]

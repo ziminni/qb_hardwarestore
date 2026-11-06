@@ -61,8 +61,10 @@ void main() {
     }
   });
 
-  // The demo foreman (`seed_demo.py`): full name "Fore Man", role Site Foreman.
-  // Its tools live in CPMS, which is why POS sends it here.
+  // A CPMS-side account (the Site Foreman group is gone since decision 01, but
+  // an older payload can still carry it): it has no POS dashboard, so the POS
+  // shows the generic explanation. The PNGs below still prove the page holds
+  // together with a role that has no screen.
   const foreman = _Account(
     'foreman',
     'foreman@demo.ph',

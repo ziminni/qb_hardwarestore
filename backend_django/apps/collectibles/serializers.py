@@ -65,6 +65,7 @@ class CollectibleLedgerSerializer(serializers.ModelSerializer):
     customer_name = serializers.ReadOnlyField(source='customer.name')
     transaction_no = serializers.ReadOnlyField(source='transaction.transaction_no')
     is_overdue = serializers.ReadOnlyField()
+    project_name = serializers.SerializerMethodField()
     recent_payments = CollectiblePaymentSerializer(
         source='payments',
         many=True,
@@ -77,6 +78,7 @@ class CollectibleLedgerSerializer(serializers.ModelSerializer):
             'id',
             'customer',
             'customer_name',
+            'project_name',
             'transaction',
             'transaction_no',
             'original_amount',
@@ -98,3 +100,13 @@ class CollectibleLedgerSerializer(serializers.ModelSerializer):
         """Return the 10 most recent payments for this ledger."""
         payments = obj.payments.order_by('-payment_date')[:10]
         return CollectiblePaymentSerializer(payments, many=True).data
+
+    def get_project_name(self, obj):
+        """The project this utang belongs to, or None for a counter sale (decision 03).
+
+        A method field, not `ReadOnlyField(source='project.name')`: with no project the
+        dotted source raises and DRF drops the key from the row entirely - the same
+        silent-absence bug `customer_name` had above, one field over. A counter sale has
+        to answer `null` here, not nothing.
+        """
+        return obj.project.name if obj.project_id else None

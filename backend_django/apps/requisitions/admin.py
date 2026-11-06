@@ -12,7 +12,8 @@ from .models import (
 
 @admin.register(Project)
 class ProjectAdmin(admin.ModelAdmin):
-    list_display = ('name', 'customer', 'is_active', 'start_date', 'end_date')
+    list_display = (
+        'name', 'cpms_project_id', 'customer', 'is_active', 'start_date', 'end_date')
     list_filter = ('is_active',)
     search_fields = ('name', 'customer__name')
 
@@ -24,7 +25,9 @@ class RequisitionItemInline(admin.TabularInline):
 
 @admin.register(Requisition)
 class RequisitionAdmin(admin.ModelAdmin):
-    list_display = ('req_number', 'project', 'status', 'requested_by', 'created_at')
+    list_display = (
+        'req_number', 'project', 'status', 'requester_name', 'approver_name',
+        'created_at')
     list_filter = ('status',)
     search_fields = ('req_number', 'project__name')
     inlines = [RequisitionItemInline]

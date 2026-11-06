@@ -76,9 +76,9 @@ class BaseViewSet(viewsets.ModelViewSet):
     """Read needs a SALES role; write needs a POS role (decision 02, Phase 2).
 
     Reads used to be open to any authenticated user, which handed quotations, customers
-    and the whole sales history to a Site Foreman or to a groupless account. `foreman`
-    is not a sales role: 403. A Stock Manager IS a sales reader (P2 Ruling - the stocker
-    Sales tab reads all sales), it just cannot write one.
+    and the whole sales history to an account with no sales role. A groupless account
+    gets 403. A Stock Manager IS a sales reader (P2 Ruling - the stocker Sales tab reads
+    all sales), it just cannot write one.
     """
 
     permission_classes = [SalesReadPOSWrite]
@@ -532,7 +532,7 @@ class QuotationViewSet(BaseViewSet):
     """Decision 05: quotations are a real backend resource.
 
     Reads need a SALES role and writes a POS role (BaseViewSet -> SalesReadPOSWrite), which is
-    what lets every sales screen list them while keeping a Site Foreman or a groupless account out.
+    what lets every sales screen list them while keeping a groupless account out.
     """
 
     queryset = Quotation.objects.select_related('customer').prefetch_related('items__variant_uom')
@@ -558,7 +558,7 @@ class HeldCartViewSet(BaseViewSet):
     """Held/parked carts — Phase 3 of cashier-workflow.
 
     EVERY method requires a POS role (decision 02): a parked cart is live till work, so a
-    Stock Manager or Site Foreman gets 403 even on GET. Among POS roles the carts stay
+    Stock Manager gets 403 even on GET. Among POS roles the carts stay
     store-wide - decision 05's "any cashier may resume" is unchanged, so the queryset is
     NOT scoped to `cashier=request.user`.
     """

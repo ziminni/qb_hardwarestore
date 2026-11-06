@@ -57,6 +57,9 @@ INSTALLED_APPS = [
     'apps.collectibles',
     'apps.requisitions',
     'apps.reports',
+    # Phase 1, Task 2: the CPMS boundary (`/api/v1/integration/cpms/`). Has no models;
+    # it is an app so its URLconf and tests sit where every other feature's do.
+    'apps.integration',
 
 ]
 
@@ -165,7 +168,10 @@ AUTH_USER_MODEL = 'apps_users.User'
 # =============================================
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        # Phase 1, Task 2: plain JWTAuthentication plus the CPMS fence. A member of the
+        # `CPMS Service` group is refused (403 CPMS_SCOPE) everywhere outside
+        # `/api/v1/integration/cpms/`, in ONE place instead of on every POS view.
+        'apps.users.authentication.CpmsFencedJWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',

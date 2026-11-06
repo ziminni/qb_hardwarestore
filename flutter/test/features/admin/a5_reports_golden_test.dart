@@ -348,7 +348,9 @@ class _StubReportsRepository extends ReportsRepository {
       countByStatus: {
         'SUBMITTED': 3,
         'APPROVED': 5,
+        'PARTIAL': 2,
         'RELEASED': 12,
+        'CLOSED': 4,
         'REJECTED': 1,
       },
       requisitions: [
@@ -378,6 +380,25 @@ class _StubReportsRepository extends ReportsRepository {
           requestedBy: 'Ben Cruz',
           approvedBy: 'Maria Santos',
           createdAt: '2026-10-28T08:05:00Z',
+        ),
+        // Task 10: the two statuses CPMS and the till write today.
+        RequisitionHistoryRow(
+          id: 38,
+          reqNumber: 'REQ-20261027-0004',
+          status: 'PARTIAL',
+          project: 'Coastal Road Retaining Wall Section 3',
+          requestedBy: 'Ana Lopez',
+          approvedBy: 'Maria Santos',
+          createdAt: '2026-10-27T14:20:00Z',
+        ),
+        RequisitionHistoryRow(
+          id: 37,
+          reqNumber: 'REQ-20261026-0003',
+          status: 'CLOSED',
+          project: 'Barangay Hall Roof Replacement',
+          requestedBy: 'Ben Cruz',
+          approvedBy: 'Ana Lopez',
+          createdAt: '2026-10-26T09:15:00Z',
         ),
       ],
     );

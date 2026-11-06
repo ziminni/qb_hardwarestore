@@ -3,7 +3,6 @@ import 'package:client/features/admin/views/admin_user_management_page.dart';
 import 'package:client/features/admin/views/audit_logs_page.dart';
 import 'package:client/features/admin/views/inventory_monitoring_page.dart';
 import 'package:client/features/admin/views/reports_page.dart';
-import 'package:client/features/admin/views/requisitions_page.dart';
 import 'package:client/features/admin/views/sales_monitoring_page.dart';
 import 'package:client/features/admin/views/settings_page.dart';
 import 'package:client/features/categories/views/categories_page.dart';
@@ -38,7 +37,6 @@ import 'package:client/features/products/views/products_page.dart';
 import 'package:client/features/suppliers/views/purchases_page.dart';
 import 'package:client/features/suppliers/views/suppliers_page.dart';
 import 'package:client/features/sales/views/inventory_sales_page.dart';
-import 'package:client/features/sales/views/sales_requisitions_page.dart';
 import 'package:client/features/sales/views/sales_staff_page.dart';
 import 'package:client/features/splash/views/splash_page.dart';
 import 'package:flutter/material.dart';
@@ -59,7 +57,6 @@ class AppRoutes {
   static const String adminUserManagement = '/admin/users';
   static const String adminInventory = '/admin/inventory';
   static const String adminSales = '/admin/sales';
-  static const String adminRequisitions = '/admin/requisitions';
   static const String adminReports = '/admin/reports';
   static const String adminAuditLogs = '/admin/audit-logs';
   static const String adminSettings = '/admin/settings';
@@ -101,11 +98,12 @@ class AppRoutes {
   /// the SALES shell, so the manager's sidebar does not swap out.
   static const String salesReports = '/sales/reports';
 
-  /// The Store Manager's approval queue and staff list (sales sidebar indexes
-  /// 7 and 8). The same screens as [adminRequisitions] and
-  /// [adminUserManagement], in the SALES shell, so the manager can reach them
+  /// The Store Manager's staff list (sales sidebar index 7). The same screen as
+  /// [adminUserManagement], in the SALES shell, so the manager can reach it
   /// from their own sidebar and keep it (the D-01 pattern used for Reports).
-  static const String salesRequisitions = '/sales/requisitions';
+  ///
+  /// The approval queue that sat beside it is gone (decision 01): requests are
+  /// approved in CPMS, so the POS has no queue to open.
   static const String salesStaff = '/sales/staff';
 
   /// The sales-shell twin of an admin screen the Store Manager may use, or null
@@ -115,7 +113,6 @@ class AppRoutes {
   /// their own shell, not the Admin sidebar whose other links bounce them.
   static String? salesTwinOf(String location) => switch (location) {
     adminReports => salesReports,
-    adminRequisitions => salesRequisitions,
     adminUserManagement => salesStaff,
     _ => null,
   };
@@ -186,15 +183,14 @@ class AppRoutes {
     }
     if (isLogin || isUnsupported) return dashboard;
     if (location.startsWith('/admin/') && role != 'admin') {
-      // Decisions 16 and 20: the Store Manager (client role 'sales') is the
-      // month-end actor and the requisition approver, and IsManagerRole admits
-      // them server-side — the fence opens for the reports screen and the
-      // approve queue only. Phase 5: the manager offboards staff in-app and
+      // Decision 16: the Store Manager (client role 'sales') is the month-end
+      // actor, and IsManagerRole admits them server-side, so the fence opens for
+      // the reports screen only. Phase 5: the manager offboards staff in-app and
       // IsUserManagerRole admits them server-side, so user management opens
       // too. Audit logs and settings stay admin-only; Cashier ('pos') and
       // Stock Manager ('inventory') still bounce everywhere here.
-      // Decisions 16 and 20 + Phase 5 still hold: the manager reaches reports,
-      // the approve queue and staff, but in the sales shell (Z2).
+      // Decisions 16 and 20 + Phase 5 still hold: the manager reaches reports
+      // and staff, but in the sales shell (Z2).
       if (role == 'sales') return salesTwinOf(location) ?? dashboard;
       return dashboard;
     }
@@ -308,12 +304,6 @@ class AppRoutes {
           name: 'admin_sales',
           pageBuilder: (context, state) =>
               _transitionPage(state, const SalesMonitoringPage()),
-        ),
-        GoRoute(
-          path: adminRequisitions,
-          name: 'admin_requisitions',
-          pageBuilder: (context, state) =>
-              _transitionPage(state, const RequisitionsPage()),
         ),
         GoRoute(
           path: adminReports,
@@ -498,12 +488,6 @@ class AppRoutes {
           name: 'sales_reports',
           pageBuilder: (context, state) =>
               _transitionPage(state, const SalesReportsPage()),
-        ),
-        GoRoute(
-          path: salesRequisitions,
-          name: 'sales_requisitions',
-          pageBuilder: (context, state) =>
-              _transitionPage(state, const SalesRequisitionsPage()),
         ),
         GoRoute(
           path: salesStaff,

@@ -23,7 +23,6 @@ from apps.pos.services import compute_z_reading
 from apps.users.models import AuditLog
 
 from .models import Requisition
-from .services import approve_requisition, submit_requisition
 from .tests import RequisitionTestBase
 
 LOGIN_URL = '/api/v1/auth/login/'
@@ -59,9 +58,8 @@ class ReleaseShiftBase(RequisitionTestBase):
         self.bearer = f'Bearer {login.data["access"]}'
 
     def _approved_token(self):
-        submit_requisition(requisition=self.requisition)
-        return approve_requisition(
-            requisition=self.requisition, approver=self.manager)
+        """The token the CPMS push mints with its APPROVED request (decision 02)."""
+        return self._mint_token()
 
     def _release(self, token):
         return self.client.post(

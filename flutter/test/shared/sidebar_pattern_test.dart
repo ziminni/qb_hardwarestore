@@ -66,15 +66,15 @@ Widget _cashier({
   child: const Text('BODY'),
 );
 
-Widget _storeManager({Future<Map<int, int>> Function()? markers}) =>
-    SalesSkeletonLayout(
-      title: 'Store manager',
-      subtitle: 'Transactions',
-      selectedNavigationIndex: 1,
-      onNavigationSelected: (_) {},
-      loadMarkers: markers ?? _noMarkers,
-      child: const Text('BODY'),
-    );
+// The sales shell has no live marker left: the only one it had counted the
+// requisitions queue, which decision 01 removed. So it takes no loader.
+Widget _storeManager() => SalesSkeletonLayout(
+  title: 'Store manager',
+  subtitle: 'Transactions',
+  selectedNavigationIndex: 1,
+  onNavigationSelected: (_) {},
+  child: const Text('BODY'),
+);
 
 Widget _stockManager({Future<Map<int, int>> Function()? markers}) =>
     InventorySkeletonLayout(
@@ -86,17 +86,16 @@ Widget _stockManager({Future<Map<int, int>> Function()? markers}) =>
       child: const Text('BODY'),
     );
 
-Widget _admin({Future<Map<int, int>> Function()? markers}) =>
-    AdminSkeletonLayout(
-      title: 'Admin',
-      // Not "Overview": it is also a menu item under the OVERVIEW heading, and
-      // the header would double every find.text for it.
-      subtitle: 'Back office',
-      selectedNavigationIndex: 0,
-      onNavigationSelected: (_) {},
-      loadMarkers: markers ?? _noMarkers,
-      child: const Text('BODY'),
-    );
+// Same as the sales shell: the admin marker counted requisitions and is gone.
+Widget _admin() => AdminSkeletonLayout(
+  title: 'Admin',
+  // Not "Overview": it is also a menu item under the OVERVIEW heading, and
+  // the header would double every find.text for it.
+  subtitle: 'Back office',
+  selectedNavigationIndex: 0,
+  onNavigationSelected: (_) {},
+  child: const Text('BODY'),
+);
 
 Future<Map<int, int>> _noMarkers() async => const {};
 
@@ -146,13 +145,23 @@ void main() {
         'User management',
         'Inventory',
         'Sales & POS',
-        'Requisitions',
         'Reports',
         'Audit logs',
         'Settings',
       ]) {
         expect(find.text(item), findsOneWidget, reason: 'item $item');
       }
+      // Decision 01: requests are approved in CPMS, so there is no POS queue.
+      expect(find.text('Requisitions'), findsNothing);
+    });
+
+    testWidgets('the store manager menu has no Approvals entry', (
+      tester,
+    ) async {
+      await _pump(tester, const Size(1440, 900), _storeManager());
+
+      expect(find.text('Approvals'), findsNothing);
+      expect(find.text('Staff'), findsOneWidget);
     });
 
     testWidgets('the icon rail shows no headings, only the dividers', (
@@ -278,20 +287,12 @@ void main() {
       expect(find.byKey(_markerKey), findsNothing);
     });
 
-    testWidgets('the admin shell marks Requisitions, not another item', (
+    testWidgets('store manager: no marker on the retired queue slot', (
       tester,
     ) async {
-      await _pump(
-        tester,
-        const Size(1440, 900),
-        _admin(markers: () async => const {4: 2}),
-      );
+      await _pump(tester, const Size(1440, 900), _storeManager());
 
-      expect(find.byKey(_markerKey), findsOneWidget);
-      expect(
-        find.descendant(of: find.byKey(_markerKey), matching: find.text('2')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const ValueKey('sidebar-marker-7')), findsNothing);
     });
   });
 
@@ -327,18 +328,6 @@ void main() {
       expectMarkerOnOnly(tester, 'Held transactions');
     });
 
-    testWidgets('store manager: the count sits on Approvals', (tester) async {
-      await _pump(
-        tester,
-        const Size(1440, 900),
-        _storeManager(
-          markers: () async => const {SalesSkeletonLayout.approvalsIndex: 2},
-        ),
-      );
-
-      expectMarkerOnOnly(tester, 'Approvals');
-    });
-
     testWidgets('stock manager: the count sits on Low stock', (tester) async {
       await _pump(
         tester,
@@ -349,18 +338,6 @@ void main() {
       );
 
       expectMarkerOnOnly(tester, 'Low stock');
-    });
-
-    testWidgets('admin: the count sits on Requisitions', (tester) async {
-      await _pump(
-        tester,
-        const Size(1440, 900),
-        _admin(
-          markers: () async => const {AdminSkeletonLayout.requisitionsIndex: 2},
-        ),
-      );
-
-      expectMarkerOnOnly(tester, 'Requisitions');
     });
   });
 

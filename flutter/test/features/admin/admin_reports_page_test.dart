@@ -39,6 +39,16 @@ class _StubReportsRepository extends ReportsRepository {
   String? lastTo;
   bool failSales = false;
 
+  /// What the Requisitions tab reads. Empty by default so the other tabs' tests are
+  /// unaffected.
+  RequisitionHistory history = const RequisitionHistory(
+    from: '',
+    to: '',
+    statusFilter: null,
+    countByStatus: {},
+    requisitions: [],
+  );
+
   @override
   Future<SalesSummary> fetchSalesSummary({String? from, String? to}) async {
     salesCalls++;
@@ -104,20 +114,13 @@ class _StubReportsRepository extends ReportsRepository {
   }
 
   @override
-  Future<RequisitionHistory> fetchRequisitionHistory() async {
-    return const RequisitionHistory(
-      from: '',
-      to: '',
-      statusFilter: null,
-      countByStatus: {},
-      requisitions: [],
-    );
-  }
+  Future<RequisitionHistory> fetchRequisitionHistory() async => history;
 }
 
 Future<_StubReportsRepository> _pump(
   WidgetTester tester, {
   bool failSales = false,
+  RequisitionHistory? history,
   Size size = const Size(1600, 1400),
 }) async {
   tester.view.physicalSize = size;
@@ -125,6 +128,7 @@ Future<_StubReportsRepository> _pump(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   final repository = _StubReportsRepository()..failSales = failSales;
+  if (history != null) repository.history = history;
   await tester.pumpWidget(
     _app(ReportsPage(viewmodel: AdminReportsViewmodel(repository: repository))),
   );
@@ -322,5 +326,60 @@ void main() {
       find.text('${formatDate(applied)} to ${formatDate(today)}'),
       findsOneWidget,
     );
+  });
+
+  // Task 10 (decisions 06 + 08): CPMS can close an open remainder, and the till can
+  // release one short. Both statuses reach this tab, so both have to read as words and
+  // be countable - a status the client was never taught prints the server's raw token.
+  testWidgets('the Requisitions tab counts CLOSED and PARTIAL by name', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      history: const RequisitionHistory(
+        from: '2026-10-01',
+        to: '2026-10-30',
+        statusFilter: null,
+        countByStatus: {'APPROVED': 2, 'PARTIAL': 1, 'CLOSED': 3},
+        requisitions: [
+          RequisitionHistoryRow(
+            id: 1,
+            reqNumber: 'REQ-20261030-0001',
+            status: 'CLOSED',
+            project: 'Two Storey House Mandaue',
+            requestedBy: 'Ben Cruz',
+            approvedBy: 'Ana Lopez',
+            createdAt: '2026-10-30T10:00:00Z',
+          ),
+          RequisitionHistoryRow(
+            id: 2,
+            reqNumber: 'REQ-20261030-0002',
+            status: 'PARTIAL',
+            project: 'Warehouse Extension',
+            requestedBy: 'Ana Lopez',
+            approvedBy: 'Maria Santos',
+            createdAt: '2026-10-30T11:00:00Z',
+          ),
+        ],
+      ),
+    );
+    await _openTab(tester, 'Requisitions');
+
+    expect(
+      find.text('Closed: 3'),
+      findsOneWidget,
+      reason: 'a closed remainder is still a request that happened',
+    );
+    expect(
+      find.text('Partially released: 1'),
+      findsOneWidget,
+      reason: 'the partly released request is the one a manager chases',
+    );
+    // The row badges use the same words as the chips, never the raw token.
+    expect(find.text('Closed'), findsOneWidget);
+    expect(find.text('Partially released'), findsOneWidget);
+    expect(find.text('CLOSED'), findsNothing);
+    // Decision 08: the requester is CPMS's text, shown as typed.
+    expect(find.text('Ben Cruz'), findsOneWidget);
   });
 }

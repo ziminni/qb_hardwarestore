@@ -14,10 +14,6 @@ class RequisitionRepository {
 
   Future<List<Requisition>> fetchRequisitions() => _service.fetchRequisitions();
 
-  Future<String> approve(int requisitionId) => _service.approve(requisitionId);
-
-  Future<void> reject(int requisitionId) => _service.reject(requisitionId);
-
   Future<TokenVerification> verifyToken(String token) => _service.verifyToken(token);
 
   Future<ReleaseResult> release(String token) => _service.release(token);

@@ -16,16 +16,19 @@ ROLE_ADMIN = 'Admin'
 ROLE_CASHIER = 'Cashier'
 ROLE_STOCK_MANAGER = 'Stock Manager'
 ROLE_STORE_MANAGER = 'Store Manager'
-ROLE_SITE_FOREMAN = 'Site Foreman'
 ROLE_SYSTEM_ADMIN = 'System Administrator'
+# Decision 02 (Phase 1): the CPMS service account. It is NOT a POS role: it may call
+# `/api/v1/integration/cpms/` and nothing else, enforced by the fence in
+# `apps/users/authentication.py`. It is deliberately absent from every `*_ROLES` list
+# below, so it inherits no till, stock, reporting or admin access.
+ROLE_CPMS_SERVICE = 'CPMS Service'
 
 # Administrative roles with full access.
 STAFF_ROLES = [ROLE_ADMIN, ROLE_SYSTEM_ADMIN]
 
 # Decision 02 (Phase 2): who may READ sales data. `inventory` is in the list by the P2
 # Ruling: the built Stock Manager Sales tab reads ALL sales, so a stocker who could not
-# read `/transactions/` would be looking at a broken screen. `foreman` is deliberately
-# absent - a site foreman has no reason to see the till's money.
+# read `/transactions/` would be looking at a broken screen.
 SALES_READER_ROLES = [
     ROLE_CASHIER, ROLE_STOCK_MANAGER, ROLE_STORE_MANAGER, *STAFF_ROLES,
 ]
@@ -120,10 +123,28 @@ class IsManagerRole(RoleRequired):
     required_roles = [ROLE_STORE_MANAGER, *STAFF_ROLES]
 
 
-class IsForemanOrManager(RoleRequired):
-    """Site Foreman / Store Manager / Admin — project & requisition writes."""
+def is_cpms_service_account(user) -> bool:
+    """True for the CPMS service account: authenticated, active, in its group.
 
-    required_roles = [ROLE_SITE_FOREMAN, ROLE_STORE_MANAGER, *STAFF_ROLES]
+    Deliberately NOT `has_role`, which lets a superuser pass every check: the fence in
+    `apps.users.authentication` asks this same question, and "may enter the CPMS
+    namespace" and "may call a CPMS endpoint" must be one answer. Group membership is
+    the whole key, in both directions.
+    """
+    if not (user and getattr(user, 'is_authenticated', False)):
+        return False
+    if not user.is_active:
+        return False
+    return user.groups.filter(name=ROLE_CPMS_SERVICE).exists()
+
+
+class IsCpmsService(BasePermission):
+    """The CPMS service account alone (decision 02) — the integration endpoints."""
+
+    message = 'Only the CPMS service account may call this endpoint.'
+
+    def has_permission(self, request, view) -> bool:  # pyright: ignore[reportIncompatibleMethodOverride]
+        return is_cpms_service_account(request.user)
 
 
 class ReadOnlyOr(RoleRequired):
@@ -144,10 +165,6 @@ class IsPOSOrReadOnly(ReadOnlyOr):
     required_roles = IsPOSRole.required_roles
 
 
-class IsForemanOrManagerOrReadOnly(ReadOnlyOr):
-    required_roles = IsForemanOrManager.required_roles
-
-
 class IsReceivablesReader(RoleRequired):
     """Read receivables: Cashier / Store Manager / Admin."""
 
@@ -158,9 +175,9 @@ class IsReceivablesReader(RoleRequired):
 class SalesReadPOSWrite(RoleRequired):
     """Read sales data with any sales role; write only with a POS role.
 
-    Decision 02: a Site Foreman or a groupless account gets **403** on `/transactions/`,
-    `/customers/`, `/quotations/`, `/sales-orders/`, `/payments/` and `/receipts/`,
-    while a Cashier / Stock Manager / Store Manager / Admin may read. Writes need
+    Decision 02: a groupless account gets **403** on `/transactions/`, `/customers/`,
+    `/quotations/`, `/sales-orders/`, `/payments/` and `/receipts/`, while a Cashier /
+    Stock Manager / Store Manager / Admin may read. Writes need
     `IsPOSRole` exactly as before, so a Stock Manager still cannot ring a sale.
     """
 

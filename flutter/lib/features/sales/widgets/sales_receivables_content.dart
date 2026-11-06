@@ -63,7 +63,7 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
     if (query.isEmpty) return rows;
     return [
       for (final entry in rows)
-        if ('${entry.customerName} ${entry.transactionNo}'
+        if ('${entry.customerName} ${entry.transactionNo} ${entry.projectName ?? ''}'
             .toLowerCase()
             .contains(query))
           entry,
@@ -125,7 +125,7 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
         ),
         const SizedBox(height: AppSpacing.lg),
         FilterBar(
-          searchHint: 'Customer or invoice',
+          searchHint: 'Customer, invoice or project',
           onSearchChanged: (value) => setState(() => _query = value),
           options: _statusChips,
           selected: viewmodel.statusFilter?.label ?? _anyStatus,
@@ -187,6 +187,14 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _text(entry.customerName, maxLines: 2),
+            // Decision 03: the contractor pays, the project is what the counter is
+            // told, so it rides under the payer - the same caption the manager's
+            // sales table uses for the source and the payment. A counter sale has
+            // no project, and then the line is simply not there.
+            if (entry.projectName case final project?) ...[
+              const SizedBox(height: 2),
+              _caption(project),
+            ],
             const SizedBox(height: 2),
             _caption(entry.transactionNo),
           ],

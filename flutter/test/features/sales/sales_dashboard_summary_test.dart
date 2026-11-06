@@ -3,23 +3,21 @@
 // must still show 9000 and 40 — a fold would show 0.
 //
 // Card M1 (ui-refresh): the dashboard also leads with what needs the manager
-// NOW — requisitions waiting, overdue receivables, today's returns — each a
-// link into the screen that handles it, and each count taken from a read that
-// actually answered. The page's own heading is gone: the shell already says
+// NOW — overdue receivables and today's returns — each a link into the screen
+// that handles it, and each count taken from a read that actually answered.
+// The requisitions tile that used to lead this row is gone: decision 01 moved
+// approval to CPMS, so the POS has no queue to review. The page's own heading is gone: the shell already says
 // "Sales Dashboard", and two headings before any number is one too many.
 
 import 'package:client/data/models/ledger_entry.dart';
 import 'package:client/data/models/reports.dart';
-import 'package:client/data/models/requisition.dart';
 import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/repositories/ledger_repository.dart';
 import 'package:client/data/repositories/reports_repository.dart';
-import 'package:client/data/repositories/requisition_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/ledger_service.dart';
 import 'package:client/data/services/reports_service.dart';
-import 'package:client/data/services/requisition_service.dart';
 import 'package:client/data/services/sales_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
@@ -80,25 +78,6 @@ class _StubReportsRepository extends ReportsRepository {
       );
 }
 
-class _StubRequisitions extends RequisitionRepository {
-  _StubRequisitions({this.rows = const []}) : super();
-
-  final List<Requisition> rows;
-
-  @override
-  Future<List<Requisition>> fetchRequisitions() async => rows;
-}
-
-class _FailingRequisitions extends RequisitionRepository {
-  _FailingRequisitions() : super();
-
-  @override
-  Future<List<Requisition>> fetchRequisitions() async =>
-      throw const RequisitionServiceException(
-        'The requisition list could not be loaded. Try again.',
-      );
-}
-
 class _StubLedgers extends LedgerRepository {
   _StubLedgers({this.rows = const []}) : super();
 
@@ -117,27 +96,6 @@ class _FailingLedgers extends LedgerRepository {
         'The receivables list could not be loaded. Try again.',
       );
 }
-
-Requisition _requisition({
-  required int id,
-  required RequisitionStatus status,
-}) => Requisition(
-  id: id,
-  reqNumber: 'REQ-20261019-000$id',
-  rawStatus: status.apiValue,
-  projectName: 'Dela Cruz Residence',
-  projectCustomerName: 'Dela Cruz Construction',
-  requestedByName: 'Eng. Reyes',
-  items: const [
-    RequisitionItem(
-      id: 1,
-      variantId: 1,
-      variantName: 'Cement 40kg',
-      quantity: 20,
-      releasedQty: 0,
-    ),
-  ],
-);
 
 LedgerEntry _ledger({
   required int id,
@@ -221,13 +179,9 @@ Future<GoRouter> _pumpRouted(WidgetTester tester) async {
       GoRoute(
         path: AppRoutes.salesDashboard,
         builder: (context, state) =>
-            SalesDashboardPage(viewmodel: _alerts(awaiting: 3, overdue: 2)),
+            SalesDashboardPage(viewmodel: _alerts(overdue: 2)),
       ),
-      for (final path in [
-        AppRoutes.salesRequisitions,
-        AppRoutes.salesReceivables,
-        AppRoutes.salesReturns,
-      ])
+      for (final path in [AppRoutes.salesReceivables, AppRoutes.salesReturns])
         GoRoute(
           path: path,
           builder: (context, state) => Scaffold(body: Text('page:$path')),
@@ -241,17 +195,11 @@ Future<GoRouter> _pumpRouted(WidgetTester tester) async {
   return router;
 }
 
-SalesDashboardAlertsViewmodel _alerts({int? awaiting, int? overdue}) =>
+SalesDashboardAlertsViewmodel _alerts({int overdue = 0}) =>
     SalesDashboardAlertsViewmodel(
-      requisitions: _StubRequisitions(
-        rows: [
-          for (var i = 1; i <= (awaiting ?? 0); i++)
-            _requisition(id: i, status: RequisitionStatus.submitted),
-        ],
-      ),
       ledgers: _StubLedgers(
         rows: [
-          for (var i = 1; i <= (overdue ?? 0); i++)
+          for (var i = 1; i <= overdue; i++)
             _ledger(id: i, customer: 'Customer $i', overdue: true),
         ],
       ),
@@ -326,13 +274,12 @@ void main() {
     expect(find.text('Needs you'), findsOneWidget);
   });
 
-  testWidgets('"Needs you" tiles lead to Approvals, Receivables and Returns', (
+  testWidgets('"Needs you" tiles lead to Receivables and Returns', (
     tester,
   ) async {
     final router = await _pumpRouted(tester);
 
-    const links = [
-      ('approvals', AppRoutes.salesRequisitions),
+    final links = [
       ('receivables', AppRoutes.salesReceivables),
       ('returns', AppRoutes.salesReturns),
     ];
@@ -353,16 +300,14 @@ void main() {
     _sizeUp(tester);
     await tester.pumpWidget(
       _app(
-        MaterialApp(
-          home: SalesDashboardPage(viewmodel: _alerts(awaiting: 3, overdue: 2)),
-        ),
+        MaterialApp(home: SalesDashboardPage(viewmodel: _alerts(overdue: 2))),
         sales: _emptySales(),
       ),
     );
     await tester.pumpAndSettle();
 
-    expect(_tileValue('approvals', '3'), findsOneWidget);
     expect(_tileValue('receivables', '2'), findsOneWidget);
+    expect(_tile('approvals'), findsNothing);
     // A read that answered is not a failure: no banner.
     expect(find.textContaining('could not be loaded'), findsNothing);
   });
@@ -376,7 +321,6 @@ void main() {
         MaterialApp(
           home: SalesDashboardPage(
             viewmodel: SalesDashboardAlertsViewmodel(
-              requisitions: _FailingRequisitions(),
               ledgers: _FailingLedgers(),
             ),
           ),
@@ -386,11 +330,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(_tileValue('approvals', 'Not loaded'), findsOneWidget);
     expect(_tileValue('receivables', 'Not loaded'), findsOneWidget);
-    // The first failure is named; nothing invents a count.
+    // The failure is named; nothing invents a count.
     expect(
-      find.text('The requisition list could not be loaded. Try again.'),
+      find.text('The receivables list could not be loaded. Try again.'),
       findsOneWidget,
     );
   });
@@ -401,9 +344,7 @@ void main() {
     _sizeUp(tester);
     await tester.pumpWidget(
       _app(
-        MaterialApp(
-          home: SalesDashboardPage(viewmodel: _alerts(awaiting: 0, overdue: 0)),
-        ),
+        MaterialApp(home: SalesDashboardPage(viewmodel: _alerts())),
         sales: InventorySalesViewmodel(
           service: _FailingSalesService(),
           reports: _FailingReportsRepository(),
@@ -442,9 +383,7 @@ void main() {
     final today = appClock.now();
     await tester.pumpWidget(
       _app(
-        MaterialApp(
-          home: SalesDashboardPage(viewmodel: _alerts(awaiting: 0, overdue: 0)),
-        ),
+        MaterialApp(home: SalesDashboardPage(viewmodel: _alerts())),
         sales: InventorySalesViewmodel(
           service: _StubSalesService(
             transactions: [
@@ -485,5 +424,24 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(_tileValue('returns', '2'), findsOneWidget);
+  });
+
+  // Decision 01: approval happens in CPMS, so the manager's dashboard has no
+  // queue to review and must not read one.
+  testWidgets('there is no Requisitions waiting tile', (tester) async {
+    _sizeUp(tester);
+    await tester.pumpWidget(
+      _app(
+        MaterialApp(home: SalesDashboardPage(viewmodel: _alerts(overdue: 2))),
+        sales: _emptySales(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Requisitions waiting'), findsNothing);
+    expect(_tile('approvals'), findsNothing);
+    // The other two tiles are untouched by the removal.
+    expect(_tile('receivables'), findsOneWidget);
+    expect(_tile('returns'), findsOneWidget);
   });
 }

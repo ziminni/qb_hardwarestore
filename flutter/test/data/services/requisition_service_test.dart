@@ -1,5 +1,6 @@
-// Phase 5 (decision 09, locked 2026-10-17): POS builds the DOWNSTREAM half of the requisition
-// lifecycle — approve, reject, verify token, release. CPMS owns create and submit.
+// Decision 01 (locked 2026-11-03): the POS reads approved requisitions and releases
+// materials against a token. CPMS creates, approves, rejects and closes them, so this
+// service has no write on the request itself.
 //
 // The wire shapes here were read from backend_django/apps/requisitions/{serializers,services}.py
 // and PROBED live, not guessed. Two facts the probe settled:
@@ -12,6 +13,7 @@
 //     construction firm pays later.
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:client/core/network/api_client.dart';
 import 'package:client/data/models/requisition.dart';
@@ -176,44 +178,20 @@ void main() {
     expect(pages, ['1', '2']);
   });
 
-  test('approving returns the token the server minted', () async {
-    serve((options) {
-      expect(options.path, endsWith('/requisitions/2/approve/'));
-      return _json({
-        'detail': 'REQ-20260925-0002 approved.',
-        'token': 'd5a4eb1f-0e88-497d-bc3b-688b14a6a867',
-      });
-    });
+  // Decision 01 (2026-11-03): requests are created and approved in CPMS, so
+  // the POS service has no approve and no reject call to offer. The server
+  // answers 405/404 on those paths now (backend Task 4), and a client method
+  // that still points at them is a button that can only fail.
+  test('the service no longer knows an approve or reject path', () {
+    final source = File(
+      'lib/data/services/requisition_service.dart',
+    ).readAsStringSync();
 
-    final token = await service().approve(2);
-
-    expect(token, 'd5a4eb1f-0e88-497d-bc3b-688b14a6a867');
+    expect(source, isNot(contains('/approve/')));
+    expect(source, isNot(contains('/reject/')));
+    expect(source, isNot(contains('Future<String> approve')));
+    expect(source, isNot(contains('Future<void> reject')));
   });
-
-  test(
-    'a refused transition surfaces the SERVER message, not a generic one',
-    () async {
-      // The server refuses an illegal move with prose naming the reason ("Cannot approve a
-      // SUBMITTED requisition."). Replacing it with "something went wrong" throws away the only
-      // information the manager has about why the button did nothing.
-      serve(
-        (_) => _json({
-          'detail': 'Cannot approve a DRAFT requisition.',
-        }, status: 400),
-      );
-
-      await expectLater(
-        service().approve(2),
-        throwsA(
-          isA<RequisitionServiceException>().having(
-            (e) => e.message,
-            'message',
-            'Cannot approve a DRAFT requisition.',
-          ),
-        ),
-      );
-    },
-  );
 
   test(
     'verifying a token returns the requisition and each item with what REMAINS',
@@ -324,115 +302,10 @@ void main() {
     },
   );
 
-  // Phase 1 Task 6 (audit remediation): `release_materials` now refuses a variant that has no
-  // conversion-factor-1 selling unit, because the old fallback priced the line at zero and
-  // handed `variant_uom=None` to a non-null FK — a half-written sale. The 400 carries
-  // `{code: NO_BASE_UOM, detail: "Variant ... has no base-unit selling price ..."}`, which a
-  // clerk can only act on if the screen says WHAT to fix, so the detail must survive.
-  test(
-    'NO_BASE_UOM tells the clerk which catalogue gap blocks the release',
-    () async {
-      serve(
-        (_) => _json({
-          'code': 'NO_BASE_UOM',
-          'detail':
-              'Variant 12 - 1/2 inch x 3m has no base-unit selling price: add a '
-              'selling unit with conversion factor 1 before releasing it.',
-        }, status: 400),
-      );
-
-      await expectLater(
-        service().release('d5a4eb1f-0e88-497d-bc3b-688b14a6a867'),
-        throwsA(
-          isA<RequisitionServiceException>().having(
-            (e) => e.message,
-            'message',
-            startsWith(
-              'The release was refused: this material has no base unit in '
-              'the catalogue.',
-            ),
-          ),
-        ),
-      );
-    },
-  );
-
-  // Phase 2 Task 7 (audit remediation): the backend now refuses a self-approval and a
-  // post-DRAFT edit with a stable `code`. The server's `detail` is already readable, but the code
-  // is the only thing left when a `detail` is missing (stripped body, proxy error page), and
-  // "The requisitions could not be loaded." on an approve button is a dead end. The mapped
-  // message must name the rule that refused.
-  test(
-    'SELF_APPROVAL says a second person must approve, with the server reason',
-    () async {
-      serve(
-        (_) => _json({
-          'code': 'SELF_APPROVAL',
-          'detail':
-              'You cannot approve a requisition you requested: approval needs '
-              'a second person.',
-        }, status: 400),
-      );
-
-      await expectLater(
-        service().approve(2),
-        throwsA(
-          isA<RequisitionServiceException>().having(
-            (e) => e.message,
-            'message',
-            allOf(contains('cannot approve'), contains('second person')),
-          ),
-        ),
-      );
-    },
-  );
-
-  test(
-    'SELF_APPROVAL is still explained when the body carries no detail',
-    () async {
-      serve((_) => _json({'code': 'SELF_APPROVAL'}, status: 400));
-
-      await expectLater(
-        service().approve(2),
-        throwsA(
-          isA<RequisitionServiceException>().having(
-            (e) => e.message,
-            'message',
-            contains('second person'),
-          ),
-        ),
-      );
-    },
-  );
-
-  test(
-    'REQUISITION_LOCKED says the requisition can no longer be changed',
-    () async {
-      serve(
-        (_) => _json({
-          'code': 'REQUISITION_LOCKED',
-          'detail':
-              'This requisition is APPROVED: only a DRAFT requisition can be '
-              'changed. Create a new requisition instead.',
-        }, status: 400),
-      );
-
-      await expectLater(
-        service().reject(2),
-        throwsA(
-          isA<RequisitionServiceException>().having(
-            (e) => e.message,
-            'message',
-            allOf(
-              contains('no longer'),
-              contains('only a DRAFT requisition can be changed'),
-            ),
-          ),
-        ),
-      );
-    },
-  );
-
+  // Decision 01 removed every POS-side approval, and with it the codes those actions
+  // refused with (SELF_APPROVAL, REQUISITION_LOCKED). The backend no longer emits
+  // NO_BASE_UOM either (Phase 1 Task 5 deleted the pricing fallback it guarded), so the
+  // client keeps no mapping for a code nobody sends.
   test('an unreachable server says so in words a cashier can act on', () async {
     serve(
       (options) => throw DioException(
@@ -452,4 +325,202 @@ void main() {
       ),
     );
   });
+
+  // Phase 1, Task 9 (decision 05): the shelf can be short, and a short shelf no longer
+  // refuses the whole release. So the token check has to carry, per line, what can leave
+  // the store NOW, and the release answer has to say what this scan moved and what is
+  // still owed on the token.
+  test('verifying a token reads what can leave the store per line', () async {
+    serve(
+      (_) => _json({
+        'token': 'd5a4eb1f-0e88-497d-bc3b-688b14a6a867',
+        'requisition': {
+          'id': 3,
+          'req_number': 'REQ-20260925-0003',
+          'project': '2-Storey House - Mandaue',
+          'customer': 'Dela Cruz Construction',
+        },
+        'items': [
+          {
+            'id': 31,
+            'variant_id': 4,
+            'variant_name': '1/2 inch x 3m',
+            'quantity': '10.00',
+            'remaining': '10.00',
+            'availability': 'SHORT',
+            'releasable': '4.00',
+          },
+          {
+            'id': 32,
+            'variant_id': 5,
+            'variant_name': 'Marine Plywood 3/4 in',
+            'quantity': '24.00',
+            'remaining': '0.00',
+            'availability': 'DONE',
+            'releasable': '0.00',
+          },
+        ],
+      }),
+    );
+
+    final verified = await service().verifyToken(
+      'd5a4eb1f-0e88-497d-bc3b-688b14a6a867',
+    );
+
+    expect(verified.items.first.availability, LineAvailability.short);
+    expect(verified.items.first.goesNow, 4);
+    expect(verified.items.first.outstanding, 6);
+    expect(verified.items.last.availability, LineAvailability.done);
+  });
+
+  test(
+    'releasing reports PARTIAL and the lines still open on the token',
+    () async {
+      serve(
+        (_) => _json({
+          'transaction_id': 14,
+          'transaction_no': 'TRX-20261017-0001',
+          'req_number': 'REQ-20260925-0003',
+          'status': 'PARTIAL',
+          'items': [
+            {'code': 'CEM-40', 'released_now': '10.00', 'outstanding': '0.00'},
+            {'code': 'STL-10', 'released_now': '4.00', 'outstanding': '6.00'},
+          ],
+          'grand_total': '1260.00',
+          'ledger_id': 4,
+          'balance_due': '1260.00',
+        }, status: 201),
+      );
+
+      final result = await service().release(
+        'd5a4eb1f-0e88-497d-bc3b-688b14a6a867',
+      );
+
+      expect(result.status, ReleaseStatus.partial);
+      expect(result.isPartial, isTrue);
+      expect(result.openLineCount, 1);
+    },
+  );
+
+  // Decision 05: `NOTHING_TO_RELEASE` is a FACT about the shelf, not a failure, and the
+  // server's detail is written for a developer. The till answers with its own words so a
+  // clerk knows the token still works once stock arrives.
+  test('NOTHING_TO_RELEASE is answered in the cashier\'s words', () async {
+    serve(
+      (_) => _json({
+        'code': 'NOTHING_TO_RELEASE',
+        'detail':
+            'Nothing on this request can be released: every line is short, '
+            'out of stock or unavailable. The token stays valid.',
+      }, status: 400),
+    );
+
+    await expectLater(
+      service().release('d5a4eb1f-0e88-497d-bc3b-688b14a6a867'),
+      throwsA(
+        isA<RequisitionServiceException>()
+            .having((e) => e.code, 'code', 'NOTHING_TO_RELEASE')
+            .having(
+              (e) => e.message,
+              'message',
+              'Nothing on this request is in stock right now. '
+                  'Try the same token again after the next delivery.',
+            ),
+      ),
+    );
+  });
+
+  test(
+    'a CLOSED request tells the clerk to ask the project for a new one',
+    () async {
+      // Keyed on the stable code: the detail below is deliberately reworded prose.
+      serve(
+        (_) => _json({
+          'code': 'REQUISITION_CLOSED',
+          'detail': 'Server wording that may change.',
+        }, status: 400),
+      );
+
+      await expectLater(
+        service().release('d5a4eb1f-0e88-497d-bc3b-688b14a6a867'),
+        throwsA(
+          isA<RequisitionServiceException>().having(
+            (e) => e.message,
+            'message',
+            'This request was closed in the project system. '
+                'Ask the project to send a new one.',
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
+    'an already RELEASED request says nothing is left on the token',
+    () async {
+      serve(
+        (_) => _json({
+          'code': 'REQUISITION_RELEASED',
+          'detail': 'Server wording that may change.',
+        }, status: 400),
+      );
+
+      await expectLater(
+        service().release('d5a4eb1f-0e88-497d-bc3b-688b14a6a867'),
+        throwsA(
+          isA<RequisitionServiceException>().having(
+            (e) => e.message,
+            'message',
+            'Everything on this request was already released. '
+                'There is nothing left to hand over.',
+          ),
+        ),
+      );
+    },
+  );
+
+  test('a CANCELLED request says nothing may be released for it', () async {
+    serve(
+      (_) => _json({
+        'code': 'REQUISITION_CANCELLED',
+        'detail': 'Server wording that may change.',
+      }, status: 400),
+    );
+
+    await expectLater(
+      service().release('d5a4eb1f-0e88-497d-bc3b-688b14a6a867'),
+      throwsA(
+        isA<RequisitionServiceException>().having(
+          (e) => e.message,
+          'message',
+          'This request was cancelled in the project system, so nothing can '
+              'be released for it.',
+        ),
+      ),
+    );
+  });
+
+  test(
+    'a status refusal this client was not taught keeps the server\'s words',
+    () async {
+      // Only the three dead-end statuses get client copy. A DRAFT refusal still explains
+      // itself better in the server's sentence than in anything this file could invent.
+      serve(
+        (_) => _json({
+          'detail': 'Requisition is DRAFT, not APPROVED or PARTIAL.',
+        }, status: 400),
+      );
+
+      await expectLater(
+        service().release('d5a4eb1f-0e88-497d-bc3b-688b14a6a867'),
+        throwsA(
+          isA<RequisitionServiceException>().having(
+            (e) => e.message,
+            'message',
+            'Requisition is DRAFT, not APPROVED or PARTIAL.',
+          ),
+        ),
+      );
+    },
+  );
 }

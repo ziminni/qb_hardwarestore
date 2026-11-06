@@ -11,12 +11,23 @@ void main() {
       AppRoutes.salesReports,
     );
     expect(
-      AppRoutes.salesTwinOf(AppRoutes.adminRequisitions),
-      AppRoutes.salesRequisitions,
-    );
-    expect(
       AppRoutes.salesTwinOf(AppRoutes.adminUserManagement),
       AppRoutes.salesStaff,
+    );
+  });
+
+  // Decision 01: approvals moved to CPMS, so the admin queue is gone and the
+  // manager typing /admin/requisitions bounces to their own dashboard instead
+  // of landing on a twin that no longer exists.
+  test('the retired approve queue has no twin', () {
+    expect(AppRoutes.salesTwinOf('/admin/requisitions'), isNull);
+    expect(
+      AppRoutes.redirectFor(
+        isAuthenticated: true,
+        role: 'sales',
+        location: '/admin/requisitions',
+      ),
+      AppRoutes.salesDashboard,
     );
   });
 
@@ -35,7 +46,6 @@ void main() {
   test('an admin still opens the admin screens', () {
     for (final location in [
       AppRoutes.adminReports,
-      AppRoutes.adminRequisitions,
       AppRoutes.adminUserManagement,
     ]) {
       expect(

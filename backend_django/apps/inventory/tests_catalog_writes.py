@@ -67,7 +67,6 @@ class CatalogWriteTestBase(InventoryTestBase):
         self.stocker = self._make_user('cat_stocker', 'Stock Manager')
         self.manager = self._make_user('cat_manager', 'Store Manager')
         self.cashier = self._make_user('cat_cashier', 'Cashier')
-        self.foreman = self._make_user('cat_foreman', 'Site Foreman')
         # A second UOM, so a selling unit can be re-pointed at a DIFFERENT unit.
         self.uom_pc = UnitOfMeasure.objects.create(code='PC', name='Piece')
         self.vuom = VariantUOM.objects.create(
@@ -157,15 +156,15 @@ class NoDeleteTests(CatalogWriteTestBase):
 
 
 class CatalogWritePermissionTests(CatalogWriteTestBase):
-    """Catalog writes stay `IsInventoryRole`: a cashier and a foreman get 403."""
+    """Catalog writes stay `IsInventoryRole`: a cashier gets 403."""
 
-    def test_cashier_and_foreman_cannot_create_a_product(self):
+    def test_a_cashier_cannot_create_a_product(self):
         body = {
             'category': self.category.pk,
             'brand': self.brand.pk,
             'base_name': 'Bamboo Pole',
         }
-        for user in (self.cashier, self.foreman):
+        for user in (self.cashier,):
             with self.subTest(user=user.username):
                 response = self.client.post(
                     PRODUCTS_URL, body, format='json', **self._auth(user))

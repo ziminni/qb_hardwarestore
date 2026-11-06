@@ -231,28 +231,23 @@ void main() {
       expect(find.textContaining('something_new'), findsNothing);
     });
 
-    testWidgets('a Site Foreman is pointed at CPMS, their real system', (
+    // Decision 01 (2026-11-03): the Site Foreman group is gone, so the page
+    // has no foreman-specific branch left. An unmapped account - a CPMS-side
+    // identity, or one whose group was removed - reads the SAME generic
+    // explanation as any other role the POS has no dashboard for.
+    testWidgets('a CPMS-side account reads the generic no-dashboard copy', (
       tester,
     ) async {
-      // Decision D5: foreman tools are out of scope HERE, so the screen must
-      // name the system that does own them rather than imply a fault.
       await pump(tester, role: 'site_foreman', roleLabel: 'Site Foreman');
 
+      expect(find.text('No dashboard for this account'), findsOneWidget);
+      expect(find.textContaining('no POS dashboard'), findsOneWidget);
       expect(
         find.textContaining('Construction Project Management System'),
-        findsOneWidget,
+        findsNothing,
+        reason: 'the foreman branch is gone from the POS client',
       );
-      expect(find.textContaining('still in development'), findsOneWidget);
-    });
-
-    testWidgets('greets the foreman with the account name the server sent', (
-      tester,
-    ) async {
-      // Plan copy: "Hello, Fore Man." The demo foreman is seeded with exactly
-      // that full name, so this is the account's data, not a literal.
-      await pump(tester, role: 'site_foreman', roleLabel: 'Site Foreman');
-
-      expect(find.text('Hello, Fore Man.'), findsOneWidget);
+      expect(find.textContaining('Hello,'), findsNothing);
     });
 
     testWidgets('every word on it uses no em or en dash', (tester) async {

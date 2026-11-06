@@ -36,11 +36,19 @@ class LedgerEntry {
     required this.balanceDue,
     required this.dueDate,
     required this.isOverdue,
+    this.projectName,
   });
 
   final int id;
   final int customerId;
   final String customerName;
+
+  /// The project this utang was released for, or null for a counter sale
+  /// (decision 03: the contractor stays the payer, the project tags the debt).
+  ///
+  /// Optional with a null default so the older, project-less shape of the row
+  /// still parses: a missing key is a counter sale, not a broken response.
+  final String? projectName;
 
   /// The receipt/transaction number the debt came from — what a cashier searches by.
   final String transactionNo;
@@ -64,7 +72,10 @@ class LedgerEntry {
   ///
   /// [dueSoonWindow] is how far ahead "due soon" starts; the default week matches how far a
   /// counter clerk plans.
-  LedgerStatus statusAt(DateTime now, {Duration dueSoonWindow = const Duration(days: 7)}) {
+  LedgerStatus statusAt(
+    DateTime now, {
+    Duration dueSoonWindow = const Duration(days: 7),
+  }) {
     // Compared at DAY granularity, to match the server's `due_date < date.today()`.
     // Comparing raw DateTimes made a receivable due today read Overdue from 00:00, while the
     // server calls it overdue only after midnight - so the two disagreed for a whole day.
@@ -81,6 +92,9 @@ class LedgerEntry {
       id: intField(json, 'id'),
       customerId: intField(json, 'customer'),
       customerName: stringField(json, 'customer_name'),
+      projectName: (json['project_name'] as String?)?.trim().isEmpty ?? true
+          ? null
+          : (json['project_name'] as String).trim(),
       transactionNo: stringField(json, 'transaction_no'),
       originalAmount: decimalField(json, 'original_amount'),
       balanceDue: decimalField(json, 'balance_due'),

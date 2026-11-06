@@ -6,7 +6,6 @@ import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/reports.dart';
-import 'package:client/data/models/requisition.dart';
 import 'package:client/data/models/role.dart';
 import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/models/system_alert.dart';
@@ -14,7 +13,6 @@ import 'package:client/data/models/user.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/repositories/inventory_repository.dart';
 import 'package:client/data/repositories/products_repository.dart';
-import 'package:client/data/repositories/requisition_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/inventory_service.dart';
 import 'package:client/data/services/products_service.dart';
@@ -123,43 +121,6 @@ class _StubInventoryRepository extends InventoryRepository {
   Future<List<StockAdjustment>> loadAdjustments() async => const [];
 }
 
-/// The requisition queue the overview counts: two submitted requests wait for
-/// the admin, one approved one does not.
-class _StubRequisitionRepository extends RequisitionRepository {
-  _StubRequisitionRepository() : super();
-
-  @override
-  Future<List<Requisition>> fetchRequisitions() async => const [
-    Requisition(
-      id: 1,
-      reqNumber: 'REQ-1',
-      rawStatus: 'SUBMITTED',
-      projectName: 'Hillside Phase 2',
-      projectCustomerName: 'Hillside Realty',
-      requestedByName: 'Reyes, Mario',
-      items: [],
-    ),
-    Requisition(
-      id: 2,
-      reqNumber: 'REQ-2',
-      rawStatus: 'SUBMITTED',
-      projectName: 'Cogon Bridge Repair',
-      projectCustomerName: 'Cogon LGU',
-      requestedByName: 'Bautista, Liza',
-      items: [],
-    ),
-    Requisition(
-      id: 3,
-      reqNumber: 'REQ-3',
-      rawStatus: 'APPROVED',
-      projectName: 'Hillside Phase 2',
-      projectCustomerName: 'Hillside Realty',
-      requestedByName: 'Reyes, Mario',
-      items: [],
-    ),
-  ];
-}
-
 class _StubReportsService extends ReportsService {
   _StubReportsService({this.failure}) : super();
 
@@ -235,7 +196,6 @@ Future<void> _pump(
                 AdminOverviewViewmodel(
                   reports: _StubReportsService(failure: reportsFailure),
                   sales: _StubSalesService(),
-                  requisitions: _StubRequisitionRepository(),
                 ),
           ),
         ],
@@ -279,7 +239,6 @@ Future<void> _pumpInventoryFailing(WidgetTester tester) async {
             value: AdminOverviewViewmodel(
               reports: _StubReportsService(),
               sales: _StubSalesService(),
-              requisitions: _StubRequisitionRepository(),
             ),
           ),
         ],
@@ -320,17 +279,12 @@ Future<void> _pumpRouted(WidgetTester tester, {String? reportsFailure}) async {
                 value: AdminOverviewViewmodel(
                   reports: _StubReportsService(failure: reportsFailure),
                   sales: _StubSalesService(),
-                  requisitions: _StubRequisitionRepository(),
                 ),
               ),
             ],
             child: const AdminDashboard(),
           ),
         ),
-      ),
-      GoRoute(
-        path: AppRoutes.adminRequisitions,
-        builder: (_, _) => const Text('ARRIVED requisitions'),
       ),
       GoRoute(
         path: AppRoutes.adminInventory,
@@ -462,13 +416,15 @@ void main() {
 
   // Every action left on the page opens another screen. A summary the user
   // cannot open is a dead end.
-  testWidgets('Review requisitions opens Requisitions', (tester) async {
+  // Decision 01: approval happens in CPMS, so the admin has no queue to review.
+  // The panel keeps only work the POS can actually clear.
+  testWidgets('the overview has no requisitions queue', (tester) async {
     await _pumpRouted(tester);
 
-    await tester.tap(find.text('Review requisitions'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('ARRIVED requisitions'), findsOneWidget);
+    expect(find.text('Requisitions waiting for approval'), findsNothing);
+    expect(find.text('Review requisitions'), findsNothing);
+    // The alert row that IS the admin's own work stays.
+    expect(find.text('Unresolved alerts'), findsOneWidget);
   });
 
   testWidgets('Open monitoring opens Inventory monitoring', (tester) async {
@@ -506,7 +462,6 @@ void main() {
     final overview = AdminOverviewViewmodel(
       reports: _RefreshFailingReportsService(),
       sales: _StubSalesService(),
-      requisitions: _StubRequisitionRepository(),
     );
     await _pump(tester, overview: overview);
     expect(find.byType(ErrorBanner), findsNothing);

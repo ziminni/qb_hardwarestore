@@ -92,10 +92,13 @@ class _Role {
   final Widget Function(Widget child) build;
 }
 
-/// One stub count per role, injected so no PNG depends on a server. Each is the
-/// marker the ledger ruling named for that role, keyed by the shell's OWN index
-/// constant: a hardcoded number here once drew the stock manager's count on
-/// "Stock movements" while production had been fixed to "Low stock".
+/// One stub count per role that still HAS a marker, injected so no PNG depends
+/// on a server. Each is keyed by the shell's OWN index constant: a hardcoded
+/// number here once drew the stock manager's count on "Stock movements" while
+/// production had been fixed to "Low stock".
+///
+/// The sales and admin shells carry no marker any more (decision 01 removed the
+/// requisitions queue and the count that sat on it), so they take no loader.
 const _roles = [
   _Role('cashier', _cashierShell),
   _Role('store-manager', _salesShell),
@@ -118,7 +121,6 @@ Widget _salesShell(Widget child) => SalesSkeletonLayout(
   subtitle: 'Transactions',
   selectedNavigationIndex: 1,
   onNavigationSelected: (_) {},
-  loadMarkers: () async => const {SalesSkeletonLayout.approvalsIndex: 2},
   child: child,
 );
 
@@ -134,9 +136,10 @@ Widget _inventoryShell(Widget child) => InventorySkeletonLayout(
 Widget _adminShell(Widget child) => AdminSkeletonLayout(
   title: 'Admin',
   subtitle: 'Overview',
+  // Index 4 is Reports now that Requisitions is gone, so the PNG still shows a
+  // highlighted row that is not the first one.
   selectedNavigationIndex: 4,
   onNavigationSelected: (_) {},
-  loadMarkers: () async => const {AdminSkeletonLayout.requisitionsIndex: 4},
   child: child,
 );
 

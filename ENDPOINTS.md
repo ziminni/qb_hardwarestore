@@ -41,7 +41,8 @@ This document maps every **frontend feature** (`flutter/lib/features/`) to the *
 | `features/sales` | `apps/pos` | `/api/v1/transactions/*`, `/api/v1/transactions/daily_report/` |
 | `features/reports` | `apps/pos` + `apps/collectibles` | `/api/v1/transactions/daily_report/`, `/api/v1/ledgers/aging/` |
 | *(collectibles / utang)* | `apps/collectibles` | `/api/v1/ledgers/*` |
-| *(requisitions / material release)* | `apps/requisitions` | `/api/v1/requisitions/*`, `/api/v1/tokens/*` |
+| *(requisitions / material release)* | `apps/requisitions` | `/api/v1/projects/*`, `/api/v1/requisitions/*`, `/api/v1/req-items/*`, `/api/v1/tokens/*` — **read-only copies** of what CPMS approved, plus the till's verify/release |
+| *(CPMS integration — machine caller, no Flutter feature)* | `apps/integration` | `/api/v1/integration/cpms/*` — contract in [`docs/integration/CPMS-CONTRACT.md`](docs/integration/CPMS-CONTRACT.md) |
 
 > **Note:** All ViewSets below are DRF `ModelViewSet`s registered with `DefaultRouter`, so every resource supports the standard REST operations unless marked read-only:
 > `GET /<resource>/` (list), `GET /<resource>/{id}/` (retrieve), `POST /<resource>/` (create), `PUT /<resource>/{id}/`, `PATCH /<resource>/{id}/`, `DELETE /<resource>/{id}/`.
@@ -62,7 +63,7 @@ This document maps every **frontend feature** (`flutter/lib/features/`) to the *
 | --- | --- | --- | --- |
 | POST | `/api/v1/auth/login/` | Login (username or email + password) → JWT pair. **Lockout:** 5 failures for one `(identifier, client address)` pair inside 15 minutes → **429** `{"code": "LOGIN_LOCKED", "detail": "Too many failed sign-in attempts. Try again in N minutes.", "retry_after": <seconds>}` — answered **without checking the password**. A success clears the counter; the counter is kept in the cache (`apps/users/lockout.py`), so it expires by itself and is **per worker process** until production points `CACHES` at a shared backend. Every **checked** failure writes a `LOGIN_FAILED` audit row (a locked attempt is refused unread and writes none) (actor = the matched account, else `username_snapshot` = attempted identifier); the body for an unknown user and a wrong password is identical, and a disabled account's refusal counts as a failure | Public |
 | POST | `/api/v1/auth/refresh/` | Refresh access token. Rotation is on: the response carries a **new** refresh token, and the token just used is blacklisted — **reusing a rotated refresh token → 401**. A **deactivated** account's refresh token → **401** (`no_active_account`) | Public (refresh token in body) |
-| POST | `/api/v1/auth/register/` | Create account — **`group_name` is required**, one of the six roles in `apps/users/permissions.py`: `Admin`, `System Administrator`, `Store Manager`, `Stock Manager`, `Cashier`, `Site Foreman` (`seed_demo` creates five, omitting `Admin`); guarantees every account has a non-null `role` | Admin **group** (`Admin` / `System Administrator`) or superuser |
+| POST | `/api/v1/auth/register/` | Create account — **`group_name` is required** and must be an existing Group: the five POS roles in `apps/users/permissions.py` (`Admin`, `System Administrator`, `Store Manager`, `Stock Manager`, `Cashier`) or the `CPMS Service` group, which is **not** a POS role — it may only call `/api/v1/integration/cpms/` and is refused everywhere else (see §3.7). `seed_demo` creates `System Administrator`, `Store Manager`, `Stock Manager`, `Cashier` and the `cpms_service` account, omitting `Admin`; guarantees every account has a non-null `role` | Admin **group** (`Admin` / `System Administrator`) or superuser |
 | POST | `/api/v1/auth/logout/` | Logout. Optional body `{"refresh": "<token>"}`: when it parses **and** belongs to the caller, it is blacklisted (that token then fails `/auth/refresh/` with **401**). A garbage, expired, already-rotated or foreign token is ignored. **Always 204** — local sign-out never fails; a `LOGOUT` audit row is written either way | Authenticated |
 | GET | `/api/v1/auth/me/` | Current user profile + roles | Authenticated |
 | GET/POST/PUT/PATCH | `/api/v1/users/` | User CRUD (Store Manager + Admin). Query param: `?search=<term>` matches **username**, full name, or email. **No `DELETE`** — the route answers **405**; accounts are deactivated (`is_active: false`), never deleted (audit rows will `PROTECT` their user). `is_staff` is **read-only over the API**: it only grants Django `/admin` login, never application authority. Non-admin callers get **403 `USER_ADMIN_FORBIDDEN`** on admin accounts (Admin / System Administrator groups or superuser, active or not) and on admin-group grants; account creation stays Admin-only | Store Manager + Admin **groups** |
@@ -147,7 +148,7 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 
 | Method | Path | Purpose | Auth |
 | --- | --- | --- | --- |
-| GET | `/api/v1/ledgers/` | Outstanding receivable entries (+ nested payments) | Cashier / Store Manager / Admin |
+| GET | `/api/v1/ledgers/` | Outstanding receivable entries (+ nested payments). Row: `{id, customer, customer_name, project_name, transaction, transaction_no, original_amount, balance_due, due_date, status, is_overdue, created_at, updated_at, recent_payments[]}`. **`project_name`** (decision 03) is the project a release was for, `null` for a counter sale — so utang totals per project as well as per contractor, while the contractor stays the payer (one credit limit per contractor) | Cashier / Store Manager / Admin |
 | GET | `/api/v1/ledgers/aging/` | **Aging report** — overdue/open balances grouped by customer | Cashier / Store Manager / Admin |
 | GET/POST/PUT/PATCH/DELETE | `/api/v1/ledger-payments/` | Collectible payments (posts against a ledger and moves `balance_due` in one atomic block). **Read + create only**: a payment row is a receipt of money, so PUT/PATCH/DELETE are **405** | read: Cashier / Store Manager / Admin — `POST`: Cashier / Store Manager / Admin |
 
@@ -159,28 +160,42 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 
 > ℹ **Route note (fixed):** collectible payments were previously registered at `/api/v1/payments/`, which collided with the POS `payments` route and made them unreachable. They now live at **`/api/v1/ledger-payments/`**. Nested payments are still also visible inside `/api/v1/ledgers/` responses.
 
-### 3.6 `apps/requisitions` — projects, material requests, tokens
+### 3.6 `apps/requisitions` — projects, the CPMS copy, tokens
+
+The POS no longer requests or approves material: CPMS creates the request and its project manager approves it, then pushes it through `/api/v1/integration/cpms/` (§3.7, full contract in `docs/integration/CPMS-CONTRACT.md`). What is left here is a **read-only copy** for managers, plus the till's two token endpoints.
 
 | Method | Path | Purpose | Auth |
 | --- | --- | --- | --- |
-| GET/POST/PATCH/DELETE | `/api/v1/projects/` | Construction project CRUD | Read: any authenticated · Write: Site Foreman / Store Manager / Admin |
-| GET/POST | `/api/v1/requisitions/` | Create a requisition (auto `req_number`, `requested_by` = current user, always starts `DRAFT`) / list them | Site Foreman / Store Manager / Admin — **read scope**: Store Manager / Admin see all, Site Foreman sees only `requested_by = self` (another foreman's row → **404**), everyone else → **403** |
-| GET/PATCH/PUT/DELETE | `/api/v1/requisitions/{id}/` | Read / edit / delete one requisition. **`status` is action-only**: it is read-only here (a `status` in the payload is ignored, never applied), so only `submit` / `approve` / `reject` move it — a plain PATCH cannot walk a `DRAFT` to `APPROVED`/`RELEASED` around the approval, the token mint and the `REQ_APPROVE` audit row. Edits and deletes are refused once the requisition left `DRAFT` → **400** `{"code": "REQUISITION_LOCKED", "detail": "…"}` | Site Foreman (own only) / Store Manager / Admin |
-| POST | `/api/v1/requisitions/{id}/submit/` | DRAFT → SUBMITTED | Site Foreman / Store Manager / Admin |
-| POST | `/api/v1/requisitions/{id}/approve/` | SUBMITTED → APPROVED, generates `MaterialToken` (returns token UUID). Approving **your own** requisition → **400** `{"code": "SELF_APPROVAL", "detail": "…"}`, status unchanged, no token row — superusers included | Store Manager / Admin |
-| POST | `/api/v1/requisitions/{id}/reject/` | SUBMITTED → REJECTED (own request may be rejected — only approval needs a second person) | Store Manager / Admin |
-| GET/POST/PATCH/PUT/DELETE | `/api/v1/req-items/` | Requisition line items. Reads follow the parent requisition; writes only while the parent is `DRAFT`, otherwise **400** `{"code": "REQUISITION_LOCKED", "detail": "…"}` on create, edit and delete. **The target parent is resolved through the caller's row scope**: filing a line onto another foreman's requisition, or moving a line into one, is **404** with nothing written (the same hidden ≠ forbidden rule as the list) | Site Foreman (own requisitions) / Store Manager / Admin |
-| GET | `/api/v1/tokens/` | Material tokens (read-only) — **a bearer credential** | Store Manager / Admin only (Cashier / Stock Manager / everyone else → **403**) |
-| POST | `/api/v1/tokens/verify/` | Verify token — body: `{"token": "<uuid>"}` (UC-20) | Cashier / Store Manager / Admin (Stock Manager / foreman → **403**) |
-> ⚠ **Requisition tokens are bearer credentials (Phase 2).** Whoever holds a `MaterialToken` UUID can release the goods on credit, so tokens are no longer readable by "any logged-in user": `GET /requisitions/` exposes `token` only to a Store Manager / Admin (any row) or the requesting Site Foreman, and the key is `null` for anyone else (it stays present, because the Flutter `Requisition` model decodes a nullable `token`). `GET /tokens/` is manager/admin-only. A cashier releases with the UUID the approver hands over — reading it is not part of their role.
->
-> ⚠ **Separation of duties.** `approve` refuses the requester (`SELF_APPROVAL`, 400) before any write; `reject` does not — withdrawing your own request is harmless.
->
-> ⚠ **Immutable after submit.** A requisition and its lines may only change while `DRAFT` (`REQUISITION_LOCKED`, 400). Otherwise items could be edited after approval and the token would release what nobody approved. Corrections go through a new requisition.
->
-> ⚠ **`status` is action-only (Phase 2 review).** It is read-only on the serializer, so `PATCH {"status": "APPROVED"}` is ignored: approval needs the `approve` action, which is where separation of duties, the `MaterialToken` and the `REQ_APPROVE` audit row live.
+| GET | `/api/v1/projects/` | Projects, **read-only** — created and kept current by a CPMS push: `cpms_project_id` is CPMS's own key (unique, nullable only for legacy rows) and `name` / `customer` follow CPMS on a later push of the same id. Row: `{id, name, cpms_project_id, customer, customer_name, location, start_date, end_date, is_active, notes, created_at, updated_at}` | any authenticated |
+| GET | `/api/v1/requisitions/` | The POS copy of what CPMS approved, **read-only**. Row: `{id, project, project_name, project_customer_name, req_number, requested_by_name, approver_name, cpms_request_id, status, notes, items[], token, created_at, updated_at}`. Statuses the POS can hold: `APPROVED`, `PARTIAL`, `RELEASED`, `CLOSED` (CPMS closed the remainder) and `CANCELLED` (legacy rows only). `token` is the bearer UUID and is **`null` unless the caller is a Store Manager / Admin** (the key stays present, because the Flutter `Requisition` model decodes a nullable `token`) | Store Manager / Admin (cashier, stocker, groupless → **403**) |
+| *(none)* | `/api/v1/requisitions/` writes | **Gone (decision 01).** `POST` / `PUT` / `PATCH` / `DELETE` → **405** (`ReadOnlyModelViewSet`); `submit/`, `approve/` and `reject/` are not routed at all → **404**. Whoever needs a correction raises it in CPMS and pushes again | — (405 / 404) |
+| GET | `/api/v1/req-items/` | Requisition lines, **read-only**, same audience as their requisition. Row: `{id, requisition, variant_uom, variant, variant_name, quantity, released_qty, notes}`. `variant` (the product variant id) and `variant_name` stay on the wire, read-only and derived from `variant_uom`, because the release screen decodes them. `quantity` and `released_qty` are counted in the line's **selling unit** (`variant_uom`) | Store Manager / Admin |
+| GET | `/api/v1/tokens/` | Material tokens, **read-only** — **a bearer credential**. Row: `{id, requisition, req_number, token, is_used, used_at, created_at}`. Tokens arrive with the CPMS push; the POS never mints one | Store Manager / Admin only (Cashier / Stock Manager / everyone else → **403**) |
+| POST | `/api/v1/tokens/verify/` | **Verify token** — body `{"token": "<uuid>"}` (UC-20). Answers `{token, requisition: {id, req_number, project, customer}, items: [{id, variant_id, variant_name, quantity, remaining, availability, releasable}]}`: `quantity` is what CPMS asked for, `remaining` what is still outstanding, `releasable` what the shelf allows **right now**, and `availability` is `FULL`, `SHORT` (some of it can go), `UNAVAILABLE` (archived, or nothing on the shelf) or `DONE` (an earlier scan took it all). **Writes nothing** | Cashier / Store Manager / Admin (Stock Manager / groupless → **403**) |
+| POST | `/api/v1/tokens/release/` | **Material release at the till** — body `{"token": "<uuid>"}` (UC-21/22), **201** with `{transaction_id, transaction_no, req_number, status, items: [{code, released_now, outstanding}], grand_total, ledger_id, balance_due}`. See *Release* below | Cashier / Store Manager / Admin |
 
-| POST | `/api/v1/tokens/release/` | **Material release at POS** — body: `{"token": "<uuid>"}`; FIFO-deducts stock, creates `SalesTransaction`, posts to `CollectibleLedger` (UC-21/22). Quantities are **base units** (`RequisitionItem.quantity`) and are priced from the variant's **factor-1** `VariantUOM` (`default_selling_price`), resolved for **every remaining line before the first write**. A line whose variant has no factor-1 selling unit → **400** `{"code": "NO_BASE_UOM", "detail": "…"}` with the token still unused and nothing written (no sale, receipt, ledger or stock move). **Requires the caller's OPEN shift** (decision 03): with none → **400** `{"code": "NO_OPEN_SHIFT", "detail": "…"}` and the same empty outcome (token unused, stock unchanged, no `RELEASE` audit row). A successful release attaches that shift to its `SalesTransaction`, so it counts in the Z-reading's `transaction_count`/`gross_sales` while leaving `expected_drawer` untouched (a release books a collectible, never cash). Other token/state errors keep the plain `{"detail": "…"}` 400. | Cashier / Store Manager / Admin |
+> ⚠ **Release what is there (decision 05).** One call FIFO-deducts stock and writes ONE `SalesTransaction` (`source=REQUISITION`) with ONE official receipt and ONE `CollectibleLedger` row tagged with the request's **project** (decision 03) — so receivables total per project as well as per contractor, and `GET /ledgers/` carries `project_name` on every row (`null` for a counter sale). Only lines with stock are written; a short, out-of-stock or archived line keeps its outstanding quantity, the request becomes **`PARTIAL`** and **the same token stays valid**, so a second visit releases the rest. When every line is out the request becomes **`RELEASED`** and the token is spent. Lines are counted in their own **selling unit** and stock leaves by that unit's conversion factor (the till's rule); whole-count units release whole numbers, measured units to 2 decimals, always rounded down.
+>
+> ⚠ **Release needs the caller's OPEN shift** (decision 03): with none → **400** `{"code": "NO_OPEN_SHIFT", "detail": "…"}`, and nothing is written (token unused, stock unchanged, no sale, no ledger, no `RELEASE` audit row). A successful release attaches that shift to its `SalesTransaction`, so it counts in the Z-reading's `transaction_count` / `gross_sales` while leaving `expected_drawer` untouched — a release books a collectible, never cash.
+>
+> ⚠ **Refusals, verify and release alike** — all **400**, all writing nothing: nothing on the request can leave the store → `{"code": "NOTHING_TO_RELEASE", "detail": "…"}` and the token stays usable after a restock; a status that can never be released with its token still unused → `{"code": "REQUISITION_CLOSED" | "REQUISITION_RELEASED" | "REQUISITION_CANCELLED", "detail": "…"}`. A token that was already spent, an unknown UUID or a malformed one keeps the plain `{"detail": "…"}` body — a `RELEASED` request therefore answers "Token has already been used.", because its token died with the last scan.
+>
+> ⚠ **Tokens are bearer credentials.** Whoever holds a `MaterialToken` UUID can take goods out on the project's credit, so `GET /tokens/` is manager/admin-only and `GET /requisitions/` shows `token` to a Store Manager / Admin only. A cashier releases with the UUID the project brings to the counter; reading it is not part of their role. The CPMS service account is fenced out of this whole app (`403 CPMS_SCOPE`).
+
+### 3.7 `apps/integration` — the CPMS boundary (machine caller only)
+
+Four reads and two writes, all under `/api/v1/integration/cpms/`, all `IsCpmsService`. **Full bodies, error codes, retry rules and curl examples: [`docs/integration/CPMS-CONTRACT.md`](docs/integration/CPMS-CONTRACT.md)** — that file is the contract CPMS builds against, so keep the two in step.
+
+| Method | Path | Purpose | Auth |
+| --- | --- | --- | --- |
+| GET | `/api/v1/integration/cpms/customers/` | The payers a push may name: `{id, name}` for active contractor / construction-firm customers, no balances or limits | CPMS service account |
+| GET | `/api/v1/integration/cpms/materials/` | The selling units CPMS may order: `{code, product, unit}` — no stock, price, cost or id | CPMS service account |
+| POST | `/api/v1/integration/cpms/requests/` | Push one approved request → **201** new, **200** retry of the same `cpms_request_id` (first copy, unchanged); **400** `UNKNOWN_PAYER` / `UNKNOWN_MATERIAL` / `DUPLICATE_MATERIAL`; **409** `TOKEN_TAKEN` | CPMS service account |
+| GET | `/api/v1/integration/cpms/requests/{cpms_request_id}/` | Status plus each line's `requested` / `released` / `outstanding` (the true unreleased quantity, even once `CLOSED`); **404** `REQUEST_NOT_FOUND` | CPMS service account |
+| POST | `/api/v1/integration/cpms/requests/{cpms_request_id}/close/` | Close an open remainder: `APPROVED` / `PARTIAL` → `CLOSED` and the token dies; already `RELEASED` / `CLOSED` → **200** no-op; `CANCELLED` → **409** `REQUEST_CANCELLED`; unknown → **404** | CPMS service account |
+| GET | `/api/v1/integration/cpms/projects/{cpms_project_id}/payables/` | What the project owes: `{cpms_project_id, total, paid, balance}` as 2-decimal strings; **404** `PROJECT_NOT_FOUND` | CPMS service account |
+
+> The `CPMS Service` group is the only caller of these six. Any POS account gets **403** `{"detail": "Only the CPMS service account may call this endpoint."}`, and that service account itself gets **403** `{"code": "CPMS_SCOPE"}` on **every** endpoint outside this namespace (the fence is in `apps/users/authentication.py`, so it covers routes added later; `/auth/login/` and `/auth/refresh/` stay reachable so it can sign in). The POS makes **no outbound calls** to CPMS: CPMS pushes, and reads back what was released.
 
 ---
 
@@ -193,7 +208,7 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 | Receiving stock | `POST /purchase-orders/` (nested `items`) → `POST /purchase-orders/{id}/place/` → `POST /goods-receipts/` (carries the delivered `items` as `lines`) → `POST /goods-receipts/{id}/process/` (batches only that receipt's lines, once) |
 | POS checkout | `GET /products/` → `POST /transactions/` (one call does stock deduction + payments + OR) |
 | Utang monitoring | `GET /ledgers/` → `GET /ledgers/aging/` → `POST /ledger-payments/` |
-| Foreman requisition | `POST /requisitions/` → `POST /requisitions/{id}/submit/` → approver: `POST /requisitions/{id}/approve/` → POS: `POST /tokens/verify/` → `POST /tokens/release/` |
+| Material release (CPMS → till) | CPMS: `GET /integration/cpms/customers/` + `GET /integration/cpms/materials/` → `POST /integration/cpms/requests/` (approved) → POS cashier: `POST /tokens/verify/` (shows FULL / SHORT / UNAVAILABLE per line) → `POST /tokens/release/` → CPMS: `GET /integration/cpms/requests/{cpms_request_id}/` (+ `/close/` for a remainder, `GET …/projects/{cpms_project_id}/payables/` for what is owed) |
 | Daily dashboard/report | `GET /transactions/daily_report/` (optional `?date=YYYY-MM-DD`) + `GET /ledgers/aging/` + `GET /alerts/` |
 
 ## 4b. Reports Endpoints (`/api/v1/reports/` — Store Manager / Admin only)
@@ -203,7 +218,7 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
 | GET | `/api/v1/reports/sales-summary/?from=YYYY-MM-DD&to=YYYY-MM-DD` | Daily sales totals (count, gross, VAT, discounts) + range totals. Defaults to last 30 days. |
 | GET | `/api/v1/reports/inventory-valuation/` | Stock value at cost & retail, grouped by category + grand totals. |
 | GET | `/api/v1/reports/stock-movements/?from=&to=` | Stock IN (goods receipts/day) vs OUT (adjustments by type). |
-| GET | `/api/v1/reports/requisition-history/?status=&from=&to=` | Counts per status + filtered requisition list (max 200). `status` must be a valid Requisition status (DRAFT, SUBMITTED, APPROVED, REJECTED, PARTIAL, RELEASED, CANCELLED). |
+| GET | `/api/v1/reports/requisition-history/?status=&from=&to=` | Counts per status + filtered requisition list (max 200). `status` must be a valid Requisition status (DRAFT, SUBMITTED, APPROVED, REJECTED, PARTIAL, RELEASED, CANCELLED, CLOSED) — only `APPROVED`, `PARTIAL`, `RELEASED`, `CLOSED` and legacy `CANCELLED` rows can exist now; `DRAFT` / `SUBMITTED` / `REJECTED` survive only in data migrated from the retired POS-side request flow. |
 
 
 ## 5. Gaps / TODOs observed while writing this doc (backend)
@@ -218,15 +233,15 @@ Roles map to Django's built-in `Group`/`Permission` (see `apps/users/models.py` 
    | Inventory catalog & stock (products, categories, brands, UOMs, suppliers, POs, goods receipts + `process`, stock adjustments) | Stock Manager / Store Manager / Admin | Any authenticated |
    | System alerts (`/alerts/`, incl. `resolve`) | `POST /alerts/{id}/resolve/` → Stock Manager / Store Manager / Admin (`IsInventoryRole`); all other verbs → **405** | Any authenticated |
    | Sales reads: `/transactions/` (+ `daily_report`), `/customers/`, `/payments/`, `/receipts/`, `/quotations/`, `/sales-orders/` | Cashier / Store Manager / Admin (`SalesReadPOSWrite`) | Cashier / Stock Manager / Store Manager / Admin — a **cashier-only** user sees only rows they rang (404 otherwise) |
-   | Held/parked carts (`/held-carts/`, incl. `complete`) | Cashier / Store Manager / Admin | Cashier / Store Manager / Admin (store-wide; `inventory` / `foreman` → 403) |
+   | Held/parked carts (`/held-carts/`, incl. `complete`) | Cashier / Store Manager / Admin | Cashier / Store Manager / Admin (store-wide; stocker / groupless → 403) |
    | Payments & official receipts | read-only | Cashier / Stock Manager / Store Manager / Admin (scoped like their transaction) |
    | Collectible ledgers (`/ledgers/`, `/ledgers/aging/`) | **none** — 405 (`ReadOnlyModelViewSet`) | Cashier / Store Manager / Admin (`IsReceivablesReader`) |
    | Collectible payments (`/ledger-payments/`) | `POST` only: Cashier / Store Manager / Admin | Cashier / Store Manager / Admin |
-   | Projects | Site Foreman / Store Manager / Admin | Any authenticated |
-   | Requisitions (`/requisitions/`, incl. items and lines) | Site Foreman (own, `DRAFT` only) / Store Manager / Admin | Site Foreman (own only, others → 404) / Store Manager / Admin; cashier, stocker, groupless → 403 |
-   | Requisition `submit` | Site Foreman / Store Manager / Admin | — |
-   | Requisition `approve` / `reject` | Store Manager / Admin — not the requester (400 `SELF_APPROVAL`) | — |
+   | Projects (`/projects/`) | — (read-only; a CPMS push writes them) | Any authenticated |
+   | Requisitions (`/requisitions/`, incl. items and lines) | — (read-only; a CPMS push writes them) | Store Manager / Admin; cashier, stocker, groupless → 403 |
+   | Requisition `submit` / `approve` / `reject` | **removed** — 405 on the collection writes, 404 on the actions (CPMS approves) | — |
    | Material tokens (`/tokens/`) | — (read-only) | Store Manager / Admin |
+   | CPMS integration (`/integration/cpms/*`) | the six endpoints of §3.7 — `POST requests/`, `POST requests/{id}/close/` | `CPMS Service` group only; that account gets 403 `CPMS_SCOPE` on every other endpoint, every POS account 403 here |
    | Token `verify` | Cashier / Store Manager / Admin | — |
    | Token `release` | Cashier / Store Manager / Admin | — |
 

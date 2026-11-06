@@ -22,6 +22,7 @@ from django.utils.crypto import get_random_string
 from rest_framework.test import APIClient
 
 from apps.pos.models import Customer, SalesTransaction
+from apps.requisitions.tests_release_shift import ReleaseShiftBase
 
 from .models import CollectibleLedger, CollectiblePayment
 
@@ -293,7 +294,6 @@ class ReceivablesAccessTestBase(TestCase):
         self.cashier = self._make_user('ar_scope_cashier', 'Cashier')
         self.manager = self._make_user('ar_scope_manager', 'Store Manager')
         self.stocker = self._make_user('ar_scope_stocker', 'Stock Manager')
-        self.foreman = self._make_user('ar_scope_foreman', 'Site Foreman')
         self.nobody = self._make_user('ar_scope_nobody')
         # `is_staff` is Django-admin access only (decision 04) — never API authority.
         self.desk_staff = self._make_user('ar_scope_staff', is_staff=True)
@@ -335,8 +335,8 @@ class LedgerReadRoleTests(ReceivablesAccessTestBase):
                 self.assertEqual(
                     self.client.get(AGING_URL, **self._auth(user)).status_code, 200)
 
-    def test_stocker_foreman_groupless_and_desk_staff_are_refused(self):
-        for user in (self.stocker, self.foreman, self.nobody, self.desk_staff):
+    def test_stocker_groupless_and_desk_staff_are_refused(self):
+        for user in (self.stocker, self.nobody, self.desk_staff):
             with self.subTest(user=user.username):
                 self.assertEqual(
                     self.client.get(LEDGERS_URL, **self._auth(user)).status_code, 403)
@@ -405,3 +405,52 @@ class LedgerImmutabilityTests(ReceivablesAccessTestBase):
         self.assertEqual(CollectiblePayment.objects.count(), 1)
         self.ledger.refresh_from_db()
         self.assertEqual(self.ledger.balance_due, Decimal('300'))
+
+
+class LedgerProjectNameTests(ReleaseShiftBase):
+    """Task 10 (decision 03): the utang a release books says WHICH project owes it.
+
+    Receivables are read per contractor, so a row that names only the payer leaves a
+    manager unable to tell two jobs of the same contractor apart. The release path already
+    tags the ledger with the request's project; this pins that the READ says so, and that
+    a counter sale (no project) answers `null` instead of dropping the key — a missing key
+    is the same class of bug as `customer_name` above, and just as silent.
+    """
+
+    def _rows_by_id(self):
+        response = self.client.get(
+            LEDGERS_URL, HTTP_AUTHORIZATION=self.bearer)
+        self.assertEqual(response.status_code, 200)
+        return {row['id']: row for row in response.json()['results']}
+
+    def test_a_release_made_utang_names_its_project(self):
+        token = self._mint_token()
+        released = self._release(token)
+        self.assertEqual(
+            released.status_code, 201, getattr(released, 'data', None))
+
+        ledger = CollectibleLedger.objects.get(
+            transaction_id=released.data['transaction_id'])
+        row = self._rows_by_id()[ledger.pk]
+
+        self.assertEqual(
+            row['project_name'], self.project.name,
+            'a receivable that cannot name its project cannot be chased per job')
+
+    def test_a_counter_sale_utang_has_no_project_and_still_has_the_key(self):
+        counter_txn = SalesTransaction.objects.create(
+            customer=self.customer, cashier=self.cashier,
+            transaction_no='TRX-TEST-COUNTER-0001',
+            vatable_sales=Decimal(250), grand_total=Decimal(250))
+        counter_ledger = CollectibleLedger.objects.create(
+            customer=self.customer, transaction=counter_txn,
+            original_amount=Decimal(250), balance_due=Decimal(250),
+            due_date=date.today(), status=CollectibleLedger.Status.OPEN)
+
+        row = self._rows_by_id()[counter_ledger.pk]
+
+        self.assertIn(
+            'project_name', row,
+            'the key must be present and null, not absent - a client reading it '
+            'must not have to guess')
+        self.assertIsNone(row['project_name'])

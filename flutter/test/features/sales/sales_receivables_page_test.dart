@@ -53,6 +53,7 @@ LedgerEntry _entry({
   double originalAmount = 5000,
   double balance = 472,
   bool isOverdue = false,
+  String? projectName,
 }) => LedgerEntry(
   id: id,
   customerId: 3,
@@ -62,6 +63,7 @@ LedgerEntry _entry({
   balanceDue: balance,
   dueDate: appClock.now().add(const Duration(days: 30)),
   isOverdue: isOverdue,
+  projectName: projectName,
 );
 
 /// The skeleton layout is a full sidebar-plus-content shell, which overflows the default
@@ -323,5 +325,63 @@ void main() {
 
     expect(find.text('₱1,148,000.00'), findsWidgets);
     expect(tester.takeException(), isNull);
+  });
+
+  // ---- Task 10 (decision 03): the utang says which project owes it.
+
+  testWidgets('a release-made utang shows its project under the customer', (
+    tester,
+  ) async {
+    await _pump(tester, rows: [_entry(projectName: '2-Storey House Mandaue')]);
+
+    expect(
+      find.text('2-Storey House Mandaue'),
+      findsOneWidget,
+      reason:
+          'one contractor can owe on several jobs, and the payer alone does not '
+          'say which one',
+    );
+  });
+
+  testWidgets('a counter sale utang shows no project line at all', (
+    tester,
+  ) async {
+    await _pump(tester, rows: [_entry()]);
+
+    // The invoice number is the only caption under the customer name.
+    expect(find.text('TRX-20261016-0001'), findsOneWidget);
+    expect(
+      find.textContaining('Project'),
+      findsNothing,
+      reason: 'a walk-in debt has no project, so there is nothing to caption',
+    );
+  });
+
+  testWidgets('the search matches a project name, not only the customer', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      rows: [
+        _entry(projectName: '2-Storey House Mandaue'),
+        _entry(
+          id: 2,
+          customerName: 'Reyes Trading',
+          transactionNo: 'TRX-20261016-0002',
+          balance: 900,
+          projectName: 'Warehouse Extension Phase 2',
+        ),
+      ],
+    );
+
+    await tester.enterText(find.byType(TextField), 'warehouse');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Reyes Trading'), findsOneWidget);
+    expect(
+      find.text('Dela Cruz Construction'),
+      findsNothing,
+      reason: 'the project is what the clerk is told at the counter',
+    );
   });
 }

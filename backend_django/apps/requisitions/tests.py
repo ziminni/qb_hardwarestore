@@ -1,5 +1,11 @@
 # pyright: reportAttributeAccessIssue=false
-"""Requisitions tests — approval flow, tokens, material release."""
+"""Requisitions tests — the CPMS copy, its token, and the material release.
+
+Decision 01 removed the POS-side request and approval, so there is no submit/approve
+flow to test any more: a requisition arrives APPROVED, with its token minted by the same
+CPMS push (`services.import_request`, covered in `apps.integration.tests_import`). What is
+left here is what the POS still does — show the copy, verify the token, release the goods.
+"""
 
 from decimal import Decimal
 
@@ -23,17 +29,17 @@ from apps.inventory.models import (
     VariantUOM,
 )
 from apps.inventory.services import process_goods_receipt
-from apps.pos.models import Customer, OfficialReceipt, SalesTransaction, Shift
-
-from .models import Project, Requisition, RequisitionItem
-from .serializers import RequisitionSerializer
-from .services import (
-    approve_requisition,
-    reject_requisition,
-    release_materials,
-    submit_requisition,
-    verify_token,
+from apps.pos.models import (
+    Customer,
+    OfficialReceipt,
+    SalesItem,
+    SalesTransaction,
+    Shift,
 )
+
+from .models import MaterialToken, Project, Requisition, RequisitionItem
+from .serializers import RequisitionSerializer
+from .services import release_materials, verify_token
 
 User = get_user_model()
 
@@ -43,15 +49,18 @@ User = get_user_model()
 # be one more literal a scanner has to be taught to ignore.
 FIXTURE_PASSWORD = get_random_string(20)
 
+# Decision 08: the requester is a NAME CPMS reported, not an account that can log in here.
+REQUESTER_NAME = 'Rey Quester'
+
 
 class RequisitionTestBase(TestCase):
     def setUp(self):
         self.manager = User.objects.create_user(
-            username='manager1', email='m@x.com', password=FIXTURE_PASSWORD)
-        self.foreman = User.objects.create_user(
-            username='foreman1', email='f@x.com', password=FIXTURE_PASSWORD)
+            username='manager1', email='m@x.com', password=FIXTURE_PASSWORD,
+            full_name='Mana Ger')
         self.cashier = User.objects.create_user(
-            username='cashier1', email='c@x.com', password=FIXTURE_PASSWORD)
+            username='cashier1', email='c@x.com', password=FIXTURE_PASSWORD,
+            full_name='Cashi Er')
         # Phase 3 (decision 03): a material release now requires the releasing cashier's
         # OPEN shift, exactly like `process_sale`, so every release test needs one. Opened
         # here for the same reason `POSTestBase` opens one: it is a precondition of the
@@ -69,7 +78,9 @@ class RequisitionTestBase(TestCase):
             category=category, brand=brand, base_name='Portland Cement')
         self.variant = ProductVariant.objects.create(
             product=product, variant_name='40kg', base_uom=uom)
-        VariantUOM.objects.create(
+        # Decision 04: a requisition line IS a selling unit, so the fixture keeps the row
+        # it points at.
+        self.vuom = VariantUOM.objects.create(
             variant=self.variant, uom=uom, conversion_factor=Decimal('1'),
             default_selling_price=Decimal('10'),
         )
@@ -83,25 +94,31 @@ class RequisitionTestBase(TestCase):
         receipt = GoodsReceipt.objects.create(po=po, received_by=self.manager)
         process_goods_receipt(receipt=receipt, user=self.manager)
 
+        # Decision 01: the request is APPROVED when it lands here, because CPMS approved
+        # it. Stored directly, the way `import_request` stores it.
         self.requisition = Requisition.objects.create(
-            project=self.project, requested_by=self.foreman)
+            project=self.project,
+            req_number='REQ-TEST-0001',
+            status=Requisition.Status.APPROVED,
+            requester_name=REQUESTER_NAME,
+            approver_name=self.manager.full_name,
+        )
         self.req_item = RequisitionItem.objects.create(
-            requisition=self.requisition, variant=self.variant,
+            requisition=self.requisition, variant_uom=self.vuom,
             quantity=Decimal('10'))
 
+    def _mint_token(self, requisition=None):
+        """The one-time token a push mints with its request (decision 02)."""
+        return MaterialToken.objects.create(
+            requisition=requisition or self.requisition)
 
-class RequisitionFlowTests(RequisitionTestBase):
-    def test_full_flow_submit_approve_release(self):
-        submit_requisition(requisition=self.requisition)
-        self.requisition.refresh_from_db()
-        self.assertEqual(self.requisition.status, Requisition.Status.SUBMITTED)
+    def _stock(self):
+        return sum(self.variant.batches.values_list('current_qty', flat=True))
 
-        token = approve_requisition(
-            requisition=self.requisition, approver=self.manager)
-        self.requisition.refresh_from_db()
-        self.assertEqual(self.requisition.status, Requisition.Status.APPROVED)
-        self.assertEqual(self.requisition.approved_by, self.manager)
-        self.assertEqual(token.requisition, self.requisition)
+
+class MaterialReleaseTests(RequisitionTestBase):
+    def test_a_release_deducts_stock_books_the_utang_and_consumes_the_token(self):
+        token = self._mint_token()
 
         # Token verify shows remaining qty before release
         info = verify_token(token_value=str(token.token))
@@ -111,13 +128,12 @@ class RequisitionFlowTests(RequisitionTestBase):
             token_value=str(token.token), cashier=self.cashier)
 
         # Stock deducted via FIFO
-        total = sum(self.variant.batches.values_list(
-            'current_qty', flat=True))
-        self.assertEqual(total, Decimal('90'))
+        self.assertEqual(self._stock(), Decimal('90'))
         # Sales transaction created with requisition source
         txn = SalesTransaction.objects.get(id=result['transaction_id'])
         self.assertEqual(txn.source, SalesTransaction.Source.REQUISITION)
         self.assertEqual(txn.grand_total, Decimal('100'))
+        self.assertTrue(OfficialReceipt.objects.filter(transaction=txn).exists())
         # Ledger posted for the construction firm
         ledger = CollectibleLedger.objects.get(transaction=txn)
         self.assertEqual(ledger.balance_due, Decimal('100'))
@@ -127,26 +143,8 @@ class RequisitionFlowTests(RequisitionTestBase):
         self.requisition.refresh_from_db()
         self.assertEqual(self.requisition.status, Requisition.Status.RELEASED)
 
-    def test_cannot_approve_draft_requisition(self):
-        with self.assertRaises(ValueError):
-            approve_requisition(
-                requisition=self.requisition, approver=self.manager)
-
-    def test_cannot_submit_twice(self):
-        submit_requisition(requisition=self.requisition)
-        with self.assertRaises(ValueError):
-            submit_requisition(requisition=self.requisition)
-
-    def test_reject_sets_status(self):
-        submit_requisition(requisition=self.requisition)
-        reject_requisition(requisition=self.requisition, approver=self.manager)
-        self.requisition.refresh_from_db()
-        self.assertEqual(self.requisition.status, Requisition.Status.REJECTED)
-
     def test_token_cannot_be_used_twice(self):
-        submit_requisition(requisition=self.requisition)
-        token = approve_requisition(
-            requisition=self.requisition, approver=self.manager)
+        token = self._mint_token()
         release_materials(token_value=str(token.token), cashier=self.cashier)
         with self.assertRaises(ValueError):
             release_materials(token_value=str(token.token),
@@ -162,8 +160,8 @@ class RequisitionFlowTests(RequisitionTestBase):
 
 
 class RequisitionProvenanceTests(RequisitionTestBase):
-    """Decision 09 requires the approve queue to show where a requisition came
-    from. The list endpoint is the queue's only data source, so these fields are
+    """Decision 09 requires the requisition list to show where a request came
+    from. The list endpoint is that screen's only data source, so these fields are
     the contract it depends on - pinned here rather than discovered in the UI."""
 
     def test_serializer_carries_all_four_provenance_facts(self):
@@ -172,14 +170,14 @@ class RequisitionProvenanceTests(RequisitionTestBase):
         data = dict(RequisitionSerializer(self.requisition).data)
         self.assertEqual(data['req_number'], self.requisition.req_number)
         self.assertEqual(data['project_name'], 'House Build')
-        self.assertEqual(data['requested_by_name'], self.foreman.full_name)
+        self.assertEqual(data['requested_by_name'], REQUESTER_NAME)
         self.assertEqual(data['project_customer_name'], 'Builder Corp')
 
 
 class RequisitionListQueryTests(RequisitionTestBase):
-    """The list endpoint is the approve queue's data source, so its query count must not grow with
-    the number of rows: a manager with 200 open requisitions would otherwise wait on 200 extra
-    round trips to render the page."""
+    """The list endpoint is the requisition screen's data source, so its query count must
+    not grow with the number of rows: a manager with 200 open requisitions would otherwise
+    wait on 200 extra round trips to render the page."""
 
     def _queries_for_list(self):
         from django.db import connection
@@ -195,7 +193,7 @@ class RequisitionListQueryTests(RequisitionTestBase):
         one_row = self._queries_for_list()
         for index in range(3):
             Requisition.objects.create(
-                project=self.project, requested_by=self.foreman,
+                project=self.project, requester_name=REQUESTER_NAME,
                 req_number=f'REQ-QUERYTEST-{index:04d}')
         four_rows = self._queries_for_list()
         self.assertEqual(
@@ -204,18 +202,13 @@ class RequisitionListQueryTests(RequisitionTestBase):
 
 
 class MaterialReleaseApiTests(RequisitionTestBase):
-    """Decision 09 item 6 — a release must resolve the base-unit (factor 1) VariantUOM
-    for EVERY line BEFORE it writes anything.
+    """Decision 04 — a release is priced and counted in the line's OWN selling unit.
 
-    The defect: `release_materials` looked the factor-1 selling unit up per item and, on
-    a miss, still deducted stock and created a SalesTransaction, then passed
-    `variant_uom=None` into a non-null FK — an IntegrityError 500 with the stock already
-    moving inside the same block. Retrying the token after the 500 could then deduct a
-    second time in the worst case, and the cashier saw a crash instead of a reason.
-
-    Exercised over HTTP because the contract that matters to the client is the 400 with a
-    stable `code`, and because "nothing was written" is only provable by leaving the
-    request and looking.
+    A line carries a `VariantUOM`, so there is no base-unit lookup to miss any more: the
+    price is that unit's `default_selling_price` and FIFO deducts
+    `quantity x conversion_factor` base units, exactly as `process_sale` does for a
+    counter sale. Exercised over HTTP because the numbers the cashier sees are the
+    contract: the receipt says "3 boxes", the shelf loses 36 pieces, the utang is 360.
     """
 
     def setUp(self):
@@ -223,17 +216,13 @@ class MaterialReleaseApiTests(RequisitionTestBase):
         group, _ = Group.objects.get_or_create(name='Cashier')
         self.cashier.groups.add(group)
         self.client = APIClient()
-        # A 500 must be inspected, not re-raised: before the fix this request CRASHES in
-        # the view, and a test that dies with IntegrityError proves the crash but not the
-        # status code the client would see.
-        self.client.raise_request_exception = False
         login = self.client.post('/api/v1/auth/login/', {
             'username': 'cashier1', 'password': FIXTURE_PASSWORD}, format='json')
         token = login.data.get('access') or login.data.get('token')
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
 
-    def _second_variant_without_base_uom(self):
-        """A variant that HAS stock and HAS a selling unit — but only a factor-12 one."""
+    def _box_of_twelve_variant(self):
+        """A second variant with stock, sold only in boxes of 12."""
         box = UnitOfMeasure.objects.create(code='BOX', name='Box')
         product = Product.objects.create(
             category=Category.objects.get(name='Cement'),
@@ -241,7 +230,7 @@ class MaterialReleaseApiTests(RequisitionTestBase):
             base_name='Premium Cement')
         variant = ProductVariant.objects.create(
             product=product, variant_name='50kg', base_uom=box)
-        VariantUOM.objects.create(
+        vuom = VariantUOM.objects.create(
             variant=variant, uom=box, conversion_factor=Decimal('12'),
             default_selling_price=Decimal('120'),
         )
@@ -254,56 +243,42 @@ class MaterialReleaseApiTests(RequisitionTestBase):
             unit_cost=Decimal('90'), received_qty=Decimal('50'))
         receipt = GoodsReceipt.objects.create(po=po, received_by=self.manager)
         process_goods_receipt(receipt=receipt, user=self.manager)
-        return variant
-
-    def _approved_token(self):
-        submit_requisition(requisition=self.requisition)
-        return approve_requisition(
-            requisition=self.requisition, approver=self.manager)
+        return variant, vuom
 
     def _release(self, token):
         return self.client.post(
             '/api/v1/tokens/release/', {'token': str(token.token)}, format='json')
 
-    def test_line_without_base_uom_is_400_and_writes_nothing(self):
-        box_variant = self._second_variant_without_base_uom()
+    def test_a_line_sold_by_the_box_releases_boxes_and_deducts_pieces(self):
+        box_variant, box_vuom = self._box_of_twelve_variant()
         RequisitionItem.objects.create(
-            requisition=self.requisition, variant=box_variant,
+            requisition=self.requisition, variant_uom=box_vuom,
             quantity=Decimal('3'))
-        token = self._approved_token()
-        transactions_before = SalesTransaction.objects.count()
-
-        response = self._release(token)
-
-        self.assertEqual(
-            response.status_code, 400, getattr(response, 'data', None))
-        self.assertEqual(response.data['code'], 'NO_BASE_UOM')
-        self.assertIn('detail', response.data)
-        # Nothing written: no sale, no receipt, no ledger, no deduction, token unused.
-        self.assertEqual(SalesTransaction.objects.count(), transactions_before)
-        self.assertFalse(OfficialReceipt.objects.exists())
-        self.assertFalse(CollectibleLedger.objects.exists())
-        token.refresh_from_db()
-        self.assertFalse(token.is_used)
-        self.requisition.refresh_from_db()
-        self.assertEqual(self.requisition.status, Requisition.Status.APPROVED)
-        self.req_item.refresh_from_db()
-        self.assertEqual(self.req_item.released_qty, Decimal('0'))
-        base_stock = sum(self.variant.batches.values_list('current_qty', flat=True))
-        box_stock = sum(box_variant.batches.values_list('current_qty', flat=True))
-        self.assertEqual(base_stock, Decimal('100'))
-        self.assertEqual(box_stock, Decimal('50'))
-
-    def test_successful_release_still_uses_base_unit_price(self):
-        """Guard on the unchanged happy path: quantities stay in BASE units and the
-        price comes from the factor-1 selling unit (server-priced since task 1)."""
-        token = self._approved_token()
+        token = self._mint_token()
 
         response = self._release(token)
 
         self.assertEqual(response.status_code, 201, response.data)
-        # 10 base units at the factor-1 unit price of 10.00.
-        self.assertEqual(
-            Decimal(response.data['grand_total']), Decimal('100'))
-        base_stock = sum(self.variant.batches.values_list('current_qty', flat=True))
-        self.assertEqual(base_stock, Decimal('90'))
+        # 3 boxes x 120.00, plus the fixture's 10 bags x 10.00 — each line priced by its
+        # OWN selling unit in one and the same release.
+        self.assertEqual(Decimal(response.data['grand_total']), Decimal('460'))
+        # FIFO took 3 x 12 = 36 pieces off a shelf of 50.
+        box_stock = sum(box_variant.batches.values_list('current_qty', flat=True))
+        self.assertEqual(box_stock, Decimal('14'))
+        # The sale line keeps the SELLING quantity, like a counter sale.
+        line = SalesItem.objects.get(transaction_id=response.data['transaction_id'],
+                                     variant_uom=box_vuom)
+        self.assertEqual(line.qty, Decimal('3'))
+        self.assertEqual(line.unit_price, Decimal('120'))
+        # Both lines are accounted for: 100 of the base variant, 360 for the boxes.
+        self.assertEqual(self._stock(), Decimal('90'))
+
+    def test_a_factor_one_line_is_priced_and_counted_one_for_one(self):
+        """Guard on the unchanged happy path: 1 bag of 1 base unit at 10.00 each."""
+        token = self._mint_token()
+
+        response = self._release(token)
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(Decimal(response.data['grand_total']), Decimal('100'))
+        self.assertEqual(self._stock(), Decimal('90'))

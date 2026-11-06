@@ -8,8 +8,8 @@
 
 """Collectibles ViewSets — Accounts Receivable / Utang Management."""
 
-from django.db.models import Q
 from django.db import transaction
+from django.db.models import Q
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -19,8 +19,8 @@ from apps.users.permissions import IsReceivablesReader, ReceivablesReadPOSWrite
 from apps.users.services import audit_request
 
 from .models import CollectibleLedger, CollectiblePayment
-from .services import apply_payment_to_ledger
 from .serializers import CollectibleLedgerSerializer, CollectiblePaymentSerializer
+from .services import apply_payment_to_ledger
 
 
 class CollectibleLedgerViewSet(viewsets.ReadOnlyModelViewSet):
@@ -39,7 +39,7 @@ class CollectibleLedgerViewSet(viewsets.ReadOnlyModelViewSet):
     """
 
     queryset = CollectibleLedger.objects.select_related(
-        'customer', 'transaction',
+        'customer', 'transaction', 'project',
     ).prefetch_related('payments').order_by('-due_date')
     serializer_class = CollectibleLedgerSerializer
     permission_classes = [IsReceivablesReader]

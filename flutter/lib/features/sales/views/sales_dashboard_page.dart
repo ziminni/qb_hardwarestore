@@ -74,8 +74,9 @@ class _DashboardViewState extends State<_DashboardView> {
     if (sales.loadError == null) setState(() => _transactionsLoaded = true);
   }
 
-  /// Re-runs all three reads. They fail independently, so the one banner's
-  /// Retry repairs all of them rather than making the manager chase three.
+  /// Re-runs both read groups. They fail independently, so the one banner's
+  /// Retry repairs both rather than making the manager chase two.
+  ///
   void _retryAll() {
     context.read<SalesDashboardAlertsViewmodel>().load();
     _loadSales();
@@ -135,12 +136,13 @@ class _DashboardViewState extends State<_DashboardView> {
     final returnsToday = _transactionsLoaded
         ? _returnsToday(salesState.returns)
         : null;
-    // Two independent groups of reads (the queues, and the sales list with its
-    // summary) can fail separately, but the manager needs ONE failure surface
-    // and ONE Retry: three red bars saying the same thing is noise, and the
-    // tiles below already say "Not loaded" wherever a read did not answer.
+    // Two independent groups of reads (the overdue book, and the sales list
+    // with its summary) can fail separately, but the manager needs ONE failure
+    // surface and ONE Retry: two red bars saying the same thing is noise, and
+    // the tiles below already say "Not loaded" wherever a read did not answer.
     // The sales reads speak first: a refused summary is what an older test pins
-    // by name, and a dead transaction list is the larger loss than a dead queue.
+    // by name, and a dead transaction list is the larger loss than a dead
+    // receivables count.
     final failure =
         salesState.loadError ?? salesState.summaryError ?? alerts.loadError;
     return SalesSkeletonLayout(
@@ -194,17 +196,6 @@ class _DashboardViewState extends State<_DashboardView> {
           const SizedBox(height: AppSpacing.md),
           MetricGrid(
             children: [
-              SalesNeedsYouTile(
-                key: const ValueKey('salesDashboard.needsYou.approvals'),
-                label: 'Requisitions waiting',
-                value: _count(alerts.awaitingApprovals),
-                caption: 'Waiting for your approval',
-                icon: Icons.fact_check_outlined,
-                onTap: () => _selectNavigation(
-                  context,
-                  SalesSkeletonLayout.approvalsIndex,
-                ),
-              ),
               SalesNeedsYouTile(
                 key: const ValueKey('salesDashboard.needsYou.receivables'),
                 label: 'Overdue receivables',
