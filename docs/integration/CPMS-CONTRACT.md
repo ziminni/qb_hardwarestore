@@ -1,8 +1,20 @@
 # CPMS ↔ POS contract — the six integration endpoints (Phase 1)
 
-**Status:** draft for product-owner review (Phase 1, Task 11). **Written from the built endpoints**, not from the plan: every shape, code and status below was read in `backend_django/apps/{integration,requisitions,users}/` and called against the dev server on 2026-11-04. **Audience:** the CPMS team, which does not have the POS source.
+**Status:** v0.1, **provisional**. Accepted by the product owner 2026-11-07 without a line-by-line review, so any part may still change before CPMS builds against it. **Written from the built endpoints**, not from the plan: every shape, code and status below was read in `backend_django/apps/{integration,requisitions,users}/` and called against the dev server on 2026-11-04. **Audience:** the CPMS team, which does not have the POS source.
 
 Decisions behind it: [01](../../planning/pos-evolution/decisions/01-requisitions-after-foreman.md) (POS keeps a read-only copy), [02](../../planning/pos-evolution/decisions/02-request-transport.md) (CPMS pushes), [04](../../planning/pos-evolution/decisions/04-request-item-matching.md) (material list, POS codes), [05](../../planning/pos-evolution/decisions/05-short-stock-release.md) (partial release), [06](../../planning/pos-evolution/decisions/06-closing-partial-requests.md) (CPMS closes), [07](../../planning/pos-evolution/decisions/07-cpms-sees-releases.md) (CPMS reads back).
+
+### How this contract may change
+
+- **Additive by default.** New response fields and new error codes may appear at any time; CPMS must ignore fields it does not know and treat an unknown `code` as a refusal, showing its `detail`.
+- **Breaking changes** (renamed or removed fields, new required request fields, changed meanings) bump the version here and get a line in the change log below before they ship.
+- **Already planned** (Phase 1b, [Request states after Accept](../../planning/pos-evolution/decisions/13-request-states-after-accept.md)): a push answers `WAITING` instead of `APPROVED`; the store accepts or declines; read-back gains per-line `available` + `decline_reason`, request `decline_reason` and `expected_amount`; `close/` also accepts `WAITING`; new till refusals `REQUISITION_WAITING`, `REQUISITION_DECLINED`. Phase 1c adds payment-receipt upload.
+
+### Change log
+
+| Version | Date | Change |
+|---|---|---|
+| v0.1 | 2026-11-07 | First version, from the Phase 1 build |
 
 ---
 

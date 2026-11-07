@@ -33,7 +33,7 @@ Every pointer must resolve; a broken pointer is fixed in the commit that breaks 
 
 - **Branch:** `feat/pos-evolution-phase-1` (off `4e791eb`, teammate `700171c` merged); Phase 1 Tasks 0–10 built and committed; push pending (agent cannot push over SSH). CPMS repo untouched.
 - **Last session:** `docs/sessions/2026-11-06-pos-evolution-phase-1-build.md`. Gate: backend `Ran 598` OK, analyze clean, flutter `+1283 ~221`, goldens `+221`. Phase 1b decisions locked, Phase 1c has one frontier item (see MAP).
-- **Next:** review `docs/integration/CPMS-CONTRACT.md` (Task 11, 🧑) → `execute-phase` Task 12 (QA, atlas, MAP ✅) → plan Phase 1b → grill Phase 1c.
+- **Next:** `execute-phase` Task 12 (QA, atlas, MAP ✅) → plan Phase 1b → grill Phase 1c.
 - **Demo accounts:** `admin`, `manager`, `stocker`, `cashier`, `cpms_service` / `demo1234` (no foreman any more).
 - **Proof standard:** a test covers a fix only after it fails without the fix; a claim without its command output in the same message is unverified.
 - **Caveats:** desktop pixels are user-verified only (`flutter run -d linux`); `.superpowers/` is gitignored, so ledgers and goldens live only on this machine; the editor hook re-formats staged Dart files, so re-stage after edits.
