@@ -47,6 +47,13 @@ Ownership check: Q1 (data flow) partly answered, Q2 (concurrency) and Q3 (why se
 - Legacy DRAFT/SUBMITTED/REJECTED close = 200 no-op (by: delegated, reviewer agreed).
 - `ProjectViewSet` keeps its old read audience (any signed-in staff account).
 
+## Later the same session (2026-11-06/07)
+
+- Analyze info fixed (braces in `ledger_service_test.dart` tearDown); Phase 1 committed as `77142d6`.
+- **Merged teammate `700171c`** (`origin/feature/backend-integration`) as `1739774`: kept the 80 mm sales receipt print, `formatPesoForPrint` and the "Scan the slip QR or type the token" hint; dropped the POS release slip and its edits to the deleted approval screens (CPMS prints the token-only QR now, noted in the contract). Gates after merge: analyze clean, flutter `+1283 ~221`, goldens `+221` (3 `c3-empty-*` regenerated for the hint text, viewed). Backend untouched by the merge.
+- **Teammate's flow adopted** (store accept/decline, receipt payments) as decisions 09–13 → Phase 1b (all decisions locked) and Phase 1c (one frontier item: receipt storage and allocation). The CPMS **client** is a read-only CPMS user, CPMS-only.
+- CPMS repo still untouched.
+
 ## Next Step
 
-Fix the analyze info (braces at `ledger_service_test.dart:91-92`), re-stage, then review `docs/integration/CPMS-CONTRACT.md` as product owner (Task 11). After approval: `/skill:execute-phase Phase 1` for Task 12 (gates + qa-tester browser/curl run + atlas refresh + MAP ✅), then commit.
+User pushes `feat/pos-evolution-phase-1`, then reviews `docs/integration/CPMS-CONTRACT.md` (Task 11). After approval: `/skill:execute-phase Phase 1` for Task 12 (QA + atlas + MAP ✅). Then plan Phase 1b and grill the Phase 1c frontier item.
