@@ -372,7 +372,8 @@ class Command(BaseCommand):
             return token
 
         # APPROVED (token ready for the POS release demo)
-        token = push('CPMS-R-1001', v_names[0], '8')
+        # Not v_names[0]: the seed drains that one for the low-stock demo.
+        token = push('CPMS-R-1001', v_names[1], '8')
 
         # RELEASED (the full flow - deducts stock, posts the project's utang)
         rel_token = push('CPMS-R-1002', v_names[3], '4')

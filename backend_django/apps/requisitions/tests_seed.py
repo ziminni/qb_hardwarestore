@@ -22,6 +22,7 @@ from apps.collectibles.models import CollectibleLedger
 from apps.pos.models import SalesTransaction
 
 from .models import MaterialToken, Requisition
+from .services import verify_token
 
 User = get_user_model()
 
@@ -62,6 +63,13 @@ class SeedDemoTests(TestCase):
         self.assertTrue(approved.requester_name, 'the requester is a CPMS name')
         self.assertTrue(approved.approver_name, 'the approver is a CPMS name')
         self.assertTrue(approved.items.exists())
+
+    def test_the_approved_request_is_fully_releasable(self):
+        # QA 2026-11-07: the demo's "full release" request must not sit on the variant
+        # the seed drains for the low-stock demo.
+        approved = Requisition.objects.get(status=Requisition.Status.APPROVED)
+        items = verify_token(token_value=str(approved.token.token))['items']
+        self.assertEqual({item['availability'] for item in items}, {'FULL'})
 
     def test_the_released_request_consumed_its_token_and_deducted_stock(self):
         released = Requisition.objects.get(status=Requisition.Status.RELEASED)

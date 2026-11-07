@@ -31,9 +31,10 @@ Every pointer must resolve; a broken pointer is fixed in the commit that breaks 
 
 ## Current Status & Next Step
 
-- **Branch:** `feat/pos-evolution-phase-1` (off `4e791eb`, teammate `700171c` merged); Phase 1 Tasks 0–10 built and committed; push pending (agent cannot push over SSH). CPMS repo untouched.
-- **Last session:** `docs/sessions/2026-11-06-pos-evolution-phase-1-build.md`. Gate: backend `Ran 598` OK, analyze clean, flutter `+1283 ~221`, goldens `+221`. Phase 1b decisions locked, Phase 1c has one frontier item (see MAP).
-- **Next:** `execute-phase` Task 12 (QA, atlas, MAP ✅) → plan Phase 1b → grill Phase 1c.
+- **Branch:** `feat/pos-evolution-phase-1` (off `4e791eb`, teammate `700171c` merged); POS evolution **Phase 1 ✅ Done 2026-11-07**; the agent commits, the user pushes (agent has no SSH). CPMS repo untouched.
+- **Last session:** `docs/sessions/2026-11-06-pos-evolution-phase-1-build.md`. Gate: backend `Ran 599` OK, analyze clean, flutter `+1284 ~221`, goldens `+221`. Phase 1b decisions locked, Phase 1c has one frontier item (see MAP).
+- **Next:** `wayfinder` on `planning/pos-evolution/MAP.md`: write the Phase 1b build plan (decisions locked), then grill the Phase 1c frontier item.
+- **Dev DB:** reseeded 2026-11-07 after QA (CPMS-R-1001 APPROVED and fully releasable, 1002 RELEASED, 1003 PARTIAL).
 - **Demo accounts:** `admin`, `manager`, `stocker`, `cashier`, `cpms_service` / `demo1234` (no foreman any more).
 - **Proof standard:** a test covers a fix only after it fails without the fix; a claim without its command output in the same message is unverified.
 - **Caveats:** desktop pixels are user-verified only (`flutter run -d linux`); `.superpowers/` is gitignored, so ledgers and goldens live only on this machine; the editor hook re-formats staged Dart files, so re-stage after edits.

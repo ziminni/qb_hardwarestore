@@ -4,8 +4,8 @@
 //
 // A typed old URL must behave exactly like any other address that matches no
 // route: the fence decides first (a role outside the area goes to its own
-// dashboard), and a role INSIDE the area is left alone, which is what makes
-// GoRouter show its not-found page instead of silently landing somewhere else.
+// dashboard), and a role INSIDE the area is left alone; the router's onException
+// then sends it to its own dashboard (test/routes/unknown_route_test.dart).
 
 import 'dart:io';
 

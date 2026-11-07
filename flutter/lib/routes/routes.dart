@@ -246,6 +246,10 @@ class AppRoutes {
     return GoRouter(
       initialLocation: splash,
       refreshListenable: auth,
+      // An address no route matches (e.g. a retired /admin/requisitions) goes to
+      // the user's own dashboard instead of GoRouter's debug "Page Not Found".
+      onException: (context, state, router) =>
+          router.go(dashboardForRole(auth.roleName) ?? login),
       redirect: (context, state) => redirectFor(
         isAuthenticated: auth.isAuthenticated,
         role: auth.roleName,
