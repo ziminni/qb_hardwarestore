@@ -111,7 +111,8 @@ class FullStockReleaseTests(PartialReleaseBase):
         self.assertEqual(
             response.data['items'],
             [{'code': self.vuom.barcode_qr, 'released_now': '10.00',
-              'outstanding': '0.00'}])
+              'outstanding': '0.00', 'available': None,
+              'decline_reason': ''}])
 
         ledger = CollectibleLedger.objects.get(
             transaction_id=response.data['transaction_id'])
@@ -163,7 +164,8 @@ class ShortStockReleaseTests(PartialReleaseBase):
         self.assertEqual(
             response.data['items'],
             [{'code': self.vuom.barcode_qr, 'released_now': '4.00',
-              'outstanding': '6.00'}])
+              'outstanding': '6.00', 'available': None,
+              'decline_reason': ''}])
 
         # Exactly what left the store: 4 bags on the sale, 40.00 of utang, 4 off the shelf.
         sale = SalesTransaction.objects.get(pk=response.data['transaction_id'])
@@ -199,7 +201,8 @@ class ShortStockReleaseTests(PartialReleaseBase):
         self.assertEqual(
             second.data['items'],
             [{'code': self.vuom.barcode_qr, 'released_now': '6.00',
-              'outstanding': '0.00'}])
+              'outstanding': '0.00', 'available': None,
+              'decline_reason': ''}])
 
         # Two releases, two utang rows, both tagged with the project, 100.00 in total.
         ledgers = self._ledger_rows().order_by('pk')
@@ -243,7 +246,8 @@ class BoxRoundingTests(PartialReleaseBase):
         self.assertEqual(
             response.data['items'],
             [{'code': self.box_vuom.barcode_qr, 'released_now': '2.00',
-              'outstanding': '1.00'}])
+              'outstanding': '1.00', 'available': None,
+              'decline_reason': ''}])
         # FIFO took 2 x 12 pieces; the sale line keeps the SELLING quantity.
         box_stock = sum(self.box_variant.batches.values_list('current_qty', flat=True))
         self.assertEqual(box_stock, Decimal(6))
@@ -284,9 +288,11 @@ class ArchivedLineTests(PartialReleaseBase):
         self.assertEqual(
             response.data['items'],
             [{'code': self.vuom.barcode_qr, 'released_now': '0.00',
-              'outstanding': '10.00'},
+              'outstanding': '10.00', 'available': None,
+              'decline_reason': ''},
              {'code': self.box_vuom.barcode_qr, 'released_now': '2.00',
-              'outstanding': '0.00'}])
+              'outstanding': '0.00', 'available': None,
+              'decline_reason': ''}])
         self.req_item.refresh_from_db()
         self.assertEqual(self.req_item.released_qty, Decimal(0))
         # The archived variant's stock is untouched.
@@ -315,7 +321,7 @@ class NothingToReleaseTests(PartialReleaseBase):
         token.refresh_from_db()
         self.assertFalse(token.is_used)
         self.requisition.refresh_from_db()
-        self.assertEqual(self.requisition.status, Requisition.Status.APPROVED)
+        self.assertEqual(self.requisition.status, Requisition.Status.ACCEPTED)
         self.req_item.refresh_from_db()
         self.assertEqual(self.req_item.released_qty, Decimal(0))
 
@@ -468,7 +474,7 @@ class ConcurrentReleaseTests(TransactionTestCase):
 
         self.requisition = Requisition.objects.create(
             project=self.project, req_number='REQ-RACE-0001',
-            status=Requisition.Status.APPROVED, requester_name='Rey Quester')
+            status=Requisition.Status.ACCEPTED, requester_name='Rey Quester')
         self.item = RequisitionItem.objects.create(
             requisition=self.requisition, variant_uom=self.vuom,
             quantity=Decimal(15))
@@ -532,3 +538,7 @@ class ConcurrentReleaseTests(TransactionTestCase):
         ledger = CollectibleLedger.objects.get(transaction=sales.get())
         self.assertEqual(ledger.balance_due, Decimal(100))
         self.assertEqual(ledger.project, self.project)
+        # Decision 14: the amount was accumulated ONCE, from the persisted sale total.
+        self.requisition.refresh_from_db()
+        self.assertEqual(self.requisition.released_amount, Decimal('100.00'))
+        self.assertEqual(self.requisition.released_amount, sales.get().grand_total)

@@ -5,14 +5,14 @@
 | Phase | Scope | Blocking Decisions | Status |
 |---|---|---|---|
 | 1 | Foreman out, CPMS boundary: requisitions become a read-only copy of CPMS-approved requests; projects known for utang/payables; cashier token release stays | ✅ [Requisitions after the foreman](./decisions/01-requisitions-after-foreman.md) · ✅ [How approved requests reach the POS](./decisions/02-request-transport.md) · ✅ [Projects and their payables](./decisions/03-projects-and-payables.md) · ✅ [What CPMS sends for each item](./decisions/04-request-item-matching.md) · ✅ [Releasing when stock is short](./decisions/05-short-stock-release.md) · ✅ [Closing a partly released request](./decisions/06-closing-partial-requests.md) · ✅ [How CPMS learns what was released and owed](./decisions/07-cpms-sees-releases.md) · ✅ [Migrating today's foreman data](./decisions/08-foreman-data-migration.md) | ✅ Done 2026-11-07 ([plan](./phase-1-plan.md); contract v0.1 provisional) |
-| 1b | Store accepts/declines pushed requests (whole or per line, with reason); release only after Accept; expected amount readable by CPMS | ✅ [The store accepts or declines a pushed request](./decisions/09-store-accepts-requests.md) · ✅ [Declining single lines of a request](./decisions/10-line-level-decline.md) · ✅ [When the project starts to owe](./decisions/11-when-utang-starts.md) · ✅ [Request states after Accept](./decisions/13-request-states-after-accept.md) | [ ] Decisions locked; plan after Phase 1 closes |
+| 1b | Store accepts/declines pushed requests (whole or per line, with reason); release only after Accept; expected amount readable by CPMS | ✅ [The store accepts or declines a pushed request](./decisions/09-store-accepts-requests.md) · ✅ [Declining single lines of a request](./decisions/10-line-level-decline.md) · ✅ [When the project starts to owe](./decisions/11-when-utang-starts.md) · ✅ [Request states after Accept](./decisions/13-request-states-after-accept.md) · ✅ [Historical release amounts after the Phase 1b upgrade](./decisions/14-historical-release-amounts.md) | ✅ Done 2026-11-08 — [all tasks verified](./phase-1b-plan.md#execution-checklist); contract v0.2 provisional; core live QA passed, remaining QA/cosmetic limits explicitly owner-accepted ([handoff](./phase-1b-plan.md#handoff--known-limits)); not deployed |
 | 1c | Payment receipts from CPMS: PM uploads amount + reference + photo, Store Manager approves (posted to project utang, partial allowed) or declines | ✅ [Paying project utang with an uploaded receipt](./decisions/12-payment-receipts.md) · [ ] Receipt storage and allocation | [ ] Pending |
 | 2 | Multiple roles per account: sidebar and dashboard built from the union of the account's permissions | fog | [ ] Pending |
 | 3 | Excel import/export: template export, edit, re-import; fresh-store bulk load of current materials | fog | [ ] Pending |
 
 ## Destination
 
-No foreman in the POS; one account can hold several roles; the catalogue and stock can round-trip through an Excel file.
+CPMS project requests receive a store answer before release; project debt and receipt payments are traceable in the POS, without a foreman login. Later: multiple roles per account and catalogue/stock Excel round-tripping.
 
 ## Notes & Invariants
 
@@ -36,6 +36,7 @@ No foreman in the POS; one account can hold several roles; the catalogue and sto
 - [Declining single lines of a request](./decisions/10-line-level-decline.md): Accept may mark lines Not available with a reason; whole Decline when nothing can be served; short accepted lines still go through partial release. (by: me)
 - [When the project starts to owe](./decisions/11-when-utang-starts.md): utang only at release; an accepted request exposes a non-debt expected amount to CPMS. (by: me)
 - [Request states after Accept](./decisions/13-request-states-after-accept.md): WAITING → ACCEPTED/DECLINED (or CPMS withdraw → CLOSED), then PARTIAL/RELEASED/CLOSED as built; lines Available/Not available at Accept; no undo; live expected amount; APPROVED rows become ACCEPTED; Store Manager + Admin queue. (by: me)
+- [Historical release amounts after the Phase 1b upgrade](./decisions/14-historical-release-amounts.md): preserve all history; old released requests expose a null expected amount until verified reconciliation, new releases track exact totals. (by: me)
 - [Paying project utang with an uploaded receipt](./decisions/12-payment-receipts.md): online payments arrive from CPMS as amount + reference + photo, Store Manager approves (partial OK) or declines with reason; cash stays at the counter. (by: me)
 
 ## Active Frontier

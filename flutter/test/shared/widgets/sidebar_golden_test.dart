@@ -97,8 +97,9 @@ class _Role {
 /// number here once drew the stock manager's count on "Stock movements" while
 /// production had been fixed to "Low stock".
 ///
-/// The sales and admin shells carry no marker any more (decision 01 removed the
-/// requisitions queue and the count that sat on it), so they take no loader.
+/// The sales and admin shells now read the waiting-request count for their
+/// "Requests from projects" entry (Phase 1b), and the count below is injected so
+/// no PNG depends on a server.
 const _roles = [
   _Role('cashier', _cashierShell),
   _Role('store-manager', _salesShell),

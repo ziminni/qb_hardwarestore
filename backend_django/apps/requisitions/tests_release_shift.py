@@ -58,7 +58,7 @@ class ReleaseShiftBase(RequisitionTestBase):
         self.bearer = f'Bearer {login.data["access"]}'
 
     def _approved_token(self):
-        """The token the CPMS push mints with its APPROVED request (decision 02)."""
+        """The token the CPMS push mints with its ACCEPTED request (decision 02)."""
         return self._mint_token()
 
     def _release(self, token):
@@ -97,7 +97,7 @@ class ReleaseRequiresOpenShiftTests(ReleaseShiftBase):
         token.refresh_from_db()
         self.assertFalse(token.is_used, 'the token must survive a refused release')
         self.requisition.refresh_from_db()
-        self.assertEqual(self.requisition.status, Requisition.Status.APPROVED)
+        self.assertEqual(self.requisition.status, Requisition.Status.ACCEPTED)
         self.req_item.refresh_from_db()
         self.assertEqual(self.req_item.released_qty, Decimal('0'))
 

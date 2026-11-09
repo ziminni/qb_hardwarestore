@@ -179,7 +179,7 @@ class ImportHappyPathTests(ImportTestBase):
         self.assertEqual(set(body), {'id', 'req_number', 'cpms_request_id', 'status',
                                      'items'})
         self.assertEqual(body['cpms_request_id'], 'CPMS-REQ-0001')
-        self.assertEqual(body['status'], Requisition.Status.APPROVED)
+        self.assertEqual(body['status'], Requisition.Status.WAITING)
         self.assertEqual(body['items'], [{'code': self.code, 'quantity': '10.00'}])
         req = Requisition.objects.get(pk=body['id'])
         self.assertEqual(body['req_number'], req.req_number)
@@ -209,6 +209,13 @@ class ImportHappyPathTests(ImportTestBase):
 
     def test_the_imported_token_verifies_at_the_cashier_endpoint(self):
         body = self.push().json()
+        # Phase 1b (decision 13): a push waits for the store, so the token only works
+        # once the store has accepted the lines — through the real service.
+        services.accept_requisition(
+            requisition_id=body['id'],
+            items=[{'id': line.pk, 'available': True, 'decline_reason': ''}
+                   for line in RequisitionItem.objects.filter(
+                       requisition_id=body['id']).order_by('pk')])
         auth = self.login(self.cashier.username, password=CPMS_LOGIN)
         res = self.client.post(
             VERIFY_URL, {'token': str(self.token)}, content_type='application/json',

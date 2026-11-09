@@ -2,7 +2,7 @@
 """Requisitions tests — the CPMS copy, its token, and the material release.
 
 Decision 01 removed the POS-side request and approval, so there is no submit/approve
-flow to test any more: a requisition arrives APPROVED, with its token minted by the same
+flow to test any more: a requisition arrives ACCEPTED, with its token minted by the same
 CPMS push (`services.import_request`, covered in `apps.integration.tests_import`). What is
 left here is what the POS still does — show the copy, verify the token, release the goods.
 """
@@ -94,12 +94,12 @@ class RequisitionTestBase(TestCase):
         receipt = GoodsReceipt.objects.create(po=po, received_by=self.manager)
         process_goods_receipt(receipt=receipt, user=self.manager)
 
-        # Decision 01: the request is APPROVED when it lands here, because CPMS approved
+        # Decision 01: the request is ACCEPTED when it lands here, because CPMS approved
         # it. Stored directly, the way `import_request` stores it.
         self.requisition = Requisition.objects.create(
             project=self.project,
             req_number='REQ-TEST-0001',
-            status=Requisition.Status.APPROVED,
+            status=Requisition.Status.ACCEPTED,
             requester_name=REQUESTER_NAME,
             approver_name=self.manager.full_name,
         )

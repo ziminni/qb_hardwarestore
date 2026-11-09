@@ -14,6 +14,12 @@ void main() {
       AppRoutes.salesTwinOf(AppRoutes.adminUserManagement),
       AppRoutes.salesStaff,
     );
+    // Phase 1b (decisions 09/10/13): the same review queue, in the manager's
+    // own shell, so answering a request never swaps their sidebar.
+    expect(
+      AppRoutes.salesTwinOf(AppRoutes.adminProjectRequests),
+      AppRoutes.salesProjectRequests,
+    );
   });
 
   // Decision 01: approvals moved to CPMS, so the admin queue is gone and the
@@ -47,6 +53,7 @@ void main() {
     for (final location in [
       AppRoutes.adminReports,
       AppRoutes.adminUserManagement,
+      AppRoutes.adminProjectRequests,
     ]) {
       expect(
         AppRoutes.redirectFor(

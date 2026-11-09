@@ -37,32 +37,44 @@ class MaterialReleaseViewmodel extends ChangeNotifier {
         (line) => line.isReleasable,
       );
 
+  /// The lines the store agreed to serve.
+  ///
+  /// Decision 13: a line the store answered Not available is never handed over, so it
+  /// is not one of the lines this request promises. An absent/null answer is NOT a
+  /// refusal — the line may still be collected — so it stays in.
+  Iterable<VerifiedRequisitionItem> get _eligibleLines =>
+      (verification?.items ?? const <VerifiedRequisitionItem>[]).where(
+        (line) => line.available != false,
+      );
+
   /// True when anything can leave the store on this scan.
   bool get hasReleasable => releasableLines.isNotEmpty;
 
   int get releasableLineCount => releasableLines.length;
-  int get totalLineCount => verification?.items.length ?? 0;
+
+  /// The lines this scan is about: refused lines are not promised, so they are not
+  /// counted (decision 13).
+  int get totalLineCount => _eligibleLines.length;
 
   /// True when the release will leave lines open on this token.
   ///
   /// Read per line rather than from the request's status, because a SHORT line keeps its
-  /// remainder: the token stays valid and the project comes back for it.
+  /// remainder: the token stays valid and the project comes back for it. A Not available
+  /// line is not one of them: nobody will ever hand it over (decision 13).
   bool get leavesLinesOpen =>
-      (verification?.items ?? const <VerifiedRequisitionItem>[]).any(
-        (line) => line.outstanding > 0,
-      );
+      _eligibleLines.any((line) => line.outstanding > 0);
 
   /// Why the confirm press is not offered, in the clerk's words. Null when it is.
   ///
   /// A pressed button that can only fail is a server error at the counter, so the reason
   /// replaces the button. The two cases are different instructions: an empty shelf means
-  /// "come back after a delivery", a finished token means "this paper is done".
+  /// "come back after a delivery", a finished token means "this paper is done". The
+  /// fallback is conservative on purpose: an unanswered line still counts as owed.
   String? get confirmBlockedReason {
     if (verification == null || hasReleasable) return null;
-    final allReleased = verification!.items.every(
-      (line) => line.availability == LineAvailability.done,
-    );
-    if (allReleased) {
+    final eligible = _eligibleLines;
+    if (eligible.isNotEmpty &&
+        eligible.every((line) => line.availability == LineAvailability.done)) {
       return 'Everything on this request was already released.';
     }
     return 'Nothing on this request is in stock right now. The token stays valid.';

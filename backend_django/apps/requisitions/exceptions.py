@@ -192,3 +192,34 @@ class RequisitionNotReleasable(ValueError):
     def __init__(self, status, message):
         super().__init__(message)
         self.code = f'REQUISITION_{status}'
+
+
+class RequisitionReviewRefused(ValueError):
+    """A store decision the POS refuses, with the HTTP status the API answers.
+
+    Phase 1b (decisions 09/10/13): `400` for a payload the caller can fix — a line left
+    unanswered, an all-Not-available Accept, a blank Decline reason — and `409` from the
+    subclass below when the request itself is no longer WAITING.
+
+    A `ValueError` like every other refusal here, so the view's existing handler keeps
+    working; `code` and `status_code` ride along so the body stays `{code, detail}` and
+    the client can branch without parsing prose.
+    """
+
+    code = 'INVALID_REQUEST_REVIEW'
+    status_code = 400
+
+    def __init__(self, message=None):
+        super().__init__(message or 'This request cannot be reviewed as sent.')
+
+
+class RequestAlreadyReviewed(RequisitionReviewRefused):
+    """The request is no longer WAITING, so there is nothing to answer (decision 13).
+
+    A `409`, not a `400`: the payload is fine and the request is real, but the decision
+    was already made — by a store manager, by another tab, or by CPMS closing it. There
+    is no undo, and a retried submission must not overwrite the answer already given.
+    """
+
+    code = 'REQUEST_ALREADY_REVIEWED'
+    status_code = 409

@@ -43,6 +43,8 @@ const _salesPaths = [
   // Appended: Staff (sales_management_routing_test). Approvals was removed by
   // decision 01 - CPMS approves requests, so the POS has no queue.
   '/sales/staff',
+  // Phase 1b appends the store's review queue after Staff.
+  '/sales/project-requests',
 ];
 
 Widget _app(Widget child) => ChangeNotifierProvider<AuthViewmodel>.value(
@@ -141,15 +143,16 @@ void main() {
     expect(AppRoutes.salesReports, '/sales/reports');
   });
 
-  test('the sales sidebar has eight destinations', () {
+  test('the sales sidebar has nine destinations', () {
     expect(
       SalesSkeletonLayout.navigationSections
           .expand((section) => section.destinations)
           .length,
-      8,
+      9,
       reason:
           'index 6 (Reports) is only reachable if the sidebar renders it; '
-          '7 is Staff. Approvals was removed by decision 01',
+          '7 is Staff and 8 is Requests from projects (Phase 1b). '
+          'Approvals was removed by decision 01',
     );
   });
 

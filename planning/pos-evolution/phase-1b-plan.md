@@ -1,0 +1,173 @@
+# Phase 1b Plan — Store Accepts or Declines Project Requests
+
+**Status:** ✅ Done 2026-11-08, with owner-accepted QA limits (see Handoff below). Tasks 0–10 complete; whole-change and fixture/atlas reviews approved, final automated gates passed, core isolated live QA passed. Owner chose “Close with limits (Recommended)” after reviewing the remaining coverage gaps and cosmetic issues. Contract v0.2 remains provisionally accepted; this is not deployment authorization.
+**Parent:** [POS Evolution MAP](./MAP.md), Phase 1b. **Source baseline:** `fa0f342` on `feat/pos-evolution-phase-1`.
+**Execution branch:** `feat/pos-evolution-phase-1b`, created from `fa0f342` in Task 0. Work remains uncommitted; commits/pushes require the owner's request.
+**Last recorded gates, not rerun during planning:** backend 599 OK; Flutter +1284 / 221 skipped; goldens 221; analyze clean.
+
+## Destination & Scope
+
+A CPMS-approved request waits for the store's answer. Store Manager or Admin accepts it, optionally declining individual lines with reasons, or declines everything with a reason. Only accepted lines can leave at the till. CPMS reads the decision, line reasons and a live non-debt expected amount. Acceptance reserves no stock and books no money.
+
+**Out of scope:** Phase 1c payment receipts; CPMS source changes; outbound calls, notifications, polling/websockets, stock reservations, quantity edits/substitutions, undo, new approval workflow, POS release-slip printing, dashboard tiles, multi-role/Excel work, financial reconciliation tooling, dependency additions and automatic DB reset. CPMS still approves its own request; POS **acceptance is not CPMS approval**.
+
+## Locked Decisions
+
+Business facts live in the linked decisions, not duplicated as new choices here:
+
+- [The store accepts or declines a pushed request](./decisions/09-store-accepts-requests.md) (by: me).
+- [Declining single lines of a request](./decisions/10-line-level-decline.md) (by: me).
+- [When the project starts to owe](./decisions/11-when-utang-starts.md) (by: me).
+- [Request states after Accept](./decisions/13-request-states-after-accept.md) (by: me).
+- [Historical release amounts after the Phase 1b upgrade](./decisions/14-historical-release-amounts.md) (by: me, resolved during planning): preserve history; unknown historical totals stay unknown.
+
+Technical choices below are **by: delegated**, except ownership-tagged exercises. They do not reopen business decisions. New behavior must have a RED-first test; keep evidence of the intended failure and the passing check. Maximum two builders, one backend task at a time; Flutter test concurrency 2.
+
+## Domain & Wire Contract to Build
+
+### Request and line state
+
+Use the state machine in [Request states after Accept](./decisions/13-request-states-after-accept.md). New imports explicitly set `WAITING`; migration changes every stored `APPROVED` to `ACCEPTED`. Remove `APPROVED` from active backend transitions/choices; the client may retain legacy parsing. Set the model default to WAITING; keep DRAFT/SUBMITTED/REJECTED/CANCELLED readable but unreachable for new work. Never edit historical migration files.
+
+Add to `Requisition`:
+
+- `decline_reason`: blank-default text, maximum 255 characters; nonblank, trimmed reason required for whole Decline.
+- `released_amount`: nullable Decimal, proposed `max_digits=20, decimal_places=2`, default `0.00` for new requests. Internal cumulative released sale value, **not a receivable**. Unknown remains null across future releases. Accumulate the persisted 2dp `SalesTransaction.grand_total`, not a repriced quantity or a project ledger aggregate. Refresh that field from the database after save (or establish equivalent explicit rounding first): the existing local `grand_total` can still have four decimals after save. Repeated fractional releases must equal the sum of reloaded sale totals.
+
+Add to `RequisitionItem`:
+
+- `available`: nullable boolean, default null on import (store has not answered); true/false set at Accept. This is **store intent**, distinct from the till's live stock `availability` enum.
+- `decline_reason`: blank-default text, maximum 255 characters. Required for false; blank for true.
+
+At whole Decline, set every line false with the request reason, and spend the token (`used_at`, no cashier `used_by`). At Accept, require an explicit answer for **every** stored line and at least one true. No partial quantity acceptance. A false line never consumes shared stock in `_release_plan`, never creates a SalesItem and never prevents `RELEASED` once all true lines finish. True lines can still be short/out of stock later.
+
+The actor/time trail reuses `AuditLog` and `audit_request`; no new review entity or user FK. Use existing `REQ_APPROVE`/`REQ_REJECT` action types with unambiguous descriptions “accepted by store” / “declined by store”, request number and line decisions/reasons. Preserve CPMS `approver_name`; never replace it with the POS reviewer. Never log token UUIDs.
+
+### Staff endpoints (existing namespace, NOT integration)
+
+Keep `RequisitionViewSet` read-only for generic CRUD and add only custom DRF actions, still `IsManagerRole` (Store Manager, Admin/System Administrator). No need to turn it into a writable `ModelViewSet`.
+
+| Method + path | Planned behavior |
+|---|---|
+| `GET /api/v1/requisitions/?status=WAITING` | Existing paginated serializer, exact optional status filter, stable `created_at, pk` ascending order. Invalid status → 400 field-shaped validation. No filter lists all states, also oldest first. |
+| `GET /api/v1/requisitions/{id}/` | Current copy including line decisions, request reason and nullable expected amount. |
+| `POST /api/v1/requisitions/{id}/accept/` | `{items:[{id:<POS line id>, available:true, decline_reason:""}, {id:..., available:false, decline_reason:"Not stocked"}]}` → 200 updated staff representation. |
+| `POST /api/v1/requisitions/{id}/decline/` | `{decline_reason:"Cannot supply this request"}` → 200 updated staff representation. |
+
+Validation before writes: exact line-id set (no omissions, duplicates, extras or foreign-request ids), strict booleans, true line reason blank, false line reason trimmed/nonblank, at least one true, reason max length, no client-supplied quantities, prices, released totals, project or status writes. Reject unexpected action fields rather than accepting an attempted quantity edit. All-false Accept is a 400 validation error directing staff to whole Decline, never a silent change of action.
+
+Both actions are legal **only from WAITING**. A repeated action, opposite action, or stale review after close → `409 {code:"REQUEST_ALREADY_REVIEWED", detail:...}` without writes/audit. Unknown POS id → 404. The client reloads on 409 or uncertain network result; no blind automatic retry. Missing credentials → 401, disallowed staff → 403, CPMS account here → existing `403 CPMS_SCOPE`.
+
+Generic POST/PATCH/PUT/DELETE stay 405; retired `submit/approve/reject` stay 404; line and project endpoints remain read-only. Existing tests proving these fences must remain, with fixture/status expectations updated, not removed.
+
+### CPMS changes (same six endpoints; no new CPMS writes)
+
+- Import 201 returns WAITING. Same-id retry 200 returns the **current stored state**, including DECLINED, without rewriting anything. Preserve existing import response shape beyond changed status; GET read-back owns the new decision fields.
+- GET read-back gains request `decline_reason`, `expected_amount` (2dp string or null) and each line's `available` (true/false/null), `decline_reason`. Existing quantity keys stay unchanged.
+- `outstanding = requested - released` on **every** line, including false lines and CLOSED requests. Completion now concerns only true lines, so RELEASED can have outstanding quantities on false lines. CPMS must inspect both `available` and request status.
+- Close transitions WAITING/ACCEPTED/PARTIAL → CLOSED, spending the token. Closing DECLINED/RELEASED/CLOSED is a 200 no-op preserving status/reasons. Keep CANCELLED → `409 REQUEST_CANCELLED` and existing other legacy no-op behavior.
+- Close and retry responses use the same current read-back meaning. With live pricing, retry safety means **no second mutation**, not byte-identical responses forever.
+- Expected amount: known released total + current selling price × outstanding true-line quantities, summed with Decimal and rounded to 2dp (`ROUND_HALF_UP`, once after summing the outstanding component). No per-unit prices, stock, token, cost or margin added to the CPMS body.
+- WAITING, DECLINED and unreviewed/legacy-only rows return null for expected amount. ACCEPTED/PARTIAL/RELEASED return the formula if the released baseline is known; historical unknown returns null. CLOSED after acceptance retains that same budgeting formula (including the abandoned accepted shortfall); CLOSED before review remains null. This follows the locked live-estimate rule: it is **not** a quote, remaining payable or promise to release after close. CPMS uses status to identify abandoned material and project payables to identify debt.
+- Payments do not change expected amount; current prices can change the outstanding component. Close never modifies released amount, quantities or debt.
+
+**Contract version:** v0.2, still provisional. Breaking changes include WAITING instead of APPROVED and completion being relative to true lines. Update all examples, lifecycle, close table, retry wording, “never sees money” exceptions and call sequence, not only the changelog. Do not advertise v0.2 as built until verified against the implementation.
+
+### Release and locking invariants
+
+All four transitions—Accept, Decline, Close, Release—use one lock order: **MaterialToken first, then Requisition**, inside one transaction. Re-read request status/line decisions under those locks. Current release checks status before locking and keeps an old `req` instance; that is insufficient for the new acceptance boundary. Bring release into the same locked-request rule; don't merely rename APPROVED.
+
+- Verify is advisory; Release repeats status and line checks under lock, regardless of an earlier successful verify.
+- WAITING and DECLINED give `400 REQUISITION_WAITING` / `400 REQUISITION_DECLINED` from both verify and release. Check these statuses before generic “token already used”, so Decline's spent token still explains the decision.
+- Only ACCEPTED/PARTIAL may release. Existing shift gate, FIFO, archived-item exclusion, whole/measured rounding, low-stock checks, atomic audit, one sale + project-ledger per visit and NOTHING_TO_RELEASE no-write guarantee remain.
+- Verify includes false lines for explanation (`available:false`, reason, `releasable:"0.00"`, stock `availability:"UNAVAILABLE"`). Client distinguishes “Not available” (store decision) from “Unavailable” (current shelf). Its summary excludes false lines from the fulfillable-line count. Remaining numeric quantities retain their historical meaning.
+- Release response `items[]` also gains `available` and `decline_reason`, keeping `released_now`/`outstanding` truthful for all lines. Update Flutter `ReleasedLine.isOpen` to require true eligibility plus positive outstanding; `ReleaseResult.openLineCount`/`isPartial` must not override RELEASED because a false line has outstanding quantity. Update pre-release `MaterialReleaseViewmodel.leavesLinesOpen`, `totalLineCount` and confirm-blocked logic to consider only eligible lines. A mixed request finished on its true lines must show “Released”, with no “still open on this token” instruction before or after confirmation. Preserve unknown-status fail-safe behavior for genuinely open eligible lines.
+- Completion ignores false lines. Accumulate the persisted sale total in `released_amount` in the same transaction; rollback of stock, money or audit rolls it back too. No per-request amount may include another request's releases.
+- Accept/Decline write no sale, ledger, receipt, stock allocation or shift; Accept neither mints another token nor changes the CPMS token.
+
+### Migration and rollout safety
+
+New migration after `requisitions.0002_selling_unit_and_cpms_ids`:
+
+1. Add columns and new state choices. APPROVED → ACCEPTED, preserve every other stored status.
+2. Existing APPROVED/PARTIAL/RELEASED/CLOSED lines become true with blank reasons, preserving prior release eligibility/shortfall. Other legacy states keep null intent. Do not alter quantities or token credentials/usage.
+3. Any request with any released quantity gets `released_amount=null`; all others get 0.00. Never guess historical money. Preserve every sale, ledger, payment and audit row.
+4. Use historical models; test forward migration from 0002. Existing `tests_migration.py` targets latest leaves and currently expects APPROVED after migrating to head: update that expectation to ACCEPTED without editing 0002's history.
+
+No dev flush is implicit. Stop before any later destructive reseed and obtain separate approval. Use `RunPython.noop` as the reverse of the data migration, matching 0002, so existing MigrationExecutor tests can unapply to 0001/0002 on a disposable test database and test the forward path. Do not mark the data operation irreversible or those tests fail at setup. This permits test schema movement only; new Accept/Decline decisions cannot be losslessly mapped back to Phase 1, and dropping the new columns loses review data. Document backup/forward-fix production rollback boundary; never present reverse migration as restoration of business history. Deploy backend + client + v0.2 contract together; an old till build lacks friendly new-code copy.
+
+## UI Route & Interaction Brief (existing design, no redesign)
+
+One shared screen body, two thin role shells:
+
+- New `/sales/project-requests` and `/admin/project-requests` (proposed `AppRoutes.salesProjectRequests`, `adminProjectRequests`), linked through `salesTwinOf`. Preserve old retired `/sales/requisitions` and `/admin/requisitions` behavior; do not resurrect approval URLs or deleted approval widgets.
+- Append sidebar destination **Requests from projects** without renumbering existing entries: sales index 8 after Staff; admin index 7 in a new final Projects group. Pin named index constants and routing tests. No cashier/stocker entry or access.
+- Default filter Waiting for store; other status chips/history read-only, oldest first. Search request number, CPMS id, project, contractor and requester over the fully loaded selected-status list. `FilterBar`, bounded lazy `DataPanel`, `StatusBadge`, `AppPanel`, `ErrorBanner`, existing fonts/spacing/money/quantity formatting. No metric tiles.
+- Rows show request number, project/contractor, requester, received date, status and Review/View. Detail shows CPMS approver separately, notes and each **product + variant + selling-unit label**, quantity and line decision/reason. Existing variant-only serializer label is insufficient; add read-only product/unit labels from the referenced selling unit, not a second catalog fetch.
+- Review only WAITING: Available / Not available choices, reason per false line, explicit Accept confirmation naming project/request and excluded lines; whole Decline requires a reason. Copy: “Accepting does not reserve stock. Amount owed is recorded when materials are released.” No token/QR display or printing added.
+- Expected figure caption: “Expected amount, not yet owed”; null on a reviewed historical request → “Expected amount unavailable”, never ₱0.00. CLOSED details explain abandoned quantities; actual balances remain on Receivables.
+- Per-request submitting guard; disable both action paths during a submission. On success use returned server state immediately, then refresh list/count. Reload failure must say the decision was saved but refresh failed, not offer it as a failed decision to repeat. On timeout/409 refresh authoritative detail before re-enabling mutations; if refresh fails, keep actions blocked and offer Retry refresh.
+- Preserve rows on reload error, single first-load error state, truthful filtered-empty vs no-requests copy. Do not show a failed badge fetch as a confirmed zero.
+- Sidebar badge is **all WAITING rows**, independent of search/status selection. Existing paginated response `count` (`Paged.total`) from `?status=WAITING` is enough; no separate count endpoint or full payload walk just to count. Add `loadMarkers` defaults + caller `markers` overrides to both shells using existing `AppShell` hooks. Queue refresh/action updates badge immediately; other pages refresh on shell mount (no live cross-session push promised).
+- Reuse `ApiClient.getAll` for queue rows, replacing the requisition service's duplicate page loop. Keep its existing fail-loud 40-page safety bound: if exceeded show load error, never a truncated “complete” queue. Badge's server count is not capped. A server-paged queue is a separate scale upgrade if >2000 rows in one selected status becomes normal.
+- Acceptance tests at 1440/1100/760 widths and text scales 1.0/1.3: scrolling list/dialog, reason fields, keyboard/focus, readable status text not color alone, no clipped action controls. Reuse fixed app clock and current golden harness.
+
+## Exact File Impact
+
+Paths below are repo-relative. New files marked **new**; execution may split tests, not add parallel data stacks.
+
+| Area | Existing files / proposed additions |
+|---|---|
+| Domain, release, read-back | `backend_django/apps/requisitions/{models,services,serializers,views,exceptions}.py`; router `urls.py` only if custom-action discovery requires it; **new** `migrations/0003_store_review.py` |
+| Boundary | `backend_django/apps/integration/views.py`; `tests_import.py`, `tests_close.py`, `tests.py` (route fence); **new** `tests_store_review.py` for new read-back contract/expected amount |
+| Domain tests | `backend_django/apps/requisitions/tests.py`, `tests_{migration,partial_release,readonly,releasable,release_shift,security,seed}.py`; **new** `tests_store_review.py`, `tests_store_review_migration.py`, `tests_completion_rule.py`, `tests_store_review_release.py` (include PostgreSQL race tests) |
+| Seed/reports | `backend_django/apps/users/management/commands/seed_demo.py`; `backend_django/apps/reports/tests.py`; `reports/views.py` only if tests expose status-specific assumptions (it already uses `Status.values`) |
+| Client transport | `flutter/lib/data/models/requisition.dart`, `data/services/requisition_service.dart`, `data/repositories/requisition_repository.dart` |
+| Queue | **new** `flutter/lib/features/requisitions/viewmodels/project_requests_viewmodel.dart`, `views/project_requests_page.dart`, `widgets/project_requests_content.dart`, `widgets/project_request_review_dialog.dart` (shared body + thin shells; keep small read-only details in the same dialog) |
+| Navigation | `flutter/lib/routes/routes.dart`, `core/layout/{admin,sales}_skeleton_layout.dart`, `features/sales/widgets/sales_navigation.dart`; reuse `AppShell` marker API, no new global provider unless source requires it |
+| Till/reports | `flutter/lib/features/pos/views/material_release_page.dart`, `viewmodels/material_release_viewmodel.dart` if excluded-line summary lives there; `flutter/lib/features/admin/views/reports_page.dart` (new labels/tones, existing reports transport stays) |
+| Client tests | `flutter/test/data/models/requisition_{status,availability}_test.dart`; **new** `requisition_review_test.dart`; `test/data/services/requisition_service{,_robustness}_test.dart`; `reports_service_test.dart`; **new** `test/features/requisitions/project_requests_{viewmodel,page,golden}_test.dart` |
+| Route/fixture tests | `flutter/test/routes/{sales_twin_routing,admin_requisitions_routing,sidebar_index_consistency,unknown_route}_test.dart`; **new** `project_requests_routing_test.dart`; `test/features/sales/{sales_management_routing,sales_reports_routing}_test.dart` (the latter also pins the sidebar destination count); `test/features/pos/material_release_{page,viewmodel,partial,shift_gate,page_golden}_test.dart`; `test/features/admin/{admin_reports_page,a5_reports_golden}_test.dart`; shared sidebar goldens/tests affected by new destinations; `test/features/auth/login_golden_test.dart` (Task 10: stabilize confirmed caret/decode flakes; only error-760's proven 48px caret baseline update authorized, no auth change) |
+| Docs at close | `docs/integration/CPMS-CONTRACT.md`, `ENDPOINTS.md`, `README.md` seed flow, `docs/testing/QA-PROFILE.md`, `docs/SYSTEM_ATLAS.md`, `docs/system-atlas.html`, session note, `AGENTS.md`, this checklist and `MAP.md` |
+
+Do not edit `../qb_project_management_system/`. No collectibles/pos schema change, new dependency, environment setting, background job or export is required; financial preservation uses the requisition accumulator only.
+
+## Execution Checklist
+
+- [x] **Task 0 — 🤖 Confirm baseline and scope.** 2026-11-07 on `fa0f342` + plan docs, branch `feat/pos-evolution-phase-1b`: backend Ran 599 OK · check clean · no migration drift · analyze clean · flutter +1284 ~221 · goldens +221 (all exit 0). Read active docs/decision links, git status/log, branch/base, and existing caller/test references before edits. Preserve unrelated work and `temp/`. Run full backend/check/migration-drift + Flutter analyze/tests/goldens below; record actual counts/exit codes. Create execution branch only after checking local branch state. No flush or migration execution on dev data merely to measure baseline.
+- [x] **Task 1 — 🤖 Schema and history-preserving migration, RED first.** Done 2026-11-07: `0003_store_review` (APPROVED→ACCEPTED, legacy line intent, NULL `released_amount` where released); RED 3 failures + 3 errors → GREEN; reviewer APPROVED; controller rerun 200 OK, no drift; full suite 604 (dev). Import still creates ACCEPTED until Task 4. Add statuses/fields and migration above. MigrationExecutor tests from 0002: APPROVED → ACCEPTED, all other statuses preserved, legacy line intent correct, requests with released quantities null vs untouched 0.00, exact quantities/tokens/sales/ledgers/payments/audit unchanged. Update old migration-to-head expectation. Tests restore leaf schema even on assertion failure; do not fake money in fixtures. Run `makemigrations --check --dry-run`.
+- [x] **Task 2 — 🤖 Staff decision actions, RED first.** Done 2026-11-07: accept/decline actions, strict serializers (`INVALID_REQUEST_REVIEW` 400, `REQUEST_ALREADY_REVIEWED` 409), shared token→request lock in accept/decline/close/release, close WAITING→CLOSED + DECLINED no-op, status filter + oldest-first; 39 new tests incl. PostgreSQL races; RED 43F/21E → GREEN; reviewer APPROVED; controller rerun 191 OK; full suite 645 (dev). Services `accept_requisition` / `decline_requisition`, strict serializers, custom actions, reason/line fields in staff reads, oldest-first status filter, useful product/unit labels. Introduce/reuse shared token→request lock helper, and bring existing Close/Release into that lock order now. Atomic decisions plus audit. Test all validation failures and disallowed states write nothing; two review submissions produce one decision/audit; Accept vs Decline and Accept vs CPMS Close serialize. No generic writes or retired actions restored. CPMS fence sweep covers the new actions; cashier/stocker/groupless 403; manager/Admin/System Administrator succeed.
+- [x] **Task 3 — 🤖 Available-line completion rule, RED first (owner explicitly delegated the original 🤝 predicate exercise).** RED: six predicate errors, then API 6 failures/4 errors; GREEN: 6 + 12 tests. Source reviewer APPROVED; controller full backend 663 OK, check clean, no migration drift (all exit 0). Implements false-line exclusion, ACCEPTED/PARTIAL gate, coded WAITING/DECLINED scan refusals and exact known released-amount accumulation. Test mixed true/false completes RELEASED without excluded stock movement; short true lines stay PARTIAL; same-variant different selling units share stock only across eligible lines; fractional/whole/archived and no-open-shift regressions; all refusals no writes. Concurrent double release and Close/Release tests verify no release after closed/declined and no duplicate deduction/amount. Undo only implementation fix when proving RED, never reset shared DB.
+- [x] **Task 4 — 🤖 CPMS import/read-back/close and expected amount, RED first.** RED: new-module 4 failures/21 errors and seed WAITING-release error; GREEN: 25 new tests. Source reviewer APPROVED; controller full backend 688 OK, check clean, migration drift absent (all exit 0). Import WAITING, same-id retries of all states unchanged; minimally accept existing demo seed requests through the real service to keep this state change's caller green (Task 5 adds new seed scenarios); read-back decisions/reasons, numeric shortfall preserved on false/closed lines, close WAITING permitted/DECLINED no-op. Verify null/unreviewed/historical semantics and Decimal money. Price-change test: 10 units at 10.00, release 4 → 40.00 known; remaining price 12.00 → expected 112.00, payables 40.00. Add another request on same project to prove isolation; payment changes payables not estimate. Test second release exact accumulation against reloaded sale rows (including repeated fractional releases), historical null stays null, mixed declined lines excluded, fractional rounding, CLOSED estimate vs debt, no unit price/stock/token leaks. Update exact-response assertions, not blanket-relax them.
+- [x] **Task 5 — 🤖 Seed and old test/caller alignment.** RED: seed scenarios missing (2 failures/4 errors; corrected test aggregate join independently); GREEN: 15 seed + 7 report tests. Source reviewer APPROVED; controller full backend 699 OK, check clean, migration drift absent (all exit 0). R1001 stays ACCEPTED and fully releasable using the well-stocked variant; 1002 RELEASED and 1003 PARTIAL are imported then accepted via real services before release. Add R1004 WAITING and R1005 DECLINED (stable ids, documented token instructions). No direct status patch to bypass acceptance in new-flow fixtures. Adapt shared integration fixtures: tests about release explicitly accept, import tests expect WAITING. Update report/permission/read-only tests to new states; migration fixtures remain historical. Run seed tests including repeat-seed safety, amount tracking and R1001 Full invariant on test DB only. Do not reseed running dev DB without separate approval.
+- [x] **Task 6 — 🤖 Flutter transport, RED first.** Done 2026-11-07 (in parallel with Task 2): statuses, review fields, nullable expected amount, strict bool decode, getAll + waitingCount, accept/decline, `outcomeUnknown`, new refusal copy; `reports_page.dart` `_statusTone` got 3 provisional cases (Task 8 finalises). RED → GREEN; reviewer APPROVED; controller rerun analyze clean + 359 passed; full flutter +1322 (dev). New statuses/reason/nullable expected amount/createdAt/CPMS id/product/unit/line intent, plus CPMS `approverName` and request `notes` (existing backend fields currently discarded by the client). Decode eligibility/reasons on both `VerifiedRequisitionItem` and `ReleasedLine`; strict decoding distinguishes false/null/zero. Add approver/notes detail tests. Add accept/decline/detail/waiting-count calls to existing service/repository and code-to-copy mappings (including uncertain/conflict states). Use getAll for row lists; test >50 rows, persistent filter across pages, server count >50 and fail-loud cap. Preserve unknown status fallback and legacy parsing; update stale approval comments.
+- [x] **Task 7 — 🤖 Shared Requests from projects UI and navigation, RED first.** Two review-fix rounds added unreadable-success recovery, latest-list generation guards, dispose-safe notification and stale-count spinner guard with RED regressions. Final source review APPROVED; controller analyze clean, Flutter +1408 ~225, goldens +225 (all exit 0); inspected four queue captures. Browser/large-text checks remain Task 10. Screen-scoped viewmodel, shared list/dialog and role shells/routes, stable sidebar indices and live-on-queue badge. Review flow exactly as UI brief; no client-side money math, quantities or optimistic decision edits. Tests: required reasons/all-false Accept, read-only non-WAITING, double tap, successful write followed by refresh failure, timeout then refresh, 409 stale state, retained rows/error, badge independent of filter and zero-clearing, missing count not zero, unknown/null expected amount. Route tests all roles + sales twin + legacy URL bounce. Regenerate/view affected goldens; verify large text and long reasons don't clip.
+- [x] **Task 8 — 🤖 Till, reports and integration regression, RED first.** Client source review APPROVED (no Important blockers); controller rerun analyze exit 0, Flutter +1406 ~225 exit 0, goldens +225 exit 0; inspected all seven changed till/reports captures. Backend end-to-end integration remains Task 10. Till shows declined-line reason without treating it as transient shortage, correct eligible-line pre-confirm summary and post-release `ReleasedLine`/`ReleaseResult` completion decoding, friendly WAITING/DECLINED refusal, no false line in release amount. Mixed-line regression must assert final badge Released, `openLineCount == 0`, `isPartial == false` and no return-on-same-token instruction despite declined outstanding quantities. Reports show Waiting for store/Accepted/Declined with current status counts; CPMS approver remains distinct. Update impacted model/service/widget/golden fixtures, sidebar tests and snapshots. Keep unknown-route protection and partial-release behavior green.
+- [x] **Task 9 — 🧑 Review CPMS contract v0.2 handoff.** Contract/ENDPOINTS/README/QA-PROFILE independently reviewed after correcting refresh-token revocation wording; links/anchors and diff checks passed. Owner first requested the full diff, then explicitly chose “Approve and continue” on 2026-11-08: v0.2 is accepted provisionally. Existing dev writes remain unapproved. 🤖 drafts from implemented/tested endpoints, marks breaking changes, examples, nullable historical amounts, live-price/close semantics and no token leaks. Owner reviews the diff (or explicitly accepts provisional handoff); do not assume approval from silence. Update ENDPOINTS/readme/QA seed instructions. CPMS source remains untouched.
+- [x] **Task 10 — 🤖 Independent review, gates and live QA.** Done 2026-11-08 with the owner-accepted limits below. Whole-change source and scoped fixture/atlas reviews APPROVED, no blocking findings. Controller reruns: backend 699 OK, check clean, no drift, Flutter 1408 passed/225 skipped, all 225 goldens passed, analyzer clean (all exit 0; local `temp/p1b-qa/controller/final-*`). Login test pins/restores carets and awaits image decoding; controller independently proved only error-760's 48 white→gold caret pixels changed, other three masters byte-identical. Both atlases refreshed; counts/matrix parity/JS and 34 local links verified. Isolated live browser/API core flows passed: import/retry/read-back, strict/mixed Accept, full/partial/restock/rescan, Decline/withdrawal, stale/concurrent reviewers, double tap, budget/debt/history, role fences and >50-row search/badge updates. No Critical/Important defects in tested scope. Controller parsed final probe logs (14+28+21+56+17+15+10 passing assertions, no HTTP 5xx), checked probe syntax and inspected both reported label screenshots. Evidence: local `temp/p1b-qa/report.md` and linked artifacts; [session note](../../docs/sessions/2026-11-08-pos-evolution-phase-1b-build.md). Existing dev data and CPMS untouched; QA data/evidence retained, no destructive cleanup.
+
+## Verification Commands for Execution
+
+From repository root; run commands separately and capture full output + exit status, not grep-only summaries:
+
+```bash
+docker exec buildpro_backend python manage.py test --noinput
+docker exec buildpro_backend python manage.py check
+docker exec buildpro_backend python manage.py makemigrations --check --dry-run
+cd flutter
+flutter analyze
+flutter test --concurrency=2
+flutter test --tags golden --dart-define=RUN_GOLDENS=true --concurrency=2
+```
+
+Task-focused RED/GREEN checks use the relevant Django module or Flutter file before whole-suite gates. Race tests must run on PostgreSQL with separate connections/TransactionTestCase; SQLite or mocked lock assertions are not evidence. A golden pass needs generated masters present on this machine (gitignored); inspect changed captures rather than blindly accepting regenerated images. Real paper output is not part of this phase.
+
+## Handoff / Known Limits
+
+- Phase 1b closed with explicit owner acceptance of the limits below, not an assertion that missing checks passed. Implementation reviews, automated gates and core live QA passed. Dev DB has not been migrated/flushed/reseeded.
+- Accepted QA limits: genuine browser 1.3× text scaling unavailable in the harness; queue/dialog have actual 1.3 widget coverage, till 1.3 remains unverified. Live timeout/unknown-outcome injection and simultaneous Close-vs-Review were not tested (automated coverage is not live evidence). Atlas HTML has source/JS checks, not browser/DOM verification.
+- Accepted cosmetic defect: the "Requests from projects" sidebar label truncates at 1440 (Admin and Store Manager); a shorter label is an owner wording call. The other QA finding (Review split at 1100) was fixed RED-first on 2026-11-09 (Flutter 1409, goldens 225 twice, analyze clean; see session note). Owner chose “Close with limits (Recommended)” on 2026-11-08 instead of fixing/extending tests or waiting for manual QA. Details/screenshots remain in the local QA report.
+- Preserve historical unknown expected amounts; no reconciliation UX ships. Project debt remains available and exact through current ledgers.
+- Existing client full-list guard is 2000 rows per selected status, explicitly fails beyond it. Marker counts come from server count and do not claim push freshness on other open sessions.
+- Work remains uncommitted; no commit/push or existing dev DB write was authorized. QA containers/data remain available but are no longer pristine seed fixtures.
+- Next, on request: plan Phase 1c receipt storage/allocation. Its decisions remain open; Phase 1c execution was not started.

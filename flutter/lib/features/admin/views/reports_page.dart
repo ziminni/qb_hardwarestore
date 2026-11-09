@@ -841,6 +841,12 @@ String _statusLabel(String apiValue) {
 }
 
 StatusTone _statusTone(RequisitionStatus status) => switch (status) {
+  // Phase 1b (decision 13): a pushed request WAITS for the store's answer, so it reads
+  // as work outstanding; ACCEPTED is the store's promise that the till will serve it;
+  // DECLINED is a dead end. APPROVED keeps its old positive tone for legacy rows.
+  RequisitionStatus.waiting => StatusTone.warning,
+  RequisitionStatus.accepted => StatusTone.success,
+  RequisitionStatus.declined => StatusTone.error,
   RequisitionStatus.submitted => StatusTone.warning,
   RequisitionStatus.approved => StatusTone.info,
   // Partly released: stock still owes the project, so it reads as work outstanding.

@@ -177,8 +177,9 @@ class ForemanDataMigrationTests(_MigrationBase):
             by_pk[self.requisition_pks['DRAFT']].status, 'CANCELLED')
         self.assertEqual(
             by_pk[self.requisition_pks['SUBMITTED']].status, 'CANCELLED')
+        # Phase 1b decision 13 renames the stored state on the way to head.
         self.assertEqual(
-            by_pk[self.requisition_pks['APPROVED']].status, 'APPROVED')
+            by_pk[self.requisition_pks['APPROVED']].status, 'ACCEPTED')
         self.assertEqual(
             by_pk[self.requisition_pks['RELEASED']].status, 'RELEASED')
 

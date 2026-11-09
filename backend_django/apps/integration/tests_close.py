@@ -52,6 +52,7 @@ from apps.requisitions.models import (
     Requisition,
     RequisitionItem,
 )
+from apps.requisitions.services import accept_requisition, decline_requisition
 from apps.users.models import AuditLog
 
 from .tests import CPMS_URL, make_user
@@ -98,30 +99,46 @@ class CloseTestBase(ImportTestBase):
         self.receive(Decimal(100))
         self.cashier_auth = self.login(self.cashier.username)
 
-    def receive(self, quantity):
-        """Stock the fixture variant through the REAL goods-receipt path."""
-        supplier = Supplier.objects.create(company_name=f'Supplier {quantity}')
+    def receive(self, quantity, variant=None):
+        """Stock a fixture variant through the REAL goods-receipt path."""
+        variant = variant or self.vuom.variant
+        supplier = Supplier.objects.create(
+            company_name=f'Supplier {quantity} {variant.pk}')
         po = PurchaseOrder.objects.create(
             supplier=supplier, created_by=self.manager,
             status=PurchaseOrder.Status.ORDERED)
         POItem.objects.create(
-            po=po, variant=self.vuom.variant, ordered_qty=quantity,
+            po=po, variant=variant, ordered_qty=quantity,
             unit_cost=Decimal(1), received_qty=quantity)
         receipt = GoodsReceipt.objects.create(po=po, received_by=self.manager)
         process_goods_receipt(receipt=receipt, user=self.manager)
 
-    def leave_on_shelf(self, quantity):
+    def leave_on_shelf(self, quantity, variant=None):
         """Burn the difference through the same FIFO allocator a sale uses."""
-        on_shelf = sum(
-            self.vuom.variant.batches.values_list('current_qty', flat=True))
+        variant = variant or self.vuom.variant
+        on_shelf = sum(variant.batches.values_list('current_qty', flat=True))
         allocate_fifo(
-            variant_id=self.vuom.variant.pk, qty_needed=on_shelf - Decimal(quantity))
+            variant_id=variant.pk, qty_needed=on_shelf - Decimal(quantity))
 
     def pushed(self, quantity='10'):
-        """Push one request and return its stored copy."""
+        """Push one request and return its stored copy (it lands WAITING)."""
         res = self.push(items=[{'code': self.code, 'quantity': quantity}])
         self.assertEqual(res.status_code, 201, res.content)
         return res.json()
+
+    def accepted(self, quantity='10'):
+        """Push one request and accept its lines through the real service.
+
+        Decision 13: a push arrives WAITING, so every release/close fixture answers it
+        exactly as the manager screen does — no test writes a status by hand.
+        """
+        body = self.pushed(quantity=quantity)
+        accept_requisition(
+            requisition_id=body['id'],
+            items=[{'id': line.pk, 'available': True, 'decline_reason': ''}
+                   for line in RequisitionItem.objects.filter(
+                       requisition_id=body['id']).order_by('pk')])
+        return body
 
     def close(self, cpms_request_id=CPMS_REQUEST_ID):
         return self.client.post(
@@ -162,9 +179,9 @@ class CloseTestBase(ImportTestBase):
 
 
 class CloseFromOpenRequestTests(CloseTestBase):
-    """Decision 06: an APPROVED request and a PARTIAL one both close, token and all."""
+    """Decision 06: a WAITING, ACCEPTED or PARTIAL request closes, token and all."""
 
-    def test_an_approved_request_closes_and_its_token_dies(self):
+    def test_a_waiting_request_closes_and_its_token_dies(self):
         body = self.pushed()
 
         res = self.close()
@@ -187,13 +204,16 @@ class CloseFromOpenRequestTests(CloseTestBase):
         self.assertEqual(read.status_code, 200, read.content)
         self.assertEqual(closed, read.json())
         self.assertEqual(
-            set(closed), {'cpms_request_id', 'req_number', 'status', 'items'})
+            set(closed), {'cpms_request_id', 'req_number', 'status', 'decline_reason',
+                          'expected_amount', 'items'})
         self.assertEqual(
-            set(closed['items'][0]), {'code', 'requested', 'released', 'outstanding'})
+            set(closed['items'][0]),
+            {'code', 'requested', 'released', 'outstanding',
+             'available', 'decline_reason'})
 
     def test_a_partial_release_closes_its_remainder_and_leaves_the_utang_alone(self):
         self.leave_on_shelf(4)
-        self.pushed()
+        self.accepted()
         released = self.release()
         self.assertEqual(released.status_code, 201, released.content)
         self.assertEqual(released.data['status'], Requisition.Status.PARTIAL)
@@ -214,7 +234,7 @@ class CloseFromOpenRequestTests(CloseTestBase):
 
     def test_the_closed_token_is_refused_by_verify_and_by_release(self):
         self.leave_on_shelf(4)
-        self.pushed()
+        self.accepted()
         self.assertEqual(self.release().status_code, 201)
         self.assertEqual(self.close().status_code, 200)
         sales_before = SalesTransaction.objects.count()
@@ -242,8 +262,56 @@ class CloseFromOpenRequestTests(CloseTestBase):
         self.assertIn(CPMS_REQUEST_ID, row.description)
         self.assertNotIn(str(self.token), row.description)
 
+    def test_a_waiting_request_can_be_withdrawn_and_its_token_dies(self):
+        """Decision 13, edge case 1: CPMS may close what the store never answered.
+
+        The import itself leaves the request WAITING (Task 4), which is exactly the
+        state this close has to handle: no answer exists, so nothing is overwritten.
+        """
+        self.pushed()
+        requisition = self.requisition()
+        self.assertEqual(requisition.status, Requisition.Status.WAITING)
+
+        res = self.close()
+
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['status'], Requisition.Status.CLOSED)
+        token = MaterialToken.objects.get(requisition=requisition)
+        self.assertTrue(token.is_used, 'a withdrawn request cannot leave the store')
+        self.assertIsNone(token.used_by, 'CPMS closed it: no cashier spent this token')
+        # A withdrawal is not a review: nobody answered the lines.
+        self.assertIsNone(self.line().available)
+        self.assertEqual(self.line().decline_reason, '')
+        self.assertEqual(self.close_rows().count(), 1)
+
 
 class CloseNoOpTests(CloseTestBase):
+
+    def test_a_declined_request_is_a_no_op_and_keeps_the_stores_answer(self):
+        """Decision 13: a close never overwrites a decision the store already made."""
+        self.pushed()
+        decline_requisition(
+            requisition_id=self.requisition().pk, decline_reason='Cannot supply')
+        requisition = self.requisition()
+        line = self.line()
+        token = MaterialToken.objects.get(requisition=requisition)
+        used_at = token.used_at
+        self.assertTrue(token.is_used, 'the decline itself spent the token')
+
+        res = self.close()
+
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['status'], Requisition.Status.DECLINED)
+        requisition.refresh_from_db()
+        self.assertEqual(requisition.decline_reason, 'Cannot supply')
+        line.refresh_from_db()
+        self.assertFalse(line.available)
+        self.assertEqual(line.decline_reason, 'Cannot supply')
+        # Nothing closed, so the token is not re-spent and no close row is written.
+        token.refresh_from_db()
+        self.assertEqual(token.used_at, used_at)
+        self.assertTrue(token.is_used)
+        self.assertEqual(self.close_rows().count(), 0)
     """Decision 06: a close for a request that is already finished or closed is a no-op."""
 
     def test_closing_twice_changes_nothing_and_writes_no_second_row(self):
@@ -261,7 +329,7 @@ class CloseNoOpTests(CloseTestBase):
         self.assertEqual(self.close_rows().count(), 1)
 
     def test_a_fully_released_request_is_not_touched(self):
-        self.pushed()
+        self.accepted()
         released = self.release()
         self.assertEqual(released.data['status'], Requisition.Status.RELEASED)
         ledger = self.release_ledgers().get()
@@ -319,7 +387,7 @@ class ReadBackTests(CloseTestBase):
 
     def test_the_numbers_after_a_partial_release(self):
         self.leave_on_shelf(4)
-        body = self.pushed()
+        body = self.accepted()
         self.assertEqual(self.release().data['status'], Requisition.Status.PARTIAL)
 
         res = self.read_back()
@@ -329,8 +397,12 @@ class ReadBackTests(CloseTestBase):
             'cpms_request_id': CPMS_REQUEST_ID,
             'req_number': body['req_number'],
             'status': Requisition.Status.PARTIAL,
+            'decline_reason': '',
+            # 4 x 280.00 released, plus the 6 still promised at today's 280.00.
+            'expected_amount': '2800.00',
             'items': [{'code': self.code, 'requested': '10.00',
-                       'released': '4.00', 'outstanding': '6.00'}],
+                       'released': '4.00', 'outstanding': '6.00',
+                       'available': True, 'decline_reason': ''}],
         })
 
     def test_an_untouched_request_reports_everything_outstanding(self):
@@ -338,17 +410,19 @@ class ReadBackTests(CloseTestBase):
 
         body = self.read_back().json()
 
-        self.assertEqual(body['status'], Requisition.Status.APPROVED)
+        self.assertEqual(body['status'], Requisition.Status.WAITING)
+        self.assertIsNone(body['expected_amount'])
+        self.assertEqual(body['decline_reason'], '')
         self.assertEqual(
             body['items'],
             [{'code': self.code, 'requested': '10.00', 'released': '0.00',
-              'outstanding': '10.00'}])
+              'outstanding': '10.00', 'available': None, 'decline_reason': ''}])
 
     def test_a_closed_request_reports_the_true_outstanding_not_zero(self):
         # The status says it is closed; the quantity still says what never left the
         # store. Zeroing it would hide the shortfall the project manager just accepted.
         self.leave_on_shelf(4)
-        self.pushed()
+        self.accepted()
         self.assertEqual(self.release().status_code, 201)
         self.assertEqual(self.close().status_code, 200)
 
@@ -357,6 +431,8 @@ class ReadBackTests(CloseTestBase):
         self.assertEqual(body['status'], Requisition.Status.CLOSED)
         self.assertEqual(body['items'][0]['released'], '4.00')
         self.assertEqual(body['items'][0]['outstanding'], '6.00')
+        self.assertEqual(body['expected_amount'], '2800.00',
+                         'a close after acceptance keeps the budget formula')
 
 
 class PayablesTests(CloseTestBase):
@@ -364,7 +440,7 @@ class PayablesTests(CloseTestBase):
 
     def _release_four(self):
         self.leave_on_shelf(4)
-        body = self.pushed()
+        body = self.accepted()
         self.assertEqual(self.release().status_code, 201)
         return body
 
@@ -457,7 +533,7 @@ class CloseAccessTests(CloseTestBase):
                         url, content_type='application/json',
                         HTTP_AUTHORIZATION=auth)
                     self.assertEqual(res.status_code, 403, res.content)
-        self.assertEqual(self.requisition().status, Requisition.Status.APPROVED)
+        self.assertEqual(self.requisition().status, Requisition.Status.WAITING)
 
     def test_all_three_require_a_token(self):
         for method, url in (
@@ -518,12 +594,14 @@ class CloseReleaseRaceTests(TransactionTestCase):
 
         self.requisition = Requisition.objects.create(
             project=self.project, cpms_request_id=CPMS_REQUEST_ID,
-            req_number='REQ-RACE-0001', status=Requisition.Status.APPROVED,
-            requester_name='Rey Quester')
+            req_number='REQ-RACE-0001', requester_name='Rey Quester')
         self.item = RequisitionItem.objects.create(
             requisition=self.requisition, variant_uom=self.vuom,
             quantity=Decimal(10))
         self.token = MaterialToken.objects.create(requisition=self.requisition)
+        accept_requisition(
+            requisition_id=self.requisition.pk,
+            items=[{'id': self.item.pk, 'available': True, 'decline_reason': ''}])
 
     def _user(self, username, group):
         user = User.objects.create_user(
@@ -596,6 +674,10 @@ class CloseReleaseRaceTests(TransactionTestCase):
                 self.item.released_qty, Decimal(release_body['items'][0]['released_now']))
             self.assertEqual(close_body['items'][0]['outstanding'], '6.00')
             self.assertEqual(sales.count(), 1)
+            # Decision 14: exactly one sale total was accumulated, not one per attempt.
+            self.assertEqual(
+                self.requisition.released_amount, sales.get().grand_total)
+            self.assertEqual(self.requisition.released_amount, Decimal('1120.00'))
         else:
             # The close won: the release is refused and nothing was written.
             self.assertEqual(release_status, 400, release_body)
@@ -603,5 +685,8 @@ class CloseReleaseRaceTests(TransactionTestCase):
                              'a refused release must not move a line')
             self.assertEqual(close_body['items'][0]['outstanding'], '10.00')
             self.assertEqual(sales.count(), 0)
+            self.assertEqual(
+                self.requisition.released_amount, Decimal('0.00'),
+                'a refused release must not accumulate money')
         self.assertEqual(ledgers.count(), sales.count(),
                          'utang exists exactly for what was sold')

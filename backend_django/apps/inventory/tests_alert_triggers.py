@@ -99,7 +99,7 @@ class AlertTriggerTestBase(InventoryTestBase):
         )
 
     def _release(self, qty):
-        """Release `qty` base units against an APPROVED request's token.
+        """Release `qty` base units against an ACCEPTED request's token.
 
         Decision 01: the request arrives approved from CPMS, so the fixture stores it the
         way `import_request` does instead of walking a submit/approve flow.
@@ -108,7 +108,7 @@ class AlertTriggerTestBase(InventoryTestBase):
             name='House Build', customer=self.customer)
         requisition = Requisition.objects.create(
             project=project, requester_name='Rey Quester',
-            status=Requisition.Status.APPROVED)
+            status=Requisition.Status.ACCEPTED)
         RequisitionItem.objects.create(
             requisition=requisition, variant_uom=self.vuom,
             quantity=Decimal(str(qty)))

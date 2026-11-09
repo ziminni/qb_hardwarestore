@@ -45,6 +45,52 @@ void main() {
     }
   });
 
+  // Phase 1b (decisions 09/10/13): the store answers a pushed request. WAITING is
+  // what CPMS pushes, ACCEPTED replaced APPROVED, and DECLINED is the store's refusal.
+  test('WAITING reads as Waiting for store', () {
+    expect(
+      RequisitionStatus.fromApiValue('WAITING').label,
+      'Waiting for store',
+      reason: 'a request nobody answered is not a draft and not an approval',
+    );
+  });
+
+  test('ACCEPTED reads as Accepted', () {
+    expect(RequisitionStatus.fromApiValue('ACCEPTED').label, 'Accepted');
+  });
+
+  test('DECLINED reads as Declined', () {
+    expect(RequisitionStatus.fromApiValue('DECLINED').label, 'Declined');
+  });
+
+  test('APPROVED is still readable, because history keeps that word', () {
+    // Decision 13: no new row enters APPROVED, but every row that held it before the
+    // upgrade keeps reading as an approval rather than as an unknown status.
+    expect(RequisitionStatus.fromApiValue('APPROVED').label, 'Approved');
+    expect(
+      RequisitionStatus.fromApiValue('APPROVED'),
+      isNot(RequisitionStatus.accepted),
+      reason: 'the raw status stays distinguishable in a report',
+    );
+    expect(RequisitionStatus.approved.apiValue, 'APPROVED');
+    expect(RequisitionStatus.accepted.apiValue, 'ACCEPTED');
+  });
+
+  test('the three new words are distinct statuses, not aliases', () {
+    expect(
+      {
+        RequisitionStatus.fromApiValue('WAITING'),
+        RequisitionStatus.fromApiValue('ACCEPTED'),
+        RequisitionStatus.fromApiValue('DECLINED'),
+      },
+      {
+        RequisitionStatus.waiting,
+        RequisitionStatus.accepted,
+        RequisitionStatus.declined,
+      },
+    );
+  });
+
   test('a status this build was never taught still reads as unknown', () {
     expect(
       RequisitionStatus.fromApiValue('SOMETHING_NEW'),

@@ -477,6 +477,29 @@ class _AvailabilityCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Decision 13: the STORE's answer outranks the shelf's word. A line the store marked
+    // Not available will never be served, whatever is on the shelf today, and its reason
+    // is the sentence the clerk repeats to the project.
+    if (item.available == false) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const StatusBadge(label: 'Not available', tone: StatusTone.error),
+          if (item.declineReason.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                item.declineReason,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+        ],
+      );
+    }
     final (label, tone) = switch (item.availability) {
       LineAvailability.full => ('Full', StatusTone.success),
       LineAvailability.short => ('Short', StatusTone.warning),

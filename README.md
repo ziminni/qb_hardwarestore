@@ -25,6 +25,8 @@ The Django REST API owns all business logic. A Flutter client (MVVM) talks to it
 
 ## 1. Start the backend
 
+> **Phase 1b closed 2026-11-08 with owner-accepted QA limits; contract v0.2 provisional.** Running dev still has Phase 1 schema/data; phase closure did not migrate it. Final evidence and accepted gaps: [plan Handoff](planning/pos-evolution/phase-1b-plan.md#handoff--known-limits). Commands below are setup instructions for a **fresh/disposable** environment, not permission to migrate or write the existing dev database. The entrypoint applies migrations; do not restart/rebuild that stack for Phase 1b without approval. Backend + client + breaking contract must roll out together; see [rollout/rollback safety](docs/integration/CPMS-CONTRACT.md#rollout-and-rollback-boundary).
+
 ```bash
 cd qb_pos_inventory_system
 docker compose up -d --build
@@ -57,10 +59,19 @@ docker compose exec backend python manage.py migrate
 docker compose exec backend python manage.py seed_demo
 ```
 
-Idempotent and safe to re-run. It fills a realistic store: 5 users (one per role), products with stock
-batches, customers, completed sales, an unpaid *utang*, and requisitions in every stage — including an
-**APPROVED requisition with a minted token**, so the POS material-release flow can be tested end to end
-without hand-building data.
+Run only on a migrated **fresh/disposable** database; existing dev needs separate write approval. The seed skips existing data sections: re-running is not a migration, reset or repair of existing scenarios. **No automatic flush.** It creates the five accounts below, stocked products, customers, completed sales and unpaid *utang*.
+
+Post-migration fresh-seed requests (validated by Task 5 on the Django test database, not the running dev database):
+
+| CPMS request id | Expected state | Probe |
+| --- | --- | --- |
+| `CPMS-R-1001` | `ACCEPTED` | Fully releasable; every eligible line shows FULL |
+| `CPMS-R-1002` | `RELEASED` | Completed release history, token spent |
+| `CPMS-R-1003` | `PARTIAL` | Short-shelf visit; same token resumes after restock |
+| `CPMS-R-1004` | `WAITING` | Store review required; scanning refused |
+| `CPMS-R-1005` | `DECLINED` | Reason visible; scanning refused with store-decline code |
+
+Use **dynamic token UUIDs printed by that fresh seed's stdout** for scanner probes; do not paste contract example tokens or credentials from an older DB. These are fresh/disposable Task 5 scenarios, not a claim that the existing dev database contains them. Isolated disposable QA writes are approved; writes to the existing dev database still require separate approval. QA isolation and flow checklist: [QA-PROFILE](docs/testing/QA-PROFILE.md).
 
 ## 3. Run the Flutter client
 
@@ -79,28 +90,22 @@ On desktop the client resolves the API to `http://127.0.0.1:8000` automatically 
 
 ## Demo accounts
 
-Password is the same for all five. These are seeded by `seed_demo` and were verified against
-`POST /api/v1/auth/login/` (HTTP 200):
+Password is the same for all five. `seed_demo` defines these accounts; this is the canonical credential home. All five logins were verified on the isolated Phase 1b QA stack; the existing dev DB was not migrated or reseeded.
 
 | Username | Name | Role | Can do |
 | --- | --- | --- | --- |
 | `admin` | Ada Ministrator | System Administrator | Everything, plus Django admin (`/admin/`) |
-| `manager` | Mana Ger | Store Manager | Approve/reject requisitions, reports, ledger, users |
+| `manager` | Mana Ger | Store Manager | Accept/decline project requests, reports, ledger, users |
 | `stocker` | Stock Er | Stock Manager | Inventory writes: products, POs, receipts, adjustments |
 | `cashier` | Cashi Er | Cashier | POS transactions, customers, token release, utang payments |
-| `foreman` | Fore Man | Site Foreman | ⚠️ **No POS UI role** — a CPMS-side identity, see below |
+| `cpms_service` | CPMS Service | CPMS Service (machine account, not a POS role) | Only the six integration endpoints; no POS dashboard |
 
 **Password for all: `demo1234`.** Emails follow `<username>@demo.ph`.
 
 > ⚠️ Some historical docs in this repo claim `admin` / `admin123`. That is **wrong** and returns HTTP 400.
 > Use `demo1234`.
 >
-> ⚠️ **`foreman` authenticates but has no POS dashboard — by design.** A Site Foreman is a **CPMS-side**
-> identity that requests material from the store. POS models the role only because `Requisition.requested_by`
-> needs an actor, and `seed_demo` creates the account for that reason — it is not intended to log into this
-> client. Use `admin` (a superuser, so it always maps to the admin dashboard) to exercise the requisition
-> flow. The client routes unmapped roles to an explicit screen rather than looping back to `/login`.
-> Decision: `planning/api-integration/decisions/04-role-dashboard-routing.md`.
+> `foreman` is no longer seeded. CPMS requester/approver names are text, not POS logins. POS roles are unchanged; Store Manager and Admin review in **Requests from projects** (`/sales/project-requests`, `/admin/project-requests`). CPMS approval does not replace POS acceptance. New imports wait for review; acceptance reserves no stock and books no debt. Cashier/stocker cannot open the review queue.
 
 Django admin: <http://127.0.0.1:8000/admin/> with `admin` / `demo1234`.
 

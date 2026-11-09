@@ -19,6 +19,7 @@ import 'package:client/features/pos/views/pos_held_transactions_page.dart';
 import 'package:client/features/pos/views/pos_transaction_history_page.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
 import 'package:client/features/pos/views/material_release_page.dart';
+import 'package:client/features/requisitions/views/project_requests_page.dart';
 import 'package:client/features/sales/views/sales_dashboard_page.dart';
 import 'package:client/features/sales/views/sales_orders_page.dart';
 import 'package:client/features/sales/views/sales_quotations_page.dart';
@@ -60,6 +61,12 @@ class AppRoutes {
   static const String adminReports = '/admin/reports';
   static const String adminAuditLogs = '/admin/audit-logs';
   static const String adminSettings = '/admin/settings';
+
+  /// The "Requests from projects" queue in the Admin shell (Phase 1b,
+  /// decisions 09, 10 and 13). Appended under the admin area like every other
+  /// admin screen; the Store Manager reaches the same body at
+  /// [salesProjectRequests] through [salesTwinOf].
+  static const String adminProjectRequests = '/admin/project-requests';
   static const String inventoryDashboard = '/inventory/dashboard';
   static const String inventoryProducts = '/inventory/products';
   static const String inventoryCategories = '/inventory/categories';
@@ -106,6 +113,13 @@ class AppRoutes {
   /// approved in CPMS, so the POS has no queue to open.
   static const String salesStaff = '/sales/staff';
 
+  /// The Store Manager's "Requests from projects" queue (sales sidebar index 8).
+  ///
+  /// The same screen body as [adminProjectRequests], in the SALES shell, so the
+  /// manager answers project requests without swapping sidebars (the D-01
+  /// pattern used for Reports and Staff).
+  static const String salesProjectRequests = '/sales/project-requests';
+
   /// The sales-shell twin of an admin screen the Store Manager may use, or null
   /// when [location] has no twin.
   ///
@@ -114,6 +128,7 @@ class AppRoutes {
   static String? salesTwinOf(String location) => switch (location) {
     adminReports => salesReports,
     adminUserManagement => salesStaff,
+    adminProjectRequests => salesProjectRequests,
     _ => null,
   };
 
@@ -322,6 +337,12 @@ class AppRoutes {
               _transitionPage(state, const AuditLogsPage()),
         ),
         GoRoute(
+          path: adminProjectRequests,
+          name: 'admin_project_requests',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const AdminProjectRequestsPage()),
+        ),
+        GoRoute(
           path: adminSettings,
           name: 'admin_settings',
           pageBuilder: (context, state) =>
@@ -492,6 +513,12 @@ class AppRoutes {
           name: 'sales_reports',
           pageBuilder: (context, state) =>
               _transitionPage(state, const SalesReportsPage()),
+        ),
+        GoRoute(
+          path: salesProjectRequests,
+          name: 'sales_project_requests',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const ProjectRequestsPage()),
         ),
         GoRoute(
           path: salesStaff,

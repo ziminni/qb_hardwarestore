@@ -347,7 +347,7 @@ class _StubReportsRepository extends ReportsRepository {
       statusFilter: null,
       countByStatus: {
         'SUBMITTED': 3,
-        'APPROVED': 5,
+        'ACCEPTED': 5,
         'PARTIAL': 2,
         'RELEASED': 12,
         'CLOSED': 4,
@@ -366,7 +366,7 @@ class _StubReportsRepository extends ReportsRepository {
         RequisitionHistoryRow(
           id: 40,
           reqNumber: 'REQ-20261029-0006',
-          status: 'APPROVED',
+          status: 'ACCEPTED',
           project: 'Marine Plywood Formwork Repairs',
           requestedBy: 'Ana Lopez',
           approvedBy: 'Maria Santos',

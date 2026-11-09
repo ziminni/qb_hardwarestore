@@ -74,11 +74,12 @@ void main() {
     );
     expect(
       salesOrder.length,
-      8,
+      9,
       reason:
-          'the sales sidebar has 8 destinations — Reports (index 6) was added by '
+          'the sales sidebar has 9 destinations — Reports (index 6) was added by '
           'decision D-01 so the manager can reach live reports inside their own shell; '
-          'Staff (7) was APPENDED the same way. Approvals is gone (decision 01: CPMS approves)',
+          'Staff (7) and Requests from projects (8) were APPENDED the same way. '
+          'Approvals is gone (decision 01: CPMS approves)',
     );
     expect(inventoryOrder.length, 13);
     expect(
@@ -95,6 +96,13 @@ void main() {
       reason: 'index 6 is Reports — the tab that used to be a silent no-op',
     );
     expect(salesOrder[7], 'salesStaff');
+    expect(
+      salesOrder[8],
+      'salesProjectRequests',
+      reason:
+          'Phase 1b appended the store-review queue after Staff; renumbering an '
+          'earlier tab would send a manager to the wrong screen',
+    );
     // Receiving must sit at 8, not 9: the sidebar's index 9 is "Returns".
     // When this was the other way round the Returns tab opened Receiving.
     expect(inventoryOrder[8], 'inventoryReceiving');
@@ -190,6 +198,7 @@ void main() {
       'Reports',
       'Audit logs',
       'Settings',
+      'Requests from projects',
     ];
 
     const expected = {
@@ -205,9 +214,11 @@ void main() {
     test('the restated menu really is the layout\'s menu', () {
       // Without this the map above could name a destination the sidebar does
       // not have, and every index check below would pass against nothing.
+      // A long label wraps onto its own line, so the tuple's brace and its
+      // label are allowed to sit apart.
       final layout = _read('lib/core/layout/admin_skeleton_layout.dart');
       final items = RegExp(
-        r"\(\'(\w[^\']*)\', Icons",
+        r"\(\s*\'(\w[^\']*)\',\s*Icons",
       ).allMatches(layout).map((m) => m.group(1)!).toList();
       expect(items, adminOrder);
     });

@@ -27,7 +27,8 @@ User = get_user_model()
 
 HISTORY_URL = '/api/v1/reports/requisition-history/'
 LOGIN_URL = '/api/v1/auth/login/'
-PASSWORD = 'reports-pass-12345'  # nosemgrep: python.lang.security.audit.hardcoded-password
+PASSWORD = 'reports-pass-12345'  # noqa: S105 # nosemgrep: python.lang.security.audit.hardcoded-password
+# A throwaway login for a per-run test database: nothing outside the test run can use it.
 
 
 class RequisitionHistoryTests(TestCase):
@@ -92,7 +93,7 @@ class RequisitionHistoryTests(TestCase):
 
     def test_the_listing_names_the_requester_and_the_approver_as_text(self):
         self._requisition(
-            'REQ-T-1', Requisition.Status.APPROVED,
+            'REQ-T-1', Requisition.Status.ACCEPTED,
             requester='Ben Cruz', approver='Ana Lopez')
 
         rows = self._history()['requisitions']
@@ -100,7 +101,7 @@ class RequisitionHistoryTests(TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]['requested_by'], 'Ben Cruz')
         self.assertEqual(rows[0]['approved_by'], 'Ana Lopez')
-        self.assertEqual(rows[0]['status'], 'APPROVED')
+        self.assertEqual(rows[0]['status'], 'ACCEPTED')
 
     def test_an_approved_by_nobody_is_null_not_an_empty_string(self):
         self._requisition('REQ-T-2', Requisition.Status.CANCELLED, approver='')
@@ -114,10 +115,50 @@ class RequisitionHistoryTests(TestCase):
 
     def test_the_status_filter_accepts_closed(self):
         self._requisition('REQ-C-2', Requisition.Status.CLOSED)
-        self._requisition('REQ-A-1', Requisition.Status.APPROVED)
+        self._requisition('REQ-A-1', Requisition.Status.ACCEPTED)
 
         body = self._history('&status=CLOSED')
 
         self.assertEqual(body['status_filter'], 'CLOSED')
         self.assertEqual(
             [row['req_number'] for row in body['requisitions']], ['REQ-C-2'])
+
+    def test_the_counts_include_the_three_active_review_states(self):
+        # Phase 1b (decision 13): the statuses the Requests-from-projects screen lives on.
+        # A word missing from the counts reads as "it never happened".
+        self._requisition('REQ-W-1', Requisition.Status.WAITING)
+        self._requisition('REQ-A-2', Requisition.Status.ACCEPTED)
+        self._requisition('REQ-D-1', Requisition.Status.DECLINED)
+
+        counts = {row['status']: row['count'] for row in self._history()['count_by_status']}
+
+        self.assertEqual(counts.get('WAITING'), 1)
+        self.assertEqual(counts.get('ACCEPTED'), 1)
+        self.assertEqual(counts.get('DECLINED'), 1)
+
+    def test_the_store_decision_does_not_replace_the_cpms_approver(self):
+        # Decision 08/09: CPMS approved the request and reports its own approver; the POS
+        # store answer changes the STATUS and the lines, never that name. The two people
+        # stay distinct on the report.
+        self._requisition('REQ-W-2', Requisition.Status.WAITING,
+                          requester='Rey Quester', approver='Ana Lopez')
+        self._requisition('REQ-D-2', Requisition.Status.DECLINED,
+                          requester='Ben Cruz', approver='Jose Ramos')
+
+        rows = {row['req_number']: row for row in self._history()['requisitions']}
+
+        self.assertEqual(rows['REQ-W-2']['approved_by'], 'Ana Lopez')
+        self.assertEqual(rows['REQ-D-2']['approved_by'], 'Jose Ramos')
+        for row in rows.values():
+            self.assertNotEqual(row['approved_by'], row['requested_by'],
+                                'the approver is never the requester')
+
+    def test_the_status_filter_accepts_waiting(self):
+        self._requisition('REQ-W-3', Requisition.Status.WAITING)
+        self._requisition('REQ-D-3', Requisition.Status.DECLINED)
+
+        body = self._history('&status=WAITING')
+
+        self.assertEqual(body['status_filter'], 'WAITING')
+        self.assertEqual(
+            [row['req_number'] for row in body['requisitions']], ['REQ-W-3'])

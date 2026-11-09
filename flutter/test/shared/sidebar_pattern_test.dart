@@ -66,8 +66,9 @@ Widget _cashier({
   child: const Text('BODY'),
 );
 
-// The sales shell has no live marker left: the only one it had counted the
-// requisitions queue, which decision 01 removed. So it takes no loader.
+// The sales shell reads its own corner of the network on mount (the waiting
+// count for "Requests from projects", Phase 1b). Every test below either taps
+// labels or supplies its own markers, so that read never decides an assertion.
 Widget _storeManager() => SalesSkeletonLayout(
   title: 'Store manager',
   subtitle: 'Transactions',
@@ -86,7 +87,7 @@ Widget _stockManager({Future<Map<int, int>> Function()? markers}) =>
       child: const Text('BODY'),
     );
 
-// Same as the sales shell: the admin marker counted requisitions and is gone.
+// Same as the sales shell: its own loader is the waiting-request count.
 Widget _admin() => AdminSkeletonLayout(
   title: 'Admin',
   // Not "Overview": it is also a menu item under the OVERVIEW heading, and
@@ -148,6 +149,8 @@ void main() {
         'Reports',
         'Audit logs',
         'Settings',
+        // Phase 1b: appended in the new final Projects group.
+        'Requests from projects',
       ]) {
         expect(find.text(item), findsOneWidget, reason: 'item $item');
       }
@@ -162,6 +165,11 @@ void main() {
 
       expect(find.text('Approvals'), findsNothing);
       expect(find.text('Staff'), findsOneWidget);
+      expect(
+        find.text('Requests from projects'),
+        findsOneWidget,
+        reason: 'Phase 1b appends the store-review queue to this sidebar',
+      );
     });
 
     testWidgets('the icon rail shows no headings, only the dividers', (

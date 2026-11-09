@@ -47,3 +47,11 @@ backend_django/.env
 .agents/
 skills-lock.json
 .superpowers/
+
+
+# =====================
+# Local QA scratch + golden-test diff output — do not commit
+# (temp/ can hold live tokens from seed output)
+# =====================
+temp/
+flutter/test/**/failures/

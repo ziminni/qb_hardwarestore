@@ -6,9 +6,14 @@ import 'package:client/data/models/json_field.dart';
 /// reports tab shows every status CPMS can leave behind, and a row filed under the wrong word
 /// is worse than one that admits the client is behind.
 ///
-/// The POS no longer approves anything (decision 01), so `submitted` survives only to describe
-/// a legacy row; `partial` and `closed` are the two CPMS and the till write today.
+/// `waiting`, `accepted` and `declined` are Phase 1b's store review (decisions 09 and 13):
+/// CPMS pushes a request WAITING, and a Store Manager answers it. [`approved`] survives only
+/// so rows that held that word before the upgrade keep reading as an approval; no new row
+/// enters it. `partial` and `closed` are the two CPMS and the till write today.
 enum RequisitionStatus {
+  waiting('WAITING', 'Waiting for store'),
+  accepted('ACCEPTED', 'Accepted'),
+  declined('DECLINED', 'Declined'),
   draft('DRAFT', 'Draft'),
   submitted('SUBMITTED', 'Awaiting approval'),
   approved('APPROVED', 'Approved'),
@@ -33,6 +38,11 @@ enum RequisitionStatus {
 }
 
 /// One line of a requisition: what was asked for, and how much has gone out.
+///
+/// [available] is the STORE's answer at Accept (decision 10) — true, false with a reason, or
+/// null while nobody has answered. It is deliberately not the till's live stock
+/// [LineAvailability]: "Not available" means the store will never serve that line, while
+/// "Unavailable" means the shelf is empty today.
 class RequisitionItem {
   const RequisitionItem({
     required this.id,
@@ -41,6 +51,10 @@ class RequisitionItem {
     required this.quantity,
     required this.releasedQty,
     this.notes = '',
+    this.available,
+    this.declineReason = '',
+    this.productName = '',
+    this.unit = '',
   });
 
   final int id;
@@ -49,6 +63,19 @@ class RequisitionItem {
   final double quantity;
   final double releasedQty;
   final String notes;
+
+  /// The store's decision on this line: true, false, or null while it is unanswered.
+  final bool? available;
+
+  /// Why the store will not serve the line. Required when [available] is false.
+  final String declineReason;
+
+  /// The product this line's selling unit belongs to, and that unit's label.
+  ///
+  /// The queue has to name what was asked for as "Portland Cement 40 kg bag", not only as
+  /// the variant, because a Store Manager reads this and never sees CPMS.
+  final String productName;
+  final String unit;
 
   /// What is still to be handed over.
   double get remaining => quantity - releasedQty;
@@ -59,15 +86,44 @@ class RequisitionItem {
     variantName: stringField(json, 'variant_name'),
     quantity: decimalField(json, 'quantity'),
     releasedQty: decimalField(json, 'released_qty'),
-    notes: (json['notes'] as String?) ?? '',
+    notes: _optionalString(json, 'notes'),
+    available: _nullableBool(json, 'available'),
+    declineReason: _optionalString(json, 'decline_reason'),
+    productName: _optionalString(json, 'product_name'),
+    unit: _optionalString(json, 'unit'),
   );
+}
+
+/// One line's answer in an Accept (decision 10).
+///
+/// The client sends a line id and the store's intent, and NOTHING else: quantities and prices
+/// are not the reviewer's to change, so the wire has no field for them.
+class RequisitionLineDecision {
+  const RequisitionLineDecision({
+    required this.lineId,
+    required this.available,
+    this.declineReason = '',
+  });
+
+  final int lineId;
+  final bool available;
+  final String declineReason;
+
+  Map<String, dynamic> toJson() => {
+    'id': lineId,
+    'available': available,
+    'decline_reason': declineReason,
+  };
 }
 
 /// A material request, as `GET /api/v1/requisitions/` returns it.
 ///
-/// POS reads requisitions it did NOT create (decision 09: CPMS owns create and submit), which is
-/// why [projectName], [projectCustomerName] and [requestedByName] are carried: a manager approving an anonymous list of
-/// material requests is the failure mode that split creates.
+/// POS reads requisitions it did NOT create (decision 09: CPMS owns create and submit) and,
+/// since Phase 1b, ANSWERS them: a Store Manager accepts or declines each one from
+/// "Requests from projects". That is why [projectName], [projectCustomerName] and
+/// [requestedByName] are carried — answering an anonymous list of material requests is the
+/// failure mode CPMS's ownership creates — and why [approverName] and [notes] are kept as
+/// CPMS wrote them: the POS reviewer never replaces the CPMS approver.
 class Requisition {
   const Requisition({
     required this.id,
@@ -78,6 +134,12 @@ class Requisition {
     required this.requestedByName,
     required this.items,
     this.token,
+    this.cpmsRequestId,
+    this.createdAt,
+    this.approverName,
+    this.notes = '',
+    this.declineReason = '',
+    this.expectedAmount,
   });
 
   final int id;
@@ -95,6 +157,29 @@ class Requisition {
   /// requisition has no token row at all, which is a live-verified fact, not an assumption.
   final String? token;
 
+  /// CPMS's own id for this request — how a project team finds it on their side.
+  final String? cpmsRequestId;
+
+  /// When the store RECEIVED the request; the queue sorts oldest first.
+  final DateTime? createdAt;
+
+  /// Who approved it in CPMS, or null when CPMS sent no approver.
+  final String? approverName;
+
+  /// The requester's notes, as CPMS sent them.
+  final String notes;
+
+  /// Why the store declined the WHOLE request (decision 09). Blank unless declined.
+  final String declineReason;
+
+  /// What CPMS expects this request to be worth — **not** money owed and **not** a
+  /// receivable, which stays on the ledger.
+  ///
+  /// Null means UNKNOWN, never zero (decision 14): a historical request whose released
+  /// total was never recorded keeps an unknown figure, and ₱0.00 would tell the project
+  /// the store released nothing.
+  final double? expectedAmount;
+
   RequisitionStatus get status => RequisitionStatus.fromApiValue(rawStatus);
 
   static Requisition fromJson(Map<String, dynamic> json) => Requisition(
@@ -108,7 +193,36 @@ class Requisition {
         .map((row) => RequisitionItem.fromJson(row as Map<String, dynamic>))
         .toList(growable: false),
     token: json['token'] as String?,
+    cpmsRequestId: json['cpms_request_id'] as String?,
+    createdAt: nullableDateField(json, 'created_at'),
+    approverName: json['approver_name'] as String?,
+    notes: _optionalString(json, 'notes'),
+    declineReason: _optionalString(json, 'decline_reason'),
+    expectedAmount: json['expected_amount'] == null
+        ? null
+        : decimalField(json, 'expected_amount'),
   );
+}
+
+/// Reads a label the server may omit, treating absent or null as blank.
+String _optionalString(Map<String, dynamic> json, String key) {
+  final value = json[key];
+  if (value == null) return '';
+  if (value is! String) {
+    throw FormatException('Field "$key" is not a string: ${value.runtimeType}');
+  }
+  return value;
+}
+
+/// Reads an optional boolean: absent or null stays null, anything else is a contract break.
+///
+/// Strict on purpose. A string "false" or a 0 read through a cast would become TRUE, and the
+/// till would offer a line the store refused — the one mistake a release cannot undo.
+bool? _nullableBool(Map<String, dynamic> json, String key) {
+  final value = json[key];
+  if (value == null) return null;
+  if (value is bool) return value;
+  throw FormatException('Field "$key" is not a bool: ${value.runtimeType}');
 }
 
 /// What the till can hand over from one requested line, as the token check reports it
@@ -141,6 +255,11 @@ enum LineAvailability {
 /// [releasable] is capped by [remaining] and by the shelf on the server, so a short line
 /// says exactly how much goes today ([goesNow]) and how much stays on the token
 /// ([outstanding]).
+///
+/// [available] and [declineReason] carry the STORE's decision (decision 10) next to the
+/// shelf's [availability]. A false line is explained as "Not available" — the store will
+/// never serve it — which is a different sentence from "Unavailable", the shelf being
+/// empty today. Decoding only: what those two mean for a release is the till's business.
 class VerifiedRequisitionItem {
   const VerifiedRequisitionItem({
     required this.id,
@@ -150,6 +269,8 @@ class VerifiedRequisitionItem {
     required this.remaining,
     required this.availability,
     required this.releasable,
+    this.available,
+    this.declineReason = '',
   });
 
   final int id;
@@ -162,12 +283,20 @@ class VerifiedRequisitionItem {
   /// What the server says can leave the store on this scan, capped by [remaining].
   final double releasable;
 
+  /// The store's decision on this line, or null while nobody answered.
+  final bool? available;
+
+  /// Why the store will not serve the line. Empty when [available] is not false.
+  final String declineReason;
+
   /// True when this line hands something over today.
   ///
   /// Read off [availability] as well as the quantity, because a line the server called
   /// [LineAvailability.unavailable] or [LineAvailability.done] must never be released
-  /// whatever number rode along with it.
+  /// whatever number rode along with it. A line the store answered Not available
+  /// ([available] is false) is refused whatever the shelf holds (decision 13).
   bool get isReleasable =>
+      available != false &&
       (availability == LineAvailability.full ||
           availability == LineAvailability.short) &&
       releasable > 0;
@@ -176,7 +305,12 @@ class VerifiedRequisitionItem {
   double get goesNow => isReleasable ? releasable : 0;
 
   /// What stays open on this token after the release: the project comes back for it.
-  double get outstanding => remaining > goesNow ? remaining - goesNow : 0;
+  ///
+  /// A line the store marked Not available keeps its recorded remaining quantity for
+  /// ever, but nobody will ever hand it over, so it is owed by nobody: it must not
+  /// keep the token alive or be promised as a return visit (decision 13).
+  double get outstanding =>
+      available == false ? 0 : (remaining > goesNow ? remaining - goesNow : 0);
 
   /// Parses one line, tolerating a response without the two availability fields.
   ///
@@ -195,6 +329,8 @@ class VerifiedRequisitionItem {
         releasable: json['releasable'] == null
             ? 0
             : decimalField(json, 'releasable'),
+        available: _nullableBool(json, 'available'),
+        declineReason: _optionalString(json, 'decline_reason'),
       );
 }
 
@@ -263,6 +399,8 @@ class ReleasedLine {
     required this.code,
     required this.releasedNow,
     required this.outstanding,
+    this.available,
+    this.declineReason = '',
   });
 
   /// The material's barcode/QR code — the server's handle for a line, not its name.
@@ -270,12 +408,25 @@ class ReleasedLine {
   final double releasedNow;
   final double outstanding;
 
-  bool get isOpen => outstanding > 0;
+  /// The store's decision on this line, or null while nobody answered.
+  final bool? available;
+
+  /// Why the store will not serve the line. Empty when [available] is not false.
+  final String declineReason;
+
+  /// True when a later scan still has to hand this line over.
+  ///
+  /// A line the store marked Not available keeps its outstanding quantity on the wire
+  /// for ever, but nobody will collect it, so it does not keep the token open
+  /// (decision 13). An unanswered line still reads by its quantity.
+  bool get isOpen => available != false && outstanding > 0;
 
   static ReleasedLine fromJson(Map<String, dynamic> json) => ReleasedLine(
     code: stringField(json, 'code'),
     releasedNow: decimalField(json, 'released_now'),
     outstanding: decimalField(json, 'outstanding'),
+    available: _nullableBool(json, 'available'),
+    declineReason: _optionalString(json, 'decline_reason'),
   );
 }
 

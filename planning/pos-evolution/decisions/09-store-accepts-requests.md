@@ -12,6 +12,6 @@
 - CPMS learns the answer by reading the request status (decision 7 stands: the POS never calls CPMS). Telling the PM, foreman and the CPMS **client** (a read-only project viewer, CPMS-only) is CPMS's job.
 - The QR is printed by **CPMS** at approval; it holds only the token so a 2D scanner types it into Release materials. The POS does not print release slips (teammate's slip in `700171c` dropped at merge, scan hint kept).
 
-## Open (Phase 1b frontier)
+## Follow-up resolved
 
-Status names and transitions, what existing APPROVED rows become, and whether CPMS may close a waiting request.
+Status names/transitions, migration of APPROVED rows and withdrawal of a waiting request are locked in [Request states after Accept](./13-request-states-after-accept.md). Execution route: [Phase 1b plan](../phase-1b-plan.md).

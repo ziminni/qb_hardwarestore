@@ -138,7 +138,7 @@ class CpmsRequestImportView(APIView):
 class CpmsRequestCloseView(APIView):
     """`POST requests/{cpms_request_id}/close/` — CPMS closes an open remainder (dec. 06).
 
-    `APPROVED` / `PARTIAL` -> `CLOSED` with the token spent; already `RELEASED` or
+    `ACCEPTED` / `PARTIAL` -> `CLOSED` with the token spent; already `RELEASED` or
     `CLOSED` -> `200` no-op; `CANCELLED` -> `409 REQUEST_CANCELLED`; an id this POS never
     stored -> `404 REQUEST_NOT_FOUND`. The answer is the read-back body below, so CPMS
     sees exactly what the close left behind.

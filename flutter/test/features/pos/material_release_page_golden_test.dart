@@ -123,11 +123,21 @@ void main() {
 
       expect(find.text('Short'), findsOneWidget);
       expect(find.text('18 of 48 available'), findsOneWidget);
-      expect(find.text('Unavailable'), findsOneWidget);
+      expect(
+        find.text('Not available'),
+        findsOneWidget,
+        reason: 'the store refused this line; the shelf was not merely empty',
+      );
+      expect(
+        find.text('Not stocked at this branch'),
+        findsOneWidget,
+        reason: 'the store\'s reason has to be readable at the counter',
+      );
       expect(find.text('Already released'), findsOneWidget);
       expect(
-        find.text('Releases 2 of 4 lines now. The rest stays open on this token.'),
+        find.text('Releases 2 of 3 lines now. The rest stays open on this token.'),
         findsOneWidget,
+        reason: 'the refused line is not part of what the request promises',
       );
 
       await _expectPng(tester, goldenDir, 'c3-partial-lines-${width.$1}.png');
@@ -229,6 +239,8 @@ class _StubRequisitions extends RequisitionRepository {
                   remaining: 12,
                   availability: LineAvailability.unavailable,
                   releasable: 0,
+                  available: false,
+                  declineReason: 'Not stocked at this branch',
                 ),
                 VerifiedRequisitionItem(
                   id: 4,

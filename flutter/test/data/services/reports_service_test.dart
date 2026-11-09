@@ -130,7 +130,40 @@ void main() {
     expect(movements.adjustmentsByType.single.type, 'DAMAGE');
   });
 
-  test('requisition history parses counts and rows', () async {
+  // Decision 13: the store's three answers are the current vocabulary; APPROVED only
+  // survives on rows that predate the upgrade, so a current row is ACCEPTED.
+  test('requisition history parses the store answers, counts and rows', () async {
+    adapter.respond = (_) => _json({
+      'from': '2026-09-19',
+      'to': '2026-10-19',
+      'status_filter': null,
+      'count_by_status': [
+        {'status': 'WAITING', 'count': 2},
+        {'status': 'ACCEPTED', 'count': 1},
+        {'status': 'DECLINED', 'count': 1},
+      ],
+      'requisitions': [
+        {'id': 3, 'req_number': 'REQ-001', 'status': 'ACCEPTED', 'project': 'House', 'requested_by': 'Foreman', 'approved_by': 'Manager', 'created_at': '2026-10-19T08:00:00Z'},
+      ],
+    });
+
+    final history = await service.fetchRequisitionHistory();
+
+    expect(history.countByStatus, {
+      'WAITING': 2,
+      'ACCEPTED': 1,
+      'DECLINED': 1,
+    });
+    expect(history.requisitions.single.reqNumber, 'REQ-001');
+    expect(history.requisitions.single.status, 'ACCEPTED');
+    expect(
+      history.requisitions.single.approvedBy,
+      'Manager',
+      reason: 'the CPMS approver is a different person from the store manager',
+    );
+  });
+
+  test('a legacy APPROVED row still parses as its own word', () async {
     adapter.respond = (_) => _json({
       'from': '2026-09-19',
       'to': '2026-10-19',
@@ -146,8 +179,7 @@ void main() {
     final history = await service.fetchRequisitionHistory();
 
     expect(history.countByStatus['APPROVED'], 1);
-    expect(history.requisitions.single.reqNumber, 'REQ-001');
-    expect(history.requisitions.single.approvedBy, 'Manager');
+    expect(history.requisitions.single.status, 'APPROVED');
   });
 
   test('from and to ride along as query parameters', () async {

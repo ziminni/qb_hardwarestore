@@ -37,10 +37,17 @@ from apps.inventory.services import (
 from apps.pos.models import Customer
 from apps.pos.services import process_sale
 from apps.requisitions.models import Requisition
-from apps.requisitions.services import import_request, release_materials
+from apps.requisitions.services import (
+    accept_requisition,
+    decline_requisition,
+    import_request,
+    release_materials,
+)
 from apps.users.models import User
 
 PASSWORD = 'demo1234'  # noqa: S105 - documented demo login (AGENTS.md)
+# Decision 09: a demo whole-Decline always carries the reason the staff screen demands.
+DECLINE_REASON = 'Cannot supply this request: the items are out of season.'
 ROLES = ['System Administrator', 'Store Manager', 'Stock Manager',
          'Cashier',
          # Phase 1 (decision 02): the group CPMS's service account lives in. It is not a
@@ -96,6 +103,7 @@ class Command(BaseCommand):
         customers = {c.name: c for c in Customer.objects.all()}
         self._seed_sales(users['cashier'], variants, customers)
         self._seed_requisitions(users, variants, customers)
+        self._print_review_instructions()
         self._print_summary(users)
 
     def _seed_groups(self):
@@ -357,10 +365,17 @@ class Command(BaseCommand):
             'payer': customers['Dela Cruz Construction'].pk,
         }
 
-        def push(cpms_request_id, variant_name, quantity):
-            """One APPROVED request, exactly as CPMS pushes it (decisions 02 and 04)."""
+        def push(cpms_request_id, variant_name, quantity, *, answer):
+            """One request exactly as CPMS pushes it, then the STORE's answer.
+
+            The push lands WAITING (decision 13), so every demo request is answered
+            through the SAME service the review screen calls: `accept` marks its lines
+            Available, `decline` refuses the whole request with a reason and spends the
+            token, `wait` leaves it waiting for the store. Nothing here writes a status
+            by hand, so the demo cannot show a state the screens cannot produce.
+            """
             token = uuid.uuid4()
-            import_request(
+            result = import_request(
                 cpms_request_id=cpms_request_id,
                 token=token,
                 project=project,
@@ -369,14 +384,24 @@ class Command(BaseCommand):
                 items=[{'code': variants[variant_name]['vuom'].barcode_qr,
                         'quantity': Decimal(quantity)}],
             )
+            requisition = Requisition.objects.get(pk=result['request']['id'])
+            if answer == 'accept':
+                accept_requisition(
+                    requisition_id=requisition.pk,
+                    items=[{'id': line.pk, 'available': True, 'decline_reason': ''}
+                           for line in requisition.items.order_by('pk')])
+            elif answer == 'decline':
+                decline_requisition(
+                    requisition_id=requisition.pk,
+                    decline_reason=DECLINE_REASON)
             return token
 
-        # APPROVED (token ready for the POS release demo)
+        # ACCEPTED (token ready for the POS release demo)
         # Not v_names[0]: the seed drains that one for the low-stock demo.
-        token = push('CPMS-R-1001', v_names[1], '8')
+        token = push('CPMS-R-1001', v_names[1], '8', answer='accept')
 
         # RELEASED (the full flow - deducts stock, posts the project's utang)
-        rel_token = push('CPMS-R-1002', v_names[3], '4')
+        rel_token = push('CPMS-R-1002', v_names[3], '4', answer='accept')
         # Phase 3 (decision 03): a release needs the cashier's OPEN shift, and `_seed_sales`
         # already closed the one it sold through. Reopen (or reuse) here and leave it open:
         # the release belongs inside a shift's Z-reading, and an open shift is also what the
@@ -398,16 +423,50 @@ class Command(BaseCommand):
         partial_variant = variants[v_names[2]]['variant']
         on_hand = sum(
             partial_variant.batches.values_list('current_qty', flat=True))
-        partial_token = push('CPMS-R-1003', v_names[2], on_hand + 5)
+        partial_token = push('CPMS-R-1003', v_names[2], on_hand + 5, answer='accept')
         partial = release_materials(
             token_value=str(partial_token), cashier=users['cashier'])
 
+        # WAITING (decision 13): pushed and not answered yet, so its live token must be
+        # refused by the till until a manager accepts or declines it.
+        push('CPMS-R-1004', v_names[6], '3', answer='wait')
+        # DECLINED (decisions 09/13): the store can serve none of it, the reason is
+        # recorded on the request and every line, and the token is spent without a
+        # cashier. Nothing left the shelf and nothing was booked.
+        push('CPMS-R-1005', v_names[7], '5', answer='decline')
+
         self.stdout.write(self.style.SUCCESS(
-            'Requisitions seeded (APPROVED/PARTIAL/RELEASED, pushed by CPMS)'))
-        self.stdout.write(f'  APPROVED token (ready for POS release): {token}')
+            'Requisitions seeded (ACCEPTED/PARTIAL/RELEASED/WAITING/DECLINED, '
+            'pushed by CPMS)'))
+        self.stdout.write(f'  ACCEPTED token (ready for POS release): {token}')
         self.stdout.write(
             f'  PARTIAL token (scan again after a goods receipt): {partial_token} '
             f'({partial["status"]}, {partial["items"][0]["outstanding"]} outstanding)')
+
+    def _print_review_instructions(self):
+        """What to do with the two requests that only the review screen can move.
+
+        Printed from the STORED rows, not from the seeding branch above, so a re-run
+        (whose seeding half skips itself) still names the same tokens. Never printed for
+        the releasable requests: the till's own token stays the thing the cashier scans.
+        """
+        instructions = (
+            ('CPMS-R-1004',
+             'WAITING token',
+             'the store has not answered it, so it cannot be released at the till - '
+             'accept or decline it in Sales > Requests from projects first.'),
+            ('CPMS-R-1005',
+             'DECLINED token',
+             'this token is dead: verify and release answer REQUISITION_DECLINED. '
+             'No cashier was involved and nothing left the shelf.'),
+        )
+        for cpms_request_id, label, advice in instructions:
+            request = Requisition.objects.filter(
+                cpms_request_id=cpms_request_id).select_related('token').first()
+            if request is None:
+                continue
+            self.stdout.write(
+                f'  {cpms_request_id} {label} {request.token.token}: {advice}')
 
     def _print_summary(self, users):
         from apps.pos.models import SalesTransaction

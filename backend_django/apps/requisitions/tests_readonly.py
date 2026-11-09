@@ -41,7 +41,7 @@ PROJECTS_URL = '/api/v1/projects/'
 
 
 class _ReadOnlyBase(TestCase):
-    """A Store Manager, a Cashier and one APPROVED request as CPMS would leave it."""
+    """A Store Manager, a Cashier and one ACCEPTED request as CPMS would leave it."""
 
     def setUp(self):
         self.password = get_random_string(20)
@@ -71,7 +71,7 @@ class _ReadOnlyBase(TestCase):
             project=self.project,
             cpms_request_id='CPMS-R-1',
             req_number='REQ-READONLY-0001',
-            status=Requisition.Status.APPROVED,
+            status=Requisition.Status.ACCEPTED,
             requester_name='Rey Quester',
             approver_name='Mana Ger',
         )
@@ -159,7 +159,7 @@ class RequisitionWriteRefusalTests(_ReadOnlyBase):
 
         self.requisition.refresh_from_db()
         self.assertEqual(self.requisition.notes, '')
-        self.assertEqual(self.requisition.status, Requisition.Status.APPROVED)
+        self.assertEqual(self.requisition.status, Requisition.Status.ACCEPTED)
 
     def test_the_submit_approve_and_reject_actions_are_not_routed(self):
         """No URL, no verb: the actions are gone, so the router answers 404."""
@@ -172,7 +172,7 @@ class RequisitionWriteRefusalTests(_ReadOnlyBase):
 
         # Nothing moved and no second token was minted.
         self.requisition.refresh_from_db()
-        self.assertEqual(self.requisition.status, Requisition.Status.APPROVED)
+        self.assertEqual(self.requisition.status, Requisition.Status.ACCEPTED)
         self.assertEqual(
             MaterialToken.objects.filter(requisition=self.requisition).count(), 1)
 

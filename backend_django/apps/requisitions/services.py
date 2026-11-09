@@ -16,7 +16,7 @@ left here is what the till and the CPMS push need: `generate_req_number`, `verif
 """
 
 from datetime import date
-from decimal import ROUND_DOWN, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -40,8 +40,10 @@ from common.numbering import generate_document_number
 from .exceptions import (
     DuplicateMaterial,
     NothingToRelease,
+    RequestAlreadyReviewed,
     RequestCancelled,
     RequisitionNotReleasable,
+    RequisitionReviewRefused,
     TokenTaken,
     UnknownMaterial,
     UnknownPayer,
@@ -97,10 +99,15 @@ class Availability:
     DONE = 'DONE'                # nothing left to release: an earlier scan took it all
 
 
-# Messages for the statuses that can never be released (decision 05/06). Spelled per
-# status because "CLOSED" tells the cashier to call CPMS, and "already RELEASED" tells
-# them somebody has already been served with this token.
+# Messages for the statuses that can never be released (decisions 05/06/13). Spelled per
+# status because "CLOSED" tells the cashier to call CPMS, "already RELEASED" tells them
+# somebody has already been served with this token, and WAITING/DECLINED name the store's
+# own answer instead of hiding it behind "token already used".
 _REFUSED_STATUSES = {
+    Requisition.Status.WAITING:
+        'Requisition is WAITING: the store has not answered this request yet.',
+    Requisition.Status.DECLINED:
+        'Requisition is DECLINED: the store cannot serve it, so nothing may be released.',
     Requisition.Status.CLOSED:
         'Requisition is CLOSED: its request was closed and the token is dead.',
     Requisition.Status.RELEASED:
@@ -111,14 +118,21 @@ _REFUSED_STATUSES = {
 
 
 def _refuse_status(status):
-    """Raise for a request no release may touch (decision 05: APPROVED/PARTIAL only)."""
+    """Raise for a request no release may touch (decisions 05/13: ACCEPTED/PARTIAL only)."""
     if status in _REFUSED_STATUSES:
         raise RequisitionNotReleasable(status, _REFUSED_STATUSES[status])
-    raise ValueError(f'Requisition is {status}, not APPROVED or PARTIAL.')
+    raise ValueError(f'Requisition is {status}, not ACCEPTED or PARTIAL.')
 
 
 def _token_for_release(token_value: str):
-    """The scanned token, with every refusal the till must answer by name."""
+    """The scanned token, with every refusal the till must answer by name.
+
+    The STATUS is checked before `is_used` (Phase 1b, decisions 09/13): a declined
+    request's token was spent by the Decline itself, so "token already used" would hide
+    the decision the cashier needs to see. This check is ADVISORY — `release_materials`
+    repeats it under the row locks, because a store decision or a CPMS close may land
+    between here and there.
+    """
     try:
         uuid_val = UUID(token_value)
     except ValueError:
@@ -128,11 +142,11 @@ def _token_for_release(token_value: str):
             'requisition__project__customer').get(token=uuid_val)
     except MaterialToken.DoesNotExist:
         raise ValueError('Token not found.') from None
+    if token_obj.requisition.status not in (
+            Requisition.Status.ACCEPTED, Requisition.Status.PARTIAL):
+        _refuse_status(token_obj.requisition.status)
     if token_obj.is_used:
         raise ValueError('Token has already been used.')
-    if token_obj.requisition.status not in (
-            Requisition.Status.APPROVED, Requisition.Status.PARTIAL):
-        _refuse_status(token_obj.requisition.status)
     return token_obj
 
 
@@ -160,6 +174,11 @@ def _release_plan(requisition) -> list:
 
     Read by `verify_token` (what the cashier sees) and again by `release_materials` under
     the token's row lock (what is written), so both use one rule.
+
+    Decision 10: a line the store marked Not available takes NOTHING and does not consume
+    the shared shelf either — it is skipped before the variant's stock is read down, so a
+    declined line can never starve an Available line of the same variant. Its `remaining`
+    still reports the full historical outstanding.
     """
     items = list(
         RequisitionItem.objects
@@ -173,7 +192,7 @@ def _release_plan(requisition) -> list:
         variant = item.variant_uom.variant
         remaining = item.quantity - item.released_qty
         archived = not variant.is_active or not variant.product.is_active
-        if archived or remaining <= 0:
+        if item.available is False or archived or remaining <= 0:
             releasable = Decimal('0.00')
         else:
             available = on_hand.get(variant.pk, Decimal(0))
@@ -190,7 +209,14 @@ def _release_plan(requisition) -> list:
 
 
 def _availability(line) -> str:
-    """Decision 05's three words for one planned line, plus DONE for a finished one."""
+    """Decision 05's three words for one planned line, plus DONE for a finished one.
+
+    Decision 10: a line the store marked Not available is `UNAVAILABLE` whatever the
+    shelf holds, and is never `DONE` — its outstanding quantity never goes away. DONE
+    stays reserved for a line that could leave but has already left in full.
+    """
+    if line['item'].available is False:
+        return Availability.UNAVAILABLE
     if line['remaining'] <= 0:
         return Availability.DONE
     if line['archived'] or line['releasable'] <= 0 < line['remaining']:
@@ -200,10 +226,30 @@ def _availability(line) -> str:
     return Availability.FULL
 
 
+def every_available_line_done(plan) -> bool:
+    """True when this visit leaves nothing owed on any line the store agreed to serve.
+
+    Phase 1b (decisions 10 and 13): `RELEASED` means every AVAILABLE line is fully out.
+    A line the store marked Not available (`line['item'].available is False`) keeps its
+    outstanding quantity for ever, so it must not hold the token open. A line nobody
+    answered (`available is None`) is still owed: an unanswered line must never let the
+    token die with goods outstanding.
+
+    `plan` is `_release_plan`'s list. Each line is a dict with `item` (the
+    `RequisitionItem`), `remaining` (owed BEFORE this visit) and `releasable` (leaving
+    NOW), so after this visit a line still owes `remaining - releasable`.
+    """
+    return all(
+        line['item'].available is False
+        or line['remaining'] - line['releasable'] <= 0
+        for line in plan
+    )
+
+
 def verify_token(*, token_value: str) -> dict:
     """Validate a material token and describe what could leave the store right now.
 
-    Decision 05: an APPROVED request and a PARTIAL one are both releasable (the token
+    Decision 05: an ACCEPTED request and a PARTIAL one are both releasable (the token
     stays alive until every line is out); CLOSED, RELEASED and CANCELLED are refused by
     name. Each line carries its `availability` and the `releasable` quantity, which is
     what the cashier confirms against.
@@ -226,10 +272,36 @@ def verify_token(*, token_value: str) -> dict:
              'quantity': str(line['item'].quantity),
              'remaining': str(line['remaining']),
              'availability': _availability(line),
-             'releasable': str(line['releasable'])}
+             'releasable': str(line['releasable']),
+             # Decisions 10/13: the STORE's answer, distinct from the shelf's word
+             # above — False means "we do not carry it", not "it is out today".
+             'available': line['item'].available,
+             'decline_reason': line['item'].decline_reason}
             for line in _release_plan(req)
         ],
     }
+
+
+def _lock_token_and_request(*, requisition_id):
+    """Lock this request's token row, THEN the request row, and return both.
+
+    The ONE lock order every transition shares (Phase 1b): Accept, Decline, CPMS Close
+    and Release all take it. The token goes first because that is the row a cashier's
+    scan already holds while it deducts stock; taking the request first would let a
+    store decision and a release deadlock each other.
+
+    Both rows are read AFTER the locks, so a caller decides on committed state instead
+    of on a row it read before waiting. `Requisition.objects.select_for_update()` takes
+    no `select_related`: on PostgreSQL `FOR UPDATE` also locks joined rows, and locking
+    a shared project or customer would serialise unrelated requests.
+    """
+    token_obj = (
+        MaterialToken.objects.select_for_update()
+        .filter(requisition_id=requisition_id)
+        .first()
+    )
+    requisition = Requisition.objects.select_for_update().get(pk=requisition_id)
+    return token_obj, requisition
 
 
 def release_materials(*, token_value: str, cashier) -> dict:
@@ -260,15 +332,25 @@ def release_materials(*, token_value: str, cashier) -> dict:
     ledger, no moved stock, no consumed token and no RELEASE audit row (the view writes
     that row in the same transaction). The shift is then attached to the resulting
     `SalesTransaction`, which is what puts the release inside the Z-reading.
+
+    Phase 1b: the status and the line decisions are re-read UNDER the token→request lock
+    (`_lock_token_and_request`), the same order Accept, Decline and Close take. The
+    check in `_token_for_release` is only advisory — a store decision or a CPMS close can
+    land between it and the lock — so a request that is no longer ACCEPTED/PARTIAL is
+    refused here before the first write.
     """
     token_obj = _token_for_release(token_value)
-    req = token_obj.requisition
-    customer = req.project.customer
 
     with transaction.atomic():
-        token_obj = (
-            MaterialToken.objects.select_for_update().get(pk=token_obj.pk)
-        )
+        token_obj, req = _lock_token_and_request(
+            requisition_id=token_obj.requisition_id)
+        customer = req.project.customer
+        # Decisions 09/13: only an accepted request releases. Checked before `is_used`
+        # because a Decline spends the token itself, and "the store declined this" is the
+        # fact the cashier needs.
+        if req.status not in (
+                Requisition.Status.ACCEPTED, Requisition.Status.PARTIAL):
+            _refuse_status(req.status)
         if token_obj.is_used:
             raise ValueError('Token has already been used.')
 
@@ -332,6 +414,11 @@ def release_materials(*, token_value: str, cashier) -> dict:
         txn.vatable_sales = grand_total
         txn.grand_total = grand_total
         txn.save(update_fields=['vatable_sales', 'grand_total'])
+        # Decision 14: the DB rounds `qty x price` to 2dp, so the value the till is told,
+        # the utang booked and the amount accumulated must all be the PERSISTED total,
+        # not the 4dp product still in memory.
+        txn.refresh_from_db(fields=['grand_total'])
+        grand_total = txn.grand_total
 
         OfficialReceipt.objects.create(
             transaction=txn,
@@ -349,11 +436,10 @@ def release_materials(*, token_value: str, cashier) -> dict:
             status=CollectibleLedger.Status.OPEN,
         )
 
-        # Decision 05: the token dies only when every line is out. A PARTIAL request keeps
-        # it alive, because that is how the project comes back for the rest.
-        fully_released = all(
-            line['remaining'] - line['releasable'] <= 0 for line in plan)
-        if fully_released:
+        # Decision 05/10: the token dies only when every AVAILABLE line is out. A PARTIAL
+        # request keeps it alive, because that is how the project comes back for the rest;
+        # a line the store declined never holds it open.
+        if every_available_line_done(plan):
             token_obj.is_used = True
             token_obj.used_at = timezone.now()
             token_obj.used_by = cashier
@@ -361,7 +447,11 @@ def release_materials(*, token_value: str, cashier) -> dict:
             req.status = Requisition.Status.RELEASED
         else:
             req.status = Requisition.Status.PARTIAL
-        req.save(update_fields=['status', 'updated_at'])
+        # Decision 14: add exactly the persisted sale total, in this same transaction, and
+        # only when the baseline is known — NULL plus a known amount stays NULL.
+        if req.released_amount is not None:
+            req.released_amount = req.released_amount + grand_total
+        req.save(update_fields=['status', 'released_amount', 'updated_at'])
 
     return {
         'transaction_id': txn.id,
@@ -376,7 +466,11 @@ def release_materials(*, token_value: str, cashier) -> dict:
         'items': [
             {'code': line['item'].variant_uom.barcode_qr,
              'released_now': str(line['releasable']),
-             'outstanding': str(line['remaining'] - line['releasable'])}
+             'outstanding': str(line['remaining'] - line['releasable']),
+             # Decisions 10/13: the till needs the store's answer here too, so a mixed
+             # request reads "Declined: Not stocked" instead of a transient shortage.
+             'available': line['item'].available,
+             'decline_reason': line['item'].decline_reason}
             for line in plan
         ],
         'grand_total': str(grand_total),
@@ -478,7 +572,11 @@ def _upsert_project(project_data, payer):
 
 def import_request(*, cpms_request_id, token, project, requester_name,
                    approver_name, notes='', items):
-    """Store the POS copy of one APPROVED CPMS request (decisions 02 and 04).
+    """Store the POS copy of one CPMS request (decisions 02 and 04).
+
+    Decision 13: a push lands as `WAITING`. CPMS approving its own request is not the
+    store accepting it; the line answers stay NULL until the store reviews it, no money
+    is booked (`released_amount` stays 0.00) and nothing may leave the shelf yet.
 
     Returns `{'created': bool, 'request': <answer body>}`. The caller answers `201` on
     create and `200` on a retry, and writes the audit row itself (it needs the request
@@ -518,7 +616,7 @@ def import_request(*, cpms_request_id, token, project, requester_name,
                 req_number=generate_req_number(),
                 # CPMS only pushes what its project manager already approved, and the
                 # names travel as text (decision 08): the POS has no approver account.
-                status=Requisition.Status.APPROVED,
+                status=Requisition.Status.WAITING,
                 requester_name=requester_name,
                 approver_name=approver_name,
                 notes=notes,
@@ -575,53 +673,118 @@ def _order_lines(requisition):
     )
 
 
-def request_read_back(*, cpms_request_id):
-    """Decision 07: status plus each line's `requested`, `released` and `outstanding`.
+def money_wire(amount):
+    """A stored/computed amount as the 2dp string the wire uses, or None.
 
-    `outstanding` is the TRUE unreleased quantity even for a CLOSED request: the status
-    says the remainder will never come, and the number says how much of it there was.
-    Zeroing it would hide the shortfall the project manager accepted when closing.
+    `None` is the contract's "unknown", never `0.00`: a historical released total that
+    was never recorded must not read as a free request.
+    """
+    return None if amount is None else f'{amount:.2f}'
+
+
+def expected_amount(requisition, lines=None):
+    """Decision 11/13/14: what the store still expects to hand out, at TODAY's prices.
+
+    Known released total + `sum(current selling price x outstanding)` over the lines the
+    store marked Available, rounded ONCE (`ROUND_HALF_UP`) after that sum. The price is
+    the line's own selling unit, so a box of 12 is priced per box, never per piece. It is
+    a BUDGET CPMS can plan against, not a quote and not a debt: the project's payables
+    stay the only record of what is owed.
+
+    `None` whenever the figure would be a guess:
+    - an unknown `released_amount` (a request released before Phase 1b) stays unknown;
+    - `WAITING`, `DECLINED` and legacy states have no store answer to budget;
+    - `CLOSED` counts only when the store had accepted something (`available is True`),
+      so a request withdrawn before review reads unknown while a closed-after-accept
+      request keeps its abandoned shortfall in the budget (decision 13).
+
+    `lines` may be passed when the caller already loaded them (`request_read_back`), so
+    neither the staff list (prefetched `items`) nor CPMS pays for a per-row query. With
+    no argument it uses `requisition.items.all()`, which reuses a prefetch cache.
+    """
+    if requisition.released_amount is None:
+        return None
+    if lines is None:
+        lines = requisition.items.all()
+    else:
+        lines = list(lines)
+    if requisition.status == Requisition.Status.CLOSED:
+        reviewed = any(line.available is True for line in lines)
+    else:
+        reviewed = requisition.status in (
+            Requisition.Status.ACCEPTED,
+            Requisition.Status.PARTIAL,
+            Requisition.Status.RELEASED,
+        )
+    if not reviewed:
+        return None
+    outstanding = sum(
+        (line.variant_uom.default_selling_price * (line.quantity - line.released_qty)
+         for line in lines if line.available is True),
+        Decimal('0'),
+    )
+    return requisition.released_amount + outstanding.quantize(
+        Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+
+def request_read_back(*, cpms_request_id):
+    """Decision 07/13: the store's answer plus each line's quantities and amount.
+
+    `outstanding` is the TRUE unreleased quantity even for a CLOSED request or a line the
+    store declined: the status says the remainder will never come, and the number says
+    how much of it there was. Zeroing it would hide the shortfall the project manager
+    accepted when closing.
+
+    Phase 1b adds the decision itself — the request `decline_reason`, each line's
+    `available` (true/false/null) and `decline_reason`, and the live `expected_amount`.
+    The quantity keys keep their Phase 1 meaning and body, and no per-unit price, stock,
+    token, cost or margin is added.
     """
     requisition = _stored_request(cpms_request_id)
+    lines = _order_lines(requisition)
     return {
         'cpms_request_id': requisition.cpms_request_id,
         'req_number': requisition.req_number,
         'status': requisition.status,
+        'decline_reason': requisition.decline_reason,
+        'expected_amount': money_wire(expected_amount(requisition, lines)),
         'items': [
             {'code': item.variant_uom.barcode_qr,
              'requested': str(item.quantity),
              'released': str(item.released_qty),
-             'outstanding': str(item.quantity - item.released_qty)}
-            for item in _order_lines(requisition)
+             'outstanding': str(item.quantity - item.released_qty),
+             'available': item.available,
+             'decline_reason': item.decline_reason}
+            for item in lines
         ],
     }
 
 
 def _lock_request(cpms_request_id):
-    """The request row, locked the way a cashier release locks it (decision 06).
+    """The request row, locked the way every other transition locks it (decision 06).
 
-    The TOKEN goes first because `release_materials` takes that lock before it touches
-    anything else: a close therefore waits for a release already in flight (and then
-    closes whatever that release left outstanding), or holds the lock itself so the
-    release blocks and is refused by `is_used`. Locking the requisition as well keeps the
-    two blockers in the same order in both paths, so neither can deadlock the other.
+    Delegates to `_lock_token_and_request`, so Close takes the SAME order — token first,
+    then request — as Accept, Decline and the cashier's release. That is what makes a
+    close wait for a release already in flight (and then close whatever it left
+    outstanding) and a release wait for a close, without either deadlocking the other.
     """
     requisition = _stored_request(cpms_request_id)
-    MaterialToken.objects.select_for_update().filter(requisition=requisition).first()
-    return Requisition.objects.select_for_update().get(pk=requisition.pk)
+    return _lock_token_and_request(requisition_id=requisition.pk)[1]
 
 
 def close_requisition(*, cpms_request_id):
     """Decision 06: CPMS closes an open remainder; the released part stays as it is.
 
-    `APPROVED` and `PARTIAL` become `CLOSED` and their token is spent in the SAME
-    transaction as the status change. `used_by` stays NULL: CPMS closed the request, no
-    cashier handed anything out.
+    `WAITING`, `ACCEPTED` and `PARTIAL` become `CLOSED` and their token is spent in the
+    SAME transaction as the status change. `used_by` stays NULL: CPMS closed the
+    request, no cashier handed anything out. `WAITING` is closable because CPMS may
+    withdraw a request the store has not answered yet (decision 13, edge case 1).
 
-    A `RELEASED` or already `CLOSED` request is a no-op and answers the unchanged
-    read-back, so a retried close is safe. `CANCELLED` is refused with `409`
-    `REQUEST_CANCELLED` — cancel is a decision made here and a close must not paper over
-    it. Nothing else is touched: no line, no sale, no ledger row.
+    A `DECLINED`, `RELEASED` or already `CLOSED` request is a no-op and answers the
+    unchanged read-back, so a retried close is safe and a store decision is never
+    overwritten. `CANCELLED` is refused with `409` `REQUEST_CANCELLED` — cancel is a
+    decision made here and a close must not paper over it. Nothing else is touched: no
+    line, no sale, no ledger row.
 
     Returns `{'closed': bool, 'request': <read-back body>}`; the caller answers the body
     and writes the audit row only when `closed`.
@@ -631,7 +794,10 @@ def close_requisition(*, cpms_request_id):
         if requisition.status == Requisition.Status.CANCELLED:
             raise RequestCancelled(cpms_request_id)
         closed = requisition.status in (
-            Requisition.Status.APPROVED, Requisition.Status.PARTIAL)
+            Requisition.Status.WAITING,
+            Requisition.Status.ACCEPTED,
+            Requisition.Status.PARTIAL,
+        )
         if closed:
             requisition.status = Requisition.Status.CLOSED
             requisition.save(update_fields=['status', 'updated_at'])
@@ -642,6 +808,110 @@ def close_requisition(*, cpms_request_id):
                 is_used=True, used_at=timezone.now())
     return {'closed': closed,
             'request': request_read_back(cpms_request_id=cpms_request_id)}
+
+
+# ---------------------------------------------------------------------------
+# The store's decision (Phase 1b, Task 2 — decisions 09, 10 and 13)
+# ---------------------------------------------------------------------------
+
+def _require_waiting(requisition):
+    """Both answers are legal only from WAITING; a decision is never re-opened."""
+    if requisition.status != Requisition.Status.WAITING:
+        raise RequestAlreadyReviewed(
+            f'This request is already {requisition.status}. A request is reviewed '
+            'once, and only while it is WAITING.')
+
+
+def _line_answers(*, lines, items):
+    """`{line id: {'available', 'decline_reason'}}`, or a refusal naming the gap.
+
+    Decision 09/10: the store answers every line it was shown, exactly once. A missing
+    line would stay unanswered on an ACCEPTED request, and a duplicate, unknown or
+    foreign id is a payload naming a line this request does not have — refused rather
+    than ignored, so no client can edit a line it was not asked about.
+    """
+    stored = {line.pk for line in lines}
+    given = [item['id'] for item in items]
+    duplicated = sorted({line_id for line_id in given if given.count(line_id) > 1})
+    if duplicated:
+        raise RequisitionReviewRefused(
+            f'These lines were answered more than once: {duplicated}.')
+    missing = sorted(stored - set(given))
+    if missing:
+        raise RequisitionReviewRefused(
+            f'Answer every line: {missing} still have no answer.')
+    foreign = sorted(set(given) - stored)
+    if foreign:
+        raise RequisitionReviewRefused(
+            f'These lines are not on this request: {foreign}.')
+    return {
+        item['id']: {
+            'available': item['available'],
+            'decline_reason': (item.get('decline_reason') or '').strip(),
+        }
+        for item in items
+    }
+
+
+def accept_requisition(*, requisition_id, items):
+    """Decision 09/10: the store accepts a WAITING request, line by line.
+
+    `items` is the validated payload — one answer per stored line, `available` plus the
+    reason a line is NOT available. Accepting reserves NO stock (it promises to serve,
+    not to hold goods) and books NO money: no sale, no receipt, no ledger row, no shift
+    write, and the CPMS token is neither spent nor replaced.
+
+    At least one line must be Available; an all-Not-available answer is a whole Decline
+    and is refused rather than silently turned into one. Runs under the shared
+    token→request lock and re-checks `WAITING` there, so two managers cannot both answer
+    and a request is reviewed exactly once (decision 13). The caller writes the audit
+    row inside the same transaction.
+    """
+    with transaction.atomic():
+        _, requisition = _lock_token_and_request(requisition_id=requisition_id)
+        _require_waiting(requisition)
+        lines = list(requisition.items.order_by('pk'))
+        answers = _line_answers(lines=lines, items=items)
+        if not any(answer['available'] for answer in answers.values()):
+            raise RequisitionReviewRefused(
+                'Every line is Not available. Decline the request instead.')
+        for line in lines:
+            answer = answers[line.pk]
+            line.available = answer['available']
+            line.decline_reason = answer['decline_reason']
+            line.save(update_fields=['available', 'decline_reason'])
+        requisition.status = Requisition.Status.ACCEPTED
+        requisition.save(update_fields=['status', 'updated_at'])
+    return requisition
+
+
+def decline_requisition(*, requisition_id, decline_reason):
+    """Decision 09/13: the store can serve none of it, and says why.
+
+    Every line becomes Not available with that reason, the request becomes `DECLINED`
+    and the CPMS token is spent in the SAME transaction. `used_by` stays NULL: no
+    cashier handed anything out (the rule a CPMS close already follows). Nothing else
+    moves — no sale, no ledger row, no stock, no shift.
+
+    Like Accept, this is legal only from `WAITING` and runs under the shared
+    token→request lock; the caller writes the audit row in the same transaction.
+    """
+    reason = (decline_reason or '').strip()
+    if not reason:
+        raise RequisitionReviewRefused(
+            'Give a reason for declining this request.')
+    with transaction.atomic():
+        _, requisition = _lock_token_and_request(requisition_id=requisition_id)
+        _require_waiting(requisition)
+        requisition.status = Requisition.Status.DECLINED
+        requisition.decline_reason = reason
+        requisition.save(update_fields=['status', 'decline_reason', 'updated_at'])
+        requisition.items.update(available=False, decline_reason=reason)
+        # `.update()` on purpose: `used_by` must stay NULL and no `auto_now` field may
+        # move. The token row is already locked above, so nothing reads it in between.
+        MaterialToken.objects.filter(requisition=requisition).update(
+            is_used=True, used_at=timezone.now(), used_by=None)
+    return requisition
 
 
 def project_payables(*, cpms_project_id):

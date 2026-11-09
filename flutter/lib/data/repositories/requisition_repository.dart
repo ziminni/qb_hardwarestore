@@ -12,9 +12,21 @@ class RequisitionRepository {
 
   final RequisitionService _service;
 
-  Future<List<Requisition>> fetchRequisitions() => _service.fetchRequisitions();
+  Future<List<Requisition>> fetchRequisitions({String? status}) =>
+      _service.fetchRequisitions(status: status);
 
-  Future<TokenVerification> verifyToken(String token) => _service.verifyToken(token);
+  Future<Requisition> fetchRequisition(int id) => _service.fetchRequisition(id);
+
+  Future<int> waitingCount() => _service.waitingCount();
+
+  Future<Requisition> accept(int id, List<RequisitionLineDecision> decisions) =>
+      _service.accept(id, decisions);
+
+  Future<Requisition> decline(int id, String reason) =>
+      _service.decline(id, reason);
+
+  Future<TokenVerification> verifyToken(String token) =>
+      _service.verifyToken(token);
 
   Future<ReleaseResult> release(String token) => _service.release(token);
 }

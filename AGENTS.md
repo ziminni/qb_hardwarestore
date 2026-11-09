@@ -7,7 +7,7 @@ Rule: **One home per fact.** Follow the pointers; never paste a copy of a fact t
 | Setup, run, demo credentials, ports | `README.md` |
 | Architecture & Live/Mock matrix (+ cockpit) | `docs/SYSTEM_ATLAS.md` · `docs/system-atlas.html` |
 | API contract: endpoints, auth, role matrix | `ENDPOINTS.md` |
-| Unbuilt work, decisions, roadmap | `planning/MAP.md` (index) → active map `planning/pos-evolution/MAP.md` |
+| Unbuilt work, decisions, roadmap | `planning/MAP.md` (index) → `planning/pos-evolution/MAP.md`; completed build: `planning/pos-evolution/phase-1b-plan.md` |
 | UI-refresh plan (complete) + ledger | `temp/ui-refresh/TASKS.md` · `.superpowers/sdd/ui-refresh/progress.md` (both untracked) |
 | QA how-to: run the app, roles, flows | `docs/testing/QA-PROFILE.md` |
 | My knowledge gaps | `docs/learning/gaps.md` |
@@ -31,10 +31,9 @@ Every pointer must resolve; a broken pointer is fixed in the commit that breaks 
 
 ## Current Status & Next Step
 
-- **Branch:** `feat/pos-evolution-phase-1` (off `4e791eb`, teammate `700171c` merged); POS evolution **Phase 1 ✅ Done 2026-11-07**; the agent commits, the user pushes (agent has no SSH). CPMS repo untouched.
-- **Last session:** `docs/sessions/2026-11-06-pos-evolution-phase-1-build.md`. Gate: backend `Ran 599` OK, analyze clean, flutter `+1284 ~221`, goldens `+221`. Phase 1b decisions locked, Phase 1c has one frontier item (see MAP).
-- **Next:** `wayfinder` on `planning/pos-evolution/MAP.md`: write the Phase 1b build plan (decisions locked), then grill the Phase 1c frontier item.
+- **Branch:** `feat/pos-evolution-phase-1b` (off completed Phase 1 `fa0f342`); POS evolution **Phase 1b ✅ Done 2026-11-08 with owner-accepted QA limits**. Execution work is uncommitted; do not commit/push unless the owner asks. CPMS repo untouched.
+- **Last session:** `docs/sessions/2026-11-08-pos-evolution-phase-1b-build.md`. Current gates and task evidence: `planning/pos-evolution/phase-1b-plan.md`. Historical release money preserves unknowns; Phase 1c receipt storage/allocation remains a separate frontier (see MAP).
+- **Next:** on request, plan Phase 1c receipt storage/allocation; do not start its execution. Phase 1b Tasks 0–10 closed; core live QA and gates passed; owner accepted unverified browser 1.3/injection checks and the sidebar-label truncation (plan Handoff). QA API8001/web8091 retained with consumed/modified fixtures. No dev migration/reset authorized; owner pushes; no predictions, at most two builders, backend sequential.
 - **Dev DB:** reseeded 2026-11-07 after QA (CPMS-R-1001 APPROVED and fully releasable, 1002 RELEASED, 1003 PARTIAL).
-- **Demo accounts:** `admin`, `manager`, `stocker`, `cashier`, `cpms_service` / `demo1234` (no foreman any more).
 - **Proof standard:** a test covers a fix only after it fails without the fix; a claim without its command output in the same message is unverified.
-- **Caveats:** desktop pixels are user-verified only (`flutter run -d linux`); `.superpowers/` is gitignored, so ledgers and goldens live only on this machine; the editor hook re-formats staged Dart files, so re-stage after edits.
+- **Caveats:** desktop pixels are user-verified only (`flutter run -d linux`); `.superpowers/` is gitignored, so ledgers and goldens live only on this machine; the editor hook re-formats staged Dart files, so re-stage after edits. Local `temp/p1b-qa/` includes credential-bearing artifacts: never stage it.

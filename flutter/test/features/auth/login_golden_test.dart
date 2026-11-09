@@ -42,6 +42,16 @@ void main() {
     '/.superpowers/sdd/ui-refresh/goldens',
   );
 
+  // Pin the caret so real-time blinking cannot change snapshots.
+  var previousDeterministicCursor = EditableText.debugDeterministicCursor;
+  setUp(() {
+    previousDeterministicCursor = EditableText.debugDeterministicCursor;
+    EditableText.debugDeterministicCursor = true;
+  });
+  tearDown(() {
+    EditableText.debugDeterministicCursor = previousDeterministicCursor;
+  });
+
   setUpAll(() async {
     goldenDir.createSync(recursive: true);
     await _loadFont('Cinzel', const [
@@ -112,8 +122,7 @@ Future<void> _pump(
     ),
   );
 
-  // Real async for the first frames: the brand logo is a JPEG decoded off the
-  // widget tree, and a plain pump captures the frame before it lands.
+  // Image decoding cannot run inside the fake async zone.
   await tester.runAsync(() async {
     await tester.pumpWidget(
       RepaintBoundary(
@@ -129,7 +138,9 @@ Future<void> _pump(
       ),
     );
     await tester.pump();
-    await Future<void>.delayed(const Duration(milliseconds: 300));
+    for (final element in tester.elementList(find.byType(Image))) {
+      await precacheImage((element.widget as Image).image, element);
+    }
   });
   await tester.pumpAndSettle();
 

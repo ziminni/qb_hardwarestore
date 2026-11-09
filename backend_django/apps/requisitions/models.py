@@ -62,9 +62,15 @@ class Requisition(models.Model):
     """An approved material request CPMS pushed, released by token at the POS."""
 
     class Status(models.TextChoices):
+        # Phase 1b decision 13: a pushed request waits for the STORE, which accepts or
+        # declines it; `APPROVED` (CPMS' answer alone) no longer exists. DRAFT,
+        # SUBMITTED, REJECTED and CANCELLED stay readable for rows older than that
+        # decision, but nothing new enters them.
         DRAFT = 'DRAFT', 'Draft'
         SUBMITTED = 'SUBMITTED', 'Submitted'
-        APPROVED = 'APPROVED', 'Approved'
+        WAITING = 'WAITING', 'Waiting for store'
+        ACCEPTED = 'ACCEPTED', 'Accepted'
+        DECLINED = 'DECLINED', 'Declined'
         REJECTED = 'REJECTED', 'Rejected'
         PARTIAL = 'PARTIAL', 'Partially Released'
         RELEASED = 'RELEASED', 'Fully Released'
@@ -88,10 +94,22 @@ class Requisition(models.Model):
     status = models.CharField(
         max_length=12,
         choices=Status.choices,
-        default=Status.DRAFT,
+        default=Status.WAITING,
         db_index=True,
     )
     notes = models.TextField(blank=True, default='')
+    # Decisions 13/14: the store's whole-request refusal, and the released sale value
+    # accumulated in the same transaction as each release. NULL means "unknown" — a
+    # request released before Phase 1b has no sale that names it, so its history cannot
+    # be totalled and must never read as 0.00 owed.
+    decline_reason = models.CharField(max_length=255, blank=True, default='')
+    released_amount = models.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        null=True,
+        default=Decimal('0.00'),
+        help_text='Cumulative released sale value; NULL when the history is unknown.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -133,6 +151,10 @@ class RequisitionItem(models.Model):
         validators=[MinValueValidator(Decimal('0'))],
     )
     notes = models.CharField(max_length=255, blank=True, default='')
+    # Decision 10: the store's answer per line. NULL = not answered yet, which is NOT
+    # "available": it is what an import or a legacy row carries.
+    available = models.BooleanField(null=True, default=None)
+    decline_reason = models.CharField(max_length=255, blank=True, default='')
 
     class Meta:
         db_table = 'requisitions_item'

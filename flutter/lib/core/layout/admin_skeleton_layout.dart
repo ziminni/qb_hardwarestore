@@ -1,3 +1,4 @@
+import 'package:client/data/repositories/requisition_repository.dart';
 import 'package:client/shared/widgets/app_shell.dart';
 import 'package:client/shared/widgets/notifications_button.dart';
 import 'package:client/shared/widgets/shared_sidebar.dart';
@@ -13,6 +14,8 @@ class AdminSkeletonLayout extends StatelessWidget {
     required this.child,
     this.onNavigationSelected,
     this.scrollable = true,
+    this.loadMarkers = projectRequestsMarkers,
+    this.markers,
   });
 
   final String title;
@@ -25,6 +28,18 @@ class AdminSkeletonLayout extends StatelessWidget {
   /// false and gives the list an `Expanded` slot of its own.
   final bool scrollable;
 
+  /// See [AppShell.loadMarkers]: the waiting-request count, read once when the
+  /// shell mounts. A failed read draws no badge at all.
+  final Future<Map<int, int>> Function() loadMarkers;
+
+  /// See [AppShell.markers]. The queue page passes its OWN fresh count, so a
+  /// decision taken on that screen updates the badge immediately.
+  final Map<int, int>? markers;
+
+  /// Flat sidebar index of "Requests from projects" (decision 13). APPENDED in a
+  /// final group, so no earlier index moves.
+  static const int projectRequestsIndex = 7;
+
   static const _navigationItems = [
     ('Overview', Icons.dashboard_outlined, '/admin/dashboard'),
     ('User management', Icons.manage_accounts_outlined, '/admin/users'),
@@ -33,6 +48,13 @@ class AdminSkeletonLayout extends StatelessWidget {
     ('Reports', Icons.bar_chart_rounded, '/admin/reports'),
     ('Audit logs', Icons.history_rounded, '/admin/audit-logs'),
     ('Settings', Icons.settings_outlined, '/admin/settings'),
+    // Phase 1b (decisions 09, 10 and 13): the store answers CPMS's material
+    // requests here too. Appended, in a group of its own below.
+    (
+      'Requests from projects',
+      Icons.fact_check_outlined,
+      '/admin/project-requests',
+    ),
   ];
 
   /// The admin groups, by the index each item ALREADY has: today's flat order
@@ -43,6 +65,9 @@ class AdminSkeletonLayout extends StatelessWidget {
     ('Operations', 2),
     ('Insights', 4),
     ('System', 5),
+    // A new final group rather than another row under System: the queue is a
+    // different job, and a new heading renumbers nothing because it is last.
+    ('Projects', 7),
   ];
 
   @override
@@ -56,6 +81,8 @@ class AdminSkeletonLayout extends StatelessWidget {
       onDestinationSelected:
           onNavigationSelected ??
           (index) => context.go(_navigationItems[index].$3),
+      loadMarkers: loadMarkers,
+      markers: markers,
       actions: const [NotificationsButton()],
       fallbackUserName: 'Administrator',
       fallbackRoleLabel: 'Admin',
@@ -78,4 +105,15 @@ class AdminSkeletonLayout extends StatelessWidget {
         ],
       ),
   ];
+}
+
+/// How many requests are waiting for the store, for the sidebar badge.
+///
+/// The server's own `count` for `?status=WAITING` (no page walk), read when the
+/// shell mounts. A failed read throws and [AppShell] draws nothing: a badge
+/// reading 0 is a claim that the queue is empty, which a failed read has not
+/// established.
+Future<Map<int, int>> projectRequestsMarkers() async {
+  final count = await RequisitionRepository().waitingCount();
+  return {AdminSkeletonLayout.projectRequestsIndex: count};
 }

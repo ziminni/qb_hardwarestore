@@ -162,6 +162,8 @@ void main() {
       double remaining = 10,
       LineAvailability availability = LineAvailability.full,
       double releasable = 10,
+      bool? available,
+      String declineReason = '',
     }) => VerifiedRequisitionItem(
       id: id,
       variantId: id,
@@ -170,6 +172,8 @@ void main() {
       remaining: remaining,
       availability: availability,
       releasable: releasable,
+      available: available,
+      declineReason: declineReason,
     );
 
     TokenVerification verified(List<VerifiedRequisitionItem> items) =>
@@ -252,6 +256,121 @@ void main() {
             'a clerk told the shelf is empty telephones the supplier; the '
             'truth is that this token is finished',
       );
+    });
+
+    // Decision 13: a line the store marked Not available is owed by nobody. It must not
+    // count against the lines this scan promises, and it must not keep the token open.
+    test('a Not available line is not a line this scan promises', () async {
+      final repo = _StubRequisitions()
+        ..verification = verified([
+          line(),
+          line(
+            id: 2,
+            availability: LineAvailability.unavailable,
+            releasable: 0,
+            available: false,
+            declineReason: 'Not stocked at this branch',
+          ),
+        ]);
+      final vm = MaterialReleaseViewmodel(repository: repo);
+
+      await vm.verify('a-token');
+
+      expect(vm.hasReleasable, isTrue);
+      expect(vm.releasableLineCount, 1);
+      expect(
+        vm.totalLineCount,
+        1,
+        reason: 'a refused line is not part of what this request promises',
+      );
+      expect(
+        vm.leavesLinesOpen,
+        isFalse,
+        reason: 'nobody will collect the refused line, so it stays closed',
+      );
+    });
+
+    test('a finished token with a refused line left says it is done', () async {
+      final repo = _StubRequisitions()
+        ..verification = verified([
+          line(
+            remaining: 0,
+            availability: LineAvailability.done,
+            releasable: 0,
+          ),
+          line(
+            id: 2,
+            quantity: 5,
+            remaining: 5,
+            availability: LineAvailability.unavailable,
+            releasable: 0,
+            available: false,
+            declineReason: 'We do not carry 16 mm rebar',
+          ),
+        ]);
+      final vm = MaterialReleaseViewmodel(repository: repo);
+
+      await vm.verify('a-token');
+
+      expect(vm.hasReleasable, isFalse);
+      expect(vm.leavesLinesOpen, isFalse);
+      expect(
+        vm.confirmBlockedReason,
+        contains('already released'),
+        reason:
+            'the only line still owed is one the store refused; sending the '
+            'project back for it would promise goods nobody will hand over',
+      );
+    });
+
+    test('an unanswered line still leaves the token open', () async {
+      // Fail-safe: absent/null eligibility means "nobody answered", not "refused", so
+      // the conservative fallback and its open line stay exactly as before.
+      final repo = _StubRequisitions()
+        ..verification = verified([
+          line(availability: LineAvailability.unavailable, releasable: 0),
+        ]);
+      final vm = MaterialReleaseViewmodel(repository: repo);
+
+      await vm.verify('a-token');
+
+      expect(vm.leavesLinesOpen, isTrue);
+      expect(vm.confirmBlockedReason, contains('in stock right now'));
+    });
+
+    test('a release whose only outstanding line was refused is finished', () async {
+      final repo = _StubRequisitions()
+        ..verification = verified([line()])
+        ..releaseResult = const ReleaseResult(
+          transactionId: 42,
+          transactionNo: 'TXN-20261017-0042',
+          status: ReleaseStatus.released,
+          items: [
+            ReleasedLine(
+              code: 'CEM-40',
+              releasedNow: 10,
+              outstanding: 0,
+              available: true,
+            ),
+            ReleasedLine(
+              code: 'STL-10',
+              releasedNow: 0,
+              outstanding: 6,
+              available: false,
+              declineReason: 'We do not carry 16 mm rebar',
+            ),
+          ],
+          grandTotal: 2700,
+          ledgerId: 9,
+          balanceDue: 2700,
+        );
+      final vm = MaterialReleaseViewmodel(repository: repo);
+      await vm.verify('a-token');
+
+      expect(await vm.release(), isTrue);
+
+      expect(vm.result?.isPartial, isFalse);
+      expect(vm.openLineCount, 0);
     });
 
     test('a partial release reports the lines still open on the token', () async {

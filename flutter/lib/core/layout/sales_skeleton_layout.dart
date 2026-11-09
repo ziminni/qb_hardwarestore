@@ -1,3 +1,4 @@
+import 'package:client/data/repositories/requisition_repository.dart';
 import 'package:client/shared/widgets/app_shell.dart';
 import 'package:client/shared/widgets/notifications_button.dart';
 import 'package:client/shared/widgets/shared_sidebar.dart';
@@ -12,6 +13,8 @@ class SalesSkeletonLayout extends StatelessWidget {
     required this.child,
     this.onNavigationSelected,
     this.scrollable = true,
+    this.loadMarkers = projectRequestsMarkers,
+    this.markers,
   });
 
   final String title;
@@ -23,6 +26,21 @@ class SalesSkeletonLayout extends StatelessWidget {
   /// See [AppShell.scrollable]. A page whose list must build rows lazily passes
   /// false and gives the list an `Expanded` slot of its own.
   final bool scrollable;
+
+  /// See [AppShell.loadMarkers]: the waiting-request count, read once when the
+  /// shell mounts. A failed read draws no badge at all.
+  final Future<Map<int, int>> Function() loadMarkers;
+
+  /// See [AppShell.markers]. The queue page passes its OWN fresh count, so a
+  /// decision taken on that screen updates the badge immediately.
+  final Map<int, int>? markers;
+
+  /// Flat sidebar index of "Requests from projects" (decision 13). APPENDED in
+  /// its own section after Staff, so no earlier index moves — read by
+  /// [projectRequestsMarkers] and pinned by the routing tests, because marking
+  /// or navigating the wrong row is invisible in a test that only checks "a
+  /// badge appeared".
+  static const int projectRequestsIndex = 8;
 
   static const navigationSections = [
     SharedSidebarSection(
@@ -92,6 +110,18 @@ class SalesSkeletonLayout extends StatelessWidget {
         ),
       ],
     ),
+    // Phase 1b (decisions 09, 10 and 13): the store answers CPMS's material
+    // requests here. Appended in a section of its own for the same reason as
+    // Staff: the sidebar index IS the position in this list.
+    SharedSidebarSection(
+      label: 'Projects',
+      destinations: [
+        SharedSidebarDestination(
+          label: 'Requests from projects',
+          icon: Icons.fact_check_outlined,
+        ),
+      ],
+    ),
   ];
 
   @override
@@ -102,6 +132,8 @@ class SalesSkeletonLayout extends StatelessWidget {
       sections: navigationSections,
       selectedIndex: selectedNavigationIndex,
       onDestinationSelected: onNavigationSelected,
+      loadMarkers: loadMarkers,
+      markers: markers,
       scrollable: scrollable,
       actions: const [NotificationsButton()],
       fallbackUserName: 'Sales Staff',
@@ -109,4 +141,15 @@ class SalesSkeletonLayout extends StatelessWidget {
       child: child,
     );
   }
+}
+
+/// How many requests are waiting for the store, for the sidebar badge.
+///
+/// The server's own `count` for `?status=WAITING` (no page walk), read when the
+/// shell mounts. A failed read throws and [AppShell] draws nothing: a badge
+/// reading 0 is a claim that the queue is empty, which a failed read has not
+/// established.
+Future<Map<int, int>> projectRequestsMarkers() async {
+  final count = await RequisitionRepository().waitingCount();
+  return {SalesSkeletonLayout.projectRequestsIndex: count};
 }

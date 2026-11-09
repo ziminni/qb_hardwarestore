@@ -15,6 +15,8 @@ Map<String, dynamic> _line({
   String remaining = '10.00',
   String availability = 'FULL',
   String releasable = '10.00',
+  Object? available = _absent,
+  String? declineReason,
 }) => {
   'id': id,
   'variant_id': 7,
@@ -23,7 +25,12 @@ Map<String, dynamic> _line({
   'remaining': remaining,
   'availability': availability,
   'releasable': releasable,
+  if (!identical(available, _absent)) 'available': available,
+  'decline_reason': ?declineReason,
 };
+
+/// Marks an argument as "leave the key out entirely" — an older server's answer.
+const Object _absent = Object();
 
 Map<String, dynamic> _verify(List<Map<String, dynamic>> items) => {
   'token': 'd5a4eb1f-0e88-497d-bc3b-688b14a6a867',
@@ -184,6 +191,110 @@ void main() {
     );
   });
 
+  // Phase 1b (decision 10): the STORE's answer per line rides on the same wire as the
+  // shelf check. "Not available" (the store declined the line) is not "Unavailable"
+  // (the shelf is empty today), so the client decodes both separately.
+  group('TokenVerification: the store decision on each line', () {
+    test('a line the store marked Not available carries its reason', () {
+      final line = TokenVerification.fromJson(
+        _verify([
+          _line(available: false, declineReason: 'We do not carry 16 mm rebar'),
+        ]),
+      ).items.single;
+
+      expect(line.available, isFalse);
+      expect(line.declineReason, 'We do not carry 16 mm rebar');
+    });
+
+    test('an Available line decodes as available with no reason', () {
+      final line = TokenVerification.fromJson(
+        _verify([_line(available: true)]),
+      ).items.single;
+
+      expect(line.available, isTrue);
+      expect(line.declineReason, '');
+    });
+
+    test('an unanswered line stays null, which is not false', () {
+      // Decision 13: null means the store has not answered yet. Reading it as false
+      // would hide a line that can still be handed over.
+      for (final line in [
+        TokenVerification.fromJson(
+          _verify([_line(available: null)]),
+        ).items.single,
+        TokenVerification.fromJson(_verify([_line()])).items.single,
+      ]) {
+        expect(line.available, isNull);
+        expect(line.declineReason, '');
+      }
+    });
+
+    test('an available flag that is not a bool is a contract break', () {
+      expect(
+        () => TokenVerification.fromJson(_verify([_line(available: 'true')])),
+        throwsFormatException,
+      );
+    });
+
+    // Decision 13: a Not available line is never handed over, whatever the shelf holds,
+    // and the project will never come back for it, so it cannot hold the token open.
+    test('a Not available line never releases and never stays open', () {
+      final line = TokenVerification.fromJson(
+        _verify([
+          _line(
+            availability: 'FULL',
+            releasable: '10.00',
+            available: false,
+            declineReason: 'We do not carry 16 mm rebar',
+          ),
+        ]),
+      ).items.single;
+
+      expect(line.isReleasable, isFalse);
+      expect(line.goesNow, 0);
+      expect(
+        line.outstanding,
+        0,
+        reason:
+            'nobody will ever hand over a line the store refused, so it must '
+            'not keep the token alive or be promised as a return visit',
+      );
+    });
+
+    test('an Available line still releases on the shelf\'s word', () {
+      final line = TokenVerification.fromJson(
+        _verify([
+          _line(availability: 'SHORT', releasable: '4.00', available: true),
+        ]),
+      ).items.single;
+
+      expect(line.isReleasable, isTrue);
+      expect(line.goesNow, 4);
+      expect(line.outstanding, 6);
+    });
+
+    test('an unanswered line keeps its prior behaviour and stays owed', () {
+      // Decision 13: null/absent means the store has not answered, which is NOT a
+      // refusal — the goods may still be collected, so the line reads exactly as it did
+      // before the store decision existed.
+      for (final unanswered in [null, _absent]) {
+        final line = TokenVerification.fromJson(
+          _verify([
+            _line(
+              availability: 'SHORT',
+              releasable: '4.00',
+              available: unanswered,
+            ),
+          ]),
+        ).items.single;
+
+        expect(line.available, isNull);
+        expect(line.isReleasable, isTrue);
+        expect(line.outstanding, 6);
+      }
+    });
+  });
+
   group('ReleaseResult: what this scan moved and what stays open', () {
     test('a partial release says so and counts the lines still open', () {
       final result = ReleaseResult.fromJson(
@@ -212,19 +323,82 @@ void main() {
       expect(result.openLineCount, 0);
     });
 
-    test('open lines make the answer partial even when the status word is new', () {
-      // The status is read off the WIRE, so a status this build has not been taught
-      // must not tell a clerk the request is finished while a line still owes goods.
+    test(
+      'open lines make the answer partial even when the status word is new',
+      () {
+        final result = ReleaseResult.fromJson(
+          _release(
+            status: 'SOMETHING_NEW',
+            items: [
+              {'code': 'STL-10', 'released_now': '4.00', 'outstanding': '6.00'},
+            ],
+          ),
+        );
+
+        expect(result.status, ReleaseStatus.unknown);
+        expect(result.isPartial, isTrue);
+        expect(result.openLineCount, 1);
+      },
+    );
+
+    // Decision 13: RELEASED means every AVAILABLE line is out. A Not available line keeps
+    // its outstanding quantity on the wire forever, but nobody will collect it, so the
+    // receipt must not send the project back for it.
+    test(
+      'a Not available line with outstanding quantity leaves nothing open',
+      () {
+        final result = ReleaseResult.fromJson(
+          _release(
+            status: 'RELEASED',
+            items: [
+              {
+                'code': 'CEM-40',
+                'released_now': '10.00',
+                'outstanding': '0.00',
+                'available': true,
+                'decline_reason': '',
+              },
+              {
+                'code': 'STL-10',
+                'released_now': '0.00',
+                'outstanding': '6.00',
+                'available': false,
+                'decline_reason': 'We do not carry 16 mm rebar',
+              },
+            ],
+          ),
+        );
+
+        expect(result.status, ReleaseStatus.released);
+        expect(result.openLineCount, 0);
+        expect(result.isPartial, isFalse);
+        expect(
+          result.items.last.outstanding,
+          6,
+          reason:
+              'the wire keeps the recorded number; only the token ignores it',
+        );
+        expect(result.items.last.declineReason, 'We do not carry 16 mm rebar');
+      },
+    );
+
+    test('a Not available line is not counted among a partial open lines', () {
       final result = ReleaseResult.fromJson(
         _release(
-          status: 'SOMETHING_NEW',
+          status: 'PARTIAL',
           items: [
             {'code': 'STL-10', 'released_now': '4.00', 'outstanding': '6.00'},
+            {
+              'code': 'PLY-34',
+              'released_now': '0.00',
+              'outstanding': '12.00',
+              'available': false,
+              'decline_reason': 'Not stocked at this branch',
+            },
           ],
         ),
       );
 
-      expect(result.status, ReleaseStatus.unknown);
       expect(result.isPartial, isTrue);
       expect(result.openLineCount, 1);
     });

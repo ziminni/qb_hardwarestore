@@ -372,7 +372,7 @@ class RequisitionAuditTests(AuditAssertions, _RoleUsersMixin, RequisitionTestBas
         self.client = APIClient()
 
     def test_release_writes_one_row_without_the_token_uuid(self):
-        # Decision 02: the CPMS push mints the token with the APPROVED request.
+        # Decision 02: the CPMS push mints the token with the ACCEPTED request.
         token = str(self._mint_token().token)
 
         response = self.client.post(

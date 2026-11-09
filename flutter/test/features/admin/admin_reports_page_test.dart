@@ -20,6 +20,7 @@ import 'package:client/features/admin/views/reports_page.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
+import 'package:client/shared/widgets/status_badge.dart';
 import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -340,7 +341,9 @@ void main() {
         from: '2026-10-01',
         to: '2026-10-30',
         statusFilter: null,
-        countByStatus: {'APPROVED': 2, 'PARTIAL': 1, 'CLOSED': 3},
+        // Decision 13: APPROVED migrated to ACCEPTED, so a current row reads
+        // Accepted. The CLOSED and PARTIAL names are what this test is about.
+        countByStatus: {'ACCEPTED': 2, 'PARTIAL': 1, 'CLOSED': 3},
         requisitions: [
           RequisitionHistoryRow(
             id: 1,
@@ -381,5 +384,66 @@ void main() {
     expect(find.text('CLOSED'), findsNothing);
     // Decision 08: the requester is CPMS's text, shown as typed.
     expect(find.text('Ben Cruz'), findsOneWidget);
+  });
+
+  // Decision 13: the store answers a pushed request, and the reports tab has to
+  // name those three answers and count them, with the CPMS approver still its own
+  // person rather than the store manager who accepted.
+  testWidgets('the Requisitions tab names the store answers and counts them', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      history: const RequisitionHistory(
+        from: '2026-10-01',
+        to: '2026-10-30',
+        statusFilter: null,
+        countByStatus: {'WAITING': 2, 'ACCEPTED': 1, 'DECLINED': 1},
+        requisitions: [
+          RequisitionHistoryRow(
+            id: 1,
+            reqNumber: 'REQ-20261030-0001',
+            status: 'ACCEPTED',
+            project: 'Two Storey House Mandaue',
+            requestedBy: 'Ben Cruz',
+            approvedBy: 'Maria Santos',
+            createdAt: '2026-10-30T10:00:00Z',
+          ),
+          RequisitionHistoryRow(
+            id: 2,
+            reqNumber: 'REQ-20261030-0002',
+            status: 'DECLINED',
+            project: 'Warehouse Extension',
+            requestedBy: 'Ana Lopez',
+            approvedBy: null,
+            createdAt: '2026-10-30T11:00:00Z',
+          ),
+        ],
+      ),
+    );
+    await _openTab(tester, 'Requisitions');
+
+    expect(find.text('Waiting for store: 2'), findsOneWidget);
+    expect(find.text('Accepted: 1'), findsOneWidget);
+    expect(find.text('Declined: 1'), findsOneWidget);
+    expect(find.text('ACCEPTED'), findsNothing);
+    expect(find.text('DECLINED'), findsNothing);
+    expect(
+      find.text('Maria Santos'),
+      findsOneWidget,
+      reason: 'the CPMS approver is shown as CPMS wrote it',
+    );
+    expect(
+      find.text('Not approved'),
+      findsOneWidget,
+      reason: 'a declined request has no CPMS approval either',
+    );
+
+    StatusBadge badgeFor(String label) => tester
+        .widgetList<StatusBadge>(find.byType(StatusBadge))
+        .firstWhere((badge) => badge.label == label);
+    expect(badgeFor('Waiting for store: 2').tone, StatusTone.warning);
+    expect(badgeFor('Accepted: 1').tone, StatusTone.success);
+    expect(badgeFor('Declined: 1').tone, StatusTone.error);
   });
 }

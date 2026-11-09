@@ -17,6 +17,10 @@ void navigateSales(BuildContext context, int index) {
     // here and is gone (decision 01: CPMS approves). Same silent no-op risk as
     // D-01 if a path is missing here.
     AppRoutes.salesStaff,
+    // Index 8 - Requests from projects, appended with its own sidebar section
+    // (Phase 1b, decision 13). Same silent no-op risk as D-01 if the path is
+    // missing here.
+    AppRoutes.salesProjectRequests,
   ];
   if (index >= 0 && index < paths.length) context.go(paths[index]);
 }
