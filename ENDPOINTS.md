@@ -2,7 +2,7 @@
 
 This document maps every **frontend feature** (`flutter/lib/features/`) to the **backend endpoints** it consumes. The backend is organized by **domain** (Django apps), not by screen — this is intentional and follows Django best practice. Frontend "features" like `categories`, `products`, and `suppliers` are all one data domain (`apps/inventory`), while `admin`/`auth` are handled by `apps/users`, and `dashboard`/`reports` are aggregations served by existing apps. Use this table instead of restructuring the backend.
 
-> **Phase 1b closed 2026-11-08 with owner-accepted QA limits; contract v0.2 provisional.** Requisition changes below are implemented/tested and core-live-QA verified, not a migrated dev deployment. Accepted gaps and evidence: [plan Handoff](planning/pos-evolution/phase-1b-plan.md#handoff--known-limits). Breaking backend/client/contract rollout and historical-amount rules: [CPMS contract](docs/integration/CPMS-CONTRACT.md#11-what-was-verified-and-where-the-code-lives).
+> **Phase 1b closed 2026-11-08 with owner-accepted QA limits; contract v0.2 provisional.** Requisition changes below are implemented/tested and core-live-QA verified; dev runs Phase 1b demo data since 2026-11-09 (not a deployment). Accepted gaps and evidence: [plan Handoff](planning/pos-evolution/phase-1b-plan.md#handoff--known-limits). Breaking backend/client/contract rollout and historical-amount rules: [CPMS contract](docs/integration/CPMS-CONTRACT.md#11-what-was-verified-and-where-the-code-lives).
 
 ---
 

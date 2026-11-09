@@ -84,7 +84,7 @@ void main() {
     expect(labels.indexOf('Staff'), 7);
     expect(labels, isNot(contains('Approvals')));
     // Phase 1b appended the store-review queue after Staff, in its own section.
-    expect(labels.indexOf('Requests from projects'), 8);
+    expect(labels.indexOf('Project requests'), 8);
     expect(labels, hasLength(9));
   });
 

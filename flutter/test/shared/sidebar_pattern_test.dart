@@ -13,9 +13,12 @@
 // `sidebar_index_consistency_test.dart` stays untouched: this file never
 // restates an index list, it taps labels.
 
+import 'dart:io';
+
 import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
+import 'package:client/core/theme/app_theme.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
@@ -23,6 +26,8 @@ import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
 import 'package:client/shared/widgets/shared_sidebar.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -30,21 +35,23 @@ import 'package:shared_preferences/shared_preferences.dart';
 const _activeBar = ValueKey('sidebar-active-bar');
 const _markerKey = ValueKey('sidebar-marker-4');
 
-Widget _app(Widget shell) => ChangeNotifierProvider<AuthViewmodel>.value(
-  value: AuthViewmodel(AuthRepository(AuthService())),
-  child: MaterialApp(home: shell),
-);
+Widget _app(Widget shell, {ThemeData? theme}) =>
+    ChangeNotifierProvider<AuthViewmodel>.value(
+      value: AuthViewmodel(AuthRepository(AuthService())),
+      child: MaterialApp(theme: theme, home: shell),
+    );
 
 Future<void> _pump(
   WidgetTester tester,
   Size size,
   Widget shell, {
   bool settle = true,
+  ThemeData? theme,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(_app(shell));
+  await tester.pumpWidget(_app(shell, theme: theme));
   if (settle) await tester.pumpAndSettle();
 }
 
@@ -67,7 +74,7 @@ Widget _cashier({
 );
 
 // The sales shell reads its own corner of the network on mount (the waiting
-// count for "Requests from projects", Phase 1b). Every test below either taps
+// count for "Project requests", Phase 1b). Every test below either taps
 // labels or supplies its own markers, so that read never decides an assertion.
 Widget _storeManager() => SalesSkeletonLayout(
   title: 'Store manager',
@@ -150,7 +157,7 @@ void main() {
         'Audit logs',
         'Settings',
         // Phase 1b: appended in the new final Projects group.
-        'Requests from projects',
+        'Project requests',
       ]) {
         expect(find.text(item), findsOneWidget, reason: 'item $item');
       }
@@ -166,7 +173,7 @@ void main() {
       expect(find.text('Approvals'), findsNothing);
       expect(find.text('Staff'), findsOneWidget);
       expect(
-        find.text('Requests from projects'),
+        find.text('Project requests'),
         findsOneWidget,
         reason: 'Phase 1b appends the store-review queue to this sidebar',
       );
@@ -346,6 +353,86 @@ void main() {
       );
 
       expectMarkerOnOnly(tester, 'Low stock');
+    });
+  });
+
+  group('project requests destination', () {
+    // At 1440 px the full sidebar is 260 wide, and the count badge plus the
+    // selected row's 700 weight left the old label at "Requests from p…". The
+    // label is now "Project requests"; the width is the property, and it only
+    // means anything with the real faces loaded (the harness font is narrow).
+    testWidgets('the label fits beside its count badge at 1440 px', (
+      tester,
+    ) async {
+      // Real file reads never finish inside the test's fake clock.
+      await tester.runAsync(() async {
+        for (final (family, file) in const [
+          ('OpenSans', 'OpenSans-Regular.ttf'),
+          ('OpenSans', 'OpenSans-Bold.ttf'),
+          ('Cinzel', 'Cinzel-Bold.ttf'),
+        ]) {
+          final bytes = await File('assets/fonts/$file').readAsBytes();
+          await (FontLoader(
+            family,
+          )..addFont(Future.value(ByteData.view(bytes.buffer)))).load();
+        }
+      });
+
+      final shells = <(String, Widget, int)>[
+        (
+          'admin',
+          AdminSkeletonLayout(
+            title: 'Admin',
+            subtitle: 'Back office',
+            selectedNavigationIndex: 0,
+            onNavigationSelected: (_) {},
+            loadMarkers: () async => const {
+              AdminSkeletonLayout.projectRequestsIndex: 4,
+            },
+            child: const Text('BODY'),
+          ),
+          AdminSkeletonLayout.projectRequestsIndex,
+        ),
+        (
+          'store manager',
+          SalesSkeletonLayout(
+            title: 'Store manager',
+            subtitle: 'Transactions',
+            selectedNavigationIndex: 1,
+            onNavigationSelected: (_) {},
+            loadMarkers: () async => const {
+              SalesSkeletonLayout.projectRequestsIndex: 4,
+            },
+            child: const Text('BODY'),
+          ),
+          SalesSkeletonLayout.projectRequestsIndex,
+        ),
+      ];
+
+      for (final (name, shell, index) in shells) {
+        await _pump(
+          tester,
+          const Size(1440, 900),
+          shell,
+          theme: AppTheme.lightTheme,
+        );
+        expect(
+          find.byKey(ValueKey('sidebar-marker-$index')),
+          findsOneWidget,
+          reason: '$name: the label must be measured WITH the count beside it',
+        );
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.descendant(
+            of: find.text('Project requests'),
+            matching: find.byType(RichText),
+          ),
+        );
+        expect(
+          paragraph.getMaxIntrinsicWidth(double.infinity),
+          lessThanOrEqualTo(paragraph.size.width),
+          reason: '$name sidebar truncates the "Project requests" label',
+        );
+      }
     });
   });
 

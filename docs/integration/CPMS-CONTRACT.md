@@ -2,7 +2,7 @@
 
 **Status: v0.2 provisionally owner-accepted; Phase 1b closed 2026-11-08 with accepted QA limits**
 
-**Version:** v0.2 (breaking, provisional). Written from implemented services, serializers, views and tests, with final controller gates and core isolated live QA; not an existing dev/production v0.2 rollout. The running dev database still has Phase 1 schema/data; it has not been migrated or reseeded for this draft. **Audience:** the CPMS team, which does not have the POS source.
+**Version:** v0.2 (breaking, provisional). Written from implemented services, serializers, views and tests, with final controller gates and core isolated live QA; not a production v0.2 rollout. The POS dev database is on Phase 1b (migration 0003 applied; owner-approved flush + reseed 2026-11-09). **Audience:** the CPMS team, which does not have the POS source.
 
 **History:** v0.1 was accepted provisionally by the product owner on 2026-11-07 without a line-by-line review. The owner separately accepted v0.2 provisionally on 2026-11-08 after requesting the diff and explicitly choosing “Approve and continue”. After final gates and core live QA, the owner explicitly chose “Close with limits (Recommended)”; [accepted gaps](../../planning/pos-evolution/phase-1b-plan.md#handoff--known-limits) remain unverified, not passed.
 
@@ -275,7 +275,7 @@ curl -s -X POST "$POS/requests/" \
   }'
 ```
 
-**Curl — refusal examples (historical Phase 1 evidence only; run new probes on an approved disposable stack, not the existing dev DB)**
+**Curl — refusal examples (historical Phase 1 evidence only; new probes against dev need owner approval: it is the demo DB)**
 
 ```bash
 # unknown payer
@@ -569,14 +569,14 @@ Step 4 must land **and POS store review must accept eligible lines** before the 
 | Behaviour under test | `apps/integration/tests_import.py`, `tests_close.py`, `tests_store_review.py`, `tests.py`; `apps/requisitions/tests_store_review.py`, `tests_store_review_release.py`, `tests_completion_rule.py`, `tests_store_review_migration.py` |
 | Historical v0.1 live evidence only (2026-11-04) | Lists, seeded read-backs/payables, retry/refusals and fence were called on Phase 1. Creation and successful close were test-backed, not live writes. This does not establish v0.2 live QA. |
 | Final controller gates | Backend 699 OK, check clean, no drift; Flutter 1409 passed/225 skipped, goldens 225 passed, analyzer clean; all exit 0. Seed/repeat-seed tested on the Django test DB. See the [execution checklist](../../planning/pos-evolution/phase-1b-plan.md#execution-checklist) for commands/evidence. |
-| Phase 1b isolated live QA | Core import/retry/review/release/close/read-back/payables, budget/history, fences, pagination and concurrent-review checks passed. No Critical/Important defect in tested scope. Genuine browser 1.3 and live failure/race-injection gaps plus one cosmetic sidebar-label finding were explicitly owner-accepted; [limits](../../planning/pos-evolution/phase-1b-plan.md#handoff--known-limits), local POS evidence `temp/p1b-qa/report.md`. |
+| Phase 1b isolated live QA | Core import/retry/review/release/close/read-back/payables, budget/history, fences, pagination and concurrent-review checks passed. No Critical/Important defect in tested scope. Genuine browser 1.3 and live failure/race-injection gaps were explicitly owner-accepted; the cosmetic sidebar-label finding was later fixed by renaming it "Project requests"; [limits](../../planning/pos-evolution/phase-1b-plan.md#handoff--known-limits), local POS evidence `temp/p1b-qa/report.md`. |
 
 ### Rollout and rollback boundary
 
-Deploy the **backend migration + updated client + v0.2 contract together**. New imports are `WAITING`; the store-review UI is mandatory, and an old till lacks the new lifecycle/refusal handling. Running dev is still Phase 1 schema/data and is **not** ready merely because tests pass. No dev migration, flush or reseed was performed for this draft.
+Deploy the **backend migration + updated client + v0.2 contract together**. New imports are `WAITING`; the store-review UI is mandatory, and an old till lacks the new lifecycle/refusal handling. Dev reached Phase 1b when its backend restart applied migration 0003 (the entrypoint migrates on every start), then the owner approved flush + reseed on 2026-11-09. That is a demo DB, not a deployment.
 
 Migration `0003_store_review` renames stored `APPROVED` → `ACCEPTED`; prior accepted/partial/released/closed lines become true, while unreviewed legacy lines keep null. Quantities, token credentials/usage, sales, ledgers, payments and audit history are preserved. Any historical released quantity makes its released-value baseline null; further releases never repair that unknown by guessing.
 
 Production rollback requires a verified backup and a forward-fix strategy. `RunPython.noop` reverse exists for disposable migration tests only: reversing schema drops review fields and **does not restore business history** or map new decisions losslessly into Phase 1. Do not use reverse migration as a business rollback.
 
-Owner contract approval remains provisional (2026-11-08). Phase 1b reviews, automated gates and core isolated live QA passed; owner explicitly closed with documented limits, not permission to deploy or to count missing checks as passed. Retained QA stack/evidence and accepted gaps: [QA-PROFILE](../testing/QA-PROFILE.md). Fresh-seed definitions: [README](../../README.md#2-load-demo-data); retained QA data has since been modified by probes.
+Owner contract approval remains provisional (2026-11-08). Phase 1b reviews, automated gates and core isolated live QA passed; owner explicitly closed with documented limits, not permission to deploy or to count missing checks as passed. QA evidence (isolated stack since removed) and accepted gaps: [QA-PROFILE](../testing/QA-PROFILE.md). Seed definitions, now also the dev state: [README](../../README.md#2-load-demo-data).

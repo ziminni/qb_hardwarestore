@@ -363,7 +363,7 @@ class RequisitionService {
         'released for it.',
     'REQUISITION_WAITING':
         'The store has not accepted this request yet. A store manager must accept it '
-        'under Requests from projects first.',
+        'under Project requests first.',
     'REQUISITION_DECLINED':
         'The store declined this request, so nothing can be released for it.',
   };

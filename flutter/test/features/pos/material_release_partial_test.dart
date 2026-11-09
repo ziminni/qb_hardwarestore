@@ -563,7 +563,7 @@ void main() {
         tester,
         const RequisitionServiceException(
           'The store has not accepted this request yet. A store manager must '
-          'accept it under Requests from projects first.',
+          'accept it under Project requests first.',
           code: 'REQUISITION_WAITING',
         ),
       );

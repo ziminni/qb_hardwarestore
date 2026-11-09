@@ -106,7 +106,7 @@ void main() {
 
   test('the sales sidebar appends the queue at index 8, after Staff', () {
     final labels = _labels(SalesSkeletonLayout.navigationSections);
-    expect(labels.indexOf('Requests from projects'), 8);
+    expect(labels.indexOf('Project requests'), 8);
     expect(labels.indexOf('Staff'), 7, reason: 'no earlier index may move');
     expect(labels, hasLength(9));
     expect(
@@ -126,7 +126,7 @@ void main() {
       'Reports',
       'Audit logs',
       'Settings',
-      'Requests from projects',
+      'Project requests',
     ];
     expect(AdminSkeletonLayout.projectRequestsIndex, 7);
     expect(AdminSkeletonLayout.groups.last, ('Projects', 7));

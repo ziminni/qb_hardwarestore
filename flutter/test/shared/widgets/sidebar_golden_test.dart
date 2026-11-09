@@ -98,7 +98,7 @@ class _Role {
 /// production had been fixed to "Low stock".
 ///
 /// The sales and admin shells now read the waiting-request count for their
-/// "Requests from projects" entry (Phase 1b), and the count below is injected so
+/// "Project requests" entry (Phase 1b), and the count below is injected so
 /// no PNG depends on a server.
 const _roles = [
   _Role('cashier', _cashierShell),

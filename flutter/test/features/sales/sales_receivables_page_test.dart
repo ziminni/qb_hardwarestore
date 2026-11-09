@@ -351,7 +351,12 @@ void main() {
     // The invoice number is the only caption under the customer name.
     expect(find.text('TRX-20261016-0001'), findsOneWidget);
     expect(
-      find.textContaining('Project'),
+      // Scoped to the table: the sidebar carries a "Project requests" entry,
+      // and an unscoped search would read the menu as a project caption.
+      find.descendant(
+        of: find.byType(DataPanel<LedgerEntry>),
+        matching: find.textContaining('Project'),
+      ),
       findsNothing,
       reason: 'a walk-in debt has no project, so there is nothing to caption',
     );

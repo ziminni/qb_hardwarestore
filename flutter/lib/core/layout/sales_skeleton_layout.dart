@@ -35,7 +35,7 @@ class SalesSkeletonLayout extends StatelessWidget {
   /// decision taken on that screen updates the badge immediately.
   final Map<int, int>? markers;
 
-  /// Flat sidebar index of "Requests from projects" (decision 13). APPENDED in
+  /// Flat sidebar index of "Project requests" (decision 13). APPENDED in
   /// its own section after Staff, so no earlier index moves — read by
   /// [projectRequestsMarkers] and pinned by the routing tests, because marking
   /// or navigating the wrong row is invisible in a test that only checks "a
@@ -113,11 +113,15 @@ class SalesSkeletonLayout extends StatelessWidget {
     // Phase 1b (decisions 09, 10 and 13): the store answers CPMS's material
     // requests here. Appended in a section of its own for the same reason as
     // Staff: the sidebar index IS the position in this list.
+    //
+    // The label is short because "Requests from projects" clipped to
+    // "Requests from p…" beside its count badge; the page title keeps the
+    // long form.
     SharedSidebarSection(
       label: 'Projects',
       destinations: [
         SharedSidebarDestination(
-          label: 'Requests from projects',
+          label: 'Project requests',
           icon: Icons.fact_check_outlined,
         ),
       ],

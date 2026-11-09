@@ -78,7 +78,7 @@ void main() {
       reason:
           'the sales sidebar has 9 destinations — Reports (index 6) was added by '
           'decision D-01 so the manager can reach live reports inside their own shell; '
-          'Staff (7) and Requests from projects (8) were APPENDED the same way. '
+          'Staff (7) and Project requests (8) were APPENDED the same way. '
           'Approvals is gone (decision 01: CPMS approves)',
     );
     expect(inventoryOrder.length, 13);
@@ -198,7 +198,7 @@ void main() {
       'Reports',
       'Audit logs',
       'Settings',
-      'Requests from projects',
+      'Project requests',
     ];
 
     const expected = {

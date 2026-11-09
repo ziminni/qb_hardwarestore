@@ -70,3 +70,11 @@ After the QA report and controller evidence review, the owner selected **“Clos
 - Atlas HTML was not browser/DOM-tested; native desktop pixels and real paper printing remain unchecked.
 
 Plan Task 10 and MAP Phase 1b are closed on this basis. Work remains uncommitted; no push, dev DB migration/reset, QA cleanup or CPMS change was authorized. Next on request: plan Phase 1c receipt storage/allocation; do not start its implementation.
+
+## 2026-11-09 follow-up: dev reseed, QA teardown, sidebar rename
+
+- Dev DB (`buildpro_db`, :8000) reached Phase 1b when a backend restart applied 0003 (entrypoint migrates on every start). Owner approved the wipe: `migrate` (no-op) + `flush --noinput` + `seed_demo` exit 0; R1001–R1005 match the README table, five logins and health 200. Tokens live only in gitignored `temp/dev-reseed/seed.log`.
+- Isolated QA stack (`buildpro_p1b_qa_*`, :8001/:8091) removed with owner approval; evidence stays in `temp/p1b-qa/`.
+- Owner renamed the sidebar label to "Project requests" (page title unchanged) to fix the 1440 truncation. RED-first width test, 17 label-only golden regenerations, reviewer APPROVED; gates 1410 passed / 225 goldens / analyze clean. Dev e2e PASS with no defects (`temp/dev-e2e/report.md`), then dev reseeded again so the demo data is clean.
+- Gotcha: regenerating a drawer golden alone with `--plain-name` dropped the logo; regenerate the whole file, then confirm only intended PNGs changed.
+- Branch pushed at `bcf2efd` (includes `clock ^1.1.2` for older Windows Flutter SDKs). Phase 1c still blocked on "Receipt storage and allocation"; wayfinder first.

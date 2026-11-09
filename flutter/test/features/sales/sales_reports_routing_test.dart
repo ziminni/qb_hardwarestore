@@ -151,7 +151,7 @@ void main() {
       9,
       reason:
           'index 6 (Reports) is only reachable if the sidebar renders it; '
-          '7 is Staff and 8 is Requests from projects (Phase 1b). '
+          '7 is Staff and 8 is Project requests (Phase 1b). '
           'Approvals was removed by decision 01',
     );
   });

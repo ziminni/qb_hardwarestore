@@ -25,7 +25,7 @@ The Django REST API owns all business logic. A Flutter client (MVVM) talks to it
 
 ## 1. Start the backend
 
-> **Phase 1b closed 2026-11-08 with owner-accepted QA limits; contract v0.2 provisional.** Running dev still has Phase 1 schema/data; phase closure did not migrate it. Final evidence and accepted gaps: [plan Handoff](planning/pos-evolution/phase-1b-plan.md#handoff--known-limits). Commands below are setup instructions for a **fresh/disposable** environment, not permission to migrate or write the existing dev database. The entrypoint applies migrations; do not restart/rebuild that stack for Phase 1b without approval. Backend + client + breaking contract must roll out together; see [rollout/rollback safety](docs/integration/CPMS-CONTRACT.md#rollout-and-rollback-boundary).
+> **Phase 1b closed 2026-11-08 with owner-accepted QA limits; contract v0.2 provisional.** Dev (`buildpro_db`, API :8000) is on Phase 1b: migration 0003 applied on a backend restart, then owner-approved `flush` + `seed_demo` on 2026-11-09, so dev now holds the [seed scenarios below](#2-load-demo-data). Final evidence and accepted gaps: [plan Handoff](planning/pos-evolution/phase-1b-plan.md#handoff--known-limits). The entrypoint runs `migrate` on every start; dev is the demo DB, so writes, reseeds and resets there need owner approval. Backend + client + breaking contract must roll out together; see [rollout/rollback safety](docs/integration/CPMS-CONTRACT.md#rollout-and-rollback-boundary).
 
 ```bash
 cd qb_pos_inventory_system
@@ -59,9 +59,9 @@ docker compose exec backend python manage.py migrate
 docker compose exec backend python manage.py seed_demo
 ```
 
-Run only on a migrated **fresh/disposable** database; existing dev needs separate write approval. The seed skips existing data sections: re-running is not a migration, reset or repair of existing scenarios. **No automatic flush.** It creates the five accounts below, stocked products, customers, completed sales and unpaid *utang*.
+Run on a migrated database. The seed skips existing data sections: re-running is not a migration, reset or repair of existing scenarios. **No automatic flush;** a clean reseed needs `python manage.py flush --noinput` first, which wipes everything (dev requires owner approval). It creates the five accounts below, stocked products, customers, completed sales and unpaid *utang*.
 
-Post-migration fresh-seed requests (validated by Task 5 on the Django test database, not the running dev database):
+Post-migration fresh-seed requests (validated by Task 5 on the Django test database; dev reseeded to these states 2026-11-09):
 
 | CPMS request id | Expected state | Probe |
 | --- | --- | --- |
@@ -71,7 +71,7 @@ Post-migration fresh-seed requests (validated by Task 5 on the Django test datab
 | `CPMS-R-1004` | `WAITING` | Store review required; scanning refused |
 | `CPMS-R-1005` | `DECLINED` | Reason visible; scanning refused with store-decline code |
 
-Use **dynamic token UUIDs printed by that fresh seed's stdout** for scanner probes; do not paste contract example tokens or credentials from an older DB. These are fresh/disposable Task 5 scenarios, not a claim that the existing dev database contains them. Isolated disposable QA writes are approved; writes to the existing dev database still require separate approval. QA isolation and flow checklist: [QA-PROFILE](docs/testing/QA-PROFILE.md).
+Scanner token UUIDs are random per seed: use the ones **printed in that seed's stdout**; never paste them (or contract example tokens) into docs. QA writes on dev need owner approval each time. QA flow checklist: [QA-PROFILE](docs/testing/QA-PROFILE.md).
 
 ## 3. Run the Flutter client
 
@@ -90,7 +90,7 @@ On desktop the client resolves the API to `http://127.0.0.1:8000` automatically 
 
 ## Demo accounts
 
-Password is the same for all five. `seed_demo` defines these accounts; this is the canonical credential home. All five logins were verified on the isolated Phase 1b QA stack; the existing dev DB was not migrated or reseeded.
+Password is the same for all five. `seed_demo` defines these accounts; this is the canonical credential home. All five logins returned 200 on dev on 2026-11-09.
 
 | Username | Name | Role | Can do |
 | --- | --- | --- | --- |
@@ -105,7 +105,7 @@ Password is the same for all five. `seed_demo` defines these accounts; this is t
 > ⚠️ Some historical docs in this repo claim `admin` / `admin123`. That is **wrong** and returns HTTP 400.
 > Use `demo1234`.
 >
-> `foreman` is no longer seeded. CPMS requester/approver names are text, not POS logins. POS roles are unchanged; Store Manager and Admin review in **Requests from projects** (`/sales/project-requests`, `/admin/project-requests`). CPMS approval does not replace POS acceptance. New imports wait for review; acceptance reserves no stock and books no debt. Cashier/stocker cannot open the review queue.
+> `foreman` is no longer seeded. CPMS requester/approver names are text, not POS logins. POS roles are unchanged; Store Manager and Admin review via sidebar **Project requests** (page title "Requests from projects"; `/sales/project-requests`, `/admin/project-requests`). CPMS approval does not replace POS acceptance. New imports wait for review; acceptance reserves no stock and books no debt. Cashier/stocker cannot open the review queue.
 
 Django admin: <http://127.0.0.1:8000/admin/> with `admin` / `demo1234`.
 
@@ -180,6 +180,9 @@ docker compose exec backend python manage.py test
 
 **Port already in use.** Only the host port can collide. Re-map it in `docker-compose.yml` and point the
 client at the new port with `--dart-define=API_BASE_URL=...`.
+
+**Windows: stale `CMakeCache` path error after moving the project folder.** Run `flutter clean`, then
+`flutter run -d windows`.
 
 **`flutter` cannot find a device.** Enable the desktop target once:
 `flutter config --enable-linux-desktop`, then `flutter devices`.
