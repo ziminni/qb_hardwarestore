@@ -33,7 +33,8 @@ class SalesOrderApiTests(TestCase):
         self.customer = Customer.objects.create(name='Dela Cruz Construction')
         category = Category.objects.create(name='Cement')
         brand = Brand.objects.create(name='Rhino')
-        uom = UnitOfMeasure.objects.create(code='BAG', name='Bag')
+        uom, _ = UnitOfMeasure.objects.get_or_create(
+            code='BAG', defaults={'name': 'Bag'})
         product = Product.objects.create(
             category=category, brand=brand, base_name='Portland Cement')
         self.variant = ProductVariant.objects.create(

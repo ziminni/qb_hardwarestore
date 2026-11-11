@@ -43,6 +43,8 @@ class AdminAuditLogTable extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DataPanel<AuditLog>(
+      title: 'Audit logs',
+      count: logs.length,
       columns: [
         // When and Action take two shares each: the timestamp is the reader's
         // first handle on a row, and "Stock adjustment" is the longest action

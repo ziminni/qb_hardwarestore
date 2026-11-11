@@ -13,7 +13,7 @@ import 'dart:async';
 import 'package:client/core/time/app_clock.dart';
 import 'package:clock/clock.dart';
 
-/// Wednesday, 15 October 2026, 10:00.
+/// Thursday, 15 October 2026, 10:00.
 final DateTime testNow = DateTime(2026, 10, 15, 10);
 
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {

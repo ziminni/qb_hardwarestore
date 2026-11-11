@@ -1,20 +1,23 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/catalogue_option.dart';
 import 'package:client/data/models/category.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/product_writes.dart';
+import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/services/image_file_service.dart';
 import 'package:client/features/products/widgets/products_image.dart';
+import 'package:client/features/products/widgets/selling_unit_fields.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
 
 /// What the product form produced: a creation draft, or an edit draft.
 ///
 /// One dialog, two payloads, because the two writes are genuinely different: a
-/// create is a chain of three POSTs that cannot exist without a category, a brand
-/// and a base unit, while an edit is a set of PATCHes over rows that already have
-/// ids. Phase 4 Task 4.
+/// create is a chain of POSTs that cannot exist without a category, a brand and a
+/// base unit, while an edit is a set of PATCHes over rows that already have ids.
 class ProductFormResult {
   const ProductFormResult.create(NewProductDraft this.draft) : edit = null;
   const ProductFormResult.edit(ProductEditDraft this.edit) : draft = null;
@@ -23,17 +26,21 @@ class ProductFormResult {
   final ProductEditDraft? edit;
 }
 
-/// The product dialog, live (Phase 4 Task 4).
+/// The product dialog: how a product is catalogued, how it is sold, and how much
+/// stock to warn about.
 ///
-/// Two things changed at once here, and both were forced by the server contract:
+/// Three steps, in the order a stock manager answers them (decision 15):
 ///
-///  * **No opening stock.** User decision 2026-10-25: a product's first stock
-///    arrives through a purchase order that is then received. Quantity, cost and
-///    package fields used to build an in-memory batch that vanished on reload.
-///  * **Server lists, not derivations.** Categories and brands come from their
-///    own endpoints and the base unit from `/uoms/`, because `base_uom` is a
-///    foreign key that is frozen after creation. The old form offered a hardcoded
-///    word list ('piece', 'kg', …) that could not be sent at all.
+///  1. **Basic information**: name, variant, code, category, brand, description.
+///  2. **How is this product sold?**: the base unit and its price, plus the extra
+///     selling units ("Bag = 40 kg at ₱270"). Each extra unit becomes a real
+///     `VariantUOM` row with its own price and code; the base unit is frozen once
+///     the product exists because the server refuses to change it.
+///  3. **Stock levels**: the reorder and maximum levels, and the storage
+///     location, which lives on THIS device: the server has no location field.
+///
+/// There is still **no opening stock and no cost**: user decision 2026-10-25, a
+/// product's first stock arrives through a purchase order that is then received.
 class ProductsFormDialog extends StatefulWidget {
   const ProductsFormDialog({
     super.key,
@@ -42,6 +49,7 @@ class ProductsFormDialog extends StatefulWidget {
     required this.units,
     required this.products,
     this.product,
+    this.locationHint = '',
   });
 
   final List<Category> categories;
@@ -49,6 +57,9 @@ class ProductsFormDialog extends StatefulWidget {
   final List<UnitOfMeasure> units;
   final List<Product> products;
   final Product? product;
+
+  /// Where this device says the stock sits. Blank on a product nobody recorded.
+  final String locationHint;
 
   @override
   State<ProductsFormDialog> createState() => _ProductsFormDialogState();
@@ -63,14 +74,34 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   late final TextEditingController _reorderController;
   late final TextEditingController _maxController;
   late final TextEditingController _sellingController;
+  late final TextEditingController _locationController;
   int? _categoryId;
   int? _brandId;
   int? _baseUomId;
   late String _imagePath;
 
+  final List<SellingUnitDraft> _extraUnits = [];
   final _imageFileService = const ImageFileService();
 
+  bool get _editing => widget.product != null;
+
   ProductVariant? get _variant => widget.product?.variants.firstOrNull;
+
+  /// The base unit's code, which the price label and every helper print.
+  ///
+  /// On an edit it comes from the variant (the server's truth, frozen); on a
+  /// create from the picker's current choice.
+  String get _baseCode {
+    if (_editing) return _variant?.baseUomCode ?? '';
+    return _unitWithId(_baseUomId)?.code ?? '';
+  }
+
+  UnitOfMeasure? _unitWithId(int? id) {
+    for (final unit in widget.units) {
+      if (unit.id == id) return unit;
+    }
+    return null;
+  }
 
   @override
   void initState() {
@@ -89,19 +120,17 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     // box (Phase 6 decisions 11 F3 and 18).
     _barcodeController = TextEditingController(text: _baseUnitCode(variant));
     _reorderController = TextEditingController(
-      text: (variant?.minStockThreshold ?? 0).toStringAsFixed(0),
+      text: formatQuantity(variant?.minStockThreshold ?? 0),
     );
     _maxController = TextEditingController(
-      text: (variant?.maxStockLevel ?? 0).toStringAsFixed(0),
+      text: formatQuantity(variant?.maxStockLevel ?? 0),
     );
     _sellingController = TextEditingController(
-      // The charged price is the selling unit's, never the batch's (decision 08).
-      text:
-          variant?.sellingUoms.firstOrNull?.defaultSellingPrice.toStringAsFixed(
-            2,
-          ) ??
-          '0.00',
+      // The charged price is the base SELLING UNIT's, never the batch's and never
+      // a package's (decision 08).
+      text: formatQuantity(_baseSellingUnit(variant)?.defaultSellingPrice ?? 0),
     );
+    _locationController = TextEditingController(text: widget.locationHint);
     _categoryId = product?.categoryId ?? widget.categories.firstOrNull?.id;
     _brandId = product?.brandId ?? widget.brands.firstOrNull?.id;
     _baseUomId = variant?.baseUomId ?? widget.units.firstOrNull?.id;
@@ -117,6 +146,10 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     _reorderController.dispose();
     _maxController.dispose();
     _sellingController.dispose();
+    _locationController.dispose();
+    for (final row in _extraUnits) {
+      row.dispose();
+    }
     super.dispose();
   }
 
@@ -126,16 +159,74 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     setState(() => _imagePath = path);
   }
 
-  /// The factor-1 selling unit's code — the unit this form writes.
+  /// The selling unit that IS the base unit: the variant's own `base_uom` at
+  /// factor 1.
+  ///
+  /// List order is not identity. Once a product is sold by the bag the server
+  /// may answer `[BAG (factor 40), KG (factor 1)]`, so `firstOrNull` would price
+  /// a field labelled "per KG" with the bag's money and PATCH the bag's row.
+  VariantUom? _baseSellingUnit(ProductVariant? variant) {
+    if (variant == null) return null;
+    for (final unit in variant.sellingUoms) {
+      if (unit.uomId == variant.baseUomId && unit.conversionFactor == 1) {
+        return unit;
+      }
+    }
+    return null;
+  }
+
+  /// The factor-1 selling unit's code: the unit this form writes.
   ///
   /// `variant.barcode` answers with the variant's FIRST non-blank code, which may
   /// be the box's; the form PATCHes the base unit, so it must show that one.
   String _baseUnitCode(ProductVariant? variant) {
-    if (variant == null) return '';
-    for (final unit in variant.sellingUoms) {
-      if (unit.conversionFactor == 1) return unit.barcodeQr;
+    final base = _baseSellingUnit(variant);
+    if (base != null) return base.barcodeQr;
+    return variant?.barcode ?? '';
+  }
+
+  void _addExtraUnit() {
+    setState(() => _extraUnits.add(SellingUnitDraft()));
+  }
+
+  void _removeExtraUnit(int index) {
+    setState(() => _extraUnits.removeAt(index).dispose());
+  }
+
+  // --- The server's rules, checked before the POST chain starts -------------
+  //
+  // `VariantUOM.conversion_factor` is 2 decimal places with a 0.01 minimum, a
+  // unit can appear once per variant, and a second factor-1 unit is refused
+  // (`INVALID_SELLING_UNIT` / `DUPLICATE_BASE_UNIT`). Catching all three here
+  // means the clerk does not find out after the product row already exists.
+
+  /// How many decimals a typed number has: `40` is 0, `40.25` is 2.
+  String? _validateFactor(String? raw) =>
+      sellingUnitFactorError(raw, baseCode: _baseCode);
+
+  String? _validateUnit(int index, int? value) => sellingUnitUnitError(
+    value,
+    baseUomId: _baseUomId,
+    usedUomIds: [
+      for (var i = 0; i < _extraUnits.length; i++)
+        if (i != index) _extraUnits[i].uomId,
+    ],
+  );
+
+  static String? _validatePrice(String? raw) {
+    final value = double.tryParse(raw?.trim() ?? '');
+    if (value == null) return 'Enter a price.';
+    if (value < 0) return 'The price cannot be negative.';
+    return null;
+  }
+
+  /// The base price field also refuses when there is no base row to price, so a
+  /// missing row never turns into a PATCH against some package instead.
+  String? _validateBasePrice(String? raw) {
+    if (_editing && _baseSellingUnit(_variant) == null) {
+      return 'This product has no base selling unit to price.';
     }
-    return variant.barcode;
+    return _validatePrice(raw);
   }
 
   void _submit() {
@@ -144,6 +235,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     final threshold = double.tryParse(_reorderController.text.trim()) ?? 0;
     final maxLevel = double.tryParse(_maxController.text.trim()) ?? 0;
     final barcode = _barcodeController.text.trim();
+    final location = _locationController.text.trim();
 
     final existing = widget.product;
     if (existing == null) {
@@ -161,6 +253,20 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
             maxStockLevel: maxLevel,
             sellingPrice: price,
             barcodeQr: barcode,
+            locationHint: location,
+            // Posted after the base unit, in form order (the repository owns that
+            // chain). The code travels with the row so a partial failure can name
+            // the unit that was not saved.
+            extraSellingUnits: [
+              for (final row in _extraUnits)
+                NewSellingUnit(
+                  uomId: row.uomId!,
+                  uomCode: _unitWithId(row.uomId)?.code ?? '',
+                  conversionFactor: double.parse(row.factor.text.trim()),
+                  sellingPrice: double.parse(row.price.text.trim()),
+                  barcodeQr: row.code.text.trim(),
+                ),
+            ],
           ),
         ),
       );
@@ -173,7 +279,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
         ProductEditDraft(
           productId: existing.id,
           variantId: variant?.id ?? 0,
-          sellingUnitId: variant?.sellingUoms.firstOrNull?.id ?? 0,
+          sellingUnitId: _baseSellingUnit(variant)?.id ?? 0,
           baseName: _nameController.text.trim(),
           description: _descriptionController.text.trim(),
           categoryId: _categoryId,
@@ -185,6 +291,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
           maxStockLevel: maxLevel,
           sellingPrice: price,
           barcodeQr: barcode,
+          locationHint: location,
         ),
       ),
     );
@@ -192,301 +299,28 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final editing = widget.product != null;
-    return AlertDialog(
-      title: Text(editing ? 'Edit product' : 'Add product'),
-      content: SizedBox(
-        width: 520,
-        child: SingleChildScrollView(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  '1. Basic information',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                TextFormField(
-                  controller: _nameController,
-                  autofocus: true,
-                  decoration: const InputDecoration(labelText: 'Product name'),
-                  validator: (value) => value == null || value.trim().isEmpty
-                      ? 'Enter a product name.'
-                      : null,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                TextFormField(
-                  controller: _variantController,
-                  decoration: const InputDecoration(labelText: 'Variant name'),
-                  validator: (value) => value == null || value.trim().isEmpty
-                      ? 'Enter a variant name.'
-                      : null,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                TextFormField(
-                  controller: _barcodeController,
-                  decoration: const InputDecoration(
-                    labelText: 'Factory barcode (leave blank to auto-generate)',
-                    hintText: 'Scan or type the code printed on the package',
-                    prefixIcon: Icon(Icons.barcode_reader),
-                  ),
-                  validator: (value) {
-                    final barcode = value?.trim() ?? '';
-                    if (barcode.isEmpty) return null;
-                    final duplicate = widget.products.any(
-                      (product) =>
-                          product.id != widget.product?.id &&
-                          product.variants.any(
-                            (variant) =>
-                                variant.barcode.toLowerCase() ==
-                                barcode.toLowerCase(),
-                          ),
-                    );
-                    return duplicate
-                        ? 'This barcode is already assigned to another product.'
-                        : null;
-                  },
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                DropdownButtonFormField<int>(
-                  isExpanded: true,
-                  initialValue: _categoryId,
-                  decoration: const InputDecoration(labelText: 'Category'),
-                  items: widget.categories
-                      // An archived category is hidden from the picker; its
-                      // products stay sellable.
-                      .where(
-                        (category) =>
-                            category.isActive ||
-                            category.id == widget.product?.categoryId,
-                      )
-                      .map(
-                        (category) => DropdownMenuItem(
-                          value: category.id,
-                          child: Text(
-                            category.name,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      )
-                      .toList(),
-                  validator: (value) =>
-                      value == null ? 'Choose a category.' : null,
-                  onChanged: (value) {
-                    if (value != null) setState(() => _categoryId = value);
-                  },
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                DropdownButtonFormField<int>(
-                  isExpanded: true,
-                  initialValue: _brandId,
-                  decoration: const InputDecoration(labelText: 'Brand'),
-                  items: widget.brands
-                      .map(
-                        (brand) => DropdownMenuItem(
-                          value: brand.id,
-                          child: Text(
-                            brand.name,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      )
-                      .toList(),
-                  validator: (value) =>
-                      value == null ? 'Choose a brand.' : null,
-                  onChanged: (value) {
-                    if (value != null) setState(() => _brandId = value);
-                  },
-                ),
-                if (!editing) ...[
-                  const SizedBox(height: AppSpacing.lg),
-                  DropdownButtonFormField<int>(
-                    isExpanded: true,
-                    initialValue: _baseUomId,
-                    decoration: const InputDecoration(
-                      labelText: 'Base unit',
-                      helperText:
-                          'Set once: a variant keeps this unit for its whole '
-                          'history.',
-                    ),
-                    items: widget.units
-                        .map(
-                          (unit) => DropdownMenuItem(
-                            value: unit.id,
-                            child: Text(unit.label),
-                          ),
-                        )
-                        .toList(),
-                    validator: (value) =>
-                        value == null ? 'Choose a base unit.' : null,
-                    onChanged: (value) {
-                      if (value != null) setState(() => _baseUomId = value);
-                    },
-                  ),
-                ],
-                const SizedBox(height: AppSpacing.lg),
-                TextFormField(
-                  controller: _descriptionController,
-                  maxLines: 3,
-                  decoration: const InputDecoration(labelText: 'Description'),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                Text(
-                  'Product image',
-                  style: Theme.of(context).textTheme.labelLarge,
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Container(
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                  decoration: BoxDecoration(
-                    color: colors.surfaceContainerLowest,
-                    border: Border.all(color: AppColors.border),
-                    borderRadius: BorderRadius.circular(AppRadii.medium),
-                  ),
-                  child: Row(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(AppRadii.small),
-                        child: ProductsImage(
-                          imageUrl: _imagePath,
-                          width: 88,
-                          height: 88,
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.lg),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _imagePath.isEmpty
-                                  ? 'No image selected'
-                                  : _imagePath.split(RegExp(r'[/\\]')).last,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: AppSpacing.sm),
-                            Wrap(
-                              spacing: AppSpacing.sm,
-                              runSpacing: AppSpacing.sm,
-                              children: [
-                                OutlinedButton.icon(
-                                  onPressed: _selectImage,
-                                  icon: const Icon(Icons.attach_file),
-                                  label: Text(
-                                    _imagePath.isEmpty
-                                        ? 'Choose image'
-                                        : 'Replace image',
-                                  ),
-                                ),
-                                if (_imagePath.isNotEmpty)
-                                  TextButton(
-                                    onPressed: () =>
-                                        setState(() => _imagePath = ''),
-                                    child: const Text('Remove'),
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: AppSpacing.xxl),
-                Text(
-                  '2. Stock levels',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                Container(
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                  decoration: BoxDecoration(
-                    color: colors.secondaryContainer.withValues(alpha: .35),
-                    border: Border.all(color: AppColors.border),
-                    borderRadius: BorderRadius.circular(AppRadii.medium),
-                  ),
-                  child: const Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.local_shipping_outlined, size: 18),
-                      SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: Text(
-                          'Stock arrives through a purchase order → Receiving. '
-                          'This form creates the catalogue item only.',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _reorderController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: 'Reorder level',
-                          helperText: 'Low-stock alert below this',
-                        ),
-                        validator: _nonNegative,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _maxController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: 'Maximum stock level',
-                          helperText: 'Used to suggest reorder quantity',
-                        ),
-                        validator: _nonNegative,
-                      ),
-                    ),
-                  ],
-                ),
-                const Divider(height: AppSpacing.xxl),
-                Text(
-                  '3. Selling price',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                TextFormField(
-                  controller: _sellingController,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: const InputDecoration(
-                    labelText: 'Selling price',
-                    prefixText: '₱ ',
-                  ),
-                  validator: (value) {
-                    final price = double.tryParse(value?.trim() ?? '');
-                    if (price == null) return 'Enter a price.';
-                    if (price < 0) return 'The price cannot be negative.';
-                    return null;
-                  },
-                ),
-              ],
-            ),
-          ),
+    return AppDialog(
+      icon: Icons.inventory_2_outlined,
+      title: _editing ? 'Edit product' : 'Add product',
+      subtitle: _editing
+          ? '${widget.product!.baseName} · ${widget.product!.brandName}'
+          : 'A catalogue item, how it is sold, and its stock levels.',
+      width: 600,
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const FormStepHeader(step: 1, title: 'Basic information'),
+            ..._stepOne(context),
+            const Divider(height: AppSpacing.xxl),
+            const FormStepHeader(step: 2, title: 'How is this product sold?'),
+            ..._stepTwo(context),
+            const Divider(height: AppSpacing.xxl),
+            const FormStepHeader(step: 3, title: 'Stock levels'),
+            ..._stepThree(),
+          ],
         ),
       ),
       actions: [
@@ -496,10 +330,270 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
         ),
         FilledButton(
           onPressed: _submit,
-          child: Text(editing ? 'Save changes' : 'Add product'),
+          child: Text(_editing ? 'Save changes' : 'Add product'),
         ),
       ],
     );
+  }
+
+  List<Widget> _stepOne(BuildContext context) {
+    return [
+      TextFormField(
+        controller: _nameController,
+        autofocus: true,
+        textInputAction: TextInputAction.next,
+        decoration: const InputDecoration(labelText: 'Product name'),
+        validator: (value) => value == null || value.trim().isEmpty
+            ? 'Enter a product name.'
+            : null,
+      ),
+      const SizedBox(height: AppSpacing.md),
+      TextFormField(
+        controller: _variantController,
+        textInputAction: TextInputAction.next,
+        decoration: const InputDecoration(labelText: 'Variant name'),
+        validator: (value) => value == null || value.trim().isEmpty
+            ? 'Enter a variant name.'
+            : null,
+      ),
+      const SizedBox(height: AppSpacing.md),
+      TextFormField(
+        controller: _barcodeController,
+        decoration: const InputDecoration(
+          labelText: 'Factory barcode (leave blank to auto-generate)',
+          hintText: 'Scan or type the code printed on the package',
+          prefixIcon: Icon(Icons.barcode_reader),
+        ),
+        validator: (value) {
+          final barcode = value?.trim() ?? '';
+          if (barcode.isEmpty) return null;
+          final duplicate = widget.products.any(
+            (product) =>
+                product.id != widget.product?.id &&
+                product.variants.any(
+                  (variant) =>
+                      variant.barcode.toLowerCase() == barcode.toLowerCase(),
+                ),
+          );
+          return duplicate
+              ? 'This barcode is already assigned to another product.'
+              : null;
+        },
+      ),
+      const SizedBox(height: AppSpacing.lg),
+      DropdownButtonFormField<int>(
+        key: const ValueKey('category-picker'),
+        isExpanded: true,
+        initialValue: _categoryId,
+        decoration: const InputDecoration(labelText: 'Category'),
+        items: widget.categories
+            // An archived category is hidden from the picker; its products stay
+            // sellable.
+            .where(
+              (category) =>
+                  category.isActive ||
+                  category.id == widget.product?.categoryId,
+            )
+            .map(
+              (category) => DropdownMenuItem(
+                value: category.id,
+                child: Text(category.name, overflow: TextOverflow.ellipsis),
+              ),
+            )
+            .toList(),
+        validator: (value) => value == null ? 'Choose a category.' : null,
+        onChanged: (value) {
+          if (value != null) setState(() => _categoryId = value);
+        },
+      ),
+      const SizedBox(height: AppSpacing.lg),
+      DropdownButtonFormField<int>(
+        key: const ValueKey('brand-picker'),
+        isExpanded: true,
+        initialValue: _brandId,
+        decoration: const InputDecoration(labelText: 'Brand'),
+        items: widget.brands
+            .map(
+              (brand) => DropdownMenuItem(
+                value: brand.id,
+                child: Text(brand.name, overflow: TextOverflow.ellipsis),
+              ),
+            )
+            .toList(),
+        validator: (value) => value == null ? 'Choose a brand.' : null,
+        onChanged: (value) {
+          if (value != null) setState(() => _brandId = value);
+        },
+      ),
+      const SizedBox(height: AppSpacing.lg),
+      TextFormField(
+        controller: _descriptionController,
+        maxLines: 3,
+        decoration: const InputDecoration(labelText: 'Description'),
+      ),
+      const SizedBox(height: AppSpacing.lg),
+      Text('Product image', style: Theme.of(context).textTheme.labelLarge),
+      const SizedBox(height: AppSpacing.sm),
+      _ImagePicker(
+        imagePath: _imagePath,
+        onPick: _selectImage,
+        onRemove: () => setState(() => _imagePath = ''),
+      ),
+    ];
+  }
+
+  List<Widget> _stepTwo(BuildContext context) {
+    return [
+      if (_editing) ...[
+        const DialogSectionLabel('Base unit'),
+        Text(
+          _frozenBaseUnitLabel(),
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          // The server answers 400 INVALID_VARIANT to a base-unit change, so the
+          // form does not pretend to offer one.
+          'A variant keeps this unit for its whole history, so it cannot be '
+          'changed here.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ] else
+        DropdownButtonFormField<int>(
+          key: const ValueKey('base-unit-picker'),
+          isExpanded: true,
+          initialValue: _baseUomId,
+          decoration: const InputDecoration(
+            labelText: 'Base unit',
+            helperText:
+                'Set once: a variant keeps this unit for its whole history.',
+          ),
+          items: widget.units
+              .map(
+                (unit) =>
+                    DropdownMenuItem(value: unit.id, child: Text(unit.label)),
+              )
+              .toList(),
+          validator: (value) => value == null ? 'Choose a base unit.' : null,
+          onChanged: (value) {
+            if (value != null) setState(() => _baseUomId = value);
+          },
+        ),
+      const SizedBox(height: AppSpacing.lg),
+      TextFormField(
+        key: const ValueKey('base-price'),
+        controller: _sellingController,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: InputDecoration(
+          labelText: 'Price per $_baseCode',
+          prefixText: '₱ ',
+          helperText: 'Charged for one $_baseCode',
+        ),
+        validator: _validateBasePrice,
+      ),
+      if (!_editing) ...[
+        const SizedBox(height: AppSpacing.xl),
+        const DialogSectionLabel('Other selling units'),
+        Text(
+          'Sell this product by the bag, box or pack as well. Each unit carries '
+          'its own price and code.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        for (var index = 0; index < _extraUnits.length; index++) ...[
+          _extraUnitRow(context, index),
+          const SizedBox(height: AppSpacing.md),
+        ],
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            key: const ValueKey('add-unit-row'),
+            onPressed: _addExtraUnit,
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('Add another unit'),
+          ),
+        ),
+      ],
+    ];
+  }
+
+  /// The frozen base unit as the units list spells it, falling back to the code
+  /// the server sent when the list has no matching row.
+  String _frozenBaseUnitLabel() {
+    final code = _variant?.baseUomCode ?? '';
+    for (final unit in widget.units) {
+      if (unit.code == code) return unit.label;
+    }
+    return code;
+  }
+
+  Widget _extraUnitRow(BuildContext context, int index) {
+    final row = _extraUnits[index];
+    return SellingUnitFields(
+      draft: row,
+      index: index,
+      keyPrefix: 'row',
+      baseCode: _baseCode,
+      units: widget.units,
+      validateUnit: (value) => _validateUnit(index, value),
+      validateFactor: _validateFactor,
+      validatePrice: _validatePrice,
+      onRemove: () => _removeExtraUnit(index),
+    );
+  }
+
+  List<Widget> _stepThree() {
+    return [
+      const InfoBanner(
+        message: 'Stock arrives through a purchase order, then Receiving.',
+      ),
+      const SizedBox(height: AppSpacing.lg),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: TextFormField(
+              key: const ValueKey('reorder-field'),
+              controller: _reorderController,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Reorder level',
+                helperText: 'Low-stock alert below this',
+              ),
+              validator: _nonNegative,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: TextFormField(
+              key: const ValueKey('max-field'),
+              controller: _maxController,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Maximum stock level',
+                helperText: 'Reorder suggestion',
+              ),
+              validator: _nonNegative,
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: AppSpacing.lg),
+      TextFormField(
+        key: const ValueKey('location-field'),
+        controller: _locationController,
+        decoration: const InputDecoration(
+          labelText: 'Storage location',
+          // The server has no location column (decision 15): never imply it does.
+          helperText: 'Saved on this device only',
+          hintText: 'Rack A-01',
+        ),
+      ),
+    ];
   }
 
   static String? _nonNegative(String? value) {
@@ -507,5 +601,72 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     if (parsed == null) return 'Enter a number.';
     if (parsed < 0) return 'This cannot be negative.';
     return null;
+  }
+}
+
+/// The product image, its two buttons and the file name.
+class _ImagePicker extends StatelessWidget {
+  const _ImagePicker({
+    required this.imagePath,
+    required this.onPick,
+    required this.onRemove,
+  });
+
+  final String imagePath;
+  final VoidCallback onPick;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceSunken,
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(AppRadii.medium),
+      ),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadii.small),
+            child: ProductsImage(imageUrl: imagePath, width: 88, height: 88),
+          ),
+          const SizedBox(width: AppSpacing.lg),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  imagePath.isEmpty
+                      ? 'No image selected'
+                      : imagePath.split(RegExp(r'[/\\]')).last,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.sm,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: onPick,
+                      icon: const Icon(Icons.attach_file),
+                      label: Text(
+                        imagePath.isEmpty ? 'Choose image' : 'Replace image',
+                      ),
+                    ),
+                    if (imagePath.isNotEmpty)
+                      TextButton(
+                        onPressed: onRemove,
+                        child: const Text('Remove'),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

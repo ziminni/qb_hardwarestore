@@ -486,8 +486,10 @@ class ExpectedAmountMoneyTests(StoreReviewTestBase):
                          '10 x 280.00 only; the declined line adds nothing')
 
     def test_rounding_happens_once_after_summing_the_outstanding_lines(self):
-        first = self.make_unit('Small A', 'QB-STORE-3', '0.05')
-        second = self.make_unit('Small B', 'QB-STORE-4', '0.05')
+        # KG, not BAG: a whole unit refuses 0.05 (Phase 1d), and this test is about the
+        # money being rounded ONCE, so the lines have to be legal first.
+        first = self.make_unit('Small A', 'QB-STORE-3', '0.05', uom_code='KG')
+        second = self.make_unit('Small B', 'QB-STORE-4', '0.05', uom_code='KG')
         body = self.push_request([
             {'code': first.barcode_qr, 'quantity': '0.05'},
             {'code': second.barcode_qr, 'quantity': '0.05'},

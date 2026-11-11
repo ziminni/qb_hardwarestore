@@ -34,15 +34,22 @@ VariantUom variantUom({
   double price = 315,
   String barcode = '',
   String uomCode = 'PC',
+  int uomId = 1,
+  String uomName = 'Piece',
+  double factor = 1,
+  bool isWhole = false,
+  bool inUse = false,
 }) => VariantUom(
   id: id,
   variantId: variantId,
-  uomId: 1,
+  uomId: uomId,
   uomCode: uomCode,
-  uomName: 'Piece',
+  uomName: uomName,
   barcodeQr: barcode,
-  conversionFactor: 1,
+  conversionFactor: factor,
   defaultSellingPrice: price,
+  uomIsWhole: isWhole,
+  inUse: inUse,
 );
 
 ProductVariant variant({
@@ -53,18 +60,41 @@ ProductVariant variant({
   double maxStockLevel = 0,
   List<VariantUom>? sellingUoms,
   String baseUomCode = 'PC',
+  int baseUomId = 1,
   bool isActive = true,
 }) => ProductVariant(
   id: id,
   productId: productId,
-  baseUomId: 1,
+  baseUomId: baseUomId,
   minStockThreshold: threshold,
   maxStockLevel: maxStockLevel,
-  sellingUoms: sellingUoms ?? [variantUom(id: id, variantId: id)],
+  sellingUoms:
+      sellingUoms ??
+      [
+        variantUom(
+          id: id,
+          variantId: id,
+          uomId: baseUomId,
+          uomCode: baseUomCode,
+          uomName: _unitName(baseUomCode),
+        ),
+      ],
   variantName: name,
   baseUomCode: baseUomCode,
   isActive: isActive,
 );
+
+/// The server's display name for the codes the fixtures use, so the default
+/// selling unit of a `BAG` variant is not called "Piece".
+String _unitName(String code) => switch (code) {
+  'PC' => 'Piece',
+  'BAG' => 'Bag',
+  'BOX' => 'Box',
+  'KG' => 'Kilogram',
+  'RL' => 'Roll',
+  'SHT' => 'Sheet',
+  _ => code,
+};
 
 Product product({
   required int id,
@@ -146,6 +176,9 @@ class FakeProductsRepository extends ProductsRepository {
   /// Fail the create chain at this step instead of succeeding.
   ProductWriteStep? failAt;
 
+  /// Refuse this extra selling unit AFTER the product exists (a partial create).
+  String? partialFailUnit;
+
   /// Set to throw from any write (edit / archive).
   String? writeError;
 
@@ -155,6 +188,16 @@ class FakeProductsRepository extends ProductsRepository {
 
   /// Every selling-unit code PATCH, in order (Phase 6 decision 18).
   final List<({int unitId, String barcode})> barcodePatches = [];
+
+  /// Units removed through the details dialog, and units added to a variant
+  /// (Phase 1d Task 9). The snapshot is really mutated, so a reload after a
+  /// success shows the row gone or present.
+  final List<int> deletedUnitIds = [];
+  final List<({int variantId, NewSellingUnit unit})> createdUnits = [];
+
+  /// Set to refuse a removal or an added unit with this message.
+  String? deleteError;
+  String? createUnitError;
 
   /// Set to refuse a code PATCH with this message (e.g. a 400 `BARCODE_TAKEN`).
   String? barcodeError;
@@ -177,11 +220,20 @@ class FakeProductsRepository extends ProductsRepository {
       throw ProductWriteException(step: step, message: 'server said no');
     }
     createdDrafts.add(draft);
-    return CreatedProduct(
+    final created = CreatedProduct(
       productId: 100 + createdDrafts.length,
       variantId: 200 + createdDrafts.length,
       sellingUnitId: 300 + createdDrafts.length,
     );
+    final refusedUnit = partialFailUnit;
+    if (refusedUnit != null) {
+      throw PartialCreateException(
+        created: created,
+        unit: refusedUnit,
+        message: 'One selling unit always holds at least one base unit.',
+      );
+    }
+    return created;
   }
 
   @override
@@ -194,6 +246,75 @@ class FakeProductsRepository extends ProductsRepository {
       );
     }
     barcodePatches.add((unitId: id, barcode: '${body['barcode_qr']}'));
+  }
+
+  @override
+  Future<void> createSellingUnit(int variantId, NewSellingUnit unit) async {
+    final error = createUnitError;
+    if (error != null) {
+      throw ProductWriteException(
+        step: ProductWriteStep.sellingUnit,
+        message: error,
+      );
+    }
+    createdUnits.add((variantId: variantId, unit: unit));
+    _snapshot = ProductsSnapshot(
+      products: [
+        for (final product in _snapshot.products)
+          product.copyWith(
+            variants: [
+              for (final variant in product.variants)
+                variant.id == variantId
+                    ? variant.copyWith(
+                        sellingUoms: [
+                          ...variant.sellingUoms,
+                          VariantUom(
+                            id: 900 + createdUnits.length,
+                            variantId: variantId,
+                            uomId: unit.uomId,
+                            uomCode: unit.uomCode,
+                            uomName: unit.uomCode,
+                            barcodeQr: unit.barcodeQr,
+                            conversionFactor: unit.conversionFactor,
+                            defaultSellingPrice: unit.sellingPrice,
+                          ),
+                        ],
+                      )
+                    : variant,
+            ],
+          ),
+      ],
+      batches: _snapshot.batches,
+    );
+  }
+
+  @override
+  Future<void> deleteSellingUnit(int id) async {
+    final error = deleteError;
+    if (error != null) {
+      throw ProductWriteException(
+        step: ProductWriteStep.sellingUnit,
+        message: error,
+      );
+    }
+    deletedUnitIds.add(id);
+    _snapshot = ProductsSnapshot(
+      products: [
+        for (final product in _snapshot.products)
+          product.copyWith(
+            variants: [
+              for (final variant in product.variants)
+                variant.copyWith(
+                  sellingUoms: [
+                    for (final unit in variant.sellingUoms)
+                      if (unit.id != id) unit,
+                  ],
+                ),
+            ],
+          ),
+      ],
+      batches: _snapshot.batches,
+    );
   }
 
   @override
@@ -360,9 +481,18 @@ List<Product> seededProducts() => [
         name: '40kg',
         threshold: 30,
         maxStockLevel: 200,
+        baseUomId: 2,
         baseUomCode: 'BAG',
         sellingUoms: [
-          variantUom(id: 1, variantId: 1, price: 270, uomCode: 'BAG'),
+          variantUom(
+            id: 1,
+            variantId: 1,
+            price: 270,
+            uomId: 2,
+            uomCode: 'BAG',
+            uomName: 'Bag',
+            isWhole: true,
+          ),
         ],
       ),
     ],

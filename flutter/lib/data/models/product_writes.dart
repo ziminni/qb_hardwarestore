@@ -17,6 +17,8 @@ class NewProductDraft {
     required this.maxStockLevel,
     required this.sellingPrice,
     this.barcodeQr = '',
+    this.extraSellingUnits = const [],
+    this.locationHint = '',
   });
 
   final int categoryId;
@@ -35,6 +37,17 @@ class NewProductDraft {
   /// Optional: the server defaults it to an empty string, and the seeded
   /// catalogue has no barcodes at all.
   final String barcodeQr;
+
+  /// How else this product is sold, beyond the base unit (decision 15).
+  ///
+  /// Posted AFTER the factor-1 unit, in this order, because the server refuses a
+  /// second factor-1 unit and a unit can only be attached to a variant that
+  /// exists.
+  final List<NewSellingUnit> extraSellingUnits;
+
+  /// Where the stock sits, remembered on THIS device only (decision 15): the
+  /// server has no location column, so this never travels in a POST body.
+  final String locationHint;
 
   /// There is deliberately no quantity, cost or opening-batch field.
   ///
@@ -67,6 +80,36 @@ class NewProductDraft {
   };
 }
 
+/// One extra selling unit of a NEW product: "1 Bag = 40 kg at ₱270".
+///
+/// [uomCode] is carried for the message a partial failure has to print — the
+/// clerk must know WHICH unit was not saved, and an id would name nothing.
+class NewSellingUnit {
+  const NewSellingUnit({
+    required this.uomId,
+    required this.uomCode,
+    required this.conversionFactor,
+    required this.sellingPrice,
+    this.barcodeQr = '',
+  });
+
+  final int uomId;
+  final String uomCode;
+  final double conversionFactor;
+  final double sellingPrice;
+
+  /// Blank asks the server for this unit's own `QB` code.
+  final String barcodeQr;
+
+  Map<String, dynamic> body(int variantId) => {
+    'variant': variantId,
+    'uom': uomId,
+    'conversion_factor': conversionFactor,
+    'default_selling_price': sellingPrice,
+    'barcode_qr': barcodeQr,
+  };
+}
+
 /// An edit of an existing product: name, description, category, brand,
 /// threshold, max level, price and barcode, and the archive flag.
 ///
@@ -89,6 +132,7 @@ class ProductEditDraft {
     this.sellingPrice,
     this.barcodeQr,
     this.isActive,
+    this.locationHint = '',
   });
 
   final int productId;
@@ -108,6 +152,9 @@ class ProductEditDraft {
   final double? sellingPrice;
   final String? barcodeQr;
   final bool? isActive;
+
+  /// Device-local, like the create draft's. Never in a PATCH body.
+  final String locationHint;
 
   Map<String, dynamic> get productBody => {
     if (baseName != null) 'base_name': baseName,

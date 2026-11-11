@@ -54,7 +54,8 @@ class _ReadOnlyBase(TestCase):
             customer_type=Customer.Type.CONSTRUCTION_FIRM)
         self.project = Project.objects.create(
             name='House Build', customer=customer, cpms_project_id='CPMS-P-1')
-        uom = UnitOfMeasure.objects.create(code='BAG', name='Bag')
+        uom, _ = UnitOfMeasure.objects.get_or_create(
+            code='BAG', defaults={'name': 'Bag'})
         product = Product.objects.create(
             category=Category.objects.create(name='Cement'),
             brand=Brand.objects.create(name='Rhino'),

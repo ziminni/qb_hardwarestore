@@ -11,6 +11,7 @@ class PosCatalogItem {
     required this.availableBaseStock,
     this.categoryName = '',
     this.brandName = '',
+    this.isWhole = false,
   });
   final int variantUomId;
   final int variantId;
@@ -25,6 +26,14 @@ class PosCatalogItem {
   /// Shown on the till's product card and used by its category chips.
   final String categoryName;
   final String brandName;
+
+  /// The SERVER's whole-number flag for this selling unit (Phase 1d).
+  ///
+  /// It replaces the client's list of whole unit words: a scan adds one straight
+  /// to the cart only for a unit flagged whole, and everything else opens the
+  /// quantity dialog. A row built without the flag is treated as measured, which
+  /// is the safe direction (the cashier confirms a quantity).
+  final bool isWhole;
   double get availableSaleQuantity => availableBaseStock / conversionFactor;
 }
 

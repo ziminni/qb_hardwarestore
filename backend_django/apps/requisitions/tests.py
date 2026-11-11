@@ -73,7 +73,8 @@ class RequisitionTestBase(TestCase):
             name='House Build', customer=self.customer)
         category = Category.objects.create(name='Cement')
         brand = Brand.objects.create(name='Rhino')
-        uom = UnitOfMeasure.objects.create(code='BAG', name='Bag')
+        uom, _ = UnitOfMeasure.objects.get_or_create(
+            code='BAG', defaults={'name': 'Bag'})
         product = Product.objects.create(
             category=category, brand=brand, base_name='Portland Cement')
         self.variant = ProductVariant.objects.create(
@@ -223,7 +224,8 @@ class MaterialReleaseApiTests(RequisitionTestBase):
 
     def _box_of_twelve_variant(self):
         """A second variant with stock, sold only in boxes of 12."""
-        box = UnitOfMeasure.objects.create(code='BOX', name='Box')
+        box, _ = UnitOfMeasure.objects.get_or_create(
+            code='BOX', defaults={'name': 'Box'})
         product = Product.objects.create(
             category=Category.objects.get(name='Cement'),
             brand=Brand.objects.get(name='Rhino'),

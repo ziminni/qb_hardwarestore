@@ -47,6 +47,19 @@ class ProductVariant {
     return '';
   }
 
+  /// The selling unit that IS the base unit: this variant's own `base_uom` at
+  /// factor 1 (Phase 1d).
+  ///
+  /// List order is not identity. Once a product is sold by the bag the server
+  /// may answer `[BAG (factor 40), KG (factor 1)]`, so a screen that took the
+  /// first row would price and label the bag as if it were the base unit.
+  VariantUom? get baseSellingUnit {
+    for (final uom in sellingUoms) {
+      if (uom.uomId == baseUomId && uom.conversionFactor == 1) return uom;
+    }
+    return null;
+  }
+
   ProductVariant copyWith({
     bool? isActive,
     String? variantName,

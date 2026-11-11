@@ -1,6 +1,7 @@
-import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/models/category.dart';
 import 'package:client/data/models/product.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
+import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
 
 /// One category: rename it, or archive/restore it.
@@ -39,53 +40,57 @@ class _InventoryCategoryDialogState extends State<InventoryCategoryDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.editing ? 'Rename category' : widget.category.name),
-      content: SizedBox(
-        width: 480,
-        child: SingleChildScrollView(
-          child: widget.editing
-              ? TextFormField(
-                  controller: _name,
-                  autofocus: true,
-                  decoration: const InputDecoration(labelText: 'Category name'),
-                )
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.category.isActive ? 'Active' : 'Archived',
-                      style: Theme.of(context).textTheme.labelLarge,
+    return AppDialog(
+      icon: widget.editing ? Icons.edit_outlined : Icons.category_outlined,
+      title: widget.editing ? 'Rename category' : widget.category.name,
+      subtitle: widget.editing
+          ? widget.category.name
+          : '${widget.products.length} '
+                '${widget.products.length == 1 ? 'product' : 'products'} filed '
+                'under this category',
+      // Active or archived is a status, so it sits in the header as words in a
+      // badge, not as a colour on its own.
+      headerTrailing: widget.editing
+          ? null
+          : StatusBadge(
+              label: widget.category.isActive ? 'Active' : 'Archived',
+              tone: widget.category.isActive
+                  ? StatusTone.success
+                  : StatusTone.neutral,
+            ),
+      width: 540,
+      content: widget.editing
+          ? TextFormField(
+              controller: _name,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Category name',
+                helperText: 'Products keep their place under the new name.',
+              ),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                DialogSectionLabel('Products (${widget.products.length})'),
+                if (widget.products.isEmpty)
+                  const Text('No products in this category.')
+                else
+                  for (final product in widget.products)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.inventory_2_outlined, size: 18),
+                      title: Text(product.baseName),
+                      subtitle: Text(
+                        '${product.variants.length} '
+                        'variant${product.variants.length == 1 ? '' : 's'}',
+                      ),
                     ),
-                    const SizedBox(height: AppSpacing.xl),
-                    Text(
-                      'Products (${widget.products.length})',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const Divider(),
-                    if (widget.products.isEmpty)
-                      const Text('No products in this category.')
-                    else
-                      for (final product in widget.products)
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: const Icon(
-                            Icons.inventory_2_outlined,
-                            size: 18,
-                          ),
-                          title: Text(product.baseName),
-                          subtitle: Text(
-                            '${product.variants.length} variant(s)',
-                          ),
-                        ),
-                  ],
-                ),
-        ),
-      ),
+              ],
+            ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(widget.editing ? 'Cancel' : 'Close'),
         ),
         if (widget.editing)
           FilledButton(

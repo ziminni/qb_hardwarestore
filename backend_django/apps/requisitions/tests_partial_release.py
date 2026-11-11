@@ -81,7 +81,8 @@ class PartialReleaseBase(ReleaseShiftBase):
 
     def _boxes_of_twelve(self, on_shelf):
         """A second variant sold only in boxes of 12, with `on_shelf` PIECES in stock."""
-        box_uom = UnitOfMeasure.objects.create(code='BOX', name='Box')
+        box_uom, _ = UnitOfMeasure.objects.get_or_create(
+            code='BOX', defaults={'name': 'Box'})
         product = Product.objects.create(
             category=self.variant.product.category,
             brand=self.variant.product.brand,
@@ -454,7 +455,8 @@ class ConcurrentReleaseTests(TransactionTestCase):
             name='House Build', customer=self.customer)
         category = Category.objects.create(name='Cement')
         brand = Brand.objects.create(name='Rhino')
-        uom = UnitOfMeasure.objects.create(code='BAG', name='Bag')
+        uom, _ = UnitOfMeasure.objects.get_or_create(
+            code='BAG', defaults={'name': 'Bag'})
         product = Product.objects.create(
             category=category, brand=brand, base_name='Portland Cement')
         self.variant = ProductVariant.objects.create(

@@ -3,7 +3,11 @@
 # Same directive and reason as apps/pos/models.py and apps/pos/services.py: the checker
 # resolves its config from its WORKING DIRECTORY, so no pyrightconfig.json is found, and
 # `Model.objects` is a false positive on valid Django without django-stubs.
+from django.db import transaction
 from rest_framework import serializers
+
+from apps.inventory.services import lock_selling_unit_lines
+from common.exceptions import refuse_fractional_whole_unit
 
 from .models import (
     Customer,
@@ -125,6 +129,17 @@ class QuotationItemSerializer(serializers.ModelSerializer):
         # rejected with "quotation: This field is required." - which is what the first GREEN run hit.
         read_only_fields = ['id', 'quotation']
 
+    def validate(self, attrs):
+        # Phase 1d Task 2 (decision 16, Q1): a quote is a promise to sell, so it carries the
+        # same whole-unit rule as the till - a document that cannot be rung is not a quote.
+        vuom = attrs.get('variant_uom')
+        qty = attrs.get('qty')
+        if vuom is not None and qty is not None:
+            refuse_fractional_whole_unit(
+                is_whole=vuom.uom.is_whole, qty=qty,
+                what=f'{vuom.variant}, {vuom.uom.code}')
+        return attrs
+
 
 class QuotationSerializer(serializers.ModelSerializer):
     items = QuotationItemSerializer(many=True, required=False)
@@ -141,9 +156,17 @@ class QuotationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         items = validated_data.pop('items', [])
-        quotation = Quotation.objects.create(**validated_data)
-        for item in items:
-            QuotationItem.objects.create(quotation=quotation, **item)
+        # Phase 1d Task 3 (decision 16): the items were validated BEFORE this write, so
+        # the catalogue can lose a unit in between. The whole document - parent and
+        # lines - is one transaction holding the unit locks, so a refusal leaves no
+        # orphan quotation and the removal cannot walk through the gap either.
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            lock_selling_unit_lines(
+                ((item['variant_uom'], item) for item in items),
+                document='quotation')
+            quotation = Quotation.objects.create(**validated_data)
+            for item in items:
+                QuotationItem.objects.create(quotation=quotation, **item)
         return quotation
 
 
@@ -155,6 +178,16 @@ class SalesOrderItemSerializer(serializers.ModelSerializer):
         # the parent's create() sets it, and leaving it writable makes it REQUIRED on every nested
         # item, rejecting a legitimate payload.
         read_only_fields = ['id', 'order']
+
+    def validate(self, attrs):
+        # Same rule as a quotation: an order is what the shop promised to deliver.
+        vuom = attrs.get('variant_uom')
+        qty = attrs.get('qty')
+        if vuom is not None and qty is not None:
+            refuse_fractional_whole_unit(
+                is_whole=vuom.uom.is_whole, qty=qty,
+                what=f'{vuom.variant}, {vuom.uom.code}')
+        return attrs
 
 
 class SalesOrderSerializer(serializers.ModelSerializer):
@@ -170,9 +203,14 @@ class SalesOrderSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         items = validated_data.pop('items', [])
-        order = SalesOrder.objects.create(**validated_data)
-        for item in items:
-            SalesOrderItem.objects.create(order=order, **item)
+        # Same rule, lock and single transaction as a quotation above.
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            lock_selling_unit_lines(
+                ((item['variant_uom'], item) for item in items),
+                document='sales order')
+            order = SalesOrder.objects.create(**validated_data)
+            for item in items:
+                SalesOrderItem.objects.create(order=order, **item)
         return order
 
 
@@ -195,7 +233,25 @@ class HeldCartSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         items_data = validated_data.pop('items', [])
-        cart = HeldCart.objects.create(**validated_data)
-        for item in items_data:
-            HeldCartItem.objects.create(cart=cart, **item)
+        # Phase 1d Task 2 (decision 16): the same whole-unit rule as the till, checked
+        # BEFORE the cart row exists, so a refused hold leaves nothing behind.
+        for index, item in enumerate(items_data, start=1):
+            vuom = item['variant_uom']
+            refuse_fractional_whole_unit(
+                is_whole=vuom.uom.is_whole, qty=item['qty'],
+                what=f'Line {index} ({vuom.variant}, {vuom.uom.code})')
+        # Phase 1d Task 3: take the SAME row lock the removal action takes
+        # (`VariantUOMViewSet.destroy`), before writing any line. A held-cart line
+        # PROTECTs its selling unit, so the removal refuses a unit that is already held;
+        # this lock is what makes "already held" true for a hold that is still being
+        # saved. Without it the removal could delete the row between this cart's
+        # validation and its INSERT, and the foreign key would answer a 500 instead of a
+        # refusal the till can act on.
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            lock_selling_unit_lines(
+                ((item['variant_uom'], item) for item in items_data),
+                document='held cart')
+            cart = HeldCart.objects.create(**validated_data)
+            for item in items_data:
+                HeldCartItem.objects.create(cart=cart, **item)
         return cart

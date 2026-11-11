@@ -12,7 +12,6 @@ import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:client/routes/routes.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -67,9 +66,6 @@ void main() {
           ChangeNotifierProvider<AuthViewmodel>.value(value: auth),
           ChangeNotifierProvider<InventoryViewmodel>(
             create: (_) => seededInventory(),
-          ),
-          ChangeNotifierProvider<ProductTrackingViewmodel>(
-            create: (_) => ProductTrackingViewmodel(),
           ),
         ],
         child: MaterialApp.router(routerConfig: router),

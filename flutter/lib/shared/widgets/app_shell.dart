@@ -3,6 +3,8 @@ import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/constants/app_text_styles.dart';
+import 'package:client/core/format/format.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/shared/widgets/shared_sidebar.dart';
 import 'package:client/shared/widgets/blueprint.dart';
@@ -365,6 +367,30 @@ class _SidebarPanel extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.all(AppSpacing.md),
                   child: ListTile(
+                    leading: ClipPath(
+                      clipper: HexagonClipper(),
+                      child: ColoredBox(
+                        color: AppColors.brandGold,
+                        child: SizedBox.square(
+                          dimension: 32,
+                          child: Center(
+                            child: Text(
+                              _initials(name),
+                              style: const TextStyle(
+                                fontFamily: AppTextStyles.outfitFont,
+                                color: AppColors.textPrimary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    horizontalTitleGap: AppSpacing.sm,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                    ),
                     tileColor: AppColors.chromeRaised,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadii.medium),
@@ -468,6 +494,20 @@ class _Header extends StatelessWidget {
                         ],
                       ),
                     ),
+                    if (!showMenuButton) ...[
+                      const SizedBox(width: AppSpacing.md),
+                      Flexible(
+                        child: Text(
+                          formatWeekdayDate(appClock.now()),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                    ],
                     ...shell.actions,
                   ],
                 ),

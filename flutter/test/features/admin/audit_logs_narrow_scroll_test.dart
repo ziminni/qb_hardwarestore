@@ -54,8 +54,25 @@ void main() {
     // The panel clips its rows to its own height, which is what the screenshot
     // caught. The question is whether the cut row can be brought into view.
     final viewport = tester.getRect(list);
-    await tester.drag(list, const Offset(0, -4000));
-    await tester.pumpAndSettle();
+    // The list is lazy: `ListView.builder` estimates the height of rows it has
+    // not built yet, so one drag can stop a fraction short of the real end and
+    // a second finds the extent grew. Scroll until the position reaches the
+    // extent, which is what a reader does by hand.
+    final scrollable = find.descendant(
+      of: list,
+      matching: find.byType(Scrollable),
+    );
+    final position = tester.state<ScrollableState>(scrollable).position;
+    for (var drag = 0; drag < 5; drag++) {
+      await tester.drag(list, const Offset(0, -4000));
+      await tester.pumpAndSettle();
+      if (position.pixels >= position.maxScrollExtent) break;
+    }
+    expect(
+      position.pixels,
+      position.maxScrollExtent,
+      reason: 'the list never reached its own end',
+    );
 
     final last = find.byKey(const ValueKey('AdminAuditLogTable.row.8'));
     expect(last, findsOneWidget, reason: 'the last card never came into view');

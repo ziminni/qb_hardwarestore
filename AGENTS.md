@@ -31,9 +31,9 @@ Every pointer must resolve; a broken pointer is fixed in the commit that breaks 
 
 ## Current Status & Next Step
 
-- **Branch:** `feat/pos-evolution-phase-1d` (off Phase 1b `1a15920`, not pushed). Phase 1b ✅ Done; **Phase 1d 🟡 executing**: packaging units ("Bag = 40 kg"), server whole-number rule, remove unused unit, teammate dialog design + extras. Do not push; owner pushes.
-- **Last session:** `docs/sessions/2026-11-08-pos-evolution-phase-1b-build.md`. Phase 1d task status and evidence: the plan's Execution Checklist (tick in place).
-- **Next:** continue the first unticked task in `planning/pos-evolution/phase-1d-plan.md` with `execute-phase` (orchestrated: expressive-dev → hygiene-reviewer → controller re-run). Task 8 and the CPMS v0.3 review are owner-only. Phase 1c (receipts) still needs wayfinder. No predictions, at most two builders, backend sequential.
-- **Dev DB:** Phase 1b; flushed + reseeded 2026-11-09 with owner approval (R1001 ACCEPTED, 1002 RELEASED, 1003 PARTIAL, 1004 WAITING, 1005 DECLINED; README). Writes/resets need owner approval.
+- **Branch:** `feat/pos-evolution-phase-1d` (off Phase 1b `1a15920`, not pushed). Phase 1b ✅ Done; **Phase 1d ✅ Done 2026-11-11** (closed with accepted limits): packaging units, server whole-number rule, remove unused unit, teammate dialog design + extras. Do not push; owner pushes.
+- **Last session:** `docs/sessions/2026-11-11-pos-evolution-phase-1d-build.md`.
+- **Next:** owner pushes Phase 1d; then Phase 1c payment receipts planning (open decisions). CPMS contract v0.3 provisionally accepted. No predictions; at most two builders; backend sequential; Phase 1c still undecided.
+- **Dev DB:** Phase 1b unchanged, 0008 pending by owner choice; no dev writes/resets authorized (backend restart auto-migrates). Disposable Phase 1d QA still running: `buildpro_p1d_qa_{db,backend,web}`, isolated network/volume, API 8001/web 8091; seeded/reset only QA. Credentials/scanner tokens in local `temp/p1d/qa/seed.log` must never be committed.
 - **Proof standard:** a test covers a fix only after it fails without the fix; a claim without its command output in the same message is unverified.
 - **Caveats:** desktop pixels are user-verified only (`flutter run -d linux`); `.superpowers/` is gitignored, so ledgers and goldens live only on this machine; the editor hook re-formats staged Dart files, so re-stage after edits. Local `temp/p1b-qa/` includes credential-bearing artifacts: never stage it.

@@ -71,6 +71,8 @@ Post-migration fresh-seed requests (validated by Task 5 on the Django test datab
 | `CPMS-R-1004` | `WAITING` | Store review required; scanning refused |
 | `CPMS-R-1005` | `DECLINED` | Reason visible; scanning refused with store-decline code |
 
+Phase 1d packaging demo (test-DB verified; the dev database is still on Phase 1b until an approved migrate + reseed): **Tile Adhesive / Standard** sold loose by `KG` at ₱12.00 or as a whole `BAG` of 25 kg at ₱275.00, with 250 kg received through a real purchase order and Receiving (no opening-stock shortcut). The seed also ensures the 12 standard units (`PC`, `BAG`, `BOX`, `PACK`, `ROLL`, `SHEET` whole; `KG`, `G`, `M`, `CM`, `L`, `ML` measured), including after a `flush`. Fresh-seed totals: 7 products, 9 variants, 10 selling units, 7 transactions, 3 open utang ledgers, 5 requests.
+
 Scanner token UUIDs are random per seed: use the ones **printed in that seed's stdout**; never paste them (or contract example tokens) into docs. QA writes on dev need owner approval each time. QA flow checklist: [QA-PROFILE](docs/testing/QA-PROFILE.md).
 
 ## 3. Run the Flutter client

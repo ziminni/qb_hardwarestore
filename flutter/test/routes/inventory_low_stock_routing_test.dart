@@ -24,7 +24,6 @@ import 'package:client/data/services/supplier_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/views/inventory_low_stock_page.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmodel.dart';
 import 'package:client/features/suppliers/widgets/purchases_form_dialog.dart';
 import 'package:client/routes/routes.dart';
@@ -147,9 +146,6 @@ void main() {
             create: (_) => SuppliersPurchasesViewmodel(
               repository: _StubSupplierRepository(),
             ),
-          ),
-          ChangeNotifierProvider<ProductTrackingViewmodel>(
-            create: (_) => ProductTrackingViewmodel(),
           ),
         ],
         child: MaterialApp.router(routerConfig: router),

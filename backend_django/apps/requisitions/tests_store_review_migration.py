@@ -100,7 +100,8 @@ class StoreReviewMigrationTests(_MigrationBase):
             name='House Build', customer=customer, cpms_project_id='CPMS-P-1')
         category = Category.objects.create(name='Cement')
         brand = Brand.objects.create(name='Rhino')
-        bag = UnitOfMeasure.objects.create(code='BAG', name='Bag')
+        bag, _ = UnitOfMeasure.objects.get_or_create(
+            code='BAG', defaults={'name': 'Bag'})
         product = Product.objects.create(
             category=category, brand=brand, base_name='Portland Cement')
         variant = ProductVariant.objects.create(

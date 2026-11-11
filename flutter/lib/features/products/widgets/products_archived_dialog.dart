@@ -1,7 +1,9 @@
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/features/products/widgets/products_image.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
 
@@ -10,6 +12,9 @@ import 'package:flutter/material.dart';
 /// Restoring is `PATCH {"is_active": true}` — the same PATCH that archived it.
 /// A product is never deleted, so this list is the only way back for one that was
 /// archived by mistake.
+///
+/// Phase 1d Task 10a: it wears the shared dialog family (decision 17), so it
+/// looks like the rest of the app's dialogs and closes on Esc.
 class ProductsArchivedDialog extends StatefulWidget {
   const ProductsArchivedDialog({
     super.key,
@@ -51,83 +56,89 @@ class _ProductsArchivedDialogState extends State<ProductsArchivedDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final products = _rows;
+    final rows = _rows;
 
-    return AlertDialog(
-      title: const Text('Archived products'),
-      content: SizedBox(
-        width: 680,
-        child: products.isEmpty
-            ? Padding(
-                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xxl),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.inventory_2_outlined,
-                      size: 40,
-                      color: colors.outline,
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    Text(
-                      'No archived products',
-                      style: theme.textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                    Text(
-                      'Products moved to the archive will appear here.',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              )
-            : ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 480),
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: products.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    final product = products[index];
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        vertical: AppSpacing.sm,
-                      ),
-                      leading: ClipRRect(
-                        borderRadius: BorderRadius.circular(AppRadii.small),
-                        child: ProductsImage(
-                          imageUrl: product.imageUrl,
-                          width: 44,
-                          height: 44,
-                        ),
-                      ),
-                      title: Text(product.baseName),
-                      subtitle: Text(
-                        '${product.categoryName} · ${product.brandName} · ${product.variants.length} variant${product.variants.length == 1 ? '' : 's'}',
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // An archived row says so in words plus color, the
-                          // same pill as every other status in the app.
-                          const StatusBadge(
-                            label: 'Archived',
-                            tone: StatusTone.neutral,
-                          ),
-                          const SizedBox(width: AppSpacing.sm),
-                          OutlinedButton(
-                            onPressed: _busy ? null : () => _restore(product),
-                            child: const Text('Restore'),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
+    return AppDialog(
+      icon: Icons.archive_outlined,
+      title: 'Archived products',
+      subtitle: rows.isEmpty
+          ? 'Archived products are kept, never deleted.'
+          : '${formatCount(rows.length)} archived '
+                '${rows.length == 1 ? 'product' : 'products'}, kept and '
+                'restorable.',
+      width: 700,
+      // The list owns its height and scrolling, so the frame must not wrap it in
+      // another scroll view.
+      scrollable: false,
+      content: rows.isEmpty
+          ? Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.xxl),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.inventory_2_outlined,
+                    size: 40,
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  Text(
+                    'No archived products',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  const Text('Products moved to the archive will appear here.'),
+                ],
               ),
-      ),
+            )
+          : ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.6,
+              ),
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: rows.length,
+                separatorBuilder: (_, _) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final product = rows[index];
+                  return ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.sm,
+                    ),
+                    leading: ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadii.small),
+                      child: ProductsImage(
+                        imageUrl: product.imageUrl,
+                        width: 44,
+                        height: 44,
+                      ),
+                    ),
+                    title: Text(product.baseName),
+                    subtitle: Text(
+                      '${product.categoryName} · ${product.brandName} · '
+                      '${product.variants.length} '
+                      'variant${product.variants.length == 1 ? '' : 's'}',
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // An archived row says so in words plus color, the
+                        // same pill as every other status in the app.
+                        const StatusBadge(
+                          label: 'Archived',
+                          tone: StatusTone.neutral,
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        OutlinedButton(
+                          onPressed: _busy ? null : () => _restore(product),
+                          child: const Text('Restore'),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
       actions: [
         FilledButton(
           onPressed: () => Navigator.pop(context),

@@ -18,7 +18,7 @@ class SharedSidebarSection {
   final List<SharedSidebarDestination> destinations;
 }
 
-class SharedSidebar extends StatelessWidget {
+class SharedSidebar extends StatefulWidget {
   const SharedSidebar({
     super.key,
     required this.sections,
@@ -45,8 +45,20 @@ class SharedSidebar extends StatelessWidget {
   static const double railWidth = 76;
 
   @override
+  State<SharedSidebar> createState() => _SharedSidebarState();
+}
+
+class _SharedSidebarState extends State<SharedSidebar> {
+  int? _hoveredIndex;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final sections = widget.sections;
+    final collapsed = widget.collapsed;
+    final selectedIndex = widget.selectedIndex;
+    final onDestinationSelected = widget.onDestinationSelected;
+    final markers = widget.markers;
     var destinationIndex = 0;
 
     Widget buildDestination(
@@ -54,9 +66,14 @@ class SharedSidebar extends StatelessWidget {
       int currentIndex,
     ) {
       final selected = currentIndex == selectedIndex;
+      final foreground = selected
+          ? AppColors.brandGoldLight
+          : _hoveredIndex == currentIndex
+          ? AppColors.brandWhite
+          : AppColors.chromeText;
       final onTap = onDestinationSelected == null
           ? null
-          : () => onDestinationSelected!(currentIndex);
+          : () => onDestinationSelected(currentIndex);
       final count = markers[currentIndex] ?? 0;
 
       if (collapsed) {
@@ -82,9 +99,7 @@ class SharedSidebar extends StatelessWidget {
                         child: Icon(
                           destination.icon,
                           size: 22,
-                          color: selected
-                              ? AppColors.brandGoldLight
-                              : AppColors.chromeText,
+                          color: foreground,
                         ),
                       ),
                     ),
@@ -132,21 +147,13 @@ class SharedSidebar extends StatelessWidget {
                   horizontal: AppSpacing.lg,
                 ),
                 horizontalTitleGap: AppSpacing.md,
-                leading: Icon(
-                  destination.icon,
-                  size: 19,
-                  color: selected
-                      ? AppColors.brandGoldLight
-                      : AppColors.chromeText,
-                ),
+                leading: Icon(destination.icon, size: 19, color: foreground),
                 title: Text(
                   destination.label,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontSize: 13,
-                    color: selected
-                        ? AppColors.brandGoldLight
-                        : AppColors.chromeText,
+                    color: foreground,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                   ),
                 ),
@@ -159,6 +166,14 @@ class SharedSidebar extends StatelessWidget {
             if (selected) const _ActiveBar(inset: 8),
           ],
         ),
+      );
+    }
+
+    Widget destinationRegion(SharedSidebarDestination destination, int index) {
+      return MouseRegion(
+        onEnter: (_) => setState(() => _hoveredIndex = index),
+        onExit: (_) => setState(() => _hoveredIndex = null),
+        child: buildDestination(destination, index),
       );
     }
 
@@ -203,7 +218,7 @@ class SharedSidebar extends StatelessWidget {
             ],
           ],
           for (final destination in sections[sectionIndex].destinations)
-            buildDestination(destination, destinationIndex++),
+            destinationRegion(destination, destinationIndex++),
         ],
       ],
     );
@@ -226,12 +241,19 @@ class _ActiveBar extends StatelessWidget {
       top: inset,
       bottom: inset,
       child: IgnorePointer(
-        child: Container(
-          key: const ValueKey('sidebar-active-bar'),
-          width: 3,
-          decoration: BoxDecoration(
-            color: AppColors.brandGold,
-            borderRadius: BorderRadius.circular(2),
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: 3),
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+          builder: (context, width, child) => Container(
+            key: const ValueKey('sidebar-active-bar'),
+            width: width,
+            decoration: BoxDecoration(
+              color: AppColors.brandGold,
+              borderRadius: BorderRadius.circular(2),
+            ),
           ),
         ),
       ),

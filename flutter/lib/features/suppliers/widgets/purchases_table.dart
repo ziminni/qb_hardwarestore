@@ -50,6 +50,8 @@ class PurchasesTable extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DataPanel<PurchaseOrder>(
+      title: 'Purchase orders',
+      count: orders.length,
       rows: orders,
       isLoading: isLoading,
       error: error,

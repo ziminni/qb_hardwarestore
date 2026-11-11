@@ -1,5 +1,4 @@
 import 'package:client/core/format/format.dart';
-import 'package:client/core/units/whole_units.dart';
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:flutter/material.dart';
 
@@ -107,8 +106,8 @@ class _PosSaleQuantityDialogState extends State<PosSaleQuantityDialog> {
                     if (number == null || number <= 0) {
                       return 'Enter a valid quantity';
                     }
-                    // One list, shared with the till's scan path (decision 17).
-                    if (isWholeUnit(_selected.unit) &&
+                    // The server's flag, shared with the till's scan path.
+                    if (_selected.isWhole &&
                         number != number.roundToDouble()) {
                       return 'Use a whole number for ${_selected.unit}';
                     }

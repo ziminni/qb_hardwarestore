@@ -68,7 +68,7 @@ class _SalesQuotationsPageState extends State<SalesQuotationsPage> {
             unitPrice: line.unitPrice,
           ),
       ],
-      total: formatPeso(item.total),
+      total: item.total,
     );
   }
 

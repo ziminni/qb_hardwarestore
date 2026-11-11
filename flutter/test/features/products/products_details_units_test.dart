@@ -356,6 +356,56 @@ void main() {
     );
   });
 
+  // Phase 1d Task 7 (decision 15): the invented "Inventory Tracking" block is
+  // gone. "Portland Cement" is one of the names the deleted mock was keyed by,
+  // so this product used to claim "By Weight, 4,000 kg, Rack A-01" — data no
+  // server had ever sent.
+  testWidgets('Portland Cement shows no invented tracking data', (
+    tester,
+  ) async {
+    final cement = seededProducts().first;
+    tester.view.physicalSize = const Size(1400, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final cementInventory = InventoryViewmodel.seeded(
+      products: [cement],
+      batches: [batch(id: 1, variantId: 1, qty: 130)],
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<InventoryViewmodel>.value(
+            value: cementInventory,
+          ),
+          ChangeNotifierProvider<AuthViewmodel>.value(
+            value: authWithRole('inventory'),
+          ),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => ProductsDetailsDialog(product: cement),
+                ),
+                child: const Text('open details'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open details'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Inventory Tracking'), findsNothing);
+    expect(find.textContaining('By Weight'), findsNothing);
+    expect(find.textContaining('Rack A-01'), findsNothing);
+  });
+
   testWidgets('a blank submit sends a blank code, which restores the QB code', (
     tester,
   ) async {

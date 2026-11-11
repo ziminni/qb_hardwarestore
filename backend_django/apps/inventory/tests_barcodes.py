@@ -69,8 +69,10 @@ class BarcodeTestBase(InventoryTestBase):
         self.password = get_random_string(16)
         self.stocker = self._make_user('bc_stocker', 'Stock Manager')
         self.cashier = self._make_user('bc_cashier', 'Cashier')
-        self.uom_pc = UnitOfMeasure.objects.create(code='PC', name='Piece')
-        self.uom_rl = UnitOfMeasure.objects.create(code='RL', name='Roll')
+        self.uom_pc, _ = UnitOfMeasure.objects.get_or_create(
+            code='PC', defaults={'name': 'Piece'})
+        self.uom_rl, _ = UnitOfMeasure.objects.get_or_create(
+            code='RL', defaults={'name': 'Roll'})
         # Factor 1 is the base unit; the second unit is a box of 12.
         self.unit = VariantUOM.objects.create(
             variant=self.variant, uom=self.uom,
@@ -258,8 +260,10 @@ class ConcurrentBarcodeTests(TransactionTestCase):
         self.password = get_random_string(16)
         category = inventory_models.Category.objects.create(name='Cement')
         brand = inventory_models.Brand.objects.create(name='Rhino')
-        uom = UnitOfMeasure.objects.create(code='BAG', name='Bag')
-        uom_pc = UnitOfMeasure.objects.create(code='PC', name='Piece')
+        uom, _ = UnitOfMeasure.objects.get_or_create(
+            code='BAG', defaults={'name': 'Bag'})
+        uom_pc, _ = UnitOfMeasure.objects.get_or_create(
+            code='PC', defaults={'name': 'Piece'})
         product = inventory_models.Product.objects.create(
             category=category, brand=brand, base_name='Portland Cement')
         variant = inventory_models.ProductVariant.objects.create(

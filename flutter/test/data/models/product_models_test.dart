@@ -8,6 +8,7 @@
 //
 // Decision 02: a missing *required* field must throw, not silently become 0.
 
+import 'package:client/data/models/catalogue_option.dart';
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/variant_uom.dart';
@@ -261,6 +262,65 @@ void main() {
 
     test('is empty when the variant has no selling unit at all', () {
       expect(ProductVariant.fromJson(variantJson([])).barcode, '');
+    });
+  });
+
+  // Phase 1d Tasks 1 and 5: the server owns the whole-number flag and the in-use
+  // flag. The client used to keep its own list of whole unit words, which cannot
+  // answer for `QABUNDLE` or for a shop that flags `PC` as measured.
+  group('the unit flags from the server', () {
+    Map<String, dynamic> unitRow([Map<String, dynamic> extra = const {}]) => {
+      'id': 8,
+      'variant': 8,
+      'uom': 2,
+      'uom_code': 'PC',
+      'uom_name': 'Piece',
+      'barcode_qr': '',
+      'conversion_factor': '1.00',
+      'default_selling_price': '315.00',
+      ...extra,
+    };
+
+    test('VariantUom reads uom_is_whole and in_use', () {
+      final unit = VariantUom.fromJson(
+        unitRow({'uom_is_whole': true, 'in_use': true}),
+      );
+
+      expect(unit.uomIsWhole, isTrue);
+      expect(unit.inUse, isTrue);
+    });
+
+    test('a row without the flags is measured and unused, never a crash', () {
+      // An older server (or the trimmed payloads above) omits both fields. The
+      // safe reading: no whole-number refusal copy, and no Remove button.
+      // A missing field must never throw — a page that cannot read a unit row
+      // would hide the entire catalogue behind a parse error.
+      final unit = VariantUom.fromJson(unitRow());
+
+      expect(unit.uomIsWhole, isFalse);
+      expect(unit.inUse, isFalse);
+    });
+
+    test('UnitOfMeasure reads is_whole from /uoms/', () {
+      final uom = UnitOfMeasure.fromJson({
+        'id': 2,
+        'code': 'BAG',
+        'name': 'Bag',
+        'is_whole': true,
+      });
+
+      expect(uom.isWhole, isTrue);
+      expect(uom.code, 'BAG');
+    });
+
+    test('a unit row without is_whole is measured', () {
+      final uom = UnitOfMeasure.fromJson({
+        'id': 3,
+        'code': 'KG',
+        'name': 'Kilogram',
+      });
+
+      expect(uom.isWhole, isFalse);
     });
   });
 }

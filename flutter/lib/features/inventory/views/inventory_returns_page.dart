@@ -133,6 +133,8 @@ class _InventoryReturnsPageState extends State<InventoryReturnsPage> {
           const SizedBox(height: AppSpacing.lg),
           Expanded(
             child: DataPanel<InventoryReturn>(
+              title: 'Returns',
+              count: rows.length,
               columns: _columns,
               rows: rows,
               emptyMessage: _filtered
@@ -258,7 +260,7 @@ class _InventoryReturnsPageState extends State<InventoryReturnsPage> {
             unitPrice: line.unitPrice,
           ),
       ],
-      total: formatPeso(item.total),
+      total: item.total,
     );
   }
 }

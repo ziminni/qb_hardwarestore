@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:client/core/network/api_client.dart';
+import 'package:client/data/models/held_cart.dart';
 import 'package:client/data/services/held_cart_service.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:dio/dio.dart';
@@ -117,6 +118,36 @@ void main() {
 
       expect(sale['id'], 18);
       expect(sale['transaction_no'], 'TRX-20261016-0007');
+    },
+  );
+
+  // Phase 1d Task 2: parking a cart with 1.5 of a whole unit is refused before
+  // anything is written. The refuse body names few things, so the counter needs
+  // the client's own sentence for it.
+  test(
+    'a fractional whole-unit hold says the unit is counted in whole ones',
+    () async {
+      final service = HeldCartService(client: client);
+      adapter = _FakeAdapter({'code': 'WHOLE_UNIT_QUANTITY'}, 400);
+      client.dio.httpClientAdapter = adapter;
+
+      final failure = await service
+          .hold(
+            items: const [
+              HeldCartItem(id: 0, variantUom: 33, qty: 1.5, unitPrice: 270),
+            ],
+          )
+          .then<Object?>((_) => null, onError: (error) => error);
+
+      expect(failure, isA<HeldCartServiceException>());
+      final refusal = failure! as HeldCartServiceException;
+      expect(refusal.code, 'WHOLE_UNIT_QUANTITY');
+      expect(refusal.message, contains('whole number'));
+      expect(
+        refusal.isInsufficientStock,
+        isFalse,
+        reason: 'a whole-number rule is not a stock shortfall',
+      );
     },
   );
 }

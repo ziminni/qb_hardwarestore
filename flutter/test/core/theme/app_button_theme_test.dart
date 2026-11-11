@@ -1,4 +1,6 @@
+import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_text_styles.dart';
+import 'package:client/core/theme/app_button_theme.dart';
 import 'package:client/core/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -56,5 +58,43 @@ void main() {
 
     expect(text.fontFamily, outlined.fontFamily);
     expect(text.fontFamily, filled.fontFamily);
+  });
+
+  /// Keyboard focus on the gold buttons must be visible, not just a faint
+  /// overlay tint. Focused draws a 2px black side; hover-only stays borderless.
+  group('button focus outline', () {
+    bool isVisible(BorderSide? side) =>
+        side != null && side.style != BorderStyle.none && side.width > 0;
+
+    BorderSide? sideFor(ButtonStyle style, Set<WidgetState> states) =>
+        style.side?.resolve(states);
+
+    final styles = <String, ButtonStyle>{
+      'filledButton': AppButtonTheme.filledButton().style!,
+      'elevatedButton': AppButtonTheme.elevatedButton().style!,
+      'textButton': AppButtonTheme.textButton().style!,
+    };
+
+    styles.forEach((name, style) {
+      test('$name draws a 2px brandBlack side when focused', () {
+        final side = sideFor(style, {WidgetState.focused});
+
+        expect(side, isNotNull, reason: '$name has no side for focused');
+        expect(side!.color, AppColors.brandBlack);
+        expect(side.width, greaterThanOrEqualTo(2));
+      });
+
+      test('$name has no visible side when idle', () {
+        expect(isVisible(sideFor(style, {})), isFalse);
+      });
+
+      test('$name has no visible side when hovered', () {
+        expect(isVisible(sideFor(style, {WidgetState.hovered})), isFalse);
+      });
+
+      test('$name has no visible side when disabled', () {
+        expect(isVisible(sideFor(style, {WidgetState.disabled})), isFalse);
+      });
+    });
   });
 }

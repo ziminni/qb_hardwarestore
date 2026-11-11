@@ -12,7 +12,6 @@ import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/products_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:client/features/products/views/products_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -240,7 +239,6 @@ Future<void> _pumpPage(
             create: (_) => AuthViewmodel(AuthRepository(AuthService())),
           ),
           ChangeNotifierProvider<InventoryViewmodel>.value(value: store),
-          ChangeNotifierProvider(create: (_) => ProductTrackingViewmodel()),
         ],
         child: MaterialApp(
           debugShowCheckedModeBanner: false,

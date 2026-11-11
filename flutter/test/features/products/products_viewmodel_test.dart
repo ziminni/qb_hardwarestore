@@ -17,6 +17,7 @@ import 'package:client/data/repositories/products_repository.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/products/viewmodels/products_viewmodel.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../support/phase4_fakes.dart';
 
@@ -28,6 +29,9 @@ void main() {
   late ProductsViewmodel vm;
 
   setUp(() async {
+    // Creating or editing a product also records the storage location on THIS
+    // device (decision 15), which goes through shared_preferences.
+    SharedPreferences.setMockInitialValues({});
     products = FakeProductsRepository(
       products: [
         product(

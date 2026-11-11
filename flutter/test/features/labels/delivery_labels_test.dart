@@ -13,6 +13,7 @@ VariantUom unit({
   String code = 'PC',
   String barcode = 'QB000013-0',
   double factor = 1,
+  bool isWhole = true,
 }) => VariantUom(
   id: 13,
   variantId: 8,
@@ -22,6 +23,7 @@ VariantUom unit({
   barcodeQr: barcode,
   conversionFactor: factor,
   defaultSellingPrice: 10,
+  uomIsWhole: isWhole,
 );
 
 List<LabelRequest> prefill(List<VariantUom> units, double received) =>
@@ -42,7 +44,9 @@ void main() {
   });
 
   test('a measured base unit gets exactly one sticker', () {
-    final requests = prefill([unit(code: 'M', barcode: 'QB000020-7')], 18.75);
+    final requests = prefill([
+      unit(code: 'M', barcode: 'QB000020-7', isWhole: false),
+    ], 18.75);
 
     expect(
       requests.single.copies,
@@ -50,6 +54,35 @@ void main() {
       reason: '18.75 m is not 18 stickers, and 19 would lie about the roll',
     );
   });
+
+  // Phase 1d decision 16: the SERVER owns the whole-number flag. The code word
+  // is only a label, so a shop that flags `PC` as measured, or sells a
+  // `QABUNDLE` in ones, must be followed rather than second-guessed.
+  test('a unit coded PC but flagged measured gets one sticker', () {
+    final requests = prefill([unit(isWhole: false)], 24);
+
+    expect(
+      requests.single.copies,
+      1,
+      reason:
+          'a measured piece is not 24 countable things, whatever the code says',
+    );
+  });
+
+  test(
+    'a unit flagged whole gets one sticker per piece, whatever its code',
+    () {
+      final requests = prefill([
+        unit(code: 'QABUNDLE', barcode: 'QB000060-1'),
+      ], 24);
+
+      expect(
+        requests.single.copies,
+        24,
+        reason: 'the flag, not the word, decides what a countable unit is',
+      );
+    },
+  );
 
   test('a unit that is not the base unit starts at 0', () {
     final requests = prefill([

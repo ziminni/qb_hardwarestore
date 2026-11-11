@@ -19,6 +19,8 @@ class VariantUom {
     this.variantName = '',
     this.productIsActive = true,
     this.variantIsActive = true,
+    this.uomIsWhole = false,
+    this.inUse = false,
   });
 
   final int id;
@@ -48,6 +50,19 @@ class VariantUom {
   final bool productIsActive;
   final bool variantIsActive;
 
+  /// The SERVER's whole-number flag for this unit (Phase 1d).
+  ///
+  /// It replaces the client's own list of whole unit words, because the flag is
+  /// what the server enforces: a shop that flags `PC` as measured, or that sells
+  /// a `QABUNDLE` in ones, is answered correctly by reading the field. A row from
+  /// an older server omits it, and "measured" is the safe reading — the till then
+  /// asks for the quantity instead of adding a count it cannot take back.
+  final bool uomIsWhole;
+
+  /// True when a sale, held cart, return, quotation, sales order or project
+  /// request line already references this unit, so it cannot be removed.
+  final bool inUse;
+
   /// The one normalisation rule for a code, shared by every writer and reader.
   ///
   /// The server trims and upper-cases before it stores or compares (decision 11),
@@ -72,6 +87,8 @@ class VariantUom {
       variantName: json['variant_name'] as String? ?? '',
       productIsActive: boolFieldOr(json, 'product_is_active', or: true),
       variantIsActive: boolFieldOr(json, 'variant_is_active', or: true),
+      uomIsWhole: boolFieldOr(json, 'uom_is_whole', or: false),
+      inUse: boolFieldOr(json, 'in_use', or: false),
     );
   }
 }

@@ -1,4 +1,3 @@
-import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
@@ -7,10 +6,13 @@ import 'package:client/features/categories/widgets/inventory_category_card.dart'
 import 'package:client/features/categories/widgets/inventory_category_dialog.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/empty_state.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
+import 'package:client/shared/widgets/metric_grid.dart';
+import 'package:client/shared/widgets/metric_tile.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -126,11 +128,14 @@ class _CategoriesPageState extends State<CategoriesPage> {
     if (archiving) {
       final confirmed = await showDialog<bool>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Archive category?'),
-          content: Text(
-            '${category.name} will be hidden from the new product picker. '
-            'Products already filed under it stay sellable.',
+        builder: (dialogContext) => AppDialog(
+          icon: Icons.archive_outlined,
+          title: 'Archive category?',
+          subtitle: category.name,
+          width: 460,
+          content: const Text(
+            'The category leaves the new product picker. Products already '
+            'filed under it stay sellable.',
           ),
           actions: [
             TextButton(
@@ -218,18 +223,20 @@ class _CategoriesPageState extends State<CategoriesPage> {
               ),
             ],
           ),
-          if (total > 0) ...[
+          // Three tiles, not a sentence: all, offered and archived are read
+          // as numbers. They are only a fact once a load has answered, so a
+          // failed read shows its banner and no zeros.
+          if (inventory.hasLoaded && failure == null) ...[
             const SizedBox(height: AppSpacing.md),
-            // The count line is only a fact once something is loaded: on a
-            // failed or empty read it would claim "0 categories".
-            Text(
-              '${formatCount(total)} ${total == 1 ? 'category' : 'categories'}, '
-              '${formatCount(activeCount)} active, '
-              '${formatCount(archivedCount)} archived',
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppColors.textSecondary,
-              ),
+            MetricGrid(
+              children: [
+                MetricTile(label: 'Categories', value: formatCount(total)),
+                MetricTile(label: 'Active', value: formatCount(activeCount)),
+                MetricTile(
+                  label: 'Archived',
+                  value: formatCount(archivedCount),
+                ),
+              ],
             ),
           ],
           const SizedBox(height: AppSpacing.lg),
@@ -349,19 +356,20 @@ class _NewCategoryDialogState extends State<_NewCategoryDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('New category'),
-      content: SizedBox(
-        width: 420,
-        child: TextField(
-          controller: _name,
-          autofocus: true,
-          decoration: InputDecoration(
-            labelText: 'Category name',
-            errorText: _error,
-          ),
-          onSubmitted: (_) => _submit(),
+    return AppDialog(
+      icon: Icons.category_outlined,
+      title: 'New category',
+      subtitle: 'A name only: products are filed under it afterwards.',
+      width: 460,
+      content: TextField(
+        controller: _name,
+        autofocus: true,
+        decoration: InputDecoration(
+          labelText: 'Category name',
+          helperText: 'Shown in the product form and the filters.',
+          errorText: _error,
         ),
+        onSubmitted: (_) => _submit(),
       ),
       actions: [
         TextButton(

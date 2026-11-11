@@ -4,7 +4,6 @@ import 'package:client/core/constants/app_breakpoints.dart';
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
-import 'package:client/core/units/whole_units.dart';
 import 'package:client/data/models/held_cart.dart';
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
@@ -433,7 +432,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
 
     switch (await transaction.resolveScan(value)) {
       case ScanHit(:final item):
-        if (isWholeUnit(item.unit)) {
+        if (item.isWhole) {
           final error = transaction.addLine(item, 1);
           if (error != null) _announce(context, error);
         } else {

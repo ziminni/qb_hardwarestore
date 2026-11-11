@@ -1,6 +1,10 @@
 import 'dart:math' as math;
 
 import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_radii.dart';
+import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/constants/app_text_styles.dart';
+import 'package:client/core/format/format.dart';
 import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/empty_state.dart';
 import 'package:client/shared/widgets/error_banner.dart';
@@ -68,6 +72,8 @@ class DataPanel<T> extends StatelessWidget {
     this.onRowTap,
     this.rowKey,
     this.controller,
+    this.title,
+    this.count,
   });
 
   /// Below this content width the table becomes cards.
@@ -110,8 +116,80 @@ class DataPanel<T> extends StatelessWidget {
   /// header straight to the rows through this. Null lets the panel own one.
   final ScrollController? controller;
 
+  /// The list's own title, drawn above the panel: `DataPanel` brings the card
+  /// but no heading, and a second panel around it would draw a second border.
+  ///
+  /// Null and [count] null is the panel exactly as it was before either
+  /// existed, which is why the callers that do not want a heading never change.
+  final String? title;
+
+  /// Number of rows shown after filtering or pagination, read out in words
+  /// ("12 rows shown"). Pass `rows.length`, not the server's unfiltered total.
+  final int? count;
+
   @override
   Widget build(BuildContext context) {
+    final heading = _heading();
+    final panel = _panel(context);
+    if (heading == null) return panel;
+
+    // A page that gave the panel a slot of its own (an `Expanded`) hands down a
+    // bounded height: the heading takes its line and the panel keeps the rest,
+    // so the rows still scroll inside the panel. A page that scrolls itself
+    // hands down no bound; there the two stack at their own heights.
+    return LayoutBuilder(
+      builder: (context, slot) => slot.maxHeight.isFinite
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                heading,
+                Expanded(child: panel),
+              ],
+            )
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [heading, panel],
+            ),
+    );
+  }
+
+  /// The title and count pill, or null when the caller wants neither.
+  Widget? _heading() {
+    if (title == null && count == null) return null;
+    final label = title;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: label == null
+                ? const SizedBox.shrink()
+                : Semantics(
+                    header: true,
+                    // Cinzel at 18 px: a list heading is a heading.
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: AppTextStyles.cinzelFont,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+          ),
+          if (count case final count?) _CountPill(count),
+        ],
+      ),
+    );
+  }
+
+  Widget _panel(BuildContext context) {
     // Precedence is loading, then error, then empty, then data: a retry holds
     // the previous failure while the next attempt runs, and reporting "no
     // records" for a failed request is a lie the user cannot see through.
@@ -405,4 +483,48 @@ class DataPanel<T> extends StatelessWidget {
   /// flex of 1 therefore splits the row exactly as it did before flex existed.
   int _flex(DataPanelColumn<T> column) =>
       column.flex * (column.numeric ? 2 : 3);
+}
+
+/// How many records the list holds, beside its title.
+///
+/// The screen reader hears words ("12 rows shown"), not a bare number floating
+/// after a heading: a button or a field that reads "12" says nothing about what
+/// the twelve are.
+class _CountPill extends StatelessWidget {
+  const _CountPill(this.count);
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = formatCount(count);
+
+    return Semantics(
+      label: '$shown ${count == 1 ? 'row' : 'rows'} shown',
+      child: ExcludeSemantics(
+        child: Container(
+          key: const ValueKey('DataPanel.count'),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.sm + 2,
+            vertical: 3,
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.selected,
+            borderRadius: BorderRadius.circular(AppRadii.pill),
+          ),
+          child: Text(
+            shown,
+            style: const TextStyle(
+              fontFamily: AppTextStyles.outfitFont,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              // Gold as ink: the brand gold is a fill colour and is under
+              // 4.5:1 as 12 px text.
+              color: AppColors.brandGoldText,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

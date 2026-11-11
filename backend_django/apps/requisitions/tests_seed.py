@@ -34,7 +34,18 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from apps.collectibles.models import CollectibleLedger
-from apps.inventory.models import InventoryBatch
+from apps.inventory.models import (
+    GoodsReceipt,
+    GoodsReceiptItem,
+    InventoryBatch,
+    POItem,
+    Product,
+    ProductVariant,
+    PurchaseOrder,
+    UnitOfMeasure,
+    VariantUOM,
+)
+from apps.inventory.models import derived_code as selling_unit_code
 from apps.pos.models import (
     OfficialReceipt,
     SalesItem,
@@ -311,6 +322,94 @@ class SeedDemoTests(TestCase):
             Shift.objects.filter(status=Shift.Status.OPEN).count(), 1,
             'the release shift stays open for the cashier demo')
 
+    # -- the packaging demo (Phase 1d Task 4) ----------------------------
+
+    def _packaging_variant(self):
+        return ProductVariant.objects.get(
+            product__base_name='Tile Adhesive', variant_name='Standard')
+
+    def _packaging_snapshot(self):
+        """Ids, codes, prices, stock and documents a second run must not touch."""
+        variant = self._packaging_variant()
+        return {
+            'products': tuple(Product.objects.order_by('pk').values_list('pk', 'base_name')),
+            'variant': (variant.pk, variant.base_uom.code),
+            'units': tuple(
+                variant.selling_uoms.order_by('pk').values_list(
+                    'pk', 'uom__code', 'conversion_factor', 'default_selling_price',
+                    'barcode_qr')),
+            'batches': tuple(InventoryBatch.objects.order_by('pk')
+                             .values_list('pk', 'variant_id', 'current_qty')),
+            'purchase_orders': PurchaseOrder.objects.count(),
+            'receipts': GoodsReceipt.objects.count(),
+            'receipt_lines': GoodsReceiptItem.objects.count(),
+        }
+
+    def test_the_packaging_demo_product_is_sold_in_two_units(self):
+        variant = self._packaging_variant()
+
+        self.assertEqual(variant.base_uom.code, 'KG')
+        self.assertFalse(variant.base_uom.is_whole,
+                         'kilograms are measured, not counted in ones')
+        units = {
+            unit.uom.code: unit for unit in variant.selling_uoms.all()
+        }
+        self.assertEqual(sorted(units), ['BAG', 'KG'])
+        self.assertEqual(units['KG'].conversion_factor, Decimal('1.00'))
+        self.assertEqual(units['BAG'].conversion_factor, Decimal('25.00'),
+                         'one bag holds 25 kg of the base unit')
+        self.assertFalse(units['KG'].uom.is_whole)
+        self.assertTrue(units['BAG'].uom.is_whole)
+        self.assertGreater(units['BAG'].default_selling_price, Decimal('0'))
+        self.assertGreater(units['KG'].default_selling_price, Decimal('0'))
+
+    def test_each_packaging_unit_carries_its_own_scannable_qb_code(self):
+        variant = self._packaging_variant()
+        codes = list(variant.selling_uoms.values_list('pk', 'barcode_qr'))
+
+        self.assertEqual(len(codes), 2)
+        for pk, code in codes:
+            self.assertEqual(code, selling_unit_code(pk),
+                             'the seed never hand-types a reserved QB code')
+        self.assertEqual(len({code for _pk, code in codes}), 2,
+                         'the two selling units must scan apart')
+
+    def test_the_packaging_stock_arrived_through_a_purchase_order_and_receiving(self):
+        variant = self._packaging_variant()
+        on_hand = sum(InventoryBatch.objects.filter(variant=variant)
+                      .values_list('current_qty', flat=True), Decimal('0'))
+
+        self.assertEqual(on_hand, Decimal('250.00'))
+        item = POItem.objects.get(variant=variant)
+        self.assertEqual(item.ordered_qty, Decimal('250.00'))
+        self.assertEqual(item.received_qty, Decimal('250.00'))
+        self.assertEqual(item.po.status, PurchaseOrder.Status.COMPLETE)
+        receipt = GoodsReceipt.objects.get(po=item.po)
+        self.assertIsNotNone(receipt.processed_at,
+                             'a real Receiving process keyed the stock')
+        self.assertEqual(receipt.received_by.username, 'stocker')
+        self.assertEqual(receipt.lines.get().qty, Decimal('250.00'))
+
+    def test_seeding_again_keeps_the_packaging_product_stock_and_codes(self):
+        before = self._packaging_snapshot()
+
+        call_command('seed_demo', verbosity=0, stdout=StringIO())
+
+        self.assertEqual(self._packaging_snapshot(), before,
+                         'a second run changes no packaging row, code or batch')
+
+    def test_the_packaging_product_adds_one_product_and_no_extra_sale(self):
+        self.assertEqual(
+            ProductVariant.objects.filter(
+                product__base_name='Tile Adhesive').count(), 1,
+            'one variant, not one per selling unit')
+        self.assertEqual(VariantUOM.objects.filter(
+            variant=self._packaging_variant()).count(), 2)
+        self.assertFalse(
+            SalesTransaction.objects.filter(
+                items__variant_uom__variant=self._packaging_variant()).exists(),
+            'the packaging demo is stock and units, not a seventh shop sale')
+
     # -- re-running the command ------------------------------------------
 
     def test_seeding_again_keeps_the_same_requests_tokens_decisions_and_money(self):
@@ -345,3 +444,30 @@ class SeedDemoTests(TestCase):
         self.assertIn('DECLINED', declined_line)
         self.assertIn('dead', declined_line,
                       'the operator must know the declined token is spent')
+
+
+class StandardUnitSeedTests(TestCase):
+    def test_fresh_install_seed_does_not_add_a_second_roll(self):
+        call_command('seed_demo', verbosity=0, stdout=StringIO())
+        self.assertEqual(
+            list(UnitOfMeasure.objects.filter(code__in=['RL', 'ROLL'])
+                 .values_list('code', flat=True)), ['ROLL'])
+
+    def test_seed_restores_standard_units_after_flush_without_rerunning_migrations(self):
+        # No business rows exist here: emulate flush removing migration seed data.
+        UnitOfMeasure.objects.all().delete()
+        call_command('seed_demo', verbosity=0, stdout=StringIO())
+        expected = {
+            'PC': True, 'BAG': True, 'BOX': True, 'PACK': True,
+            'ROLL': True, 'SHEET': True, 'KG': False, 'G': False,
+            'M': False, 'CM': False, 'L': False, 'ML': False,
+        }
+        self.assertEqual(
+            dict(UnitOfMeasure.objects.values_list('code', 'is_whole')), expected)
+
+    def test_existing_rl_is_reused_without_creating_roll(self):
+        UnitOfMeasure.objects.filter(code='ROLL').delete()
+        UnitOfMeasure.objects.create(code='RL', name='Roll', is_whole=True)
+        call_command('seed_demo', verbosity=0, stdout=StringIO())
+        self.assertTrue(UnitOfMeasure.objects.get(code='RL').is_whole)
+        self.assertFalse(UnitOfMeasure.objects.filter(code='ROLL').exists())

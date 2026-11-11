@@ -20,7 +20,6 @@ import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/products_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:client/features/products/views/products_page.dart';
 import '../../support/phase4_fakes.dart';
 import 'package:flutter/material.dart';
@@ -136,9 +135,6 @@ void main() {
             create: (_) => AuthViewmodel(AuthRepository(AuthService())),
           ),
           ChangeNotifierProvider<InventoryViewmodel>.value(value: store),
-          ChangeNotifierProvider<ProductTrackingViewmodel>(
-            create: (_) => ProductTrackingViewmodel(),
-          ),
         ],
         child: const MaterialApp(home: ProductsPage()),
       ),

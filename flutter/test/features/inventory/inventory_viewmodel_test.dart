@@ -10,6 +10,7 @@
 
 import 'package:client/data/models/catalogue_option.dart';
 import 'package:client/data/models/inventory.dart';
+import 'package:client/data/models/product_writes.dart';
 import 'package:client/data/services/products_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -268,6 +269,81 @@ void main() {
       await vm.setLocationHint(1, 'Rack A-01');
 
       expect(notified, greaterThan(0));
+    });
+  });
+
+  // Phase 1d Task 7: the Add product form asks where the stock sits, and the
+  // answer is device-local knowledge (decision 15): the server has no location
+  // field, so the store is the only writer and the only reader.
+  group('InventoryViewmodel: a new product records its location', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    InventoryViewmodel store(FakeProductsRepository repository) =>
+        InventoryViewmodel(
+          products: repository,
+          inventory: FakeInventoryRepository(),
+          catalogue: FakeCatalogueRepository(),
+        );
+
+    NewProductDraft draft({String location = 'Rack A-01'}) => NewProductDraft(
+      categoryId: 1,
+      brandId: 1,
+      baseName: 'Portland Cement',
+      description: '',
+      imageUrl: '',
+      variantName: 'Standard',
+      baseUomId: 1,
+      minStockThreshold: 5,
+      maxStockLevel: 100,
+      sellingPrice: 6.75,
+      locationHint: location,
+    );
+
+    // The fake answers variant id 201 for its first create (200 + 1).
+    const variantId = 201;
+
+    test('a successful create saves the location on this device', () async {
+      final repository = FakeProductsRepository();
+      final vm = store(repository);
+
+      expect(await vm.createProduct(draft()), isNull);
+
+      expect(vm.locationHintFor(variantId), 'Rack A-01');
+    });
+
+    test('a blank location clears the hint the product had', () async {
+      final repository = FakeProductsRepository();
+      final vm = store(repository);
+      await vm.createProduct(draft());
+
+      expect(
+        await vm.editProduct(
+          const ProductEditDraft(
+            productId: 1,
+            variantId: variantId,
+            sellingUnitId: 1,
+            baseName: 'Portland Cement',
+          ),
+        ),
+        isNull,
+      );
+
+      expect(vm.locationHintFor(variantId), '');
+    });
+
+    test('a partial create keeps the location AND names the unit', () async {
+      final repository = FakeProductsRepository()..partialFailUnit = 'BAG';
+      final vm = store(repository);
+
+      final message = await vm.createProduct(draft());
+
+      // Both halves, in one sentence: the product EXISTS, and this unit was not
+      // saved. A clerk who reads only one of them retries and duplicates it.
+      expect(message, contains('Portland Cement'));
+      expect(message, contains('was created'));
+      expect(message, contains('BAG'));
+      expect(message, contains('not saved'));
+      expect(vm.locationHintFor(variantId), 'Rack A-01');
     });
   });
 

@@ -17,6 +17,7 @@ from apps.inventory.exceptions import (
     NoBatchHistory,
 )
 from apps.collectibles.services import Overpayment
+from common.exceptions import WholeUnitQuantity
 
 
 class ReturnError(ValueError):
@@ -315,6 +316,17 @@ def handler(exc, context):
     Everything else falls through to DRF unchanged, so a genuine server error stays
     a 5xx and a validation error stays a 400 with DRF's field errors.
     """
+    if isinstance(exc, WholeUnitQuantity):
+        # Phase 1d Task 2 (decision 16): a fractional quantity on a unit counted in whole
+        # numbers. Raised BEFORE the first write on every path that carries a quantity -
+        # sale, return, held cart, quotation, sales order, purchase order, goods receipt,
+        # stock adjustment and the CPMS import - so this 400 also means "nothing
+        # changed". Its own branch, because `InvalidSale`'s code would tell the client
+        # the wrong thing to do about it.
+        return Response(
+            {'code': exc.code, 'detail': str(exc)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     if isinstance(exc, CatalogWriteRefused):
         # Phase 4 Tasks 1-2: catalog/purchasing refusals (a delete, an unusable selling
         # unit, a purchase order in the wrong state). Raised BEFORE the first write - in

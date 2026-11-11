@@ -1,6 +1,5 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
-import 'package:client/core/constants/app_text_styles.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/data/models/inventory.dart';
@@ -16,6 +15,7 @@ import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
+import 'package:client/shared/widgets/section_heading.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -224,10 +224,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
             },
           ),
           const SizedBox(height: AppSpacing.xl),
-          _SectionHeading(
+          SectionHeading(
             title: 'Recent sales',
-            actionLabel: 'View all',
-            onAction: () => _go(AppRoutes.adminSales),
+            actions: [
+              TextButton(
+                onPressed: () => _go(AppRoutes.adminSales),
+                child: const Text('View all'),
+              ),
+            ],
           ),
           const SizedBox(height: AppSpacing.md),
           DataPanel<TransactionRecord>(
@@ -271,7 +275,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
           // table under a failed load would say "nothing is wrong".
           if (stockReady) ...[
             const SizedBox(height: AppSpacing.xl),
-            const _SectionHeading(title: 'Alerts'),
+            const SectionHeading(title: 'Alerts'),
             const SizedBox(height: AppSpacing.md),
             DataPanel<SystemAlert>(
               columns: [
@@ -383,38 +387,6 @@ class _StatRow extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-/// A list's heading above its card: `DataPanel` brings the card but no title,
-/// and an `AppPanel` around it would draw a second border.
-class _SectionHeading extends StatelessWidget {
-  const _SectionHeading({required this.title, this.actionLabel, this.onAction});
-
-  final String title;
-  final String? actionLabel;
-  final VoidCallback? onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    final label = actionLabel;
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontFamily: AppTextStyles.cinzelFont,
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-        if (label != null) TextButton(onPressed: onAction, child: Text(label)),
-      ],
     );
   }
 }

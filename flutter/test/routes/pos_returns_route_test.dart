@@ -21,7 +21,6 @@ import 'package:client/data/services/auth_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/views/pos_returns_page.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:client/routes/routes.dart';
 import '../support/phase4_fakes.dart';
 import 'package:dio/dio.dart';
@@ -115,9 +114,6 @@ void main() {
           // with the Returns tab.
           ChangeNotifierProvider<InventoryViewmodel>(
             create: (_) => seededInventory(),
-          ),
-          ChangeNotifierProvider<ProductTrackingViewmodel>(
-            create: (_) => ProductTrackingViewmodel(),
           ),
         ],
         child: MaterialApp.router(routerConfig: router),

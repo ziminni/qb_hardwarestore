@@ -25,7 +25,11 @@ from django.utils import timezone
 
 from apps.collectibles.models import CollectibleLedger
 from apps.inventory.models import InventoryBatch, VariantUOM, normalise_barcode
-from apps.inventory.services import allocate_fifo, check_low_stock_after_stock_out
+from apps.inventory.services import (
+    allocate_fifo,
+    check_low_stock_after_stock_out,
+    lock_selling_unit_lines,
+)
 from apps.pos.exceptions import NoOpenShift
 from apps.pos.models import (
     Customer,
@@ -35,6 +39,7 @@ from apps.pos.models import (
     Shift,
 )
 from apps.pos.services import generate_or_number, generate_transaction_no
+from common.exceptions import refuse_fractional_whole_unit
 from common.numbering import generate_document_number
 
 from .exceptions import (
@@ -63,26 +68,26 @@ def generate_req_number():
     return generate_document_number(Requisition, 'req_number', 'REQ')
 
 
-# Units sold only in whole counts. Mirrors `wholeUnitCodes` in
-# flutter/lib/core/units/whole_units.dart (Phase 6 decision 17): keep the two in step.
-WHOLE_UNIT_CODES = frozenset({'pc', 'piece', 'bag', 'box', 'sheet', 'roll', 'pack'})
+# Units sold only in whole counts lived here as a frozen set of codes until Phase 1d:
+# the flag now travels with the unit row (`UnitOfMeasure.is_whole`), so the release reads
+# the server's own answer instead of matching a client-side list (decision 16).
 
 
 def releasable_qty(*, remaining: Decimal, available_base: Decimal,
-                   conversion_factor: Decimal, unit_code: str) -> Decimal:
+                   conversion_factor: Decimal, is_whole: bool) -> Decimal:
     """How much of one requested line can leave the store now, in the line's selling unit.
 
     Decision 05: release what is there, never more than is still outstanding.
     - `remaining`: still outstanding on the line, in its selling unit (e.g. 3 boxes).
     - `available_base`: stock on hand in BASE units across the variant's batches.
     - `conversion_factor`: base units per one selling unit (a box of 12 -> 12).
-    - `unit_code`: the selling unit's code; whole units (WHOLE_UNIT_CODES, any case,
-      surrounding spaces ignored) only release whole counts, measured units release to
-      2 decimal places. Always round DOWN, never past what is on the shelf.
+    - `is_whole`: the selling unit's `UnitOfMeasure.is_whole` flag (decision 16): a whole
+      unit only releases whole counts, a measured one releases to 2 decimal places.
+      Always round DOWN, never past what is on the shelf.
     Returns a Decimal with 2 decimal places, 0.00 when nothing can go.
     """
     on_shelf = max(available_base, Decimal('0')) / conversion_factor
-    step = Decimal('1') if unit_code.strip().lower() in WHOLE_UNIT_CODES else Decimal('0.01')
+    step = Decimal('1') if is_whole else Decimal('0.01')
     return min(remaining, on_shelf).quantize(step, rounding=ROUND_DOWN).quantize(Decimal('0.01'))
 
 
@@ -200,7 +205,7 @@ def _release_plan(requisition) -> list:
                 remaining=remaining,
                 available_base=available,
                 conversion_factor=item.variant_uom.conversion_factor,
-                unit_code=item.variant_uom.uom.code,
+                is_whole=item.variant_uom.uom.is_whole,
             )
             on_hand[variant.pk] = available - releasable * item.variant_uom.conversion_factor
         plan.append({'item': item, 'remaining': remaining,
@@ -538,12 +543,22 @@ def _resolved_lines(items):
         barcode_qr__in=codes,
         variant__is_active=True,
         variant__product__is_active=True,
-    )
+    ).select_related('uom', 'variant__product')
     by_code = {unit.barcode_qr: unit for unit in units}
     unknown = [code for code in codes if code not in by_code]
     if unknown:
         raise UnknownMaterial(unknown)
-    return [(by_code[code], item['quantity']) for code, item in zip(codes, items, strict=True)]
+    lines = []
+    for index, (code, item) in enumerate(zip(codes, items, strict=True), start=1):
+        unit = by_code[code]
+        # Phase 1d Task 2 (decision 16, Q2): a fractional quantity on a whole selling unit
+        # refuses the WHOLE import, before the first write - a half-stored request would
+        # be a token the store could release against goods nobody can count.
+        refuse_fractional_whole_unit(
+            is_whole=unit.uom.is_whole, qty=item['quantity'],
+            what=f'Line {index} ({unit.variant}, {unit.uom.code})')
+        lines.append((unit, item['quantity']))
+    return lines
 
 
 def _upsert_project(project_data, payer):
@@ -591,6 +606,12 @@ def import_request(*, cpms_request_id, token, project, requester_name,
     project, requisition, line or token row behind. The `IntegrityError` branch covers
     the one thing a read cannot: two identical pushes at the same instant, where the
     loser answers `200` with the winner's row instead of a `500`.
+
+    Phase 1d Task 3 (decision 16): `_resolved_lines` also runs before that transaction,
+    so the first thing the transaction does is lock the selling units it resolved - the
+    same lock `DELETE /variant-uoms/{id}/` takes. A push whose code was removed in that
+    window is a `400 SELLING_UNIT_IN_USE`, not a foreign-key `500`, and it leaves no
+    project row behind.
     """
     existing = _existing_requisition(cpms_request_id)
     if existing is not None:
@@ -609,6 +630,9 @@ def import_request(*, cpms_request_id, token, project, requester_name,
 
     try:
         with transaction.atomic():
+            # Locked BEFORE the project upsert: it is the first write, and a refusal
+            # after it would have to roll a project row back.
+            lock_selling_unit_lines(lines, document='project request')
             project_row = _upsert_project(project, payer)
             requisition = Requisition.objects.create(
                 project=project_row,

@@ -329,6 +329,34 @@ void main() {
       expect(failure.code, 'IDEMPOTENCY_KEY_REUSED');
       expect(failure.message, contains('different sale'));
     });
+
+    // Phase 1d Task 2: a whole unit is counted in ones, and the server refuses a
+    // fractional one. Its detail names the line, the product and the unit, which
+    // is more than this map could say — but a body that lost its prose must still
+    // reach the cashier as an instruction, never as "try again".
+    test('WHOLE_UNIT_QUANTITY keeps the server\'s line detail', () async {
+      final failure = await failureFor({
+        'code': 'WHOLE_UNIT_QUANTITY',
+        'detail':
+            'Line 1 (Portland Cement · 40kg · BAG): 1.5 is not a whole '
+            'number of BAG.',
+      }, 400);
+
+      expect(failure.code, 'WHOLE_UNIT_QUANTITY');
+      expect(failure.message, contains('1.5 is not a whole number'));
+      expect(
+        failure.isInsufficientStock,
+        isFalse,
+        reason: 'a whole-number rule is not a stock shortfall',
+      );
+    });
+
+    test('WHOLE_UNIT_QUANTITY without prose still says what to do', () async {
+      final failure = await failureFor({'code': 'WHOLE_UNIT_QUANTITY'}, 400);
+
+      expect(failure.code, 'WHOLE_UNIT_QUANTITY');
+      expect(failure.message, contains('whole number'));
+    });
   });
 
   // Task 4 (decision 06 section 2): a walk-in sale CANNOT omit the customer.

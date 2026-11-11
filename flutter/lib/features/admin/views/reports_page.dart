@@ -1,7 +1,6 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
-import 'package:client/core/constants/app_text_styles.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/data/models/inventory.dart';
@@ -12,6 +11,7 @@ import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
+import 'package:client/shared/widgets/section_heading.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
@@ -677,16 +677,14 @@ class _MovementsTab extends StatelessWidget {
             style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
           ),
           const SizedBox(height: AppSpacing.md),
-          const _SectionHeading(label: 'Goods received'),
-          const SizedBox(height: AppSpacing.sm),
+          const SectionHeading(title: 'Goods received'),
           DataPanel<_ReceiptRow>(
             columns: _receiptColumns,
             rows: _receipts(movements),
             emptyMessage: 'No receipts in this range.',
           ),
           const SizedBox(height: AppSpacing.lg),
-          const _SectionHeading(label: 'Adjustments by type'),
-          const SizedBox(height: AppSpacing.sm),
+          const SectionHeading(title: 'Adjustments by type'),
           DataPanel<_AdjustmentRow>(
             columns: _adjustmentColumns,
             rows: _adjustments(movements),
@@ -771,29 +769,6 @@ class _RequisitionsTab extends StatelessWidget {
             emptyMessage: 'No requisitions in this range.',
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// A panel heading above a table: `DataPanel` draws the white card itself, so
-/// its name lives outside it.
-class _SectionHeading extends StatelessWidget {
-  const _SectionHeading({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      label,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: const TextStyle(
-        fontFamily: AppTextStyles.cinzelFont,
-        fontSize: 16,
-        fontWeight: FontWeight.w700,
-        color: AppColors.textPrimary,
       ),
     );
   }

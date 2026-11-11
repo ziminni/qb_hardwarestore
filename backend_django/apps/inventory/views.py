@@ -11,6 +11,8 @@
 """Inventory app — ViewSets for catalog, purchasing & stock."""
 
 from django.db import IntegrityError, transaction
+from django.db.models import Prefetch
+from django.db.models.deletion import ProtectedError
 from django.http import Http404
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
@@ -23,13 +25,16 @@ from apps.users.permissions import (
     IsInventoryRole,
 )
 from apps.users.services import audit_request
+from common.exceptions import refuse_fractional_whole_unit
 from .exceptions import (
     BarcodeTaken,
+    BaseUnitRequired,
     InvalidPurchaseOrderState,
     PurchaseOrderHasReceipts,
     PurchaseOrderLocked,
     PurchaseOrderNotOrdered,
     PurchaseOrderNotReceivable,
+    SellingUnitInUse,
 )
 from .models import (
     Brand, Category, Product, ProductVariant, UnitOfMeasure, VariantUOM,
@@ -43,6 +48,7 @@ from .serializers import (
     SupplierSerializer, PurchaseOrderSerializer,
     GoodsReceiptSerializer, InventoryBatchSerializer,
     StockAdjustmentSerializer, SystemAlertSerializer,
+    annotate_unit_in_use, unit_in_use,
 )
 from .services import process_goods_receipt, apply_stock_adjustment
 
@@ -227,10 +233,16 @@ class UnitOfMeasureViewSet(_CatalogBaseViewSet):
 
 
 class ProductViewSet(_AuditedCatalogViewSet):
+    # `annotate_unit_in_use` rides along with the prefetch: every nested selling unit
+    # answers `in_use` from the same query the list already ran (Phase 1d Task 1).
     queryset = Product.objects.select_related(
         'category', 'brand',
     ).prefetch_related(
-        'variants__selling_uoms__uom',
+        Prefetch(
+            'variants__selling_uoms',
+            queryset=annotate_unit_in_use(
+                VariantUOM.objects.select_related('uom')),
+        ),
         'variants__base_uom',
     ).all()
     serializer_class = ProductSerializer
@@ -245,7 +257,11 @@ class ProductVariantViewSet(_AuditedCatalogViewSet):
     queryset = ProductVariant.objects.select_related(
         'product', 'base_uom',
     ).prefetch_related(
-        'selling_uoms__uom',
+        Prefetch(
+            'selling_uoms',
+            queryset=annotate_unit_in_use(
+                VariantUOM.objects.select_related('uom')),
+        ),
     ).all()
     serializer_class = ProductVariantSerializer
 
@@ -255,8 +271,9 @@ class ProductVariantViewSet(_AuditedCatalogViewSet):
 class VariantUOMViewSet(_AuditedCatalogViewSet):
     # `variant__product` is joined because the response explains WHY a scanned unit
     # cannot be sold (`product_name`, `product_is_active`): one query, not three per row.
-    queryset = VariantUOM.objects.select_related(
-        'variant__product', 'uom').all()
+    # `in_use` comes from the same statement (Phase 1d Task 1), so it costs no second one.
+    queryset = annotate_unit_in_use(VariantUOM.objects.select_related(
+        'variant__product', 'uom')).all()
     serializer_class = VariantUOMSerializer
 
     audit_label = 'Selling unit'
@@ -309,6 +326,81 @@ class VariantUOMViewSet(_AuditedCatalogViewSet):
             super().perform_update(serializer)
         except IntegrityError as exc:
             _refuse_lost_barcode_race(exc)
+
+    def destroy(self, request, *args, **kwargs):
+        """`DELETE /variant-uoms/{id}/` — remove a selling unit nothing references.
+
+        Phase 1d Task 3 (decision 16). Every other catalog row stays 405: a category, a
+        product, a variant or a supplier is ARCHIVED because history points at it, and a
+        goods receipt is stock evidence. A selling unit is the one catalog row a clerk
+        creates by hand and can create by mistake ("Bag = 40 kg" for a product sold in
+        bags only), so it gets a real exit — and only while nothing points at it.
+
+        One atomic block holding the row's lock (`select_for_update`), because the two
+        refusals below are read-then-write: without the lock two tills could both read
+        "nothing uses this unit" and the loser's `delete()` would answer a 500 from the
+        FK. A hold that starts meanwhile takes a `FOR KEY SHARE` lock on this row, so it
+        either commits first (and this DELETE waits, sees the cart line and refuses) or
+        waits for this DELETE and is told the unit is gone — never a lost cart line. A
+        WRITER (sale, quote, order, push) takes the same lock before its first write, so
+        it either commits first or is told the unit is gone.
+
+        The audit row is written INSIDE the same transaction: a success is 204 plus one
+        `DELETE` row, and a refusal writes nothing at all.
+        """
+        # 404 for a bad id and the role check, both before any lock is taken.
+        pk = self.get_object().pk
+        with transaction.atomic():
+            unit = self._lock_unit(pk)
+            if unit is None:
+                # A second DELETE of the same row: the other one committed while this
+                # one waited. The row this request named is gone, so it answers the same
+                # 404 as a bad id - never the `DoesNotExist` a bare `.get()` raised.
+                raise Http404('This selling unit has already been removed.')
+            self._refuse_removal(unit)
+            # Read the label and code BEFORE the delete: the audit row has to name the
+            # unit that went away, and the row cannot be read afterwards.
+            description = (
+                f'Selling unit {unit.variant.product.base_name} · '
+                f'{unit.variant.variant_name} · {unit.uom.code} '
+                f'(code {unit.barcode_qr}) removed.')
+            try:
+                unit.delete()
+            except ProtectedError as exc:
+                # The FK is the real guard (a sale line written between the check and the
+                # delete). Same refusal as the check above, because the clerk's answer is
+                # the same: this unit is used, leave it alone.
+                raise SellingUnitInUse(self._in_use_detail(unit)) from exc
+            audit_request(request, AuditLog.ActionType.DELETE, description)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _lock_unit(self, pk):
+        """The row, locked, with the names both the refusal and the audit text need.
+
+        `.first()`, not `.get()`: a deleted row is a 404 the view raises, and a `.get()`
+        would turn the second of two clicks into a 500.
+        """
+        return (
+            VariantUOM.objects.select_for_update()
+            .select_related('variant__product', 'uom')
+            .filter(pk=pk)
+            .first())
+
+    def _refuse_removal(self, unit):
+        """Factor 1 is the base unit; anything referenced by history stays."""
+        if unit.conversion_factor == 1:
+            raise BaseUnitRequired(
+                f'{unit} is the base unit of {unit.variant}: a product is counted in its '
+                'base unit, so it cannot be removed. Remove another selling unit, or '
+                'archive the product.')
+        if unit_in_use(unit):
+            raise SellingUnitInUse(self._in_use_detail(unit))
+
+    @staticmethod
+    def _in_use_detail(unit) -> str:
+        return (
+            f'{unit} has already been sold, held or requested, so it cannot be removed. '
+            'Its price and code stay editable.')
 
 
 # =========================================================================
@@ -542,8 +634,8 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
                     status=drf_status.HTTP_400_BAD_REQUEST,
                 )
             try:
-                po_item = POItem.objects.select_related('po').get(
-                    pk=entry.get('po_item'))
+                po_item = POItem.objects.select_related(
+                    'po', 'variant__base_uom').get(pk=entry.get('po_item'))
             except (POItem.DoesNotExist, ValueError, TypeError):
                 return Response(
                     {'detail': f"unknown po_item: {entry.get('po_item')!r}."},
@@ -566,6 +658,14 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
                     {'detail': f'qty for po_item {po_item.pk} must not be negative.'},
                     status=drf_status.HTTP_400_BAD_REQUEST,
                 )
+            # Phase 1d Task 2 (decision 16, Q1): a delivery is counted in the variant's
+            # BASE unit, and a whole one takes whole counts only. Raised outside the
+            # atomic block below, so the refusal leaves no receipt row behind; the
+            # project's handler turns it into a 400 `WHOLE_UNIT_QUANTITY`.
+            refuse_fractional_whole_unit(
+                is_whole=po_item.variant.base_uom.is_whole, qty=qty,
+                what=f'po_item {po_item.pk} ({po_item.variant} in '
+                     f'{po_item.variant.base_uom.code})')
             parsed.append((po_item.pk, qty))
 
         try:

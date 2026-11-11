@@ -6,6 +6,7 @@ import 'package:client/data/models/product.dart';
 import 'package:client/data/models/purchase_draft.dart';
 import 'package:client/data/models/supplier.dart';
 import 'package:client/core/time/app_clock.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
 
 /// What the purchase-order dialog produced: the draft, and whether the user
@@ -237,72 +238,71 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
         .toList();
     // Under this window width two panes side by side leave each field too narrow
     // to show its own label, so they stack instead. Read from the window, not
-    // from a layout callback: AlertDialog asks for intrinsic sizes while it
+    // from a layout callback: the dialog asks for intrinsic sizes while it
     // centres itself, and a LayoutBuilder cannot answer those.
     final stacked = MediaQuery.sizeOf(context).width < _sideBySideBreakpoint;
 
-    return AlertDialog(
-      title: const Text('New purchase order'),
+    return AppDialog(
+      icon: Icons.local_shipping_outlined,
+      title: 'New purchase order',
+      subtitle: 'Pick materials on the left, then set quantity and cost.',
+      width: 880,
       // The form sizes itself: each list pane has a viewport of its own and the
       // dialog grows around them, so a short window SCROLLS the form instead of
       // squeezing the two panes (the old `height - 190` formula did the reverse:
       // the same content was 620 px tall on a tall window and 400 on a short
       // one, whatever the panes needed).
       scrollable: true,
-      insetPadding: const EdgeInsets.all(AppSpacing.lg),
-      content: SizedBox(
-        width: 880,
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _headerRow(theme, colors, activeSuppliers),
-              const SizedBox(height: AppSpacing.lg),
-              if (_selectionError case final error?)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                  child: Text(
-                    error,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colors.error,
-                    ),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _headerRow(theme, colors, activeSuppliers),
+            const SizedBox(height: AppSpacing.lg),
+            if (_selectionError case final error?)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                child: Text(
+                  error,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.error,
                   ),
-                ),
-              if (stacked) ...[
-                SizedBox(
-                  height: _stackedPaneHeight,
-                  child: _cataloguePane(theme, filteredMaterials),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                SizedBox(
-                  height: _stackedPaneHeight,
-                  child: _linesPane(theme, colors),
-                ),
-              ] else
-                SizedBox(
-                  height: _paneHeight,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(child: _cataloguePane(theme, filteredMaterials)),
-                      const SizedBox(width: AppSpacing.lg),
-                      Expanded(child: _linesPane(theme, colors)),
-                    ],
-                  ),
-                ),
-              const SizedBox(height: AppSpacing.lg),
-              TextFormField(
-                controller: _notesController,
-                maxLines: 2,
-                decoration: const InputDecoration(
-                  labelText: 'Notes',
-                  hintText: 'Optional instructions for this order',
                 ),
               ),
-            ],
-          ),
+            if (stacked) ...[
+              SizedBox(
+                height: _stackedPaneHeight,
+                child: _cataloguePane(theme, filteredMaterials),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              SizedBox(
+                height: _stackedPaneHeight,
+                child: _linesPane(theme, colors),
+              ),
+            ] else
+              SizedBox(
+                height: _paneHeight,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: _cataloguePane(theme, filteredMaterials)),
+                    const SizedBox(width: AppSpacing.lg),
+                    Expanded(child: _linesPane(theme, colors)),
+                  ],
+                ),
+              ),
+            const SizedBox(height: AppSpacing.lg),
+            TextFormField(
+              controller: _notesController,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Notes',
+                hintText: 'Optional instructions for this order',
+              ),
+            ),
+          ],
         ),
       ),
       actions: [
@@ -331,7 +331,10 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
   /// itself; these are the panes' own size, not the window's, so the dialog
   /// keeps the same shape on every screen and scrolls when the window is short.
   static const double _paneHeight = 320;
-  static const double _stackedPaneHeight = 220;
+  // 200 rather than 220: on a 760 wide window the dialog is capped at 90% of the
+  // window height, and 40 px less here is the difference between the Notes field
+  // being visible and being below the fold.
+  static const double _stackedPaneHeight = 200;
 
   Widget _headerRow(
     ThemeData theme,

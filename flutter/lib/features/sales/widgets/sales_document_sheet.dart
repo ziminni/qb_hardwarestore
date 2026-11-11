@@ -1,7 +1,11 @@
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/constants/app_text_styles.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
+import 'package:client/shared/widgets/measure_ruler.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// One line of a document sheet, already resolved to something a human reads.
 ///
@@ -58,7 +62,7 @@ Future<void> showSalesDocumentSheet(
   required String title,
   required List<(String, String)> fields,
   required List<SalesDocumentLine> lines,
-  required String total,
+  required num total,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -80,7 +84,9 @@ Future<void> showSalesDocumentSheet(
 /// the sales role, so there is deliberately nothing here to press.
 ///
 /// Scrollable with `isScrollControlled`, because a long order has more lines
-/// than a half-height sheet shows.
+/// than a half-height sheet shows. The header, the label/value rows and the gold
+/// total bar come from the shared dialog family, so a sale, a quotation, an
+/// order and a return all read the same way whichever role opened them.
 class SalesDocumentSheet extends StatelessWidget {
   const SalesDocumentSheet({
     super.key,
@@ -93,107 +99,117 @@ class SalesDocumentSheet extends StatelessWidget {
   final String title;
   final List<(String, String)> fields;
   final List<SalesDocumentLine> lines;
-  final String total;
+  final num total;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * 0.85,
-      ),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.xl,
-          0,
-          AppSpacing.xl,
-          AppSpacing.xl,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              title,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            Navigator.of(context).maybePop(),
+      },
+      // The sheet takes focus when it opens, so Esc reaches the shortcut above.
+      child: Focus(
+        autofocus: true,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.xl,
+              0,
+              AppSpacing.xl,
+              AppSpacing.xl,
             ),
-            const SizedBox(height: AppSpacing.md),
-            for (final field in fields)
-              Padding(
-                padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
                   children: [
-                    SizedBox(
-                      width: 160,
-                      child: Text(
-                        field.$1,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
+                    const HexIconBadge(
+                      icon: Icons.receipt_long_outlined,
+                      size: 40,
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTextStyles.h3.copyWith(height: 1.2),
+                          ),
+                          Text(
+                            'A saved record, read only.',
+                            style: AppTextStyles.bodySmall,
+                          ),
+                        ],
                       ),
                     ),
-                    Expanded(child: Text(field.$2)),
                   ],
                 ),
-              ),
-            const Divider(height: AppSpacing.xl),
-            Text(
-              'Items',
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            if (lines.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
-                child: Text('No items'),
-              )
-            else
-              for (final line in lines)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                  child: Row(
-                    children: [
-                      Expanded(child: Text(line.name)),
-                      const SizedBox(width: AppSpacing.sm),
-                      Text(
-                        '${salesQty(line.qty)} × ${formatPeso(line.unitPrice)}',
-                      ),
-                      SizedBox(
-                        width: 120,
-                        child: Text(
-                          formatPeso(line.subtotal),
-                          textAlign: TextAlign.right,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            const Divider(height: AppSpacing.xl),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Total',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                Text(
-                  total,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+                const MeasureRuler(height: 6),
+                const SizedBox(height: AppSpacing.lg),
+                for (final field in fields)
+                  DetailRow(label: field.$1, value: field.$2, labelWidth: 160),
+                const SizedBox(height: AppSpacing.lg),
+                const DialogSectionLabel('Items'),
+                if (lines.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                    child: Text('No items'),
+                  )
+                else
+                  for (final line in lines) _line(line),
+                const SizedBox(height: AppSpacing.xl),
+                TotalBar(label: 'Total', amount: total),
               ],
             ),
-          ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _line(SalesDocumentLine line) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 3,
+            child: Text(
+              line.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.bodyMedium,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            flex: 2,
+            child: Text(
+              '${salesQty(line.qty)} × ${formatPeso(line.unitPrice)}',
+              textAlign: TextAlign.right,
+              style: AppTextStyles.bodySmall,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            flex: 2,
+            child: Text(
+              formatPeso(line.subtotal),
+              textAlign: TextAlign.right,
+              style: AppTextStyles.labelLarge.copyWith(
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

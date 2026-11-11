@@ -27,6 +27,7 @@ class _RecordingAdapter implements HttpClientAdapter {
     this.bodies = const {},
     this.statusCode = 201,
     this.statusCodes = const {},
+    this.replies = const {},
   });
 
   /// path -> body. A missing path answers 404 with a `detail`.
@@ -35,6 +36,10 @@ class _RecordingAdapter implements HttpClientAdapter {
 
   /// path -> status, for when one step succeeds and the next is refused.
   final Map<String, int> statusCodes;
+
+  /// Call index (0-based) -> (status, body), for a chain where the failing step
+  /// is one of several POSTs to the SAME path (the extra selling units).
+  final Map<int, (int, Map<String, dynamic>)> replies;
 
   final List<String> paths = [];
   final List<String> methods = [];
@@ -46,6 +51,7 @@ class _RecordingAdapter implements HttpClientAdapter {
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
   ) async {
+    final callIndex = paths.length;
     paths.add(options.path);
     methods.add(options.method);
     bodiesSent.add(
@@ -53,6 +59,17 @@ class _RecordingAdapter implements HttpClientAdapter {
           ? options.data as Map<String, dynamic>
           : null,
     );
+
+    final reply = replies[callIndex];
+    if (reply != null) {
+      return ResponseBody.fromString(
+        jsonEncode(reply.$2),
+        reply.$1,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
+    }
 
     final body = bodies[options.path];
     if (body == null) {
@@ -91,6 +108,36 @@ NewProductDraft _draft() => const NewProductDraft(
   barcodeQr: 'QB-9001',
 );
 
+/// The same product, sold by the base unit and by a 40 kg bag and a 4-piece
+/// box (Phase 1d decision 15: "Bag = 40 kg at ₱270").
+NewProductDraft _draftWithExtras() => const NewProductDraft(
+  categoryId: 4,
+  brandId: 2,
+  baseName: 'Portland Cement',
+  description: 'General purpose',
+  imageUrl: '',
+  variantName: '40kg',
+  baseUomId: 7,
+  minStockThreshold: 5,
+  maxStockLevel: 200,
+  sellingPrice: 6.75,
+  extraSellingUnits: [
+    NewSellingUnit(
+      uomId: 9,
+      uomCode: 'BAG',
+      conversionFactor: 40,
+      sellingPrice: 270,
+    ),
+    NewSellingUnit(
+      uomId: 10,
+      uomCode: 'BOX',
+      conversionFactor: 4,
+      sellingPrice: 30,
+      barcodeQr: 'BOX-9001',
+    ),
+  ],
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -106,11 +153,13 @@ void main() {
     Map<String, Object?> bodies, {
     int statusCode = 201,
     Map<String, int> statusCodes = const {},
+    Map<int, (int, Map<String, dynamic>)> replies = const {},
   }) {
     adapter = _RecordingAdapter(
       bodies: bodies,
       statusCode: statusCode,
       statusCodes: statusCodes,
+      replies: replies,
     );
     client.dio.httpClientAdapter = adapter;
     repository = ProductsRepository(ProductsService(client: client));
@@ -213,6 +262,223 @@ void main() {
                 'This variant already has a base-unit selling unit.',
               ),
         ),
+      );
+    });
+  });
+
+  group('createProductChain with extra selling units', () {
+    test('posts each extra unit AFTER the base unit, in form order', () async {
+      useAdapter({
+        '/api/v1/products/': {'id': 11},
+        '/api/v1/variants/': {'id': 22},
+        '/api/v1/variant-uoms/': {'id': 33},
+      });
+
+      final created = await repository.createProductChain(_draftWithExtras());
+
+      expect(adapter.paths, [
+        '/api/v1/products/',
+        '/api/v1/variants/',
+        '/api/v1/variant-uoms/',
+        '/api/v1/variant-uoms/',
+        '/api/v1/variant-uoms/',
+      ]);
+      expect(adapter.methods, List.filled(5, 'POST'));
+
+      // FACTOR 1 first: the base unit the variant is counted in (the server
+      // refuses any other factor-1 unit afterwards with DUPLICATE_BASE_UNIT).
+      expect(adapter.bodiesSent[2], {
+        'variant': 22,
+        'uom': 7,
+        'conversion_factor': 1,
+        'default_selling_price': 6.75,
+        'barcode_qr': '',
+      });
+      expect(adapter.bodiesSent[3], {
+        'variant': 22,
+        'uom': 9,
+        'conversion_factor': 40.0,
+        'default_selling_price': 270.0,
+        'barcode_qr': '',
+      });
+      expect(adapter.bodiesSent[4], {
+        'variant': 22,
+        'uom': 10,
+        'conversion_factor': 4.0,
+        'default_selling_price': 30.0,
+        'barcode_qr': 'BOX-9001',
+      });
+
+      expect(
+        created.sellingUnitId,
+        33,
+        reason: 'the returned id is still the BASE unit the form prices',
+      );
+    });
+
+    test(
+      'a refused extra unit says WHICH one, and that the product exists',
+      () async {
+        useAdapter(
+          {
+            '/api/v1/products/': {'id': 11},
+            '/api/v1/variants/': {'id': 22},
+            '/api/v1/variant-uoms/': {'id': 33},
+          },
+          // Calls 0-2 are product, variant and base unit; 3 is the BAG and 4 the
+          // BOX: the refusal lands on one of three POSTs to the SAME path, which a
+          // per-path status map cannot express.
+          replies: {
+            3: (201, {'id': 44}),
+            4: (
+              400,
+              {
+                'code': 'INVALID_SELLING_UNIT',
+                'detail':
+                    'One selling unit always holds at least one base unit.',
+              },
+            ),
+          },
+        );
+
+        final failure = await repository
+            .createProductChain(_draftWithExtras())
+            .then<Object?>((_) => null, onError: (error) => error);
+
+        expect(failure, isA<PartialCreateException>());
+        // Both halves matter: WHICH unit to re-add, and the fact that the catalog
+        // row exists — a clerk who retries "Add product" makes a duplicate.
+        final partial = failure! as PartialCreateException;
+        expect(
+          partial.unit,
+          'BOX',
+          reason:
+              'the message must name the unit that was NOT saved, or the clerk '
+              're-adds the one that was',
+        );
+        expect(
+          partial.created.productId,
+          11,
+          reason:
+              'the product EXISTS on the server: a retry would duplicate it',
+        );
+        expect(partial.created.variantId, 22);
+        expect(partial.created.sellingUnitId, 33);
+        expect(partial.message, contains('selling price'));
+        expect(
+          adapter.paths,
+          hasLength(5),
+          reason:
+              'the chain stops at the refused unit, saving nothing after it',
+        );
+      },
+    );
+  });
+
+  group('createSellingUnit on an existing variant', () {
+    test('POSTs the same unit body the create chain posts', () async {
+      useAdapter({
+        '/api/v1/variant-uoms/': {'id': 44},
+      });
+
+      await repository.createSellingUnit(
+        8,
+        const NewSellingUnit(
+          uomId: 2,
+          uomCode: 'BAG',
+          conversionFactor: 40,
+          sellingPrice: 270,
+        ),
+      );
+
+      expect(adapter.paths, ['/api/v1/variant-uoms/']);
+      expect(adapter.methods, ['POST']);
+      expect(adapter.bodiesSent.single, {
+        'variant': 8,
+        'uom': 2,
+        'conversion_factor': 40.0,
+        'default_selling_price': 270.0,
+        'barcode_qr': '',
+      });
+    });
+
+    test('a refused unit names the selling unit step', () async {
+      useAdapter({
+        '/api/v1/variant-uoms/': {
+          'code': 'INVALID_SELLING_UNIT',
+          'detail': 'A selling unit always holds at least one base unit.',
+        },
+      }, statusCode: 400);
+
+      await expectLater(
+        repository.createSellingUnit(
+          8,
+          const NewSellingUnit(
+            uomId: 2,
+            uomCode: 'BAG',
+            conversionFactor: 1,
+            sellingPrice: 270,
+          ),
+        ),
+        throwsA(
+          isA<ProductWriteException>()
+              .having((e) => e.step, 'step', ProductWriteStep.sellingUnit)
+              .having((e) => e.message, 'message', contains('at least one')),
+        ),
+      );
+    });
+  });
+
+  group('deleteSellingUnit', () {
+    test('DELETEs the row: the one catalog DELETE the API answers', () async {
+      useAdapter({'/api/v1/variant-uoms/33/': {}}, statusCode: 204);
+
+      await repository.deleteSellingUnit(33);
+
+      expect(adapter.paths, ['/api/v1/variant-uoms/33/']);
+      expect(adapter.methods, [
+        'DELETE',
+      ], reason: 'removal is a DELETE; a PATCH would only archive nothing');
+    });
+
+    test('the base unit is refused as a base unit', () async {
+      useAdapter({
+        '/api/v1/variant-uoms/33/': {
+          'code': 'BASE_UNIT_REQUIRED',
+          'detail': 'Selling unit 33 is the base unit.',
+        },
+      }, statusCode: 400);
+
+      await expectLater(
+        repository.deleteSellingUnit(33),
+        throwsA(
+          isA<ProductWriteException>()
+              .having((e) => e.step, 'step', ProductWriteStep.sellingUnit)
+              .having((e) => e.message, 'message', contains('base unit')),
+        ),
+      );
+    });
+
+    test('a used unit is refused in words about REMOVING it', () async {
+      useAdapter({
+        '/api/v1/variant-uoms/33/': {
+          'code': 'SELLING_UNIT_IN_USE',
+          'detail': 'Selling unit 33 is referenced by a sale.',
+        },
+      }, statusCode: 400);
+
+      final failure = await repository
+          .deleteSellingUnit(33)
+          .then<Object?>((_) => null, onError: (error) => error);
+
+      expect(failure, isA<ProductWriteException>());
+      expect(
+        (failure! as ProductWriteException).message,
+        contains('cannot be removed'),
+        reason:
+            'the same code also refuses an EDIT, so the shared PATCH sentence '
+            '("frozen, the price is still editable") would be about the wrong '
+            'action here',
       );
     });
   });

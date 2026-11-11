@@ -44,6 +44,8 @@ class InventoryStockTable extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DataPanel<InventoryStockRow>(
+      title: 'Stock',
+      count: records.length,
       rows: records,
       isLoading: isLoading,
       error: error,

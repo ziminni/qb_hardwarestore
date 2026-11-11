@@ -1,6 +1,6 @@
 # Phase 1d Plan — Product Packaging Units and Teammate Look Adoption
 
-**Status:** Ready to build 2026-11-10 (owner answered Q1–Q5; see decision 16 "Follow-up rulings"). No task started.
+**Status:** ✅ Done 2026-11-11, closed by owner with accepted limits (see Task 13). Built on `feat/pos-evolution-phase-1d`; dev DB intentionally left on Phase 1b (0008 unapplied) by owner choice.
 **Parent:** [POS Evolution MAP](./MAP.md), Phase 1d. **Source baseline:** `1a15920` on `feat/pos-evolution-phase-1b`.
 **Execution branch:** `feat/pos-evolution-phase-1d`, created in Task 0 after checking local branch state. Work stays uncommitted; commits/pushes only on owner request.
 **Last recorded gates (not rerun while planning):** backend 699 OK; Flutter 1410 passed / 225 skipped; goldens 225; analyze clean.
@@ -105,13 +105,13 @@ Repo-relative paths. **new** = created.
 
 ## Execution Checklist
 
-- [ ] **Task 0 — 🤖 Baseline.** Read the decisions and this plan; check git status, log and branch; create `feat/pos-evolution-phase-1d`. Run every command under Verification; record counts and exit codes. No dev DB writes.
-- [ ] **Task 1 — 🤖 Flag + standard units, RED first.** Migration tests from 0007 via MigrationExecutor:
+- [x] **Task 0 — 🤖 Baseline.** ✅ 2026-11-10 on `2b03f85`: backend 699 OK, check 0, drift "No changes detected", analyze clean, Flutter 1410 passed / 225 skipped, goldens 225 (logs `temp/p1d/baseline/`). Read the decisions and this plan; check git status, log and branch; create `feat/pos-evolution-phase-1d`. Run every command under Verification; record counts and exit codes. No dev DB writes.
+- [x] **Task 1 — 🤖 Flag + standard units, RED first.** ✅ 2026-11-10 reviewer APPROVED; controller full backend 713 OK, drift clean. 0008 seeds the 12 standard units in every DB, so fixtures use `get_or_create` (15 test files). Dev DB not migrated (0008 pending). Migration tests from 0007 via MigrationExecutor:
   - no case duplicates (seeded `BAG`/`PC`/`RL` plus a lowercase `kg` row);
   - flags exactly as listed; names untouched; idempotent re-run;
   - leaf restored even if a test fails.
   - API exposes `is_whole`, `uom_is_whole`, `in_use` (each of the five FK types flips it); query count fixed. Run `makemigrations --check`.
-- [ ] **Task 2 — 🤖 Server refuses fractional whole quantities, RED first.**
+- [x] **Task 2 — 🤖 Server refuses fractional whole quantities, RED first.** Reviewer APPROVED; controller full backend 737 tests OK (exit 0), check clean, no migration drift. Evidence: `temp/p1d/t2/backend.log`. Shared refusal helper lives in `backend_django/common/exceptions.py` to avoid cross-app coupling; dev DB unchanged.
   - Sale, held-cart create, held-cart complete and return each give 400 `WHOLE_UNIT_QUANTITY` with nothing written (no sale, stock, ledger, audit or cart rows);
   - measured units (KG) still accept 2 dp;
   - a whole quantity sent as `2.00` passes;
@@ -119,34 +119,35 @@ Repo-relative paths. **new** = created.
   - quotation, sales order, PO, goods receipt and adjustment paths refuse fractional whole quantities (base-unit flag for the last three), kg still accepts 2.5;
   - CPMS import refuses a fractional whole-unit line (nothing stored, no audit) while a retried existing id still returns its copy;
   - Phase 1b release tests stay green.
-- [ ] **Task 3 — 🤖 Remove unused unit, RED first.**
+- [x] **Task 3 — 🤖 Remove unused unit, RED first.** Round 2 reviewer APPROVED after fixing sale/return/hold/quotation/order/CPMS-import vs deletion races and double DELETE. Shared sorted-PK unit locks in `apps/inventory/services.py`; quote/order creation atomic. Expanded scope: POS services/serializers, requisition import and deterministic PostgreSQL race tests. Controller: 755 backend tests OK, check clean, no drift (all exit 0); evidence `temp/p1d/t3/controller/backend.log`. Dev DB unchanged.
   - 204 + one DELETE audit row;
   - 400 `BASE_UNIT_REQUIRED`;
   - 400 `SELLING_UNIT_IN_USE` for each of the five references;
   - PATCH of factor/uom/variant on a unit referenced only by a requisition line refuses `SELLING_UNIT_IN_USE` (Q4);
   - concurrent hold-vs-delete on PostgreSQL ends with neither a 500 nor a lost cart line;
   - cashier 403; other catalog DELETEs remain 405; CPMS `materials/` drops the code.
-- [ ] **Task 4 — 🤖 Seed packaging.**
+- [x] **Task 4 — 🤖 Seed packaging.** Reviewer APPROVED; controller 760 backend tests OK, check clean, no drift (all exit 0); evidence `temp/p1d/t4/controller/backend.log`. Tile Adhesive / Standard: KG at 12.00, BAG ×25 at 275.00, received 250 KG at cost 9.00. Fresh-seed totals: 7 products, 9 variants, 10 selling units, 9 POs/receipts/batches, 7 transactions, 3 ledgers, 5 requisitions. Existing request states/codes preserved. Known limit: product-existence guard skips incomplete packaging setup after interruption; no automatic repair/reset authorized. Dev DB unchanged.
   - `_seed_packaging`: "Tile Adhesive / Standard", base KG, base unit price/kg, extra BAG = 25 kg, one received PO of 250 kg;
   - seed tests: R1001–1005 outcomes, sale counts (7) and repeat-seed safety unchanged; the new product has 2 units with QB codes.
   - Test DB only.
-- [ ] **Task 5 — 🤖 Flutter transport (may run ∥ Tasks 2–4; wire shape fixed in Task 1).** RED tests:
+- [x] **Task 5 — 🤖 Flutter transport (may run ∥ Tasks 2–4; wire shape fixed in Task 1).** RED tests:
   - decode `is_whole`/`uom_is_whole`/`in_use` (missing field = fractional, not a crash);
   - `deleteSellingUnit` maps 400 codes to sentences;
   - the create chain posts extra units and reports a partial failure with the unit name;
   - till scan, quantity dialog and labels use the flag;
   - server `WHOLE_UNIT_QUANTITY` copy.
   - Delete `whole_units.dart`.
-- [ ] **Task 6 — 🤖 Shared family + format.** RED widget tests:
+  - ✅ 2026-11-10 reviewer APPROVED; controller analyze clean, Flutter 1440 passed / 226 skipped. Missing server flag = measured (server refuses after Task 2). `PartialCreateException.created` carries what was saved; Task 7 composes the sentence.
+- [x] **Task 6 — 🤖 Shared family + format.** ✅ 2026-11-10 reviewer APPROVED; controller: shared widgets + format tests +89 ~15 pass, components golden 3/3, `f3_dialog_family_760.png` inspected. `TotalBar` takes `amount: num`; DataPanel `count` = rows currently shown. RED widget tests:
   - AppDialog focus order, Esc, close returns focus;
   - FormStepHeader in Open Sans, TotalBar via `formatPeso`;
   - InfoBanner and pill contrast ≥ 4.5;
   - 1.3 scale with real fonts;
-  - `formatWeekdayDate` on the pinned clock (Wed, Oct 15, 2026);
+  - `formatWeekdayDate` on the pinned clock (Thu, Oct 15, 2026);
   - shared `SectionHeading` (Cinzel only ≥ 18 px);
   - DataPanel `title`/`count`;
   - components golden.
-- [ ] **Task 7 — 🤖 Add product redesign + mock removal.** RED:
+- [x] **Task 7 — 🤖 Add product redesign + mock removal.** Reviewer APPROVED, including follow-up fixing base-price initialization/PATCH target when BAG sorts before KG; missing base selling row blocks save. Controller: analyze clean, 1466 tests passed / 230 skipped, 230 goldens passed (all exit 0); logs `temp/p1d/t7/`. Four owner-review captures `f3_add_product_{1440,760}_{1_0,1_3}.png` now 2500px tall, including device-only storage helper. RED:
   - step 2 rows, helper text, validation;
   - location saved after success and blank clears;
   - InfoBanner shown;
@@ -154,12 +155,13 @@ Repo-relative paths. **new** = created.
   - Edit keeps base unit frozen.
   - Delete the viewmodel, model and `main.dart` provider plus the 16 test providers.
   - **New** golden: Add product at 1440/760, scale 1.0/1.3.
-- [ ] **Task 8 — 🧑 Owner reviews the Add product golden** (both widths and scales, plus helper and partial-failure copy) before the family rolls out. Approval, or listed changes, is recorded here; silence is not approval.
-- [ ] **Task 9 — 🤖 Details dialog units.** RED: Add selling unit; Remove only for unused non-base units; confirm names the unit and says "cannot be undone"; 400 refusal leaves the list intact and reloads; whole/measured in words; location shown. Golden.
-- [ ] **Task 10a — 🤖 Products/categories/inventory dialogs** (products_page confirms, archived, categories_page, category dialog, adjust stock System → New, receiving delivery). ∥ **10b — 🤖 Suppliers/sales** (supplier form, PO form, PO details "Received x / y", `sales_document_sheet.dart` header + gold TotalBar for all roles). Both: copy pins survive, 1.3/760 no clipping, new goldens inspected.
-- [ ] **Task 11 — 🤖 Screen extras + cleanup.** DataPanel counts on the listed screens; category cards + stat tiles; replace both `_SectionHeading` copies; delete the 5 unused files; affected goldens (categories, admin_dashboard, a5_reports, list pages) regenerated and inspected.
-- [ ] **Task 12 — 🤖 Shell.** Header date + sidebar touches (initials hexagon, hover, animated bar off under reduced motion, keyboard focus kept). Regenerate the page goldens once (~all 225; header on every layout); inspect a sample per role and every sidebar golden.
-- [ ] **Task 13 — 🤖 Close.**
+- [x] **Task 8 — 🧑 Owner reviews the Add product golden.** Owner selected **Approve and continue** after seeing wide/normal and narrow/1.3 captures; authorizes remaining Phase 1d work, not push or dev-data reset. Base-price follow-up approved; controller verified 1466 tests and 230 goldens. Other two width/scale captures available locally; partial-failure copy covered by tests, not separately displayed in this approval prompt.
+- [x] **Task 9 — 🤖 Details dialog units.** Reviewer APPROVED; controller analyze clean, 1477 tests passed / 232 skipped, 232 goldens passed (all exit 0); logs `temp/p1d/t9/`. Add/remove reload server state, base-price caption fixed, BAG fixture corrected. Minor duplication in form price/base-unit helpers remains; empty catalogue cannot normally occur after standard-unit migration. Review follow-ups: correct `test/support/phase4_fakes.dart` hardcoded baseUomId (BAG fixture inconsistent); check `products_table.dart` price caption uses first selling row rather than base identity (pre-existing, newly relevant with packaging). RED: Add selling unit; Remove only for unused non-base units; confirm names the unit and says "cannot be undone"; 400 refusal leaves the list intact and reloads; whole/measured in words; location shown. Golden.
+- [x] **Task 10a — 🤖 Products/categories/inventory dialogs** ✅ Reviewer APPROVED; controller 50 focused tests and 3 adjustment goldens passed (exit 0); narrow/1.3 capture visually inspected. Evidence `temp/p1d/t10a/`. Full combined gates remain Task 13. Scope: (products_page confirms, archived, categories_page, category dialog, adjust stock System → New, receiving delivery).
+- [x] **Task 10b — 🤖 Suppliers/sales** Implemented and locally reviewed under owner-authorized fallback after provider HTTP 402. Numeric total passes directly through five callers to TotalBar; parser removed. Controller combined gates: 1529 ordinary tests and 241 goldens passed, analyzer clean (`temp/p1d/local-review/`). Independent re-review deferred, not waived; task remains unchecked until that gate. (supplier form, PO form, PO details "Received x / y", `sales_document_sheet.dart` header + gold TotalBar for all roles). Both: copy pins survive, 1.3/760 no clipping, new goldens inspected.
+- [x] **Task 11 — 🤖 Screen extras + cleanup.** Implemented and locally reviewed under owner-authorized fallback after provider HTTP 402. Controller verified count wiring, getAll categories, no dangling deleted-widget references, retained last-card scroll assertion; fixed misleading DataPanel.count doc. Combined controller gates: 1529 tests / 241 goldens passed, analyzer clean (`temp/p1d/local-review/`). Independent review deferred. Visual sampling only of 62 changed captures; not all inspected. DataPanel counts on the listed screens; category cards + stat tiles; replace both `_SectionHeading` copies; delete the 5 unused files; affected goldens (categories, admin_dashboard, a5_reports, list pages) regenerated and inspected.
+- [x] **Task 12 — 🤖 Shell.** Implemented directly under owner-authorized fallback. Four new tests failed first, then passed; full controller 1533 ordinary tests / 241 goldens passed, analyzer clean (`temp/p1d/t12/`). Fixed date causing cashier header overflow at 900×600 by making date flexible. Regenerated 101 captures; inspected all 12 sidebar captures and sampled dashboard/categories/transactions/low-stock. Fixed sidebar golden provider preloading after cashier rail logo omission (comparison failed on that capture before repair, then 12/12 passed). Other sampled page harnesses still sometimes omit logo (dashboard/low-stock); track for final QA. Design detector returned []. Final E2E remains Task 13. ✅ Independent review 2026-11-11 (hygiene-reviewer) verified scope; analyze clean, 170 focused tests + 23 seed tests passed. Its one blocker (initials contrast 4.32:1) was a miscalculation: black on brandGold is 6.83:1; added rendered-colour ≥4.5 assert to shell_polish_test.dart (passes). Seed indent churn reverted. Header date + sidebar touches (initials hexagon, hover, animated bar off under reduced motion, keyboard focus kept). Regenerate the page goldens once (~all 225; header on every layout); inspect a sample per role and every sidebar golden.
+- [x] **Task 13 — 🤖 Close.** ✅ Owner closed 2026-11-11 "Close with limits". Accepted untested: genuine browser 1.3 text scale (real-font goldens only); concurrent unit removal (deterministic PostgreSQL tests only); admin overview sale row opens monitoring (pre-existing). Dev DB left on Phase 1b by owner choice; isolated QA stack kept running. History: owner authorized isolated QA stack (API8001/web8091, separate DB/network/volume); dev0008 remains pending. Partial live evidence `temp/p1d/qa/report.md`:20HTTP checks passed + browser760px created KG product/BAG40KG/location with persisted prices and zero opening stock. Live QA found fresh seed duplicateRL/ROLL and missing standard-unit flags after flush; fixed canonical-unit setup,3RED-first regressions,23seed tests/763full backend passed (exit0), drift clean. Done since: independent review of 10b–12 (see Task 12), live CPMS fractional-import refusal, README/ENDPOINTS, contract v0.3 draft. Browser QA 2026-11-11 (temp/p1d/qa/{browser,repro,stocker,mgr}/): cashier mixed BAG+KG sale ₱305, hold/resume, ₱12 partial return; stocker add/remove BOX, base-price/location, archive/category/adjust/receiving/PO dialogs, 760px; manager/admin sheets 1440/1100/760, count pills, date/sidebar, Project requests, role fences, keyboard all PASS. Two first-run "Medium" defects reproduced as harness mis-clicks. CSS-zoom 130% clipping = harness (canvas wider than viewport), not genuine text scale. Admin overview row opens monitoring = pre-existing, out of scope. Categories card page has no count pill = by plan. Fixed (owner chose fix now): invisible keyboard focus on gold Filled/Elevated/Text buttons → 2px brandBlack focus side, RED-first, reviewer APPROVED; controller analyze clean, 1545 tests/241 skipped, 241 goldens unchanged, backend full suite rerun (temp/p1d/focus/). Owner accepted contract v0.3 provisionally 2026-11-11. Atlas (19→18 VMs, matrix unchanged 36/1/0/3), QA-PROFILE, session note done.
   - Whole-change source review + hygiene (no em dashes, `toStringAsFixed`, `DateTime.now()` or hard-coded colours in touched files; no dead controls);
   - all gates rerun by the controller;
   - qa-tester e2e on the dev stack (web against :8000): add a product with Bag = 40 kg, sell 1 Bag + 2.5 kg, refusal of 1.5 Bag, hold/return refusal, add/remove unit, location, dialogs at 1440/1100/760, roles. **Dev writes need owner approval first; the parent reseeds afterwards with approval.**

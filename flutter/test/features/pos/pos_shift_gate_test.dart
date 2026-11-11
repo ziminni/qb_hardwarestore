@@ -15,7 +15,6 @@ import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
 import 'package:client/features/pos/widgets/pos_product_browser.dart';
 import 'package:client/features/pos/widgets/pos_transaction_cart.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -100,9 +99,6 @@ Future<void> _pump(WidgetTester tester, ShiftViewmodel shift) async {
       child: MultiProvider(
         providers: [
           ChangeNotifierProvider<InventoryViewmodel>.value(value: inventory),
-          ChangeNotifierProvider<ProductTrackingViewmodel>.value(
-            value: ProductTrackingViewmodel(),
-          ),
         ],
         child: MaterialApp(
           home: PosTransactionPage(

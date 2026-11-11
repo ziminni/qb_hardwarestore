@@ -1,4 +1,5 @@
 import 'package:client/core/format/format.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// D1 (money), D6 (dates), D7 (counts): one format for the whole app.
@@ -31,6 +32,23 @@ void main() {
     test('month name, day, year', () {
       expect(formatDate(DateTime(2026, 10, 29)), 'Oct 29, 2026');
       expect(formatDate(DateTime(2026, 1, 5)), 'Jan 5, 2026');
+    });
+  });
+
+  group('formatWeekdayDate', () {
+    // The page header says which day it is, and a weekday name is what a
+    // manager reads faster than a bare number.
+    test('weekday, then month, day and year', () {
+      expect(formatWeekdayDate(DateTime(2026, 10, 15)), 'Thu, Oct 15, 2026');
+      expect(formatWeekdayDate(DateTime(2026, 11, 10)), 'Tue, Nov 10, 2026');
+      expect(formatWeekdayDate(DateTime(2026, 10, 19)), 'Mon, Oct 19, 2026');
+      expect(formatWeekdayDate(DateTime(2027, 1, 3)), 'Sun, Jan 3, 2027');
+    });
+
+    test('the pinned test clock (2026-10-15 10:00) is a Thursday', () {
+      // flutter_test_config.dart pins appClock, so this is also the date every
+      // golden shows in the header.
+      expect(formatWeekdayDate(appClock.now()), 'Thu, Oct 15, 2026');
     });
   });
 

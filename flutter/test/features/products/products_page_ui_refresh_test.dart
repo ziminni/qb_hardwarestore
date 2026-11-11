@@ -20,8 +20,8 @@ import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:client/features/products/views/products_page.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
@@ -110,7 +110,9 @@ List<InventoryBatch> stockBatches() => [
   // Variant 33 has no batch on purpose: out of stock.
 ];
 
-Future<void> pumpProductsPage(
+/// Pumps the real page over a fake catalogue and hands back the repository, so
+/// a test can assert which writes actually reached it.
+Future<FakeProductsRepository> pumpProductsPage(
   WidgetTester tester, {
   required Size size,
   List<Product>? products,
@@ -137,12 +139,12 @@ Future<void> pumpProductsPage(
           create: (_) => AuthViewmodel(AuthRepository(AuthService())),
         ),
         ChangeNotifierProvider<InventoryViewmodel>.value(value: store),
-        ChangeNotifierProvider(create: (_) => ProductTrackingViewmodel()),
       ],
       child: const MaterialApp(home: ProductsPage()),
     ),
   );
   await tester.pumpAndSettle();
+  return repository;
 }
 
 void main() {
@@ -153,6 +155,28 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Products'), findsWidgets);
+  });
+
+  // Phase 1d Task 7: the page used to hand the details dialog an invented
+  // tracking configuration looked up by product NAME. "Portland Cement" is a
+  // seeded name, so the dialog showed invented stock, weight and a Rack A-01
+  // location that no server had ever sent.
+  testWidgets('the details dialog tells nothing the server did not send', (
+    tester,
+  ) async {
+    await pumpProductsPage(
+      tester,
+      size: const Size(1440, 1000),
+      products: seededProducts(),
+      batches: [batch(id: 1, variantId: 1, qty: 130)],
+    );
+
+    await tester.tap(find.byTooltip('View product').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Inventory Tracking'), findsNothing);
+    expect(find.textContaining('By Weight'), findsNothing);
+    expect(find.textContaining('Rack A-01'), findsNothing);
   });
 
   testWidgets('the toolbar search is the shared FilterBar', (tester) async {
@@ -166,10 +190,12 @@ void main() {
     await pumpProductsPage(tester, size: const Size(1440, 900));
 
     // D1: thousands separators and two decimals, right aligned with tabular
-    // digits (DataPanel does the alignment from `numeric: true`).
-    expect(find.text(formatPeso(1234567.89)), findsWidgets);
-    expect(find.text('₱1,234,567.89'), findsWidgets);
-    expect(find.text(formatPeso(315)), findsWidgets);
+    // digits (DataPanel does the alignment from `numeric: true`). The price is
+    // the BASE unit's and carries its unit, so a package row cannot pass its
+    // money off as the base price (Phase 1d Task 9).
+    expect(find.text('${formatPeso(1234567.89)} / BAG'), findsWidgets);
+    expect(find.text('₱1,234,567.89 / BAG'), findsWidgets);
+    expect(find.text('${formatPeso(315)} / PC'), findsWidgets);
 
     expect(
       find.byType(StatusBadge),
@@ -184,6 +210,62 @@ void main() {
       find.byType(DataTable),
       findsNothing,
       reason: 'the table view is the shared DataPanel, not a raw DataTable',
+    );
+  });
+
+  testWidgets('the price is the BASE unit\'s, with its unit, even when a '
+      'package sorts first', (tester) async {
+    // The server may answer [BAG (×40), KG (×1)]: list order is not identity.
+    // The old caption took the first row, so this product would claim the bag's
+    // ₱270 was the price of one kilogram.
+    final packed = [
+      product(
+        id: 7,
+        name: 'Tile Adhesive',
+        categoryName: 'Cement',
+        brandName: 'ABC',
+        variants: [
+          variant(
+            id: 70,
+            productId: 7,
+            baseUomId: 2,
+            baseUomCode: 'KG',
+            sellingUoms: [
+              variantUom(
+                id: 701,
+                variantId: 70,
+                uomId: 3,
+                uomCode: 'BAG',
+                uomName: 'Bag',
+                factor: 40,
+                price: 270,
+                isWhole: true,
+              ),
+              variantUom(
+                id: 702,
+                variantId: 70,
+                uomId: 2,
+                uomCode: 'KG',
+                uomName: 'Kilogram',
+                price: 6.75,
+              ),
+            ],
+          ),
+        ],
+      ),
+    ];
+    await pumpProductsPage(
+      tester,
+      size: const Size(1440, 900),
+      products: packed,
+      batches: [batch(id: 1, variantId: 70, qty: 100)],
+    );
+
+    expect(find.text('₱6.75 / KG'), findsWidgets);
+    expect(
+      find.text('₱270.00 / BAG'),
+      findsNothing,
+      reason: 'the package price must not wear the base unit\'s caption',
     );
   });
 
@@ -263,5 +345,70 @@ void main() {
     expect(find.text('1 selected'), findsOneWidget);
     expect(find.widgetWithText(OutlinedButton, 'Print labels'), findsOneWidget);
     expect(find.text('Clear selection'), findsOneWidget);
+  });
+
+  // Phase 1d Task 10a: the archive confirmations join the shared dialog family
+  // (decision 17). The frame changes; the write does not, so the tests pin both
+  // halves: the AppDialog shell, and that only a confirm PATCHes.
+  testWidgets('the row archive confirmation is the shared dialog and only '
+      'writes on confirm', (tester) async {
+    final repository = await pumpProductsPage(
+      tester,
+      size: const Size(1440, 900),
+    );
+
+    await tester.tap(find.byTooltip('More actions').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Move to archive'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AppDialog), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+    // The question names the product it is about.
+    expect(find.textContaining('Portland Cement'), findsWidgets);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AppDialog), findsNothing);
+    expect(
+      repository.activePatches,
+      isEmpty,
+      reason: 'Cancel must write nothing',
+    );
+
+    await tester.tap(find.byTooltip('More actions').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Move to archive'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Move to archive'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AppDialog), findsNothing);
+    expect(repository.activePatches.single.isActive, isFalse);
+    expect(find.textContaining('moved to archive'), findsOneWidget);
+  });
+
+  testWidgets('the bulk archive confirmation is the shared dialog', (
+    tester,
+  ) async {
+    final repository = await pumpProductsPage(
+      tester,
+      size: const Size(1440, 900),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('ProductsRowSelect.2')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Move to archive'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AppDialog), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Move to archive'));
+    await tester.pumpAndSettle();
+
+    expect(repository.activePatches.single.isActive, isFalse);
+    expect(find.textContaining('moved to archive'), findsOneWidget);
   });
 }

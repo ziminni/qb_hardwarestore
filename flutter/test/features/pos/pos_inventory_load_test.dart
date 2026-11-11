@@ -13,7 +13,6 @@ import 'package:client/data/services/shift_service.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -75,9 +74,6 @@ void main() {
         child: MultiProvider(
           providers: [
             ChangeNotifierProvider<InventoryViewmodel>.value(value: inventory),
-            ChangeNotifierProvider<ProductTrackingViewmodel>.value(
-              value: ProductTrackingViewmodel(),
-            ),
           ],
           child: MaterialApp(
             home: PosTransactionPage(

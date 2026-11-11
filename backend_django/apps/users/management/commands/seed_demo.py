@@ -20,6 +20,7 @@ from apps.inventory.models import (
     Brand,
     Category,
     GoodsReceipt,
+    GoodsReceiptItem,
     InventoryBatch,
     POItem,
     Product,
@@ -89,6 +90,26 @@ CATALOG = [
     ]),
 ]
 
+# Phase 1d Task 4 (decisions 15/16): ONE demo product sold by a base unit and a real
+# package, so the screens can show "1 Bag = 25 kg" without inventing data. Numbers are
+# chosen to be readable, not to match a supplier: 25 kg at 11.00/kg inside the bag is
+# cheaper than the 12.00/kg loose price, which is why a buyer picks the bag. The
+# category and brand are the catalog's own rows - this step adds master data, not a
+# second Cement or Rhino.
+PACKAGING = {
+    'category': 'Cement',
+    'brand': 'Rhino',
+    'product': 'Tile Adhesive',
+    'variant': 'Standard',
+    'base_unit': ('KG', 'Kilogram'),
+    'base_price': Decimal('12.00'),      # per kg, loose
+    'bag_unit': ('BAG', 'Bag'),
+    'bag_factor': Decimal('25'),         # 1 bag = 25 kg
+    'bag_price': Decimal('275.00'),      # 25 x 11.00/kg
+    'unit_cost': Decimal('9.00'),        # per kg, what Cebu Building Supply charged
+    'stock': Decimal('250'),             # kg received in one delivery
+}
+
 
 class Command(BaseCommand):
     help = 'Seed realistic demo data (idempotent).'
@@ -103,6 +124,7 @@ class Command(BaseCommand):
         customers = {c.name: c for c in Customer.objects.all()}
         self._seed_sales(users['cashier'], variants, customers)
         self._seed_requisitions(users, variants, customers)
+        self._seed_packaging(users['stocker'], variants)
         self._print_review_instructions()
         self._print_summary(users)
 
@@ -136,9 +158,22 @@ class Command(BaseCommand):
                 variants[v.variant_name] = {'variant': v}
             return variants
         uoms = {}
-        for code, name in [('BAG', 'Bag'), ('PC', 'Piece'), ('RL', 'Roll')]:
-            uoms[code], _ = UnitOfMeasure.objects.get_or_create(
-                code=code, defaults={'name': name})
+        # Flush removes migration seed rows; restore the same standard list.
+        for code, name, whole in [
+            ('PC', 'Piece', True), ('BAG', 'Bag', True),
+            ('BOX', 'Box', True), ('PACK', 'Pack', True),
+            ('ROLL', 'Roll', True), ('SHEET', 'Sheet', True),
+            ('KG', 'Kilogram', False), ('G', 'Gram', False),
+            ('M', 'Metre', False), ('CM', 'Centimetre', False),
+            ('L', 'Litre', False), ('ML', 'Millilitre', False),
+        ]:
+            unit = UnitOfMeasure.objects.filter(code__iexact=code).first()
+            if unit is None and code == 'ROLL':
+                unit = UnitOfMeasure.objects.filter(code__iexact='RL').first()
+            if unit is None:
+                unit = UnitOfMeasure.objects.create(
+                    code=code, name=name, is_whole=whole)
+            uoms[code] = unit
         for cat_name, brand_name, prod_name, vs in CATALOG:
             cat, _ = Category.objects.get_or_create(name=cat_name)
             brand, _ = Brand.objects.get_or_create(name=brand_name)
@@ -442,6 +477,81 @@ class Command(BaseCommand):
         self.stdout.write(
             f'  PARTIAL token (scan again after a goods receipt): {partial_token} '
             f'({partial["status"]}, {partial["items"][0]["outstanding"]} outstanding)')
+
+    def _seed_packaging(self, stocker, variants):
+        """One product that is really sold two ways (Phase 1d Task 4, decisions 15/16).
+
+        Nothing above this step can produce "Bag = 25 kg at its own price": the catalog
+        gives every variant a single factor-1 selling unit, so the packaging screens and
+        the till's unit picker had no packaged example to show.
+
+        Three things the seed must NOT fake, so it goes through the same rows and
+        services the screens use:
+
+        * the two selling units are ordinary `VariantUOM` rows, so `save()` derives
+          their `QB…` codes and the whole-number flag comes from the unit;
+        * the 250 kg arrives through a purchase order and Receiving, never as a batch
+          written by hand - Add product creates catalogue only; and
+        * the KG unit is the MEASURED one, so the product still accepts 2.5 kg, which is
+          the contrast the packaged BAG is there to show.
+
+        Its own guard, like every other half of this command: an existing product means
+        a previous run already built it, and re-running must change nothing (ids, codes,
+        prices, batches). A half-built product is repaired by a reset, exactly like a
+        half-built catalog.
+        """
+        base_code, base_name = PACKAGING['base_unit']
+        bag_code, bag_name = PACKAGING['bag_unit']
+        if Product.objects.filter(base_name=PACKAGING['product']).exists():
+            self.stdout.write(
+                self.style.WARNING('Packaging already seeded - skipping'))
+            return
+
+        # Both codes are created by migration 0008 in a fresh database; get_or_create
+        # keeps a database seeded before it from inventing a rival spelling.
+        base_uom, _ = UnitOfMeasure.objects.get_or_create(
+            code=base_code, defaults={'name': base_name})
+        bag_uom, _ = UnitOfMeasure.objects.get_or_create(
+            code=bag_code, defaults={'name': bag_name, 'is_whole': True})
+        category, _ = Category.objects.get_or_create(name=PACKAGING['category'])
+        brand, _ = Brand.objects.get_or_create(name=PACKAGING['brand'])
+        product, _ = Product.objects.get_or_create(
+            category=category, brand=brand,
+            base_name=PACKAGING['product'])
+        variant, _ = ProductVariant.objects.get_or_create(
+            product=product, variant_name=PACKAGING['variant'],
+            defaults={'base_uom': base_uom,
+                      'min_stock_threshold': Decimal('20')})
+        for uom, factor, price in (
+                (base_uom, Decimal('1'), PACKAGING['base_price']),
+                (bag_uom, PACKAGING['bag_factor'], PACKAGING['bag_price'])):
+            variant.selling_uoms.get_or_create(
+                uom=uom,
+                defaults={'conversion_factor': factor,
+                          'default_selling_price': price})
+
+        # Same purchase -> delivery -> process shape `_seed_stock` uses, with the
+        # delivery LINE spelling out the 250 kg this order actually brought in.
+        supplier, _ = Supplier.objects.get_or_create(
+            company_name='Cebu Building Supply',
+            defaults={'contact_person': 'Lito Ramos', 'phone': '0917-111-2222'})
+        po = PurchaseOrder.objects.create(
+            supplier=supplier, created_by=stocker,
+            status=PurchaseOrder.Status.ORDERED,
+            expected_delivery=timezone.localdate())
+        item = POItem.objects.create(
+            po=po, variant=variant, ordered_qty=PACKAGING['stock'],
+            unit_cost=PACKAGING['unit_cost'],
+            received_qty=PACKAGING['stock'])
+        receipt = GoodsReceipt.objects.create(po=po, received_by=stocker)
+        GoodsReceiptItem.objects.create(
+            receipt=receipt, po_item=item, qty=PACKAGING['stock'])
+        process_goods_receipt(receipt=receipt, user=stocker)
+        self.stdout.write(self.style.SUCCESS(
+            f'Packaging seeded: {product.base_name} / {variant.variant_name} '
+            f'({base_code} x1 at {PACKAGING["base_price"]}, '
+            f'{bag_code} x{PACKAGING["bag_factor"]} at {PACKAGING["bag_price"]}), '
+            f'{PACKAGING["stock"]} {base_code} received on PO {po.pk}'))
 
     def _print_review_instructions(self):
         """What to do with the two requests that only the review screen can move.

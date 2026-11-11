@@ -10,12 +10,12 @@ import 'package:client/features/products/widgets/products_details_dialog.dart';
 import 'package:client/features/products/widgets/products_form_dialog.dart';
 import 'package:client/features/products/widgets/products_catalog_overview.dart';
 import 'package:client/features/products/widgets/products_table.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/empty_state.dart';
 import 'package:client/features/labels/label_document.dart';
 import 'package:client/features/labels/label_print_dialog.dart';
 import 'package:client/features/products/widgets/products_toolbar.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:flutter/material.dart';
@@ -64,6 +64,7 @@ class _ProductsPageState extends State<ProductsPage> {
     Product? product,
   ]) async {
     final inventory = context.read<InventoryViewmodel>();
+    final variant = product?.variants.firstOrNull;
     final result = await showDialog<ProductFormResult>(
       context: context,
       builder: (_) => ProductsFormDialog(
@@ -72,6 +73,11 @@ class _ProductsPageState extends State<ProductsPage> {
         categories: inventory.categories,
         brands: inventory.brands,
         units: inventory.units,
+        // Device-local knowledge (decision 15): the server has no location field,
+        // so the form opens with whatever THIS device remembered.
+        locationHint: variant == null
+            ? ''
+            : inventory.locationHintFor(variant.id),
       ),
     );
     if (result == null) return;
@@ -100,9 +106,6 @@ class _ProductsPageState extends State<ProductsPage> {
             .movements
             .where((item) => item.productId == product.id)
             .toList(),
-        tracking: context.read<ProductTrackingViewmodel>().configurationFor(
-          product.baseName,
-        ),
       ),
     );
   }
@@ -129,11 +132,15 @@ class _ProductsPageState extends State<ProductsPage> {
   ) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Move product to archive?'),
-        content: Text(
-          '${product.baseName} will be removed from the product catalog and transaction selections. '
-          'It is archived, never deleted, so it can be restored.',
+      builder: (dialogContext) => AppDialog(
+        icon: Icons.archive_outlined,
+        title: 'Move product to archive?',
+        subtitle: product.baseName,
+        width: 460,
+        content: const Text(
+          'The product leaves the catalogue and the transaction selections. It '
+          'is archived, never deleted, so it can be restored from Archived '
+          'products.',
         ),
         actions: [
           TextButton(
@@ -194,10 +201,16 @@ class _ProductsPageState extends State<ProductsPage> {
     final selectedIds = viewModel.selectedProductIds;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Archive ${selectedIds.length} products?'),
+      builder: (dialogContext) => AppDialog(
+        icon: Icons.archive_outlined,
+        title:
+            'Archive ${selectedIds.length} '
+            '${selectedIds.length == 1 ? 'product' : 'products'}?',
+        subtitle: 'The selected products leave the catalogue.',
+        width: 460,
         content: const Text(
-          'The selected products will no longer appear in the main product catalog.',
+          'They are archived, never deleted, so every one of them can be '
+          'restored from Archived products.',
         ),
         actions: [
           TextButton(

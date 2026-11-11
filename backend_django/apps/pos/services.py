@@ -19,7 +19,12 @@ from decimal import Decimal, InvalidOperation
 from django.db import transaction
 
 from apps.collectibles.models import CollectibleLedger
-from apps.inventory.services import allocate_fifo, check_low_stock_after_stock_out
+from apps.inventory.services import (
+    allocate_fifo,
+    check_low_stock_after_stock_out,
+    lock_selling_unit_lines,
+)
+from common.exceptions import refuse_fractional_whole_unit
 
 from .exceptions import (
     CreditLimitExceeded,
@@ -230,7 +235,7 @@ def _validated_sale_lines(items_data):
         try:
             vuom = (
                 VariantUOM.objects
-                .select_related('variant', 'variant__product')
+                .select_related('variant', 'variant__product', 'uom')
                 .filter(pk=raw_uom_id)
                 .first()
             )
@@ -249,6 +254,13 @@ def _validated_sale_lines(items_data):
         qty = _parse_decimal(item.get('qty'), field='qty', line_no=index)
         if qty <= 0:
             raise InvalidSale(f'Line {index}: qty must be greater than zero.')
+        # Phase 1d Task 2 (decision 16): a bag, box or roll is counted in ones only. This
+        # ONE check covers every caller of the shared validator - `process_sale`, a held
+        # cart's `complete/` (which rings a sale) and `process_return` - so the till, the
+        # shelf and a refund can never disagree about what 1.5 bags means.
+        refuse_fractional_whole_unit(
+            is_whole=vuom.uom.is_whole, qty=qty,
+            what=f'Line {index} ({vuom.variant}, {vuom.uom.code})')
         lines.append((vuom, qty))
     return lines
 
@@ -351,6 +363,15 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
             # chaining. A client reading the error should see "no open shift", not a
             # traceback about a lookup that did exactly what it was asked to.
             raise NoOpenShift() from None
+
+        # Phase 1d Task 3: `_validated_sale_lines` ran BEFORE this transaction, so a
+        # selling unit it accepted can be DELETED between that read and the first line.
+        # The removal takes the same row lock, so one of the two waits - and a cart that
+        # lost its unit is refused as a 400 `SELLING_UNIT_IN_USE` instead of failing on
+        # the foreign key as a 500. Locked before the transaction row is written, so a
+        # refusal leaves no sale, receipt, ledger or moved stock behind.
+        lock_selling_unit_lines(lines, document='sale')
+
         txn = SalesTransaction.objects.create(
             customer_id=customer_id,
             cashier=cashier,
@@ -883,6 +904,13 @@ def process_return(*, customer_id, cashier, items_data,
             raise ReturnReasonRequired(
                 'A return needs a reason of 1 to '
                 f'{MAX_RETURN_REASON_LENGTH} characters.')
+
+        # Phase 1d Task 3: `_validated_sale_lines` ran before this transaction, so the
+        # units it accepted are locked here - the same lock the removal takes - before the
+        # first write. A refund of a unit the catalogue lost is then a 400, not a
+        # foreign-key 500, even for a manager's UNLINKED return against a unit no sale
+        # row happens to reference.
+        lock_selling_unit_lines(lines, document='return')
 
         original = None
         if original_transaction_id is not None:

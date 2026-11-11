@@ -1,6 +1,8 @@
 # QA Profile — BuildPro POS / Inventory
 
-**Status: Phase 1b closed 2026-11-08 with owner-accepted QA limits; contract v0.2 provisional**
+**Status: Phase 1d QA passed on an isolated stack 2026-11-11 (closure pending owner); contract v0.3 provisionally accepted. Phase 1b closed 2026-11-08 with owner-accepted QA limits.**
+
+Phase 1d (packaging units, server whole-number rule, unit removal, dialog family): evidence in local gitignored `temp/p1d/qa/` (`report.md`, `browser/`, `repro/`, `stocker/`, `mgr/`). The [Phase 1d plan](../../planning/pos-evolution/phase-1d-plan.md) Task 13 owns results and triage.
 
 Phase 1b Tasks 0–10 are complete. The [Phase 1b plan](../../planning/pos-evolution/phase-1b-plan.md) owns final gate evidence and accepted limits; automated tests are not live QA evidence. Task 5 fresh-seed and repeat-seed scenarios passed on the Django test database. [Contract v0.2](../integration/CPMS-CONTRACT.md) was provisionally accepted by the owner on 2026-11-08; core isolated live QA passed and the owner explicitly chose “Close with limits (Recommended)”; missing checks are not counted as passed.
 
@@ -10,7 +12,13 @@ Phase 1b Tasks 0–10 are complete. The [Phase 1b plan](../../planning/pos-evolu
 - **Dev is the demo DB** (Phase 1b, reseeded 2026-11-09; see [README](../../README.md#2-load-demo-data)). QA writes on dev need owner approval each time: even login failures/audits and refresh rotation write state, and probes consume seeded tokens.
 - The backend entrypoint runs `migrate` on every start. No implicit flush, reseed or cleanup.
 
-### Isolated stack (historical, removed 2026-11-09)
+### Isolated stack
+
+Phase 1d stack is **running** as `buildpro_p1d_qa_{db,backend,web}` on `buildpro_p1d_qa_net` / volume `buildpro_p1d_qa_pgdata` (API 8001, web 8091) until the owner approves removal. Same recipe as below; web built with `--dart-define=API_BASE_URL=http://127.0.0.1:8001`.
+
+**Harness traps (agent-browser on Flutter web):** enable semantics by JS-dispatched click on `flt-semantics-placeholder`; click the semantics-box **centre** of a button (edge clicks hit the dialog barrier and look like "dialog closed"); click then `keyboard type`, not `fill`; scroll with dispatched `WheelEvent`. CSS `zoom` makes the canvas wider than the window and clips everything: it is **not** a 1.3 text-scale test.
+
+Phase 1b stack (removed 2026-11-09):
 
 Phase 1b live QA (2026-11-08) ran on an owner-approved isolated stack, removed with owner approval 2026-11-09; evidence stays in local gitignored `temp/p1b-qa/` (report: `report.md`). Recipe if needed again: [settings.py](../../backend_django/config/settings.py) hardcodes host `db`, so **environment DB overrides will not redirect the app**; isolate by network instead. Separate network (no dev Compose attachment), PostgreSQL container aliased `db` on its own volume with no published port, backend from the same image with source read-only on that network only (API :8001), static web build on :8091. Confirm zero public tables and that `db` resolves away from `buildpro_db` before `migrate` + `seed_demo`.
 
@@ -40,10 +48,13 @@ For repeat QA, run browser QA with the **agent-browser skill**, not ad hoc brows
 | Whole Decline | Required trimmed reason; all lines false, token spent without cashier. Verify and Release return REQUISITION_DECLINED before generic used-token error; WAITING gives REQUISITION_WAITING. No stock/debt mutation. |
 | CPMS withdrawal | WAITING close → CLOSED, amount stays null; accepted/partial close preserves quantities/debt and abandoned shortfall budget. DECLINED close is no-op with reasons; CANCELLED remains 409. Repeated close is mutation-safe, not a promise of frozen live-price response. |
 | Stale / concurrent decision | Double tap/submission guard; two reviewers or review vs close yield one decision, loser 409/reload. Verify is advisory; concurrent Close/Release must not release after closure. Timeout/unknown outcome reloads detail before actions re-enable; failed refresh keeps actions blocked. Saved decision + list-refresh failure must not invite a second decision. |
+| Whole units (1d) | Server `is_whole` flag rules everywhere: 1.5 BAG refused in till dialog ("Use a whole number for BAG"), and by API for sale/hold/return/release/quote/order/PO/receiving/adjustment with `WHOLE_UNIT_QUANTITY`; CPMS fractional push refused, nothing stored; stored-id retry still 200. KG to 2 decimals. |
+| Packaging units (1d) | Tile Adhesive KG + BAG (25 kg) prices independent; mixed sale totals exact; return refunds by line. Add/remove extra unit from details; Remove hidden for base and any used unit; confirm names unit and says it cannot be undone. Base price field shows base-unit price. No opening stock in Add product. Location shown with "Saved on this device only". |
 | Budget vs debt | 10 at 10.00, release 4 → 40.00 payables; price remaining 6 at 12.00 → 112.00 budget. Payment changes payables only. Closed-after-accept keeps budget, not release permission. Round outstanding sum once HALF_UP. Historical unknown stays null after more release; UI says unavailable, not zero. |
 
 ## Out of bounds
 
 - Dev or production writes, migrations, reseeds and resets without owner approval; no automatic flush or destructive cleanup.
 - CPMS repository changes, real external services/payments, outbound integration, new config/scripts or reconciliation tooling.
-- Phase 1b closure accepts the documented missing checks, not a claim they passed. Contract v0.2 stays provisional; closure does not authorize deployment, commits, dev writes or Phase 1c execution.
+- Phase 1d live QA did not test genuine browser text scale 1.3 (goldens only) or concurrent unit-removal races (deterministic PostgreSQL tests only).
+- Phase 1b closure accepts the documented missing checks, not a claim they passed. Contracts stay provisional; closure does not authorize deployment, commits, dev writes or Phase 1c execution.

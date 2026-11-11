@@ -13,7 +13,6 @@
 // nothing is not.
 
 import 'package:client/features/admin/widgets/admin_user_action_button.dart';
-import 'package:client/features/admin/widgets/admin_user_section.dart';
 import 'package:client/features/dashboard/widget/inventory_action_button.dart';
 import 'package:client/features/dashboard/widget/inventory_section.dart';
 import 'package:flutter/material.dart';
@@ -76,13 +75,6 @@ void main() {
           'InventorySection': ({String? label, VoidCallback? on}) =>
               InventorySection(
                 title: 'Inventory table',
-                actionLabel: label,
-                onAction: on,
-                child: const Text('body'),
-              ),
-          'AdminUserSection': ({String? label, VoidCallback? on}) =>
-              AdminUserSection(
-                title: 'User accounts',
                 actionLabel: label,
                 onAction: on,
                 child: const Text('body'),

@@ -34,7 +34,6 @@ import 'package:client/features/inventory/views/inventory_stock_page.dart';
 import 'package:client/features/inventory/views/inventory_stock_movements_page.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/views/pos_shift_page.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:client/features/products/views/products_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -318,7 +317,6 @@ void main() {
             create: (_) => AuthViewmodel(AuthRepository(AuthService())),
           ),
           ChangeNotifierProvider<InventoryViewmodel>.value(value: store),
-          ChangeNotifierProvider(create: (_) => ProductTrackingViewmodel()),
         ],
         child: _atSweepScale(const ProductsPage()),
       ),

@@ -421,6 +421,9 @@ class PosTransactionViewmodel extends ChangeNotifier {
             conversionFactor: uom.conversionFactor,
             unitPrice: uom.defaultSellingPrice,
             availableBaseStock: _inventory.stockOnHandFor(record.variant.id),
+            // Phase 1d: the server's whole-number flag decides whether a scan adds
+            // one straight to the cart, so it travels with the row.
+            isWhole: uom.uomIsWhole,
             categoryName: record.product.categoryName,
             brandName: record.product.brandName,
           ),

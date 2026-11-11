@@ -30,7 +30,8 @@ class InventoryTestBase(TestCase):
         )
         self.category = Category.objects.create(name='Cement')
         self.brand = Brand.objects.create(name='Rhino')
-        self.uom = UnitOfMeasure.objects.create(code='BAG', name='Bag')
+        self.uom, _ = UnitOfMeasure.objects.get_or_create(
+            code='BAG', defaults={'name': 'Bag'})
         self.product = Product.objects.create(
             category=self.category, brand=self.brand, base_name='Portland Cement')
         self.variant = ProductVariant.objects.create(

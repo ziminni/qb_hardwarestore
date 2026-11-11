@@ -6,7 +6,9 @@ import 'package:client/data/services/inventory_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/receiving_viewmodel.dart';
 import 'package:client/features/inventory/views/inventory_receiving_page.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
@@ -351,5 +353,24 @@ void main() {
     expect(find.text('Portland 40kg'), findsWidgets);
     // Appending a delivery is the only write: the sheet offers no edit.
     expect(find.text('Close'), findsOneWidget);
+
+    // Phase 1d Task 10a: the delivery sheet joins the shared dialog family.
+    expect(find.byType(AppDialog), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+    // Read-only facts read as label and value rows. "Received by" is also a
+    // column header on the page behind, so the row is looked up inside the dialog.
+    expect(
+      find.descendant(
+        of: find.byType(AppDialog),
+        matching: find.text('Received by'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('LINES (1)'), findsOneWidget);
+
+    // Esc closes it, the same as the close button.
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(AppDialog), findsNothing);
   });
 }

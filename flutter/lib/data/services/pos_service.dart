@@ -319,6 +319,17 @@ class PosService {
             shortfall: shortfall,
           );
         }
+        if (code is String && code == 'WHOLE_UNIT_QUANTITY') {
+          // Phase 1d: the server refuses a fractional count of a unit it counts in
+          // ones. Its detail names the line, the product and the unit, which is
+          // more than this client can say — but a body that lost its prose must
+          // still read as "change the quantity", not as "try again".
+          final detail = body['detail'];
+          return PosServiceException(
+            detail is String && detail.isNotEmpty ? detail : _wholeUnitMessage,
+            code: code,
+          );
+        }
         if (code is String && code == 'IDEMPOTENCY_KEY_REUSED') {
           // A 409 means this key was already spent on a DIFFERENT sale. Saying so
           // plainly stops a cashier retrying into the same wall - and stops them
@@ -351,6 +362,11 @@ class PosService {
         );
     }
   }
+
+  /// What a cashier reads when a whole-unit refusal arrives without prose.
+  static const _wholeUnitMessage =
+      'That unit is sold in whole numbers, so the quantity must be a whole '
+      'number. Change it and try again.';
 
   /// A money field from the server (Decimal is serialized as a string), or null.
   static double? _amount(Object? value) =>

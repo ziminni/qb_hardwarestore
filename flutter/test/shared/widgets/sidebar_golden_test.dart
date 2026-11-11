@@ -3,7 +3,6 @@ library;
 
 import 'dart:io';
 
-import 'package:client/core/constants/app_assets.dart';
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
@@ -169,21 +168,11 @@ Future<void> _pumpShell(WidgetTester tester, _Role role, Size size) async {
     ),
   );
   await tester.pumpAndSettle();
-  // The logo is an asset image, and image decoding does not run inside the
-  // fake async zone: without this the brand renders as empty space. Each size
-  // the shell asks for is its own ResizeImage key (42 in the full sidebar, 40
-  // in the rail), so both are warmed here.
+  // Decode the displayed providers, including their actual ResizeImage keys.
   await tester.runAsync(() async {
     final context = tester.element(find.byKey(_galleryKey));
-    for (final size in const [40, 42]) {
-      await precacheImage(
-        ResizeImage.resizeIfNeeded(
-          size,
-          size,
-          const AssetImage(AppAssets.logo),
-        ),
-        context,
-      );
+    for (final image in tester.widgetList<Image>(find.byType(Image))) {
+      await precacheImage(image.image, context);
     }
   });
   await tester.pumpAndSettle();

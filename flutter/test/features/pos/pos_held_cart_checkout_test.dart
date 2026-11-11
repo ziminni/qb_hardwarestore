@@ -31,7 +31,6 @@ import 'package:client/features/pos/viewmodels/held_cart_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import '../../support/phase4_fakes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -342,9 +341,6 @@ void main() {
               providers: [
                 ChangeNotifierProvider<InventoryViewmodel>.value(
                   value: inventory,
-                ),
-                ChangeNotifierProvider<ProductTrackingViewmodel>.value(
-                  value: ProductTrackingViewmodel(),
                 ),
               ],
               child: MaterialApp(

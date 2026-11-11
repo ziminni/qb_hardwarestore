@@ -1,7 +1,14 @@
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/models/supplier.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
 
+/// Who you buy from: the shared dialog frame around five plain fields.
+///
+/// Nothing about the form itself changed when it joined the family. It still
+/// returns the [Supplier] the page writes to the server, still keeps an edited
+/// supplier's id and active flag, and still refuses an empty company name with
+/// the same sentence.
 class SuppliersFormDialog extends StatefulWidget {
   const SuppliersFormDialog({super.key, this.supplier});
   final Supplier? supplier;
@@ -33,55 +40,63 @@ class _SuppliersFormDialogState extends State<SuppliersFormDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: Text(widget.supplier == null ? 'Add Supplier' : 'Edit Supplier'),
-    content: SizedBox(
-      width: 520,
-      child: SingleChildScrollView(
-        child: Form(
-          key: _key,
-          child: Column(
+  Widget build(BuildContext context) => AppDialog(
+    icon: Icons.storefront_outlined,
+    title: widget.supplier == null ? 'Add Supplier' : 'Edit Supplier',
+    subtitle: 'The company you order materials from.',
+    width: 560,
+    content: Form(
+      key: _key,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const DialogSectionLabel('Supplier details'),
+          TextFormField(
+            controller: _company,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Company Name'),
+            validator: (value) => value == null || value.trim().isEmpty
+                ? 'Enter the company name.'
+                : null,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          TextFormField(
+            controller: _contact,
+            decoration: const InputDecoration(labelText: 'Contact Person'),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
             children: [
-              TextFormField(
-                controller: _company,
-                autofocus: true,
-                decoration: const InputDecoration(labelText: 'Company Name'),
-                validator: (value) => value == null || value.trim().isEmpty
-                    ? 'Enter the company name.'
-                    : null,
+              Expanded(
+                child: TextFormField(
+                  controller: _phone,
+                  decoration: const InputDecoration(labelText: 'Phone'),
+                ),
               ),
-              const SizedBox(height: AppSpacing.md),
-              TextFormField(
-                controller: _contact,
-                decoration: const InputDecoration(labelText: 'Contact Person'),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _phone,
-                      decoration: const InputDecoration(labelText: 'Phone'),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _email,
-                      decoration: const InputDecoration(labelText: 'Email'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.md),
-              TextFormField(
-                controller: _address,
-                maxLines: 3,
-                decoration: const InputDecoration(labelText: 'Address'),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: TextFormField(
+                  controller: _email,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                ),
               ),
             ],
           ),
-        ),
+          const SizedBox(height: AppSpacing.md),
+          TextFormField(
+            controller: _address,
+            maxLines: 3,
+            decoration: const InputDecoration(labelText: 'Address'),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          // Neutral guidance: a deactivated supplier disappears from the order
+          // form's list, which surprises a user who expects a delete action.
+          const InfoBanner(
+            message:
+                'Purchase orders and Receiving only offer active suppliers.',
+          ),
+        ],
       ),
     ),
     actions: [

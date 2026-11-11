@@ -5,7 +5,6 @@
 // countable unit; a measured base unit (m, kg) gets one; the variant's other units
 // (a box of 100) were not delivered as such, so they start at 0.
 
-import 'package:client/core/units/whole_units.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/features/labels/label_document.dart';
 
@@ -47,7 +46,8 @@ LabelRequest _requestFor({
 
   // A factor-1 unit IS the base unit — the thing the receipt counted.
   if (unit.conversionFactor != 1) return labelled(0);
-  if (!isWholeUnit(unit.uomCode)) return labelled(1);
+  // The SERVER's flag, not the code word (Phase 1d decision 16).
+  if (!unit.uomIsWhole) return labelled(1);
   final whole = receivedQty.floor();
   if (whole <= 0) return labelled(0);
   // A silent clamp under-labels the delivery: a 2 500-piece receipt would ship

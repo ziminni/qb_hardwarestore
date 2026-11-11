@@ -11,6 +11,20 @@ class AppButtonTheme {
 
   static const _padding = EdgeInsets.symmetric(horizontal: 18, vertical: 12);
 
+  // Keyboard focus on the gold buttons used to be invisible: the only change
+  // was the faint state overlay against a gold fill. A black ring reads at a
+  // glance and matches the brandBlack foreground.
+  static final WidgetStateProperty<BorderSide?> _focusSide =
+      WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.disabled)) {
+          return null;
+        }
+        if (states.contains(WidgetState.focused)) {
+          return const BorderSide(color: AppColors.brandBlack, width: 2);
+        }
+        return null;
+      });
+
   static ElevatedButtonThemeData elevatedButton() {
     return ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
@@ -20,7 +34,7 @@ class AppButtonTheme {
         padding: _padding,
         textStyle: AppTextStyles.button,
         shape: _shape,
-      ),
+      ).copyWith(side: _focusSide),
     );
   }
 
@@ -34,7 +48,7 @@ class AppButtonTheme {
         foregroundColor: AppColors.brandBlack,
         textStyle: AppTextStyles.button,
         shape: _shape,
-      ),
+      ).copyWith(side: _focusSide),
     );
   }
 
@@ -48,7 +62,7 @@ class AppButtonTheme {
         padding: _padding,
         textStyle: AppTextStyles.button,
         shape: _shape,
-      ),
+      ).copyWith(side: _focusSide),
     );
   }
 

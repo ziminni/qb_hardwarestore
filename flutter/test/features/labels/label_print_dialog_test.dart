@@ -54,6 +54,7 @@ List<LabelRequest> deliveryReceipt(int receivedQty) => deliveryLabelRequests(
       barcodeQr: 'QB000013-0',
       conversionFactor: 1,
       defaultSellingPrice: 315,
+      uomIsWhole: true,
     ),
   ],
   receivedQty: receivedQty.toDouble(),

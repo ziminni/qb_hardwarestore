@@ -93,7 +93,8 @@ class SaleIntegrityBase(POSTestBase):
 
     def _box_uom(self, *, conversion_factor='12', price='120.00'):
         """A second selling UOM on the fixture variant: one box = 12 base units."""
-        box = UnitOfMeasure.objects.create(code='BOX', name='Box')
+        box, _ = UnitOfMeasure.objects.get_or_create(
+            code='BOX', defaults={'name': 'Box'})
         return VariantUOM.objects.create(
             variant=self.variant, uom=box,
             conversion_factor=Decimal(conversion_factor),
@@ -189,7 +190,8 @@ class UomConversionTests(SaleIntegrityBase):
 
     def test_a_fractional_conversion_factor_is_applied(self):
         self._stock_up('10')                      # 20 base units of "metre" stock
-        metre = UnitOfMeasure.objects.create(code='M', name='Metre')
+        metre, _ = UnitOfMeasure.objects.get_or_create(
+            code='M', defaults={'name': 'Metre'})
         half = VariantUOM.objects.create(
             variant=self.variant, uom=metre,
             conversion_factor=Decimal('0.50'),

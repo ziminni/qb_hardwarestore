@@ -53,6 +53,26 @@ class InventoryCategoryCard extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // The 3 px mark SectionHeading carries, in the card's own
+                  // corner: gold while the category is offered, muted once it is
+                  // archived. The badge beside it spells the same thing in
+                  // words, so the bar is never the only signal.
+                  Container(
+                    key: ValueKey(
+                      category.isActive
+                          ? 'CategoryCard.bar.active'
+                          : 'CategoryCard.bar.archived',
+                    ),
+                    width: 3,
+                    height: 42,
+                    margin: const EdgeInsets.only(right: AppSpacing.md),
+                    decoration: BoxDecoration(
+                      color: category.isActive
+                          ? AppColors.brandGold
+                          : AppColors.disabled,
+                      borderRadius: BorderRadius.circular(1),
+                    ),
+                  ),
                   Container(
                     width: 42,
                     height: 42,

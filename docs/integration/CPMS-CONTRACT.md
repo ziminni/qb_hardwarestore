@@ -1,6 +1,6 @@
 # CPMS ↔ POS contract — the six integration endpoints (Phase 1b)
 
-**Status: v0.2 provisionally owner-accepted; Phase 1b closed 2026-11-08 with accepted QA limits**
+**Status: v0.3 provisionally owner-accepted 2026-11-11 (Phase 1d); v0.2 accepted 2026-11-08**
 
 **Version:** v0.2 (breaking, provisional). Written from implemented services, serializers, views and tests, with final controller gates and core isolated live QA; not a production v0.2 rollout. The POS dev database is on Phase 1b (migration 0003 applied; owner-approved flush + reseed 2026-11-09). **Audience:** the CPMS team, which does not have the POS source.
 
@@ -12,12 +12,14 @@ Decisions behind it: [01](../../planning/pos-evolution/decisions/01-requisitions
 
 - **Additive by default.** New response fields and new error codes may appear at any time; CPMS must ignore fields it does not know and treat an unknown `code` as a refusal, showing its `detail`.
 - **Breaking changes** (renamed or removed fields, new required request fields, changed meanings) bump the version here and get a line in the change log below before they ship.
+- **v0.3 changes accepted input:** a push with a fractional quantity on a whole-count unit (for example 2.5 `BAG`) is now refused with `400 WHOLE_UNIT_QUANTITY` instead of being stored and rounded down at release (§4.3, §7). Response shapes are unchanged. A `materials/` code can also disappear because the store removed a never-used selling unit (§4.2).
 - **v0.2 is breaking:** a push now answers `WAITING`, not `APPROVED`; store review is mandatory before release. Completion concerns only Available lines, so `RELEASED` may retain outstanding quantities on declined lines. Read-back/close gain decisions and nullable `expected_amount`; close permits withdrawal while `WAITING`. See §5–§6 and the rollout boundary in §11. Phase 1c payment-receipt upload remains future work.
 
 ### Change log
 
 | Version | Date | Change |
 |---|---|---|
+| v0.3 | 2026-11-11 | Import refuses fractional quantities on whole-count units (`WHOLE_UNIT_QUANTITY`); whole vs measured is the POS unit's server flag; standard unit list; codes can vanish when an unused selling unit is removed. Verified live on the isolated Phase 1d stack (refusal, nothing stored, stored-id retry 200); owner accepted provisionally |
 | v0.2 | 2026-11-08 | Breaking store-review lifecycle, eligible-line completion, decision read-back and live nullable budget; owner accepted provisionally; core live QA passed and phase closed with explicit accepted limits |
 | v0.1 | 2026-11-07 | First version, from the Phase 1 build; owner accepted provisionally without line-by-line review |
 
@@ -177,7 +179,7 @@ Every selling unit CPMS can order: an **active variant of an active product**. A
 | `product` | Human label: product name plus variant name. For display only; never send it back. |
 | `unit` | UOM code (`PC`, `KG`, …). The unit the quantity is counted in. |
 
-Ordered by product, then variant, then unit. **This list is exactly the import's accept list**: a code taken from here never answers `UNKNOWN_MATERIAL`. A code from an earlier page may disappear later (product archived) — re-read the list before a push if a code has been sitting around.
+Ordered by product, then variant, then unit. **This list is exactly the import's accept list**: a code taken from here never answers `UNKNOWN_MATERIAL`. A code from an earlier page may disappear later (product archived, or since v0.3 a selling unit that was never sold, held or requested was removed) — re-read the list before a push if a code has been sitting around. A code already used on a stored request cannot be removed.
 
 **Never in this body:** stock on hand, price, cost, or the numeric ids. CPMS orders materials; it does not trade them (decision 04).
 
@@ -291,6 +293,10 @@ curl -s -X POST "$POS/requests/" -H "Authorization: Bearer $TOKEN" \
 
 # a token that already belongs to another request
 # -> 409 {"code": "TOKEN_TAKEN", "detail": "This token already belongs to another requisition. Mint a new token for this request."}
+
+# a fractional quantity on a whole-count unit (v0.3)
+# -> 400 {"code": "WHOLE_UNIT_QUANTITY", "detail": "Line 1 (Tile Adhesive — Standard, BAG): 2.50 is not a whole number, and this unit is counted in whole units only."}
+# Nothing is stored. A retry of an id the POS already stores still answers 200 with the stored copy.
 
 # empty items / a 3-decimal quantity
 # -> 400 {"items": {"non_field_errors": ["This list may not be empty."]}}
@@ -483,7 +489,8 @@ Example: request 10 at 10.00, release 4 → known released value 40.00; remainin
 - **A quantity is always in the selling unit of its `code`** — the same unit `GET materials/` reports in `unit`. `"quantity": "3"` against a code whose unit is `PC` means three pieces; against one sold per `KG`, three kilograms.
 - The POS deducts stock by that unit's **conversion factor** (a unit of 12 pieces takes 12 pieces off the shelf per 1 released), exactly as a till sale does.
 - Only the POS knows the conversion factor, the stock and the price. CPMS never sends a unit and never needs to: the code carries it.
-- A whole-count unit (`PC`, `BAG`, `BOX`, `SHEET`, `ROLL`, `PACK`) releases in whole numbers only; a measured unit releases to 2 decimals. Rounding is always **down**, never above what is on the shelf.
+- Whether a unit is whole-count is the POS unit's own flag, not its code. The standard list: `PC`, `BAG`, `BOX`, `PACK`, `ROLL` (older data may say `RL`), `SHEET` are whole; `KG`, `G`, `M`, `CM`, `L`, `ML` are measured to 2 decimals.
+- **Since v0.3** a push with a fractional quantity on a whole-count unit is refused (`WHOLE_UNIT_QUANTITY`, §9). Release still rounds **down** to what is on the shelf.
 - What actually leaves the store at one visit is bounded by the shelf: the request goes `PARTIAL` when it is less than the outstanding quantity. CPMS learns the result from §4.4, not from a response to a release (CPMS does not release).
 
 ---
@@ -508,6 +515,7 @@ Example: request 10 at 10.00, release 4 → known released value 40.00; remainin
 | 400 | `UNKNOWN_PAYER` | `project.payer` is not an active contractor / construction firm | No — fix the payload (§4.1) |
 | 400 | `UNKNOWN_MATERIAL` | at least one code is not in §4.2; all offenders named | No — re-read §4.2 |
 | 400 | `DUPLICATE_MATERIAL` | one code on two lines | No — send one line per material |
+| 400 | `WHOLE_UNIT_QUANTITY` | (v0.3) fractional quantity on a whole-count unit; detail names the line | No — send a whole number for that line |
 | 400 | *(field shape)* | body/field validation, detail names the field | No |
 | 401 | `token_not_valid` / none | no, expired or revoked token | Refresh, then retry once |
 | 403 | `CPMS_SCOPE` | the path is outside `/api/v1/integration/cpms/` | No — it is CPMS's bug |

@@ -49,6 +49,8 @@ class SuppliersTable extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DataPanel<Supplier>(
+      title: 'Suppliers',
+      count: suppliers.length,
       rows: suppliers,
       isLoading: isLoading,
       error: error,

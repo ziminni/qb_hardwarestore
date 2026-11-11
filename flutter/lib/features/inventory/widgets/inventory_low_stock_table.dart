@@ -68,6 +68,8 @@ class InventoryLowStockTable extends StatelessWidget {
     final ordered = [...rows]..sort(_byUrgency);
 
     return DataPanel<LowStockRow>(
+      title: 'Low stock',
+      count: ordered.length,
       rows: ordered,
       isLoading: isLoading,
       emptyMessage: emptyMessage,

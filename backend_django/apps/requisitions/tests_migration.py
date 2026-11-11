@@ -102,11 +102,14 @@ class ForemanDataMigrationTests(_MigrationBase):
 
         category = Category.objects.create(name='Cement')
         brand = Brand.objects.create(name='Rhino')
-        uom = UnitOfMeasure.objects.create(code='BAG', name='Bag')
-        box = UnitOfMeasure.objects.create(code='BOX', name='Box')
+        uom, _ = UnitOfMeasure.objects.get_or_create(
+            code='BAG', defaults={'name': 'Bag'})
+        box, _ = UnitOfMeasure.objects.get_or_create(
+            code='BOX', defaults={'name': 'Box'})
         # A second unit so two factor-1 rows can coexist (uq_variant_uom forbids the
         # same unit twice) and "lowest pk" has something to choose between.
-        kilo = UnitOfMeasure.objects.create(code='KG', name='Kilo')
+        kilo, _ = UnitOfMeasure.objects.get_or_create(
+            code='KG', defaults={'name': 'Kilo'})
         product = Product.objects.create(
             category=category, brand=brand, base_name='Portland Cement')
         variant = ProductVariant.objects.create(

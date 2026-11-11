@@ -10,6 +10,8 @@
 from django.db import transaction
 from rest_framework import serializers
 
+from common.exceptions import refuse_fractional_whole_unit
+
 from .exceptions import (
     BarcodeInvalid,
     BarcodeReservedPrefix,
@@ -59,26 +61,76 @@ class BrandSerializer(serializers.ModelSerializer):
 class UnitOfMeasureSerializer(serializers.ModelSerializer):
     class Meta:
         model = UnitOfMeasure
-        fields = ['id', 'code', 'name', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        fields = ['id', 'code', 'name', 'is_whole', 'created_at', 'updated_at']
+        # Read-only in the API: the flag decides what may be sold as a fraction, and
+        # decision 16 keeps that a server fact (rare extras and corrections via admin).
+        read_only_fields = ['id', 'is_whole', 'created_at', 'updated_at']
 
 
-def selling_unit_is_sold(unit) -> bool:
-    """True once a sale line or a held cart line references this selling unit.
+def unit_in_use(unit) -> bool:
+    """True when ANY of the five tables that PROTECT a selling unit references it.
 
-    Why these two tables (Phase 4 Task 1): a `SalesItem` is money already taken and stock
-    already deducted — changing the unit's factor or uom afterwards re-writes what the
-    return cap and restock are measured against. A `HeldCartItem` is a parked cart that
-    will be sold as it stands, so the same change would reprice or re-measure a cart a
-    cashier is holding. Quotations and sales orders are DOCUMENTS priced on the day they
-    were written and move no stock; they are deliberately not part of the guard.
+    Phase 1d Task 1: the same five references the removal rule and the freeze rule read
+    (`pos.SalesItem`, `pos.HeldCartItem`, `pos.QuotationItem`, `pos.SalesOrderItem`,
+    `requisitions.RequisitionItem`). One definition here so a screen's "can this be
+    removed?" and the delete itself cannot disagree. A single row costs five EXISTS
+    queries; `annotate_unit_in_use` answers the same question for a whole list in one.
+    """
+    from apps.pos.models import HeldCartItem, QuotationItem, SalesItem, SalesOrderItem
+    from apps.requisitions.models import RequisitionItem
+
+    return any(
+        model.objects.filter(variant_uom_id=unit.pk).exists()
+        for model in (
+            SalesItem, HeldCartItem, QuotationItem, SalesOrderItem,
+            RequisitionItem)
+    )
+
+
+def annotate_unit_in_use(queryset):
+    """Attach `in_use` to every row of a `VariantUOM` queryset — one query, no N+1.
+
+    Five `EXISTS` subqueries ride along with the list the view was already fetching, so a
+    catalog screen can show the flag on every row without asking per unit.
+    """
+    from django.db.models import Exists, OuterRef
+
+    from apps.pos.models import HeldCartItem, QuotationItem, SalesItem, SalesOrderItem
+    from apps.requisitions.models import RequisitionItem
+
+    reference = None
+    for model in (SalesItem, HeldCartItem, QuotationItem, SalesOrderItem,
+                  RequisitionItem):
+        exists = Exists(model.objects.filter(variant_uom=OuterRef('pk')))
+        reference = exists if reference is None else reference | exists
+    return queryset.annotate(in_use=reference)
+
+
+def selling_unit_freeze_reason(unit) -> str:
+    """Why this unit's variant/uom/factor is frozen: `'sold'`, `'requested'` or `''`.
+
+    `'sold'` covers a `SalesItem` (money already taken, stock already deducted, so a
+    change re-writes what the return cap and restock are measured against) and a
+    `HeldCartItem` (a parked cart that will be sold as it stands, so the same change
+    would reprice or re-measure a cart a cashier is holding).
+
+    `'requested'` covers a `RequisitionItem` (decision 16, Q4): a project request names
+    the selling unit CPMS was shown and the till releases it with one scan, so its factor
+    and unit are as load-bearing as a sale's - the release prices and deducts in BASE
+    units, and a changed factor would re-measure a request that is still open.
+
+    Quotations and sales orders are DOCUMENTS priced on the day they were written and move
+    no stock; they count as USED for removal (`unit_in_use`) but stay out of this freeze.
     """
     from apps.pos.models import HeldCartItem, SalesItem
+    from apps.requisitions.models import RequisitionItem
 
-    return (
-        SalesItem.objects.filter(variant_uom_id=unit.pk).exists()
-        or HeldCartItem.objects.filter(variant_uom_id=unit.pk).exists()
-    )
+    if (SalesItem.objects.filter(variant_uom_id=unit.pk).exists()
+            or HeldCartItem.objects.filter(variant_uom_id=unit.pk).exists()):
+        return 'sold'
+    if RequisitionItem.objects.filter(variant_uom_id=unit.pk).exists():
+        return 'requested'
+    return ''
 
 
 class VariantUOMSerializer(serializers.ModelSerializer):
@@ -108,21 +160,47 @@ class VariantUOMSerializer(serializers.ModelSerializer):
         source='variant.product.is_active', read_only=True)
     conversion_factor = serializers.DecimalField(max_digits=12, decimal_places=2)
     default_selling_price = serializers.DecimalField(max_digits=12, decimal_places=2)
+    # Phase 1d Task 1: the till reads whether this unit is counted in ones instead of
+    # keeping its own list, and a screen offers "remove" only where nothing references
+    # the unit. Both are computed, so neither is writable here.
+    uom_is_whole = serializers.BooleanField(source='uom.is_whole', read_only=True)
+    in_use = serializers.SerializerMethodField()
 
-    # Frozen once the unit has been sold: they decide what a past sale MEANT. The price
-    # is deliberately absent — a shop reprices all the time and the sale line keeps its
-    # own `unit_price`, so raising the price cannot corrupt history.
+    # Frozen once the unit has been sold or requested: they decide what a past or pending
+    # document MEANT. The price is deliberately absent — a shop reprices all the time and
+    # the sale line keeps its own `unit_price`, so raising the price cannot corrupt
+    # history. Keyed by `selling_unit_freeze_reason`, which is also what decides the
+    # sentence the clerk reads.
     FROZEN_ONCE_SOLD = ('variant', 'uom', 'conversion_factor')
+    FROZEN_SENTENCE = {
+        'sold': ('has been sold', 'past sales and returns'),
+        'requested': (
+            'is on a project request', 'that request and its release'),
+    }
 
     class Meta:
         model = VariantUOM
         fields = [
-            'id', 'variant', 'uom', 'uom_code', 'uom_name',
+            'id', 'variant', 'uom', 'uom_code', 'uom_name', 'uom_is_whole',
             'product_name', 'variant_name',
             'product_is_active', 'variant_is_active',
             'barcode_qr', 'conversion_factor', 'default_selling_price',
+            'in_use',
         ]
         read_only_fields = ['id']
+
+    def get_in_use(self, obj):
+        """`annotate_unit_in_use`'s annotation when the view attached one, else ask.
+
+        Views annotate their querysets, so a LIST costs one query. A response to a write
+        returns the row the serializer just saved, which carries no annotation, so the
+        single-row check is what answers there — five EXISTS queries for one unit, never
+        per row of a list.
+        """
+        annotated = getattr(obj, 'in_use', None)
+        if annotated is not None:
+            return annotated
+        return unit_in_use(obj)
 
     def validate_barcode_qr(self, value):
         """One normalised, check-digit-valid, unclaimed code per selling unit.
@@ -219,11 +297,13 @@ class VariantUOMSerializer(serializers.ModelSerializer):
                 and _field_value(attrs[field])
                 != _field_value(getattr(self.instance, field))
             ]
-            if changed and selling_unit_is_sold(self.instance):
-                    raise SellingUnitInUse(
-                    f'{self.instance} has been sold: {', '.join(changed)} cannot be '
-                    'changed without rewriting what past sales and returns mean. '
-                    'Create a new selling unit; the price stays editable.')
+            reason = selling_unit_freeze_reason(self.instance) if changed else ''
+            if reason:
+                state, history = self.FROZEN_SENTENCE[reason]
+                raise SellingUnitInUse(
+                    f'{self.instance} {state}: {", ".join(changed)} cannot be '
+                    f'changed without rewriting what {history} mean. Create a new '
+                    'selling unit; the price stays editable.')
 
         if (self.instance is not None and 'barcode_qr' in attrs
                 and not attrs['barcode_qr']
@@ -346,6 +426,12 @@ class POItemSerializer(serializers.ModelSerializer):
         if variant is not None and not variant.is_active:
             raise InvalidPurchaseOrder(
                 f'{variant} is inactive: it cannot be ordered until it is restored.')
+        # Phase 1d Task 2 (decision 16, Q1): purchasing counts the variant's BASE unit, so
+        # a bag-based product takes whole bags while a kg-based one still takes 2.5.
+        if variant is not None:
+            refuse_fractional_whole_unit(
+                is_whole=variant.base_uom.is_whole, qty=qty,
+                what=f'{variant} in {variant.base_uom.code}')
         return attrs
 
 
@@ -481,6 +567,20 @@ class StockAdjustmentSerializer(serializers.ModelSerializer):
                 'qty_adjusted must not be 0: an adjustment records stock that moved, '
                 'and use a negative value for a removal.')
         return value
+
+    def validate(self, attrs):
+        # Phase 1d Task 2 (decision 16, Q1): an adjustment moves BASE units, so the check
+        # is the variant's base unit - a bag product takes whole bags, a kg product 2.5.
+        # Both fields are read here because `qty_adjusted` alone cannot see the variant.
+        variant = attrs.get('variant') or getattr(self.instance, 'variant', None)
+        qty = attrs.get('qty_adjusted')
+        if qty is None and self.instance is not None:
+            qty = self.instance.qty_adjusted
+        if variant is not None and qty is not None:
+            refuse_fractional_whole_unit(
+                is_whole=variant.base_uom.is_whole, qty=qty,
+                what=f'{variant} in {variant.base_uom.code}')
+        return attrs
 
 
 class SystemAlertSerializer(serializers.ModelSerializer):

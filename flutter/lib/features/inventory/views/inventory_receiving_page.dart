@@ -9,6 +9,7 @@ import 'package:client/features/inventory/widgets/inventory_receiving_workspace.
 import 'package:client/features/labels/delivery_labels.dart';
 import 'package:client/features/labels/label_document.dart';
 import 'package:client/features/labels/label_print_dialog.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
@@ -236,53 +237,57 @@ class GoodsReceiptDetailsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return AlertDialog(
-      title: Text('Delivery #${receipt.id} · PO-${receipt.poId}'),
-      content: SizedBox(
-        width: 520,
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                receipt.receiveDate == null
-                    ? 'Received date not recorded'
-                    : 'Received ${formatDateTime(receipt.receiveDate!)}',
-              ),
-              Text(
-                'Received by '
-                '${receipt.receivedByName.isEmpty ? 'not recorded' : receipt.receivedByName}',
-              ),
-              Text(
-                'Delivery receipt: '
-                '${receipt.deliveryReceiptNo.isEmpty ? 'not given' : receipt.deliveryReceiptNo}',
-              ),
-              Text(
-                receipt.processedAt == null
-                    ? 'Not processed into stock yet'
-                    : 'Processed ${formatDateTime(receipt.processedAt!)}',
-              ),
-              if (receipt.notes.isNotEmpty) Text('Notes: ${receipt.notes}'),
-              const Divider(height: AppSpacing.xxl),
-              Text('Lines', style: theme.textTheme.titleSmall),
-              if (receipt.lines.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.only(top: AppSpacing.sm),
-                  child: Text('This receipt carried no line detail.'),
-                )
-              else
-                for (final line in receipt.lines)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    title: Text(line.variantName),
-                    trailing: Text(receivingQtyLabel(line.qty)),
-                  ),
-            ],
+    final receipt = this.receipt;
+    return AppDialog(
+      icon: Icons.local_shipping_outlined,
+      title: 'Delivery #${receipt.id} · PO-${receipt.poId}',
+      subtitle: receipt.processedAt == null
+          ? 'Recorded, not processed into stock yet'
+          : 'Processed into stock',
+      width: 560,
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          DetailRow(
+            label: 'Received',
+            value: receipt.receiveDate == null
+                ? 'Date not recorded'
+                : formatDateTime(receipt.receiveDate!),
           ),
-        ),
+          DetailRow(
+            label: 'Received by',
+            value: receipt.receivedByName.isEmpty
+                ? 'Not recorded'
+                : receipt.receivedByName,
+          ),
+          DetailRow(
+            label: 'Delivery receipt',
+            value: receipt.deliveryReceiptNo.isEmpty
+                ? 'Not given'
+                : receipt.deliveryReceiptNo,
+          ),
+          DetailRow(
+            label: 'Processed',
+            value: receipt.processedAt == null
+                ? 'Not processed into stock yet'
+                : formatDateTime(receipt.processedAt!),
+          ),
+          if (receipt.notes.isNotEmpty)
+            DetailRow(label: 'Notes', value: receipt.notes),
+          const SizedBox(height: AppSpacing.xl),
+          DialogSectionLabel('Lines (${receipt.lines.length})'),
+          if (receipt.lines.isEmpty)
+            const Text('This receipt carried no line detail.')
+          else
+            for (final line in receipt.lines)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: Text(line.variantName),
+                trailing: Text(receivingQtyLabel(line.qty)),
+              ),
+        ],
       ),
       actions: [
         FilledButton(

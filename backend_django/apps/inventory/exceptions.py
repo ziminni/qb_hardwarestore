@@ -44,16 +44,33 @@ class DuplicateBaseUnit(CatalogWriteRefused):
 
 
 class SellingUnitInUse(CatalogWriteRefused):
-    """A variant/uom/factor change on a selling unit that has already been SOLD.
+    """A selling unit history holds: its meaning cannot change and it cannot go away.
 
     A sale line records `qty` in selling units and the FIFO deduction in BASE units
     (`qty x conversion_factor`), and a linked return caps and restocks against those two
     numbers. Changing the factor or re-pointing the unit afterwards re-writes the meaning
     of every past sale - and of the return the customer is about to make. The PRICE stays
     editable: a till may reprice, it may not rewrite history.
+
+    Phase 1d Task 3 (decision 16) added REMOVAL to the same code: a unit referenced by
+    any of the five PROTECT tables - a sale line (a sale or a return), a held cart, a
+    project request, a quotation, a sales order - is refused instead of erased. A project
+    request line freezes the unit exactly like a sale does (decision 16, Q4).
     """
 
     code = 'SELLING_UNIT_IN_USE'
+
+
+class BaseUnitRequired(CatalogWriteRefused):
+    """A delete of the variant's factor-1 selling unit (Phase 1d Task 3, decision 16).
+
+    Factor 1 IS the base unit: `process_sale` multiplies a sold quantity by it and a
+    return restocks in it, so removing it would leave every quantity counted in a unit
+    the product no longer has. Its own code because the clerk's next move is different
+    from "this unit is used": remove another unit, or archive the product.
+    """
+
+    code = 'BASE_UNIT_REQUIRED'
 
 
 class InvalidVariant(CatalogWriteRefused):

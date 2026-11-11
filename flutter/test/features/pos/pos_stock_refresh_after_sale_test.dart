@@ -22,7 +22,6 @@ import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_receipt_dialog.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -121,9 +120,6 @@ Future<void> _pump(WidgetTester tester) async {
       child: MultiProvider(
         providers: [
           ChangeNotifierProvider<InventoryViewmodel>.value(value: _inventory),
-          ChangeNotifierProvider<ProductTrackingViewmodel>.value(
-            value: ProductTrackingViewmodel(),
-          ),
         ],
         child: MaterialApp(
           home: PosTransactionPage(

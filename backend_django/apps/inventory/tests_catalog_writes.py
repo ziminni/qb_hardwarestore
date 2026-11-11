@@ -68,7 +68,8 @@ class CatalogWriteTestBase(InventoryTestBase):
         self.manager = self._make_user('cat_manager', 'Store Manager')
         self.cashier = self._make_user('cat_cashier', 'Cashier')
         # A second UOM, so a selling unit can be re-pointed at a DIFFERENT unit.
-        self.uom_pc = UnitOfMeasure.objects.create(code='PC', name='Piece')
+        self.uom_pc, _ = UnitOfMeasure.objects.get_or_create(
+            code='PC', defaults={'name': 'Piece'})
         self.vuom = VariantUOM.objects.create(
             variant=self.variant, uom=self.uom,
             conversion_factor=Decimal('1'),
@@ -129,7 +130,11 @@ class CatalogWriteTestBase(InventoryTestBase):
 
 
 class NoDeleteTests(CatalogWriteTestBase):
-    """Every catalog row is `PROTECT`-referenced: DELETE answers 405, not 500."""
+    """Every catalog row is `PROTECT`-referenced: DELETE answers 405, not 500.
+
+    A selling unit is the ONE exception since Phase 1d Task 3: it has a destroy action
+    that refuses the base unit and anything history references (`tests_unit_removal.py`).
+    """
 
     def test_catalog_and_purchase_order_deletes_are_method_not_allowed(self):
         targets = [
@@ -138,7 +143,6 @@ class NoDeleteTests(CatalogWriteTestBase):
             ('uoms', self.uom_pc, UnitOfMeasure),
             ('products', self.product, Product),
             ('variants', self.variant, ProductVariant),
-            ('variant-uoms', self.vuom, VariantUOM),
             ('suppliers', self.supplier, Supplier),
             ('purchase-orders', self.po, PurchaseOrder),
         ]

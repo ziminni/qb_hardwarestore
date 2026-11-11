@@ -173,7 +173,8 @@ class SharedShelfWithDeclinedLineTests(StoreReviewReleaseBase):
         self.token = self._mint_token()
 
     def _second_unit_of(self, variant, code, factor, price):
-        uom = UnitOfMeasure.objects.create(code=code, name=code.title())
+        uom, _ = UnitOfMeasure.objects.get_or_create(
+            code=code, defaults={'name': code.title()})
         return VariantUOM.objects.create(
             variant=variant, uom=uom, conversion_factor=factor,
             default_selling_price=price)
@@ -305,7 +306,8 @@ class ReleasedAmountTests(StoreReviewReleaseBase):
         self.requisition = Requisition.objects.create(
             project=self.project, req_number='REQ-TEST-FRACTION',
             status=Requisition.Status.ACCEPTED, requester_name='Rey Quester')
-        uom = UnitOfMeasure.objects.create(code='M', name='Metre')
+        uom, _ = UnitOfMeasure.objects.get_or_create(
+            code='M', defaults={'name': 'Metre'})
         product = Product.objects.create(
             category=Category.objects.get(name='Cement'),
             brand=Brand.objects.get(name='Rhino'), base_name='Cable')
@@ -395,7 +397,8 @@ class ConcurrentMixedReleaseTests(TransactionTestCase):
             name='House Build', customer=self.customer)
         category = Category.objects.create(name='Cement')
         brand = Brand.objects.create(name='Rhino')
-        uom = UnitOfMeasure.objects.create(code='BAG', name='Bag')
+        uom, _ = UnitOfMeasure.objects.get_or_create(
+            code='BAG', defaults={'name': 'Bag'})
         product = Product.objects.create(
             category=category, brand=brand, base_name='Portland Cement')
         self.variant = ProductVariant.objects.create(
@@ -405,7 +408,8 @@ class ConcurrentMixedReleaseTests(TransactionTestCase):
             default_selling_price=Decimal('10'))
         self._receive(5)
 
-        box = UnitOfMeasure.objects.create(code='BOX', name='Box')
+        box, _ = UnitOfMeasure.objects.get_or_create(
+            code='BOX', defaults={'name': 'Box'})
         box_product = Product.objects.create(
             category=category, brand=brand, base_name='Premium Cement')
         self.box_variant = ProductVariant.objects.create(

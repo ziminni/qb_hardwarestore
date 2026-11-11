@@ -30,6 +30,32 @@ class ProductWriteException implements Exception {
   String toString() => message;
 }
 
+/// A create chain that stopped AFTER the product existed.
+///
+/// The product, its variant and its base unit are real rows on the server; one
+/// extra selling unit was refused. Both halves are facts the screen must state
+/// together: which unit to re-add, and that a retry of "Add product" would create
+/// a SECOND product instead of finishing this one.
+class PartialCreateException implements Exception {
+  const PartialCreateException({
+    required this.created,
+    required this.unit,
+    required this.message,
+  });
+
+  /// The rows that DO exist, so the caller can open the product it just made.
+  final CreatedProduct created;
+
+  /// The `uom_code` of the unit that was not saved (e.g. `BAG`).
+  final String unit;
+
+  /// The server's refusal, already mapped to words a clerk can act on.
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// The repository layer between the inventory store and the products API.
 ///
 /// It exists to keep the map's one-data-path invariant intact —
@@ -77,11 +103,26 @@ class ProductsRepository {
         draft.sellingUnitBody(variantId, draft.baseUomId),
       ),
     );
-    return CreatedProduct(
+    final created = CreatedProduct(
       productId: productId,
       variantId: variantId,
       sellingUnitId: sellingUnitId,
     );
+    // The rest of how the product is sold ("1 Bag = 40 kg at ₱270"). One at a
+    // time and in form order: the product EXISTS by now, so a refusal here is a
+    // partial create, not a failed one, and the caller must be told exactly that.
+    for (final unit in draft.extraSellingUnits) {
+      try {
+        await service.createSellingUnit(unit.body(variantId));
+      } on ProductsServiceException catch (error) {
+        throw PartialCreateException(
+          created: created,
+          unit: unit.uomCode,
+          message: error.message,
+        );
+      }
+    }
+    return created;
   }
 
   /// Applies an edit: one PATCH per row that actually changed.
@@ -118,6 +159,23 @@ class ProductsRepository {
     ProductWriteStep.sellingUnit,
     () => service.patchSellingUnit(id, body),
   );
+
+  /// Adds one selling unit to an EXISTING variant (decision 16).
+  ///
+  /// The product already exists, so there is no partial result to report: a
+  /// refusal names the unit, and nothing else was written.
+  Future<void> createSellingUnit(int variantId, NewSellingUnit unit) => _step(
+    ProductWriteStep.sellingUnit,
+    () => service.createSellingUnit(unit.body(variantId)),
+  );
+
+  /// Removes one selling unit that nothing references (decision 16).
+  ///
+  /// The server owns both refusals: a factor-1 unit is `BASE_UNIT_REQUIRED`, and a
+  /// unit a sale, hold, return, quotation, sales order or project request already
+  /// names is `SELLING_UNIT_IN_USE`.
+  Future<void> deleteSellingUnit(int id) =>
+      _step(ProductWriteStep.sellingUnit, () => service.deleteSellingUnit(id));
 
   /// Archive (`false`) or restore (`true`) through `PATCH is_active`.
   Future<void> setProductActive(int productId, bool isActive) => _step(

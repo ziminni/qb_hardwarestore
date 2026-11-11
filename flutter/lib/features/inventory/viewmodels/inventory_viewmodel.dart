@@ -251,14 +251,28 @@ class InventoryViewmodel extends ChangeNotifier {
   // "could not add product" message the user would retry into a duplicate.
   // ---------------------------------------------------------------------
 
-  /// Creates the catalog item (product → variant → factor-1 selling unit).
+  /// Creates the catalog item (product → variant → factor-1 selling unit, then
+  /// every extra selling unit).
+  ///
+  /// The storage location is recorded on THIS device after the chain returns a
+  /// variant id, because the server has no location field (decision 15).
   Future<String?> createProduct(NewProductDraft draft) async {
+    final CreatedProduct created;
     try {
-      await _catalogue.createProductChain(draft);
+      created = await _catalogue.createProductChain(draft);
+    } on PartialCreateException catch (error) {
+      // The product, its variant and its base unit ARE on the server; one extra
+      // unit was refused. Say both things at once, or the clerk retries "Add
+      // product" and makes a duplicate.
+      await setLocationHint(error.created.variantId, draft.locationHint);
+      await load();
+      return '${draft.baseName} was created, but the ${error.unit} selling '
+          'unit was not saved: ${error.message}';
     } on ProductWriteException catch (error) {
       await load();
       return 'The ${error.step.label} could not be created: ${error.message}';
     }
+    await setLocationHint(created.variantId, draft.locationHint);
     await load();
     return null;
   }
@@ -271,6 +285,9 @@ class InventoryViewmodel extends ChangeNotifier {
       await load();
       return 'The ${error.step.label} could not be saved: ${error.message}';
     }
+    // A blank location clears the hint; a typed one replaces it. Device-local, so
+    // it is written after the server accepted the edit, never before.
+    await setLocationHint(draft.variantId, draft.locationHint);
     await load();
     return null;
   }
@@ -367,6 +384,37 @@ class InventoryViewmodel extends ChangeNotifier {
     try {
       await _catalogue.patchSellingUnit(unitId, {'barcode_qr': code});
     } on ProductWriteException catch (error) {
+      return error.message;
+    }
+    await load();
+    return null;
+  }
+
+  /// Adds one selling unit to an existing variant, then reloads.
+  ///
+  /// Returns null on success, or the server's message. A refusal reloads too:
+  /// the server refused because its rows differ from the dialog's snapshot (the
+  /// unit became used, or already exists), so the list must show what it holds.
+  Future<String?> addSellingUnit(int variantId, NewSellingUnit unit) async {
+    try {
+      await _catalogue.createSellingUnit(variantId, unit);
+    } on ProductWriteException catch (error) {
+      await load();
+      return error.message;
+    }
+    await load();
+    return null;
+  }
+
+  /// Removes one unused selling unit, then reloads.
+  ///
+  /// The server owns the refusal (`BASE_UNIT_REQUIRED`, `SELLING_UNIT_IN_USE`).
+  /// A refusal reloads, because it means the dialog's list was out of date.
+  Future<String?> removeSellingUnit(int unitId) async {
+    try {
+      await _catalogue.deleteSellingUnit(unitId);
+    } on ProductWriteException catch (error) {
+      await load();
       return error.message;
     }
     await load();

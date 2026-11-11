@@ -102,7 +102,9 @@ class HeldCartService {
       }
       return HeldCart.fromJson(data);
     } on DioException catch (error) {
-      throw HeldCartServiceException(_message(error));
+      // `_failureFor` keeps the stable code: parking a cart is refused for the
+      // same reasons a sale is, `WHOLE_UNIT_QUANTITY` included (Phase 1d).
+      throw _failureFor(error);
     } on FormatException {
       throw const HeldCartServiceException(
         'The server returned a held cart this app cannot read.',
@@ -175,12 +177,26 @@ class HeldCartService {
     );
   }
 
+  /// The refusals a cashier must be able to act on even when the body carries no
+  /// prose (a proxy, a bare `{"code": ...}`). Phase 1d: a whole unit is counted in
+  /// ones, so 1.5 of one is a corrected number, not a retry.
+  static const Map<String, String> _codeMessages = {
+    'WHOLE_UNIT_QUANTITY':
+        'That unit is sold in whole numbers, so the quantity must be a whole '
+        'number. Change it and try again.',
+  };
+
   /// Maps a transport failure onto something a cashier can act on.
   String _message(DioException error) {
     final body = error.response?.data;
     if (body is Map<String, dynamic>) {
       final detail = body['detail'];
       if (detail is String && detail.isNotEmpty) return detail;
+      final code = body['code'];
+      if (code is String) {
+        final copy = _codeMessages[code];
+        if (copy != null) return copy;
+      }
     }
     switch (error.type) {
       case DioExceptionType.connectionError:

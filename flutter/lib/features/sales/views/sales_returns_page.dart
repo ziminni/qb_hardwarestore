@@ -177,7 +177,7 @@ class _SalesReturnsPageState extends State<SalesReturnsPage> {
             unitPrice: line.unitPrice,
           ),
       ],
-      total: formatPeso(item.total),
+      total: item.total,
     );
   }
 
@@ -251,6 +251,8 @@ class _SalesReturnsPageState extends State<SalesReturnsPage> {
                 final cards =
                     slot.maxWidth - AppPanel.chrome < DataPanel.cardBreakpoint;
                 return DataPanel<InventoryReturn>(
+                  title: 'Returns',
+                  count: rows.length,
                   columns: _columns(withAction: !cards),
                   rows: rows,
                   emptyMessage: _filtered

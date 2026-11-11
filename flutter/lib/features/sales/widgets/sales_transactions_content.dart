@@ -213,6 +213,8 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
               final cards =
                   slot.maxWidth - AppPanel.chrome < DataPanel.cardBreakpoint;
               return DataPanel<InventorySale>(
+                title: 'Transactions',
+                count: rows.length,
                 columns: _columns(withAction: !cards),
                 rows: rows,
                 emptyMessage: _filtered
@@ -453,7 +455,7 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
             unitPrice: line.unitPrice,
           ),
       ],
-      total: formatPeso(sale.total),
+      total: sale.total,
     );
   }
 }

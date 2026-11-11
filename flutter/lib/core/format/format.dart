@@ -45,6 +45,26 @@ String formatPesoForPrint(num amount) =>
 String formatDate(DateTime value) =>
     '${_months[value.month - 1]} ${value.day}, ${value.year}';
 
+/// The three-letter weekday names, Monday first: `DateTime.weekday` is 1-7
+/// starting on Monday, so the index is `weekday - 1`.
+const List<String> _weekdays = <String>[
+  'Mon',
+  'Tue',
+  'Wed',
+  'Thu',
+  'Fri',
+  'Sat',
+  'Sun',
+];
+
+/// `DateTime(2026, 10, 15)` becomes `Thu, Oct 15, 2026`.
+///
+/// The page header says which day it is, and a weekday is what a manager reads
+/// faster than a bare date. Built from the same month list as [formatDate], so
+/// there is still one place that spells a month.
+String formatWeekdayDate(DateTime value) =>
+    '${_weekdays[value.weekday - 1]}, ${formatDate(value)}';
+
 /// `DateTime(2026, 10, 29, 14, 14)` becomes `Oct 29, 2026, 2:14 PM`.
 String formatDateTime(DateTime value) {
   final hour12 = value.hour % 12 == 0 ? 12 : value.hour % 12;

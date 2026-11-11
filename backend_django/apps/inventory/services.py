@@ -20,6 +20,7 @@ from .exceptions import (
     NoBatchHistory,
     PurchaseOrderNotReceivable,
     ReceiptAlreadyProcessed,
+    SellingUnitInUse,
 )
 from .models import (
     GoodsReceipt,
@@ -29,7 +30,54 @@ from .models import (
     PurchaseOrder,
     StockAdjustment,
     SystemAlert,
+    VariantUOM,
 )
+
+
+def lock_selling_units(unit_ids):
+    """Lock the selling units a write is about to reference, in PK order.
+
+    Phase 1d Task 3 (decision 16): `VariantUOMViewSet.destroy` removes a unit under this
+    same row lock, while every writer here resolves its lines BEFORE it opens a
+    transaction (a refused sale, quote, order or push must leave nothing behind). Without
+    the lock the removal walks through that window and the writer's INSERT fails on the
+    foreign key - a 500 for a race the clerk cannot act on. With it, one of the two
+    waits.
+
+    Sorted by PK so two writers queue in ONE order instead of deadlocking on two units
+    taken in opposite orders.
+
+    Returns the ids that are still there; the caller owns the refusal, because only it
+    knows which document it was saving.
+    """
+    ids = {unit_id for unit_id in unit_ids if unit_id is not None}
+    if not ids:
+        return set()
+    return set(
+        VariantUOM.objects
+        .select_for_update()
+        .filter(pk__in=ids)
+        .order_by('pk')
+        .values_list('pk', flat=True))
+
+
+def lock_selling_unit_lines(lines, *, document):
+    """`lock_selling_units`, then refuse the write if any unit disappeared.
+
+    `lines` is `[(VariantUOM, whatever_the_caller_carries)]` - the shape every caller
+    already holds. A unit that is gone between the read and this lock is a
+    `400 SELLING_UNIT_IN_USE` (the removal's own code) naming the line, because the
+    clerk's next move is the same as for a unit in use: reload the catalogue and add the
+    item again.
+    """
+    lines = list(lines)
+    held = lock_selling_units(line[0].pk for line in lines)
+    for index, (unit, _extra) in enumerate(lines, start=1):
+        if unit.pk not in held:
+            raise SellingUnitInUse(
+                f'Line {index} ({unit.variant}, {unit.uom.code}) was removed from the '
+                f'catalogue while this {document} was being saved: reload and add the '
+                'item again.')
 
 
 def process_goods_receipt(*, receipt: GoodsReceipt, user=None) -> list[InventoryBatch]:

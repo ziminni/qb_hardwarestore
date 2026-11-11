@@ -8,7 +8,6 @@ import 'package:client/features/pos/viewmodels/held_cart_viewmodel.dart';
 import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/sales_module_viewmodel.dart';
-import 'package:client/features/products/viewmodels/product_tracking_viewmodel.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -50,7 +49,6 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (_) => SuppliersPurchasesViewmodel()),
         ChangeNotifierProvider(create: (_) => InventorySalesViewmodel()),
         ChangeNotifierProvider(create: (_) => SalesModuleViewmodel()),
-        ChangeNotifierProvider(create: (_) => ProductTrackingViewmodel()),
         // The parked-cart queue is app-scoped because two POS tabs share it: the
         // till writes holds into it, and Resume on the held-transactions tab
         // hands a basket back through it. A per-page instance would silently

@@ -21,8 +21,10 @@ import 'package:client/data/services/auth_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/shared/widgets/empty_state.dart';
 import 'package:client/shared/widgets/error_banner.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
@@ -235,6 +237,47 @@ void main() {
 
     expect(find.text('No categories yet.'), findsOneWidget);
     expect(find.text('No categories match these filters.'), findsNothing);
+  });
+
+  // Phase 1d Task 10a: both category dialogs join the shared dialog family
+  // (decision 17). The writes and the copy stay; the frame and the words change.
+  testWidgets('the New category dialog is the shared frame and Esc closes it', (
+    tester,
+  ) async {
+    await pumpPage(tester);
+
+    await tester.tap(find.text('New category'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AppDialog), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AppDialog), findsNothing);
+    expect(catalogue.createdCategories, isEmpty);
+  });
+
+  testWidgets('the archive confirmation is the shared frame and Cancel writes '
+      'nothing', (tester) async {
+    await pumpPage(tester);
+
+    await tester.tap(find.byTooltip('Category actions').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Archive'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AppDialog), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+    // The question names the category it is about.
+    expect(find.text('Cement'), findsWidgets);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AppDialog), findsNothing);
+    expect(catalogue.categoryPatches, isEmpty);
   });
 
   test('no screen claims a change lives in mock data', () {

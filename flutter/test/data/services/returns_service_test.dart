@@ -490,6 +490,10 @@ void main() {
         'RETURN_OF_RETURN': 'cannot reverse another return',
         'ORIGINAL_NOT_COMPLETED': 'Only a completed sale',
         'UNLINKED_RETURN_FORBIDDEN': 'Store Manager',
+        // Phase 1d Task 2: a whole unit is counted in ones, so 1.5 bags comes
+        // back refused. Without this copy the cashier reads "the return could
+        // not be completed" and retries the same number.
+        'WHOLE_UNIT_QUANTITY': 'whole number',
       };
 
       for (final entry in expected.entries) {

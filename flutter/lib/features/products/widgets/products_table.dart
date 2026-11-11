@@ -367,15 +367,18 @@ class _ProductsTableState extends State<ProductsTable> {
     );
   }
 
-  /// The price of the first selling unit the catalogue loaded for this product.
+  /// The BASE unit's price, with that unit named (Phase 1d Task 9).
   ///
-  /// Price belongs to the selling unit, not the product (decision 08), so a
-  /// product with several variants shows its first one here and the details
-  /// dialog lists every unit with its own price.
+  /// Price belongs to a selling unit (decision 08). The first row is not the
+  /// base: once a product is sold by the bag the server may answer
+  /// `[BAG (×40), KG (×1)]`, and the old caption made the bag's money look like
+  /// the price of one kilogram. A product with no identifiable base row falls
+  /// back to its first unit, whose own code still keeps the caption honest.
   String _price(Product product) {
     for (final variant in product.variants) {
-      if (variant.sellingUoms.isEmpty) continue;
-      return formatPeso(variant.sellingUoms.first.defaultSellingPrice);
+      final unit = variant.baseSellingUnit ?? variant.sellingUoms.firstOrNull;
+      if (unit == null) continue;
+      return '${formatPeso(unit.defaultSellingPrice)} / ${unit.uomCode}';
     }
     return 'No price yet';
   }

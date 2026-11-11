@@ -29,6 +29,10 @@ const Map<String, String> returnCodeMessages = {
   'ORIGINAL_NOT_COMPLETED':
       'Only a completed sale can be returned. This document is not completed.',
   'RETURN_QTY_EXCEEDED': 'That is more than the sale still has to return.',
+  // Phase 1d: the unit is counted in ones, so 1.5 bags cannot come back.
+  'WHOLE_UNIT_QUANTITY':
+      'That unit is sold in whole numbers, so the return must be a whole '
+      'number of it.',
 };
 
 /// Clerk-readable text for a stable [code], or null when this client has never

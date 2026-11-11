@@ -504,6 +504,53 @@ class ImportAuditTests(ImportTestBase):
         self.assertEqual(self.import_rows().count(), 0)
 
 
+class ImportWholeUnitTests(ImportTestBase):
+    """Phase 1d Task 2 (Q2): a fractional quantity on a whole selling unit refuses the
+    WHOLE import, and a retry of an id already stored still answers from the copy."""
+
+    def assert_nothing_written(self):
+        self.assertEqual(self.counts(), (0, 0, 0, 0))
+        self.assertEqual(self.import_rows().count(), 0)
+
+    def test_a_fractional_quantity_on_a_whole_unit_refuses_the_whole_import(self):
+        res = self.push(items=[{'code': self.code, 'quantity': '1.5'}])
+
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.json()['code'], 'WHOLE_UNIT_QUANTITY')
+        self.assertIn('BAG', res.json()['detail'])
+        self.assert_nothing_written()
+
+    def test_a_fraction_on_one_line_refuses_the_good_line_too(self):
+        measured = self.make_material(self.product, 'per kg', 'QB000010-2',
+                                      uom_code='KG')
+        res = self.push(items=[{'code': measured.barcode_qr, 'quantity': '2.5'},
+                               {'code': self.code, 'quantity': '1.5'}])
+
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.json()['code'], 'WHOLE_UNIT_QUANTITY')
+        self.assert_nothing_written()
+
+    def test_a_measured_unit_still_takes_two_decimals(self):
+        measured = self.make_material(self.product, 'per kg', 'QB000010-2',
+                                      uom_code='KG')
+
+        res = self.push(items=[{'code': measured.barcode_qr, 'quantity': '2.5'}])
+
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(res.json()['items'],
+                         [{'code': measured.barcode_qr, 'quantity': '2.50'}])
+
+    def test_a_retry_of_a_stored_request_answers_its_copy_even_fractional(self):
+        first = self.push().json()
+        before = self.counts()
+
+        res = self.push(items=[{'code': self.code, 'quantity': '1.5'}])
+
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json(), first)
+        self.assertEqual(self.counts(), before)
+
+
 class ImportAccessTests(ImportTestBase):
     def test_staff_roles_cannot_push(self):
         for role in ('Cashier', 'Stock Manager', 'Store Manager', 'Admin'):

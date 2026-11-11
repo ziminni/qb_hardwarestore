@@ -25,11 +25,18 @@ class UnitOfMeasure {
     required this.id,
     required this.code,
     required this.name,
+    this.isWhole = false,
   });
 
   final int id;
   final String code;
   final String name;
+
+  /// The server's whole-number flag (Phase 1d): this unit is counted in ones.
+  ///
+  /// A unit row from an older server omits `is_whole`, and measured is the safe
+  /// reading.
+  final bool isWhole;
 
   /// What a picker shows: `Kilogram (KG)`.
   String get label => '$name ($code)';
@@ -39,6 +46,7 @@ class UnitOfMeasure {
       id: intField(json, 'id'),
       code: stringField(json, 'code'),
       name: stringField(json, 'name'),
+      isWhole: boolFieldOr(json, 'is_whole', or: false),
     );
   }
 }

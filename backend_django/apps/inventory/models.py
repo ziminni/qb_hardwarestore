@@ -111,6 +111,10 @@ class Brand(models.Model):
 class UnitOfMeasure(models.Model):
     code = models.CharField(max_length=20, unique=True, db_index=True)
     name = models.CharField(max_length=50)
+    # Decision 16: whole units (Piece, Bag, Box, Pack, Roll, Sheet) are counted in ones;
+    # measured ones (Kilogram, Metre, Litre…) take a fraction. The flag lives here so the
+    # server, not a hard-coded client list, decides what a fractional quantity means.
+    is_whole = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
