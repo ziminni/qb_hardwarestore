@@ -7,7 +7,7 @@ Rule: **One home per fact.** Follow the pointers; never paste a copy of a fact t
 | Setup, run, demo credentials, ports | `README.md` |
 | Architecture & Live/Mock matrix (+ cockpit) | `docs/SYSTEM_ATLAS.md` · `docs/system-atlas.html` |
 | API contract: endpoints, auth, role matrix | `ENDPOINTS.md` |
-| Unbuilt work, decisions, roadmap | `planning/MAP.md` (index) → `planning/pos-evolution/MAP.md`; **active build: `planning/pos-evolution/phase-4-plan.md`** (decision 18), then `phase-5-plan.md`; last completed: `phase-1d-plan.md` |
+| Unbuilt work, decisions, roadmap | `planning/MAP.md` (index) → `planning/pos-evolution/MAP.md`; **next build: `planning/pos-evolution/phase-5-plan.md`** (decision 18); last completed: `phase-4-plan.md` |
 | UI-refresh plan (complete) + ledger | `temp/ui-refresh/TASKS.md` · `.superpowers/sdd/ui-refresh/progress.md` (both untracked) |
 | QA how-to: run the app, roles, flows | `docs/testing/QA-PROFILE.md` |
 | My knowledge gaps | `docs/learning/gaps.md` |
@@ -31,9 +31,9 @@ Every pointer must resolve; a broken pointer is fixed in the commit that breaks 
 
 ## Current Status & Next Step
 
-- **Branch:** `feat/pos-evolution-phase-4` (off Phase 1d `c8ef41f`). Phase 1d ✅ Done; **Phase 4 🟡 built, gates + isolated QA passed, awaiting owner closure** (decision 18: front-counter panel feedback); Phase 5 pending. Owner pushes; no commit without authorization.
-- **Last session:** `docs/sessions/2026-11-11-pos-evolution-phase-1d-build.md`.
-- **Next:** owner closes Phase 4 (3 review Minors to decide, see plan Task 9) and authorizes commit; then Phase 5 (package purchasing, supplier payables, delivery, bodega-lite). No predictions; max 3 builders on disjoint files, backend sequential; controller serializes full gates. Phase 1c still undecided; CPMS v0.3 provisional.
-- **Dev DB:** Phase 1b unchanged, inventory 0008 + Phase 4 pos 0011–0014/users migrations pending by owner choice; no dev writes/resets authorized (backend restart auto-migrates). Disposable Phase 1d QA still running: `buildpro_p1d_qa_{db,backend,web}`, isolated network/volume, API 8001/web 8091, now on Phase 4 code + migrations; its server is `runserver --noreload`, so restart it after code changes (QA-PROFILE recipe). Seeded/reset only QA. Credentials/scanner tokens in local `temp/p1d/qa/seed.log` must never be committed.
+- **Branch:** `feat/pos-evolution-phase-4`; implementation committed `a94d464`, owner pushes (remote unverified). Phase 4 ✅ Done, owner closed with five Minors deferred; Phase 5 not started. Final recheck: backend 882 tests, check/drift clean; Flutter analyze/1771 tests/241 goldens passed.
+- **Last session:** `docs/sessions/2026-11-11-pos-evolution-phase-4-build.md` (verification, review, QA, limits and learning topics; ownership check skipped).
+- **Next:** `/skill:execute-phase Phase 5` (package purchasing, supplier payables, delivery, bodega-lite). Backend container returned externally; controller reran 882 tests/check/drift successfully. No predictions; phase-level review/isolated QA; CPMS v0.3 provisional, Phase 1c undecided.
+- **Dev DB:** read-only recheck shows Phase 4 migrations applied after external container recreation/restart; assistant did not migrate/restart/reset. Seed/data state unverified; no further dev writes/reset/restart authorized. QA last verified on Phase 4 at API 8001/web 8091 (`buildpro_p1d_qa_*`); current container state unverified. QA server `--noreload` restart recipe in QA-PROFILE. Credential-bearing `temp/` evidence must never be committed.
 - **Proof standard:** a test covers a fix only after it fails without the fix; a claim without its command output in the same message is unverified.
 - **Caveats:** desktop pixels are user-verified only (`flutter run -d linux`); `.superpowers/` is gitignored, so ledgers and goldens live only on this machine; the editor hook re-formats staged Dart files, so re-stage after edits. Local `temp/p1b-qa/` includes credential-bearing artifacts: never stage it.
