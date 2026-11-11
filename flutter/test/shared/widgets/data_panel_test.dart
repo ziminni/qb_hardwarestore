@@ -86,6 +86,7 @@ void main() {
     VoidCallback? onRetry,
     ValueChanged<_StockRow>? onRowTap,
     List<DataPanelColumn<_StockRow>>? cols,
+    bool paginate = true,
   }) => DataPanel<_StockRow>(
     columns: cols ?? columns(),
     rows: data,
@@ -94,6 +95,7 @@ void main() {
     error: error,
     onRetry: onRetry,
     onRowTap: onRowTap,
+    paginate: paginate,
   );
 
   // --------------------------------------------------------------- wide table
@@ -473,7 +475,9 @@ void main() {
     await pumpBounded(
       tester,
       const Size(1440, 600),
-      panel(data: manyRows(2000)),
+      // Paging off: these rows measure the panel's own lazy list, which is a
+      // different question from which 25 rows the pager shows.
+      panel(data: manyRows(2000), paginate: false),
     );
 
     expect(find.byKey(table), findsOneWidget);
@@ -494,7 +498,7 @@ void main() {
     await pumpBounded(
       tester,
       const Size(1440, 600),
-      panel(data: manyRows(2000), onRowTap: taps.add),
+      panel(data: manyRows(2000), onRowTap: taps.add, paginate: false),
     );
 
     await scrollToEnd(tester, find.byKey(table));
@@ -513,7 +517,10 @@ void main() {
       tester,
       const Size(760, 600),
       Center(
-        child: SizedBox(width: 700, child: panel(data: manyRows(2000))),
+        child: SizedBox(
+          width: 700,
+          child: panel(data: manyRows(2000), paginate: false),
+        ),
       ),
     );
 
@@ -534,7 +541,7 @@ void main() {
     await pumpAt(
       tester,
       const Size(1440, 900),
-      panel(data: manyRows(50)),
+      panel(data: manyRows(50), paginate: false),
       settle: false,
     );
 

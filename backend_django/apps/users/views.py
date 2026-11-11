@@ -1,4 +1,4 @@
-# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportIndexIssue=false, reportOptionalSubscript=false, reportInvalidTypeArguments=false, reportGeneralTypeIssues=false
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportIndexIssue=false, reportOptionalSubscript=false, reportInvalidTypeArguments=false, reportGeneralTypeIssues=false, reportMissingImports=false
 #
 # The second half of that directive list is the same false-positive class documented in
 # apps/collectibles/views.py: without django-stubs this checker cannot see that
@@ -18,13 +18,27 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from . import lockout
 from .models import AuditLog, User
-from .permissions import STAFF_ROLES, IsAdminRole, IsUserManagerRole, has_role
+from .permissions import (
+    STAFF_ROLES,
+    IsAdminRole,
+    IsUserManagerRole,
+    has_role,
+    role_codes_for,
+)
 from .serializers import (
+    ROLES_CONFLICT_CODE,
+    ROLES_CONFLICT_DETAIL,
     AuditLogSerializer,
     LoginSerializer,
     RegisterSerializer,
     UserSerializer,
+    body_mixes_role_fields,
     find_user_by_identifier,
+    group_names_for_codes,
+    groups_for_role_codes,
+    parse_role_codes,
+    requested_group_names,
+    roles_conflict_response,
 )
 from .services import (
     audit_request,
@@ -76,8 +90,12 @@ def register_view(request):
     """Create an account; public registration is intentionally disabled.
 
     Authority is the Admin *group* (decision 04) — ``is_staff`` only decides who
-    may open Django's ``/admin`` site.
+    may open Django's ``/admin`` site. The body names the account's roles with
+    ``roles`` (Phase 4 B3) or the legacy ``group_name``; naming both is refused before
+    the serializer runs, so the answer is the flat ``{code, detail}`` a client expects.
     """
+    if body_mixes_role_fields(request.data):
+        return roles_conflict_response()
     serializer = RegisterSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     # One atomic block: the account and the row that records who created it commit or
@@ -243,13 +261,17 @@ USER_ADMIN_FORBIDDEN_DETAIL = (
 )
 
 
-def user_admin_refusal(request, target, group_name=None):
+def user_admin_refusal(request, target, group_names=()):
     """403 when a non-admin caller reaches for admin authority (Phase 5).
 
     Store Managers offboard non-admin staff; admin accounts (Admin / System
     Administrator groups or superuser, active OR deactivated — reviving a
     dormant admin is still seizing admin power) and admin GROUP grants stay
     Admin-only. Admin callers never see this refusal.
+
+    ``group_names`` is every group the body asks for, from BOTH role fields: a body
+    that names `roles: ["admin"]` beside a legacy `group_name` is refused here, so no
+    caller can trade on which field a guard happens to read (Phase 4 task B3).
     """
     if has_role(request.user, STAFF_ROLES):
         return None
@@ -262,13 +284,72 @@ def user_admin_refusal(request, target, group_name=None):
              'detail': USER_ADMIN_FORBIDDEN_DETAIL},
             status=status.HTTP_403_FORBIDDEN,
         )
-    if group_name in STAFF_ROLES:
+    if set(group_names) & set(STAFF_ROLES):
         return Response(
             {'code': USER_ADMIN_FORBIDDEN_CODE,
              'detail': USER_ADMIN_FORBIDDEN_DETAIL},
             status=status.HTTP_403_FORBIDDEN,
         )
     return None
+
+
+class RoleChangeRefused(Exception):
+    """A role-change body the server refuses, carrying its own HTTP status.
+
+    ``assign_role`` / ``remove_role`` answer 400 for a missing name and 404 for an
+    unknown Group (the shape released clients already branch on), so the resolution
+    helper carries the status instead of forcing one.
+    """
+
+    def __init__(self, detail, status_code=status.HTTP_400_BAD_REQUEST, code=None):
+        self.payload = {'detail': detail}
+        if code:
+            self.payload['code'] = code
+        self.status_code = status_code
+        super().__init__(detail)
+
+
+def resolve_role_change(data):
+    """Groups a role-change body asks for, from `roles[]` or legacy `group_name`.
+
+    Returns ``(groups, codes)`` where ``codes`` is the validated code list for a
+    `roles[]` body and ``None`` for a legacy `group_name` body. A body that names both
+    fields is refused rather than resolved, and an invalid `roles[]` reuses the
+    serializer's messages so every write path answers the same way.
+    """
+    if body_mixes_role_fields(data):
+        raise RoleChangeRefused(
+            ROLES_CONFLICT_DETAIL,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code=ROLES_CONFLICT_CODE,
+        )
+    if 'roles' in data:
+        try:
+            codes = parse_role_codes(data.get('roles'))
+            return groups_for_role_codes(codes), codes
+        except RoleChangeRefused:
+            raise
+        except Exception as exc:  # serializers.ValidationError
+            messages = getattr(exc, 'detail', None)
+            raise RoleChangeRefused(
+                messages[0] if isinstance(messages, list) and messages else str(exc),
+            ) from exc
+    group_name = data.get('group_name')
+    if not group_name:
+        raise RoleChangeRefused(
+            'group_name (or roles) is required.')
+    try:
+        return [Group.objects.get(name=group_name)], None
+    except Group.DoesNotExist as exc:
+        raise RoleChangeRefused(
+            f'Group "{group_name}" does not exist.',
+            status_code=status.HTTP_404_NOT_FOUND,
+        ) from exc
+
+
+def role_names_text(groups):
+    """The group names in a body, for an audit description (never credentials)."""
+    return ', '.join(group.name for group in groups)
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -298,32 +379,50 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         """Account creation stays Admin-only; managers change existing rows."""
-        refusal = user_admin_refusal(request, None, group_name=STAFF_ROLES[0])
+        refusal = user_admin_refusal(request, None, group_names=STAFF_ROLES)
         if refusal is not None:
             return refusal
         return super().create(request, *args, **kwargs)
 
     def update(self, request, *args, **kwargs):
-        """PATCH / PUT, guarded so the last active admin cannot be disabled."""
+        """PATCH / PUT, guarded so the last active admin cannot be disabled.
+
+        A body may also send ``roles`` (Phase 4 B3): the account's groups are replaced
+        and the same guards run on the ROLE change as on a deactivation - the last
+        active admin cannot be demoted this way either. The refusal for admin authority
+        is decided from both fields BEFORE validation, so a caller who names admin in
+        either field is 403 whatever else the body contains.
+        """
         instance = self.get_object()
-        refusal = user_admin_refusal(request, instance)
+        refusal = user_admin_refusal(
+            request, instance, group_names=requested_group_names(request.data))
         if refusal is not None:
             return refusal
+        if body_mixes_role_fields(request.data):
+            return roles_conflict_response()
         was_active = instance.is_active
         serializer = self.get_serializer(
             instance, data=request.data, partial=kwargs.get('partial', False))
         serializer.is_valid(raise_exception=True)
         is_active_after = serializer.validated_data.get(
             'is_active', instance.is_active)
+        new_groups = serializer.validated_data.get('roles')
         # The guard DECIDES UNDER THE LOCK (review F3): the target and every other
         # active admin are row-locked first, and the decision is made on the re-read
         # row, so "another admin is alive" cannot go stale before this write commits.
         # The write and its audit row stay in the same block (decision 07).
         with transaction.atomic():
             locked = lock_admin_rows(instance)
+            if new_groups is None:
+                keeps_admin_group = locked.groups.filter(
+                    name__in=STAFF_ROLES).exists()
+            else:
+                keeps_admin_group = any(
+                    group.name in STAFF_ROLES for group in new_groups)
             refusal = last_admin_refusal(
                 locked,
-                keeps_admin_authority=is_active_after and is_active_admin(locked),
+                keeps_admin_authority=is_active_after and (
+                    locked.is_superuser or keeps_admin_group),
             )
             if refusal is not None:
                 return refusal
@@ -334,6 +433,13 @@ class UserViewSet(viewsets.ModelViewSet):
                     request,
                     AuditLog.ActionType.USER_DEACTIVATE,
                     f'User {instance.username} deactivated.',
+                )
+            elif new_groups is not None:
+                audit_request(
+                    request,
+                    AuditLog.ActionType.ROLE_CHANGE,
+                    f'User {instance.username} roles set to '
+                    f'{", ".join(role_codes_for(instance)) or "none"}.',
                 )
             else:
                 audit_request(
@@ -363,29 +469,26 @@ class UserViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def assign_role(self, request, pk=None):
-        """POST /api/users/{id}/assign_role/  { "group_name": "Cashier" }
+        """POST /api/users/{id}/assign_role/
 
-        Membership is replaced, so assigning a non-admin group demotes the
-        account — refused when that account is the last active admin.
-        Non-admin callers cannot touch admin accounts or grant admin groups.
+        Body is ``{"roles": ["pos", "sales"]}`` (Phase 4 B3) or the legacy
+        ``{"group_name": "Cashier"}``. Membership is REPLACED, so assigning a
+        non-admin role demotes the account — refused when that account is the last
+        active admin. Non-admin callers cannot touch admin accounts or grant admin
+        authority with either field.
         """
         user = self.get_object()
-        group_name = request.data.get('group_name')
-        refusal = user_admin_refusal(request, user, group_name=group_name)
+        refusal = user_admin_refusal(
+            request, user, group_names=requested_group_names(request.data))
         if refusal is not None:
             return refusal
-        if not group_name:
-            return Response(
-                {'detail': 'group_name is required.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         try:
-            group = Group.objects.get(name=group_name)
-        except Group.DoesNotExist:
-            return Response(
-                {'detail': f'Group "{group_name}" does not exist.'},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            groups, codes = resolve_role_change(request.data)
+        except RoleChangeRefused as exc:
+            return Response(exc.payload, status=exc.status_code)
+        # Codes when the body used codes (what the client read back), group names for a
+        # legacy `group_name` body (what that client sent).
+        assigned_text = ', '.join(codes) if codes else role_names_text(groups)
         # Lock first, then decide (review F3): assigning a non-admin group demotes the
         # account, and the "is another admin alive?" answer must not go stale before the
         # write. The membership change and its audit row commit together (decision 07).
@@ -394,48 +497,52 @@ class UserViewSet(viewsets.ModelViewSet):
             refusal = last_admin_refusal(
                 locked,
                 keeps_admin_authority=locked.is_active and (
-                    locked.is_superuser or group.name in STAFF_ROLES),
+                    locked.is_superuser
+                    or any(group.name in STAFF_ROLES for group in groups)),
             )
             if refusal is not None:
                 return refusal
-            user.groups.set([group])
+            user.groups.set(groups)
             audit_request(
                 request,
                 AuditLog.ActionType.ROLE_CHANGE,
-                f'{user.username} assigned to {group_name}.',
+                f'{user.username} assigned to {assigned_text}.',
             )
-        return Response({'detail': f'{user.username} assigned to {group_name}.'})
+        return Response({
+            'detail': f'{user.username} assigned to {assigned_text}.',
+            'user': UserSerializer(user).data,
+        })
 
     @action(detail=True, methods=['post'])
     def remove_role(self, request, pk=None):
-        """POST /api/users/{id}/remove_role/  { "group_name": "Cashier" }
+        """POST /api/users/{id}/remove_role/
 
-        Non-admin callers cannot touch admin accounts or admin groups.
+        Body is ``{"roles": ["pos"]}`` (a code drops every group that code covers, so
+        ``admin`` removes Admin or System Administrator) or the legacy
+        ``{"group_name": "Cashier"}``. Non-admin callers cannot touch admin accounts
+        or admin groups.
         """
         user = self.get_object()
-        group_name = request.data.get('group_name')
-        refusal = user_admin_refusal(request, user, group_name=group_name)
+        refusal = user_admin_refusal(
+            request, user, group_names=requested_group_names(request.data))
         if refusal is not None:
             return refusal
-        if not group_name:
-            return Response(
-                {'detail': 'group_name is required.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         try:
-            group = Group.objects.get(name=group_name)
-        except Group.DoesNotExist:
-            return Response(
-                {'detail': f'Group "{group_name}" does not exist.'},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            groups, codes = resolve_role_change(request.data)
+        except RoleChangeRefused as exc:
+            return Response(exc.payload, status=exc.status_code)
+        if codes is not None:
+            # A code is an AREA, not one row: `admin` must drop whichever of Admin /
+            # System Administrator the account actually holds.
+            groups = list(Group.objects.filter(name__in=group_names_for_codes(codes)))
+        doomed = {group.pk for group in groups}
         # Same shape as assign_role (review F3): lock the admin rows, then read the
         # remaining admin membership from the LOCKED row, then write.
         with transaction.atomic():
             locked = lock_admin_rows(user)
             still_has_admin_group = (
                 locked.groups.filter(name__in=STAFF_ROLES)
-                .exclude(pk=group.pk)
+                .exclude(pk__in=doomed)
                 .exists()
             )
             refusal = last_admin_refusal(
@@ -445,13 +552,19 @@ class UserViewSet(viewsets.ModelViewSet):
             )
             if refusal is not None:
                 return refusal
-            locked.groups.remove(group)
+            removed_text = ', '.join(codes) if codes else role_names_text(groups)
+            for group in groups:
+                locked.groups.remove(group)
             audit_request(
                 request,
                 AuditLog.ActionType.ROLE_CHANGE,
-                f'{group_name} removed from {user.username}.',
+                f'{removed_text} removed from {user.username}.',
             )
-        return Response({'detail': f'{group_name} removed from {user.username}.'})
+        user.refresh_from_db()
+        return Response({
+            'detail': f'{removed_text} removed from {user.username}.',
+            'user': UserSerializer(user).data,
+        })
 
 
 # ---------------------------------------------------------------------------

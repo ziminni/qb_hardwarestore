@@ -1,4 +1,4 @@
-# pyright: reportAttributeAccessIssue=false, reportGeneralTypeIssues=false
+# pyright: reportAttributeAccessIssue=false, reportGeneralTypeIssues=false, reportMissingImports=false
 #
 # Same directive and reason as apps/pos/tests.py and seed_demo.py: this checker runs
 # with a working directory outside the repo, so the root pyrightconfig.json (which
@@ -60,12 +60,12 @@ from .models import MaterialToken, Project, Requisition, RequisitionItem
 # The customers a project may bill: the same pair as `Project.customer`'s
 # `limit_choices_to` and as `PAYER_CUSTOMER_TYPES` in `apps/integration/views.py`. Restated
 # as data here because `limit_choices_to` is a form/admin hint a service cannot ask.
-PAYER_CUSTOMER_TYPES = ('CONTRACTOR', 'CONSTRUCTION_FIRM')
+PAYER_CUSTOMER_TYPES = ("CONTRACTOR", "CONSTRUCTION_FIRM")
 
 
 def generate_req_number():
     """Kept as the Requisition-specific name; the pattern itself lives in common.numbering."""
-    return generate_document_number(Requisition, 'req_number', 'REQ')
+    return generate_document_number(Requisition, "req_number", "REQ")
 
 
 # Units sold only in whole counts lived here as a frozen set of codes until Phase 1d:
@@ -73,8 +73,13 @@ def generate_req_number():
 # the server's own answer instead of matching a client-side list (decision 16).
 
 
-def releasable_qty(*, remaining: Decimal, available_base: Decimal,
-                   conversion_factor: Decimal, is_whole: bool) -> Decimal:
+def releasable_qty(
+    *,
+    remaining: Decimal,
+    available_base: Decimal,
+    conversion_factor: Decimal,
+    is_whole: bool,
+) -> Decimal:
     """How much of one requested line can leave the store now, in the line's selling unit.
 
     Decision 05: release what is there, never more than is still outstanding.
@@ -86,9 +91,13 @@ def releasable_qty(*, remaining: Decimal, available_base: Decimal,
       Always round DOWN, never past what is on the shelf.
     Returns a Decimal with 2 decimal places, 0.00 when nothing can go.
     """
-    on_shelf = max(available_base, Decimal('0')) / conversion_factor
-    step = Decimal('1') if is_whole else Decimal('0.01')
-    return min(remaining, on_shelf).quantize(step, rounding=ROUND_DOWN).quantize(Decimal('0.01'))
+    on_shelf = max(available_base, Decimal(0)) / conversion_factor
+    step = Decimal(1) if is_whole else Decimal("0.01")
+    return (
+        min(remaining, on_shelf)
+        .quantize(step, rounding=ROUND_DOWN)
+        .quantize(Decimal("0.01"))
+    )
 
 
 class Availability:
@@ -98,10 +107,10 @@ class Availability:
     unavailable, so a short shelf is a fact on screen instead of a refused release.
     """
 
-    FULL = 'FULL'                # everything still outstanding can leave now
-    SHORT = 'SHORT'              # some of it can
-    UNAVAILABLE = 'UNAVAILABLE'  # nothing can: archived, or nothing on the shelf
-    DONE = 'DONE'                # nothing left to release: an earlier scan took it all
+    FULL = "FULL"  # everything still outstanding can leave now
+    SHORT = "SHORT"  # some of it can
+    UNAVAILABLE = "UNAVAILABLE"  # nothing can: archived, or nothing on the shelf
+    DONE = "DONE"  # nothing left to release: an earlier scan took it all
 
 
 # Messages for the statuses that can never be released (decisions 05/06/13). Spelled per
@@ -109,16 +118,11 @@ class Availability:
 # somebody has already been served with this token, and WAITING/DECLINED name the store's
 # own answer instead of hiding it behind "token already used".
 _REFUSED_STATUSES = {
-    Requisition.Status.WAITING:
-        'Requisition is WAITING: the store has not answered this request yet.',
-    Requisition.Status.DECLINED:
-        'Requisition is DECLINED: the store cannot serve it, so nothing may be released.',
-    Requisition.Status.CLOSED:
-        'Requisition is CLOSED: its request was closed and the token is dead.',
-    Requisition.Status.RELEASED:
-        'Requisition is already RELEASED: nothing is outstanding on it.',
-    Requisition.Status.CANCELLED:
-        'Requisition is CANCELLED: nothing may be released for it.',
+    Requisition.Status.WAITING: "Requisition is WAITING: the store has not answered this request yet.",
+    Requisition.Status.DECLINED: "Requisition is DECLINED: the store cannot serve it, so nothing may be released.",
+    Requisition.Status.CLOSED: "Requisition is CLOSED: its request was closed and the token is dead.",
+    Requisition.Status.RELEASED: "Requisition is already RELEASED: nothing is outstanding on it.",
+    Requisition.Status.CANCELLED: "Requisition is CANCELLED: nothing may be released for it.",
 }
 
 
@@ -126,7 +130,7 @@ def _refuse_status(status):
     """Raise for a request no release may touch (decisions 05/13: ACCEPTED/PARTIAL only)."""
     if status in _REFUSED_STATUSES:
         raise RequisitionNotReleasable(status, _REFUSED_STATUSES[status])
-    raise ValueError(f'Requisition is {status}, not ACCEPTED or PARTIAL.')
+    raise ValueError(f"Requisition is {status}, not ACCEPTED or PARTIAL.")
 
 
 def _token_for_release(token_value: str):
@@ -141,17 +145,20 @@ def _token_for_release(token_value: str):
     try:
         uuid_val = UUID(token_value)
     except ValueError:
-        raise ValueError('Invalid token format.') from None
+        raise ValueError("Invalid token format.") from None
     try:
         token_obj = MaterialToken.objects.select_related(
-            'requisition__project__customer').get(token=uuid_val)
+            "requisition__project__customer"
+        ).get(token=uuid_val)
     except MaterialToken.DoesNotExist:
-        raise ValueError('Token not found.') from None
+        raise ValueError("Token not found.") from None
     if token_obj.requisition.status not in (
-            Requisition.Status.ACCEPTED, Requisition.Status.PARTIAL):
+        Requisition.Status.ACCEPTED,
+        Requisition.Status.PARTIAL,
+    ):
         _refuse_status(token_obj.requisition.status)
     if token_obj.is_used:
-        raise ValueError('Token has already been used.')
+        raise ValueError("Token has already been used.")
     return token_obj
 
 
@@ -161,12 +168,11 @@ def _on_hand_base(variant_ids) -> dict:
     `current_qty__gt=0`, like the allocator: an emptied batch is history, not stock.
     """
     rows = (
-        InventoryBatch.objects
-        .filter(variant_id__in=variant_ids, current_qty__gt=0)
-        .values('variant_id')
-        .annotate(total=Sum('current_qty'))
+        InventoryBatch.objects.filter(variant_id__in=variant_ids, current_qty__gt=0)
+        .values("variant_id")
+        .annotate(total=Sum("current_qty"))
     )
-    return {row['variant_id']: row['total'] for row in rows}
+    return {row["variant_id"]: row["total"] for row in rows}
 
 
 def _release_plan(requisition) -> list:
@@ -186,10 +192,11 @@ def _release_plan(requisition) -> list:
     still reports the full historical outstanding.
     """
     items = list(
-        RequisitionItem.objects
-        .select_related('variant_uom__variant__product', 'variant_uom__uom')
+        RequisitionItem.objects.select_related(
+            "variant_uom__variant__product", "variant_uom__uom"
+        )
         .filter(requisition=requisition)
-        .order_by('pk')
+        .order_by("pk")
     )
     on_hand = _on_hand_base({item.variant_uom.variant_id for item in items})
     plan = []
@@ -198,7 +205,7 @@ def _release_plan(requisition) -> list:
         remaining = item.quantity - item.released_qty
         archived = not variant.is_active or not variant.product.is_active
         if item.available is False or archived or remaining <= 0:
-            releasable = Decimal('0.00')
+            releasable = Decimal("0.00")
         else:
             available = on_hand.get(variant.pk, Decimal(0))
             releasable = releasable_qty(
@@ -207,9 +214,17 @@ def _release_plan(requisition) -> list:
                 conversion_factor=item.variant_uom.conversion_factor,
                 is_whole=item.variant_uom.uom.is_whole,
             )
-            on_hand[variant.pk] = available - releasable * item.variant_uom.conversion_factor
-        plan.append({'item': item, 'remaining': remaining,
-                     'releasable': releasable, 'archived': archived})
+            on_hand[variant.pk] = (
+                available - releasable * item.variant_uom.conversion_factor
+            )
+        plan.append(
+            {
+                "item": item,
+                "remaining": remaining,
+                "releasable": releasable,
+                "archived": archived,
+            }
+        )
     return plan
 
 
@@ -220,13 +235,13 @@ def _availability(line) -> str:
     shelf holds, and is never `DONE` — its outstanding quantity never goes away. DONE
     stays reserved for a line that could leave but has already left in full.
     """
-    if line['item'].available is False:
+    if line["item"].available is False:
         return Availability.UNAVAILABLE
-    if line['remaining'] <= 0:
+    if line["remaining"] <= 0:
         return Availability.DONE
-    if line['archived'] or line['releasable'] <= 0 < line['remaining']:
+    if line["archived"] or line["releasable"] <= 0 < line["remaining"]:
         return Availability.UNAVAILABLE
-    if line['releasable'] < line['remaining']:
+    if line["releasable"] < line["remaining"]:
         return Availability.SHORT
     return Availability.FULL
 
@@ -245,8 +260,7 @@ def every_available_line_done(plan) -> bool:
     NOW), so after this visit a line still owes `remaining - releasable`.
     """
     return all(
-        line['item'].available is False
-        or line['remaining'] - line['releasable'] <= 0
+        line["item"].available is False or line["remaining"] - line["releasable"] <= 0
         for line in plan
     )
 
@@ -262,26 +276,30 @@ def verify_token(*, token_value: str) -> dict:
     token_obj = _token_for_release(token_value)
     req = token_obj.requisition
     return {
-        'token': str(token_obj.token),
-        'requisition': {
-            'id': req.id, 'req_number': req.req_number,
-            'project': req.project.name, 'customer': req.project.customer.name,
+        "token": str(token_obj.token),
+        "requisition": {
+            "id": req.id,
+            "req_number": req.req_number,
+            "project": req.project.name,
+            "customer": req.project.customer.name,
         },
         # Wire shape unchanged for the till (decision 04 changed the column, not the
         # screen): `variant_id` is still the PRODUCT VARIANT id and `variant_name` the
         # same label; the quantity is now counted in the line's own selling unit.
-        'items': [
-            {'id': line['item'].id,
-             'variant_id': line['item'].variant_uom.variant_id,
-             'variant_name': str(line['item'].variant_uom.variant),
-             'quantity': str(line['item'].quantity),
-             'remaining': str(line['remaining']),
-             'availability': _availability(line),
-             'releasable': str(line['releasable']),
-             # Decisions 10/13: the STORE's answer, distinct from the shelf's word
-             # above — False means "we do not carry it", not "it is out today".
-             'available': line['item'].available,
-             'decline_reason': line['item'].decline_reason}
+        "items": [
+            {
+                "id": line["item"].id,
+                "variant_id": line["item"].variant_uom.variant_id,
+                "variant_name": str(line["item"].variant_uom.variant),
+                "quantity": str(line["item"].quantity),
+                "remaining": str(line["remaining"]),
+                "availability": _availability(line),
+                "releasable": str(line["releasable"]),
+                # Decisions 10/13: the STORE's answer, distinct from the shelf's word
+                # above — False means "we do not carry it", not "it is out today".
+                "available": line["item"].available,
+                "decline_reason": line["item"].decline_reason,
+            }
             for line in _release_plan(req)
         ],
     }
@@ -348,30 +366,30 @@ def release_materials(*, token_value: str, cashier) -> dict:
 
     with transaction.atomic():
         token_obj, req = _lock_token_and_request(
-            requisition_id=token_obj.requisition_id)
+            requisition_id=token_obj.requisition_id
+        )
         customer = req.project.customer
         # Decisions 09/13: only an accepted request releases. Checked before `is_used`
         # because a Decline spends the token itself, and "the store declined this" is the
         # fact the cashier needs.
-        if req.status not in (
-                Requisition.Status.ACCEPTED, Requisition.Status.PARTIAL):
+        if req.status not in (Requisition.Status.ACCEPTED, Requisition.Status.PARTIAL):
             _refuse_status(req.status)
         if token_obj.is_used:
-            raise ValueError('Token has already been used.')
+            raise ValueError("Token has already been used.")
 
         # Decision 03: the same gate `process_sale` applies, and for the same reason —
         # an orphan release is a receivable the end-of-shift close never asks about.
         # Read before the first write so the refusal is total.
-        shift = Shift.objects.filter(
-            cashier=cashier, status=Shift.Status.OPEN).first()
+        shift = Shift.objects.filter(cashier=cashier, status=Shift.Status.OPEN).first()
         if shift is None:
             raise NoOpenShift(
-                'You have no open shift. Open a shift before releasing materials.')
+                "You have no open shift. Open a shift before releasing materials."
+            )
 
         # Decision 05: recomputed UNDER the token lock, so two scans of one token (or
         # two tills holding the same token) cannot promise the same stock twice.
         plan = _release_plan(req)
-        releasing = [line for line in plan if line['releasable'] > 0]
+        releasing = [line for line in plan if line["releasable"] > 0]
         if not releasing:
             raise NothingToRelease()
 
@@ -381,33 +399,37 @@ def release_materials(*, token_value: str, cashier) -> dict:
             shift=shift,
             transaction_no=generate_transaction_no(),
             source=SalesTransaction.Source.REQUISITION,
-            vatable_sales=Decimal('0'),
-            vat_amount=Decimal('0'),
-            discount_amount=Decimal('0'),
-            grand_total=Decimal('0'),
+            vatable_sales=Decimal(0),
+            vat_amount=Decimal(0),
+            discount_amount=Decimal(0),
+            grand_total=Decimal(0),
         )
 
-        grand_total = Decimal('0')
+        grand_total = Decimal(0)
         affected_variant_ids = set()
 
         for line in releasing:
-            item = line['item']
-            qty = line['releasable']
+            item = line["item"]
+            qty = line["releasable"]
             vuom = item.variant_uom
             unit_price = vuom.default_selling_price
 
             allocate_fifo(
-                variant_id=vuom.variant_id,
-                qty_needed=qty * vuom.conversion_factor)
+                variant_id=vuom.variant_id, qty_needed=qty * vuom.conversion_factor
+            )
             affected_variant_ids.add(vuom.variant_id)
 
             subtotal = qty * unit_price
             SalesItem.objects.create(
-                transaction=txn, variant_uom=vuom,
-                qty=qty, unit_price=unit_price, subtotal=subtotal)
+                transaction=txn,
+                variant_uom=vuom,
+                qty=qty,
+                unit_price=unit_price,
+                subtotal=subtotal,
+            )
             grand_total += subtotal
             item.released_qty += qty
-            item.save(update_fields=['released_qty'])
+            item.save(update_fields=["released_qty"])
 
         # Task 4.3: a release takes stock off the shelf exactly like a sale (it IS a sale
         # of source REQUISITION), so it re-evaluates the low-stock threshold once per
@@ -416,27 +438,53 @@ def release_materials(*, token_value: str, cashier) -> dict:
         # stock - so the shelf could be issued empty and the low-stock screen stayed quiet.
         check_low_stock_after_stock_out(variant_ids=affected_variant_ids)
 
-        txn.vatable_sales = grand_total
+        # Phase 4 task B1 (decision 18): a CPMS release IS a sale, so it reports the
+        # same VAT breakdown - with no discount, because a release is priced from the
+        # selling unit and there is nobody to discount it for. `vat_split` is the same
+        # function `process_sale` uses, so the two paths can never disagree about what
+        # 12% of a release is.
+        from apps.pos.models import StoreSettings
+        from apps.pos.services import _money_round, vat_split
+
+        store = StoreSettings.load()
+        grand_total = _money_round(grand_total)
+        vatable_sales, vat_amount = vat_split(
+            grand_total, rate=store.vat_rate, registered=store.vat_registered
+        )
+        txn.vat_registered = store.vat_registered
+        txn.vat_rate = store.vat_rate
+        txn.vatable_sales = vatable_sales
+        txn.vat_amount = vat_amount
         txn.grand_total = grand_total
-        txn.save(update_fields=['vatable_sales', 'grand_total'])
+        txn.save(
+            update_fields=[
+                "vat_registered",
+                "vat_rate",
+                "vatable_sales",
+                "vat_amount",
+                "grand_total",
+            ]
+        )
         # Decision 14: the DB rounds `qty x price` to 2dp, so the value the till is told,
         # the utang booked and the amount accumulated must all be the PERSISTED total,
         # not the 4dp product still in memory.
-        txn.refresh_from_db(fields=['grand_total'])
+        txn.refresh_from_db(fields=["grand_total"])
         grand_total = txn.grand_total
 
         OfficialReceipt.objects.create(
             transaction=txn,
             or_number=generate_or_number(),
-            terminal_no='POS-01',
+            terminal_no="POS-01",
         )
 
         ledger = CollectibleLedger.objects.create(
-            customer=customer, transaction=txn,
+            customer=customer,
+            transaction=txn,
             # Decision 03: the utang of a release always carries its project, so
             # receivables can be totalled per project as well as per contractor.
             project=req.project,
-            original_amount=grand_total, balance_due=grand_total,
+            original_amount=grand_total,
+            balance_due=grand_total,
             due_date=date.today() + date.resolution * 30,
             status=CollectibleLedger.Status.OPEN,
         )
@@ -448,7 +496,7 @@ def release_materials(*, token_value: str, cashier) -> dict:
             token_obj.is_used = True
             token_obj.used_at = timezone.now()
             token_obj.used_by = cashier
-            token_obj.save(update_fields=['is_used', 'used_at', 'used_by'])
+            token_obj.save(update_fields=["is_used", "used_at", "used_by"])
             req.status = Requisition.Status.RELEASED
         else:
             req.status = Requisition.Status.PARTIAL
@@ -456,31 +504,33 @@ def release_materials(*, token_value: str, cashier) -> dict:
         # only when the baseline is known — NULL plus a known amount stays NULL.
         if req.released_amount is not None:
             req.released_amount = req.released_amount + grand_total
-        req.save(update_fields=['status', 'released_amount', 'updated_at'])
+        req.save(update_fields=["status", "released_amount", "updated_at"])
 
     return {
-        'transaction_id': txn.id,
-        'transaction_no': txn.transaction_no,
+        "transaction_id": txn.id,
+        "transaction_no": txn.transaction_no,
         # The audit row (written by the view, inside this same transaction) names the
         # requisition by its DOCUMENT NUMBER - never by the token UUID, which is a bearer
         # credential (decision 07).
-        'req_number': req.req_number,
+        "req_number": req.req_number,
         # Decision 05: the REQUEST's new status (PARTIAL or RELEASED) plus what this visit
         # moved and what is still owed on each line.
-        'status': req.status,
-        'items': [
-            {'code': line['item'].variant_uom.barcode_qr,
-             'released_now': str(line['releasable']),
-             'outstanding': str(line['remaining'] - line['releasable']),
-             # Decisions 10/13: the till needs the store's answer here too, so a mixed
-             # request reads "Declined: Not stocked" instead of a transient shortage.
-             'available': line['item'].available,
-             'decline_reason': line['item'].decline_reason}
+        "status": req.status,
+        "items": [
+            {
+                "code": line["item"].variant_uom.barcode_qr,
+                "released_now": str(line["releasable"]),
+                "outstanding": str(line["remaining"] - line["releasable"]),
+                # Decisions 10/13: the till needs the store's answer here too, so a mixed
+                # request reads "Declined: Not stocked" instead of a transient shortage.
+                "available": line["item"].available,
+                "decline_reason": line["item"].decline_reason,
+            }
             for line in plan
         ],
-        'grand_total': str(grand_total),
-        'ledger_id': ledger.id,
-        'balance_due': str(ledger.balance_due),
+        "grand_total": str(grand_total),
+        "ledger_id": ledger.id,
+        "balance_due": str(ledger.balance_due),
     }
 
 
@@ -488,15 +538,15 @@ def release_materials(*, token_value: str, cashier) -> dict:
 # CPMS push (Phase 1, Task 3 — decisions 02 and 04)
 # ---------------------------------------------------------------------------
 
+
 def _existing_requisition(cpms_request_id):
     """The copy a retried push found, or None — the ONE lookup the retry rule hangs on.
 
     Module level (not nested) so a test can blind it once and exercise the insert race.
     """
     return (
-        Requisition.objects
-        .filter(cpms_request_id=cpms_request_id)
-        .prefetch_related('items__variant_uom')
+        Requisition.objects.filter(cpms_request_id=cpms_request_id)
+        .prefetch_related("items__variant_uom")
         .first()
     )
 
@@ -504,13 +554,13 @@ def _existing_requisition(cpms_request_id):
 def _request_copy(requisition):
     """The answer body for one stored request: identity, status and its lines."""
     return {
-        'id': requisition.id,
-        'req_number': requisition.req_number,
-        'cpms_request_id': requisition.cpms_request_id,
-        'status': requisition.status,
-        'items': [
-            {'code': item.variant_uom.barcode_qr, 'quantity': str(item.quantity)}
-            for item in requisition.items.order_by('pk')
+        "id": requisition.id,
+        "req_number": requisition.req_number,
+        "cpms_request_id": requisition.cpms_request_id,
+        "status": requisition.status,
+        "items": [
+            {"code": item.variant_uom.barcode_qr, "quantity": str(item.quantity)}
+            for item in requisition.items.order_by("pk")
         ],
     }
 
@@ -535,7 +585,7 @@ def _resolved_lines(items):
     are accepted — active variant of an active product — because a code outside the
     material list is a code CPMS should never have held.
     """
-    codes = [normalise_barcode(item['code']) for item in items]
+    codes = [normalise_barcode(item["code"]) for item in items]
     duplicated = sorted({code for code in codes if codes.count(code) > 1})
     if duplicated:
         raise DuplicateMaterial(duplicated)
@@ -543,7 +593,7 @@ def _resolved_lines(items):
         barcode_qr__in=codes,
         variant__is_active=True,
         variant__product__is_active=True,
-    ).select_related('uom', 'variant__product')
+    ).select_related("uom", "variant__product")
     by_code = {unit.barcode_qr: unit for unit in units}
     unknown = [code for code in codes if code not in by_code]
     if unknown:
@@ -555,9 +605,11 @@ def _resolved_lines(items):
         # refuses the WHOLE import, before the first write - a half-stored request would
         # be a token the store could release against goods nobody can count.
         refuse_fractional_whole_unit(
-            is_whole=unit.uom.is_whole, qty=item['quantity'],
-            what=f'Line {index} ({unit.variant}, {unit.uom.code})')
-        lines.append((unit, item['quantity']))
+            is_whole=unit.uom.is_whole,
+            qty=item["quantity"],
+            what=f"Line {index} ({unit.variant}, {unit.uom.code})",
+        )
+        lines.append((unit, item["quantity"]))
     return lines
 
 
@@ -568,25 +620,26 @@ def _upsert_project(project_data, payer):
     same project, even when it was renamed or re-billed since the last push.
     """
     project, created = Project.objects.get_or_create(
-        cpms_project_id=project_data['cpms_project_id'],
-        defaults={'name': project_data['name'], 'customer': payer},
+        cpms_project_id=project_data["cpms_project_id"],
+        defaults={"name": project_data["name"], "customer": payer},
     )
     if created:
         return project
     changed = []
-    if project.name != project_data['name']:
-        project.name = project_data['name']
-        changed.append('name')
+    if project.name != project_data["name"]:
+        project.name = project_data["name"]
+        changed.append("name")
     if project.customer_id != payer.pk:
         project.customer = payer
-        changed.append('customer')
+        changed.append("customer")
     if changed:
-        project.save(update_fields=[*changed, 'updated_at'])
+        project.save(update_fields=[*changed, "updated_at"])
     return project
 
 
-def import_request(*, cpms_request_id, token, project, requester_name,
-                   approver_name, notes='', items):
+def import_request(
+    *, cpms_request_id, token, project, requester_name, approver_name, notes="", items
+):
     """Store the POS copy of one CPMS request (decisions 02 and 04).
 
     Decision 13: a push lands as `WAITING`. CPMS approving its own request is not the
@@ -615,9 +668,9 @@ def import_request(*, cpms_request_id, token, project, requester_name,
     """
     existing = _existing_requisition(cpms_request_id)
     if existing is not None:
-        return {'created': False, 'request': _request_copy(existing)}
+        return {"created": False, "request": _request_copy(existing)}
 
-    payer = _payer(project['payer'])
+    payer = _payer(project["payer"])
     lines = _resolved_lines(items)
     if MaterialToken.objects.filter(token=token).exists():
         # Look again for this request before refusing: between the retry check above and
@@ -625,14 +678,14 @@ def import_request(*, cpms_request_id, token, project, requester_name,
         # retry rule wins over the clash rule, so CPMS's own retries stay `200`.
         winner = _existing_requisition(cpms_request_id)
         if winner is not None:
-            return {'created': False, 'request': _request_copy(winner)}
+            return {"created": False, "request": _request_copy(winner)}
         raise TokenTaken()
 
     try:
         with transaction.atomic():
             # Locked BEFORE the project upsert: it is the first write, and a refusal
             # after it would have to roll a project row back.
-            lock_selling_unit_lines(lines, document='project request')
+            lock_selling_unit_lines(lines, document="project request")
             project_row = _upsert_project(project, payer)
             requisition = Requisition.objects.create(
                 project=project_row,
@@ -647,28 +700,28 @@ def import_request(*, cpms_request_id, token, project, requester_name,
             )
             for variant_uom, quantity in lines:
                 RequisitionItem.objects.create(
-                    requisition=requisition, variant_uom=variant_uom,
-                    quantity=quantity)
+                    requisition=requisition, variant_uom=variant_uom, quantity=quantity
+                )
             MaterialToken.objects.create(requisition=requisition, token=token)
     except IntegrityError:
         # The loser of a race. Whoever inserted first owns the id; if it was not this
         # request, the token is somebody else's.
         winner = _existing_requisition(cpms_request_id)
         if winner is not None:
-            return {'created': False, 'request': _request_copy(winner)}
+            return {"created": False, "request": _request_copy(winner)}
         if MaterialToken.objects.filter(token=token).exists():
             raise TokenTaken() from None
         raise
 
     return {
-        'created': True,
-        'request': {
-            'id': requisition.id,
-            'req_number': requisition.req_number,
-            'cpms_request_id': cpms_request_id,
-            'status': requisition.status,
-            'items': [
-                {'code': variant_uom.barcode_qr, 'quantity': str(quantity)}
+        "created": True,
+        "request": {
+            "id": requisition.id,
+            "req_number": requisition.req_number,
+            "cpms_request_id": cpms_request_id,
+            "status": requisition.status,
+            "items": [
+                {"code": variant_uom.barcode_qr, "quantity": str(quantity)}
                 for variant_uom, quantity in lines
             ],
         },
@@ -678,6 +731,7 @@ def import_request(*, cpms_request_id, token, project, requester_name,
 # ---------------------------------------------------------------------------
 # CPMS close and read-back (Phase 1, Task 6 — decisions 06 and 07)
 # ---------------------------------------------------------------------------
+
 
 def _stored_request(cpms_request_id):
     """The POS copy CPMS names, or `404 REQUEST_NOT_FOUND`."""
@@ -690,10 +744,9 @@ def _stored_request(cpms_request_id):
 def _order_lines(requisition):
     """The request's lines in insertion order, with the units the wire body needs."""
     return list(
-        RequisitionItem.objects
-        .select_related('variant_uom')
+        RequisitionItem.objects.select_related("variant_uom")
         .filter(requisition=requisition)
-        .order_by('pk')
+        .order_by("pk")
     )
 
 
@@ -703,7 +756,7 @@ def money_wire(amount):
     `None` is the contract's "unknown", never `0.00`: a historical released total that
     was never recorded must not read as a free request.
     """
-    return None if amount is None else f'{amount:.2f}'
+    return None if amount is None else f"{amount:.2f}"
 
 
 def expected_amount(requisition, lines=None):
@@ -743,12 +796,16 @@ def expected_amount(requisition, lines=None):
     if not reviewed:
         return None
     outstanding = sum(
-        (line.variant_uom.default_selling_price * (line.quantity - line.released_qty)
-         for line in lines if line.available is True),
-        Decimal('0'),
+        (
+            line.variant_uom.default_selling_price * (line.quantity - line.released_qty)
+            for line in lines
+            if line.available is True
+        ),
+        Decimal(0),
     )
     return requisition.released_amount + outstanding.quantize(
-        Decimal('0.01'), rounding=ROUND_HALF_UP)
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
 
 
 def request_read_back(*, cpms_request_id):
@@ -767,18 +824,20 @@ def request_read_back(*, cpms_request_id):
     requisition = _stored_request(cpms_request_id)
     lines = _order_lines(requisition)
     return {
-        'cpms_request_id': requisition.cpms_request_id,
-        'req_number': requisition.req_number,
-        'status': requisition.status,
-        'decline_reason': requisition.decline_reason,
-        'expected_amount': money_wire(expected_amount(requisition, lines)),
-        'items': [
-            {'code': item.variant_uom.barcode_qr,
-             'requested': str(item.quantity),
-             'released': str(item.released_qty),
-             'outstanding': str(item.quantity - item.released_qty),
-             'available': item.available,
-             'decline_reason': item.decline_reason}
+        "cpms_request_id": requisition.cpms_request_id,
+        "req_number": requisition.req_number,
+        "status": requisition.status,
+        "decline_reason": requisition.decline_reason,
+        "expected_amount": money_wire(expected_amount(requisition, lines)),
+        "items": [
+            {
+                "code": item.variant_uom.barcode_qr,
+                "requested": str(item.quantity),
+                "released": str(item.released_qty),
+                "outstanding": str(item.quantity - item.released_qty),
+                "available": item.available,
+                "decline_reason": item.decline_reason,
+            }
             for item in lines
         ],
     }
@@ -824,26 +883,31 @@ def close_requisition(*, cpms_request_id):
         )
         if closed:
             requisition.status = Requisition.Status.CLOSED
-            requisition.save(update_fields=['status', 'updated_at'])
+            requisition.save(update_fields=["status", "updated_at"])
             # `.update()` on purpose: `used_by` must stay NULL (no cashier spent it), and
             # the token is already locked by `_lock_request`, so nothing can read it
             # between the status change and this line.
             MaterialToken.objects.filter(requisition=requisition).update(
-                is_used=True, used_at=timezone.now())
-    return {'closed': closed,
-            'request': request_read_back(cpms_request_id=cpms_request_id)}
+                is_used=True, used_at=timezone.now()
+            )
+    return {
+        "closed": closed,
+        "request": request_read_back(cpms_request_id=cpms_request_id),
+    }
 
 
 # ---------------------------------------------------------------------------
 # The store's decision (Phase 1b, Task 2 — decisions 09, 10 and 13)
 # ---------------------------------------------------------------------------
 
+
 def _require_waiting(requisition):
     """Both answers are legal only from WAITING; a decision is never re-opened."""
     if requisition.status != Requisition.Status.WAITING:
         raise RequestAlreadyReviewed(
-            f'This request is already {requisition.status}. A request is reviewed '
-            'once, and only while it is WAITING.')
+            f"This request is already {requisition.status}. A request is reviewed "
+            "once, and only while it is WAITING."
+        )
 
 
 def _line_answers(*, lines, items):
@@ -855,23 +919,26 @@ def _line_answers(*, lines, items):
     than ignored, so no client can edit a line it was not asked about.
     """
     stored = {line.pk for line in lines}
-    given = [item['id'] for item in items]
+    given = [item["id"] for item in items]
     duplicated = sorted({line_id for line_id in given if given.count(line_id) > 1})
     if duplicated:
         raise RequisitionReviewRefused(
-            f'These lines were answered more than once: {duplicated}.')
+            f"These lines were answered more than once: {duplicated}."
+        )
     missing = sorted(stored - set(given))
     if missing:
         raise RequisitionReviewRefused(
-            f'Answer every line: {missing} still have no answer.')
+            f"Answer every line: {missing} still have no answer."
+        )
     foreign = sorted(set(given) - stored)
     if foreign:
         raise RequisitionReviewRefused(
-            f'These lines are not on this request: {foreign}.')
+            f"These lines are not on this request: {foreign}."
+        )
     return {
-        item['id']: {
-            'available': item['available'],
-            'decline_reason': (item.get('decline_reason') or '').strip(),
+        item["id"]: {
+            "available": item["available"],
+            "decline_reason": (item.get("decline_reason") or "").strip(),
         }
         for item in items
     }
@@ -894,18 +961,19 @@ def accept_requisition(*, requisition_id, items):
     with transaction.atomic():
         _, requisition = _lock_token_and_request(requisition_id=requisition_id)
         _require_waiting(requisition)
-        lines = list(requisition.items.order_by('pk'))
+        lines = list(requisition.items.order_by("pk"))
         answers = _line_answers(lines=lines, items=items)
-        if not any(answer['available'] for answer in answers.values()):
+        if not any(answer["available"] for answer in answers.values()):
             raise RequisitionReviewRefused(
-                'Every line is Not available. Decline the request instead.')
+                "Every line is Not available. Decline the request instead."
+            )
         for line in lines:
             answer = answers[line.pk]
-            line.available = answer['available']
-            line.decline_reason = answer['decline_reason']
-            line.save(update_fields=['available', 'decline_reason'])
+            line.available = answer["available"]
+            line.decline_reason = answer["decline_reason"]
+            line.save(update_fields=["available", "decline_reason"])
         requisition.status = Requisition.Status.ACCEPTED
-        requisition.save(update_fields=['status', 'updated_at'])
+        requisition.save(update_fields=["status", "updated_at"])
     return requisition
 
 
@@ -920,21 +988,21 @@ def decline_requisition(*, requisition_id, decline_reason):
     Like Accept, this is legal only from `WAITING` and runs under the shared
     token→request lock; the caller writes the audit row in the same transaction.
     """
-    reason = (decline_reason or '').strip()
+    reason = (decline_reason or "").strip()
     if not reason:
-        raise RequisitionReviewRefused(
-            'Give a reason for declining this request.')
+        raise RequisitionReviewRefused("Give a reason for declining this request.")
     with transaction.atomic():
         _, requisition = _lock_token_and_request(requisition_id=requisition_id)
         _require_waiting(requisition)
         requisition.status = Requisition.Status.DECLINED
         requisition.decline_reason = reason
-        requisition.save(update_fields=['status', 'decline_reason', 'updated_at'])
+        requisition.save(update_fields=["status", "decline_reason", "updated_at"])
         requisition.items.update(available=False, decline_reason=reason)
         # `.update()` on purpose: `used_by` must stay NULL and no `auto_now` field may
         # move. The token row is already locked above, so nothing reads it in between.
         MaterialToken.objects.filter(requisition=requisition).update(
-            is_used=True, used_at=timezone.now(), used_by=None)
+            is_used=True, used_at=timezone.now(), used_by=None
+        )
     return requisition
 
 
@@ -951,12 +1019,13 @@ def project_payables(*, cpms_project_id):
     if project is None:
         raise UnknownProject(cpms_project_id)
     totals = project.ledger_entries.aggregate(
-        total=Sum('original_amount'), balance=Sum('balance_due'))
-    total = totals['total'] or Decimal(0)
-    balance = totals['balance'] or Decimal(0)
+        total=Sum("original_amount"), balance=Sum("balance_due")
+    )
+    total = totals["total"] or Decimal(0)
+    balance = totals["balance"] or Decimal(0)
     return {
-        'cpms_project_id': project.cpms_project_id,
-        'total': f'{total:.2f}',
-        'paid': f'{total - balance:.2f}',
-        'balance': f'{balance:.2f}',
+        "cpms_project_id": project.cpms_project_id,
+        "total": f"{total:.2f}",
+        "paid": f"{total - balance:.2f}",
+        "balance": f"{balance:.2f}",
     }

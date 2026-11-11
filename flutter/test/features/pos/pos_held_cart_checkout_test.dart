@@ -24,6 +24,7 @@ import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/held_cart_service.dart';
 import 'package:client/data/services/shift_service.dart';
+import 'package:client/data/models/sale_discount.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
@@ -53,6 +54,8 @@ class _FakePosRepository extends PosRepository {
     required List<PosCheckoutPayment> payments,
     String source = 'WALK_IN',
     String? idempotencyKey,
+    PosDiscount? discount,
+    String? discountApproval,
   }) async {
     calls++;
     sentPayments = payments;
@@ -84,6 +87,8 @@ class _FakeHeldCartService extends HeldCartService {
     int cartId, {
     required List<PosCheckoutPayment> payments,
     String? idempotencyKey,
+    PosDiscount? discount,
+    String? discountApproval,
   }) async {
     completes.add((cartId: cartId, payments: payments, key: idempotencyKey));
     final boom = failComplete;

@@ -1,4 +1,4 @@
-# pyright: reportAttributeAccessIssue=false, reportGeneralTypeIssues=false
+# pyright: reportAttributeAccessIssue=false, reportGeneralTypeIssues=false, reportMissingImports=false
 #
 # Same reason as apps/inventory/views.py and seed_demo.py: the checker resolves its
 # config from its WORKING DIRECTORY and does not run inside this repo here, so a
@@ -6,40 +6,99 @@
 # rule that cannot model Django's `Model.objects` without django-stubs, plus the same
 # `transaction.atomic()` context-manager false positive documented in
 # apps/collectibles/views.py (Phase 2 task 5 wraps events in explicit atomic blocks).
-from django.db.models import Q, Sum
-from decimal import Decimal
-from decimal import InvalidOperation
+from decimal import Decimal, InvalidOperation
+
 from django.db import IntegrityError
 from django.db import transaction as db_transaction
+from django.db.models import Q, Sum
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
-from rest_framework import viewsets, status
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from apps.users import lockout
 from apps.users.models import AuditLog
 from apps.users.permissions import (
-    IsManagerRole, IsPOSOrReadOnly, IsPOSRole, SalesReadPOSWrite,
-    has_role, is_cashier_only,
+    IsAdminRole,
+    IsManagerRole,
+    IsPOSOrReadOnly,
+    IsPOSRole,
+    SalesReadPOSWrite,
+    has_role,
+    is_cashier_only,
 )
 from apps.users.services import audit_request
-from .exceptions import CreditLimitForbidden
-from .models import Customer, SalesTransaction, Payment, OfficialReceipt
-from .models import Quotation, SalesOrder
-from .models import HeldCart
-from .models import Shift
-from .serializers import CustomerSerializer, SalesTransactionSerializer, PaymentSerializer, OfficialReceiptSerializer
-from .serializers import QuotationSerializer, SalesOrderSerializer
-from .serializers import HeldCartSerializer
-from .serializers import ShiftSerializer
-from .services import process_sale, returnable_payload
+
+from .exceptions import CreditLimitForbidden, DiscountApprovalInvalid, InvalidDiscount
+from .models import (
+    Customer,
+    HeldCart,
+    OfficialReceipt,
+    Payment,
+    Quotation,
+    SalesOrder,
+    SalesTransaction,
+    Shift,
+    StoreSettings,
+)
+from .serializers import (
+    ChequeSerializer,
+    CustomerSerializer,
+    HeldCartSerializer,
+    OfficialReceiptSerializer,
+    PaymentSerializer,
+    QuotationSerializer,
+    SalesOrderSerializer,
+    SalesTransactionSerializer,
+    ShiftSerializer,
+)
 from .services import (
-    parse_idempotency_key, request_body_hash, replayed_transaction,
+    decide_cheque,
+    issue_discount_approval,
+    parse_idempotency_key,
+    process_sale,
+    replayed_transaction,
+    request_body_hash,
+    returnable_payload,
 )
 
 # Decision 09 item 2: the optional retry token. A client that times out mid-checkout
 # resends the SAME key and gets the original sale back instead of ringing a second one.
-IDEMPOTENCY_HEADER = 'Idempotency-Key'
+IDEMPOTENCY_HEADER = "Idempotency-Key"
+
+# The 429 a locked (username, address) pair is answered with. Distinct from `LOGIN_LOCKED`
+# because the till has to say WHAT is locked out, and a cashier who can still take money
+# needs the sentence, not a bare 429.
+DISCOUNT_APPROVAL_LOCKED_CODE = "DISCOUNT_APPROVAL_LOCKED"
+DISCOUNT_APPROVAL_LOCKED_DETAIL = (
+    "Too many failed discount approval attempts. Try again in {minutes} minutes."
+)
+
+
+def _record_approval_refusal(request, username):
+    """One `DISCOUNT_APPROVAL` row for one refused approval (decision 07).
+
+    Same shape as `LOGIN_FAILED`: the actor is the account whose password was tried when
+    the name matches one, so an admin can read WHO was attacked off the row's FK, and the
+    cashier who asked is named in the description because at the till that is the more
+    useful half. The password is not even passed in here, so it cannot land in the trail.
+    """
+    from apps.users.serializers import find_user_by_identifier
+
+    user = find_user_by_identifier(username)
+    attempted = (username or "(blank)")[:150]
+    audit_request(
+        request,
+        AuditLog.ActionType.DISCOUNT_APPROVAL,
+        f"Discount approval refused for {attempted}: the credentials offered by "
+        f"{request.user.username} could not approve a discount.",
+        user=user,
+        username=None if user is not None else attempted,
+    )
 
 
 def _idempotency_inputs(request, scope):
@@ -60,8 +119,8 @@ def _idempotency_inputs(request, scope):
     """
     key = parse_idempotency_key(request.headers.get(IDEMPOTENCY_HEADER))
     if key is None:
-        return None, ''
-    return key, request_body_hash({'scope': scope, 'body': request.data})
+        return None, ""
+    return key, request_body_hash({"scope": scope, "body": request.data})
 
 
 def _replayed_response(transaction):
@@ -98,7 +157,7 @@ class OwnSalesScopeMixin:
     aggregates `self.get_queryset()`.
     """
 
-    own_scope_field = 'cashier'
+    own_scope_field = "cashier"
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -115,7 +174,7 @@ def _refuse_credit_limit_from_non_manager(request):
     is not asked for a manager's permission. Nothing is written, because this runs
     before the serializer sees the payload.
     """
-    if 'total_credit_limit' not in request.data:
+    if "total_credit_limit" not in request.data:
         return
     if has_role(request.user, IsManagerRole.required_roles):
         return
@@ -140,7 +199,206 @@ def _refuse_foreign_original_for_cashier(view, original_id):
     except (TypeError, ValueError):
         visible = False
     if not visible:
-        raise NotFound('Original transaction not found.')
+        raise NotFound("Original transaction not found.")
+
+
+class StoreSettingsView(APIView):
+    """`/api/v1/store-settings/` - the shop's VAT and discount policy (B1, decision 18).
+
+    GET is for EVERY authenticated user, because the till, the receipt and the reports
+    all have to know the rate and the cap: a cashier whose screen did not know the cap
+    could not tell a customer why the discount needs a manager. PATCH is the Admin's
+    alone - these two numbers decide what the shop claims to the BIR and how much money
+    a cashier may give away, which is exactly the pair nobody else may rewrite.
+
+    There is no list, no create and no delete: this is ONE row by design
+    (`StoreSettings.load()`), so the endpoints that would manage a collection simply do
+    not exist.
+    """
+
+    http_method_names = ["get", "patch", "head", "options"]
+
+    def get_permissions(self):
+        if self.request.method in ("PATCH",):
+            return [IsAdminRole()]
+        return [IsAuthenticated()]
+
+    @staticmethod
+    def _body(row):
+        return {
+            "vat_registered": row.vat_registered,
+            # Strings, not numbers: money and rates cross the wire as 2-decimal strings
+            # everywhere else in this API, and a JSON float loses both.
+            "vat_rate": f"{row.vat_rate:.2f}",
+            "discount_cap_percent": f"{row.discount_cap_percent:.2f}",
+            "updated_at": row.updated_at,
+        }
+
+    def get(self, request):
+        return Response(self._body(StoreSettings.load()))
+
+    def patch(self, request):
+        row = StoreSettings.load()
+        before = self._body(row)
+        data = request.data
+
+        if "vat_registered" in data:
+            if not isinstance(data["vat_registered"], bool):
+                return Response(
+                    {
+                        "code": "INVALID_SETTINGS",
+                        "detail": "vat_registered must be true or false.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            row.vat_registered = data["vat_registered"]
+
+        for field, label in (
+            ("vat_rate", "VAT rate"),
+            ("discount_cap_percent", "Discount cap"),
+        ):
+            if field not in data:
+                continue
+            try:
+                value = Decimal(str(data[field]))
+            except (InvalidOperation, TypeError, ValueError):
+                return Response(
+                    {
+                        "code": "INVALID_SETTINGS",
+                        "detail": f"{label} must be a number.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            # 0 to 100: a negative rate would invert the VAT split, and a cap above 100
+            # percent would let a discount give back more than the sale took.
+            if not value.is_finite() or value < 0 or value > 100:
+                return Response(
+                    {
+                        "code": "INVALID_SETTINGS",
+                        "detail": f"{label} must be between 0 and 100.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            setattr(row, field, value.quantize(Decimal("0.01")))
+
+        with db_transaction.atomic():
+            row.save()
+            after = self._body(row)
+            audit_request(
+                request,
+                AuditLog.ActionType.SETTINGS_UPDATE,
+                "Store settings changed by "
+                f"{request.user.username}: VAT registered "
+                f"{before['vat_registered']} -> {after['vat_registered']}, "
+                f"VAT rate {before['vat_rate']} -> {after['vat_rate']}, "
+                f"discount cap {before['discount_cap_percent']} -> "
+                f"{after['discount_cap_percent']}.",
+            )
+        return Response(after)
+
+
+class DiscountApprovalView(APIView):
+    """`POST /api/v1/discount-approvals/` - a manager signs off a discount (B1).
+
+    Decision 18: above the Admin's cap a Store Manager or Admin has to approve ON THE
+    SPOT. Their username and password are verified HERE, server-side, against the account
+    they belong to: the password is never stored, never logged and never echoed, and the
+    check is a `authenticate()` (so a deactivated or wrong-password account fails the same
+    way a bad login does). A cashier's own credentials are refused because a cashier does
+    not hold the approving role - the till cannot mint itself permission.
+
+    The answer is a signed, one-time token bound to the approved percent and to the
+    approver, valid for five minutes (`services.issue_discount_approval`). Credential
+    refusals use ONE code, `DISCOUNT_APPROVAL_INVALID`, because every one of them means
+    the same thing to the cashier: that approval did not happen, try again.
+
+    This endpoint spends a PASSWORD, so it serves the SAME lockout as `/auth/login/`
+    (`apps.users.lockout`): five failures for one (username, client address) pair lock it
+    for 15 minutes, and the locked refusal is answered BEFORE the password is looked at -
+    a lockout that still validates the guess is an oracle, not a lockout. Every counted
+    failure writes a `DISCOUNT_APPROVAL` audit row, and a success resets that pair's
+    counter exactly the way a sign-in does. The bucket is keyed on the manager's name, so
+    a cashier hammering one manager cannot lock another one out.
+    """
+
+    permission_classes = [IsPOSRole]
+
+    def post(self, request):
+        from django.contrib.auth import authenticate
+
+        username = str(request.data.get("username") or "").strip()
+        password = request.data.get("password")
+        if not username or not password:
+            raise DiscountApprovalInvalid(
+                "A discount approval needs the manager's username and password."
+            )
+
+        # Before the password is checked, which is login's order: a locked pair learns
+        # nothing from guessing on, and the 429 costs the attacker no counter position.
+        key = lockout.attempt_key(username, request.META.get("REMOTE_ADDR"))
+        if lockout.is_locked(key):
+            retry_after = lockout.retry_after_seconds(key)
+            return Response(
+                {
+                    "code": DISCOUNT_APPROVAL_LOCKED_CODE,
+                    "detail": DISCOUNT_APPROVAL_LOCKED_DETAIL.format(
+                        minutes=max(1, -(-retry_after // 60))
+                    ),
+                    "retry_after": retry_after,
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        try:
+            percent = Decimal(str(request.data.get("percent")))
+        except (InvalidOperation, TypeError, ValueError):
+            raise InvalidDiscount("percent must be a number.") from None
+        if not percent.is_finite() or percent <= 0 or percent > 100:
+            raise InvalidDiscount("percent must be between 0 and 100.")
+
+        approver = authenticate(request, username=username, password=str(password))
+        if (
+            approver is None
+            or not approver.is_active
+            or not has_role(approver, IsManagerRole.required_roles)
+        ):
+            # One answer for "no such account", "wrong password" and "that role cannot
+            # approve": telling a cashier WHICH of the three failed would turn this
+            # endpoint into a way to probe for manager accounts.
+            lockout.record_failure(key)
+            _record_approval_refusal(request, username)
+            raise DiscountApprovalInvalid(
+                "Those credentials cannot approve a discount. Ask a Store Manager or "
+                "Admin to approve it with their own username and password."
+            )
+
+        # Same semantics as a successful sign-in: only THIS pair's bucket is forgotten, so
+        # one manager approving does not hand a cashier a fresh set of guesses at another
+        # manager, and a counter earned elsewhere is untouched.
+        lockout.reset(key)
+
+        reason = str(request.data.get("reason") or "").strip()
+        with db_transaction.atomic():
+            row, token = issue_discount_approval(
+                approver=approver, percent=percent, reason=reason
+            )
+            # Decision 07: the approval is audited as its own event. The CASHIER who
+            # asked is named, the approver is named, and the password never appears.
+            audit_request(
+                request,
+                AuditLog.ActionType.DISCOUNT_APPROVAL,
+                f"Discount approval of {row.percent:.2f} percent granted by "
+                f"{approver.username} to {request.user.username}.",
+            )
+        return Response(
+            {
+                "token": token,
+                "percent": f"{row.percent:.2f}",
+                "approver": approver.full_name or approver.username,
+                "expires_at": row.expires_at,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class CustomerViewSet(BaseViewSet):
@@ -152,7 +410,7 @@ class CustomerViewSet(BaseViewSet):
     def get_permissions(self):
         # Deleting a customer erases who owed what, so it is a manager decision - a
         # cashier may not make a debtor's history disappear.
-        if self.action == 'destroy':
+        if self.action == "destroy":
             return [IsManagerRole()]
         return super().get_permissions()
 
@@ -172,15 +430,21 @@ class CustomerViewSet(BaseViewSet):
             # Sales, quotations, orders, ledgers and requisitions PROTECT their customer:
             # deleting one would orphan money. 409 with a stable code, never a 500.
             return Response(
-                {'code': 'CUSTOMER_IN_USE',
-                 'detail': 'This customer has sales or receivables and cannot be '
-                           'deleted. Deactivate them instead.'},
+                {
+                    "code": "CUSTOMER_IN_USE",
+                    "detail": "This customer has sales or receivables and cannot be "
+                    "deleted. Deactivate them instead.",
+                },
                 status=status.HTTP_409_CONFLICT,
             )
 
 
 class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
-    queryset = SalesTransaction.objects.select_related('customer','cashier').prefetch_related('items','payments','receipt').all()
+    queryset = (
+        SalesTransaction.objects.select_related("customer", "cashier")
+        .prefetch_related("items", "payments", "receipt")
+        .all()
+    )
     serializer_class = SalesTransactionSerializer
     # A completed sale is a financial record (Phase 2 review, F1). `BaseViewSet` is a
     # `ModelViewSet`, so PUT/PATCH reached `perform_update` and could rewrite
@@ -191,7 +455,7 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
     # RETURN transaction, never an edit of the original, and that is what keeps a
     # receipt number answering for the same money forever. 405 is the answer for every
     # role, an admin included — no role may rewrite financial history.
-    http_method_names = ['get', 'head', 'options', 'post']
+    http_method_names = ["get", "head", "options", "post"]
 
     def get_queryset(self):
         # `super()` reaches `OwnSalesScopeMixin.get_queryset`, so the cashier-only scope
@@ -199,7 +463,7 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
         qs = super().get_queryset()
         # Decision 15's amendment wires the returns page over
         # GET /transactions/?source=RETURN: the page must isolate returns.
-        source = self.request.query_params.get('source')
+        source = self.request.query_params.get("source")
         if source:
             qs = qs.filter(source=source.upper())
         # Phase 3 task 2 (decision 05): the till's returns tab searches by what the
@@ -208,58 +472,62 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
         # who types another till's number gets an empty page, not a hint that it exists.
         # A substring match would turn the endpoint into a search box over the shop's
         # whole sales history, which is not what "find this receipt" means.
-        query = (self.request.query_params.get('q') or '').strip()
+        query = (self.request.query_params.get("q") or "").strip()
         if query:
             qs = qs.filter(
-                Q(transaction_no__iexact=query)
-                | Q(receipt__or_number__iexact=query))
+                Q(transaction_no__iexact=query) | Q(receipt__or_number__iexact=query)
+            )
         return qs
 
     def create(self, request):
-        idempotency_key, body_hash = _idempotency_inputs(request, 'transactions.create')
+        idempotency_key, body_hash = _idempotency_inputs(request, "transactions.create")
         ser = self.get_serializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        source = ser.validated_data.get('source','WALK_IN')
-        if source == 'RETURN':
+        source = ser.validated_data.get("source", "WALK_IN")
+        if source == "RETURN":
             # Scope the original BEFORE the refund runs (review F4).
             _refuse_foreign_original_for_cashier(
-                self, request.data.get('original_transaction'))
+                self, request.data.get("original_transaction")
+            )
             # Ledger ruling: this phase protects CHECKOUT with idempotency, not returns.
             # A refund is already re-checkable against the original sale it reverses.
             from .services import process_return
+
             # Phase 2 task 5 (decision 07): the return and its audit row are one
             # transaction. `process_return` owns its own atomic block, so this is a
             # savepoint nested in the outer one - the row commits or rolls back with the
             # refund it describes.
             with db_transaction.atomic():
                 txn = process_return(
-                    customer_id=ser.validated_data['customer'].id,
+                    customer_id=ser.validated_data["customer"].id,
                     cashier=request.user,
-                    items_data=request.data.get('items',[]),
-                    original_transaction_id=request.data.get('original_transaction'),
-                    payment_method=request.data.get('payment_method','CASH'),
+                    items_data=request.data.get("items", []),
+                    original_transaction_id=request.data.get("original_transaction"),
+                    payment_method=request.data.get("payment_method", "CASH"),
                     # Decision 05: mandatory, and stored on the row by the service.
-                    reason=request.data.get('reason', ''),
+                    reason=request.data.get("reason", ""),
                 )
                 # Decision 05: the audit line has to answer "which sale, how much went
                 # to the utang, how much left the drawer" without opening three screens.
                 original_no = (
                     txn.original_transaction.transaction_no
-                    if txn.original_transaction_id else 'unlinked')
+                    if txn.original_transaction_id
+                    else "unlinked"
+                )
                 audit_request(
                     request,
                     AuditLog.ActionType.RETURN,
-                    f'Return {txn.transaction_no} against {original_no} for '
-                    f'{txn.grand_total}: debt reduced '
-                    f'{txn.refund_summary["debt_reduced"]}, cash refunded '
-                    f'{txn.refund_summary["cash_refund"]} '
-                    f'by {request.user.username}.',
+                    f"Return {txn.transaction_no} against {original_no} for "
+                    f"{txn.grand_total}: debt reduced "
+                    f"{txn.refund_summary['debt_reduced']}, cash refunded "
+                    f"{txn.refund_summary['cash_refund']} "
+                    f"by {request.user.username}.",
                 )
             body = self.get_serializer(txn).data
             # The 201 explains the refund (decision 05): what the return was worth, how
             # much of it settled utang, how much cash left, and what is still owed. The
             # client must not have to recompute it - that arithmetic is the server's.
-            body['refund_summary'] = txn.refund_summary
+            body["refund_summary"] = txn.refund_summary
             return Response(body, status=status.HTTP_201_CREATED)
 
         # Decision 09 item 2: replay BEFORE ringing anything. The common retry is a
@@ -267,8 +535,10 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
         # makes "one key, one sale" true even when the first response was lost.
         if idempotency_key:
             replayed = replayed_transaction(
-                cashier=request.user, idempotency_key=idempotency_key,
-                request_hash=body_hash)
+                cashier=request.user,
+                idempotency_key=idempotency_key,
+                request_hash=body_hash,
+            )
             if replayed is not None:
                 return _replayed_response(replayed)
 
@@ -279,19 +549,25 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
             # that handler has to re-read the database after the block rolled back.
             with db_transaction.atomic():
                 txn = process_sale(
-                    customer_id=ser.validated_data['customer'].id,
+                    customer_id=ser.validated_data["customer"].id,
                     cashier=request.user,
-                    items_data=request.data.get('items',[]),
-                    payments_data=request.data.get('payments',[]),
+                    items_data=request.data.get("items", []),
+                    payments_data=request.data.get("payments", []),
                     source=source,
                     idempotency_key=idempotency_key,
                     request_hash=body_hash,
+                    # Phase 4 task B1: the whole-sale discount and the manager's token
+                    # that may be needed for it. Both are validated inside
+                    # `process_sale`, which is also what the held-cart path calls, so a
+                    # cart rung from the shelf obeys exactly the same rules.
+                    discount_data=request.data.get("discount"),
+                    discount_approval=request.data.get("discount_approval"),
                 )
                 audit_request(
                     request,
                     AuditLog.ActionType.SALE,
-                    f'Sale {txn.transaction_no} rung for {txn.grand_total} '
-                    f'({source}) by {request.user.username}.',
+                    f"Sale {txn.transaction_no} rung for {txn.grand_total} "
+                    f"({source}) by {request.user.username}.",
                 )
         except IntegrityError:
             # The race the pre-check cannot win: two retries both read "no such key" and
@@ -303,26 +579,27 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
             if not idempotency_key:
                 raise
             replayed = replayed_transaction(
-                cashier=request.user, idempotency_key=idempotency_key,
-                request_hash=body_hash)
+                cashier=request.user,
+                idempotency_key=idempotency_key,
+                request_hash=body_hash,
+            )
             if replayed is None:
                 raise
             return _replayed_response(replayed)
         return Response(self.get_serializer(txn).data, status=status.HTTP_201_CREATED)
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=["get"])
     def daily_report(self, request):
-        from datetime import timedelta
 
         from django.utils import timezone
         from django.utils.dateparse import parse_date
 
-        date_param = request.query_params.get('date')
+        date_param = request.query_params.get("date")
         if date_param:
             parsed = parse_date(date_param)
             if not parsed:
                 return Response(
-                    {'detail': 'Invalid date. Use YYYY-MM-DD.'},
+                    {"detail": "Invalid date. Use YYYY-MM-DD."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             report_date = parsed
@@ -332,14 +609,16 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
             trans_date__date=report_date,
             status=SalesTransaction.Status.COMPLETED,
         )
-        total = qs.aggregate(total=Sum('grand_total'))['total'] or 0
-        return Response({
-            'date': str(report_date),
-            'count': qs.count(),
-            'total_sales': total,
-        })
+        total = qs.aggregate(total=Sum("grand_total"))["total"] or 0
+        return Response(
+            {
+                "date": str(report_date),
+                "count": qs.count(),
+                "total_sales": total,
+            }
+        )
 
-    @action(detail=True, methods=['get'])
+    @action(detail=True, methods=["get"])
     def returnable(self, request, pk=None):
         """GET /transactions/{id}/returnable/ -> what is left to return (decision 05).
 
@@ -369,10 +648,10 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
     collection and detail routes simply do not exist for it.
     """
 
-    queryset = Shift.objects.select_related('cashier').all()
+    queryset = Shift.objects.select_related("cashier").all()
     serializer_class = ShiftSerializer
     permission_classes = [IsPOSOrReadOnly]
-    http_method_names = ['get', 'head', 'options', 'post']
+    http_method_names = ["get", "head", "options", "post"]
 
     def get_queryset(self):
         """Cashier sees only their own shifts; a manager sees everyone's.
@@ -383,34 +662,46 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
         """
         qs = super().get_queryset()
         user = self.request.user
-        if user.is_superuser or user.groups.filter(
-                name__in=IsManagerRole.required_roles).exists():
+        if (
+            user.is_superuser
+            or user.groups.filter(name__in=IsManagerRole.required_roles).exists()
+        ):
             return qs
         return qs.filter(cashier=user)
 
-    @action(detail=False, methods=['post'], url_path='open')
+    @action(detail=False, methods=["post"], url_path="open")
     def open_shift(self, request):
         """POST /shifts/open/ {opening_float} -> 201 with the new open shift."""
-        raw_float = request.data.get('opening_float', '0')
+        raw_float = request.data.get("opening_float", "0")
         try:
             opening_float = Decimal(str(raw_float))
         except (InvalidOperation, TypeError, ValueError):
             return Response(
-                {'code': 'INVALID_OPENING_FLOAT',
-                 'detail': 'opening_float must be a number.'},
-                status=status.HTTP_400_BAD_REQUEST)
+                {
+                    "code": "INVALID_OPENING_FLOAT",
+                    "detail": "opening_float must be a number.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if opening_float < 0:
             return Response(
-                {'code': 'INVALID_OPENING_FLOAT',
-                 'detail': 'opening_float cannot be negative.'},
-                status=status.HTTP_400_BAD_REQUEST)
+                {
+                    "code": "INVALID_OPENING_FLOAT",
+                    "detail": "opening_float cannot be negative.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        if Shift.objects.filter(cashier=request.user,
-                                status=Shift.Status.OPEN).exists():
+        if Shift.objects.filter(
+            cashier=request.user, status=Shift.Status.OPEN
+        ).exists():
             return Response(
-                {'code': 'SHIFT_ALREADY_OPEN',
-                 'detail': 'You already have an open shift. Close it first.'},
-                status=status.HTTP_400_BAD_REQUEST)
+                {
+                    "code": "SHIFT_ALREADY_OPEN",
+                    "detail": "You already have an open shift. Close it first.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             # The shift and its audit row are one transaction (decision 07): the
             # IntegrityError handler below has to sit outside it, because it re-reads
@@ -419,25 +710,27 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
                 shift = Shift.objects.create(
                     cashier=request.user,
                     opening_float=opening_float,
-                    notes=request.data.get('notes', ''),
+                    notes=request.data.get("notes", ""),
                 )
                 audit_request(
                     request,
                     AuditLog.ActionType.SHIFT_OPEN,
-                    f'Shift #{shift.pk} opened with float {opening_float}.',
+                    f"Shift #{shift.pk} opened with float {opening_float}.",
                 )
         except IntegrityError:
             # The partial unique index is the real guard: two concurrent opens both pass
             # the check above, and only the database can refuse the second. Same 400, so
             # the client sees one answer whichever layer caught it.
             return Response(
-                {'code': 'SHIFT_ALREADY_OPEN',
-                 'detail': 'You already have an open shift. Close it first.'},
-                status=status.HTTP_400_BAD_REQUEST)
-        return Response(
-            self.get_serializer(shift).data, status=status.HTTP_201_CREATED)
+                {
+                    "code": "SHIFT_ALREADY_OPEN",
+                    "detail": "You already have an open shift. Close it first.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(self.get_serializer(shift).data, status=status.HTTP_201_CREATED)
 
-    @action(detail=True, methods=['post'], url_path='close')
+    @action(detail=True, methods=["post"], url_path="close")
     def close_shift(self, request, pk=None):
         """POST /shifts/{id}/close/ {closing_count} -> the closed shift + Z-reading.
 
@@ -448,46 +741,57 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
         shift = self.get_object()
         if shift.status == Shift.Status.CLOSED:
             return Response(
-                {'code': 'SHIFT_ALREADY_CLOSED',
-                 'detail': 'This shift is already closed.'},
-                status=status.HTTP_400_BAD_REQUEST)
-        raw_count = request.data.get('closing_count')
+                {
+                    "code": "SHIFT_ALREADY_CLOSED",
+                    "detail": "This shift is already closed.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        raw_count = request.data.get("closing_count")
         if raw_count is None:
             return Response(
-                {'code': 'CLOSING_COUNT_REQUIRED',
-                 'detail': 'closing_count is required to close a shift.'},
-                status=status.HTTP_400_BAD_REQUEST)
+                {
+                    "code": "CLOSING_COUNT_REQUIRED",
+                    "detail": "closing_count is required to close a shift.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             closing_count = Decimal(str(raw_count))
         except (InvalidOperation, TypeError, ValueError):
             return Response(
-                {'code': 'INVALID_CLOSING_COUNT',
-                 'detail': 'closing_count must be a number.'},
-                status=status.HTTP_400_BAD_REQUEST)
+                {
+                    "code": "INVALID_CLOSING_COUNT",
+                    "detail": "closing_count must be a number.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if closing_count < 0:
             return Response(
-                {'code': 'INVALID_CLOSING_COUNT',
-                 'detail': 'closing_count cannot be negative.'},
-                status=status.HTTP_400_BAD_REQUEST)
+                {
+                    "code": "INVALID_CLOSING_COUNT",
+                    "detail": "closing_count cannot be negative.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         shift.closing_count = closing_count
         shift.status = Shift.Status.CLOSED
         shift.closed_at = timezone.now()
-        if request.data.get('notes'):
-            shift.notes = request.data['notes']
+        if request.data.get("notes"):
+            shift.notes = request.data["notes"]
         # The close and its audit row are one transaction (decision 07).
         with db_transaction.atomic():
-            shift.save(update_fields=[
-                'closing_count', 'status', 'closed_at', 'notes'])
+            shift.save(update_fields=["closing_count", "status", "closed_at", "notes"])
             audit_request(
                 request,
                 AuditLog.ActionType.SHIFT_CLOSE,
-                f'Shift #{shift.pk} closed with count {closing_count} '
-                f'(float {shift.opening_float}).',
+                f"Shift #{shift.pk} closed with count {closing_count} "
+                f"(float {shift.opening_float}).",
             )
         return Response(self.get_serializer(shift).data)
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=["get"])
     def current(self, request):
         """GET /shifts/current/ -> the caller's open shift, or 404.
 
@@ -495,10 +799,13 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
         shift" is the absence of the resource it asked for. The client branches on the
         status code it already knows how to read.
         """
-        shift = self.get_queryset().filter(
-            cashier=request.user, status=Shift.Status.OPEN).first()
+        shift = (
+            self.get_queryset()
+            .filter(cashier=request.user, status=Shift.Status.OPEN)
+            .first()
+        )
         if shift is None:
-            raise NotFound('No open shift for this cashier.')
+            raise NotFound("No open shift for this cashier.")
         return Response(self.get_serializer(shift).data)
 
 
@@ -513,19 +820,89 @@ class PaymentViewSet(OwnSalesScopeMixin, viewsets.ReadOnlyModelViewSet):
     # `order_by('id')` is not cosmetic: paginated results from an unordered queryset can
     # repeat or skip a row between pages (UnorderedObjectListWarning), and a payment list
     # that skips a row is money missing from a screen.
-    queryset = Payment.objects.select_related('transaction').order_by('id')
+    queryset = Payment.objects.select_related("transaction").order_by("id")
     serializer_class = PaymentSerializer
     permission_classes = [SalesReadPOSWrite]
-    own_scope_field = 'transaction__cashier'
+    own_scope_field = "transaction__cashier"
 
 
 class OfficialReceiptViewSet(OwnSalesScopeMixin, viewsets.ReadOnlyModelViewSet):
     """Read-only official receipts, scoped exactly like the payments they record."""
 
-    queryset = OfficialReceipt.objects.select_related('transaction').all()
+    queryset = OfficialReceipt.objects.select_related("transaction").all()
     serializer_class = OfficialReceiptSerializer
     permission_classes = [SalesReadPOSWrite]
-    own_scope_field = 'transaction__cashier'
+    own_scope_field = "transaction__cashier"
+
+
+class ChequeViewSet(viewsets.ReadOnlyModelViewSet):
+    """The cheque queue and its two decisions (Phase 4 task B2, decision 18).
+
+    `GET /api/v1/cheques/?status=` lists cheque payments, oldest cheque first: the queue
+    exists to chase money, and the oldest uncleared cheque is the one at risk. Paginated
+    by the project's default page size, so a shop with years of cheques still answers a
+    screen in one request.
+
+    Store Manager / Admin only, reads included: a cashier TAKES a cheque at the till, but
+    deciding whether the bank honoured it is a manager's call - and it moves the
+    customer's utang, which is receivables work.
+
+    `clear/` and `bounce/` are the only writes, they are POSTs on the detail route, and
+    each answers the updated row so the screen can refresh without a second call.
+    ReadOnlyModelViewSet means the router registers no PUT/PATCH/DELETE at all: a decided
+    cheque cannot be edited back to PENDING.
+    """
+
+    queryset = (
+        Payment.objects.filter(method=Payment.Method.CHEQUE)
+        .select_related("transaction__customer", "decided_by")
+        .order_by("cheque_date", "id")
+    )
+    serializer_class = ChequeSerializer
+    permission_classes = [IsManagerRole]
+    http_method_names = ["get", "head", "options", "post"]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        status_filter = self.request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter.upper())
+        return qs
+
+    @action(detail=True, methods=["post"])
+    def clear(self, request, pk=None):
+        """POST /cheques/{id}/clear/ -> the bank honoured it, so the utang is paid."""
+        return self._decide(request, Payment.Status.CLEARED)
+
+    @action(detail=True, methods=["post"])
+    def bounce(self, request, pk=None):
+        """POST /cheques/{id}/bounce/ {reason} -> the money never came; it stays owed."""
+        return self._decide(request, Payment.Status.BOUNCED)
+
+    def _decide(self, request, decision):
+        # Resolved through `self.get_object()`, i.e. the CHEQUE-filtered queryset, so a
+        # payment id that is not a cheque is a plain 404 - this endpoint cannot be used to
+        # reach into an ordinary tender.
+        cheque = self.get_object()
+        with db_transaction.atomic():
+            cheque = decide_cheque(
+                cheque_id=cheque.pk,
+                decision=decision,
+                decided_by=request.user,
+                reason=request.data.get("reason", ""),
+            )
+            # Decision 07: the decision and its audit row are one transaction. The
+            # description names the cheque, the customer and the money, so the trail
+            # answers "which cheque, how much, why" without opening the sale.
+            audit_request(
+                request,
+                AuditLog.ActionType.CHEQUE_DECISION,
+                f"Cheque {cheque.cheque_number or '(no number)'} from "
+                f"{cheque.transaction.customer.name} for {cheque.amount_tendered} "
+                f"marked {decision} by {request.user.username}"
+                + (f" ({cheque.decision_reason})." if cheque.decision_reason else "."),
+            )
+        return Response(self.get_serializer(cheque).data)
 
 
 class QuotationViewSet(BaseViewSet):
@@ -535,7 +912,9 @@ class QuotationViewSet(BaseViewSet):
     what lets every sales screen list them while keeping a groupless account out.
     """
 
-    queryset = Quotation.objects.select_related('customer').prefetch_related('items__variant_uom')
+    queryset = Quotation.objects.select_related("customer").prefetch_related(
+        "items__variant_uom"
+    )
     serializer_class = QuotationSerializer
 
     def perform_create(self, serializer):
@@ -547,7 +926,8 @@ class SalesOrderViewSet(BaseViewSet):
     """Phase 6 task 6A.2 (decision 05). Reads need a SALES role; writes need a POS role."""
 
     queryset = SalesOrder.objects.select_related(
-        'customer', 'quotation').prefetch_related('items__variant_uom')
+        "customer", "quotation"
+    ).prefetch_related("items__variant_uom")
     serializer_class = SalesOrderSerializer
 
     def perform_create(self, serializer):
@@ -563,7 +943,9 @@ class HeldCartViewSet(BaseViewSet):
     NOT scoped to `cashier=request.user`.
     """
 
-    queryset = HeldCart.objects.select_related('cashier', 'customer').prefetch_related('items__variant_uom')
+    queryset = HeldCart.objects.select_related("cashier", "customer").prefetch_related(
+        "items__variant_uom"
+    )
     serializer_class = HeldCartSerializer
     permission_classes = [IsPOSRole]
 
@@ -595,24 +977,27 @@ class HeldCartViewSet(BaseViewSet):
             audit_request(
                 request,
                 AuditLog.ActionType.CART_VOID,
-                f'Held cart #{cart_pk} voided ({line_count} line(s)).',
+                f"Held cart #{cart_pk} voided ({line_count} line(s)).",
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
         # Scope names THIS cart: completing cart B with cart A's key is a 409, not a
         # replay of A (a body-only hash cannot tell the two carts apart).
         idempotency_key, body_hash = _idempotency_inputs(
-            request, f'held-carts.{pk}.complete')
+            request, f"held-carts.{pk}.complete"
+        )
         # Decision 09 item 4, and the ruling that made it necessary: the first successful
         # completion DELETES the cart, so this check must run BEFORE `get_object()`.
         # Otherwise a retry of a sale that already rang answers 404 about a cart whose
         # money is in the drawer - the cashier would take payment twice or lose the sale.
         if idempotency_key:
             replayed = replayed_transaction(
-                cashier=request.user, idempotency_key=idempotency_key,
-                request_hash=body_hash)
+                cashier=request.user,
+                idempotency_key=idempotency_key,
+                request_hash=body_hash,
+            )
             if replayed is not None:
                 return _replayed_response(replayed)
 
@@ -624,16 +1009,21 @@ class HeldCartViewSet(BaseViewSet):
         # units, exactly as the checkout screen does. One price authority, both entry
         # points.
         items_data = [
-            {'variant_id': item.variant_uom_id, 'qty': item.qty}
+            {"variant_id": item.variant_uom_id, "qty": item.qty}
             for item in cart.items.all()
         ]
-        payments_data = request.data.get('payments', [])
-        customer_id = cart.customer_id or request.data.get('customer')
+        payments_data = request.data.get("payments", [])
+        customer_id = cart.customer_id or request.data.get("customer")
         if not customer_id:
             from apps.pos.models import Customer
-            customer_id = Customer.objects.filter(
-                customer_type=Customer.Type.WALK_IN).values_list('id', flat=True).first()
+
+            customer_id = (
+                Customer.objects.filter(customer_type=Customer.Type.WALK_IN)
+                .values_list("id", flat=True)
+                .first()
+            )
         from django.db import transaction as db_transaction
+
         try:
             with db_transaction.atomic():
                 txn = process_sale(
@@ -643,6 +1033,10 @@ class HeldCartViewSet(BaseViewSet):
                     payments_data=payments_data,
                     idempotency_key=idempotency_key,
                     request_hash=body_hash,
+                    # Same discount contract as the checkout screen (decision 18): the
+                    # held cart is the SAME sale, parked.
+                    discount_data=request.data.get("discount"),
+                    discount_approval=request.data.get("discount_approval"),
                 )
                 cart.delete()
                 # Inside THIS block (decision 07): the sale, the deleted cart and the
@@ -651,8 +1045,8 @@ class HeldCartViewSet(BaseViewSet):
                 audit_request(
                     request,
                     AuditLog.ActionType.SALE,
-                    f'Sale {txn.transaction_no} rung for {txn.grand_total} from held '
-                    f'cart #{cart.pk} by {request.user.username}.',
+                    f"Sale {txn.transaction_no} rung for {txn.grand_total} from held "
+                    f"cart #{cart.pk} by {request.user.username}.",
                 )
         except IntegrityError:
             # Same race as `SalesTransactionViewSet.create`, and handled the same way:
@@ -661,8 +1055,10 @@ class HeldCartViewSet(BaseViewSet):
             if not idempotency_key:
                 raise
             replayed = replayed_transaction(
-                cashier=request.user, idempotency_key=idempotency_key,
-                request_hash=body_hash)
+                cashier=request.user,
+                idempotency_key=idempotency_key,
+                request_hash=body_hash,
+            )
             if replayed is None:
                 raise
             return _replayed_response(replayed)

@@ -11,6 +11,7 @@
 
 import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/models/tender_method.dart';
+import 'package:client/data/models/sale_discount.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
@@ -36,6 +37,8 @@ class _StubPosRepository extends PosRepository {
     required List<PosCheckoutPayment> payments,
     String source = 'WALK_IN',
     String? idempotencyKey,
+    PosDiscount? discount,
+    String? discountApproval,
   }) async {
     final boom = failure;
     if (boom != null) throw boom;

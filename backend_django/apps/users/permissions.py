@@ -1,3 +1,8 @@
+# pyright: reportMissingImports=false
+#
+# Same false-positive class documented in apps/users/models.py: this checker runs with a
+# working directory outside the repo, so it resolves neither pyrightconfig.json nor
+# django-stubs.
 """Role-based permissions backed by Django Group membership.
 
 Role names MUST match the auth Groups referenced by
@@ -23,6 +28,10 @@ ROLE_SYSTEM_ADMIN = 'System Administrator'
 # below, so it inherits no till, stock, reporting or admin access.
 ROLE_CPMS_SERVICE = 'CPMS Service'
 
+# The UI code for `ROLE_CPMS_SERVICE` (Phase 4 task B3): accepted on a role write, never
+# read back as an area.
+ROLE_CODE_CPMS = 'cpms'
+
 # Administrative roles with full access.
 STAFF_ROLES = [ROLE_ADMIN, ROLE_SYSTEM_ADMIN]
 
@@ -40,6 +49,69 @@ RECEIVABLES_READER_ROLES = [ROLE_CASHIER, ROLE_STORE_MANAGER, *STAFF_ROLES]
 # Roles that see the WHOLE store's sales. A cashier who also holds one of these is not
 # "cashier-only" and is not scoped to their own rows.
 _SALES_WIDE_ROLES = [ROLE_STOCK_MANAGER, ROLE_STORE_MANAGER, *STAFF_ROLES]
+
+# ---------------------------------------------------------------------------
+# Frontend role codes (Phase 4 task B3, decision 18)
+# ---------------------------------------------------------------------------
+# A user payload's role object carries a `name` that is a UI *code*, not a Group name:
+# `admin`, `sales`, `inventory`, `pos`. One account may hold several. This map is the
+# only place that translates between the two, so the serializer's read shape and every
+# write path (`register`, `PATCH /users/{id}/`, `assign_role`, `remove_role`) agree on
+# what a code means.
+#
+# Two codes cover two Group names because seeding and older accounts use both spelling
+# (decision 04 keeps `System Administrator` beside `Admin`). Reading folds them into one
+# code; writing a code grants its CANONICAL group (`ROLE_CODE_GROUP`), because a code
+# names an area, not a particular row in `auth_group`.
+ROLE_CODE_GROUPS = {
+    'admin': (ROLE_ADMIN, ROLE_SYSTEM_ADMIN),
+    'sales': (ROLE_STORE_MANAGER, 'Sales'),
+    'inventory': (ROLE_STOCK_MANAGER,),
+    'pos': (ROLE_CASHIER,),
+    # Write-only in practice: the service account is not a POS area, so `roles[]` never
+    # emits it (see `ROLE_CODE_ORDER`), but a role write may still name it and the CPMS
+    # guard has to see it.
+    ROLE_CODE_CPMS: (ROLE_CPMS_SERVICE,),
+}
+
+# The order `roles[]` is emitted in: widest authority first, so the area picker can open
+# on `roles[0]` and an old client's `role` stays the account's strongest area.
+ROLE_CODE_ORDER = ['admin', 'sales', 'inventory', 'pos']
+
+# The Group a code grants when it is written.
+ROLE_CODE_GROUP = {
+    'admin': ROLE_ADMIN,
+    'sales': ROLE_STORE_MANAGER,
+    'inventory': ROLE_STOCK_MANAGER,
+    'pos': ROLE_CASHIER,
+    ROLE_CODE_CPMS: ROLE_CPMS_SERVICE,
+}
+
+
+def role_code_for_group(group_name):
+    """The UI code for a Group name, or None when the group is not a POS area."""
+    for code, names in ROLE_CODE_GROUPS.items():
+        if group_name in names:
+            return code
+    return None
+
+
+def role_codes_for(user):
+    """Codes of the areas ``user`` holds, deduplicated, in ``ROLE_CODE_ORDER``.
+
+    A superuser reads as `admin` even with no group, because it passes every role check
+    (`has_role`): the client must show an area it can actually enter. Deactivated
+    accounts keep their codes - the payload describes membership, and the 401 on their
+    token is what enforces the account state.
+    """
+    held = set(user.groups.values_list('name', flat=True))
+    codes = [
+        code for code in ROLE_CODE_ORDER
+        if held & set(ROLE_CODE_GROUPS[code])
+    ]
+    if user.is_superuser and 'admin' not in codes:
+        codes.insert(0, 'admin')
+    return codes
 
 
 def has_role(user, roles) -> bool:

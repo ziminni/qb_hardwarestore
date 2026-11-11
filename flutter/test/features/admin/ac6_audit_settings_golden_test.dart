@@ -7,10 +7,15 @@ import 'package:client/core/constants/app_assets.dart';
 import 'package:client/core/network/paged.dart';
 import 'package:client/core/theme/app_theme.dart';
 import 'package:client/data/models/audit_log.dart';
+import 'package:client/data/models/role.dart';
+import 'package:client/data/models/store_settings.dart';
+import 'package:client/data/models/user.dart';
 import 'package:client/data/repositories/audit_log_repository.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/services/audit_log_service.dart';
 import 'package:client/data/services/auth_service.dart';
+import 'package:client/data/services/store_settings_service.dart';
+import 'package:client/features/admin/viewmodels/store_settings_viewmodel.dart';
 import 'package:client/features/admin/views/audit_logs_page.dart';
 import 'package:client/features/admin/views/settings_page.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
@@ -111,7 +116,24 @@ void main() {
     ('760', Size(760, 900)),
   ]) {
     testWidgets('settings at ${entry.$1} px', (tester) async {
-      await _pump(tester, entry.$2, const SettingsPage());
+      // Phase 4 F3a: the settings screen reads VAT and the discount cap from the
+      // server. A stub answers so the PNG shows a loaded screen instead of a
+      // connection error (this file never starts the API client).
+      await _pump(
+        tester,
+        entry.$2,
+        SettingsPage(
+          viewmodel: StoreSettingsViewmodel(
+            service: _StubStoreSettingsService(),
+          ),
+        ),
+      );
+      // `/admin/settings` is an admin-only route, so the capture must show the
+      // editable form; the read-only branch has its own widget test.
+      expect(
+        find.text('Only an Admin can change these settings.'),
+        findsNothing,
+      );
       await expectLater(
         find.byKey(_goldenKey),
         matchesGoldenFile(
@@ -123,6 +145,12 @@ void main() {
 }
 
 const _goldenKey = ValueKey('AuditSettingsGolden');
+
+/// The store settings a PNG needs, without a server.
+class _StubStoreSettingsService extends StoreSettingsService {
+  @override
+  Future<StoreSettings> fetch() async => StoreSettings.defaults;
+}
 
 /// Answers page 1 from memory; no PNG depends on a server.
 class _StubAuditLogRepository extends AuditLogRepository {
@@ -234,9 +262,20 @@ Future<void> _pump(WidgetTester tester, Size size, Widget page) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
+  // Signed in as an Admin: these captures sit behind admin-only routes, and an
+  // anonymous harness painted the read-only/denied branch instead of the screen
+  // a real admin sees.
+  final auth = AuthViewmodel(AuthRepository(AuthService()))
+    ..user = const User(
+      id: 1,
+      username: 'admin',
+      email: 'admin@qb.local',
+      fullName: 'Ana Lopez',
+      role: Role(id: 1, name: 'admin', displayName: 'Admin'),
+    );
   await tester.pumpWidget(
     ChangeNotifierProvider<AuthViewmodel>.value(
-      value: AuthViewmodel(AuthRepository(AuthService())),
+      value: auth,
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,

@@ -16,7 +16,8 @@ enum TenderMethod {
   cash(code: 'CASH', label: 'Cash'),
   card(code: 'CARD', label: 'Card'),
   gcash(code: 'GCASH', label: 'GCash'),
-  bankTransfer(code: 'BANK_TRANSFER', label: 'Bank transfer');
+  bankTransfer(code: 'BANK_TRANSFER', label: 'Bank transfer'),
+  cheque(code: 'CHEQUE', label: 'Cheque');
 
   const TenderMethod({required this.code, required this.label});
 
@@ -32,10 +33,21 @@ enum TenderMethod {
   /// money arrives in an account, not the drawer), and offering it here would ask the
   /// cashier to record a tender they cannot verify. It stays in [values] because the
   /// server accepts it on a refund and a historical sale can carry it.
-  static const List<TenderMethod> tillTenders = [cash, card, gcash];
+  static const List<TenderMethod> tillTenders = [cash, card, gcash, cheque];
+
+  /// True for the one tender that is NOT money yet (Phase 4 B2, decision 18).
+  ///
+  /// A cheque starts PENDING: it does not reduce what the sale owes, and only a
+  /// Store Manager or Admin can clear or bounce it later. Everything else is money
+  /// in hand the moment it is recorded, so it counts as paid and can produce change.
+  bool get isCheque => this == cheque;
 
   /// The methods a REFUND may be paid out in (`process_return`'s allowed set), cash
   /// first because only cash moves the expected drawer.
+  ///
+  /// CHEQUE is deliberately ABSENT: a refund leaves the drawer, and the server
+  /// refuses one (`INVALID_RETURN`) because a customer cheque is decided with
+  /// `clear/`, not paid out. Offering it here would advertise a refusal.
   static const List<TenderMethod> refundTenders = [
     cash,
     card,

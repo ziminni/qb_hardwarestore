@@ -13,6 +13,8 @@ import 'package:client/features/products/widgets/products_table.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/empty_state.dart';
+import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
+import 'package:client/features/labels/barcode_list_dialog.dart';
 import 'package:client/features/labels/label_document.dart';
 import 'package:client/features/labels/label_print_dialog.dart';
 import 'package:client/features/products/widgets/products_toolbar.dart';
@@ -194,6 +196,26 @@ class _ProductsPageState extends State<ProductsPage> {
     );
   }
 
+  /// Opens the barcode masterlist (Phase 4 Task F2, panel comment #5).
+  ///
+  /// Handed the WHOLE catalogue, not the table's filtered rows: the masterlist has
+  /// its own category and active filters, and a storekeeper who narrowed the table
+  /// to one brand must still be able to export every code.
+  Future<void> _showBarcodeList(BuildContext context) async {
+    final inventory = context.read<InventoryViewmodel>();
+    await showDialog<void>(
+      context: context,
+      builder: (_) => BarcodeListDialog(
+        products: inventory.products,
+        // The store's own selling units when it has reloaded them: a code edit
+        // returns fresh rows, so the nested catalogue rows can be older.
+        unitsOf: (variant) =>
+            inventory.variantFor(variant.id)?.sellingUoms ??
+            variant.sellingUoms,
+      ),
+    );
+  }
+
   Future<void> _archiveSelected(
     BuildContext context,
     ProductsViewmodel viewModel,
@@ -286,17 +308,38 @@ class _ProductsPageState extends State<ProductsPage> {
                     onShowLowStock: () => navigateInventory(context, 5),
                   ),
                   const SizedBox(height: AppSpacing.xl),
-                  ProductsToolbar(
-                    searchQuery: viewModel.searchQuery,
-                    categories: viewModel.categories,
-                    brands: viewModel.brands,
-                    selectedCategory: viewModel.selectedCategory,
-                    selectedBrand: viewModel.selectedBrand,
-                    onSearchChanged: viewModel.setSearchQuery,
-                    onCategoryChanged: viewModel.setCategory,
-                    onBrandChanged: viewModel.setBrand,
-                    onClearFilters: viewModel.clearFilters,
-                    onAddProduct: () => _showProductForm(context, viewModel),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: ProductsToolbar(
+                          searchQuery: viewModel.searchQuery,
+                          categories: viewModel.categories,
+                          brands: viewModel.brands,
+                          selectedCategory: viewModel.selectedCategory,
+                          selectedBrand: viewModel.selectedBrand,
+                          onSearchChanged: viewModel.setSearchQuery,
+                          onCategoryChanged: viewModel.setCategory,
+                          onBrandChanged: viewModel.setBrand,
+                          onClearFilters: viewModel.clearFilters,
+                          onAddProduct: () =>
+                              _showProductForm(context, viewModel),
+                        ),
+                      ),
+                      // Exporting the codes is a Stock Manager / Store Manager /
+                      // Admin action on the server, so the button only exists for
+                      // those role CODES.
+                      if (canExportBarcodeList(
+                        context.watch<AuthViewmodel>().roleName,
+                      )) ...[
+                        const SizedBox(width: AppSpacing.md),
+                        OutlinedButton.icon(
+                          onPressed: () => _showBarcodeList(context),
+                          icon: const Icon(Icons.qr_code_2_rounded, size: 18),
+                          label: const Text('Barcode list'),
+                        ),
+                      ],
+                    ],
                   ),
                   if (viewModel.selectedProductIds.isNotEmpty) ...[
                     const SizedBox(height: AppSpacing.lg),

@@ -6,11 +6,16 @@ ERD mapping:
 """
 
 from datetime import date
+from decimal import Decimal
 
 from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import models
-from decimal import Decimal
+
+# Referencing the POS enum rather than copying it: the utang dialog and the till must
+# offer the same tenders, and two lists would drift. `apps.pos.models` does not import
+# this module at module level (it names the ledger by string), so there is no cycle.
+from apps.pos.models import Payment
 
 
 class CollectibleLedger(models.Model):
@@ -102,7 +107,16 @@ class CollectiblePayment(models.Model):
         decimal_places=2,
         validators=[MinValueValidator(Decimal('0.01'))],
     )
-    payment_method = models.CharField(max_length=50)
+    payment_method = models.CharField(
+        max_length=50,
+        # Phase 4 task B2 (decision 18): the utang payment dialog offers the SAME methods
+        # the till does, so the shared `Payment.Method` list is the contract rather than a
+        # second copy of it. The column stays varchar(50) - unchanged, so rows written
+        # before Phase 1 keep their value and stay readable; adding choices does not
+        # rewrite or constrain stored data, and the server's own `RETURN_CREDIT` marker
+        # (decision 05) is written by `process_return`, not by a client.
+        choices=Payment.Method.choices,
+    )
     payment_date = models.DateTimeField(auto_now_add=True)
     official_receipt_no = models.CharField(
         max_length=100,

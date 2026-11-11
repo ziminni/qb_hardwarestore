@@ -80,7 +80,7 @@ class UserService {
     required String email,
     required String fullName,
     required String password,
-    required String groupName,
+    required List<String> roles,
   }) async {
     try {
       final response = await _client.dio.post<Map<String, dynamic>>(
@@ -90,7 +90,11 @@ class UserService {
           'email': email,
           'full_name': fullName,
           'password': password,
-          'group_name': groupName,
+          // Phase 4 B3/F3b: `roles[]` is the wire shape. `group_name` (one
+          // existing Group) is still accepted by the server for released
+          // clients, but sending BOTH is refused with 400 ROLES_CONFLICT, so
+          // this client sends one field only.
+          'roles': roles,
         },
       );
       final data = response.data;
@@ -128,18 +132,23 @@ class UserService {
     }
   }
 
-  /// Replaces the account's group, then returns the reloaded server row.
+  /// Replaces the account's roles, then returns the reloaded server row.
   ///
-  /// Membership is replaced, so assigning a non-admin group demotes. The
-  /// action answers `{'detail': ...}`, not a user row, so the row is re-read:
-  /// the screen shows what the server owns, never what the client assumed.
-  /// The server refuses admin-bound changes with 403 `USER_ADMIN_FORBIDDEN`
-  /// and the last-admin strip with 400 `LAST_ADMIN`.
-  Future<User> assignRole({required int id, required String groupName}) async {
+  /// `roles[]` is a FULL replacement, not an addition (Phase 4 B3): a code the
+  /// list leaves out is a code the account loses. The action answers
+  /// `{'detail': ...}`, not a user row, so the row is re-read: the screen shows
+  /// what the server owns, never what the client assumed.
+  /// The server refuses admin-bound changes with 403 `USER_ADMIN_FORBIDDEN`,
+  /// the last-admin strip with 400 `LAST_ADMIN`, and an empty/unknown/duplicate
+  /// list with 400.
+  Future<User> assignRoles({
+    required int id,
+    required List<String> roles,
+  }) async {
     try {
       await _client.dio.post<void>(
         '$usersPath$id/assign_role/',
-        data: {'group_name': groupName},
+        data: {'roles': roles},
       );
       final users = await fetchUsers();
       return users.firstWhere(

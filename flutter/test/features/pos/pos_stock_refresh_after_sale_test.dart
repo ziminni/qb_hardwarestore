@@ -13,6 +13,7 @@ import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/repositories/products_repository.dart';
 import 'package:client/data/services/auth_service.dart';
+import 'package:client/data/models/sale_discount.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/data/services/products_service.dart';
 import 'package:client/data/services/shift_service.dart';
@@ -75,6 +76,8 @@ class _StubPosRepository extends PosRepository {
     required List<PosCheckoutPayment> payments,
     String source = 'WALK_IN',
     String? idempotencyKey,
+    PosDiscount? discount,
+    String? discountApproval,
   }) async {
     calls++;
     onCheckout?.call();
@@ -171,13 +174,9 @@ void main() {
     await tester.pumpAndSettle();
     // Pay the exact total: the payment dialog prefills nothing, and a short
     // amount would open the underpayment path instead of the sale.
+    // F4: the discount fields come first now, so the amount is found by its key.
     await tester.enterText(
-      find
-          .descendant(
-            of: find.byType(AlertDialog),
-            matching: find.byType(TextField),
-          )
-          .first,
+      find.byKey(const ValueKey('pos-tender-amount-0')),
       _cart.total.toStringAsFixed(2),
     );
     await tester.pumpAndSettle();

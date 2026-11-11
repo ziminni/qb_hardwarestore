@@ -20,6 +20,26 @@ class ReceiptAmountRow {
   final String amount;
 }
 
+/// `Discount (senior)` for a reasoned discount, plain `Discount` when the reason is
+/// empty (a legacy row). The reason is what the manager wrote, so it is shown, not
+/// summarised away.
+String receiptDiscountLabel(String reason) {
+  final trimmed = reason.trim();
+  return trimmed.isEmpty ? 'Discount' : 'Discount ($trimmed)';
+}
+
+/// `VAT (12%)` from the store's rate, or plain `VAT` when the rate is unknown.
+///
+/// No em dash and no locale: the receipt owner reads one rate on every sale.
+String receiptVatLabel(double rate) {
+  if (rate <= 0) return 'VAT';
+  final text = rate.toStringAsFixed(2);
+  final trimmed = text.endsWith('.00')
+      ? text.substring(0, text.length - 3)
+      : text.replaceFirst(RegExp(r'0+$'), '');
+  return 'VAT ($trimmed%)';
+}
+
 /// What the paper says, before any PDF layout.
 ///
 /// Split out of [buildReceiptPdf] so a test can read the content directly, the
@@ -43,17 +63,57 @@ class ReceiptContent {
           ),
       ],
       amounts = [
+        // The discount sits between the lines and the total so the paper reconciles:
+        // lines less discount is what the customer owed (decision 18).
+        if (receipt.discountAmount > 0)
+          ReceiptAmountRow(
+            receiptDiscountLabel(receipt.discountReason),
+            formatPesoForPrint(-receipt.discountAmount),
+          ),
         ReceiptAmountRow('Total', formatPesoForPrint(receipt.total)),
-        ReceiptAmountRow('Paid', formatPesoForPrint(receipt.amountPaid)),
+        // The VAT split of the NET, computed by the server. A non-VAT store says so
+        // rather than printing two zeroes the customer would read as "no VAT charged".
+        if (receipt.vatRegistered) ...[
+          ReceiptAmountRow(
+            'Vatable sales',
+            formatPesoForPrint(receipt.vatableSales),
+          ),
+          ReceiptAmountRow(
+            receiptVatLabel(receipt.vatRate),
+            formatPesoForPrint(receipt.vatAmount),
+          ),
+        ] else
+          const ReceiptAmountRow('VAT', 'Non-VAT'),
+        // Every tender on its own line, so a split sale is not summarised into one
+        // method and a cheque prints as pending rather than as money.
+        for (final payment in receipt.payments)
+          ReceiptAmountRow(
+            payment.isPending
+                ? '${TenderMethod.labelFor(payment.method)} (pending)'
+                : TenderMethod.labelFor(payment.method),
+            formatPesoForPrint(payment.amount),
+          ),
+        // Money RECEIVED: the tenders the server calls money in hand, so a pending
+        // cheque is never printed as paid.
+        ReceiptAmountRow('Paid', formatPesoForPrint(receipt.paidNow)),
+        if (receipt.pendingChequeTotal > 0)
+          ReceiptAmountRow(
+            'Cheque pending (not paid yet)',
+            formatPesoForPrint(receipt.pendingChequeTotal),
+          ),
         // Same rule as the on-screen receipt: a shortfall is utang owed, not
         // negative change handed back.
-        if (receipt.change < 0)
+        if (receipt.balanceDue > 0)
           ReceiptAmountRow(
-            'Balance due (utang)',
-            formatPesoForPrint(-receipt.change),
+            receipt.pendingChequeTotal > 0
+                ? 'Balance due (held by the cheque)'
+                : 'Balance due (utang)',
+            formatPesoForPrint(receipt.balanceDue),
           )
         else
-          ReceiptAmountRow('Change', formatPesoForPrint(receipt.change)),
+          // QA High (Phase 4 close): the SERVER's `change_given`. Deriving it here
+          // printed 0.00 for a 15.00 change on a split sale.
+          ReceiptAmountRow('Change', formatPesoForPrint(receipt.changeGiven)),
       ];
 
   final List<String> header;

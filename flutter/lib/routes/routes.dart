@@ -1,3 +1,4 @@
+import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/constants/app_durations.dart';
 import 'package:client/features/admin/views/admin_user_management_page.dart';
 import 'package:client/features/admin/views/audit_logs_page.dart';
@@ -7,6 +8,7 @@ import 'package:client/features/admin/views/sales_monitoring_page.dart';
 import 'package:client/features/admin/views/settings_page.dart';
 import 'package:client/features/categories/views/categories_page.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
+import 'package:client/features/auth/views/area_picker_page.dart';
 import 'package:client/features/auth/views/login_page.dart';
 import 'package:client/features/auth/views/unsupported_role_page.dart';
 import 'package:client/features/dashboard/viewmodels/admin_overview_viewmodel.dart';
@@ -54,6 +56,14 @@ class AppRoutes {
   /// Where an authenticated account with no POS dashboard is sent.
   /// See [UnsupportedRolePage] and decision 04.
   static const String unsupportedRole = '/unsupported-role';
+
+  /// Where an account holding SEVERAL areas picks the one to work in
+  /// (Phase 4 F3b, decision 18).
+  ///
+  /// No area is active until this screen answers, so every other location
+  /// redirects here first. It is not a staff picker: it offers only the areas
+  /// the server assigned (see `redirectFor`'s `assignedAreas`).
+  static const String areaPicker = '/select-area';
   static const String adminDashboard = '/admin/dashboard';
   static const String adminUserManagement = '/admin/users';
   static const String adminInventory = '/admin/inventory';
@@ -148,12 +158,14 @@ class AppRoutes {
   /// Where the splash hands over once the session is known.
   ///
   /// [from] is the `?from=` a pre-restore redirect carried (a deep link). The
-  /// wanted page wins when the role may open it; otherwise the existing role
-  /// rules in [redirectFor] decide (dashboard, unsupported-role screen, login).
+  /// wanted page wins when the active area may open it; otherwise the rules in
+  /// [redirectFor] decide (area picker, dashboard, unsupported-role screen,
+  /// login).
   static String splashDestination({
     required bool isAuthenticated,
     required String? role,
     String? from,
+    List<String> assignedAreas = const [],
   }) {
     final wanted =
         (from == null || from.isEmpty || from == '/' || from == splash)
@@ -163,15 +175,25 @@ class AppRoutes {
           isAuthenticated: isAuthenticated,
           role: role,
           location: wanted,
+          assignedAreas: assignedAreas,
         ) ??
         wanted;
   }
 
+  /// The pure routing decision: where a request to [location] should go, or null
+  /// to stay.
+  ///
+  /// [role] is the ACTIVE area, not the whole authority: an account may hold
+  /// several areas ([assignedAreas]) and works in one at a time. With no active
+  /// area and several assigned, nothing opens before the picker answers. A call
+  /// passing no [assignedAreas] keeps the released single-role behaviour, where
+  /// the [role] argument is the whole assignment.
   static String? redirectFor({
     required bool isAuthenticated,
     required String? role,
     required String location,
     bool isInitializing = false,
+    List<String> assignedAreas = const [],
   }) {
     // The splash owns its own exit: it hands over once the restore settles, so
     // a redirect must not cut its intro short or bounce it to the login screen.
@@ -186,18 +208,36 @@ class AppRoutes {
 
     final isLogin = location == login;
     final isUnsupported = location == unsupportedRole;
+    final isPicker = location == areaPicker;
 
     if (!isAuthenticated) return isLogin ? null : login;
 
-    final dashboard = dashboardForRole(role);
-    if (dashboard == null) {
+    final areas = assignedAreas.isEmpty
+        ? [if (role != null && role.isNotEmpty) role]
+        : assignedAreas;
+    // The active area is the account's own choice, honoured only while the
+    // server still assigns it. One assigned area needs no choice at all.
+    final active = (role != null && areas.contains(role))
+        ? role
+        : (areas.length == 1 ? areas.single : null);
+
+    if (areas.isEmpty) {
       // Decision 04: an unmapped or role-less account gets an explicit screen,
       // never a silent bounce to `/login` while apparently signed in. Returning
       // null when already there is what stops this from looping.
       return isUnsupported ? null : unsupportedRole;
     }
-    if (isLogin || isUnsupported) return dashboard;
-    if (location.startsWith('/admin/') && role != 'admin') {
+    if (active == null) {
+      // Several areas and none chosen yet: the picker is the only screen.
+      return isPicker ? null : areaPicker;
+    }
+
+    final dashboard = dashboardForRole(active);
+    if (dashboard == null) {
+      return isUnsupported ? null : unsupportedRole;
+    }
+    if (isLogin || isUnsupported || isPicker) return dashboard;
+    if (location.startsWith('/admin/') && active != AppAreas.admin) {
       // Decision 16: the Store Manager (client role 'sales') is the month-end
       // actor, and IsManagerRole admits them server-side, so the fence opens for
       // the reports screen only. Phase 5: the manager offboards staff in-app and
@@ -206,13 +246,20 @@ class AppRoutes {
       // Stock Manager ('inventory') still bounce everywhere here.
       // Decisions 16 and 20 + Phase 5 still hold: the manager reaches reports
       // and staff, but in the sales shell (Z2).
-      if (role == 'sales') return salesTwinOf(location) ?? dashboard;
+      if (active == AppAreas.sales) return salesTwinOf(location) ?? dashboard;
       return dashboard;
     }
-    if (location.startsWith('/inventory/') && role != 'inventory') {
+    if (location.startsWith('/inventory/') && active != AppAreas.inventory) {
       return dashboard;
     }
-    if (location.startsWith('/sales/') && role != 'sales') return dashboard;
+    if (location.startsWith('/sales/') && active != AppAreas.sales) {
+      return dashboard;
+    }
+    // The till's own area, fenced like every other one: a typed /pos address
+    // from an account working elsewhere opens that account's dashboard.
+    if (location.startsWith('/pos/') && active != AppAreas.pos) {
+      return dashboard;
+    }
 
     const protectedDashboards = {
       adminDashboard,
@@ -228,10 +275,10 @@ class AppRoutes {
 
   static String? dashboardForRole(String? role) {
     return switch (role) {
-      'admin' => adminDashboard,
-      'inventory' => inventoryDashboard,
-      'pos' => posDashboard,
-      'sales' => salesDashboard,
+      AppAreas.admin => adminDashboard,
+      AppAreas.inventory => inventoryDashboard,
+      AppAreas.pos => posDashboard,
+      AppAreas.sales => salesDashboard,
       _ => null,
     };
   }
@@ -270,6 +317,7 @@ class AppRoutes {
         role: auth.roleName,
         location: state.matchedLocation,
         isInitializing: auth.isInitializing,
+        assignedAreas: auth.assignedAreas,
       ),
       routes: [
         GoRoute(
@@ -290,6 +338,12 @@ class AppRoutes {
           name: 'unsupported_role',
           pageBuilder: (context, state) =>
               _transitionPage(state, const UnsupportedRolePage()),
+        ),
+        GoRoute(
+          path: areaPicker,
+          name: 'area_picker',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const AreaPickerPage()),
         ),
         GoRoute(
           path: adminDashboard,

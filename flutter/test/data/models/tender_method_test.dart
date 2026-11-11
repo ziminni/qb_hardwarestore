@@ -18,16 +18,26 @@ void main() {
     expect(TenderMethod.bankTransfer.label, 'Bank transfer');
   });
 
-  test('the till offers three tenders, and never the bank transfer', () {
+  test('the till offers four tenders, and never the bank transfer', () {
+    // Phase 4 F4b: CHEQUE joins the till (decision 18). Bank transfer stays out:
+    // no counter screen takes one, because the money arrives in an account.
     expect(TenderMethod.tillTenders, [
       TenderMethod.cash,
       TenderMethod.card,
       TenderMethod.gcash,
+      TenderMethod.cheque,
     ]);
     expect(
       TenderMethod.refundTenders.contains(TenderMethod.bankTransfer),
       isTrue,
       reason: 'a refund may be paid out in a method the till cannot take',
+    );
+    expect(
+      TenderMethod.refundTenders.contains(TenderMethod.cheque),
+      isFalse,
+      reason:
+          'the server refuses a CHEQUE refund (INVALID_RETURN): a cheque is '
+          'decided with clear/, not paid out of the drawer',
     );
   });
 

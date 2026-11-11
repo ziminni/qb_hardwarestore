@@ -150,8 +150,10 @@ void main() {
     expect(sent['items'], [
       {'variant_id': 8, 'qty': 2.0, 'unit_price': 10.0},
     ]);
+    // Phase 4 F4b: money crosses the wire as a 2 dp STRING (DRF's Decimal shape),
+    // so a double can never serialize as 19.999999999999996.
     expect(sent['payments'], [
-      {'method': 'CASH', 'amount_tendered': 20.0, 'reference_no': ''},
+      {'method': 'CASH', 'amount_tendered': '20.00', 'reference_no': ''},
     ]);
     expect(
       sent.containsKey('cashier'),

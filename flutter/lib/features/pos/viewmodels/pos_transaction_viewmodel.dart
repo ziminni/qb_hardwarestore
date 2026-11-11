@@ -6,6 +6,7 @@ import 'package:client/data/models/held_cart.dart';
 // response shape, pos_service.dart owns the checkout one). The checkout path uses
 // the service's, so the stale duplicate is hidden rather than left ambiguous.
 import 'package:client/data/models/pos_transaction.dart' hide PosCheckoutResult;
+import 'package:client/data/models/sale_discount.dart';
 import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/repositories/customer_repository.dart';
@@ -65,6 +66,13 @@ class PosTransactionViewmodel extends ChangeNotifier {
   bool _isSubmitting = false;
   String? _submitError;
 
+  /// The server's stable code for the last submit failure, when it sent one.
+  ///
+  /// The page needs it for ONE decision `submitError` cannot carry: a refused
+  /// discount approval (`DISCOUNT_APPROVAL_INVALID`) means ask the manager again and
+  /// resubmit, which is a different screen, not a different sentence.
+  String? _submitErrorCode;
+
   /// The `Idempotency-Key` of the payment attempt in progress, or null when no
   /// attempt is pending.
   ///
@@ -96,6 +104,9 @@ class PosTransactionViewmodel extends ChangeNotifier {
 
   /// The last submit failure, safe to show a cashier. Null after a success.
   String? get submitError => _submitError;
+
+  /// The server's code behind [submitError], or null when it sent none.
+  String? get submitErrorCode => _submitErrorCode;
 
   /// The key the next submit will send, once an attempt has started.
   ///
@@ -758,16 +769,36 @@ class PosTransactionViewmodel extends ChangeNotifier {
   ///   different messages. The distinction comes from the server's code, never from
   ///   the status alone.
   ///
+  /// [tenders] is every tender of the sale, in order: cash + GCash + a cheque, or
+  /// just one. A one-tender sale may pass [method] and [amountPaid] instead, which is
+  /// what the single-tender callers still do; the wire always carries a LIST, because
+  /// collapsing a split sale into one method would tell the server money arrived in a
+  /// drawer it never reached.
+  ///
   /// Returns whether the sale was confirmed, so a caller cannot announce success
   /// unconditionally.
   Future<bool> submit({
-    required TenderMethod method,
-    required double amountPaid,
+    List<PosCheckoutPayment>? tenders,
+    TenderMethod? method,
+    double? amountPaid,
+    PosDiscount? discount,
+    String? discountApprovalToken,
+    double vatRate = 0,
   }) async {
     if (_lines.isEmpty) return false;
+    // The tender goes on the wire as a CODE, never as the label the cashier read.
+    final payments =
+        tenders ??
+        [
+          PosCheckoutPayment(
+            method: (method ?? TenderMethod.cash).code,
+            amountTendered: amountPaid ?? 0,
+          ),
+        ];
 
     _isSubmitting = true;
     _submitError = null;
+    _submitErrorCode = null;
     _insufficientStockLineId = null;
     _heldCartCleanupError = null;
     notifyListeners();
@@ -779,10 +810,6 @@ class PosTransactionViewmodel extends ChangeNotifier {
       // One key per ATTEMPT: created on the first press and reused by a retry, so
       // a dropped response cannot turn one basket into two sales.
       final attemptKey = _attemptKey ??= _newAttemptKey();
-      // The tender goes on the wire as a CODE, never as the label the cashier read.
-      final payments = [
-        PosCheckoutPayment(method: method.code, amountTendered: amountPaid),
-      ];
       final resumedCartId = _resumedCartId;
       // An UNCHANGED resumed basket is sold through the parked cart, so the server
       // writes the sale and deletes the cart in ONE transaction (decision 05). A basket
@@ -800,6 +827,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
             completeCartId,
             payments: payments,
             idempotencyKey: attemptKey,
+            discount: discount,
+            discountApproval: discountApprovalToken,
           ),
         );
         _completedHeldCartId = completeCartId;
@@ -822,6 +851,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
           ],
           payments: payments,
           idempotencyKey: attemptKey,
+          discount: discount,
+          discountApproval: discountApprovalToken,
         );
         if (resumedCartId != null) {
           // The edited basket is sold, so the parked copy must not survive to be resumed
@@ -843,9 +874,26 @@ class PosTransactionViewmodel extends ChangeNotifier {
           officialReceiptNumber: result.orNumber,
           createdAt: result.transDate,
           lines: List.unmodifiable(_serverLines(result.lines, sold)),
-          paymentMethod: method.code,
-          amountPaid: amountPaid,
+          // The tenders the CASHIER entered, then the server's own rows: a split
+          // sale keeps every method, and a cheque keeps its PENDING status.
+          paymentMethod: payments.first.method,
+          amountPaid: payments.fold(
+            0.0,
+            (sum, payment) => sum + payment.amountTendered,
+          ),
+          payments: result.payments,
+          // QA High (Phase 4 close): the change the SERVER recorded. The receipt
+          // prints this number - a till-side recomputation got a split sale wrong.
+          changeGiven: result.changeGiven,
+          // The server's net, not the cart's arithmetic: `grand_total` already has the
+          // discount taken off (decision 18), so change is counted from what was owed.
           total: result.grandTotal,
+          discountAmount: result.discountAmount,
+          discountReason: result.discountReason,
+          vatableSales: result.vatableSales,
+          vatAmount: result.vatAmount,
+          vatRegistered: result.vatRegistered,
+          vatRate: vatRate,
         ),
       );
       _lines.clear();
@@ -857,6 +905,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
       return true;
     } on PosServiceException catch (error) {
       _submitError = error.message;
+      _submitErrorCode = error.code;
       // Decision 06 section 3 separates a recoverable stock rejection from a terminal
       // failure. Recording WHICH line is what makes it recoverable: the cashier is
       // told which row to fix instead of being left to re-read the basket.
@@ -869,6 +918,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
       // `process_sale` — so its refusals (stock, credit limit, no open shift) arrive here
       // with the same codes. The cart stays: nothing was written.
       _submitError = error.message;
+      _submitErrorCode = error.code;
       _insufficientStockLineId = error.isInsufficientStock
           ? _lineForVariant(error.variantId)
           : null;

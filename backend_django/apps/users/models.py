@@ -1,4 +1,4 @@
-# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportCallIssue=false, reportAssignmentType=false, reportGeneralTypeIssues=false, reportIncompatibleVariableOverride=false
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportCallIssue=false, reportAssignmentType=false, reportGeneralTypeIssues=false, reportIncompatibleVariableOverride=false, reportMissingImports=false
 #
 # Same directive and reason as apps/pos/views.py and apps/inventory/views.py: this checker
 # runs with a working directory outside the repo, so it resolves no pyrightconfig.json and
@@ -161,6 +161,15 @@ class AuditLog(models.Model):
         SHIFT_OPEN = 'SHIFT_OPEN', 'Shift Opened'
         SHIFT_CLOSE = 'SHIFT_CLOSE', 'Shift Closed'
         CART_VOID = 'CART_VOID', 'Held Cart Voided'
+        # Phase 4 task B1 (decision 18): the two manager/admin decisions the trail has to
+        # answer - who changed the shop's VAT and discount policy, and who approved a
+        # discount above the cap. Neither row ever carries a password.
+        SETTINGS_UPDATE = 'SETTINGS_UPDATE', 'Store Settings Updated'
+        DISCOUNT_APPROVAL = 'DISCOUNT_APPROVAL', 'Discount Approval Granted'
+        # Phase 4 task B2 (decision 18): who cleared or bounced a customer cheque. ONE
+        # type for both decisions, because the trail's question is "who decided this
+        # cheque, and when" - the description says which way it went and why.
+        CHEQUE_DECISION = 'CHEQUE_DECISION', 'Cheque Cleared or Bounced'
         ROLE_CHANGE = 'ROLE_CHANGE', 'Role Changed'
         USER_DEACTIVATE = 'USER_DEACTIVATE', 'User Deactivated'
 

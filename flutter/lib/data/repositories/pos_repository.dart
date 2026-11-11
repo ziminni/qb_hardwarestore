@@ -1,3 +1,4 @@
+import 'package:client/data/models/sale_discount.dart';
 import 'package:client/data/services/pos_service.dart';
 
 /// The repository layer between the POS viewmodels and the checkout API.
@@ -22,12 +23,16 @@ class PosRepository {
     required List<PosCheckoutPayment> payments,
     String source = 'WALK_IN',
     String? idempotencyKey,
+    PosDiscount? discount,
+    String? discountApproval,
   }) => service.checkout(
     customerId: customerId,
     items: items,
     payments: payments,
     source: source,
     idempotencyKey: idempotencyKey,
+    discount: discount,
+    discountApproval: discountApproval,
   );
 
   /// The customer id an anonymous sale must still send (decision 06 section 2).

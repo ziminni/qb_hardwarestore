@@ -10,10 +10,11 @@
 
 from django.db import transaction
 from django.db.models import Q
-from rest_framework import viewsets
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from apps.pos.models import Payment
 from apps.users.models import AuditLog
 from apps.users.permissions import IsReceivablesReader, ReceivablesReadPOSWrite
 from apps.users.services import audit_request
@@ -145,3 +146,49 @@ class CollectiblePaymentViewSet(viewsets.ModelViewSet):
                 f'Payment of {payment.amount_paid} posted against ledger '
                 f'#{ledger.pk} for transaction {ledger.transaction.transaction_no}.',
             )
+
+    def create(self, request, *args, **kwargs):
+        """Post a payment - or, for a cheque, RECORD a pending one (B2, decision 18).
+
+        A cheque is not money received: the bank has not honoured it yet. So a CHEQUE
+        here does NOT move `balance_due` (that would settle a debt nobody paid), and it
+        does not write a `CollectiblePayment` (that row means "money came in"). It writes
+        a PENDING `pos.Payment` against this ledger's transaction - the same table the
+        till's cheques live in, so ONE queue lists every cheque the shop is waiting on,
+        and `POST /api/v1/cheques/{id}/clear/` is the one place a cheque becomes money.
+
+        The 201 body is that cheque row, not a payment row: the client sent a cheque and
+        is told what was recorded, including that it is still PENDING.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        if serializer.validated_data['payment_method'] == Payment.Method.CHEQUE:
+            from apps.pos.serializers import ChequeSerializer
+            from apps.pos.services import record_cheque_against_ledger
+
+            with transaction.atomic():
+                cheque = record_cheque_against_ledger(
+                    ledger_id=serializer.validated_data['collectible'].pk,
+                    amount=serializer.validated_data['amount_paid'],
+                    cheque_number=serializer.validated_data['cheque_number'],
+                    bank=serializer.validated_data['bank'],
+                    cheque_date=serializer.validated_data['cheque_date'],
+                    reference_no=serializer.validated_data.get(
+                        'official_receipt_no', ''),
+                )
+                # Decision 07: the cheque and the trail entry are one transaction, so a
+                # cancelled request cannot leave a cheque with no reason recorded.
+                audit_request(
+                    request,
+                    AuditLog.ActionType.PAYMENT,
+                    f'Pending cheque {cheque.cheque_number} for {cheque.amount_tendered} '
+                    f'recorded against ledger #{cheque.ledger_id} for transaction '
+                    f'{cheque.transaction.transaction_no}.',
+                )
+            return Response(
+                ChequeSerializer(cheque).data,
+                status=status.HTTP_201_CREATED,
+            )
+
+        return super().create(request, *args, **kwargs)

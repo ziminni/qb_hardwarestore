@@ -119,7 +119,8 @@ void main() {
     await _pump(tester, const Size(760, 900), viewmodel: _viewmodel());
     await tester.tap(find.text('Change role').first);
     await tester.pumpAndSettle();
-    expect(find.textContaining('Change role for'), findsOneWidget);
+    // Phase 4 F3b: one account may hold several roles, so the dialog is plural.
+    expect(find.textContaining('Change roles for'), findsOneWidget);
     // The dialog lives in the app's overlay, so the whole app is the capture.
     await expectLater(
       find.byType(MaterialApp),

@@ -1,7 +1,9 @@
 import 'package:client/app.dart';
 import 'package:client/core/network/api_client.dart';
 import 'package:client/data/repositories/auth_repository.dart';
+import 'package:client/data/services/active_area_store.dart';
 import 'package:client/data/services/auth_service.dart';
+import 'package:client/features/admin/viewmodels/store_settings_viewmodel.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/held_cart_viewmodel.dart';
@@ -29,6 +31,11 @@ Future<void> main() async {
   final inventoryViewmodel = InventoryViewmodel();
   await inventoryViewmodel.loadLocationHints();
 
+  // The area each account last worked in (Phase 4 F3b). Device-local, read
+  // synchronously on the session-restore path, so it is filled once here,
+  // before the splash asks which account is signed in.
+  await ActiveAreaStore.load();
+
   // window_manager is a desktop-only plugin: on web its platform channel never
   // resolves, hanging boot on a blank page (found in the 6D live pass).
   if (!kIsWeb) {
@@ -54,6 +61,10 @@ Future<void> main() async {
         // hands a basket back through it. A per-page instance would silently
         // break that hand-off - the resumed basket would arrive nowhere.
         ChangeNotifierProvider(create: (_) => HeldCartViewmodel()),
+        // The VAT rate and discount cap are store-wide and read by two screens:
+        // the Admin edits them on Settings, and the till (F4) applies them on
+        // the next sale. A per-page instance would leave the till on a stale cap.
+        ChangeNotifierProvider(create: (_) => StoreSettingsViewmodel()),
       ],
       child: MyApp(auth: authViewmodel),
     ),

@@ -12,6 +12,9 @@
 // changes (403 `USER_ADMIN_FORBIDDEN`) and the last-admin strip (400
 // `LAST_ADMIN`).
 
+import 'dart:math' as math;
+
+import 'package:client/core/theme/app_theme.dart';
 import 'package:client/data/models/role.dart';
 import 'package:client/data/models/user.dart';
 import 'package:client/data/repositories/auth_repository.dart';
@@ -24,6 +27,7 @@ import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
@@ -118,7 +122,7 @@ class _StubUsersService extends UserService {
     required String email,
     required String fullName,
     required String password,
-    required String groupName,
+    required List<String> roles,
   }) async => const User(
     id: 9,
     username: 'newcashier',
@@ -186,7 +190,7 @@ class _ActionStub extends _StubUsersService {
   int setActiveCalls = 0;
   bool? lastActiveValue;
   int assignCalls = 0;
-  String? lastAssignGroup;
+  List<String>? lastAssignRoles;
 
   @override
   Future<User> setActive({required int id, required bool isActive}) async {
@@ -198,9 +202,12 @@ class _ActionStub extends _StubUsersService {
   }
 
   @override
-  Future<User> assignRole({required int id, required String groupName}) async {
+  Future<User> assignRoles({
+    required int id,
+    required List<String> roles,
+  }) async {
     assignCalls++;
-    lastAssignGroup = groupName;
+    lastAssignRoles = roles;
     final failure = actionFailure;
     if (failure != null) throw UsersServiceException(failure);
     return (await fetchUsers()).first;
@@ -216,6 +223,7 @@ Future<void> _pump(
   String roleCode = 'admin',
   String roleLabel = 'Admin',
   AdminUsersViewmodel? viewmodel,
+  ThemeData? theme,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
@@ -236,6 +244,7 @@ Future<void> _pump(
     ChangeNotifierProvider<AuthViewmodel>.value(
       value: auth,
       child: MaterialApp(
+        theme: theme,
         home: AdminUserManagementPage(
           inSalesShell: inSalesShell,
           viewmodel:
@@ -257,6 +266,16 @@ Future<void> _pump(
 /// `find.text` would hit both.
 Finder _chip(String label) =>
     find.descendant(of: find.byType(FilterBar), matching: find.text(label));
+
+/// WCAG contrast of two opaque colours, the arithmetic the browser uses.
+///
+/// The same check as `test/shared/widgets/app_dialog_test.dart`; repeated here
+/// so the two files do not import each other's helpers.
+double _contrastOf(Color a, Color b) {
+  final la = a.computeLuminance();
+  final lb = b.computeLuminance();
+  return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
+}
 
 /// One account row or card, by the key the table gives it.
 Finder _row(int userId) => find.byKey(ValueKey('admin.user.$userId'));
@@ -764,23 +783,53 @@ void main() {
     expect(find.text('Cashier'), findsWidgets);
   });
 
-  testWidgets('change role offers groups, never admin labels to a manager', (
+  testWidgets('change role offers roles, never admin to a manager', (
     tester,
   ) async {
     await _pump(tester, roleCode: 'sales', roleLabel: 'Store Manager');
 
     await tester.tap(find.text('Change role').first);
     await tester.pumpAndSettle();
-    // Open the group picker: menu items render only once expanded.
-    await tester.tap(find.byType(DropdownButtonFormField<String>));
-    await tester.pumpAndSettle();
 
+    // Multi-select chips keyed by code: the server's word for each role.
     expect(find.text('Cashier'), findsWidgets);
+    expect(find.text('Stock Manager'), findsWidgets);
     expect(find.text('Admin'), findsNothing);
     expect(find.text('System Administrator'), findsNothing);
   });
 
-  testWidgets('change role assigns the picked group, then reloads', (
+  testWidgets('the selected role chip label is readable on its gold fill', (
+    tester,
+  ) async {
+    // The real theme: the chip colours (and the black pill this test forbids)
+    // come from `chipTheme`, not from the dialog.
+    await _pump(tester, theme: AppTheme.lightTheme);
+
+    await tester.tap(find.text('Change role').first);
+    await tester.pumpAndSettle();
+
+    // The manager row holds Store Manager, so that chip starts selected.
+    final chipFinder = find.widgetWithText(FilterChip, 'Store Manager');
+    final chip = tester.widget<FilterChip>(chipFinder);
+    expect(chip.selected, isTrue);
+
+    // The fill the chip really paints, and the ink the paragraph really
+    // resolved: WCAG AA for the label the person has to read.
+    final chipTheme = ChipTheme.of(tester.element(chipFinder));
+    final fill = chip.selectedColor ?? chipTheme.selectedColor!;
+    final paragraph = tester.renderObject<RenderParagraph>(
+      find.descendant(of: chipFinder, matching: find.text('Store Manager')),
+    );
+    final ink = paragraph.text.style!.color!;
+
+    expect(
+      _contrastOf(ink, fill),
+      greaterThanOrEqualTo(4.5),
+      reason: 'a selected role chip must be readable, not dark-on-dark',
+    );
+  });
+
+  testWidgets('change role assigns the picked roles, then reloads', (
     tester,
   ) async {
     final service = _ActionStub();
@@ -789,15 +838,18 @@ void main() {
 
     await tester.tap(find.text('Change role').first);
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    // The row is a Store Manager; add Cashier beside it.
+    await tester.tap(find.widgetWithText(FilterChip, 'Cashier'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Stock Manager').last);
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(TextButton, 'Change role').last);
+    await tester.tap(find.widgetWithText(TextButton, 'Save roles'));
     await tester.pumpAndSettle();
 
     expect(service.assignCalls, 1);
-    expect(service.lastAssignGroup, 'Stock Manager');
+    expect(
+      service.lastAssignRoles,
+      containsAll(['sales', 'pos']),
+      reason: 'roles[] is a full replacement of what the account holds',
+    );
     expect(service.fetchCalls, greaterThan(readsBefore));
   });
 

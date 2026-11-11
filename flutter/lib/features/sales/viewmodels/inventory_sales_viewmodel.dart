@@ -140,6 +140,13 @@ class InventorySalesViewmodel extends ChangeNotifier {
           unitPrice: i.unitPrice,
         ),
     ],
+    // Phase 4 F4: the discount and the VAT split come from the server, so the
+    // View sheet prints what the customer was actually charged.
+    discountAmount: r.discountAmount,
+    discountReason: r.discountReason,
+    vatableSales: r.vatableSales,
+    vatAmount: r.vatAmount,
+    vatRegistered: r.vatRegistered,
   );
 
   InventoryReturn _returnOf(

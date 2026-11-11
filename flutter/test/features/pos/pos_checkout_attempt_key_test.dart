@@ -20,6 +20,7 @@
 import 'package:client/data/models/customer.dart';
 import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/repositories/pos_repository.dart';
+import 'package:client/data/models/sale_discount.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
@@ -43,6 +44,8 @@ class _RecordingPosRepository extends PosRepository {
     required List<PosCheckoutPayment> payments,
     String source = 'WALK_IN',
     String? idempotencyKey,
+    PosDiscount? discount,
+    String? discountApproval,
   }) async {
     sentKeys.add(idempotencyKey);
     final boom = failure;

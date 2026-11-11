@@ -67,7 +67,9 @@ class _PosReceiptDialogState extends State<PosReceiptDialog> {
               Text('Receipt: ${receipt.officialReceiptNumber}'),
               // The receipt carries the wire CODE; the cashier reads the label.
               // A legacy row holds the label already, and labelFor returns it as-is.
-              Text('Payment: ${TenderMethod.labelFor(receipt.paymentMethod)}'),
+              Text(
+                'Payment: ${receipt.isSplit ? 'Split (${receipt.payments.length} tenders)' : TenderMethod.labelFor(receipt.paymentMethod)}',
+              ),
               const Divider(height: 28),
               ...receipt.lines.map(
                 (line) => Padding(
@@ -87,14 +89,59 @@ class _PosReceiptDialogState extends State<PosReceiptDialog> {
                 ),
               ),
               const Divider(),
+              // Lines, then the discount, then what was owed: the same order the
+              // paper receipt prints (decision 18).
+              if (receipt.discountAmount > 0)
+                _amountRow(
+                  receiptDiscountLabel(receipt.discountReason),
+                  -receipt.discountAmount,
+                ),
               _amountRow('Total', receipt.total),
-              _amountRow('Paid', receipt.amountPaid),
-              // An underpaid named-customer sale owes the shortfall as utang; printing
-              // it as negative change reads like money the till handed back.
-              if (receipt.change < 0)
-                _amountRow('Balance due (utang)', -receipt.change)
+              if (receipt.vatRegistered) ...[
+                _amountRow('Vatable sales', receipt.vatableSales),
+                _amountRow(receiptVatLabel(receipt.vatRate), receipt.vatAmount),
+              ] else
+                _textRow('VAT', 'Non-VAT'),
+              // Every tender on its own line: a split sale must never be
+              // summarised into one method, and a cheque says it is PENDING.
+              for (final payment in receipt.payments)
+                _textRow(
+                  payment.isPending
+                      ? '${TenderMethod.labelFor(payment.method)} '
+                            '${payment.chequeNumber.isEmpty ? '' : '${payment.chequeNumber} '}'
+                            '(pending)'
+                      : TenderMethod.labelFor(payment.method),
+                  formatPeso(payment.amount),
+                ),
+              // Money RECEIVED: the tenders the server calls money in hand, so a
+              // pending cheque is not printed as paid.
+              _amountRow('Paid', receipt.paidNow),
+              // Money in hand and a cheque the bank has not honoured are two
+              // different facts; adding them would claim a debt was settled.
+              if (receipt.pendingChequeTotal > 0)
+                _amountRow(
+                  'Cheque pending (not paid yet)',
+                  receipt.pendingChequeTotal,
+                ),
+              // An underpaid sale owes the shortfall as utang; printing it as
+              // negative change reads like money the till handed back.
+              if (receipt.balanceDue > 0)
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        receipt.pendingChequeTotal > 0
+                            ? 'Balance due (held by the cheque)'
+                            : 'Balance due (utang)',
+                      ),
+                    ),
+                    Text(formatPeso(receipt.balanceDue)),
+                  ],
+                )
               else
-                _amountRow('Change', receipt.change),
+                // QA High (Phase 4 close): the SERVER's `change_given`, never the
+                // till's own recomputation from the tender rows.
+                _amountRow('Change', receipt.changeGiven),
               const SizedBox(height: 12),
               const Text(
                 'Inventory quantities were updated in the current app session.',
@@ -133,18 +180,23 @@ class _PosReceiptDialogState extends State<PosReceiptDialog> {
       await (widget.printer ?? const PdfReceiptPrinter()).print(receipt);
     } catch (error) {
       // A refused print keeps the dialog: the cashier retries or moves on.
-      if (mounted) setState(() => _error = 'Could not print the receipt: $error');
+      if (mounted) {
+        setState(() => _error = 'Could not print the receipt: $error');
+      }
     } finally {
       if (mounted) setState(() => _printing = false);
     }
   }
 
-  Widget _amountRow(String label, double value) => Padding(
+  Widget _amountRow(String label, double value) =>
+      _textRow(label, formatPeso(value));
+
+  Widget _textRow(String label, String value) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 3),
     child: Row(
       children: [
         Expanded(child: Text(label)),
-        Text(formatPeso(value)),
+        Text(value),
       ],
     ),
   );

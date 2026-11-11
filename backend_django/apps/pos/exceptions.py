@@ -1,3 +1,4 @@
+# pyright: reportMissingImports=false
 """POS API exceptions and the DRF exception handler that publishes them.
 
 Decision 06, section 3: insufficient stock is an *expected* outcome of a sale, not a
@@ -6,17 +7,20 @@ this handler existed the failure surfaced as an uncaught `ValueError` -> HTTP 50
 and under `DEBUG=True` as an HTML page the client could not parse at all.
 """
 
+from collections.abc import Mapping
+from types import MappingProxyType
+
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import exception_handler as drf_exception_handler
 
+from apps.collectibles.services import Overpayment
 from apps.inventory.exceptions import (
     CatalogWriteRefused,
     InsufficientStock,
     NoBatchHistory,
 )
-from apps.collectibles.services import Overpayment
 from common.exceptions import WholeUnitQuantity
 
 
@@ -41,19 +45,19 @@ class ReturnError(ValueError):
     would force the client to match on English prose.
     """
 
-    code = 'INVALID_RETURN'
+    code = "INVALID_RETURN"
 
 
 class ReturnOfReturn(ReturnError):
     """The original is itself a RETURN. Reversing a reversal has no meaning."""
 
-    code = 'RETURN_OF_RETURN'
+    code = "RETURN_OF_RETURN"
 
 
 class OriginalNotCompleted(ReturnError):
     """The original is VOID or REFUNDED - only a COMPLETED sale can be reversed."""
 
-    code = 'ORIGINAL_NOT_COMPLETED'
+    code = "ORIGINAL_NOT_COMPLETED"
 
 
 class ReleaseNotReturnable(ReturnError):
@@ -65,7 +69,7 @@ class ReleaseNotReturnable(ReturnError):
     document that is not a sale.
     """
 
-    code = 'RELEASE_NOT_RETURNABLE'
+    code = "RELEASE_NOT_RETURNABLE"
 
 
 class ReturnReasonRequired(ReturnError):
@@ -77,7 +81,7 @@ class ReturnReasonRequired(ReturnError):
     (255) is the contract, and HTTP carries no useful message above it.
     """
 
-    code = 'RETURN_REASON_REQUIRED'
+    code = "RETURN_REASON_REQUIRED"
 
 
 class ReturnQtyExceeded(ReturnError):
@@ -91,7 +95,7 @@ class ReturnQtyExceeded(ReturnError):
     making the cashier re-count by hand.
     """
 
-    code = 'RETURN_QTY_EXCEEDED'
+    code = "RETURN_QTY_EXCEEDED"
 
     def __init__(self, variant_uom, sold, already_returned, requested):
         self.variant_uom = variant_uom
@@ -99,8 +103,9 @@ class ReturnQtyExceeded(ReturnError):
         self.already_returned = already_returned
         self.requested = requested
         super().__init__(
-            f'Selling unit {variant_uom} sold {sold} on this sale, '
-            f'{already_returned} already returned, and {requested} is being asked for.')
+            f"Selling unit {variant_uom} sold {sold} on this sale, "
+            f"{already_returned} already returned, and {requested} is being asked for."
+        )
 
 
 class UnlinkedReturnForbidden(PermissionDenied):
@@ -115,10 +120,32 @@ class UnlinkedReturnForbidden(PermissionDenied):
     shape as `CreditLimitForbidden`, so the client branches on `code`.
     """
 
-    code = 'UNLINKED_RETURN_FORBIDDEN'
+    code = "UNLINKED_RETURN_FORBIDDEN"
     default_detail = (
-        'A cashier must return against the original sale. Ask a Store Manager for an '
-        'unlinked return.')
+        "A cashier must return against the original sale. Ask a Store Manager for an "
+        "unlinked return."
+    )
+
+
+class PaymentExceedsTotal(ValueError):
+    """Tenders that ask the drawer for change it never took (QA High, Phase 4 close).
+
+    Change is paid out of the CASH drawer. Cash 0.00 + GCash 240.00 on a 225.00 sale
+    would ask the drawer for 15.00 of money that went to a wallet, so the sale is
+    refused and the cashier is told which amount to lower. Raised before the last write
+    of the sale, inside its atomic block, so a refusal leaves nothing behind.
+    """
+
+    code = "PAYMENT_EXCEEDS_TOTAL"
+
+    def __init__(self, *, change_given, cash_tendered):
+        super().__init__(
+            f"Change of {change_given:.2f} is due but only {cash_tendered:.2f} was "
+            "taken in cash. Change is paid from the drawer: lower the card or GCash "
+            "amount and take the rest in cash."
+        )
+        self.change_given = change_given
+        self.cash_tendered = cash_tendered
 
 
 class InvalidSale(ValueError):
@@ -135,7 +162,7 @@ class InvalidSale(ValueError):
     older client that still sends one keeps working.
     """
 
-    code = 'INVALID_SALE'
+    code = "INVALID_SALE"
 
 
 class WalkInCannotOwe(Exception):
@@ -151,15 +178,16 @@ class WalkInCannotOwe(Exception):
     not a failed computation. The cashier either takes full payment or names a customer.
     """
 
-    code = 'WALK_IN_CANNOT_OWE'
+    code = "WALK_IN_CANNOT_OWE"
 
-    def __init__(self, shortfall, customer_name='Walk-in Customer'):
+    def __init__(self, shortfall, customer_name="Walk-in Customer"):
         self.shortfall = shortfall
         self.customer_name = customer_name
         super().__init__(
-            f'{customer_name} cannot be charged the shortfall of {shortfall}: an '
-            'anonymous sale cannot go into utang. Take full payment, or record a '
-            'customer for it.')
+            f"{customer_name} cannot be charged the shortfall of {shortfall}: an "
+            "anonymous sale cannot go into utang. Take full payment, or record a "
+            "customer for it."
+        )
 
 
 class CreditLimitExceeded(Exception):
@@ -180,19 +208,19 @@ class CreditLimitExceeded(Exception):
     business rule, not a failed computation, and no `except ValueError` may swallow it.
     """
 
-    code = 'CREDIT_LIMIT_EXCEEDED'
+    code = "CREDIT_LIMIT_EXCEEDED"
 
-    def __init__(self, limit, outstanding, shortfall,
-                 customer_name='This customer'):
+    def __init__(self, limit, outstanding, shortfall, customer_name="This customer"):
         self.limit = limit
         self.outstanding = outstanding
         self.shortfall = shortfall
         self.customer_name = customer_name
         super().__init__(
-            f'{customer_name} is over the credit limit of {limit:.2f}: already owed '
-            f'{outstanding:.2f} plus this sale\'s {shortfall:.2f} comes to '
-            f'{outstanding + shortfall:.2f}. Collect the difference, or ring the sale '
-            'in full.')
+            f"{customer_name} is over the credit limit of {limit:.2f}: already owed "
+            f"{outstanding:.2f} plus this sale's {shortfall:.2f} comes to "
+            f"{outstanding + shortfall:.2f}. Collect the difference, or ring the sale "
+            "in full."
+        )
 
 
 class IdempotencyKeyReused(Exception):
@@ -209,13 +237,14 @@ class IdempotencyKeyReused(Exception):
     merely written wrong.
     """
 
-    code = 'IDEMPOTENCY_KEY_REUSED'
+    code = "IDEMPOTENCY_KEY_REUSED"
 
-    def __init__(self, idempotency_key=''):
+    def __init__(self, idempotency_key=""):
         self.idempotency_key = idempotency_key
         super().__init__(
-            f'Idempotency-Key {idempotency_key!r} was already used for a different '
-            'request. Use a new key for a new sale.')
+            f"Idempotency-Key {idempotency_key!r} was already used for a different "
+            "request. Use a new key for a new sale."
+        )
 
 
 class InvalidIdempotencyKey(ValueError):
@@ -227,7 +256,7 @@ class InvalidIdempotencyKey(ValueError):
     request, and the client's answer is to generate a proper key and retry.
     """
 
-    code = 'INVALID_IDEMPOTENCY_KEY'
+    code = "INVALID_IDEMPOTENCY_KEY"
 
 
 class NoOpenShift(Exception):
@@ -243,12 +272,12 @@ class NoOpenShift(Exception):
     should swallow it.
     """
 
-    code = 'NO_OPEN_SHIFT'
+    code = "NO_OPEN_SHIFT"
 
     def __init__(self, message=None):
         super().__init__(
-            message
-            or 'You have no open shift. Open a shift before ringing a sale.')
+            message or "You have no open shift. Open a shift before ringing a sale."
+        )
 
 
 class InvalidPaymentMethod(ValueError):
@@ -266,13 +295,14 @@ class InvalidPaymentMethod(ValueError):
     client's answer is to send the code it already has in its tender-method table.
     """
 
-    code = 'INVALID_PAYMENT_METHOD'
+    code = "INVALID_PAYMENT_METHOD"
 
-    def __init__(self, method=''):
+    def __init__(self, method=""):
         self.method = method
         super().__init__(
-            f'{method!r} is not a payment method this server records. Send one of '
-            'CASH, CARD, GCASH or BANK_TRANSFER.')
+            f"{method!r} is not a payment method this server records. Send one of "
+            "CASH, CARD, GCASH or BANK_TRANSFER."
+        )
 
 
 class CreditLimitForbidden(PermissionDenied):
@@ -289,9 +319,200 @@ class CreditLimitForbidden(PermissionDenied):
     anything, so a refused request writes nothing at all.
     """
 
-    code = 'CREDIT_LIMIT_FORBIDDEN'
+    code = "CREDIT_LIMIT_FORBIDDEN"
     default_detail = (
-        'Only a Store Manager or an Admin may change a customer credit limit.')
+        "Only a Store Manager or an Admin may change a customer credit limit."
+    )
+
+
+class DiscountError(ValueError):
+    """A whole-sale discount the server refuses (Phase 4 task B1, decision 18).
+
+    One base class for the four refusals the till has to tell apart, because they lead
+    to four different actions: fix the cart (`INVALID_DISCOUNT`), write why
+    (`DISCOUNT_REASON_REQUIRED`), get a manager (`DISCOUNT_OVER_CAP`), or ask the manager
+    to approve AGAIN (`DISCOUNT_APPROVAL_INVALID`). A single catch-all code would force
+    the client to match on English prose.
+
+    A `ValueError` subclass like `InvalidSale`, and raised from `process_sale` BEFORE the
+    first write (or from inside its atomic block, which rolls back wholesale), so a
+    refused discount leaves no sale, no receipt, no moved stock and no spent approval.
+
+    `extra` carries the numbers a refusal is only useful WITH - the cap and the
+    requested percent - into the `{code, detail}` body the handler publishes.
+    """
+
+    code = "INVALID_DISCOUNT"
+    # Immutable default, not `{}`: a mutable class attribute is shared by every subclass,
+    # so one refusal's figures would leak into the next. Instances that carry numbers
+    # assign their own dict (`DiscountOverCap`), which stays compatible with
+    # `payload.update(exc.extra)` below.
+    extra: Mapping[str, object] = MappingProxyType({})
+
+
+class InvalidDiscount(DiscountError):
+    """The discount itself is unusable: unknown kind, bad value, more than the sale."""
+
+    code = "INVALID_DISCOUNT"
+
+
+class DiscountReasonRequired(DiscountError):
+    """A discount above zero with no reason. Money leaving the shop explains itself."""
+
+    code = "DISCOUNT_REASON_REQUIRED"
+
+
+class DiscountOverCap(DiscountError):
+    """Above the Admin's cap with no approval token (decision 18).
+
+    Carries `cap_percent` and `requested_percent` so the till can open the approval
+    dialog already knowing what it is asking a manager to sign off.
+    """
+
+    code = "DISCOUNT_OVER_CAP"
+
+    def __init__(self, cap_percent, requested_percent):
+        self.cap_percent = cap_percent
+        self.requested_percent = requested_percent
+        self.extra = {
+            "cap_percent": f"{cap_percent:.2f}",
+            "requested_percent": f"{requested_percent:.2f}",
+        }
+        super().__init__(
+            f"This discount is {requested_percent:.2f} percent and the limit is "
+            f"{cap_percent:.2f}. Ask a Store Manager or Admin to approve it."
+        )
+
+
+class DiscountApprovalInvalid(DiscountError):
+    """The approval token is missing, forged, expired, already spent, or too small.
+
+    One code for all of it on purpose: every one of these means the same thing to the
+    cashier - ask the manager to approve again - and distinguishing them would tell a
+    client which part of the token to try next.
+    """
+
+    code = "DISCOUNT_APPROVAL_INVALID"
+
+
+class ChequeError(ValueError):
+    """A cheque the server refuses to record or decide (B2, decision 18).
+
+    Same `{code, detail, **extra}` shape as `DiscountError`, so the till branches on a
+    stable code and gets the figures it needs to correct the tender. Raised BEFORE the
+    first write on every path, so a refusal means "nothing changed".
+
+    `http_status` is a class attribute because ONE of these is not a bad request: a
+    cheque already decided is a CONFLICT (409) - the caller asked for a second decision
+    on a fact that is already settled, and retrying will never help.
+    """
+
+    code = "INVALID_CHEQUE"
+    http_status = status.HTTP_400_BAD_REQUEST
+    # Same reason as `DiscountError.extra`: immutable default, per-instance dict override.
+    extra: Mapping[str, object] = MappingProxyType({})
+
+    def __init__(self, detail, **extra):
+        self.extra = extra
+        super().__init__(detail)
+
+
+class ChequeNeedsCustomer(ChequeError):
+    """A cheque against the shared walk-in record (decision 14's rule, one tender on).
+
+    A pending cheque becomes a debt on the customer's utang ledger. A walk-in is a
+    placeholder, so that debt would be owed by nobody: the aging report would carry it
+    forever and no one could clear or chase it.
+    """
+
+    code = "CHEQUE_NEEDS_CUSTOMER"
+
+    def __init__(self, customer_name):
+        super().__init__(
+            f"A cheque needs a named customer. {customer_name} is a walk-in, so there "
+            "is nobody to owe the money until the cheque clears. Pick the customer who "
+            "wrote the cheque, or take another payment."
+        )
+
+
+class ChequeDetailsRequired(ChequeError):
+    """A cheque with no number, bank or date.
+
+    Those three are what the shop would have to produce at the bank to collect, so a
+    cheque without them is not a record of anything - and once it is PENDING the shop
+    has recorded money it cannot chase.
+    """
+
+    code = "CHEQUE_DETAILS_REQUIRED"
+
+    def __init__(self, missing):
+        self.missing = list(missing)
+        super().__init__(
+            "A cheque needs its "
+            f"{self._sentence(self.missing)}. Fill it in and try again.",
+            missing=self.missing,
+        )
+
+    @staticmethod
+    def _sentence(fields):
+        if len(fields) == 1:
+            return fields[0]
+        return f"{', '.join(fields[:-1])} and {fields[-1]}"
+
+
+class ChequeExceedsBalance(ChequeError):
+    """Cheques worth more than the sale still owes.
+
+    Change comes from the DRAWER. Handing back cash for a cheque would be lending money
+    against funds the shop has not received, so the tender is refused and the cashier is
+    told which number to lower.
+    """
+
+    code = "CHEQUE_EXCEEDS_BALANCE"
+
+    def __init__(self, cheque_total, owed):
+        super().__init__(
+            f"The cheque adds up to {cheque_total:.2f} but only {owed:.2f} is still "
+            "owed. Change comes from cash: lower the cheque amount and take the rest in "
+            "cash.",
+            cheque_total=f"{cheque_total:.2f}",
+            owed=f"{owed:.2f}",
+        )
+
+
+class ChequeReasonRequired(ChequeError):
+    """A bounced cheque with no reason.
+
+    The debt stays on the customer's ledger, so the trail has to say WHY the bank
+    refused it - that sentence is what the next collection call is about.
+    """
+
+    code = "CHEQUE_REASON_REQUIRED"
+
+    def __init__(self):
+        super().__init__(
+            "A bounced cheque needs a reason. Write down why the bank refused it."
+        )
+
+
+class ChequeAlreadyDecided(ChequeError):
+    """A second clear or bounce on a cheque that is no longer PENDING.
+
+    409, not 400: the request is well formed and the caller is allowed to decide
+    cheques - this one is simply settled already. Clearing twice would pay the ledger
+    twice, which is money out of a customer's debt that never came in.
+    """
+
+    code = "CHEQUE_ALREADY_DECIDED"
+    http_status = status.HTTP_409_CONFLICT
+
+    def __init__(self, current_status, cheque_number):
+        label = cheque_number or "This cheque"
+        super().__init__(
+            f"{label} is already {str(current_status).lower()} and cannot be decided "
+            "again.",
+            status=current_status,
+        )
 
 
 def handler(exc, context):
@@ -324,7 +545,7 @@ def handler(exc, context):
         # changed". Its own branch, because `InvalidSale`'s code would tell the client
         # the wrong thing to do about it.
         return Response(
-            {'code': exc.code, 'detail': str(exc)},
+            {"code": exc.code, "detail": str(exc)},
             status=status.HTTP_400_BAD_REQUEST,
         )
     if isinstance(exc, CatalogWriteRefused):
@@ -333,7 +554,7 @@ def handler(exc, context):
         # a serializer `validate()` or a view action - so the 400 also means "nothing
         # changed". Same `{code, detail}` shape as the till's refusals.
         return Response(
-            {'code': exc.code, 'detail': str(exc)},
+            {"code": exc.code, "detail": str(exc)},
             status=status.HTTP_400_BAD_REQUEST,
         )
     if isinstance(exc, NoBatchHistory):
@@ -344,28 +565,28 @@ def handler(exc, context):
         # place of the silent no-op that used to keep the row.
         return Response(
             {
-                'code': NoBatchHistory.code,
-                'detail': str(exc),
-                'variant_id': exc.variant_id,
+                "code": NoBatchHistory.code,
+                "detail": str(exc),
+                "variant_id": exc.variant_id,
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
     if isinstance(exc, InsufficientStock):
         return Response(
             {
-                'code': InsufficientStock.code,
-                'detail': str(exc),
-                'shortfall': None if exc.shortfall is None else str(exc.shortfall),
-                'variant_id': exc.variant_id,
+                "code": InsufficientStock.code,
+                "detail": str(exc),
+                "shortfall": None if exc.shortfall is None else str(exc.shortfall),
+                "variant_id": exc.variant_id,
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
     if isinstance(exc, Overpayment):
         return Response(
             {
-                'code': exc.code,
-                'detail': str(exc),
-                'balance_due': f'{exc.balance_due:.2f}',
+                "code": exc.code,
+                "detail": str(exc),
+                "balance_due": f"{exc.balance_due:.2f}",
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
@@ -376,20 +597,20 @@ def handler(exc, context):
         # and a JSON float loses both the scale and the exactness.
         return Response(
             {
-                'code': exc.code,
-                'detail': str(exc),
-                'variant_uom': exc.variant_uom,
-                'sold': f'{exc.sold:.2f}',
-                'already_returned': f'{exc.already_returned:.2f}',
-                'requested': f'{exc.requested:.2f}',
+                "code": exc.code,
+                "detail": str(exc),
+                "variant_uom": exc.variant_uom,
+                "sold": f"{exc.sold:.2f}",
+                "already_returned": f"{exc.already_returned:.2f}",
+                "requested": f"{exc.requested:.2f}",
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
     if isinstance(exc, ReturnError):
         return Response(
             {
-                'code': exc.code,
-                'detail': str(exc),
+                "code": exc.code,
+                "detail": str(exc),
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
@@ -398,8 +619,8 @@ def handler(exc, context):
         # by DRF's default handler so the payload keeps the project's {code, detail} shape.
         return Response(
             {
-                'code': UnlinkedReturnForbidden.code,
-                'detail': str(exc.detail),
+                "code": UnlinkedReturnForbidden.code,
+                "detail": str(exc.detail),
             },
             status=status.HTTP_403_FORBIDDEN,
         )
@@ -409,11 +630,9 @@ def handler(exc, context):
         # recorded as entered" rather than "the server broke".
         return Response(
             {
-                'code': WalkInCannotOwe.code,
-                'detail': str(exc),
-                'shortfall': None
-                if exc.shortfall is None
-                else str(exc.shortfall),
+                "code": WalkInCannotOwe.code,
+                "detail": str(exc),
+                "shortfall": None if exc.shortfall is None else str(exc.shortfall),
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
@@ -423,11 +642,11 @@ def handler(exc, context):
         # floats - a float in a money field is how 0.1 + 0.2 happens at a till).
         return Response(
             {
-                'code': CreditLimitExceeded.code,
-                'detail': str(exc),
-                'limit': f'{exc.limit:.2f}',
-                'outstanding': f'{exc.outstanding:.2f}',
-                'shortfall': f'{exc.shortfall:.2f}',
+                "code": CreditLimitExceeded.code,
+                "detail": str(exc),
+                "limit": f"{exc.limit:.2f}",
+                "outstanding": f"{exc.outstanding:.2f}",
+                "shortfall": f"{exc.shortfall:.2f}",
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
@@ -436,8 +655,8 @@ def handler(exc, context):
         # client branches on (open the shift prompt), and `detail` for the human.
         return Response(
             {
-                'code': NoOpenShift.code,
-                'detail': str(exc),
+                "code": NoOpenShift.code,
+                "detail": str(exc),
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
@@ -446,16 +665,45 @@ def handler(exc, context):
         # retry blindly here - it has to mint a NEW key for what is a different sale.
         return Response(
             {
-                'code': IdempotencyKeyReused.code,
-                'detail': str(exc),
+                "code": IdempotencyKeyReused.code,
+                "detail": str(exc),
             },
             status=status.HTTP_409_CONFLICT,
         )
     if isinstance(exc, InvalidIdempotencyKey):
         return Response(
             {
-                'code': InvalidIdempotencyKey.code,
-                'detail': str(exc),
+                "code": InvalidIdempotencyKey.code,
+                "detail": str(exc),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if isinstance(exc, DiscountError):
+        # Phase 4 task B1 (decision 18): the discount refusals, in the project's stable
+        # {code, detail} shape. Raised before the first write, so the 400 also means
+        # "nothing changed" - no sale, no moved stock, no spent approval.
+        # `object` values because the extra figures are 2-decimal strings and lists, and
+        # `extra` is a Mapping now, not a plain dict.
+        payload: dict[str, object] = {"code": exc.code, "detail": str(exc)}
+        payload.update(exc.extra)
+        return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+    if isinstance(exc, ChequeError):
+        # Phase 4 task B2 (decision 18): the cheque refusals. Same shape and the same
+        # "nothing changed" guarantee; the status is the exception's own, because
+        # `CHEQUE_ALREADY_DECIDED` is a conflict, not a bad request.
+        payload: dict[str, object] = {"code": exc.code, "detail": str(exc)}
+        payload.update(exc.extra)
+        return Response(payload, status=exc.http_status)
+    if isinstance(exc, PaymentExceedsTotal):
+        # QA High (Phase 4 close): a non-cash tender claiming more change than the cash
+        # taken can pay for. Same {code, detail} shape plus the two figures, so the till
+        # can name the amount to lower instead of matching on English prose.
+        return Response(
+            {
+                "code": exc.code,
+                "detail": str(exc),
+                "change_given": f"{exc.change_given:.2f}",
+                "cash_tendered": f"{exc.cash_tendered:.2f}",
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
@@ -466,8 +714,8 @@ def handler(exc, context):
         # cashier fix the cart", and `detail` names the offending line.
         return Response(
             {
-                'code': InvalidSale.code,
-                'detail': str(exc),
+                "code": InvalidSale.code,
+                "detail": str(exc),
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
@@ -477,8 +725,8 @@ def handler(exc, context):
         # names the four codes so the answer is obvious.
         return Response(
             {
-                'code': InvalidPaymentMethod.code,
-                'detail': str(exc),
+                "code": InvalidPaymentMethod.code,
+                "detail": str(exc),
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
@@ -488,8 +736,8 @@ def handler(exc, context):
         # {code, detail} shape as the other refusals so the client branches on `code`.
         return Response(
             {
-                'code': CreditLimitForbidden.code,
-                'detail': str(exc.detail),
+                "code": CreditLimitForbidden.code,
+                "detail": str(exc.detail),
             },
             status=status.HTTP_403_FORBIDDEN,
         )

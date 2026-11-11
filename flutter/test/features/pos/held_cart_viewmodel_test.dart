@@ -1,5 +1,6 @@
 import 'package:client/data/models/held_cart.dart';
 import 'package:client/data/services/held_cart_service.dart';
+import 'package:client/data/models/sale_discount.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/pos/viewmodels/held_cart_viewmodel.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -54,6 +55,8 @@ class _StubHeldCarts extends HeldCartService {
     int cartId, {
     required List<PosCheckoutPayment> payments,
     String? idempotencyKey,
+    PosDiscount? discount,
+    String? discountApproval,
   }) async {
     if (failComplete != null) throw failComplete!;
     completed.add(cartId);

@@ -476,12 +476,14 @@ void main() {
   // D12: a discount is not built (checkout hard-zeroes it), so this row could
   // only ever read ₱0.00 and advertise a feature the system does not have. The
   // Reports screen dropped its Discounts figure for the same reason (card A5).
-  testWidgets('the Today sales panel shows no Discounts row (D12)', (
+  testWidgets('the Today sales panel shows the Discounts row again (F4)', (
     tester,
   ) async {
     await _pump(tester);
 
-    expect(find.text('Discounts'), findsNothing);
+    // Phase 4 F4 supersedes D12: the till takes a capped discount again, so the row
+    // is a real number and not a permanent zero.
+    expect(find.text('Discounts'), findsOneWidget);
     expect(find.text('Gross sales'), findsOneWidget);
   });
 

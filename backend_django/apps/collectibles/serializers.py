@@ -6,11 +6,25 @@ from .models import CollectibleLedger, CollectiblePayment
 
 
 class CollectiblePaymentSerializer(serializers.ModelSerializer):
-    """Payment posted against a collectible ledger."""
+    """Payment posted against a collectible ledger.
+
+    Phase 4 task B2 (decision 18): the utang dialog offers the same tenders the till does,
+    including a cheque. The cheque's three facts are WRITE-ONLY here because they are not
+    columns of `CollectiblePayment` - a pending cheque is a row on `pos.Payment` (the
+    cheque queue reads that one table), and this serializer only carries them in for the
+    create path.
+    """
 
     processed_by_name = serializers.ReadOnlyField(
         source='processed_by.full_name',
     )
+    payment_method = serializers.CharField(max_length=50)
+    cheque_number = serializers.CharField(
+        required=False, allow_blank=True, write_only=True)
+    bank = serializers.CharField(
+        required=False, allow_blank=True, write_only=True)
+    cheque_date = serializers.DateField(
+        required=False, allow_null=True, write_only=True)
 
     class Meta:
         model = CollectiblePayment
@@ -21,6 +35,9 @@ class CollectiblePaymentSerializer(serializers.ModelSerializer):
             'processed_by_name',
             'amount_paid',
             'payment_method',
+            'cheque_number',
+            'bank',
+            'cheque_date',
             'payment_date',
             'official_receipt_no',
         ]
@@ -52,6 +69,28 @@ class CollectiblePaymentSerializer(serializers.ModelSerializer):
         if value not in dict(Payment.Method.choices):
             raise InvalidPaymentMethod(value)
         return value
+
+    def validate(self, attrs):
+        """A cheque must carry the three facts the shop would collect on.
+
+        Checked at validation time, before `perform_create` writes or moves anything, and
+        with the till's own exception so both screens show the same sentence and the same
+        `CHEQUE_DETAILS_REQUIRED` code.
+        """
+        from apps.pos.exceptions import ChequeDetailsRequired
+        from apps.pos.models import Payment
+
+        if attrs.get('payment_method') != Payment.Method.CHEQUE:
+            return attrs
+        missing = [
+            label for field, label in (
+                ('cheque_number', 'cheque number'), ('bank', 'bank'),
+                ('cheque_date', 'cheque date'))
+            if not attrs.get(field)
+        ]
+        if missing:
+            raise ChequeDetailsRequired(missing)
+        return attrs
 
 
 class CollectibleLedgerSerializer(serializers.ModelSerializer):

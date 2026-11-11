@@ -231,13 +231,14 @@ void main() {
       findsOneWidget,
       reason: 'the Sales tab must render live data, not an empty shell',
     );
-    // A5: the manager reads the SAME content as the admin, so the two fixes
-    // that changed it must be here too: no Discounts figure (D12) and the
-    // period picker instead of typed dates (D13).
+    // A5: the manager reads the SAME content as the admin, so both changes that
+    // touch it must be here too: the Discounts figure (Phase 4 F4b supersedes D12,
+    // because checkout applies a capped discount again) and the period picker
+    // instead of typed dates (D13).
     expect(
       find.text('Discounts'),
-      findsNothing,
-      reason: 'the sales shell must not keep a copy of the old Sales tab',
+      findsOneWidget,
+      reason: 'the sales shell must show the same tiles as the admin reports',
     );
     expect(
       find.byKey(const Key('reports-period')),

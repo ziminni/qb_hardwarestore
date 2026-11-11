@@ -1,0 +1,5 @@
+# Pins isort roots so import order does not depend on the cwd ruff is run from.
+# Without this, `apps`/`common`/`config` are first-party only when ruff runs from
+# backend_django (they are directories there), so root and backend disagreed on I001.
+[lint.isort]
+known-first-party = ["apps", "common", "config"]

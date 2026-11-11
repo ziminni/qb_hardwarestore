@@ -2,7 +2,10 @@ import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/ledger_entry.dart';
+import 'package:client/features/sales/viewmodels/cheque_queue_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/sales_receivables_viewmodel.dart';
+import 'package:client/features/sales/widgets/cheque_queue_content.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
@@ -29,8 +32,16 @@ import 'package:provider/provider.dart';
 ///
 /// The page must give it a bounded slot (`scrollable: false` on the role shell):
 /// the panel then scrolls its own rows and builds only the visible ones.
+///
+/// [showCheques] adds the Store Manager's Cheques tab (F5). It is off by default
+/// because the cashier's Record payment shell shows this same body and must not
+/// reach the decision queue: a cashier TAKES a cheque, a manager decides it.
 class SalesReceivablesContent extends StatefulWidget {
-  const SalesReceivablesContent({super.key});
+  const SalesReceivablesContent({super.key, this.showCheques = false});
+
+  /// True only on the manager's Receivables screen, which also provides a
+  /// [ChequeQueueViewmodel] above this widget.
+  final bool showCheques;
 
   @override
   State<SalesReceivablesContent> createState() =>
@@ -54,6 +65,10 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
   static const String _notLoaded = 'Not loaded';
 
   String _query = '';
+
+  /// Which tab the manager is reading. The ledger is the default: the debts are
+  /// what the screen is opened for, cheques are what is waiting on the bank.
+  bool _showCheques = false;
 
   /// Rows the status chip left visible, then narrowed by the search text. The
   /// chip goes through the viewmodel so the tiles and the list stay one dataset.
@@ -89,6 +104,51 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
 
   @override
   Widget build(BuildContext context) {
+    // The Cheques tab is the manager's: its viewmodel is only provided by the
+    // manager's page, and only read when the tab exists.
+    final chequeViewmodel = widget.showCheques
+        ? context.watch<ChequeQueueViewmodel>()
+        : null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (chequeViewmodel != null) ...[
+          Align(
+            alignment: Alignment.centerLeft,
+            child: SegmentedButton<bool>(
+              segments: [
+                const ButtonSegment(
+                  value: false,
+                  label: Text('Utang'),
+                  icon: Icon(Icons.receipt_long_outlined),
+                ),
+                ButtonSegment(
+                  value: true,
+                  // The pending count ON the tab (F5): the one marker needed to
+                  // see that money is waiting on the bank without opening it.
+                  label: Text('Cheques (${chequeViewmodel.pendingCount})'),
+                  icon: const Icon(Icons.account_balance_outlined),
+                ),
+              ],
+              selected: {_showCheques},
+              onSelectionChanged: (values) =>
+                  setState(() => _showCheques = values.first),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+        ],
+        if (_showCheques && chequeViewmodel != null)
+          const Expanded(child: ChequeQueueContent())
+        else
+          // The ledger body owns an Expanded panel, so it needs the bounded
+          // height this Column would otherwise not give it.
+          Expanded(child: _ledgerSection(context)),
+      ],
+    );
+  }
+
+  /// The utang ledger, unchanged: tiles, filters, rows and the payment dialog.
+  Widget _ledgerSection(BuildContext context) {
     final viewmodel = context.watch<SalesReceivablesViewmodel>();
     // Read once per build: a status computed from a moving clock could change
     // halfway down the list at midnight.
@@ -336,19 +396,45 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
   late final TextEditingController _amount = TextEditingController(
     text: widget.entry.balanceDue.toStringAsFixed(2),
   );
+  final TextEditingController _chequeNumber = TextEditingController();
+  final TextEditingController _bank = TextEditingController();
+  DateTime? _chequeDate;
+  bool _isCheque = false;
   String? _error;
+  String? _notice;
   bool _posting = false;
 
   @override
   void dispose() {
     _amount.dispose();
+    _chequeNumber.dispose();
+    _bank.dispose();
     super.dispose();
+  }
+
+  /// The date written on the cheque. Keyboard and pointer both reach it: the
+  /// field opens the date picker, and the picker takes typed dates too.
+  Future<void> _pickChequeDate() async {
+    final today = appClock.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _chequeDate ?? today,
+      firstDate: DateTime(today.year - 1),
+      lastDate: DateTime(today.year + 2),
+      helpText: 'Date on the cheque',
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _chequeDate = picked);
   }
 
   Future<void> _submit() async {
     final parsed = double.tryParse(_amount.text.trim());
     if (parsed == null) {
       setState(() => _error = 'Enter a valid amount.');
+      return;
+    }
+    if (_isCheque && _chequeDate == null) {
+      setState(() => _error = 'Pick the date written on the cheque.');
       return;
     }
     // Captured before the await: the lint forbids carrying a BuildContext
@@ -358,6 +444,33 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
       _posting = true;
       _error = null;
     });
+    if (_isCheque) {
+      final cheque = await widget.viewmodel.recordChequePayment(
+        entry: widget.entry,
+        amount: parsed,
+        chequeNumber: _chequeNumber.text,
+        bank: _bank.text,
+        chequeDate: _chequeDate!,
+      );
+      if (!mounted) return;
+      if (cheque != null) {
+        // NOT "paid": the bank has not honoured it yet, so the dialog says what
+        // actually happened and the balance on the row stays as it was.
+        setState(() {
+          _posting = false;
+          _notice =
+              'Cheque ${cheque.chequeNumber} is recorded as pending clearance. '
+              'The ${formatPeso(widget.entry.balanceDue)} still stands until the '
+              'bank honours it.';
+        });
+        return;
+      }
+      setState(() {
+        _posting = false;
+        _error = widget.viewmodel.payError ?? 'The cheque could not be recorded.';
+      });
+      return;
+    }
     final ok = await widget.viewmodel.recordPayment(
       entry: widget.entry,
       amount: parsed,
@@ -377,24 +490,47 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
   @override
   Widget build(BuildContext context) {
     final failure = _error;
+    final notice = _notice;
     return AlertDialog(
-      title: Text('Record payment · ${widget.entry.transactionNo}'),
+      title: Text('Record payment \u00b7 ${widget.entry.transactionNo}'),
       content: SizedBox(
-        width: 320,
+        width: 340,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Balance ${formatPeso(widget.entry.balanceDue)}',
+              '${widget.entry.customerName} owes '
+              '${formatPeso(widget.entry.balanceDue)}',
               style: const TextStyle(
                 fontSize: 13,
                 color: AppColors.textSecondary,
               ),
             ),
             const SizedBox(height: AppSpacing.md),
+            SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(value: false, label: Text('Cash')),
+                ButtonSegment(
+                  value: true,
+                  label: Text('Cheque'),
+                  icon: Icon(Icons.account_balance_outlined),
+                ),
+              ],
+              selected: {_isCheque},
+              // Locked once a cheque is on its way: switching the method
+              // mid-post would post the other one.
+              onSelectionChanged: _posting || notice != null
+                  ? null
+                  : (values) => setState(() {
+                      _isCheque = values.first;
+                      _error = null;
+                    }),
+            ),
+            const SizedBox(height: AppSpacing.md),
             TextField(
               controller: _amount,
+              enabled: !_posting && notice == null,
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
@@ -406,10 +542,44 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
                 fontFeatures: [FontFeature.tabularFigures()],
               ),
               decoration: const InputDecoration(
-                labelText: 'Amount (₱)',
+                labelText: 'Amount (\u20b1)',
                 isDense: true,
               ),
             ),
+            if (_isCheque) ...[
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: _chequeNumber,
+                enabled: !_posting && notice == null,
+                decoration: const InputDecoration(
+                  labelText: 'Cheque number',
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              TextField(
+                controller: _bank,
+                enabled: !_posting && notice == null,
+                decoration: const InputDecoration(
+                  labelText: 'Bank',
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              OutlinedButton.icon(
+                onPressed: _posting || notice != null ? null : _pickChequeDate,
+                icon: const Icon(Icons.event_outlined, size: 18),
+                label: Text(
+                  _chequeDate == null
+                      ? 'Date on the cheque'
+                      : formatDate(_chequeDate!),
+                ),
+              ),
+            ],
+            if (notice != null) ...[
+              const SizedBox(height: AppSpacing.md),
+              InfoBanner(title: 'Pending clearance', message: notice),
+            ],
             if (failure != null) ...[
               const SizedBox(height: AppSpacing.md),
               Text(
@@ -426,12 +596,13 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
       actions: [
         TextButton(
           onPressed: _posting ? null : () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(notice == null ? 'Cancel' : 'Close'),
         ),
-        FilledButton(
-          onPressed: _posting ? null : _submit,
-          child: const Text('Record'),
-        ),
+        if (notice == null)
+          FilledButton(
+            onPressed: _posting ? null : _submit,
+            child: Text(_isCheque ? 'Record cheque' : 'Record'),
+          ),
       ],
     );
   }

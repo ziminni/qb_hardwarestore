@@ -67,6 +67,11 @@ class InventorySale {
     required this.status,
     required this.lines,
     this.payments = const [],
+    this.discountAmount = 0,
+    this.discountReason = '',
+    this.vatableSales = 0,
+    this.vatAmount = 0,
+    this.vatRegistered = true,
   });
   final String transactionNo;
   final DateTime date;
@@ -83,6 +88,19 @@ class InventorySale {
   final List<InventorySalePayment> payments;
   double get total => lines.fold(0, (sum, line) => sum + line.subtotal);
   double get totalQuantity => lines.fold(0, (sum, line) => sum + line.quantity);
+
+  /// What the server took off, and why (Phase 4 F4). Zero means none was given.
+  final double discountAmount;
+  final String discountReason;
+
+  /// The VAT split of the sale, from the server. Both zero on a non-VAT store.
+  final double vatableSales;
+  final double vatAmount;
+  final bool vatRegistered;
+
+  /// What the customer actually owed: the lines less the discount. The sheet's total
+  /// bar shows this, so a discounted sale does not read as if the discount vanished.
+  double get amountDue => total - discountAmount;
 }
 
 class InventoryReturn {

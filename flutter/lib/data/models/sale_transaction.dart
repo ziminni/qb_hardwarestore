@@ -60,6 +60,11 @@ class TransactionRecord {
     required this.grandTotal,
     required this.items,
     required this.payments,
+    this.discountAmount = 0,
+    this.discountReason = '',
+    this.vatableSales = 0,
+    this.vatAmount = 0,
+    this.vatRegistered = true,
   });
 
   final int id;
@@ -74,6 +79,17 @@ class TransactionRecord {
   final double grandTotal;
   final List<TransactionLineItem> items;
   final List<TransactionPayment> payments;
+
+  /// What was taken off the gross, and why (Phase 4 B1). Zero means no discount,
+  /// which is every sale written before discounts existed.
+  final double discountAmount;
+  final String discountReason;
+
+  /// The VAT breakdown of [grandTotal], as the server computed it. Both are zero
+  /// when the store is not VAT registered.
+  final double vatableSales;
+  final double vatAmount;
+  final bool vatRegistered;
 
   factory TransactionRecord.fromJson(Map<String, dynamic> json) {
     final items = json['items'];
@@ -95,6 +111,17 @@ class TransactionRecord {
       originalTransactionId: json['original_transaction'] as int?,
       status: stringField(json, 'status'),
       grandTotal: decimalField(json, 'grand_total'),
+      // Phase 4 B1 fields. A body from before them reads as "no discount, VAT not
+      // split", which is exactly what those sales were.
+      discountAmount: double.tryParse('${json['discount_amount']}') ?? 0,
+      discountReason: json['discount_reason'] is String
+          ? json['discount_reason'] as String
+          : '',
+      vatableSales: double.tryParse('${json['vatable_sales']}') ?? 0,
+      vatAmount: double.tryParse('${json['vat_amount']}') ?? 0,
+      vatRegistered: json['vat_registered'] is bool
+          ? json['vat_registered'] as bool
+          : true,
       items: items
           .map((i) => TransactionLineItem.fromJson(i as Map<String, dynamic>))
           .toList(),

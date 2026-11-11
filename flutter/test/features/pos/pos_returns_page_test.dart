@@ -316,7 +316,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text('Confirm the return'), findsOneWidget);
-        expect(find.text('Return value ₱800.00'), findsOneWidget);
+        expect(find.text('Return value ₱800.00 (at the original prices)'), findsOneWidget);
         expect(find.text('Settles utang ₱600.00'), findsOneWidget);
         expect(
           find.textContaining('Cash refund ₱200.00'),

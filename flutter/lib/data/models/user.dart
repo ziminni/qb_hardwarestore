@@ -12,6 +12,7 @@ class User {
     required this.email,
     required this.fullName,
     required this.role,
+    this.roles,
     this.isActive = true,
   });
 
@@ -19,11 +20,36 @@ class User {
   final String username;
   final String email;
   final String fullName;
+
+  /// The original single role object. Kept for released clients and for the
+  /// server's own "first group" answer; it is NOT the list of areas.
   final Role? role;
+
+  /// `roles[]` from the wire: every area the account holds, in the server's
+  /// stable order (admin, sales, inventory, pos).
+  ///
+  /// Null means the field was ABSENT from the payload (an older server or a
+  /// hand-built `User`): the account then keeps the single-role behaviour of
+  /// [role]. An explicit empty list is a different fact — it is what a CPMS
+  /// service or roleless account sends, and it must never be turned into
+  /// access.
+  final List<Role>? roles;
   final bool isActive;
 
-  /// The label to show for this account's role, or [noRoleLabel].
-  String get roleLabel => role?.displayName ?? noRoleLabel;
+  /// Every area the account holds, with the legacy single-role fallback.
+  List<Role> get assignedRoles =>
+      roles ?? (role == null ? const <Role>[] : <Role>[role!]);
+
+  /// The area codes in server order, lower-cased for comparison.
+  List<String> get areaCodes => [for (final role in assignedRoles) role.code];
+
+  /// One label per assigned role, or the single legacy label.
+  List<String> get roleLabels => assignedRoles.isEmpty
+      ? [role?.displayName ?? noRoleLabel]
+      : [for (final role in assignedRoles) role.displayName];
+
+  /// The label to show for this account's roles, or [noRoleLabel].
+  String get roleLabel => roleLabels.join(', ');
 
   factory User.fromJson(Map<String, dynamic> json) {
     return User(
@@ -32,9 +58,30 @@ class User {
       email: json['email'] as String,
       fullName: json['full_name'] as String,
       role: _roleFromJson(json['role']),
+      roles: _rolesFromJson(json['roles']),
       isActive: json['is_active'] as bool? ?? true,
     );
   }
+}
+
+/// `roles[]`, or null when the field is absent.
+///
+/// Absent and empty are different facts (single-role compatibility vs an
+/// account with no area at all), so the absence is preserved instead of being
+/// flattened into an empty list. Anything present that is not a list of
+/// objects is a contract break, like a non-object `role`.
+List<Role>? _rolesFromJson(Object? raw) {
+  if (raw == null) return null;
+  if (raw is! List) {
+    throw const FormatException('Field "roles" must be a list');
+  }
+  return [
+    for (final entry in raw)
+      if (entry is Map<String, dynamic>)
+        Role.fromJson(entry)
+      else
+        throw const FormatException('Field "roles" must hold role objects'),
+  ];
 }
 
 Role? _roleFromJson(Object? raw) {

@@ -581,7 +581,10 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
           children: [
             Text('${returns.lines.length} line(s) coming back.'),
             const SizedBox(height: AppSpacing.sm),
-            Text('Return value ${formatPeso(returns.returnValue)}'),
+            Text(
+              'Return value ${formatPeso(returns.returnValue)} '
+              '(at the original prices)',
+            ),
             Text('Settles utang ${formatPeso(returns.debtReducedEstimate)}'),
             Text(
               'Cash refund ${formatPeso(returns.cashRefundEstimate)} '
@@ -589,8 +592,8 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
             ),
             const SizedBox(height: AppSpacing.sm),
             const Text(
-              'The server settles the utang first and pays out only the '
-              'excess. The refund summary afterwards is the final figure.',
+              'A discounted sale refunds its net share, which the server works '
+              'out. The refund summary afterwards is the final figure.',
             ),
           ],
         ),

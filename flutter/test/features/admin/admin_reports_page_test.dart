@@ -176,15 +176,14 @@ void main() {
     expect(find.textContaining('1,500'), findsWidgets);
   });
 
-  testWidgets('the Sales tab shows no Discounts figure or column', (
+  testWidgets('the Sales tab shows the Discounts tile and column again (F4)', (
     tester,
   ) async {
     await _pump(tester);
 
-    // D12: a discount is not built (checkout hard-zeroes it), so the tile could
-    // only ever read ₱0.00 and the column ₱0.00 all the way down. The finder is
-    // by WORD, so it catches both the tile and the column heading.
-    expect(find.text('Discounts'), findsNothing);
+    // Phase 4 F4 supersedes D12: checkout applies a capped discount again. The finder
+    // is by WORD, so two matches are the tile and the table's column heading.
+    expect(find.text('Discounts'), findsNWidgets(2));
     expect(find.text('Gross sales'), findsOneWidget);
   });
 

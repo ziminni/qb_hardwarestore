@@ -24,13 +24,18 @@ from apps.pos.models import Customer
 
 from .models import Project, Requisition
 
-# The two apps this task touches, at their pre-decision-08 shapes. Every other app stays
-# where it is: `migrate()` unapplies anything NOT named in its target list, so a target
-# list naming only the two apps would also roll inventory and pos back.
-TOUCHED_APPS = ('requisitions', 'collectibles')
+# The apps this file pins to an OLDER leaf, so the decision-08 migration can be run from
+# their pre-migration shape. Every other app stays at its leaf.
+#
+# `pos` is pinned here because `pos.0012` (Phase 4 task B2, the cheque fields) depends on a
+# NEW collectibles migration: naming pos at its own leaf would ask `migrate()` to apply
+# pos forwards while rolling collectibles back, and one plan cannot do both. Nothing about
+# the cheque schema belongs to decision 08's foreman migration, so pinning pos leaves this
+# test's subject exactly as it was.
 OLD_LEAVES = {
     'requisitions': '0001_initial',
     'collectibles': '0001_initial',
+    'pos': '0011_salestransaction_discount_reason_and_more',
 }
 
 
@@ -48,10 +53,10 @@ class _MigrationBase(TransactionTestCase):
         return executor.loader.graph.leaf_nodes()
 
     def _old_targets(self):
-        """Every app at its leaf, except the two this task rewrites."""
+        """Every app at its leaf, except the ones pinned to an older shape here."""
         return [
             (app, name) for app, name in self._latest_targets()
-            if app not in TOUCHED_APPS
+            if app not in OLD_LEAVES
         ] + [(app, name) for app, name in OLD_LEAVES.items()]
 
     def _state_apps(self, executor, targets) -> Any:

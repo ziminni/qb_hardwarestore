@@ -77,6 +77,11 @@ void main() {
 
       // A TextField renders its content as an EditableText, not a Text widget.
       expect(find.widgetWithText(TextField, '472.00'), findsOneWidget);
+      // Money rule: the balance the dialog names carries the peso sign.
+      expect(
+        find.text('Dela Cruz Construction owes \u20b1472.00'),
+        findsOneWidget,
+      );
       expect(repository.recordCalls, 0);
     },
   );

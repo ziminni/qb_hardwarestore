@@ -349,6 +349,7 @@ typedef _SalesRow = ({
   String label,
   int transactions,
   double gross,
+  double discounts,
   double vat,
   bool isTotal,
 });
@@ -376,6 +377,11 @@ class _SalesTab extends StatelessWidget {
       cell: (row) => _cell(formatPeso(row.gross), bold: row.isTotal),
     ),
     DataPanelColumn<_SalesRow>(
+      label: 'Discounts',
+      numeric: true,
+      cell: (row) => _cell(formatPeso(row.discounts), bold: row.isTotal),
+    ),
+    DataPanelColumn<_SalesRow>(
       label: 'VAT',
       numeric: true,
       cell: (row) => _cell(formatPeso(row.vat), bold: row.isTotal),
@@ -388,6 +394,7 @@ class _SalesTab extends StatelessWidget {
         label: _dateLabel(day.day),
         transactions: day.transactions,
         gross: day.gross,
+        discounts: day.discounts,
         vat: day.vat,
         isTotal: false,
       ),
@@ -396,6 +403,7 @@ class _SalesTab extends StatelessWidget {
         label: 'Total',
         transactions: sales.totalTransactions,
         gross: sales.totalGross,
+        discounts: sales.totalDiscounts,
         vat: sales.totalVat,
         isTotal: true,
       ),
@@ -412,9 +420,8 @@ class _SalesTab extends StatelessWidget {
         children: [
           periodControl,
           const SizedBox(height: AppSpacing.md),
-          // D12: no Discounts tile. Checkout hard-zeroes the discount, so the
-          // tile could only ever read ₱0.00 and advertise a feature the system
-          // does not have.
+          // Phase 4 F4 (supersedes D12): checkout takes a capped discount again, so the
+          // Discounts tile is a real number and not a ₱0.00 advertisement.
           MetricGrid(
             children: [
               MetricTile(
@@ -425,6 +432,10 @@ class _SalesTab extends StatelessWidget {
               MetricTile(
                 label: 'Gross sales',
                 value: formatPeso(sales.totalGross),
+              ),
+              MetricTile(
+                label: 'Discounts',
+                value: formatPeso(sales.totalDiscounts),
               ),
               MetricTile(label: 'VAT', value: formatPeso(sales.totalVat)),
             ],

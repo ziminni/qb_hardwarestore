@@ -163,10 +163,14 @@ void main() {
       email: 'new@demo.ph',
       fullName: 'New Cashier',
       password: 'demo1234',
-      groupName: 'Cashier',
+      roles: const ['pos', 'sales'],
     );
 
-    expect(sent?['group_name'], 'Cashier');
+    // Phase 4 B3: `roles[]` is the wire shape, and sending a legacy group_name
+    // beside it is refused with 400 ROLES_CONFLICT, so there is exactly one
+    // role field on the request.
+    expect(sent?['roles'], ['pos', 'sales']);
+    expect(sent?.containsKey('group_name'), isFalse);
     expect(sent?['password'], 'demo1234');
     expect(created.id, 9);
   });
@@ -268,7 +272,7 @@ void main() {
     expect(updated.isActive, isTrue);
   });
 
-  test('assignRole posts the group name and returns the row', () async {
+  test('assignRoles posts the whole code list and returns the row', () async {
     Map<String, dynamic>? sent;
     String? path;
     String? method;
@@ -289,13 +293,39 @@ void main() {
       });
     };
 
-    final updated = await service.assignRole(id: 2, groupName: 'Cashier');
+    final updated = await service.assignRoles(
+      id: 2,
+      roles: const ['pos', 'sales'],
+    );
 
     expect(method, 'POST');
     expect(path, endsWith('/api/v1/users/2/assign_role/'));
-    expect(sent?['group_name'], 'Cashier');
+    // A FULL replacement: both codes travel, and no legacy field beside them.
+    expect(sent?['roles'], ['pos', 'sales']);
+    expect(sent?.containsKey('group_name'), isFalse);
     expect(updated.id, 2);
   });
+
+  test(
+    'a LAST_ADMIN refusal on assignRoles carries the server detail',
+    () async {
+      adapter.respond = (_) => _json({
+        'code': 'LAST_ADMIN',
+        'detail': 'The last active Admin cannot lose Admin authority.',
+      }, status: 400);
+
+      expect(
+        service.assignRoles(id: 1, roles: const ['pos']),
+        throwsA(
+          isA<UsersServiceException>().having(
+            (e) => e.message,
+            'message',
+            contains('last active Admin'),
+          ),
+        ),
+      );
+    },
+  );
 
   test('a USER_ADMIN_FORBIDDEN refusal names the admin boundary', () async {
     adapter.respond = (_) => _json({

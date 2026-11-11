@@ -18,12 +18,15 @@ class UsersRepository {
     required String email,
     required String fullName,
     required String password,
-    required String groupName,
+    required List<String> roles,
   }) => _service.createUser(
     username: username,
     email: email,
     fullName: fullName,
     password: password,
-    groupName: groupName,
+    roles: roles,
   );
+
+  Future<User> assignRoles({required int id, required List<String> roles}) =>
+      _service.assignRoles(id: id, roles: roles);
 }

@@ -28,6 +28,10 @@ PosReceipt _receipt({required double paid, required double total}) =>
       paymentMethod: 'CASH',
       amountPaid: paid,
       total: total,
+      // QA High (Phase 4 close): the receipt prints the SERVER's change, so a
+      // fixture has to state it. These predate split payment, so the tendered
+      // amount over the total is the change the drawer paid.
+      changeGiven: (paid - total).clamp(0, double.infinity),
     );
 
 class _FakePrinter implements ReceiptPrinter {
@@ -61,9 +65,17 @@ void main() {
     expect(content.header, contains('Receipt: OR-20261104-0007'));
     expect(content.lines.single.name, 'Portland Cement · 40 kg');
     expect(content.lines.single.total, 'PHP 315.00');
+    // Phase 4 F4: the VAT split sits between the total and what was paid. This
+    // fixture is a VAT-registered sale with no discount and no stored rate.
     expect(
       content.amounts.map((row) => '${row.label} ${row.amount}'),
-      ['Total PHP 315.00', 'Paid PHP 500.00', 'Change PHP 185.00'],
+      [
+        'Total PHP 315.00',
+        'Vatable sales PHP 0.00',
+        'VAT PHP 0.00',
+        'Paid PHP 500.00',
+        'Change PHP 185.00',
+      ],
     );
   });
 

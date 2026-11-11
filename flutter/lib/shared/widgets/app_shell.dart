@@ -6,6 +6,7 @@ import 'package:client/core/constants/app_text_styles.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/time/app_clock.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
+import 'package:client/features/auth/widget/area_switcher_menu.dart';
 import 'package:client/shared/widgets/shared_sidebar.dart';
 import 'package:client/shared/widgets/blueprint.dart';
 import 'package:client/shared/widgets/measure_ruler.dart';
@@ -508,6 +509,10 @@ class _Header extends StatelessWidget {
                       ),
                       const SizedBox(width: AppSpacing.md),
                     ],
+                    // Multi-area staff switch areas from here (Phase 4 F3b).
+                    // It draws nothing for a single-area account, so every role
+                    // shell keeps the header it had.
+                    const AreaSwitcherMenu(),
                     ...shell.actions,
                   ],
                 ),

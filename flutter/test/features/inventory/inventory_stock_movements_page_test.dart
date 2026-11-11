@@ -12,7 +12,7 @@
 //   * no "stock in" / "stock out" wording and no before/after columns survive
 //   * a row shows its type in words, a signed quantity, the reason, who and when
 //   * the type chips filter the list, and the two empty states differ
-//   * a long history builds its rows lazily, with no pager controls
+//   * a long history is paged 25 rows at a time by the shared panel (F1)
 
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/inventory.dart';
@@ -268,9 +268,9 @@ void main() {
     expect(find.text(_noMatch), findsNothing);
   });
 
-  testWidgets('a long history scrolls, built row by row, with no pager', (
-    tester,
-  ) async {
+  // F1 (Phase 4): the shared panel pages 25 rows at a time, so a long history
+  // is read a page at a time instead of one endless scroll.
+  testWidgets('a long history pages 25 rows at a time', (tester) async {
     final rows = [
       for (var index = 0; index < 60; index++)
         _adjustment(
@@ -286,21 +286,28 @@ void main() {
     );
 
     expect(find.text('Row 0 remark.'), findsOneWidget);
+    expect(find.text('1 to 25 of 60'), findsOneWidget);
     expect(
-      find.text('Row 59 remark.'),
+      find.text('Row 25 remark.'),
       findsNothing,
-      reason: 'the last of 60 rows is not built until it is scrolled to',
+      reason: 'the 26th row waits on page 2',
     );
-    expect(find.text('10 rows'), findsNothing, reason: 'no pager controls');
 
-    await tester.scrollUntilVisible(
-      find.text('Row 59 remark.'),
-      200,
-      scrollable: find.descendant(
-        of: find.byKey(const ValueKey('DataPanel.table')),
-        matching: find.byType(Scrollable),
-      ),
+    await tester.tap(find.byTooltip('Next page'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('26 to 50 of 60'), findsOneWidget);
+    expect(find.text('Row 25 remark.'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Next page'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('51 to 60 of 60'), findsOneWidget);
+    expect(
+      find.text('Row 50 remark.'),
+      findsOneWidget,
+      reason: 'the last page starts at the 51st row',
     );
-    expect(find.text('Row 59 remark.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

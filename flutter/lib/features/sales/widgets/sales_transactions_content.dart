@@ -445,6 +445,20 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
             'Payment (${TenderMethod.labelFor(payment.method)})',
             formatPeso(payment.amount),
           ),
+        // Phase 4 F4: the discount and its reason, then the VAT split the server
+        // computed. A non-VAT store says so instead of printing two zeroes.
+        if (sale.discountAmount > 0)
+          (
+            sale.discountReason.trim().isEmpty
+                ? 'Discount'
+                : 'Discount (${sale.discountReason})',
+            formatPeso(sale.discountAmount),
+          ),
+        if (sale.vatRegistered) ...[
+          ('Vatable sales', formatPeso(sale.vatableSales)),
+          ('VAT', formatPeso(sale.vatAmount)),
+        ] else
+          ('VAT', 'Non-VAT'),
         ('Status', sale.status.label),
       ],
       lines: [
@@ -455,7 +469,8 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
             unitPrice: line.unitPrice,
           ),
       ],
-      total: sale.total,
+      // The total bar is what the customer owed: the lines less the discount.
+      total: sale.amountDue,
     );
   }
 }

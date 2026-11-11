@@ -27,6 +27,8 @@ The Django REST API owns all business logic. A Flutter client (MVVM) talks to it
 
 > **Phase 1b closed 2026-11-08 with owner-accepted QA limits; contract v0.2 provisional.** Dev (`buildpro_db`, API :8000) is on Phase 1b: migration 0003 applied on a backend restart, then owner-approved `flush` + `seed_demo` on 2026-11-09, so dev now holds the [seed scenarios below](#2-load-demo-data). Final evidence and accepted gaps: [plan Handoff](planning/pos-evolution/phase-1b-plan.md#handoff--known-limits). The entrypoint runs `migrate` on every start; dev is the demo DB, so writes, reseeds and resets there need owner approval. Backend + client + breaking contract must roll out together; see [rollout/rollback safety](docs/integration/CPMS-CONTRACT.md#rollout-and-rollback-boundary).
 
+> **Phase 4 (front counter) code is ahead of dev.** It adds `pos` migrations 0011–0014 (store settings, discount approvals, cheque payments, per-sale `vat_rate`, `change_given`) and a `users` audit-action migration. They run automatically on the next backend start, which needs owner approval on dev. 0012 marks existing payments `CLEARED`; 0013 leaves older sales with no VAT rate (returns of them use 0%, matching their receipts); 0014 fills `change_given` from what each old sale was paid, capped at the cash taken. Defaults after migrating: VAT-registered, 12%, discount cap 10% (Admin → Settings).
+
 ```bash
 cd qb_pos_inventory_system
 docker compose up -d --build

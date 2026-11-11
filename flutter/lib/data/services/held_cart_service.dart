@@ -1,5 +1,6 @@
 import 'package:client/core/network/api_client.dart';
 import 'package:client/data/models/held_cart.dart';
+import 'package:client/data/models/sale_discount.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:dio/dio.dart';
 
@@ -132,6 +133,8 @@ class HeldCartService {
     int cartId, {
     required List<PosCheckoutPayment> payments,
     String? idempotencyKey,
+    PosDiscount? discount,
+    String? discountApproval,
   }) async {
     try {
       final response = await _client.post<Map<String, dynamic>>(
@@ -141,6 +144,11 @@ class HeldCartService {
             : {'Idempotency-Key': idempotencyKey},
         data: {
           'payments': [for (final payment in payments) payment.toJson()],
+          // `complete` runs the same `process_sale`, so it takes the same discount
+          // and the same one-time approval token (decision 18).
+          if (discount != null) 'discount': discount.toJson(),
+          if (discountApproval != null && discountApproval.isNotEmpty)
+            'discount_approval': discountApproval,
         },
       );
       final data = response.data;
@@ -179,11 +187,23 @@ class HeldCartService {
 
   /// The refusals a cashier must be able to act on even when the body carries no
   /// prose (a proxy, a bare `{"code": ...}`). Phase 1d: a whole unit is counted in
-  /// ones, so 1.5 of one is a corrected number, not a retry.
+  /// ones, so 1.5 of one is a corrected number, not a retry. Phase 4 F4: a discount
+  /// refusal names which of the four actions it needs (decision 18).
   static const Map<String, String> _codeMessages = {
     'WHOLE_UNIT_QUANTITY':
         'That unit is sold in whole numbers, so the quantity must be a whole '
         'number. Change it and try again.',
+    'DISCOUNT_REASON_REQUIRED':
+        'A discount needs a reason. Write why the discount is being given.',
+    'DISCOUNT_OVER_CAP':
+        'This discount is above the cashier cap. Ask a Store Manager or Admin to '
+        'approve it.',
+    'DISCOUNT_APPROVAL_INVALID':
+        'That discount approval is not valid or has expired. Ask the manager to '
+        'approve the discount again.',
+    'INVALID_DISCOUNT':
+        'That discount cannot be applied. Check the amount against the sale total '
+        'and try again.',
   };
 
   /// Maps a transport failure onto something a cashier can act on.

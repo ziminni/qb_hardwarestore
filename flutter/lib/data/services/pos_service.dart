@@ -1,5 +1,7 @@
 import 'package:client/core/network/api_client.dart';
 import 'package:client/data/models/customer.dart';
+import 'package:client/data/models/pos_transaction.dart' show PosReceiptPayment;
+import 'package:client/data/models/sale_discount.dart';
 import 'package:dio/dio.dart';
 
 /// One line of a checkout request.
@@ -34,17 +36,43 @@ class PosCheckoutPayment {
     required this.method,
     required this.amountTendered,
     this.referenceNo = '',
+    this.chequeNumber = '',
+    this.bank = '',
+    this.chequeDate,
   });
 
   final String method;
   final double amountTendered;
   final String referenceNo;
 
+  /// The three facts a CHEQUE must carry (Phase 4 B2, decision 18). Ignored for
+  /// every other method, because only a cheque becomes a row a manager decides.
+  final String chequeNumber;
+  final String bank;
+  final DateTime? chequeDate;
+
+  bool get isCheque => method == 'CHEQUE';
+
   Map<String, dynamic> toJson() => {
     'method': method,
-    'amount_tendered': amountTendered,
+    // A 2 dp string: DRF sends and takes Decimals as strings, and a double can
+    // serialize as 7.999999999999999 for money nobody typed.
+    'amount_tendered': amountTendered.toStringAsFixed(2),
     'reference_no': referenceNo,
+    if (isCheque) ...{
+      'cheque_number': chequeNumber,
+      'bank': bank,
+      'cheque_date': formatWireDate(chequeDate),
+    },
   };
+}
+
+/// `2026-11-20` for a date the server parses with `parse_date`, or empty.
+String formatWireDate(DateTime? date) {
+  if (date == null) return '';
+  final month = date.month.toString().padLeft(2, '0');
+  final day = date.day.toString().padLeft(2, '0');
+  return '${date.year.toString().padLeft(4, '0')}-$month-$day';
 }
 
 /// A completed sale, read from the POST response.
@@ -61,6 +89,13 @@ class PosCheckoutResult {
     required this.transDate,
     required this.grandTotal,
     this.lines = const [],
+    this.payments = const [],
+    this.discountAmount = 0,
+    this.discountReason = '',
+    this.vatableSales = 0,
+    this.vatAmount = 0,
+    this.vatRegistered = true,
+    this.changeGiven = 0,
   });
 
   factory PosCheckoutResult.fromJson(Map<String, dynamic> json) {
@@ -81,7 +116,31 @@ class PosCheckoutResult {
       transDate: DateTime.parse(json['trans_date'] as String),
       grandTotal: double.parse('${json['grand_total']}'),
       lines: _linesFrom(json['items']),
+      // Phase 4 B2: every tender the server wrote, so a receipt can show a split
+      // sale and a cheque that is PENDING rather than paid.
+      payments: PosReceiptPayment.listFrom(json['payments']),
+      // Phase 4 B1: the discount and the VAT split are the SERVER's numbers, so the
+      // receipt prints what was actually charged. A body from before B1 has none of
+      // them, and each falls back to the pre-discount, VAT-not-split reading.
+      discountAmount: _moneyOrZero(json['discount_amount']),
+      discountReason: json['discount_reason'] is String
+          ? json['discount_reason'] as String
+          : '',
+      vatableSales: _moneyOrZero(json['vatable_sales']),
+      vatAmount: _moneyOrZero(json['vat_amount']),
+      vatRegistered: json['vat_registered'] is bool
+          ? json['vat_registered'] as bool
+          : true,
+      // QA High (Phase 4 close): the change the cashier handed back, decided by the
+      // server from the tenders it STORED. The receipt prints this number and never
+      // recomputes it from the payment rows.
+      changeGiven: _moneyOrZero(json['change_given']),
     );
+  }
+
+  static double _moneyOrZero(Object? value) {
+    if (value == null) return 0;
+    return double.tryParse('$value') ?? 0;
   }
 
   /// Reads the written lines, tolerating a response that omits `items`.
@@ -121,6 +180,26 @@ class PosCheckoutResult {
   /// converts the selling quantity by `conversion_factor`, so a client-computed
   /// line total is only a preview. The receipt prints from here.
   final List<PosCheckoutLine> lines;
+
+  /// What the server took off the gross (decision 18). Zero when none was given.
+  final double discountAmount;
+
+  /// Why the discount was given, as the cashier wrote it.
+  final String discountReason;
+
+  /// The VAT breakdown of the NET. Both are zero when the store is not registered.
+  final double vatableSales;
+  final double vatAmount;
+  final bool vatRegistered;
+
+  /// The tenders exactly as the server stored them, in order. Empty only for a
+  /// body that predates B2, in which case the receipt falls back to the single
+  /// method and amount the cart recorded.
+  final List<PosReceiptPayment> payments;
+
+  /// Change handed back at the drawer (QA High, Phase 4 close). Money OUT, so the
+  /// server decides it - the till only prints it.
+  final double changeGiven;
 }
 
 /// One written sale line, read back from the transaction response.
@@ -240,6 +319,8 @@ class PosService {
     required List<PosCheckoutPayment> payments,
     String source = 'WALK_IN',
     String? idempotencyKey,
+    PosDiscount? discount,
+    String? discountApproval,
   }) async {
     try {
       final response = await _client.post<Map<String, dynamic>>(
@@ -253,6 +334,11 @@ class PosService {
           'source': source,
           'items': [for (final item in items) item.toJson()],
           'payments': [for (final payment in payments) payment.toJson()],
+          // Decision 18: the discount is checked and applied on the server, and a
+          // discount above the cap also needs the manager's one-time approval token.
+          if (discount != null) 'discount': discount.toJson(),
+          if (discountApproval != null && discountApproval.isNotEmpty)
+            'discount_approval': discountApproval,
         },
       );
       final data = response.data;

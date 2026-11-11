@@ -1,3 +1,4 @@
+import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
@@ -182,7 +183,8 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
                 AdminUserActionButton(
                   label: 'Create account',
                   icon: Icons.person_add_outlined,
-                  onPressed: () => _openCreateDialog(context, viewmodel),
+                  onPressed: () =>
+                      _openCreateDialog(context, viewmodel, isAdmin: isAdmin),
                 ),
             ],
           ),
@@ -294,11 +296,13 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
 
   Future<void> _openCreateDialog(
     BuildContext context,
-    AdminUsersViewmodel viewmodel,
-  ) {
+    AdminUsersViewmodel viewmodel, {
+    required bool isAdmin,
+  }) {
     return showDialog<void>(
       context: context,
-      builder: (_) => _CreateAccountDialog(viewmodel: viewmodel),
+      builder: (_) =>
+          _CreateAccountDialog(viewmodel: viewmodel, isAdminViewer: isAdmin),
     );
   }
 
@@ -338,84 +342,170 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
     );
   }
 
-  /// Role change. Offers GROUP names (what `assign_role` takes); the current
-  /// group preselects only when it is itself assignable.
+  /// Role change. Offers role CODES (what `assign_role` takes, and what the
+  /// wire carries); the current roles preselect, minus any the viewer may not
+  /// grant. Every offered role is one the server would accept from this viewer:
+  /// a manager is never shown `admin`.
   Future<void> _openRoleDialog(
     BuildContext context,
     AdminUsersViewmodel viewmodel,
     User user, {
     required bool isAdmin,
   }) {
-    final groups = AdminUsersViewmodel.assignableGroups(isAdmin: isAdmin);
+    final roles = AdminUsersViewmodel.assignableRoles(isAdmin: isAdmin);
     return showDialog<void>(
       context: context,
-      builder: (_) =>
-          _ChangeRoleDialog(viewmodel: viewmodel, user: user, groups: groups),
+      builder: (_) => _ChangeRoleDialog(
+        viewmodel: viewmodel,
+        user: user,
+        roles: roles,
+        isAdminViewer: isAdmin,
+      ),
     );
   }
 }
 
-/// Role picker. Sends the GROUP name; the list never contains admin groups
-/// for non-admin callers (the server would 403 them anyway).
+/// The multi-select role picker both dialogs share.
+///
+/// Keyed by CODE and labelled by the server's word for it, so the chip a person
+/// taps and the code on the wire cannot drift apart.
+class _RoleChips extends StatelessWidget {
+  const _RoleChips({
+    required this.roles,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final Map<String, String> roles;
+  final Set<String> selected;
+  final ValueChanged<Set<String>> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.sm,
+      children: [
+        for (final entry in roles.entries)
+          FilterChip(
+            label: Text(entry.value),
+            selected: selected.contains(entry.key),
+            // The house FilterBar chip, in the same words `chipTheme` cannot
+            // say: a Material chip paints its label with `labelStyle` whether
+            // or not it is selected (Flutter 3.47), so the theme's black
+            // `selectedColor` gave a black pill with a black-on-black label.
+            // Gold tint, dark gold ink, and the fill/border the bar uses.
+            backgroundColor: AppColors.cardBackground,
+            selectedColor: AppColors.selected,
+            checkmarkColor: AppColors.brandGoldText,
+            side: BorderSide(
+              color: selected.contains(entry.key)
+                  ? AppColors.brandGold
+                  : AppColors.border,
+            ),
+            labelStyle: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: selected.contains(entry.key)
+                  ? AppColors.brandGoldText
+                  : AppColors.textPrimary,
+            ),
+            onSelected: (on) {
+              final next = {...selected};
+              if (on) {
+                next.add(entry.key);
+              } else {
+                next.remove(entry.key);
+              }
+              onChanged(next);
+            },
+          ),
+      ],
+    );
+  }
+}
+
+/// Role picker. Sends the whole CODE list (`roles[]` is a full replacement);
+/// the admin code is never offered to a non-admin caller (the server would 403
+/// it anyway, and a manager must not grant it through a mixed list).
 class _ChangeRoleDialog extends StatefulWidget {
   const _ChangeRoleDialog({
     required this.viewmodel,
     required this.user,
-    required this.groups,
+    required this.roles,
+    required this.isAdminViewer,
   });
 
   final AdminUsersViewmodel viewmodel;
   final User user;
-  final List<String> groups;
+  final Map<String, String> roles;
+  final bool isAdminViewer;
 
   @override
   State<_ChangeRoleDialog> createState() => _ChangeRoleDialogState();
 }
 
 class _ChangeRoleDialogState extends State<_ChangeRoleDialog> {
-  late String _group;
+  late Set<String> _selected;
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    _group = widget.groups.contains(widget.user.roleLabel)
-        ? widget.user.roleLabel
-        : widget.groups.first;
+    // Current roles preselect, limited to what this viewer may grant. An empty
+    // result (a role-less account, or roles the viewer may not assign) starts
+    // with nothing chosen rather than guessing on the person's behalf.
+    _selected = {
+      for (final code in widget.user.areaCodes)
+        if (widget.roles.containsKey(code)) code,
+    };
   }
 
   @override
   Widget build(BuildContext context) {
+    final canSave = _selected.isNotEmpty && !_saving;
     return AlertDialog(
-      title: Text('Change role for ${widget.user.fullName}?'),
-      content: DropdownButtonFormField<String>(
-        initialValue: _group,
-        isExpanded: true,
-        decoration: const InputDecoration(labelText: 'Group'),
-        items: [
-          for (final group in widget.groups)
-            DropdownMenuItem(
-              value: group,
-              child: Text(group, overflow: TextOverflow.ellipsis),
+      title: Text('Change roles for ${widget.user.fullName}?'),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Roles replace what the account has now. A role left out is '
+              'removed.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
             ),
-        ],
-        onChanged: (value) {
-          if (value != null) setState(() => _group = value);
-        },
+            const SizedBox(height: AppSpacing.md),
+            _RoleChips(
+              roles: widget.roles,
+              selected: _selected,
+              onChanged: (next) => setState(() => _selected = next),
+            ),
+            if (_selected.isEmpty) ...[
+              const SizedBox(height: AppSpacing.sm),
+              const Text('Choose at least one role.'),
+            ],
+          ],
+        ),
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
         TextButton(
-          onPressed: _saving
+          onPressed: !canSave
               ? null
               : () async {
                   setState(() => _saving = true);
-                  final ok = await widget.viewmodel.assignRole(
+                  final ok = await widget.viewmodel.assignRoles(
                     widget.user,
-                    groupName: _group,
+                    roleCodes: _selected.toList(),
+                    isAdminViewer: widget.isAdminViewer,
                   );
                   if (!context.mounted) return;
                   Navigator.of(context).pop();
@@ -424,29 +514,36 @@ class _ChangeRoleDialogState extends State<_ChangeRoleDialog> {
                       SnackBar(
                         content: Text(
                           widget.viewmodel.actionError ??
-                              'The role could not be changed.',
+                              'The roles could not be changed.',
                         ),
                       ),
                     );
                   }
                 },
-          child: const Text('Change role'),
+          child: const Text('Save roles'),
         ),
       ],
     );
   }
 }
 
-/// Account creation. The group is mandatory: the register endpoint rejects a
-/// groupless account. (An account can still LOSE its group later — the list
-/// shows those as "No role"; see [User.noRoleLabel].)
+/// Account creation. At least one role is mandatory: the register endpoint
+/// rejects an account with no role, and the payload carries `roles[]` only.
+/// (An account can still LOSE its roles later — the list shows those as
+/// "No role"; see [User.noRoleLabel].)
 ///
 /// On a window of 700 px or more the four fields sit in two columns, so the
 /// dialog is one screenful tall instead of two.
 class _CreateAccountDialog extends StatefulWidget {
-  const _CreateAccountDialog({required this.viewmodel});
+  const _CreateAccountDialog({
+    required this.viewmodel,
+    required this.isAdminViewer,
+  });
 
   final AdminUsersViewmodel viewmodel;
+
+  /// Admins may hand out Admin; nobody else is offered it.
+  final bool isAdminViewer;
 
   @override
   State<_CreateAccountDialog> createState() => _CreateAccountDialogState();
@@ -457,11 +554,9 @@ class _CreateAccountDialogState extends State<_CreateAccountDialog> {
   final _email = TextEditingController();
   final _fullName = TextEditingController();
   final _password = TextEditingController();
-  String _group = 'Cashier';
+  Set<String> _roleCodes = const {'pos'};
   String? _error;
   bool _saving = false;
-
-  static const _groups = ['Admin', 'Stock Manager', 'Cashier', 'Store Manager'];
 
   @override
   void dispose() {
@@ -482,7 +577,8 @@ class _CreateAccountDialogState extends State<_CreateAccountDialog> {
       email: _email.text,
       fullName: _fullName.text,
       password: _password.text,
-      groupName: _group,
+      roleCodes: _roleCodes.toList(),
+      isAdminViewer: widget.isAdminViewer,
     );
     if (!mounted) return;
     setState(() => _saving = false);
@@ -522,17 +618,15 @@ class _CreateAccountDialogState extends State<_CreateAccountDialog> {
         decoration: const InputDecoration(labelText: 'Password'),
         obscureText: true,
       ),
-      DropdownButtonFormField<String>(
-        isExpanded: true,
-        initialValue: _group,
-        decoration: const InputDecoration(labelText: 'Role'),
-        items: [
-          for (final group in _groups)
-            DropdownMenuItem(value: group, child: Text(group)),
-        ],
-        onChanged: (value) {
-          if (value != null) setState(() => _group = value);
-        },
+      // Multi-select: an account may hold several areas (Phase 4 F3b). The
+      // chips are keyed by code, so the label on screen and the code on the
+      // wire cannot drift apart.
+      _RoleChips(
+        roles: AdminUsersViewmodel.assignableRoles(
+          isAdmin: widget.isAdminViewer,
+        ),
+        selected: _roleCodes,
+        onChanged: (next) => setState(() => _roleCodes = next),
       ),
     ];
 

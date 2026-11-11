@@ -6,6 +6,9 @@ import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/held_cart.dart';
 import 'package:client/data/models/pos_transaction.dart';
+import 'package:client/data/models/sale_discount.dart';
+import 'package:client/data/models/store_settings.dart';
+import 'package:client/features/admin/viewmodels/store_settings_viewmodel.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
@@ -16,11 +19,13 @@ import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_opening_float_form.dart';
 import 'package:client/features/pos/widgets/pos_shift_close_dialog.dart';
 import 'package:client/features/pos/widgets/pos_customer_picker_dialog.dart';
+import 'package:client/features/pos/widgets/pos_discount_approval_dialog.dart';
 import 'package:client/features/pos/widgets/pos_payment_dialog.dart';
 import 'package:client/features/pos/widgets/pos_underpayment_dialog.dart';
 import 'package:client/features/pos/widgets/pos_product_browser.dart';
 import 'package:client/features/pos/widgets/pos_receipt_dialog.dart';
 import 'package:client/features/pos/widgets/pos_sale_quantity_dialog.dart';
+import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/pos/widgets/pos_cart_bar.dart';
 import 'package:client/features/pos/widgets/pos_transaction_cart.dart';
 import 'package:client/features/sales/widgets/live_load_error_banner.dart';
@@ -105,7 +110,27 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
       context.read<InventoryViewmodel>().load();
       _shiftViewmodel.loadCurrent();
       _resumePendingCart();
+      _loadStoreSettings();
     });
+  }
+
+  /// Reads the store's VAT rate and discount cap on till entry.
+  ///
+  /// The till must not depend on an Admin having opened Settings on this device
+  /// first: without them the cap falls back to the server default and the VAT line
+  /// prints no rate. A failed load is SAID OUT LOUD rather than silently defaulted,
+  /// because a cashier giving a discount against the wrong cap is a real refund.
+  Future<void> _loadStoreSettings() async {
+    final settings = context.read<StoreSettingsViewmodel?>();
+    if (settings == null) return;
+    if (!settings.hasLoaded) await settings.load();
+    if (!mounted) return;
+    final failure = settings.loadError;
+    if (failure != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Store settings: $failure')),
+      );
+    }
   }
 
   /// Picks up a basket the held-transactions tab handed over, if any.
@@ -611,26 +636,51 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
       _restoreScannerFocus();
       return;
     }
+    // The Admin's cap and the VAT rate come from the app-scoped settings, so the till
+    // applies the same rules the Admin saved (Phase 4 F4). A till without the provider
+    // (a widget test) falls back to the server's own defaults rather than blocking.
+    final storeSettings = context.read<StoreSettingsViewmodel?>();
+    final capPercent =
+        storeSettings?.discountCapPercent ??
+        StoreSettings.defaultDiscountCapPercent;
+    final vatRate = storeSettings?.vatRate ?? StoreSettings.defaultVatRate;
+
     final payment = await showDialog<PosPaymentDetails>(
       context: context,
-      builder: (_) => PosPaymentDialog(total: transaction.total),
+      builder: (_) => PosPaymentDialog(
+        total: transaction.total,
+        discountCapPercent: capPercent,
+        // A pending cheque is owed by a NAMED customer; the seeded walk-in record
+        // owes nobody, so the dialog refuses the cheque before the round trip.
+        customerIsNamed: !transaction.isAnonymousSelection,
+      ),
     );
     if (payment == null || !context.mounted) {
       _restoreScannerFocus();
       return;
     }
 
+    // What the customer actually owes: the gross less the discount the dialog took.
+    // The server recomputes both from its own prices, so this is only what the till
+    // compares the tender against (and what an utang is measured from).
+    final due = PosDiscountAmounts.forDiscount(
+      transaction.total,
+      payment.discount,
+    ).net;
+
     // Decision 06 section 4, extended by decision 14. An underpaid sale posts a receivable,
     // so it is confirmed BEFORE anything is submitted - and an ANONYMOUS one cannot post at
     // all (the server answers WALK_IN_CANNOT_OWE), so the cashier is given a route out rather
     // than a dead end. Nothing is submitted on any path out of here except the two that
     // explicitly say so.
-    if (payment.amountPaid < transaction.total) {
+    // A pending cheque is not money (decision 18): only what the drawer took can
+    // pay the sale, so the utang check reads `paidNow`, never the tendered total.
+    if (payment.paidNow < due) {
       final choice = await showDialog<PosUnderpaymentChoice>(
         context: context,
         builder: (_) => PosUnderpaymentDialog(
-          total: transaction.total,
-          amountPaid: payment.amountPaid,
+          total: due,
+          amountPaid: payment.paidNow,
           customerName: transaction.customerLabel,
           isAnonymous: transaction.isAnonymousSelection,
         ),
@@ -657,10 +707,54 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
 
     final messenger = ScaffoldMessenger.of(context);
     final heldCarts = context.read<HeldCartViewmodel>();
-    final confirmed = await transaction.submit(
-      method: payment.method,
-      amountPaid: payment.amountPaid,
+    final tenders = [
+      for (final tender in payment.tenders)
+        PosCheckoutPayment(
+          method: tender.method.code,
+          amountTendered: tender.amount,
+          referenceNo: tender.reference,
+          chequeNumber: tender.chequeNumber,
+          bank: tender.bank,
+          chequeDate: tender.chequeDate,
+        ),
+    ];
+    var confirmed = await transaction.submit(
+      tenders: tenders,
+      discount: payment.discount,
+      discountApprovalToken: payment.discountApprovalToken,
+      vatRate: vatRate,
     );
+
+    // A refused or already-spent approval is the one submit failure the cashier can
+    // fix on the spot: ask the manager again and resend the SAME sale once. Every
+    // other refusal keeps the cart and lets them correct it (decision 06 section 3).
+    if (!confirmed &&
+        transaction.submitErrorCode == 'DISCOUNT_APPROVAL_INVALID' &&
+        payment.discount != null) {
+      if (!context.mounted) return;
+      final asked = PosDiscountAmounts.forDiscount(
+        transaction.total,
+        payment.discount,
+      );
+      final token = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => PosDiscountApprovalDialog(
+          percent: asked.percentOfGross,
+          reason: payment.discount!.reason,
+        ),
+      );
+      if (!context.mounted) return;
+      if (token != null) {
+        confirmed = await transaction.submit(
+          tenders: tenders,
+          discount: payment.discount,
+          discountApprovalToken: token,
+          vatRate: vatRate,
+        );
+        if (!context.mounted) return;
+      }
+    }
     if (!context.mounted) return;
 
     if (!confirmed) {

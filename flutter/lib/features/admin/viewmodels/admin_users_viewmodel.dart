@@ -35,26 +35,32 @@ class AdminUsersViewmodel extends ChangeNotifier {
   /// leaves a stale banner under a loaded table.
   String? get actionError => _actionError;
 
-  /// Groups the role picker may offer. Managers get the working groups;
-  /// the Admin groups stay an admin-only offer (the server refuses them to
-  /// anyone else with 403 `USER_ADMIN_FORBIDDEN` anyway).
+  /// Role codes the role picker may offer, code -> label.
   ///
-  /// Compare by GROUP name (what `assign_role` takes), never by display
-  /// label or client role code — the Phase 4 Resolve outage was a test that
-  /// used a label where the wire carries a code.
+  /// The wire takes CODES (`roles: ['pos', 'sales']`), so this map is keyed by
+  /// code and the label is only what the chip shows. Managers get the working
+  /// areas; `admin` stays an admin-only offer (the server refuses it to anyone
+  /// else with 403 `USER_ADMIN_FORBIDDEN` anyway, and a manager must not be able
+  /// to grant, remove or edit through a mixed list either).
   /// `Site Foreman` is deliberately ABSENT (decision 01): it was a CPMS
-  /// identity with no POS screen, and the group no longer exists server-side,
-  /// so offering it here would create an account that cannot be used.
-  static List<String> assignableGroups({required bool isAdmin}) => [
-    'Cashier',
-    'Stock Manager',
-    'Store Manager',
-    if (isAdmin) ...['Admin', 'System Administrator'],
-  ];
+  /// identity with no POS screen, and the group no longer exists server-side.
+  static Map<String, String> assignableRoles({required bool isAdmin}) => {
+    'pos': 'Cashier',
+    'inventory': 'Stock Manager',
+    'sales': 'Store Manager',
+    if (isAdmin) 'admin': 'Admin',
+  };
+
+  /// The code that may not be handed to a manager, so the guard reads one home.
+  static const String adminRoleCode = 'admin';
+
+  /// True when [codes] would change admin authority.
+  static bool touchesAdmin(Iterable<String> codes) =>
+      codes.contains(adminRoleCode);
 
   List<User> get users => List.unmodifiable(
     _rows.where((user) {
-      if (_roleFilter != null && user.roleLabel != _roleFilter) {
+      if (_roleFilter != null && !user.roleLabels.contains(_roleFilter)) {
         return false;
       }
       if (_activeFilter != null && user.isActive != _activeFilter) {
@@ -68,12 +74,14 @@ class AdminUsersViewmodel extends ChangeNotifier {
   String? get roleFilter => _roleFilter;
   bool? get activeFilter => _activeFilter;
 
-  /// Distinct role names present in the loaded rows, for the filter control.
+  /// Every role label present in the loaded rows, one entry per role.
+  ///
   /// No invented roles: the control can only offer what the server sent —
   /// which includes [User.noRoleLabel], because a groupless account is a real
-  /// row and filtering to it is how an admin finds one to fix.
+  /// row and filtering to it is how an admin finds one to fix. An account with
+  /// several roles therefore appears under each of them.
   List<String> get availableRoles =>
-      {for (final user in _rows) user.roleLabel}.toList()..sort();
+      {for (final user in _rows) ...user.roleLabels}.toList()..sort();
   UserStats? get stats => _stats;
   bool get isLoading => _isLoading;
   String? get loadError => _loadError;
@@ -145,15 +153,32 @@ class AdminUsersViewmodel extends ChangeNotifier {
     }
   }
 
-  /// Replaces [user]'s group, then reloads so the row comes from the server.
+  /// Replaces [user]'s roles, then reloads so the row comes from the server.
   ///
-  /// Membership is replaced, so assigning a non-admin group demotes. Like
-  /// [setActive], a refusal keeps the rows and names itself in [actionError].
-  Future<bool> assignRole(User user, {required String groupName}) async {
+  /// `roles[]` is a FULL replacement: a code left out is a code removed, so the
+  /// dialog always sends the whole list. A manager may not send `admin` (not
+  /// even beside other codes), and an admin refusal keeps the rows and names
+  /// itself in [actionError] — the server sentence for `LAST_ADMIN` and
+  /// `USER_ADMIN_FORBIDDEN` included.
+  Future<bool> assignRoles(
+    User user, {
+    required List<String> roleCodes,
+    required bool isAdminViewer,
+  }) async {
     _actionError = null;
+    if (roleCodes.isEmpty) {
+      _actionError = 'Choose at least one role.';
+      notifyListeners();
+      return false;
+    }
+    if (!isAdminViewer && touchesAdmin(roleCodes)) {
+      _actionError = 'Only an Admin may grant Admin authority.';
+      notifyListeners();
+      return false;
+    }
     notifyListeners();
     try {
-      await _users.assignRole(id: user.id, groupName: groupName);
+      await _users.assignRoles(id: user.id, roles: roleCodes);
       await load();
       return _loadError == null;
     } on UsersServiceException catch (error) {
@@ -172,14 +197,17 @@ class AdminUsersViewmodel extends ChangeNotifier {
   /// Creates an account, then reloads so the new row comes from the server.
   ///
   /// Returns false without touching the server when the input is invalid:
-  /// the register endpoint demands a password of at least 8 characters and
-  /// a group, and a round trip to learn that would be waste.
+  /// the register endpoint demands a password of at least 8 characters and at
+  /// least one role, and a round trip to learn that would be waste. The payload
+  /// carries `roles[]` only: sending a legacy `group_name` beside it is refused
+  /// with 400 `ROLES_CONFLICT`.
   Future<bool> create({
     required String username,
     required String email,
     required String fullName,
     required String password,
-    required String groupName,
+    required List<String> roleCodes,
+    required bool isAdminViewer,
   }) async {
     if (username.trim().isEmpty ||
         email.trim().isEmpty ||
@@ -193,6 +221,16 @@ class AdminUsersViewmodel extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+    if (roleCodes.isEmpty) {
+      _createError = 'Choose at least one role.';
+      notifyListeners();
+      return false;
+    }
+    if (!isAdminViewer && touchesAdmin(roleCodes)) {
+      _createError = 'Only an Admin may grant Admin authority.';
+      notifyListeners();
+      return false;
+    }
     _createError = null;
     try {
       await _users.createUser(
@@ -200,7 +238,7 @@ class AdminUsersViewmodel extends ChangeNotifier {
         email: email.trim(),
         fullName: fullName.trim(),
         password: password,
-        groupName: groupName,
+        roles: roleCodes,
       );
       await load();
       return _loadError == null;

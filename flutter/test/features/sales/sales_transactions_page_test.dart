@@ -77,9 +77,12 @@ void main() {
     );
   });
 
-  // FX4 (wave-1 review I4): the list sits in a bounded slot, so the panel
-  // builds the rows on screen instead of all 2,000 the service can load.
-  testWidgets('a 2,000 row list builds only what is on screen', (tester) async {
+  // FX4 (wave-1 review I4) + F1 (Phase 4): the list sits in a bounded slot and
+  // the shared panel pages it 25 rows at a time, so no 2,000 row layout is ever
+  // built and the oldest sale is reached by paging, not by one endless scroll.
+  testWidgets('a 2,000 row list pages, one page of rows at a time', (
+    tester,
+  ) async {
     await pump(tester, viewmodel: _manyRows());
 
     final built = _builtRows(tester);
@@ -88,21 +91,24 @@ void main() {
       lessThan(100),
       reason: 'eager layout would build all 2,000 cards and rows',
     );
-
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('TRX-002000')),
-      1000,
-      maxScrolls: 400,
-      scrollable: find.descendant(
-        of: find.byKey(const ValueKey('DataPanel.table')),
-        matching: find.byType(Scrollable),
-      ),
-    );
+    expect(find.text('1 to 25 of 2,000'), findsOneWidget);
+    expect(find.byKey(const ValueKey('TRX-000001')), findsOneWidget);
     expect(
-      find.byKey(const ValueKey('TRX-002000')),
-      findsOneWidget,
-      reason: 'the last row is reachable by scrolling',
+      find.byKey(const ValueKey('TRX-000026')),
+      findsNothing,
+      reason: 'the 26th sale waits on page 2',
     );
+
+    await tester.tap(find.byTooltip('Next page'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('26 to 50 of 2,000'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('TRX-000026')),
+      findsOneWidget,
+      reason: 'the next page starts where the last one stopped',
+    );
+    expect(tester.takeException(), isNull);
   });
 
   for (final size in const [

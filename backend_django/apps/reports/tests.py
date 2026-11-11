@@ -1,4 +1,4 @@
-# pyright: reportAttributeAccessIssue=false, reportArgumentType=false
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportMissingImports=false
 #
 # Same directive and reason as apps/pos/tests.py: the checker runs with a working directory
 # outside the repo, so no pyrightconfig is found and every `Model.objects` access reads as a
@@ -16,16 +16,19 @@ Task 10 (decisions 06 and 08). Two things this report used to get wrong by omiss
     `null` when nobody approved instead of an empty string.
 """
 
+from decimal import Decimal
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.test import TestCase
 
-from apps.pos.models import Customer
+from apps.pos.models import Customer, SalesTransaction
 from apps.requisitions.models import Project, Requisition
 
 User = get_user_model()
 
 HISTORY_URL = '/api/v1/reports/requisition-history/'
+SALES_SUMMARY_URL = '/api/v1/reports/sales-summary/'
 LOGIN_URL = '/api/v1/auth/login/'
 PASSWORD = 'reports-pass-12345'  # noqa: S105 # nosemgrep: python.lang.security.audit.hardcoded-password
 # A throwaway login for a per-run test database: nothing outside the test run can use it.
@@ -162,3 +165,53 @@ class RequisitionHistoryTests(TestCase):
         self.assertEqual(body['status_filter'], 'WAITING')
         self.assertEqual(
             [row['req_number'] for row in body['requisitions']], ['REQ-W-3'])
+
+
+class SalesSummaryDiscountTests(TestCase):
+    """Phase 4 task B1 (decision 18): discounts come BACK to the sales report.
+
+    D12 had removed the Discounts row; decision 18 supersedes it, because a discount is
+    money the shop chose not to take and a report that hides it makes the day's takings
+    look like a pricing error. The totals also carry the VAT the sale charged, so the
+    report agrees with the receipt.
+    """
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username='summarymanager', email='sm@x.com', password=PASSWORD,
+            full_name='Maria Santos')
+        self.manager.groups.add(Group.objects.get_or_create(name='Store Manager')[0])
+        self.cashier = User.objects.create_user(
+            username='summarycashier', email='sc@x.com', password=PASSWORD,
+            full_name='Cashy Ir')
+        self.customer = Customer.objects.create(name='Juan Dela Cruz')
+        login = self.client.post(
+            LOGIN_URL,
+            {'username': 'summarymanager', 'password': PASSWORD},
+            content_type='application/json')
+        self.assertEqual(login.status_code, 200)
+        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {login.json()["access"]}'}
+
+    def _sale(self, *, grand_total, discount, vatable, vat):
+        return SalesTransaction.objects.create(
+            customer=self.customer, cashier=self.cashier,
+            transaction_no=f'TRX-TEST-{grand_total}-{discount}',
+            grand_total=Decimal(grand_total), discount_amount=Decimal(discount),
+            vatable_sales=Decimal(vatable), vat_amount=Decimal(vat),
+        )
+
+    def test_the_totals_carry_discounts_vatable_sales_and_vat(self):
+        self._sale(grand_total='18.00', discount='2.00', vatable='16.07', vat='1.93')
+        self._sale(grand_total='20.00', discount='0.00', vatable='17.86', vat='2.14')
+
+        response = self.client.get(
+            SALES_SUMMARY_URL, **self.auth)  # pyright: ignore[reportArgumentType]
+
+        self.assertEqual(response.status_code, 200, response.content)
+        totals = response.json()['totals']
+        self.assertEqual(Decimal(str(totals['discounts'])), Decimal('2.00'))
+        self.assertEqual(Decimal(str(totals['vatable_sales'])), Decimal('33.93'))
+        self.assertEqual(Decimal(str(totals['vat'])), Decimal('4.07'))
+        self.assertEqual(Decimal(str(totals['gross_sales'])), Decimal('38.00'))
+        by_day = response.json()['by_day']
+        self.assertEqual(Decimal(str(by_day[0]['discounts'])), Decimal('2.00'))

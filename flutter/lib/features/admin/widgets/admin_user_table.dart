@@ -64,8 +64,11 @@ class AdminUserTable extends StatelessWidget {
 
   /// An account the server counts as admin: one 'admin' role CODE, which
   /// `serializers.py` sends for both the Admin and System Administrator groups.
-  /// Compare the CODE, never the display label (Phase 4 lesson).
-  static bool _isAdminAccount(User user) => user.role?.name == 'admin';
+  /// Compare the CODE, never the display label (Phase 4 lesson), and check
+  /// EVERY assigned role: an account holding Admin beside Cashier is admin-bound
+  /// too, so a manager must not be offered a write on it.
+  static bool _isAdminAccount(User user) =>
+      user.assignedRoles.any((role) => role.code == 'admin');
 
   /// Only an admin may act on an admin account. Phase 5 rules the server owns
   /// still apply on top (LAST_ADMIN, self-approval); this only stops the client
@@ -172,11 +175,11 @@ class AdminUserTable extends StatelessWidget {
 /// the working groups share the neutral pill. A groupless account keeps the
 /// warning tone: it is the one state somebody has to fix.
 StatusTone _roleTone(User user) {
-  final role = user.role;
-  if (role == null) return StatusTone.warning;
-  return switch (role.displayName) {
-    'Admin' || 'System Administrator' => StatusTone.info,
-    'Store Manager' || 'Stock Manager' => StatusTone.success,
+  if (user.assignedRoles.isEmpty) return StatusTone.warning;
+  // Widest first is how `roles[]` arrives, so the first code decides the tone.
+  return switch (user.assignedRoles.first.code) {
+    'admin' => StatusTone.info,
+    'sales' || 'inventory' => StatusTone.success,
     _ => StatusTone.neutral,
   };
 }

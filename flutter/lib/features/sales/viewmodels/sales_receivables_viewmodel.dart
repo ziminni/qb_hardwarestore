@@ -1,5 +1,7 @@
+import 'package:client/data/models/cheque.dart';
 import 'package:client/data/models/ledger_entry.dart';
 import 'package:client/data/repositories/ledger_repository.dart';
+import 'package:client/data/services/cheque_service.dart';
 import 'package:client/data/services/ledger_service.dart';
 import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/foundation.dart';
@@ -10,10 +12,15 @@ import 'package:flutter/foundation.dart';
 /// decision 11's ruling for `PosTransactionViewmodel` and `ProductsViewmodel` - a viewmodel
 /// that lives as long as one screen should not outlive it.
 class SalesReceivablesViewmodel extends ChangeNotifier {
-  SalesReceivablesViewmodel({LedgerRepository? repository})
-    : _repository = repository ?? LedgerRepository();
+  SalesReceivablesViewmodel({LedgerRepository? repository, ChequeService? cheques})
+    : _repository = repository ?? LedgerRepository(),
+      _cheques = cheques ?? ChequeService();
 
   final LedgerRepository _repository;
+
+  /// The cheque half of the utang dialog (F5): a cheque is recorded through this
+  /// service because it answers with a pending CHEQUE row, not a payment.
+  final ChequeService _cheques;
 
   List<LedgerEntry> _entries = const [];
   bool _isLoading = false;
@@ -112,6 +119,60 @@ class SalesReceivablesViewmodel extends ChangeNotifier {
     } on LedgerServiceException catch (error) {
       _payError = error.message;
       return false;
+    } finally {
+      _payingIds.remove(entry.id);
+      notifyListeners();
+    }
+  }
+
+  /// Records a CHEQUE against [entry], which does NOT pay the debt yet.
+  ///
+  /// The server writes a PENDING cheque and leaves `balance_due` alone (decision
+  /// 18: a cheque is not money until the bank honours it), so the rows are NOT
+  /// reloaded here - there is nothing to refresh, and a cashier who saw a balance
+  /// drop would believe the shop had been paid. Returns the cheque row, or null
+  /// when nothing was recorded; [payError] then says why.
+  Future<Cheque?> recordChequePayment({
+    required LedgerEntry entry,
+    required double amount,
+    required String chequeNumber,
+    required String bank,
+    required DateTime chequeDate,
+  }) async {
+    if (_payingIds.contains(entry.id)) return null;
+    if (amount <= 0) {
+      _payError = 'Enter an amount greater than zero.';
+      notifyListeners();
+      return null;
+    }
+    if (amount > entry.balanceDue) {
+      _payError =
+          'That payment is more than the ${entry.balanceDue.toStringAsFixed(2)} still owed.';
+      notifyListeners();
+      return null;
+    }
+    if (chequeNumber.trim().isEmpty || bank.trim().isEmpty) {
+      // The server refuses this with CHEQUE_DETAILS_REQUIRED; refusing it here
+      // too means the cashier is not sent on a round trip to learn it.
+      _payError =
+          'A cheque needs its number, bank and date. Fill all three in before recording it.';
+      notifyListeners();
+      return null;
+    }
+    _payingIds.add(entry.id);
+    _payError = null;
+    notifyListeners();
+    try {
+      return await _cheques.recordChequeAgainstLedger(
+        collectibleId: entry.id,
+        amount: amount,
+        chequeNumber: chequeNumber,
+        bank: bank,
+        chequeDate: chequeDate,
+      );
+    } on ChequeServiceException catch (error) {
+      _payError = error.message;
+      return null;
     } finally {
       _payingIds.remove(entry.id);
       notifyListeners();

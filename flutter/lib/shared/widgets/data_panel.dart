@@ -57,10 +57,16 @@ class DataPanelColumn<T> {
 /// height of its own and lays every row out at once: that is the right choice
 /// for a short list, and a nested scroll view for a long one.
 ///
+/// More rows than [pageSize] are paged, not scrolled into: the panel lays out
+/// one page at a time and puts "1 to 25 of 340" with Previous and Next under
+/// it. Paging is client side, on the rows the caller already filtered, so a list
+/// of 25 or fewer looks exactly as it did before the pager existed. A caller
+/// that pages on the server passes [paginate] false.
+///
 /// The empty and error states never take the slot: in a bounded slot they sit at
 /// the top of it at their own height, so a failed read is one banner and an
 /// empty list is one small card, not a full-height pink block or a white void.
-class DataPanel<T> extends StatelessWidget {
+class DataPanel<T> extends StatefulWidget {
   const DataPanel({
     super.key,
     required this.columns,
@@ -74,10 +80,15 @@ class DataPanel<T> extends StatelessWidget {
     this.controller,
     this.title,
     this.count,
-  });
+    this.pageSize = defaultPageSize,
+    this.paginate = true,
+  }) : assert(pageSize >= 1, 'a page holds at least one row');
 
   /// Below this content width the table becomes cards.
   static const double cardBreakpoint = 720;
+
+  /// Rows per page when [paginate] is on.
+  static const int defaultPageSize = 25;
 
   static const double _minTextWidth = 140;
   static const double _minNumericWidth = 110;
@@ -123,41 +134,194 @@ class DataPanel<T> extends StatelessWidget {
   /// existed, which is why the callers that do not want a heading never change.
   final String? title;
 
-  /// Number of rows shown after filtering or pagination, read out in words
-  /// ("12 rows shown"). Pass `rows.length`, not the server's unfiltered total.
+  /// Number of rows after filtering, read out in words ("12 rows shown"). Pass
+  /// `rows.length`, not the server's unfiltered total.
+  ///
+  /// Paging happens after this: the pill counts every row that matches the
+  /// filter, while the pager under the rows shows one page of them. It never
+  /// means "rows on this page".
   final int? count;
+
+  /// Rows per page. A list longer than this gets a pager under the rows.
+  final int pageSize;
+
+  /// False renders every row in one list with no pager, for a caller that
+  /// already slices its own rows.
+  final bool paginate;
+
+  @override
+  State<DataPanel<T>> createState() => _DataPanelState<T>();
+}
+
+class _DataPanelState<T> extends State<DataPanel<T>> {
+  int _page = 1;
+
+  /// The panel's own scroll position, made only when the caller handed none.
+  ScrollController? _ownController;
+
+  int get _pageCount {
+    final total = widget.rows.length;
+    if (total == 0) return 1;
+    return (total + widget.pageSize - 1) ~/ widget.pageSize;
+  }
+
+  /// Paging is off for a list that fits on one page: a 12 row list gets the
+  /// panel it always had, not a disabled pair of buttons.
+  bool get _paged => widget.paginate && _pageCount > 1;
+
+  /// Where the current page starts in [DataPanel.rows], so a default row key
+  /// names the record, not the slot: row 26 of page 2 is keyed 26, as it is on
+  /// page 1 of a 200 row list.
+  int get _pageOffset => _paged ? (_page - 1) * widget.pageSize : 0;
+
+  /// The rows this panel lays out: the current page when paging is on. Every
+  /// layout below reads this, so the table, the cards and the "last row" border
+  /// all agree on where the slice ends.
+  List<T> get _rows {
+    if (!_paged) return widget.rows;
+    final start = (_page - 1) * widget.pageSize;
+    final end = math.min(start + widget.pageSize, widget.rows.length);
+    return widget.rows.sublist(start, end);
+  }
+
+  ScrollController? get _rowsController =>
+      widget.controller ?? (_ownController ??= ScrollController());
+
+  @override
+  void didUpdateWidget(DataPanel<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Another list is another list: a filter leaving 30 rows would strand the
+    // reader on a page that no longer exists, halfway through rows they never
+    // asked for.
+    if (widget.pageSize != oldWidget.pageSize ||
+        !_sameRows(oldWidget.rows, widget.rows)) {
+      _page = 1;
+    } else if (_page > _pageCount) {
+      _page = _pageCount;
+    }
+  }
+
+  /// Same list, row for row. A page that rebuilds and rebuilds a list of the
+  /// same records keeps the reader where they were; a filtered one does not.
+  bool _sameRows(List<T> before, List<T> after) {
+    if (identical(before, after)) return true;
+    if (before.length != after.length) return false;
+    for (var index = 0; index < before.length; index++) {
+      if (!identical(before[index], after[index])) return false;
+    }
+    return true;
+  }
+
+  @override
+  void dispose() {
+    _ownController?.dispose();
+    super.dispose();
+  }
+
+  void _goTo(int page) {
+    setState(() => _page = page);
+    // A new page is read from its first row, not from where the last one was
+    // scrolled to.
+    final controller = _ownController ?? widget.controller;
+    if (controller != null && controller.hasClients) controller.jumpTo(0);
+  }
 
   @override
   Widget build(BuildContext context) {
     final heading = _heading();
     final panel = _panel(context);
-    if (heading == null) return panel;
+    final footer = _footer();
+    if (heading == null && footer == null) return panel;
 
     // A page that gave the panel a slot of its own (an `Expanded`) hands down a
-    // bounded height: the heading takes its line and the panel keeps the rest,
-    // so the rows still scroll inside the panel. A page that scrolls itself
-    // hands down no bound; there the two stack at their own heights.
+    // bounded height: the heading takes its line, the pager its strip, and the
+    // panel keeps the rest, so the rows still scroll inside the panel. A page
+    // that scrolls itself hands down no bound; there the three stack at their
+    // own heights.
     return LayoutBuilder(
-      builder: (context, slot) => slot.maxHeight.isFinite
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                heading,
-                Expanded(child: panel),
-              ],
-            )
-          : Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [heading, panel],
+      builder: (context, slot) {
+        final bounded = slot.maxHeight.isFinite;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: bounded ? MainAxisSize.max : MainAxisSize.min,
+          children: [
+            ?heading,
+            if (bounded) Expanded(child: panel) else panel,
+            ?footer,
+          ],
+        );
+      },
+    );
+  }
+
+  /// The strip under the rows: which slice is on screen and the two buttons
+  /// that walk it. Null when the list fits on one page.
+  Widget? _footer() {
+    if (!_paged) return null;
+
+    final pages = _pageCount;
+    final start = (_page - 1) * widget.pageSize;
+    final end = math.min(start + widget.pageSize, widget.rows.length);
+
+    return Padding(
+      key: const ValueKey('DataPanel.pager'),
+      padding: const EdgeInsets.only(top: AppSpacing.md),
+      // A wrap, not a row: at a raised text scale on a narrow card the range
+      // and the buttons take a line each instead of overflowing.
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: AppSpacing.lg,
+        runSpacing: AppSpacing.sm,
+        children: [
+          Text(
+            '${formatCount(start + 1)} to ${formatCount(end)} '
+            'of ${formatCount(widget.rows.length)}',
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
             ),
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                key: const ValueKey('DataPanel.previous'),
+                tooltip: 'Previous page',
+                // Null disables the button and takes it out of the tab order,
+                // which is what the end of the list should feel like.
+                onPressed: _page > 1 ? () => _goTo(_page - 1) : null,
+                icon: const Icon(Icons.chevron_left),
+              ),
+              Semantics(
+                label: 'Page $_page of $pages',
+                child: ExcludeSemantics(
+                  child: Text(
+                    '$_page of $pages',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ),
+              ),
+              IconButton(
+                key: const ValueKey('DataPanel.next'),
+                tooltip: 'Next page',
+                onPressed: _page < pages ? () => _goTo(_page + 1) : null,
+                icon: const Icon(Icons.chevron_right),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
   /// The title and count pill, or null when the caller wants neither.
   Widget? _heading() {
-    if (title == null && count == null) return null;
-    final label = title;
+    if (widget.title == null && widget.count == null) return null;
+    final label = widget.title;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
@@ -183,7 +347,7 @@ class DataPanel<T> extends StatelessWidget {
                     ),
                   ),
           ),
-          if (count case final count?) _CountPill(count),
+          if (widget.count case final count?) _CountPill(count),
         ],
       ),
     );
@@ -193,7 +357,7 @@ class DataPanel<T> extends StatelessWidget {
     // Precedence is loading, then error, then empty, then data: a retry holds
     // the previous failure while the next attempt runs, and reporting "no
     // records" for a failed request is a lie the user cannot see through.
-    if (isLoading) {
+    if (widget.isLoading) {
       return const AppPanel(
         child: Center(
           child: Padding(
@@ -204,7 +368,7 @@ class DataPanel<T> extends StatelessWidget {
       );
     }
 
-    final failure = error;
+    final failure = widget.error;
     if (failure != null) {
       // Top aligned in a loose box: the slot (an `Expanded`) hands down a tight
       // height, and a banner stretched over it read as a full-page error. Align
@@ -212,17 +376,20 @@ class DataPanel<T> extends StatelessWidget {
       // still spans the width.
       return Align(
         alignment: Alignment.topCenter,
-        child: ErrorBanner(message: failure, onRetry: onRetry),
+        child: ErrorBanner(message: failure, onRetry: widget.onRetry),
       );
     }
 
-    if (rows.isEmpty) {
+    if (widget.rows.isEmpty) {
       // Same reason as the failure above: the card hugs its message at the top
       // of the slot instead of a white void with the icon halfway down it.
       return Align(
         alignment: Alignment.topCenter,
         child: AppPanel(
-          child: EmptyState(icon: Icons.inbox_outlined, message: emptyMessage),
+          child: EmptyState(
+            icon: Icons.inbox_outlined,
+            message: widget.emptyMessage,
+          ),
         ),
       );
     }
@@ -247,7 +414,7 @@ class DataPanel<T> extends StatelessWidget {
             height: bodyHeight,
             child: Material(
               type: MaterialType.transparency,
-              child: contentWidth >= cardBreakpoint
+              child: contentWidth >= DataPanel.cardBreakpoint
                   ? _table(context, contentWidth, scrolls)
                   : _cards(context, contentWidth, scrolls),
             ),
@@ -265,8 +432,8 @@ class DataPanel<T> extends StatelessWidget {
     if (scrolls) {
       return ListView.separated(
         key: const ValueKey('DataPanel.cards'),
-        controller: controller,
-        itemCount: rows.length,
+        controller: _rowsController,
+        itemCount: _rows.length,
         separatorBuilder: (context, index) => const SizedBox(height: 12),
         itemBuilder: (context, index) => _card(context, index),
       );
@@ -277,7 +444,7 @@ class DataPanel<T> extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (var index = 0; index < rows.length; index++) ...[
+        for (var index = 0; index < _rows.length; index++) ...[
           if (index > 0) const SizedBox(height: 12),
           _card(context, index),
         ],
@@ -286,9 +453,9 @@ class DataPanel<T> extends StatelessWidget {
   }
 
   Widget _card(BuildContext context, int index) {
-    final row = rows[index];
-    final title = columns.first;
-    final rest = columns.skip(1);
+    final row = _rows[index];
+    final title = widget.columns.first;
+    final rest = widget.columns.skip(1);
 
     final content = Container(
       padding: const EdgeInsets.all(14),
@@ -317,7 +484,7 @@ class DataPanel<T> extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 SizedBox(
-                  width: _cardLabelWidth,
+                  width: DataPanel._cardLabelWidth,
                   child: Text(
                     column.label,
                     maxLines: 1,
@@ -343,9 +510,15 @@ class DataPanel<T> extends StatelessWidget {
       ),
     );
 
-    final key = rowKey?.call(row) ?? ValueKey('DataPanel.card.$index');
-    if (onRowTap == null) return KeyedSubtree(key: key, child: content);
-    return InkWell(key: key, onTap: () => onRowTap!(row), child: content);
+    final key =
+        widget.rowKey?.call(row) ??
+        ValueKey('DataPanel.card.${_pageOffset + index}');
+    if (widget.onRowTap == null) return KeyedSubtree(key: key, child: content);
+    return InkWell(
+      key: key,
+      onTap: () => widget.onRowTap!(row),
+      child: content,
+    );
   }
 
   // --------------------------------------------------------------- table
@@ -353,10 +526,13 @@ class DataPanel<T> extends StatelessWidget {
   Widget _table(BuildContext context, double contentWidth, bool scrolls) {
     // The row can only be narrower than this if every column is squeezed below
     // its minimum, and then the table scrolls sideways rather than wrapping.
-    final minimumWidth = columns.fold<double>(
+    final minimumWidth = widget.columns.fold<double>(
       0,
       (sum, column) =>
-          sum + (column.numeric ? _minNumericWidth : _minTextWidth),
+          sum +
+          (column.numeric
+              ? DataPanel._minNumericWidth
+              : DataPanel._minTextWidth),
     );
     final width = math.max(minimumWidth, contentWidth);
 
@@ -373,13 +549,13 @@ class DataPanel<T> extends StatelessWidget {
           if (scrolls)
             Expanded(
               child: ListView.builder(
-                controller: controller,
-                itemCount: rows.length,
+                controller: _rowsController,
+                itemCount: _rows.length,
                 itemBuilder: (context, index) => _bodyRow(context, index),
               ),
             )
           else
-            for (var index = 0; index < rows.length; index++)
+            for (var index = 0; index < _rows.length; index++)
               _bodyRow(context, index),
         ],
       ),
@@ -402,7 +578,7 @@ class DataPanel<T> extends StatelessWidget {
         color: AppColors.tableHeader,
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
-      child: Row(children: columns.map(_headerCell).toList()),
+      child: Row(children: widget.columns.map(_headerCell).toList()),
     );
   }
 
@@ -410,7 +586,9 @@ class DataPanel<T> extends StatelessWidget {
     return Expanded(
       flex: _flex(column),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: _columnGutter),
+        padding: const EdgeInsets.symmetric(
+          horizontal: DataPanel._columnGutter,
+        ),
         child: Align(
           alignment: column.numeric
               ? Alignment.centerRight
@@ -436,22 +614,24 @@ class DataPanel<T> extends StatelessWidget {
   }
 
   Widget _bodyRow(BuildContext context, int index) {
-    final row = rows[index];
+    final row = _rows[index];
     final content = Container(
-      constraints: const BoxConstraints(minHeight: _rowMinHeight),
+      constraints: const BoxConstraints(minHeight: DataPanel._rowMinHeight),
       padding: const EdgeInsets.symmetric(vertical: 10),
-      decoration: index == rows.length - 1
+      decoration: index == _rows.length - 1
           ? null
           : const BoxDecoration(
               border: Border(bottom: BorderSide(color: AppColors.border)),
             ),
       child: Row(
         children: [
-          for (final column in columns)
+          for (final column in widget.columns)
             Expanded(
               flex: _flex(column),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: _columnGutter),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: DataPanel._columnGutter,
+                ),
                 child: Align(
                   alignment: column.numeric
                       ? Alignment.centerRight
@@ -464,9 +644,15 @@ class DataPanel<T> extends StatelessWidget {
       ),
     );
 
-    final key = rowKey?.call(row) ?? ValueKey('DataPanel.row.$index');
-    if (onRowTap == null) return KeyedSubtree(key: key, child: content);
-    return InkWell(key: key, onTap: () => onRowTap!(row), child: content);
+    final key =
+        widget.rowKey?.call(row) ??
+        ValueKey('DataPanel.row.${_pageOffset + index}');
+    if (widget.onRowTap == null) return KeyedSubtree(key: key, child: content);
+    return InkWell(
+      key: key,
+      onTap: () => widget.onRowTap!(row),
+      child: content,
+    );
   }
 
   Widget _cell(DataPanelColumn<T> column, T row) {

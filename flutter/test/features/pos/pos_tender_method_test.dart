@@ -26,6 +26,7 @@ import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/repositories/products_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/inventory_service.dart';
+import 'package:client/data/models/sale_discount.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/data/services/products_service.dart';
 import 'package:client/data/services/shift_service.dart';
@@ -56,6 +57,8 @@ class _RecordingPosRepository extends PosRepository {
     required List<PosCheckoutPayment> payments,
     String source = 'WALK_IN',
     String? idempotencyKey,
+    PosDiscount? discount,
+    String? discountApproval,
   }) async {
     calls++;
     sentPayments = payments;

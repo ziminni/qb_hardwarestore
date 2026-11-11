@@ -1,4 +1,4 @@
-# pyright: reportAttributeAccessIssue=false
+# pyright: reportAttributeAccessIssue=false, reportMissingImports=false
 #
 # Same directive and reason as apps/pos/models.py and apps/pos/services.py: the checker
 # resolves its config from its WORKING DIRECTORY, so no pyrightconfig.json is found, and
@@ -28,43 +28,170 @@ from .models import (
 class CustomerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Customer
-        fields = ['id','name','customer_type','contact_details','tin_no','total_credit_limit','is_active','created_at','updated_at']
-        read_only_fields = ['id','created_at','updated_at']
+        fields = [
+            "id",
+            "name",
+            "customer_type",
+            "contact_details",
+            "tin_no",
+            "total_credit_limit",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
 
 class PaymentSerializer(serializers.ModelSerializer):
+    decided_by_name = serializers.CharField(
+        source="decided_by.full_name", read_only=True, default=None
+    )
+
     class Meta:
         model = Payment
-        fields = ['id','transaction','method','amount_tendered','reference_no','timestamp']
-        read_only_fields = ['id','timestamp']
+        fields = [
+            "id",
+            "transaction",
+            "method",
+            "amount_tendered",
+            "reference_no",
+            # Phase 4 task B2 (decision 18): the cheque facts and where the decision
+            # stands. `status` is CLEARED for every tender that is money in hand, and
+            # PENDING/BOUNCED/CLEARED for a cheque.
+            "status",
+            "cheque_number",
+            "bank",
+            "cheque_date",
+            "ledger",
+            "decided_by",
+            "decided_by_name",
+            "decided_at",
+            "decision_reason",
+            "timestamp",
+        ]
+        # The cheque lifecycle is the SERVER's: only `clear/` and `bounce/` move it, so a
+        # client echoing a sale body back cannot mark its own cheque cleared.
+        read_only_fields = [
+            "id",
+            "timestamp",
+            "status",
+            "decided_by",
+            "decided_at",
+            "decision_reason",
+        ]
+
+
+class ChequeSerializer(serializers.ModelSerializer):
+    """One row of the cheque queue (`GET /api/v1/cheques/`, decision 18).
+
+    A cheque IS a `Payment` with `method=CHEQUE`, so this is that row read from the side
+    the clearance screen needs: whose cheque it is, which sale and which utang it answers
+    for, what it is worth, and who decided it and when. `amount` is named for what the
+    screen shows (2-decimal string, like every other money field on the wire).
+    """
+
+    customer = serializers.IntegerField(
+        source="transaction.customer_id", read_only=True
+    )
+    customer_name = serializers.CharField(
+        source="transaction.customer.name", read_only=True
+    )
+    transaction_no = serializers.CharField(
+        source="transaction.transaction_no", read_only=True
+    )
+    amount = serializers.DecimalField(
+        source="amount_tendered", max_digits=12, decimal_places=2, read_only=True
+    )
+    received_at = serializers.DateTimeField(source="timestamp", read_only=True)
+    decided_by_name = serializers.CharField(
+        source="decided_by.full_name", read_only=True, default=None
+    )
+
+    class Meta:
+        model = Payment
+        fields = [
+            "id",
+            "transaction",
+            "transaction_no",
+            "customer",
+            "customer_name",
+            "ledger",
+            "amount",
+            "cheque_number",
+            "bank",
+            "cheque_date",
+            "status",
+            "reference_no",
+            "received_at",
+            "decided_by",
+            "decided_by_name",
+            "decided_at",
+            "decision_reason",
+        ]
+        read_only_fields = fields
 
 
 class SalesItemSerializer(serializers.ModelSerializer):
-    variant_uom_code = serializers.CharField(source='variant_uom.uom.code', read_only=True)
+    variant_uom_code = serializers.CharField(
+        source="variant_uom.uom.code", read_only=True
+    )
 
     class Meta:
         model = SalesItem
-        fields = ['id','transaction','variant_uom','variant_uom_code','qty','unit_price','subtotal']
-        read_only_fields = ['id','subtotal']
+        fields = [
+            "id",
+            "transaction",
+            "variant_uom",
+            "variant_uom_code",
+            "qty",
+            "unit_price",
+            "subtotal",
+        ]
+        read_only_fields = ["id", "subtotal"]
 
 
 class OfficialReceiptSerializer(serializers.ModelSerializer):
     class Meta:
         model = OfficialReceipt
-        fields = ['id','transaction','or_number','terminal_no','printed_at']
-        read_only_fields = ['id','printed_at']
+        fields = ["id", "transaction", "or_number", "terminal_no", "printed_at"]
+        read_only_fields = ["id", "printed_at"]
 
 
 class SalesTransactionSerializer(serializers.ModelSerializer):
-    customer_name = serializers.CharField(source='customer.name', read_only=True)
-    cashier_name = serializers.CharField(source='cashier.full_name', read_only=True)
+    customer_name = serializers.CharField(source="customer.name", read_only=True)
+    cashier_name = serializers.CharField(source="cashier.full_name", read_only=True)
     items = SalesItemSerializer(many=True, read_only=True)
     payments = PaymentSerializer(many=True, read_only=True)
     receipt = OfficialReceiptSerializer(read_only=True)
 
     class Meta:
         model = SalesTransaction
-        fields = ['id','customer','customer_name','cashier','cashier_name','transaction_no','trans_date','vatable_sales','vat_amount','discount_amount','grand_total','source','original_transaction','status','notes','items','payments','receipt','created_at','updated_at']
+        fields = [
+            "id",
+            "customer",
+            "customer_name",
+            "cashier",
+            "cashier_name",
+            "transaction_no",
+            "trans_date",
+            "vat_registered",
+            "vat_rate",
+            "vatable_sales",
+            "vat_amount",
+            "discount_amount",
+            "discount_reason",
+            "grand_total",
+            "change_given",
+            "source",
+            "original_transaction",
+            "status",
+            "notes",
+            "items",
+            "payments",
+            "receipt",
+            "created_at",
+            "updated_at",
+        ]
         # `cashier` is READ-ONLY because the actor is not the client's to choose. The view
         # already passes `cashier=request.user` into `process_sale`, so a writable
         # `cashier` was demanded by validation and then discarded -- every client had to
@@ -72,7 +199,31 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
         # another cashier. Same invariant as StockAdjustmentSerializer.user (Phase 2),
         # found here by POSTing a valid sale to the endpoint: HTTP 400
         # {"cashier": ["This field is required."]}.
-        read_only_fields = ['id','transaction_no','trans_date','created_at','updated_at','cashier']
+        # `vat_registered`, `vat_rate`, the three money fields and `discount_reason` are
+        # DERIVED from
+        # the settings, the cart and (above the cap) the approval, all inside
+        # `process_sale` - `views.SalesTransactionViewSet.create` never reads them from
+        # the payload. Read-only so an older client that echoes a sale body back cannot
+        # write them, and so the receipt's VAT cannot be dictated by the till (decision
+        # 18: the server is the trust boundary).
+        read_only_fields = [
+            "id",
+            "transaction_no",
+            "trans_date",
+            "created_at",
+            "updated_at",
+            "cashier",
+            "vat_registered",
+            "vat_rate",
+            "vatable_sales",
+            "vat_amount",
+            "discount_amount",
+            "discount_reason",
+            # QA High (Phase 4 close): change handed back is money OUT of the drawer and
+            # is derived by `process_sale` from the tenders the server stored, so a till
+            # that echoes it back cannot write it (the same trust boundary as VAT above).
+            "change_given",
+        ]
 
 
 class ShiftSerializer(serializers.ModelSerializer):
@@ -93,51 +244,67 @@ class ShiftSerializer(serializers.ModelSerializer):
     decision 06 makes the close record-and-warn rather than block.
     """
 
-    cashier_name = serializers.CharField(
-        source='cashier.full_name', read_only=True)
+    cashier_name = serializers.CharField(source="cashier.full_name", read_only=True)
     z_reading = serializers.SerializerMethodField()
     held_cart_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Shift
         fields = [
-            'id', 'cashier', 'cashier_name', 'status', 'opening_float',
-            'closing_count', 'opened_at', 'closed_at', 'notes', 'z_reading',
-            'held_cart_count',
+            "id",
+            "cashier",
+            "cashier_name",
+            "status",
+            "opening_float",
+            "closing_count",
+            "opened_at",
+            "closed_at",
+            "notes",
+            "z_reading",
+            "held_cart_count",
         ]
         read_only_fields = [
-            'id', 'cashier', 'status', 'opened_at', 'closed_at',
-            'held_cart_count']
+            "id",
+            "cashier",
+            "status",
+            "opened_at",
+            "closed_at",
+            "held_cart_count",
+        ]
 
     def get_z_reading(self, obj):
         # Imported here, not at module level: services imports these models, and a
         # module-level import in both directions is a cycle waiting for the next edit.
         from .services import compute_z_reading
+
         return compute_z_reading(obj)
 
     def get_held_cart_count(self, obj):
         from .services import held_cart_count
+
         return held_cart_count(obj)
 
 
 class QuotationItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = QuotationItem
-        fields = ['id', 'quotation', 'variant_uom', 'qty', 'unit_price']
+        fields = ["id", "quotation", "variant_uom", "qty", "unit_price"]
         # `quotation` is READ-ONLY: the parent QuotationSerializer.create() sets it. Leaving it
         # writable made it a required field on every nested item, so a legitimate payload was
         # rejected with "quotation: This field is required." - which is what the first GREEN run hit.
-        read_only_fields = ['id', 'quotation']
+        read_only_fields = ["id", "quotation"]
 
     def validate(self, attrs):
         # Phase 1d Task 2 (decision 16, Q1): a quote is a promise to sell, so it carries the
         # same whole-unit rule as the till - a document that cannot be rung is not a quote.
-        vuom = attrs.get('variant_uom')
-        qty = attrs.get('qty')
+        vuom = attrs.get("variant_uom")
+        qty = attrs.get("qty")
         if vuom is not None and qty is not None:
             refuse_fractional_whole_unit(
-                is_whole=vuom.uom.is_whole, qty=qty,
-                what=f'{vuom.variant}, {vuom.uom.code}')
+                is_whole=vuom.uom.is_whole,
+                qty=qty,
+                what=f"{vuom.variant}, {vuom.uom.code}",
+            )
         return attrs
 
 
@@ -147,23 +314,30 @@ class QuotationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Quotation
         fields = [
-            'id', 'quotation_no', 'customer', 'status', 'valid_until', 'notes',
-            'items', 'created_at', 'updated_at',
+            "id",
+            "quotation_no",
+            "customer",
+            "status",
+            "valid_until",
+            "notes",
+            "items",
+            "created_at",
+            "updated_at",
         ]
         # quotation_no and created_by are the server's to decide; a client that could set
         # either could forge a number or attribute a quotation to someone else.
-        read_only_fields = ['id', 'quotation_no', 'created_at', 'updated_at']
+        read_only_fields = ["id", "quotation_no", "created_at", "updated_at"]
 
     def create(self, validated_data):
-        items = validated_data.pop('items', [])
+        items = validated_data.pop("items", [])
         # Phase 1d Task 3 (decision 16): the items were validated BEFORE this write, so
         # the catalogue can lose a unit in between. The whole document - parent and
         # lines - is one transaction holding the unit locks, so a refusal leaves no
         # orphan quotation and the removal cannot walk through the gap either.
         with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
             lock_selling_unit_lines(
-                ((item['variant_uom'], item) for item in items),
-                document='quotation')
+                ((item["variant_uom"], item) for item in items), document="quotation"
+            )
             quotation = Quotation.objects.create(**validated_data)
             for item in items:
                 QuotationItem.objects.create(quotation=quotation, **item)
@@ -173,20 +347,22 @@ class QuotationSerializer(serializers.ModelSerializer):
 class SalesOrderItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = SalesOrderItem
-        fields = ['id', 'order', 'variant_uom', 'qty', 'unit_price']
+        fields = ["id", "order", "variant_uom", "qty", "unit_price"]
         # `order` is read-only for the same reason `quotation` is on the item serializer above:
         # the parent's create() sets it, and leaving it writable makes it REQUIRED on every nested
         # item, rejecting a legitimate payload.
-        read_only_fields = ['id', 'order']
+        read_only_fields = ["id", "order"]
 
     def validate(self, attrs):
         # Same rule as a quotation: an order is what the shop promised to deliver.
-        vuom = attrs.get('variant_uom')
-        qty = attrs.get('qty')
+        vuom = attrs.get("variant_uom")
+        qty = attrs.get("qty")
         if vuom is not None and qty is not None:
             refuse_fractional_whole_unit(
-                is_whole=vuom.uom.is_whole, qty=qty,
-                what=f'{vuom.variant}, {vuom.uom.code}')
+                is_whole=vuom.uom.is_whole,
+                qty=qty,
+                what=f"{vuom.variant}, {vuom.uom.code}",
+            )
         return attrs
 
 
@@ -196,18 +372,25 @@ class SalesOrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = SalesOrder
         fields = [
-            'id', 'order_no', 'customer', 'quotation', 'status', 'notes',
-            'items', 'created_at', 'updated_at',
+            "id",
+            "order_no",
+            "customer",
+            "quotation",
+            "status",
+            "notes",
+            "items",
+            "created_at",
+            "updated_at",
         ]
-        read_only_fields = ['id', 'order_no', 'created_at', 'updated_at']
+        read_only_fields = ["id", "order_no", "created_at", "updated_at"]
 
     def create(self, validated_data):
-        items = validated_data.pop('items', [])
+        items = validated_data.pop("items", [])
         # Same rule, lock and single transaction as a quotation above.
         with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
             lock_selling_unit_lines(
-                ((item['variant_uom'], item) for item in items),
-                document='sales order')
+                ((item["variant_uom"], item) for item in items), document="sales order"
+            )
             order = SalesOrder.objects.create(**validated_data)
             for item in items:
                 SalesOrderItem.objects.create(order=order, **item)
@@ -217,29 +400,42 @@ class SalesOrderSerializer(serializers.ModelSerializer):
 class HeldCartItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = HeldCartItem
-        fields = ['id', 'cart', 'variant_uom', 'qty', 'unit_price']
-        read_only_fields = ['id', 'cart']
+        fields = ["id", "cart", "variant_uom", "qty", "unit_price"]
+        read_only_fields = ["id", "cart"]
 
 
 class HeldCartSerializer(serializers.ModelSerializer):
     items = HeldCartItemSerializer(many=True, required=False)
-    customer_name = serializers.CharField(source='customer.name', read_only=True, default=None)
-    cashier_name = serializers.CharField(source='cashier.full_name', read_only=True)
+    customer_name = serializers.CharField(
+        source="customer.name", read_only=True, default=None
+    )
+    cashier_name = serializers.CharField(source="cashier.full_name", read_only=True)
 
     class Meta:
         model = HeldCart
-        fields = ['id', 'cashier', 'cashier_name', 'customer', 'customer_name', 'notes', 'items', 'created_at']
-        read_only_fields = ['id', 'cashier', 'created_at']
+        fields = [
+            "id",
+            "cashier",
+            "cashier_name",
+            "customer",
+            "customer_name",
+            "notes",
+            "items",
+            "created_at",
+        ]
+        read_only_fields = ["id", "cashier", "created_at"]
 
     def create(self, validated_data):
-        items_data = validated_data.pop('items', [])
+        items_data = validated_data.pop("items", [])
         # Phase 1d Task 2 (decision 16): the same whole-unit rule as the till, checked
         # BEFORE the cart row exists, so a refused hold leaves nothing behind.
         for index, item in enumerate(items_data, start=1):
-            vuom = item['variant_uom']
+            vuom = item["variant_uom"]
             refuse_fractional_whole_unit(
-                is_whole=vuom.uom.is_whole, qty=item['qty'],
-                what=f'Line {index} ({vuom.variant}, {vuom.uom.code})')
+                is_whole=vuom.uom.is_whole,
+                qty=item["qty"],
+                what=f"Line {index} ({vuom.variant}, {vuom.uom.code})",
+            )
         # Phase 1d Task 3: take the SAME row lock the removal action takes
         # (`VariantUOMViewSet.destroy`), before writing any line. A held-cart line
         # PROTECTs its selling unit, so the removal refuses a unit that is already held;
@@ -249,8 +445,9 @@ class HeldCartSerializer(serializers.ModelSerializer):
         # refusal the till can act on.
         with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
             lock_selling_unit_lines(
-                ((item['variant_uom'], item) for item in items_data),
-                document='held cart')
+                ((item["variant_uom"], item) for item in items_data),
+                document="held cart",
+            )
             cart = HeldCart.objects.create(**validated_data)
             for item in items_data:
                 HeldCartItem.objects.create(cart=cart, **item)

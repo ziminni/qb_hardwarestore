@@ -1,4 +1,4 @@
-# pyright: reportAttributeAccessIssue=false, reportArgumentType=false
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportMissingImports=false
 """Reports app — read-only aggregation endpoints for the admin Reports page.
 
 No models: every view aggregates data from the other apps
@@ -70,6 +70,7 @@ def sales_summary_view(request):
         .annotate(
             transactions=Count('id'),
             gross_sales=Sum('grand_total'),
+            vatable_sales=Sum('vatable_sales'),
             vat=Sum('vat_amount'),
             discounts=Sum('discount_amount'),
         )
@@ -78,6 +79,11 @@ def sales_summary_view(request):
     totals = qs.aggregate(
         transactions=Count('id'),
         gross_sales=Sum('grand_total'),
+        # Phase 4 task B1 (decision 18): the Discounts row is back (D12 superseded), and
+        # vatable sales joins it so the report agrees with the receipt: gross - discount
+        # = net, and net = vatable + VAT. A return is a negative row, so VAT and discounts
+        # net back out of the period they were reversed in.
+        vatable_sales=Sum('vatable_sales'),
         vat=Sum('vat_amount'),
         discounts=Sum('discount_amount'),
     )

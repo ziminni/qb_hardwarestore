@@ -1,4 +1,4 @@
-# pyright: reportAttributeAccessIssue=false, reportGeneralTypeIssues=false
+# pyright: reportAttributeAccessIssue=false, reportGeneralTypeIssues=false, reportMissingImports=false
 #
 # Same directive and reason as apps/pos/tests.py, apps/inventory/views.py and
 # seed_demo.py: the checker runs with a working directory outside the repo, so it
@@ -11,12 +11,16 @@
 # false positive this comment has described since the file was written.
 
 """POS services — checkout, FIFO allocation, receipt generation."""
+
 import hashlib
 import json
+import uuid
 from datetime import date, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
+from django.core import signing
 from django.db import transaction
+from django.utils import timezone
 
 from apps.collectibles.models import CollectibleLedger
 from apps.inventory.services import (
@@ -28,18 +32,24 @@ from common.exceptions import refuse_fractional_whole_unit
 
 from .exceptions import (
     CreditLimitExceeded,
+    DiscountApprovalInvalid,
+    DiscountOverCap,
+    DiscountReasonRequired,
     IdempotencyKeyReused,
+    InvalidDiscount,
     InvalidIdempotencyKey,
     InvalidSale,
     WalkInCannotOwe,
 )
 from .models import (
     Customer,
+    DiscountApproval,
     DocumentCounter,
     OfficialReceipt,
     Payment,
     SalesItem,
     SalesTransaction,
+    StoreSettings,
 )
 
 # Decision 08: a ledger in one of these states is credit still in use. PAID is not -
@@ -64,12 +74,230 @@ MAX_RETURN_REASON_LENGTH = 255
 # would be truncated by the database and stop identifying the attempt it names.
 MAX_IDEMPOTENCY_KEY_LENGTH = 64
 
+# Money is two decimal places, and it is rounded HALF_UP exactly ONCE per document
+# (decision 18). Every total in this module goes through `_money_round` so a sale, its
+# receipt and its return cannot disagree by a cent.
+CENT = Decimal("0.01")
+
+# Phase 4 task B1 (decision 18): a whole-sale discount is either a peso amount or a
+# percentage of the sale. The wire codes are the client's enum, so they are checked here
+# rather than trusted.
+DISCOUNT_KIND_AMOUNT = "AMOUNT"
+DISCOUNT_KIND_PERCENT = "PERCENT"
+DISCOUNT_KINDS = (DISCOUNT_KIND_AMOUNT, DISCOUNT_KIND_PERCENT)
+
+# Long enough for the sentence a cashier would actually type, short enough that the
+# column (and the audit trail) stays a note. Same rule as MAX_RETURN_REASON_LENGTH.
+MAX_DISCOUNT_REASON_LENGTH = 255
+
+# A discount approval is a manager standing at the till, not a standing permission: five
+# minutes is long enough to finish the sale in front of them and short enough that a
+# forgot token cannot be spent on tomorrow's cart.
+DISCOUNT_APPROVAL_TTL = timedelta(minutes=5)
+# Salt for the signature, so a token minted here cannot be confused with any other
+# signed value this app might hand out.
+DISCOUNT_APPROVAL_SALT = "pos.discount-approval"
+
 # Which model+field owns each counter prefix. The prefix is the counter's identity, so
 # the mapping is the one place that knows a `TRX` row counts `SalesTransaction`s.
 COUNTER_SOURCES = {
-    'TRX': ('transaction_no', SalesTransaction),
-    'OR': ('or_number', OfficialReceipt),
+    "TRX": ("transaction_no", SalesTransaction),
+    "OR": ("or_number", OfficialReceipt),
 }
+
+
+def _money_round(value):
+    """Two decimal places, `ROUND_HALF_UP`, called ONCE per figure (decision 18).
+
+    Banker's rounding is not what a till does: a total ending in half a centavo rounds
+    UP, the way every hand calculator and BIR receipt in the country rounds it. Every
+    money figure in this module goes through here exactly once - rounding twice drifts.
+    """
+    return Decimal(value).quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def vat_split(net, *, rate, registered):
+    """`(vatable_sales, vat_amount)` for a VAT-INCLUSIVE net (decision 18).
+
+    Shelf prices include VAT, so the tax is taken OUT of the total, never added on top:
+
+        vatable_sales = round(net / (1 + rate/100))
+        vat_amount    = net - vatable_sales      (the remainder, so the two always add
+                                                  back to the net - no lost centavo)
+
+    A non-VAT store answers `(0, 0)`: it charges no tax, and a rate on a receipt would
+    be a claim to the BIR the shop cannot make. Negative `net` (a return) splits the same
+    way, so a refund takes its VAT share back out of the reports.
+    """
+    net = _money_round(net)
+    if not registered:
+        return Decimal("0.00"), Decimal("0.00")
+    divisor = 1 + (Decimal(rate) / 100)
+    if divisor <= 0:
+        # A rate of -100% or below would divide by zero or flip the sign. Only an Admin
+        # can set it, and the settings serializer refuses it, so this is a belt.
+        return Decimal("0.00"), Decimal("0.00")
+    vatable = _money_round(net / divisor)
+    return vatable, _money_round(net - vatable)
+
+
+def _validated_discount(discount_data, *, gross):
+    """Resolve a client's discount to `{kind, value, amount, percent, reason}`, or None.
+
+    Everything a discount CAN be wrong about is refused here, before the sale writes
+    anything: an unknown kind, a value that is not a positive finite number, a
+    percentage over 100, an amount bigger than the sale itself, a reason that is blank
+    or too long. `percent` is the discount's share of the GROSS - the number the Admin's
+    cap and a manager's approval are both compared against, whether the cashier typed a
+    peso amount or a percentage.
+
+    Money is rounded here (the one place the discount becomes an amount), so the cap
+    comparison, the net and the stored `discount_amount` are the same number.
+    """
+    if discount_data is None or discount_data == "" or discount_data == {}:
+        return None
+    if not isinstance(discount_data, dict):
+        raise InvalidDiscount("discount must be an object with kind, value and reason.")
+
+    kind = str(discount_data.get("kind") or "").strip().upper()
+    if kind not in DISCOUNT_KINDS:
+        raise InvalidDiscount("discount kind must be AMOUNT or PERCENT.")
+    try:
+        value = Decimal(str(discount_data.get("value")))
+    except (InvalidOperation, TypeError, ValueError):
+        raise InvalidDiscount("discount value must be a number.") from None
+    if not value.is_finite() or value < 0:
+        raise InvalidDiscount("discount value must be zero or more.")
+
+    if kind == DISCOUNT_KIND_PERCENT:
+        if value > 100:
+            raise InvalidDiscount("A discount cannot be more than 100 percent.")
+        amount = _money_round(gross * value / 100)
+    else:
+        amount = _money_round(value)
+
+    if amount > gross:
+        raise InvalidDiscount(
+            f"A discount of {amount:.2f} is more than the sale total of "
+            f"{gross:.2f}. Lower the discount, or lower the prices on the cart."
+        )
+
+    raw_reason = discount_data.get("reason")
+    reason = raw_reason.strip() if isinstance(raw_reason, str) else ""
+    if amount > 0 and not reason:
+        raise DiscountReasonRequired(
+            "A discount needs a reason. Write why the discount is being given."
+        )
+    if len(reason) > MAX_DISCOUNT_REASON_LENGTH:
+        raise InvalidDiscount(
+            f"discount reason must be at most {MAX_DISCOUNT_REASON_LENGTH} characters."
+        )
+
+    # Unrounded on purpose: comparing a rounded percent against the cap would let
+    # 10.004% through a 10.00% cap, and comparing the rounded amount would do the same
+    # for a peso discount. `gross` is positive here (a sale always has priced lines).
+    percent = (amount / gross * 100) if gross > 0 else Decimal(0)
+    return {
+        "kind": kind,
+        "value": value,
+        "amount": amount,
+        "percent": percent,
+        "reason": reason,
+    }
+
+
+def issue_discount_approval(*, approver, percent, reason=""):
+    """Record one approval row and its signed, one-time token (decision 18).
+
+    The token is a `django.core.signing` signature over this row's `token_id`, the
+    approver's id and the percent - so it cannot be edited into a bigger discount, and
+    `loads(..., max_age=...)` refuses it once its five minutes are up. The ROW is what
+    makes it one-time: `_consume_approval` locks it and the sale that spends it stamps
+    `used_at`, so a replayed token is refused rather than discounting a second sale.
+    """
+    percent = _money_round(percent)
+    row = DiscountApproval.objects.create(
+        token_id=uuid.uuid4(),
+        approver=approver,
+        percent=percent,
+        reason=reason,
+        expires_at=timezone.now() + DISCOUNT_APPROVAL_TTL,
+    )
+    token = signing.dumps(
+        {"tid": str(row.token_id), "pct": f"{percent:.2f}", "uid": approver.pk},
+        salt=DISCOUNT_APPROVAL_SALT,
+    )
+    return row, token
+
+
+def _consume_approval(token, *, percent_needed):
+    """The approval ROW behind `token`, locked and verified, or `DiscountApprovalInvalid`.
+
+    Called INSIDE the sale's atomic block and before its first write, so a refused token
+    leaves nothing behind and the row lock is what makes two concurrent sales holding the
+    same token serialize: the loser sees `used_at` set and is refused. Every failure -
+    missing, forged, expired, spent, minted for a smaller discount, or a row whose
+    percent no longer matches the signed payload - answers the same code, because the
+    cashier's next step is the same in every case: ask the manager to approve again.
+    """
+    if not token:
+        raise DiscountApprovalInvalid(
+            "This discount needs a Store Manager or Admin to approve it. Ask them for "
+            "their username and password."
+        )
+    if not isinstance(token, str):
+        raise DiscountApprovalInvalid("That discount approval is not valid.")
+    try:
+        payload = signing.loads(
+            token,
+            salt=DISCOUNT_APPROVAL_SALT,
+            max_age=int(DISCOUNT_APPROVAL_TTL.total_seconds()),
+        )
+    except signing.BadSignature:
+        # Covers a forged token, a token signed for something else, and one older than
+        # the five-minute window - all of which `loads` reports the same way.
+        raise DiscountApprovalInvalid(
+            "That discount approval is not valid or has expired. Ask the manager to "
+            "approve again."
+        ) from None
+
+    row = (
+        DiscountApproval.objects.select_for_update()
+        .select_related("approver")
+        .filter(token_id=payload.get("tid"))
+        .first()
+    )
+    if row is None:
+        raise DiscountApprovalInvalid(
+            "That discount approval was not issued by this store. Ask the manager to "
+            "approve again."
+        )
+    if row.used_at is not None:
+        raise DiscountApprovalInvalid(
+            "That discount approval was already used for another sale. Ask the manager "
+            "to approve again."
+        )
+    if row.expires_at <= timezone.now():
+        raise DiscountApprovalInvalid(
+            "That discount approval has expired. Ask the manager to approve again."
+        )
+    # The signature binds the payload; the ROW is the server's own record. They must
+    # agree, or a value was edited on one side of the fence only.
+    if (
+        str(payload.get("tid")) != str(row.token_id)
+        or payload.get("uid") != row.approver_id
+        or payload.get("pct") != f"{row.percent:.2f}"
+    ):
+        raise DiscountApprovalInvalid(
+            "That discount approval is not valid. Ask the manager to approve again."
+        )
+    if row.percent < percent_needed:
+        raise DiscountApprovalInvalid(
+            f"That approval covers {row.percent:.2f} percent and this discount is "
+            f"{percent_needed:.2f} percent. Ask the manager to approve the larger "
+            "discount."
+        )
+    return row
 
 
 def _highest_existing_sequence(model, field_name, stamp):
@@ -80,12 +308,12 @@ def _highest_existing_sequence(model, field_name, stamp):
     counter would be seeded too low - which is exactly the collision this whole change
     exists to prevent. Runs once per (prefix, day): only the row's first creation seeds.
     """
-    used = model.objects.filter(
-        **{f'{field_name}__startswith': stamp}
-    ).values_list(field_name, flat=True)
+    used = model.objects.filter(**{f"{field_name}__startswith": stamp}).values_list(
+        field_name, flat=True
+    )
     highest = 0
     for value in used:
-        suffix = str(value).rsplit('-', 1)[-1]
+        suffix = str(value).rsplit("-", 1)[-1]
         if suffix.isdigit():
             highest = max(highest, int(suffix))
     return highest
@@ -107,27 +335,26 @@ def next_number(prefix, day=None):
     """
     field_name, model = COUNTER_SOURCES[prefix]
     day = day or date.today()
-    stamp = f'{prefix}-{day.strftime("%Y%m%d")}-'
+    stamp = f"{prefix}-{day.strftime('%Y%m%d')}-"
     with transaction.atomic():
-        counter, _ = (
-            DocumentCounter.objects.select_for_update().get_or_create(
-                prefix=prefix, day=day,
-                defaults={
-                    'last': _highest_existing_sequence(model, field_name, stamp),
-                },
-            )
+        counter, _ = DocumentCounter.objects.select_for_update().get_or_create(
+            prefix=prefix,
+            day=day,
+            defaults={
+                "last": _highest_existing_sequence(model, field_name, stamp),
+            },
         )
         counter.last += 1
-        counter.save(update_fields=['last'])
-    return f'{stamp}{counter.last:04d}'
+        counter.save(update_fields=["last"])
+    return f"{stamp}{counter.last:04d}"
 
 
 def generate_transaction_no():
-    return next_number('TRX')
+    return next_number("TRX")
 
 
 def generate_or_number():
-    return next_number('OR')
+    return next_number("OR")
 
 
 def parse_idempotency_key(raw):
@@ -141,13 +368,14 @@ def parse_idempotency_key(raw):
     if raw is None:
         return None
     if not isinstance(raw, str):
-        raise InvalidIdempotencyKey('Idempotency-Key must be a string.')
+        raise InvalidIdempotencyKey("Idempotency-Key must be a string.")
     key = raw.strip()
     if not key:
-        raise InvalidIdempotencyKey('Idempotency-Key must not be empty.')
+        raise InvalidIdempotencyKey("Idempotency-Key must not be empty.")
     if len(key) > MAX_IDEMPOTENCY_KEY_LENGTH:
         raise InvalidIdempotencyKey(
-            f'Idempotency-Key must be at most {MAX_IDEMPOTENCY_KEY_LENGTH} characters.')
+            f"Idempotency-Key must be at most {MAX_IDEMPOTENCY_KEY_LENGTH} characters."
+        )
     return key
 
 
@@ -161,7 +389,7 @@ def request_body_hash(data):
     second cart under the first one's receipt.
     """
     canonical = json.dumps(data, sort_keys=True, default=str)
-    return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def replayed_transaction(*, cashier, idempotency_key, request_hash):
@@ -178,11 +406,9 @@ def replayed_transaction(*, cashier, idempotency_key, request_hash):
     """
     if not idempotency_key:
         return None
-    existing = (
-        SalesTransaction.objects
-        .filter(cashier=cashier, idempotency_key=idempotency_key)
-        .first()
-    )
+    existing = SalesTransaction.objects.filter(
+        cashier=cashier, idempotency_key=idempotency_key
+    ).first()
     if existing is None:
         return None
     if existing.request_hash != request_hash:
@@ -200,9 +426,9 @@ def _parse_decimal(raw, *, field, line_no):
     try:
         value = Decimal(str(raw))
     except (InvalidOperation, TypeError, ValueError):
-        raise InvalidSale(f'Line {line_no}: {field} must be a number.') from None
+        raise InvalidSale(f"Line {line_no}: {field} must be a number.") from None
     if not value.is_finite():
-        raise InvalidSale(f'Line {line_no}: {field} must be a finite number.')
+        raise InvalidSale(f"Line {line_no}: {field} must be a finite number.")
     return value
 
 
@@ -222,20 +448,18 @@ def _validated_sale_lines(items_data):
     from apps.inventory.models import VariantUOM
 
     if not isinstance(items_data, (list, tuple)) or not items_data:
-        raise InvalidSale('A sale needs at least one item.')
+        raise InvalidSale("A sale needs at least one item.")
     if len(items_data) > MAX_SALE_LINES:
-        raise InvalidSale(
-            f'A sale cannot carry more than {MAX_SALE_LINES} items.')
+        raise InvalidSale(f"A sale cannot carry more than {MAX_SALE_LINES} items.")
 
     lines = []
     for index, item in enumerate(items_data, start=1):
         if not isinstance(item, dict):
-            raise InvalidSale(f'Line {index}: each item must be an object.')
-        raw_uom_id = item.get('variant_id')
+            raise InvalidSale(f"Line {index}: each item must be an object.")
+        raw_uom_id = item.get("variant_id")
         try:
             vuom = (
-                VariantUOM.objects
-                .select_related('variant', 'variant__product', 'uom')
+                VariantUOM.objects.select_related("variant", "variant__product", "uom")
                 .filter(pk=raw_uom_id)
                 .first()
             )
@@ -243,24 +467,28 @@ def _validated_sale_lines(items_data):
             vuom = None
         if vuom is None:
             raise InvalidSale(
-                f'Line {index}: {raw_uom_id!r} is not a selling unit of any product.')
+                f"Line {index}: {raw_uom_id!r} is not a selling unit of any product."
+            )
         if not vuom.variant.is_active:
             raise InvalidSale(
-                f'Line {index}: {vuom.variant} is no longer available for sale.')
+                f"Line {index}: {vuom.variant} is no longer available for sale."
+            )
         if not vuom.variant.product.is_active:
             raise InvalidSale(
-                f'Line {index}: {vuom.variant.product} is no longer available for '
-                'sale.')
-        qty = _parse_decimal(item.get('qty'), field='qty', line_no=index)
+                f"Line {index}: {vuom.variant.product} is no longer available for sale."
+            )
+        qty = _parse_decimal(item.get("qty"), field="qty", line_no=index)
         if qty <= 0:
-            raise InvalidSale(f'Line {index}: qty must be greater than zero.')
+            raise InvalidSale(f"Line {index}: qty must be greater than zero.")
         # Phase 1d Task 2 (decision 16): a bag, box or roll is counted in ones only. This
         # ONE check covers every caller of the shared validator - `process_sale`, a held
         # cart's `complete/` (which rings a sale) and `process_return` - so the till, the
         # shelf and a refund can never disagree about what 1.5 bags means.
         refuse_fractional_whole_unit(
-            is_whole=vuom.uom.is_whole, qty=qty,
-            what=f'Line {index} ({vuom.variant}, {vuom.uom.code})')
+            is_whole=vuom.uom.is_whole,
+            qty=qty,
+            what=f"Line {index} ({vuom.variant}, {vuom.uom.code})",
+        )
         lines.append((vuom, qty))
     return lines
 
@@ -272,31 +500,77 @@ def _validated_payments(payments_data):
     path, which decision 14 answers with its own 400 (WalkInCannotOwe) or a ledger row for
     a named customer. `amount_tendered` is never trusted to equal the total; it is what the
     cashier took, and the shortfall is computed from the server's price.
+
+    Phase 4 task B2 (decision 18): a CHEQUE carries its number, bank and cheque date, and
+    the shop cannot collect on one without them. Checked HERE, with the rest of the tender
+    shape, so a refused cheque leaves no sale, no moved stock and no ledger behind.
     """
     if payments_data is None:
         payments_data = []
     if not isinstance(payments_data, (list, tuple)):
-        raise InvalidSale('payments must be a list.')
+        raise InvalidSale("payments must be a list.")
     methods = dict(Payment.Method.choices)
     payments = []
     for index, pdata in enumerate(payments_data, start=1):
         if not isinstance(pdata, dict):
-            raise InvalidSale(f'Payment {index}: each payment must be an object.')
-        method = pdata.get('method', Payment.Method.CASH)
+            raise InvalidSale(f"Payment {index}: each payment must be an object.")
+        method = pdata.get("method", Payment.Method.CASH)
         if method not in methods:
             raise InvalidSale(
-                f'Payment {index}: {method!r} is not a payment method this till takes.')
+                f"Payment {index}: {method!r} is not a payment method this till takes."
+            )
         amount = _parse_decimal(
-            pdata.get('amount_tendered', 0), field='amount_tendered', line_no=index)
+            pdata.get("amount_tendered", 0), field="amount_tendered", line_no=index
+        )
         if amount < 0:
-            raise InvalidSale(
-                f'Payment {index}: amount_tendered cannot be negative.')
-        payments.append({
-            'method': method,
-            'amount_tendered': amount,
-            'reference_no': pdata.get('reference_no') or '',
-        })
+            raise InvalidSale(f"Payment {index}: amount_tendered cannot be negative.")
+        tender = {
+            "method": method,
+            "amount_tendered": amount,
+            "reference_no": pdata.get("reference_no") or "",
+            # Every tender that is not a cheque is money in hand the moment it is
+            # recorded. A cheque starts PENDING and is decided by a manager later.
+            "status": Payment.Status.CLEARED,
+            "cheque_number": "",
+            "bank": "",
+            "cheque_date": None,
+        }
+        if method == Payment.Method.CHEQUE:
+            tender.update(_validated_cheque(pdata, line_no=index))
+        payments.append(tender)
     return payments
+
+
+def _validated_cheque(pdata, *, line_no):
+    """The three facts a cheque must carry, or a refusal naming the missing ones."""
+    from django.utils.dateparse import parse_date
+
+    from .exceptions import ChequeDetailsRequired
+
+    missing = [
+        label
+        for field, label in (
+            ("cheque_number", "cheque number"),
+            ("bank", "bank"),
+            ("cheque_date", "cheque date"),
+        )
+        if not str(pdata.get(field) or "").strip()
+    ]
+    cheque_date = None
+    if "cheque date" not in missing:
+        cheque_date = parse_date(str(pdata["cheque_date"]).strip())
+        if cheque_date is None:
+            # A date the server cannot read is the same problem to the cashier as a date
+            # that is not there: write it again, in the form the field asks for.
+            missing.append("cheque date in YYYY-MM-DD")
+    if missing:
+        raise ChequeDetailsRequired(missing)
+    return {
+        "status": Payment.Status.PENDING,
+        "cheque_number": str(pdata["cheque_number"]).strip()[:50],
+        "bank": str(pdata["bank"]).strip()[:100],
+        "cheque_date": cheque_date,
+    }
 
 
 def _outstanding_credit(customer_id):
@@ -309,16 +583,24 @@ def _outstanding_credit(customer_id):
     """
     from django.db.models import Sum
 
-    total = (
-        CollectibleLedger.objects
-        .filter(customer_id=customer_id, status__in=OUTSTANDING_LEDGER_STATUSES)
-        .aggregate(total=Sum('balance_due'))['total']
-    )
-    return total or Decimal('0')
+    total = CollectibleLedger.objects.filter(
+        customer_id=customer_id, status__in=OUTSTANDING_LEDGER_STATUSES
+    ).aggregate(total=Sum("balance_due"))["total"]
+    return total or Decimal(0)
 
 
-def process_sale(*, customer_id, cashier, items_data, payments_data, source='WALK_IN',
-                 idempotency_key=None, request_hash=''):
+def process_sale(
+    *,
+    customer_id,
+    cashier,
+    items_data,
+    payments_data,
+    source="WALK_IN",
+    idempotency_key=None,
+    request_hash="",
+    discount_data=None,
+    discount_approval=None,
+):
     """Process a complete walk-in sale or requisition release.
 
     items_data: [{'variant_id': <VariantUOM id>, 'qty': 5}]
@@ -344,9 +626,20 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
     """
     lines = _validated_sale_lines(items_data)
     payments = _validated_payments(payments_data)
+    # Phase 4 task B2 (decision 18): a cheque is the one tender that is not money yet.
+    # Everything below treats it as a CLAIM against the utang it will settle, never as
+    # payment: it does not reduce `total_paid`, it must be covered by what the sale still
+    # owes, and it is linked to the ledger that debt goes on.
+    pending_cheques = [p for p in payments if p["method"] == Payment.Method.CHEQUE]
 
-    vatable_sales = Decimal('0')
-    discount = Decimal('0')
+    # Phase 4 task B1 (decision 18): the gross is pure arithmetic over the lines the
+    # server just priced, so a discount can be checked against it BEFORE anything is
+    # written. `_money_round` once here, which is the number the net and the VAT split
+    # are then computed from - rounding again lower down would drift a centavo.
+    gross = _money_round(
+        sum((qty * vuom.default_selling_price for vuom, qty in lines), Decimal(0))
+    )
+    discount_info = _validated_discount(discount_data, gross=gross)
 
     with transaction.atomic():
         # Decision 06, ruling 2: a sale belongs to a shift, and there is no such thing as
@@ -356,6 +649,7 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
         # (the enclosing rollback covers the whole sale).
         from .exceptions import NoOpenShift
         from .models import Shift
+
         try:
             shift = Shift.objects.get(cashier=cashier, status=Shift.Status.OPEN)
         except Shift.DoesNotExist:
@@ -370,7 +664,47 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
         # lost its unit is refused as a 400 `SELLING_UNIT_IN_USE` instead of failing on
         # the foreign key as a 500. Locked before the transaction row is written, so a
         # refusal leaves no sale, receipt, ledger or moved stock behind.
-        lock_selling_unit_lines(lines, document='sale')
+        lock_selling_unit_lines(lines, document="sale")
+
+        if pending_cheques:
+            # Decision 14's rule, applied to the tender that CREATES debt: a pending
+            # cheque posts to the customer's utang, and the walk-in record is a
+            # placeholder nobody owes. Locked like every other read of this customer in
+            # this function, so the type cannot change under the check.
+            from .exceptions import ChequeNeedsCustomer
+
+            cheque_customer = (
+                Customer.objects.select_for_update()
+                .only("customer_type", "name")
+                .get(pk=customer_id)
+            )
+            if cheque_customer.customer_type == Customer.Type.WALK_IN:
+                raise ChequeNeedsCustomer(cheque_customer.name)
+
+        # Decision 18: the shop's own policy, read under the same block that writes the
+        # sale so the rate, the flag and the cap on the receipt are one consistent fact.
+        store = StoreSettings.load()
+        discount_amount = Decimal(0)
+        approval = None
+        if discount_info is not None:
+            discount_amount = discount_info["amount"]
+            if (
+                discount_amount > 0
+                and discount_info["percent"] > store.discount_cap_percent
+            ):
+                # Above the Admin's cap. NO token at all gets `DISCOUNT_OVER_CAP`, which is
+                # the code the till acts on by opening the approval dialog; a token that is
+                # present but unusable gets `DISCOUNT_APPROVAL_INVALID`, which tells the
+                # cashier to ask the manager again. `_consume_approval` locks the approval
+                # row, refuses a token that is forged, expired, spent or too small, and the
+                # row is spent by THIS sale - so a replayed token discounts nothing.
+                if not discount_approval:
+                    raise DiscountOverCap(
+                        store.discount_cap_percent, discount_info["percent"]
+                    )
+                approval = _consume_approval(
+                    discount_approval, percent_needed=discount_info["percent"]
+                )
 
         txn = SalesTransaction.objects.create(
             customer_id=customer_id,
@@ -378,9 +712,12 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
             shift=shift,
             transaction_no=generate_transaction_no(),
             source=source,
+            vat_registered=store.vat_registered,
+            vat_rate=store.vat_rate,
             vatable_sales=0,
             vat_amount=0,
-            discount_amount=discount,
+            discount_amount=discount_amount,
+            discount_reason=("" if discount_info is None else discount_info["reason"]),
             grand_total=0,
             idempotency_key=idempotency_key,
             request_hash=request_hash,
@@ -410,19 +747,19 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
             # receipt - the two numbers answer different questions.
             base_qty = qty * vuom.conversion_factor
             # Raises InsufficientStock on short stock → whole sale rolls back.
-            allocations = allocate_fifo(
-                variant_id=vuom.variant_id, qty_needed=base_qty)
+            allocations = allocate_fifo(variant_id=vuom.variant_id, qty_needed=base_qty)
             # Task 6A.4: persist which batches this item drew from. Without these
             # rows a linked return cannot know "the original batch it left from".
             from .models import SalesItemDeduction
-            SalesItemDeduction.objects.bulk_create([
-                SalesItemDeduction(sales_item=item_row, batch=batch, qty=take)
-                for batch, take in allocations
-            ])
 
-            vatable_sales += subtotal
+            SalesItemDeduction.objects.bulk_create(
+                [
+                    SalesItemDeduction(sales_item=item_row, batch=batch, qty=take)
+                    for batch, take in allocations
+                ]
+            )
+
             affected_variant_ids.add(vuom.variant_id)
-
         # Task 4.3: every line has now been deducted, so re-evaluate the low-stock
         # threshold ONCE per affected variant, inside this transaction. A sale taking the
         # shelf below its minimum is the commonest way a shop runs out, and until now the
@@ -432,27 +769,74 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
         # never happened.
         check_low_stock_after_stock_out(variant_ids=affected_variant_ids)
 
-        grand_total = vatable_sales - discount
+        # Decision 18: shelf prices INCLUDE VAT, so the tax comes out of the net that is
+        # actually being paid - gross minus the discount, not the gross the customer was
+        # never charged. `gross` was rounded once above, which makes the net exact.
+        grand_total = _money_round(gross - discount_amount)
+        vatable_sales, vat_amount = vat_split(
+            grand_total, rate=store.vat_rate, registered=store.vat_registered
+        )
         txn.vatable_sales = vatable_sales
+        txn.vat_amount = vat_amount
         txn.grand_total = grand_total
-        txn.save(update_fields=['vatable_sales', 'grand_total'])
+        txn.save(update_fields=["vatable_sales", "vat_amount", "grand_total"])
+
+        # The approval is spent by THIS sale, inside its own transaction: a sale that
+        # fails later (short stock, credit limit) rolls the stamp back and the manager's
+        # token survives to be used on the cart that eventually goes through.
+        if approval is not None:
+            approval.used_at = timezone.now()
+            approval.transaction = txn
+            approval.save(update_fields=["used_at", "transaction"])
 
         # Payments (already validated above: method known, amount non-negative).
-        total_paid = Decimal('0')
+        #
+        # Phase 4 task B2: what counts as PAID is money in hand. A pending cheque is money
+        # the shop has not received, so it is excluded from `total_paid` - which is what
+        # makes the shortfall below the cheques' business, and what keeps a pending cheque
+        # out of the drawer count on the Z-reading.
+        total_paid = Decimal(0)
+        cash_tendered = Decimal(0)
+        cheque_rows = []
         for pdata in payments:
-            Payment.objects.create(
+            row = Payment.objects.create(
                 transaction=txn,
-                method=pdata['method'],
-                amount_tendered=pdata['amount_tendered'],
-                reference_no=pdata['reference_no'],
+                method=pdata["method"],
+                amount_tendered=pdata["amount_tendered"],
+                reference_no=pdata["reference_no"],
+                status=pdata["status"],
+                cheque_number=pdata["cheque_number"],
+                bank=pdata["bank"],
+                cheque_date=pdata["cheque_date"],
             )
-            total_paid += pdata['amount_tendered']
+            if pdata["method"] == Payment.Method.CHEQUE:
+                cheque_rows.append(row)
+            else:
+                total_paid += pdata["amount_tendered"]
+                if pdata["method"] == Payment.Method.CASH:
+                    cash_tendered += pdata["amount_tendered"]
+
+        # OA High (Phase 4 close): change is money OUT of the drawer, so the sale records
+        # it instead of leaving the Z-reading to count the whole cash tender as takings.
+        # Money in hand is every non-cheque tender (a pending cheque is not money, B2),
+        # and anything above the net is change. It must be payable in CASH: the shop
+        # cannot hand back money that went to a card or a GCash wallet, so a sale asking
+        # for more change than the cash taken is refused and the whole sale rolls back.
+        change_given = _money_round(max(total_paid - grand_total, Decimal(0)))
+        if change_given > cash_tendered:
+            from .exceptions import PaymentExceedsTotal
+
+            raise PaymentExceedsTotal(
+                change_given=change_given, cash_tendered=cash_tendered
+            )
+        txn.change_given = change_given
+        txn.save(update_fields=["change_given"])
 
         # Official receipt
         OfficialReceipt.objects.create(
             transaction=txn,
             or_number=generate_or_number(),
-            terminal_no='POS-01',
+            terminal_no="POS-01",
         )
 
         # Underpaid sale -> post the shortfall to Collectibles (utang).
@@ -465,6 +849,19 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
         # enclosing `transaction.atomic()` rolls the sale back wholesale, so a refused
         # walk-in leaves no transaction, no ledger and no moved stock.
         shortfall = grand_total - total_paid
+        if cheque_rows:
+            # Change comes from the DRAWER. A cheque may only cover what is still owed;
+            # anything above that would mean paying out cash for funds the shop has not
+            # received, so it is refused (and the whole sale rolls back with it).
+            from .exceptions import ChequeExceedsBalance
+
+            cheque_total = _money_round(
+                sum((row.amount_tendered for row in cheque_rows), Decimal(0))
+            )
+            if cheque_total > shortfall:
+                raise ChequeExceedsBalance(
+                    cheque_total=cheque_total, owed=max(shortfall, Decimal(0))
+                )
         if shortfall > 0 and customer_id:
             # Decision 08: lock the customer row BEFORE reading their outstanding
             # balances. Two tills ringing credit sales for the same customer at the
@@ -474,7 +871,7 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
             # one's ledger. Released by the enclosing atomic block.
             customer = (
                 Customer.objects.select_for_update()
-                .only('customer_type', 'name', 'total_credit_limit')
+                .only("customer_type", "name", "total_credit_limit")
                 .get(pk=customer_id)
             )
             if customer.customer_type == Customer.Type.WALK_IN:
@@ -490,7 +887,7 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
                         shortfall=shortfall,
                         customer_name=customer.name,
                     )
-            CollectibleLedger.objects.create(
+            ledger = CollectibleLedger.objects.create(
                 customer_id=customer_id,
                 transaction=txn,
                 original_amount=shortfall,
@@ -498,8 +895,124 @@ def process_sale(*, customer_id, cashier, items_data, payments_data, source='WAL
                 due_date=date.today() + timedelta(days=30),
                 status=CollectibleLedger.Status.OPEN,
             )
+            # A pending cheque now knows WHICH utang it answers for, which is what clear/
+            # pays and bounce/ leaves standing. Written here, inside the sale's own atomic
+            # block: a sale that fails later takes the link with it.
+            for row in cheque_rows:
+                row.ledger = ledger
+                row.save(update_fields=["ledger"])
 
     return txn
+
+
+def decide_cheque(*, cheque_id, decision, decided_by, reason=""):
+    """Clear or bounce ONE pending cheque (Phase 4 task B2, decision 18).
+
+    The owner's ruling has three parts and they all live here rather than in the view:
+
+    * CLEARED means the bank honoured it, so the utang it was holding open is paid by
+      `apply_payment_to_ledger` - the SAME arithmetic every other payment uses, and the
+      reason a cleared cheque writes a `CollectiblePayment` row (`payment_method=CHEQUE`,
+      `official_receipt_no` = the cheque number) instead of inventing a second way to
+      move a balance;
+    * BOUNCED means the money never came, so the ledger is untouched and the customer
+      still owes it; the bank's reason is recorded;
+    * either way it happens ONCE. The cheque row is locked and re-read under the lock, so
+      two managers clicking together cannot both pay the ledger.
+
+    This opens its own atomic block: the cheque stamp, the ledger movement and the
+    payment row must commit together or not at all. `cheque_id` is expected to have been
+    resolved through the caller's own queryset already (so a bad id is a 404), and is
+    re-read under the lock here - that second read is what makes the decision once-only.
+    """
+    from apps.collectibles.models import CollectiblePayment
+    from apps.collectibles.services import apply_payment_to_ledger
+
+    from .exceptions import (
+        ChequeAlreadyDecided,
+        ChequeError,
+        ChequeReasonRequired,
+    )
+
+    if decision not in (Payment.Status.CLEARED, Payment.Status.BOUNCED):
+        raise ChequeError(f"{decision!r} is not a cheque decision.")
+    reason = reason.strip() if isinstance(reason, str) else ""
+    if decision == Payment.Status.BOUNCED and not reason:
+        raise ChequeReasonRequired()
+
+    with transaction.atomic():
+        cheque = Payment.objects.select_for_update().get(pk=cheque_id)
+        if cheque.status != Payment.Status.PENDING:
+            raise ChequeAlreadyDecided(cheque.status, cheque.cheque_number)
+
+        if decision == Payment.Status.CLEARED:
+            if cheque.ledger_id is None:
+                # A pending cheque always carries its ledger (process_sale and the utang
+                # path both set it), so this is a data fault rather than a client error -
+                # answered as one instead of crashing on a NULL lookup.
+                raise ChequeError(
+                    "This cheque is not linked to an utang, so there is nothing to "
+                    "settle. Record the payment against the customer instead."
+                )
+            ledger = CollectibleLedger.objects.select_for_update().get(
+                pk=cheque.ledger_id
+            )
+            # Raises Overpayment if that debt was already settled another way (a payment
+            # taken at the counter today, or a return credit). Refused, not clamped: the
+            # difference would be money the books do not hold.
+            apply_payment_to_ledger(ledger, cheque.amount_tendered)
+            CollectiblePayment.objects.create(
+                collectible=ledger,
+                processed_by=decided_by,
+                amount_paid=cheque.amount_tendered,
+                payment_method=Payment.Method.CHEQUE,
+                official_receipt_no=cheque.cheque_number,
+            )
+
+        cheque.status = decision
+        cheque.decided_by = decided_by
+        cheque.decided_at = timezone.now()
+        cheque.decision_reason = reason
+        cheque.save(
+            update_fields=["status", "decided_by", "decided_at", "decision_reason"]
+        )
+    return cheque
+
+
+def record_cheque_against_ledger(
+    *, ledger_id, amount, cheque_number, bank, cheque_date, reference_no=""
+):
+    """Record a PENDING cheque against an utang that already exists (B2, decision 18).
+
+    The till's cheque and this one are the same object: a `Payment` row with
+    `method=CHEQUE`, `status=PENDING` and the ledger it is waiting on, so ONE queue
+    (`GET /api/v1/cheques/`) lists every cheque the shop is owed and ONE action
+    (`clear/`) turns any of them into money.
+
+    The ledger is NOT touched here. Clearing is what moves a balance, because until the
+    bank honours the cheque the customer still owes the shop - and an utang payment
+    screen that quietly reduced the balance would be recording money nobody received.
+
+    The caller owns the transaction (the view opens it), and the ledger is locked before
+    it is read so two counters cannot each take a cheque for the same last peso.
+    """
+    from apps.collectibles.services import Overpayment
+
+    amount = _money_round(Decimal(amount))
+    ledger = CollectibleLedger.objects.select_for_update().get(pk=ledger_id)
+    if amount > ledger.balance_due:
+        raise Overpayment(ledger.balance_due, amount)
+    return Payment.objects.create(
+        transaction_id=ledger.transaction_id,
+        method=Payment.Method.CHEQUE,
+        amount_tendered=amount,
+        reference_no=reference_no or "",
+        status=Payment.Status.PENDING,
+        cheque_number=cheque_number,
+        bank=bank,
+        cheque_date=cheque_date,
+        ledger=ledger,
+    )
 
 
 def _restock_returned(*, variant_id, qty_needed, original_id, return_item):
@@ -526,13 +1039,14 @@ def _restock_returned(*, variant_id, qty_needed, original_id, return_item):
     remaining = qty_needed
     if original_id is not None:
         rows = list(
-            SalesItemDeduction.objects
-            .select_related('batch')
+            SalesItemDeduction.objects.select_related("batch")
             .select_for_update()
-            .filter(sales_item__transaction_id=original_id,
-                    sales_item__variant_uom__variant_id=variant_id,
-                    qty__gt=0)
-            .order_by('batch__receipt__receive_date')
+            .filter(
+                sales_item__transaction_id=original_id,
+                sales_item__variant_uom__variant_id=variant_id,
+                qty__gt=0,
+            )
+            .order_by("batch__receipt__receive_date")
         )
         if rows:
             touched = []
@@ -540,48 +1054,46 @@ def _restock_returned(*, variant_id, qty_needed, original_id, return_item):
             for row in rows:
                 if remaining <= 0:
                     break
-                returned = (
-                    SalesItemDeduction.objects
-                    .filter(sales_item__transaction__original_transaction_id=original_id,
-                            batch_id=row.batch_id, qty__lt=0)
-                    .aggregate(total=Sum('qty'))['total']
-                    or Decimal('0')
-                )
+                returned = SalesItemDeduction.objects.filter(
+                    sales_item__transaction__original_transaction_id=original_id,
+                    batch_id=row.batch_id,
+                    qty__lt=0,
+                ).aggregate(total=Sum("qty"))["total"] or Decimal(0)
                 available = row.qty + returned
                 if available <= 0:
                     continue
                 add = min(available, remaining)
                 row.batch.current_qty += add
                 touched.append(row.batch)
-                planned.append(SalesItemDeduction(
-                    sales_item=return_item, batch=row.batch, qty=-add))
+                planned.append(
+                    SalesItemDeduction(
+                        sales_item=return_item, batch=row.batch, qty=-add
+                    )
+                )
                 remaining -= add
             if touched:
-                InventoryBatch.objects.bulk_update(touched, ['current_qty'])
+                InventoryBatch.objects.bulk_update(touched, ["current_qty"])
                 SalesItemDeduction.objects.bulk_create(planned)
             if remaining > 0:
-                raise ReturnError(
-                    'Cannot return more than the original sale drew.')
+                raise ReturnError("Cannot return more than the original sale drew.")
             return
     newest = (
-        InventoryBatch.objects
-        .select_for_update()
+        InventoryBatch.objects.select_for_update()
         .filter(variant_id=variant_id, current_qty__gt=0)
-        .order_by('-receipt__receive_date')
+        .order_by("-receipt__receive_date")
         .first()
     )
     if newest is None:
         newest = (
-            InventoryBatch.objects
-            .select_for_update()
+            InventoryBatch.objects.select_for_update()
             .filter(variant_id=variant_id)
-            .order_by('-receipt__receive_date')
+            .order_by("-receipt__receive_date")
             .first()
         )
     if newest is None:
-        raise ReturnError('No batches exist for this variant.')
+        raise ReturnError("No batches exist for this variant.")
     newest.current_qty += remaining
-    newest.save(update_fields=['current_qty'])
+    newest.save(update_fields=["current_qty"])
 
 
 def _money(value):
@@ -590,7 +1102,7 @@ def _money(value):
     `None` from an empty aggregate becomes '0.00' - a shift with no sales has a zero
     drawer total, not a missing one. Strings, never floats: this is money.
     """
-    return f'{value or Decimal("0"):.2f}'
+    return f"{value or Decimal(0):.2f}"
 
 
 def held_cart_count(shift):
@@ -631,6 +1143,11 @@ def compute_z_reading(shift):
       two halves the formula names. A single netted cash figure would double-count if it
       were also subtracted; splitting them keeps each number meaningful on the printout
       and leaves the drawer arithmetic identical.
+    * Change handed back is money OUT of the same drawer, so `cash_sales` is the cash
+      TENDERED less every `change_given` on those sales (QA High, Phase 4 close). A
+      till that takes 230.00 for a 225.00 sale and hands 15.00 back has 215.00 more in
+      the drawer, not 230.00 - before this subtraction the expected drawer was
+      overstated by every centavo of change.
 
     Recomputed from the same query on every call, so a closed shift's Z-reading is
     idempotent - asking twice can never show two different days.
@@ -640,58 +1157,60 @@ def compute_z_reading(shift):
     """
     from django.db.models import Count, Sum
 
-    completed = shift.transactions.filter(
-        status=SalesTransaction.Status.COMPLETED)
+    completed = shift.transactions.filter(status=SalesTransaction.Status.COMPLETED)
     sales = completed.exclude(source=SalesTransaction.Source.RETURN)
     returns = completed.filter(source=SalesTransaction.Source.RETURN)
 
     totals = completed.aggregate(
-        transaction_count=Count('id'),
-        gross_sales=Sum('grand_total'),
-        vat=Sum('vat_amount'),
-        discounts=Sum('discount_amount'),
+        transaction_count=Count("id"),
+        gross_sales=Sum("grand_total"),
+        vat=Sum("vat_amount"),
+        discounts=Sum("discount_amount"),
     )
 
     # One query for every method, then read the four the till knows. A method the client
     # invents later shows up in neither total and the drawer still balances on cash.
     by_method = {
-        row['method']: row['total'] or Decimal('0')
+        row["method"]: row["total"] or Decimal(0)
         for row in (
-            Payment.objects
-            .filter(transaction__in=sales)
-            .values('method')
-            .annotate(total=Sum('amount_tendered')))
+            Payment.objects.filter(transaction__in=sales)
+            .values("method")
+            .annotate(total=Sum("amount_tendered"))
+        )
     }
-    cash_refunds = (
-        Payment.objects
-        .filter(transaction__in=returns, method=Payment.Method.CASH)
-        .aggregate(total=Sum('amount_tendered'))['total']
-        or Decimal('0'))
+    cash_refunds = Payment.objects.filter(
+        transaction__in=returns, method=Payment.Method.CASH
+    ).aggregate(total=Sum("amount_tendered"))["total"] or Decimal(0)
+    change_total = sales.aggregate(total=Sum("change_given"))["total"] or Decimal(0)
 
-    cash_sales = by_method.get(Payment.Method.CASH, Decimal('0'))
+    cash_sales = by_method.get(Payment.Method.CASH, Decimal(0)) - change_total
     expected_drawer = shift.opening_float + cash_sales - abs(cash_refunds)
     variance = (
-        None if shift.closing_count is None
-        else shift.closing_count - expected_drawer)
+        None if shift.closing_count is None else shift.closing_count - expected_drawer
+    )
 
     return {
-        'shift_id': shift.id,
-        'opening_float': _money(shift.opening_float),
-        'closing_count': (
-            None if shift.closing_count is None else _money(shift.closing_count)),
-        'transaction_count': totals['transaction_count'] or 0,
-        'gross_sales': _money(totals['gross_sales']),
-        'vat': _money(totals['vat']),
-        'discounts': _money(totals['discounts']),
-        'cash_sales': _money(cash_sales),
-        'card_sales': _money(by_method.get(Payment.Method.CARD)),
-        'gcash_sales': _money(by_method.get(Payment.Method.GCASH)),
-        'bank_sales': _money(by_method.get(Payment.Method.BANK_TRANSFER)),
-        'cash_refunds': _money(abs(cash_refunds)),
-        'expected_drawer': _money(expected_drawer),
-        'variance': None if variance is None else _money(variance),
+        "shift_id": shift.id,
+        "opening_float": _money(shift.opening_float),
+        "closing_count": (
+            None if shift.closing_count is None else _money(shift.closing_count)
+        ),
+        "transaction_count": totals["transaction_count"] or 0,
+        "gross_sales": _money(totals["gross_sales"]),
+        "vat": _money(totals["vat"]),
+        "discounts": _money(totals["discounts"]),
+        "cash_sales": _money(cash_sales),
+        # QA High (Phase 4 close): shown on its own so the printout explains WHY
+        # cash_sales is less than the cash tendered.
+        "change_given": _money(change_total),
+        "card_sales": _money(by_method.get(Payment.Method.CARD)),
+        "gcash_sales": _money(by_method.get(Payment.Method.GCASH)),
+        "bank_sales": _money(by_method.get(Payment.Method.BANK_TRANSFER)),
+        "cash_refunds": _money(abs(cash_refunds)),
+        "expected_drawer": _money(expected_drawer),
+        "variance": None if variance is None else _money(variance),
         # Advisory, not a blocker: `close_shift` records the count and closes anyway.
-        'held_cart_count': held_cart_count(shift),
+        "held_cart_count": held_cart_count(shift),
     }
 
 
@@ -714,14 +1233,14 @@ def _return_unit_price(*, original, vuom):
     if original is None:
         return vuom.default_selling_price
     original_line = (
-        SalesItem.objects
-        .filter(transaction=original, variant_uom=vuom)
-        .order_by('id')
+        SalesItem.objects.filter(transaction=original, variant_uom=vuom)
+        .order_by("id")
         .first()
     )
     if original_line is None:
         raise ReturnError(
-            f'{vuom} was not on the original sale, so it cannot be refunded against it.')
+            f"{vuom} was not on the original sale, so it cannot be refunded against it."
+        )
     return original_line.unit_price
 
 
@@ -739,16 +1258,68 @@ def _returned_so_far(original, vuom):
     from django.db.models import Sum
 
     def _sum(queryset):
-        return queryset.aggregate(total=Sum('qty'))['total'] or Decimal('0')
+        return queryset.aggregate(total=Sum("qty"))["total"] or Decimal(0)
 
-    sold = _sum(SalesItem.objects.filter(
-        transaction=original, variant_uom=vuom))
-    returned = _sum(SalesItem.objects.filter(
-        transaction__original_transaction=original,
-        transaction__source=SalesTransaction.Source.RETURN,
-        transaction__status=SalesTransaction.Status.COMPLETED,
-        variant_uom=vuom))
+    sold = _sum(SalesItem.objects.filter(transaction=original, variant_uom=vuom))
+    returned = _sum(
+        SalesItem.objects.filter(
+            transaction__original_transaction=original,
+            transaction__source=SalesTransaction.Source.RETURN,
+            transaction__status=SalesTransaction.Status.COMPLETED,
+            variant_uom=vuom,
+        )
+    )
     return sold, -returned
+
+
+def _return_net_share(*, original, returned_gross):
+    """What a return actually gives back: its share of what the sale was PAID (B1).
+
+    Decision 18: a discounted sale refunds the NET share, so the shop never hands back
+    money it never took.
+
+        refund = returned_gross x (sale net / sale gross)
+
+    Rounded ONCE here, which is what makes three partial returns of one sale add up to
+    exactly the sale's net instead of a centavo more. `original.grand_total` IS the net
+    (VAT is inclusive, so the gross was never what was charged).
+
+    The cumulative cap is the other half of the same rule: refunds already posted
+    against this sale plus this one may never exceed what the sale was paid + still owed.
+    A hand-written request that prices a line expensively is clamped here rather than
+    refused - the quantity cap is the guard against over-returning, and this one only
+    exists so the money can never exceed the sale.
+
+    Unlinked returns are priced from the selling unit itself, with no sale to take a
+    share of, so they refund their gross - the pre-B1 behaviour.
+    """
+    from django.db.models import Sum
+
+    if original is None:
+        return returned_gross
+
+    sale_gross = _money_round(
+        SalesItem.objects.filter(transaction=original).aggregate(total=Sum("subtotal"))[
+            "total"
+        ]
+        or Decimal(0)
+    )
+    sale_net = _money_round(original.grand_total)
+    if sale_gross <= 0 or sale_net <= 0:
+        # A fully discounted sale (or a zero-priced one) refunds nothing: the customer
+        # paid nothing for the goods coming back.
+        return Decimal("0.00")
+
+    share = _money_round(returned_gross * sale_net / sale_gross)
+    # Negative: every completed return against this sale summed. `room` is what is left
+    # of the sale after them.
+    already = SalesTransaction.objects.filter(
+        original_transaction=original,
+        source=SalesTransaction.Source.RETURN,
+        status=SalesTransaction.Status.COMPLETED,
+    ).aggregate(total=Sum("grand_total"))["total"] or Decimal(0)
+    room = _money_round(sale_net + already)
+    return max(min(share, room), Decimal("0.00"))
 
 
 def _requested_by_selling_unit(lines):
@@ -759,7 +1330,7 @@ def _requested_by_selling_unit(lines):
     """
     totals = {}
     for vuom, qty in lines:
-        totals[vuom] = totals.get(vuom, Decimal('0')) + qty
+        totals[vuom] = totals.get(vuom, Decimal(0)) + qty
     return totals
 
 
@@ -785,16 +1356,17 @@ def _settle_return_money(*, txn, original, cashier, payment_method, total):
     ledger = None
     if original is not None:
         ledger = (
-            CollectibleLedger.objects
-            .select_for_update()
-            .filter(transaction=original,
-                    status__in=OUTSTANDING_LEDGER_STATUSES,
-                    balance_due__gt=0)
-            .order_by('due_date', 'id')
+            CollectibleLedger.objects.select_for_update()
+            .filter(
+                transaction=original,
+                status__in=OUTSTANDING_LEDGER_STATUSES,
+                balance_due__gt=0,
+            )
+            .order_by("due_date", "id")
             .first()
         )
 
-    debt_reduced = Decimal('0')
+    debt_reduced = Decimal(0)
     if ledger is not None:
         # A partial return can only settle what is still owed; the rest is cash.
         debt_reduced = min(return_value, ledger.balance_due)
@@ -803,7 +1375,7 @@ def _settle_return_money(*, txn, original, cashier, payment_method, total):
             collectible=ledger,
             processed_by=cashier,
             amount_paid=debt_reduced,
-            payment_method='RETURN_CREDIT',
+            payment_method="RETURN_CREDIT",
             # The RETURN's own number, not an OR: the document for this movement is the
             # return transaction the audit trail already names.
             official_receipt_no=txn.transaction_no,
@@ -817,22 +1389,28 @@ def _settle_return_money(*, txn, original, cashier, payment_method, total):
             transaction=txn,
             method=payment_method,
             amount_tendered=-cash_refund,
-            reference_no='',
+            reference_no="",
         )
 
     return {
-        'return_value': _money(return_value),
-        'debt_reduced': _money(debt_reduced),
-        'cash_refund': _money(cash_refund),
-        'refund_method': payment_method,
-        'ledger_id': None if ledger is None else ledger.id,
-        'ledger_balance': None if ledger is None else _money(ledger.balance_due),
+        "return_value": _money(return_value),
+        "debt_reduced": _money(debt_reduced),
+        "cash_refund": _money(cash_refund),
+        "refund_method": payment_method,
+        "ledger_id": None if ledger is None else ledger.id,
+        "ledger_balance": None if ledger is None else _money(ledger.balance_due),
     }
 
 
-def process_return(*, customer_id, cashier, items_data,
-                   original_transaction_id=None, payment_method='CASH',
-                   reason=''):
+def process_return(
+    *,
+    customer_id,
+    cashier,
+    items_data,
+    original_transaction_id=None,
+    payment_method="CASH",
+    reason="",
+):
     """Post a customer return: a RETURN transaction with negative amounts.
 
     items_data mirrors process_sale but POSITIVE (what comes back):
@@ -865,6 +1443,8 @@ def process_return(*, customer_id, cashier, items_data,
     * the ORIGINAL is row-locked and refused when it is a return, a requisition release,
       or not COMPLETED;
     * the returned qty per selling unit is capped by what the original SOLD;
+    * every line refunds its NET share of what the sale was paid (`_return_net_share`),
+      so a return of a discounted sale cannot hand the discount back as cash;
     * the money is settled DEBT FIRST (`_settle_return_money`), and the summary of that
       settlement is attached to the returned row as `txn.refund_summary` - a transient
       attribute, NOT a model field, so the 201 body can explain the refund without a
@@ -886,9 +1466,17 @@ def process_return(*, customer_id, cashier, items_data,
 
     lines = _validated_sale_lines(items_data)
     if payment_method not in dict(Payment.Method.choices):
-        raise ReturnError(f'Unknown payment method: {payment_method}.')
+        raise ReturnError(f"Unknown payment method: {payment_method}.")
+    if payment_method == Payment.Method.CHEQUE:
+        # Phase 4 task B2: a refund is money LEAVING the drawer, and the till cannot write
+        # a cheque. A customer whose utang is settled by a cheque gets the ledger reduced
+        # when a manager clears it (POST /cheques/{id}/clear/), not at the counter.
+        raise ReturnError(
+            "A refund is paid in cash or another tender the drawer holds, not by "
+            "cheque. Choose cash, card, GCash or bank transfer."
+        )
 
-    reason = reason.strip() if isinstance(reason, str) else ''
+    reason = reason.strip() if isinstance(reason, str) else ""
 
     with transaction.atomic():
         # The gate first, and INSIDE the atomic block so a refusal leaves nothing behind:
@@ -897,36 +1485,38 @@ def process_return(*, customer_id, cashier, items_data,
             shift = Shift.objects.get(cashier=cashier, status=Shift.Status.OPEN)
         except Shift.DoesNotExist:
             raise NoOpenShift(
-                'You have no open shift. Open a shift before posting a return.'
+                "You have no open shift. Open a shift before posting a return."
             ) from None
 
         if not reason or len(reason) > MAX_RETURN_REASON_LENGTH:
             raise ReturnReasonRequired(
-                'A return needs a reason of 1 to '
-                f'{MAX_RETURN_REASON_LENGTH} characters.')
+                "A return needs a reason of 1 to "
+                f"{MAX_RETURN_REASON_LENGTH} characters."
+            )
 
         # Phase 1d Task 3: `_validated_sale_lines` ran before this transaction, so the
         # units it accepted are locked here - the same lock the removal takes - before the
         # first write. A refund of a unit the catalogue lost is then a 400, not a
         # foreign-key 500, even for a manager's UNLINKED return against a unit no sale
         # row happens to reference.
-        lock_selling_unit_lines(lines, document='return')
+        lock_selling_unit_lines(lines, document="return")
 
         original = None
         if original_transaction_id is not None:
             # Locked for the whole block: two concurrent returns against one sale must
             # serialize, or both pass the quantity cap and the shop refunds twice.
             original = SalesTransaction.objects.select_for_update().get(
-                pk=original_transaction_id)
+                pk=original_transaction_id
+            )
             if original.source == SalesTransaction.Source.RETURN:
-                raise ReturnOfReturn('A return cannot reverse another return.')
+                raise ReturnOfReturn("A return cannot reverse another return.")
             if original.source == SalesTransaction.Source.REQUISITION:
                 raise ReleaseNotReturnable(
-                    'A material release is not a sale and cannot be returned at the '
-                    'till.')
+                    "A material release is not a sale and cannot be returned at the "
+                    "till."
+                )
             if original.status != SalesTransaction.Status.COMPLETED:
-                raise OriginalNotCompleted(
-                    'Only a completed sale can be reversed.')
+                raise OriginalNotCompleted("Only a completed sale can be reversed.")
         elif not has_role(cashier, IsManagerRole.required_roles):
             raise UnlinkedReturnForbidden()
 
@@ -936,8 +1526,11 @@ def process_return(*, customer_id, cashier, items_data,
                 sold, already_returned = _returned_so_far(original, vuom)
                 if already_returned + want > sold:
                     raise ReturnQtyExceeded(
-                        variant_uom=vuom.id, sold=sold,
-                        already_returned=already_returned, requested=want)
+                        variant_uom=vuom.id,
+                        sold=sold,
+                        already_returned=already_returned,
+                        requested=want,
+                    )
 
         txn = SalesTransaction.objects.create(
             customer_id=customer_id,
@@ -946,15 +1539,26 @@ def process_return(*, customer_id, cashier, items_data,
             transaction_no=generate_transaction_no(),
             source=SalesTransaction.Source.RETURN,
             original_transaction=original,
+            vat_registered=(original.vat_registered if original is not None else True),
             vatable_sales=0,
             vat_amount=0,
             discount_amount=0,
             grand_total=0,
             notes=reason,
         )
-        total = Decimal('0')
-        for vuom, qty in lines:
-            unit_price = _return_unit_price(original=original, vuom=vuom)
+        # Decision 18: price the lines FIRST, because the refund is a share of what the
+        # customer actually paid, not of the shelf price. A discounted sale refunds its
+        # net share, so a refund can never hand back the discount the shop already gave.
+        priced = [
+            (vuom, qty, _return_unit_price(original=original, vuom=vuom))
+            for vuom, qty in lines
+        ]
+        returned_gross = _money_round(
+            sum((qty * unit_price for _, qty, unit_price in priced), Decimal(0))
+        )
+        refund_net = _return_net_share(original=original, returned_gross=returned_gross)
+
+        for vuom, qty, unit_price in priced:
             item_row = SalesItem.objects.create(
                 transaction=txn,
                 variant_uom=vuom,
@@ -970,20 +1574,55 @@ def process_return(*, customer_id, cashier, items_data,
                 variant_id=vuom.variant_id,
                 qty_needed=qty * vuom.conversion_factor,
                 original_id=original.id if original else None,
-                return_item=item_row)
-            total += -(qty * unit_price)
-        txn.vatable_sales = total
+                return_item=item_row,
+            )
+
+        total = -refund_net
+        # The return carries the VAT share BACK OUT of the reports, using the same split
+        # the sale used: the ORIGINAL's flag and RATE, both stored on the row, so a
+        # settings change between the sale and the refund cannot make the two disagree.
+        # An unlinked return has no original to read and uses today's settings (the only
+        # rate there is - ENDPOINTS.md says so). A legacy original has no stored rate
+        # because pre-Phase-4 sales booked no VAT: its rate reads 0.00 percent, so the
+        # refund books no VAT either and the pair still agrees with the receipt.
+        store = StoreSettings.load()
+        registered = (
+            original.vat_registered if original is not None else store.vat_registered
+        )
+        if original is None:
+            rate = store.vat_rate
+        else:
+            rate = (
+                original.vat_rate if original.vat_rate is not None else Decimal("0.00")
+            )
+        vatable_sales, vat_amount = vat_split(total, rate=rate, registered=registered)
+        txn.vat_registered = registered
+        txn.vat_rate = rate
+        txn.vatable_sales = vatable_sales
+        txn.vat_amount = vat_amount
         txn.grand_total = total
-        txn.save(update_fields=['vatable_sales', 'grand_total'])
+        txn.save(
+            update_fields=[
+                "vat_registered",
+                "vat_rate",
+                "vatable_sales",
+                "vat_amount",
+                "grand_total",
+            ]
+        )
 
         txn.refund_summary = _settle_return_money(
-            txn=txn, original=original, cashier=cashier,
-            payment_method=payment_method, total=total)
+            txn=txn,
+            original=original,
+            cashier=cashier,
+            payment_method=payment_method,
+            total=total,
+        )
 
         OfficialReceipt.objects.create(
             transaction=txn,
             or_number=generate_or_number(),
-            terminal_no='POS-01',
+            terminal_no="POS-01",
         )
     return txn
 
@@ -1003,47 +1642,45 @@ def returnable_payload(txn):
 
     reason_if_not = None
     if txn.source == SalesTransaction.Source.RETURN:
-        reason_if_not = 'RETURN_OF_RETURN'
+        reason_if_not = "RETURN_OF_RETURN"
     elif txn.source == SalesTransaction.Source.REQUISITION:
-        reason_if_not = 'RELEASE_NOT_RETURNABLE'
+        reason_if_not = "RELEASE_NOT_RETURNABLE"
     elif txn.status != SalesTransaction.Status.COMPLETED:
-        reason_if_not = 'ORIGINAL_NOT_COMPLETED'
+        reason_if_not = "ORIGINAL_NOT_COMPLETED"
 
     # One entry per SELLING UNIT, not per line: a sale may name the same bag twice, and
     # the cap counts them together.
     lines = {}
     rows = (
-        SalesItem.objects
-        .filter(transaction=txn)
-        .select_related('variant_uom__variant__product', 'variant_uom__uom')
-        .order_by('id'))
+        SalesItem.objects.filter(transaction=txn)
+        .select_related("variant_uom__variant__product", "variant_uom__uom")
+        .order_by("id")
+    )
     for row in rows:
         vuom = row.variant_uom
         if vuom.pk in lines:
             continue
         sold, returned = _returned_so_far(txn, vuom)
         lines[vuom.pk] = {
-            'variant_uom': vuom.pk,
-            'name': str(vuom.variant),
-            'uom': vuom.uom.code,
-            'sold_qty': _money(sold),
-            'returned_qty': _money(returned),
-            'remaining_qty': _money(max(sold - returned, Decimal('0'))),
-            'unit_price': _money(row.unit_price),
+            "variant_uom": vuom.pk,
+            "name": str(vuom.variant),
+            "uom": vuom.uom.code,
+            "sold_qty": _money(sold),
+            "returned_qty": _money(returned),
+            "remaining_qty": _money(max(sold - returned, Decimal(0))),
+            "unit_price": _money(row.unit_price),
         }
 
-    open_debt = (
-        CollectibleLedger.objects
-        .filter(transaction=txn, status__in=OUTSTANDING_LEDGER_STATUSES)
-        .aggregate(total=Sum('balance_due'))['total']
-        or Decimal('0'))
+    open_debt = CollectibleLedger.objects.filter(
+        transaction=txn, status__in=OUTSTANDING_LEDGER_STATUSES
+    ).aggregate(total=Sum("balance_due"))["total"] or Decimal(0)
 
     return {
-        'transaction_no': txn.transaction_no,
-        'customer': txn.customer.name,
-        'source': txn.source,
-        'returnable': reason_if_not is None,
-        'reason_if_not': reason_if_not,
-        'lines': list(lines.values()),
-        'open_debt': _money(open_debt),
+        "transaction_no": txn.transaction_no,
+        "customer": txn.customer.name,
+        "source": txn.source,
+        "returnable": reason_if_not is None,
+        "reason_if_not": reason_if_not,
+        "lines": list(lines.values()),
+        "open_debt": _money(open_debt),
     }

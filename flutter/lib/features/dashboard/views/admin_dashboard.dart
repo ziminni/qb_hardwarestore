@@ -326,10 +326,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 }
 
-/// The three numbers behind today's gross, read from the server's summary.
+/// The numbers behind today's gross, read from the server's summary.
 ///
-/// No Discounts row (D12): checkout hard-zeroes the discount, so the row could
-/// only ever read ₱0.00 and advertise a feature the system does not have.
+/// Discounts is back (Phase 4 F4, supersedes D12): the till takes a capped discount
+/// again, so the row has a real number behind it.
 class _SalesSummary extends StatelessWidget {
   const _SalesSummary({required this.summary});
 
@@ -346,6 +346,9 @@ class _SalesSummary extends StatelessWidget {
           value: formatCount(summary.totalTransactions),
         ),
         _StatRow(label: 'Gross sales', value: formatPeso(summary.totalGross)),
+        // Phase 4 F4 (supersedes D12): checkout discounts again, so this row is a
+        // real number rather than a permanent ₱0.00.
+        _StatRow(label: 'Discounts', value: formatPeso(summary.totalDiscounts)),
         _StatRow(label: 'VAT', value: formatPeso(summary.totalVat)),
       ],
     );

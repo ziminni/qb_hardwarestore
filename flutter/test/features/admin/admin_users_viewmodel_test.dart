@@ -11,6 +11,7 @@ class _StubUsersService extends UserService {
   String? failure;
   int createCalls = 0;
   String? lastSearch;
+  List<String>? lastCreateRoles;
 
   @override
   Future<List<User>> fetchUsers({String? search}) async {
@@ -30,9 +31,10 @@ class _StubUsersService extends UserService {
     required String email,
     required String fullName,
     required String password,
-    required String groupName,
+    required List<String> roles,
   }) async {
     createCalls++;
+    lastCreateRoles = roles;
     return const User(
       id: 9,
       username: 'newcashier',
@@ -47,7 +49,7 @@ class _StubUsersService extends UserService {
   bool? lastActiveValue;
   int assignCalls = 0;
   int? lastAssignId;
-  String? lastAssignGroup;
+  List<String>? lastAssignRoles;
 
   @override
   Future<User> setActive({required int id, required bool isActive}) async {
@@ -76,10 +78,13 @@ class _StubUsersService extends UserService {
   }
 
   @override
-  Future<User> assignRole({required int id, required String groupName}) async {
+  Future<User> assignRoles({
+    required int id,
+    required List<String> roles,
+  }) async {
     assignCalls++;
     lastAssignId = id;
-    lastAssignGroup = groupName;
+    lastAssignRoles = roles;
     final failure = this.failure;
     if (failure != null) throw UsersServiceException(failure);
     return const User(
@@ -249,7 +254,7 @@ void main() {
     expect(viewmodel.loadError, isNull);
   });
 
-  test('assignRole posts the group and reloads the row', () async {
+  test('assignRoles posts the whole code list and reloads the row', () async {
     service.users = const [
       User(
         id: 2,
@@ -261,30 +266,85 @@ void main() {
     ];
     await viewmodel.load();
 
-    final ok = await viewmodel.assignRole(
+    final ok = await viewmodel.assignRoles(
       viewmodel.users.single,
-      groupName: 'Cashier',
+      roleCodes: const ['pos', 'sales'],
+      isAdminViewer: true,
     );
 
     expect(ok, isTrue);
     expect(service.assignCalls, 1);
     expect(service.lastAssignId, 2);
-    expect(service.lastAssignGroup, 'Cashier');
+    expect(service.lastAssignRoles, [
+      'pos',
+      'sales',
+    ], reason: 'roles[] is a full replacement, so every code travels');
     expect(viewmodel.actionError, isNull);
   });
 
-  test('managers cannot offer admin groups; admins can', () {
+  test('a manager cannot grant admin through a mixed list', () async {
+    service.users = const [
+      User(
+        id: 2,
+        username: 'manager',
+        email: 'm@demo.ph',
+        fullName: 'Mana Ger',
+        role: Role(id: 3, name: 'sales', displayName: 'Store Manager'),
+      ),
+    ];
+    await viewmodel.load();
+
+    final ok = await viewmodel.assignRoles(
+      viewmodel.users.single,
+      roleCodes: const ['pos', 'admin'],
+      isAdminViewer: false,
+    );
+
+    expect(ok, isFalse);
+    expect(service.assignCalls, 0, reason: 'refused before the wire');
+    expect(viewmodel.actionError, contains('Admin'));
+  });
+
+  test('an empty role list is refused without a request', () async {
+    service.users = const [
+      User(
+        id: 2,
+        username: 'manager',
+        email: 'm@demo.ph',
+        fullName: 'Mana Ger',
+        role: Role(id: 3, name: 'sales', displayName: 'Store Manager'),
+      ),
+    ];
+    await viewmodel.load();
+
+    final ok = await viewmodel.assignRoles(
+      viewmodel.users.single,
+      roleCodes: const [],
+      isAdminViewer: true,
+    );
+
+    expect(ok, isFalse);
+    expect(service.assignCalls, 0);
+    expect(viewmodel.actionError, contains('at least one role'));
+  });
+
+  test('managers are offered the working roles only; admins also admin', () {
     expect(
-      AdminUsersViewmodel.assignableGroups(isAdmin: false),
-      containsAll(['Cashier', 'Stock Manager', 'Store Manager']),
+      AdminUsersViewmodel.assignableRoles(isAdmin: false).keys,
+      containsAll(['pos', 'inventory', 'sales']),
     );
     expect(
-      AdminUsersViewmodel.assignableGroups(isAdmin: false),
-      isNot(contains('Admin')),
+      AdminUsersViewmodel.assignableRoles(isAdmin: false).keys,
+      isNot(contains('admin')),
     );
     expect(
-      AdminUsersViewmodel.assignableGroups(isAdmin: true),
-      containsAll(['Admin', 'System Administrator', 'Cashier']),
+      AdminUsersViewmodel.assignableRoles(isAdmin: true).keys,
+      containsAll(['admin', 'pos', 'inventory', 'sales']),
+    );
+    // The chip words are the server's, the keys are the codes on the wire.
+    expect(
+      AdminUsersViewmodel.assignableRoles(isAdmin: true)['pos'],
+      'Cashier',
     );
   });
 
@@ -293,7 +353,7 @@ void main() {
   test('Site Foreman is not assignable', () {
     for (final isAdmin in const [false, true]) {
       expect(
-        AdminUsersViewmodel.assignableGroups(isAdmin: isAdmin),
+        AdminUsersViewmodel.assignableRoles(isAdmin: isAdmin).values,
         isNot(contains('Site Foreman')),
         reason: 'isAdmin: $isAdmin',
       );
@@ -306,7 +366,8 @@ void main() {
       email: 'x@demo.ph',
       fullName: 'X',
       password: 'short',
-      groupName: 'Cashier',
+      roleCodes: const ['pos'],
+      isAdminViewer: true,
     );
 
     expect(ok, isFalse);
@@ -314,5 +375,35 @@ void main() {
     expect(viewmodel.createError, contains('8 characters'));
     // A refused create never touches the page banner.
     expect(viewmodel.loadError, isNull);
+  });
+
+  test('create sends roles[] only, the full list the person picked', () async {
+    final ok = await viewmodel.create(
+      username: 'newcashier',
+      email: 'new@demo.ph',
+      fullName: 'New Cashier',
+      password: 'demo1234',
+      roleCodes: const ['pos', 'sales'],
+      isAdminViewer: true,
+    );
+
+    expect(ok, isTrue);
+    expect(service.createCalls, 1);
+    expect(service.lastCreateRoles, ['pos', 'sales']);
+  });
+
+  test('a manager cannot create an admin account', () async {
+    final ok = await viewmodel.create(
+      username: 'newadmin',
+      email: 'new@demo.ph',
+      fullName: 'New Admin',
+      password: 'demo1234',
+      roleCodes: const ['admin', 'pos'],
+      isAdminViewer: false,
+    );
+
+    expect(ok, isFalse);
+    expect(service.createCalls, 0);
+    expect(viewmodel.createError, contains('Admin'));
   });
 }

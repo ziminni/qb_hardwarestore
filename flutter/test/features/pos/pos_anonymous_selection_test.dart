@@ -11,6 +11,7 @@ import 'package:client/data/models/customer.dart';
 import 'package:client/data/repositories/customer_repository.dart';
 import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/services/customer_service.dart';
+import 'package:client/data/models/sale_discount.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import '../../support/phase4_fakes.dart';
@@ -29,6 +30,8 @@ class _StubPosRepository extends PosRepository {
     required List<PosCheckoutPayment> payments,
     String source = 'WALK_IN',
     String? idempotencyKey,
+    PosDiscount? discount,
+    String? discountApproval,
   }) async => PosCheckoutResult(
     id: 1,
     transactionNo: 'TRX-1',
