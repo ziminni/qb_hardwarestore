@@ -7,7 +7,7 @@ Rule: **One home per fact.** Follow the pointers; never paste a copy of a fact t
 | Setup, run, demo credentials, ports | `README.md` |
 | Architecture & Live/Mock matrix (+ cockpit) | `docs/SYSTEM_ATLAS.md` · `docs/system-atlas.html` |
 | API contract: endpoints, auth, role matrix | `ENDPOINTS.md` |
-| Unbuilt work, decisions, roadmap | `planning/MAP.md` (index) → `planning/pos-evolution/MAP.md`; **active build: `planning/pos-evolution/phase-1d-plan.md`** (decisions 15–17); last completed: `phase-1b-plan.md` |
+| Unbuilt work, decisions, roadmap | `planning/MAP.md` (index) → `planning/pos-evolution/MAP.md`; **active build: `planning/pos-evolution/phase-4-plan.md`** (decision 18), then `phase-5-plan.md`; last completed: `phase-1d-plan.md` |
 | UI-refresh plan (complete) + ledger | `temp/ui-refresh/TASKS.md` · `.superpowers/sdd/ui-refresh/progress.md` (both untracked) |
 | QA how-to: run the app, roles, flows | `docs/testing/QA-PROFILE.md` |
 | My knowledge gaps | `docs/learning/gaps.md` |
