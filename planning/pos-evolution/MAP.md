@@ -6,16 +6,20 @@
 |---|---|---|---|
 | 1 | Foreman out, CPMS boundary: requisitions become a read-only copy of CPMS-approved requests; projects known for utang/payables; cashier token release stays | ✅ [Requisitions after the foreman](./decisions/01-requisitions-after-foreman.md) · ✅ [How approved requests reach the POS](./decisions/02-request-transport.md) · ✅ [Projects and their payables](./decisions/03-projects-and-payables.md) · ✅ [What CPMS sends for each item](./decisions/04-request-item-matching.md) · ✅ [Releasing when stock is short](./decisions/05-short-stock-release.md) · ✅ [Closing a partly released request](./decisions/06-closing-partial-requests.md) · ✅ [How CPMS learns what was released and owed](./decisions/07-cpms-sees-releases.md) · ✅ [Migrating today's foreman data](./decisions/08-foreman-data-migration.md) | ✅ Done 2026-11-07 ([plan](./phase-1-plan.md); contract v0.1 provisional) |
 | 1b | Store accepts/declines pushed requests (whole or per line, with reason); release only after Accept; expected amount readable by CPMS | ✅ [The store accepts or declines a pushed request](./decisions/09-store-accepts-requests.md) · ✅ [Declining single lines of a request](./decisions/10-line-level-decline.md) · ✅ [When the project starts to owe](./decisions/11-when-utang-starts.md) · ✅ [Request states after Accept](./decisions/13-request-states-after-accept.md) · ✅ [Historical release amounts after the Phase 1b upgrade](./decisions/14-historical-release-amounts.md) | ✅ Done 2026-11-08 — [all tasks verified](./phase-1b-plan.md#execution-checklist); contract v0.2 provisional; core live QA passed, remaining QA/cosmetic limits explicitly owner-accepted ([handoff](./phase-1b-plan.md#handoff--known-limits)); not deployed |
-| 1c | Payment receipts from CPMS: PM uploads amount + reference + photo, Store Manager approves (posted to project utang, partial allowed) or declines | ✅ [Paying project utang with an uploaded receipt](./decisions/12-payment-receipts.md) · [ ] Receipt storage and allocation | [ ] Pending |
+| 1c | Payment receipts from CPMS: PM uploads amount + reference + photo, Store Manager approves (posted to project utang, partial allowed) or declines | ✅ [Paying project utang with an uploaded receipt](./decisions/12-payment-receipts.md) · [ ] Receipt storage and allocation | ⏸ On hold — needs CPMS (owner 2026-11-12) |
 | 1d | Design sync with teammate `ui/frontend-progress` + real product packaging units: Add product "How is this product sold?", mock tracking removed, storage location back, chosen look items | ✅ [How a product is sold](./decisions/15-product-packaging-units.md) · ✅ [Selling units after creation, unit list and whole numbers](./decisions/16-units-on-existing-products.md) · ✅ [Which teammate look items to adopt](./decisions/17-teammate-look-adoption.md) | ✅ Done 2026-11-11 ([plan](./phase-1d-plan.md), closed with accepted limits) |
 | 4 | Front counter (panel feedback): VAT breakdown, capped discount, split + cheque payments, table pager, barcode masterlist, area switcher for multi-role accounts, role flow docs | ✅ [Panel feedback 2026-11](./decisions/18-panel-feedback-2026-11.md) | ✅ Done 2026-11-11 — owner closed with five Minors deferred; committed `a94d464`, reviewed and isolated-QA passed; fresh backend 882 tests and check/drift passed ([plan](./phase-4-plan.md), [handoff](../../docs/sessions/2026-11-11-pos-evolution-phase-4-build.md)) |
 | 5 | Back office (panel feedback): PO by package, supplier payables, customer delivery + fee, bodega "stored at" | ✅ [Panel feedback 2026-11](./decisions/18-panel-feedback-2026-11.md) · ✅ Create-only sales-order form (owner 2026-11-12) | ✅ Done — owner-closed 2026-11-12; editable catalogue-default prices confirmed; BAG fix independently approved, widget regression RED→GREEN at 760/1.3. Fresh gates: Flutter 1987 / 241 skipped, goldens 241 unchanged, backend 1027, analyzer/check/drift clean. committed locally as `864a667`, owner pushes; accepted limits unchanged ([plan](./phase-5-plan.md)) |
-| 2 | Multiple roles per account: sidebar and dashboard built from the union of the account's permissions (area-switcher lite moved into Phase 4) | fog | [ ] Pending |
-| 3 | Excel import/export: template export, edit, re-import; fresh-store bulk load of current materials | fog | [ ] Pending |
+| 6 | Cleanup: guard sales-order/quotation writes (status rules, audit, no 500 on delete), refuse archived products on orders/quotes, order-form money error text, Phase 4 + Phase 5 Minors, seed repair gaps | ✅ [Cleanup list](./decisions/22-cleanup-list.md) | [ ] Pending ([plan](./phase-6-plan.md)) |
+| 7 | Sales-order lifecycle: edit, cancel, fulfil to a real sale at the till (stock, payment, delivery fee carried over) | ✅ [Sales-order lifecycle](./decisions/19-sales-order-lifecycle.md) | [ ] Pending ([plan](./phase-7-plan.md)) |
+| 8 | Supplier returns + credit notes; supplier cheque clearing (issued → cleared/bounced) | ✅ [Supplier returns, credit notes and cheque clearing](./decisions/20-supplier-returns-and-cheques.md) | [ ] Pending ([plan](./phase-8-plan.md)) |
+| 9 | Per-location stock (Store/Bodega counts) + transfers between locations | ✅ [Per-location stock and transfers](./decisions/21-per-location-stock.md) | [ ] Pending ([plan](./phase-9-plan.md)) |
+| 3 | Excel catalogue round-trip: export products/units/prices to .xlsx, edit, re-import with preview + row errors; no stock changes (owner 2026-11-12) | ✅ [Excel catalogue round-trip](./decisions/23-excel-catalogue-round-trip.md) | [ ] Pending ([plan](./phase-3-plan.md)) |
+| 2 | Merged sidebar for multi-role accounts: one sidebar + dashboard from every assigned area (owner chose to build it 2026-11-12; single-role users keep the area-free menus, the switcher is hidden for merged accounts) | ✅ [Merged sidebar](./decisions/24-merged-sidebar.md) | [ ] Pending ([plan](./phase-2-plan.md)) |
 
 ## Destination
 
-CPMS project requests receive a store answer before release; project debt and receipt payments are traceable in the POS, without a foreman login. Later: multiple roles per account and catalogue/stock Excel round-tripping.
+The POS is feature-complete for the store without needing CPMS: Phases 6 → 7 → 8 → 9 → 3 → 2 (owner 2026-11-12). CPMS-dependent work (Phase 1c receipts) waits on hold until CPMS exists.
 
 ## Notes & Invariants
 
@@ -46,21 +50,24 @@ CPMS project requests receive a store answer before release; project debt and re
 - [Panel feedback after the presentation](./decisions/18-panel-feedback-2026-11.md): all 12 comments answered in Phases 4 (front counter) and 5 (back office); VAT-inclusive 12%, Admin-capped cashier discount, cheque pending until cleared, bill at receiving, delivery on till + sales order, bodega as a stored-at label, area switcher. (by: me + delegated defaults)
 - [Which teammate look items to adopt](./decisions/17-teammate-look-adoption.md): keep Cinzel; dialog design family on 12 dialogs; table row counts, category cards, PO received summary, shared section heading, header date, sidebar touches; HCI additions delegated. (by: me + delegated)
 
+- [Sales-order lifecycle](./decisions/19-sales-order-lifecycle.md): fulfil at the till at the agreed order price (below-catalogue lines approved at save like discounts), no stock reservation, partial fulfilment, managers edit/cancel with reason, cashier fulfils in an open shift. (by: me)
+- [Supplier returns, credit notes and cheque clearing](./decisions/20-supplier-returns-and-cheques.md): return from a chosen receipt's batches; credit note lowers that bill, leftover becomes supplier credit applied by a manager; supplier cheques start Issued, bounce restores the bill. (by: me)
+- [Per-location stock and transfers](./decisions/21-per-location-stock.md): batches carry a location; existing stock goes to each product's Stored at (now its home); sales/releases take home first then elsewhere; one-step transfers; low stock on the total. (by: me)
+- [Cleanup list](./decisions/22-cleanup-list.md): 18 verified deferred Minors and gaps fixed in Phase 6; VOID backfill blemish and expiry alerts left out. (by: me + delegated)
+- [Excel catalogue round-trip](./decisions/23-excel-catalogue-round-trip.md): real .xlsx in the app, server validates; ID rows update, blank-ID rows create; preview then all-or-nothing apply; never stock. (by: me)
+- [Merged sidebar](./decisions/24-merged-sidebar.md): multi-role accounts get one sidebar grouped by area with shared pages once and a combined landing page; single-role menus unchanged; switcher retired for merged accounts. (by: me)
+
 ## Active Frontier
 
-Phase 5 ✅ Done, owner-closed; BAG validation-text fix reviewed and freshly widget-verified (not fresh browser QA). Committed locally as `864a667`; owner pushes. No next phase, dev startup/migration/reset or push authorized. Printing/scaling and other accepted verification limits remain unverified.
-
-- [ ] Receipt storage and allocation (Phase 1c) — grill + research: image storage and size/type limits, which ledger rows a payment applies to, overpayment, what CPMS sees after a decline
+All completion decisions are locked (2026-11-12). Build order: **6 → 7 → 8 → 9 → 3 → 2**, each with its own plan, review, gates and isolated QA, closed by the owner. No phase is authorized to start until the owner says so.
 
 ## Blocked
 
-_(none)_
+- [ ] Receipt storage and allocation (Phase 1c) — on hold until CPMS exists
 
 ## Fog of War
 
-- **Multi-role model:** keep Django groups as roles, or move to finer permissions; how the dashboard merges tiles from several roles; who may grant which roles (Phase 5 `USER_ADMIN_FORBIDDEN` / `LAST_ADMIN`).
-- **Excel scope:** which data (products, selling units, prices, categories, suppliers, stock); match key on re-import (barcode? SKU?); server-side parsing and validation.
-- **Excel vs locked stock rule:** audit-remediation locked "first stock arrives via purchase order + Receiving, Add product creates catalogue only". A fresh-store import with quantities reopens that rule.
+- **Expiry alerts:** `SystemAlert.EXPIRING` exists but nothing raises it; batches carry `expiration_date`. A scheduled check is a new feature — owner to decide if and when.
 
 ## Out of Scope
 
