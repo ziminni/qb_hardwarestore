@@ -30,3 +30,8 @@ Research (2026-11-12): on-hand is always `Sum(InventoryBatch.current_qty)` — s
 - Every stock writer gains a location dimension; locks stay batch-level in the existing orders.
 - Till availability = total across active locations (a sale may draw from both).
 - `StorageLocation` docstring ("a label, not a second stock ledger") and the Phase 5 out-of-scope note are superseded.
+
+## Follow-up rulings (2026-11-12)
+
+- **Inactive-location stock is sellable, taken last** (by: me): sales and releases take home, then other active locations, then inactive ones, so no stock is stranded; staff are expected to transfer it out.
+- **Split pick-up captions use base units** when one selling unit is split across locations (by: delegated).

@@ -25,3 +25,8 @@ Research (2026-11-12): no Excel/CSV package in Flutter or backend; the server pr
 
 - One new Flutter dependency (xlsx read/write), chosen at build time for web + desktop support.
 - No deletes through import; archiving is `Active = no`.
+
+## Follow-up rulings (2026-11-12)
+
+- **Brand column added** (by: me): new products need a brand (`Product.brand` is required); the sheet gains a Brand column matched by name like Category, and existing rows may change brand.
+- **Active stays product-level** (by: delegated, owner said "decide what is best"): `Active = no` archives the whole product, as the form does. No per-unit archiving: it would touch every unit picker (till, orders, PO, CPMS list) for little gain, and never-used units can already be removed.

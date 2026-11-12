@@ -37,10 +37,10 @@ Stock is counted per location. Every stock writer knows where stock sits; sales/
 11. **Inactive location.** Cannot receive, be adjusted into, or be a transfer destination; stock there stays visible, transferable out, and (pending Q1) sellable. Deactivation does not move stock.
 12. **Lock order** (all writers, inside one atomic): (a) target/destination `StorageLocation` row `select_for_update` (fences deactivation race), (b) batches per variant, variants in PK order, each variant's batches in one ordered query, (c) `ProductVariant` row via `_check_low_stock` (already after batches), (d) `DocumentCounter` via `next_number` last. Multi-line transfers process lines in variant-PK order.
 
-## Owner questions (defaults used unless overridden)
+## Owner rulings (2026-11-12)
 
-- **Q1 inactive stock sellable?** Decision §2 says "home, then any other **active** location"; delegated default says inactive stock "stays sellable"; Consequences say availability = "total across active locations". **Default: home first, then active others, then inactive others** — allocator and availability agree, no stranded stock.
-- **Q2 split caption unit:** base units when a selling unit splits across locations (Design 4). Alternative: allocator avoids splitting one selling unit.
+- **Inactive-location stock:** sellable, taken last (home → active others → inactive others); availability agrees. (by: me)
+- **Split caption unit:** base units when a selling unit splits across locations. (by: delegated)
 
 ## Execution file scope
 

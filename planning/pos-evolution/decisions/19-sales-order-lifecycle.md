@@ -34,3 +34,8 @@ Phase 5 shipped a create-only order form. Research (2026-11-12) found:
 - `process_sale` gains an order-fulfilment entry that keeps all checkout guards (shift, FIFO, VAT, payments, idempotency) but takes prices from the order line.
 - Returns of a fulfilment sale follow the normal return rules; they do not reopen the order.
 - Supersedes the Phase 5 read-only pins in `sales_read_only_actions_test.dart` for orders only (quotations stay read-only).
+
+## Follow-up rulings (2026-11-12)
+
+- **Price guard per line** (by: me): any single line discounted beyond the Admin cap needs manager approval at save; no whole-order averaging.
+- Delegated (plan Phase 7): the same approval rule applies to every role; fulfilment takes no extra discount; cancelling an unfulfilled order marks its SCHEDULED delivery FAILED.

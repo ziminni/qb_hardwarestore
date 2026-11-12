@@ -22,10 +22,10 @@ An account with several roles gets one sidebar grouped by area (Till, Sales, Sto
 - Landing content: Sales `SalesNeedsYouTile` (`features/sales/views/sales_dashboard_page.dart:199-211`); Admin `AdminNeedsAttentionPanel` (`features/dashboard/widget/admin_needs_attention_panel.dart:32`); Stock `InventoryDashboardContent` panels (`inventory_dashboard_content.dart:34`); the Till's dashboard is the till itself (`routes.dart:552-555` → `PosTransactionPage`), so it has no tiles today.
 - Pinning tests: `test/routes/sidebar_index_consistency_test.dart` (source-reading regexes over the navigation files, `:40-80`), `test/shared/sidebar_pattern_test.dart`, `test/routes/area_routing_test.dart`, `sales_twin_routing_test.dart`, `test/features/auth/area_switcher_test.dart`, `auth_area_test.dart`.
 
-## Open items for the owner before F1
+## Rulings (2026-11-12)
 
-1. MAP says "area switcher stays as fallback"; decision 24 says it is retired for merged accounts. Since every multi-role account is merged, the plan hides the switcher whenever the merged sidebar is on and keeps its code (no delete). Confirm.
-2. Till "needs you" tiles: recommendation is held carts (same count as the badge) and "no open shift" when the account holds Till.
+1. **Area switcher:** hidden whenever the merged sidebar is on (every multi-role account); code kept, not deleted. MAP and decision 24 now agree. (by: me)
+2. **Till "needs you" tiles:** held carts (same count as the badge) and "no open shift" when the account holds Till. (by: delegated)
 
 ## Execution file scope
 
