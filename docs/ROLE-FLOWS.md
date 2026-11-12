@@ -2,7 +2,7 @@
 
 How each person uses the system, written for the manuscript and the defense. Menus are the real sidebar labels. Phase 4 additions (discount, split and cheque payments, area switcher) are marked **(Phase 4)**; Phase 5 additions (payables, deliveries, stored at) are marked **(Phase 5)** and their exact permissions are in [§ Phase 5](#phase-5-payables-deliveries-and-where-things-are-kept).
 
-Phase 5 ✅ Done — owner-closed 2026-11-12. Editable order-line prices with catalogue defaults are owner-confirmed. BAG validation-text fix is independently approved and freshly widget-verified at 760 / 1.3 (RED→GREEN); this is not fresh browser QA. Fresh full gates are recorded in [plan Task 9](../planning/pos-evolution/phase-5-plan.md). Prepared for authorized local commit (not yet performed), not push. Dev startup/migration/reset and another phase remain unauthorized; printing/scaling and other accepted limits remain unverified.
+Phase 5 ✅ Done — owner-closed 2026-11-12. Editable order-line prices with catalogue defaults are owner-confirmed. BAG validation-text fix is independently approved and freshly widget-verified at 760 / 1.3 (RED→GREEN); this is not fresh browser QA. Fresh full gates are recorded in [plan Task 9](../planning/pos-evolution/phase-5-plan.md). Committed locally as `864a667`; owner pushes. Dev startup/migration/reset and another phase remain unauthorized; printing/scaling and other accepted limits remain unverified.
 
 ## Who does what
 
