@@ -15,15 +15,46 @@ class PurchaseOrderItem {
     required this.orderedQty,
     required this.unitCost,
     required this.receivedQty,
+    this.variantUomId,
+    this.unitCode = '',
+    this.conversionFactor = 1,
+    this.unitIsWhole = false,
   });
 
   final int id;
   final int poId;
   final int variantId;
   final String variantName;
+
+  /// Ordered / received counts and [unitCost] are all in the SELLING UNIT this
+  /// line names (Phase 5 B1, decision 18) — not in base units.
   final double orderedQty;
   final double unitCost;
   final double receivedQty;
+
+  /// The `VariantUOM` this line is counted in, or null on a line from a server
+  /// that predates units: such a line means base units, which is what factor 1
+  /// says. Nothing is guessed from the variant's other units — list order is
+  /// not identity.
+  final int? variantUomId;
+
+  /// The server's copy of the unit's code (`BAG`). Empty when the wire named no
+  /// unit, and then no unit word is invented for the row.
+  final String unitCode;
+
+  /// How many base units one counted unit contains.
+  final double conversionFactor;
+
+  /// The server's whole-number flag for this unit: 2.5 bags is refused, 2.5 kg
+  /// is not.
+  final bool unitIsWhole;
+
+  /// Base units per counted unit. A zero or negative factor is not a factor,
+  /// so it reads as 1 instead of dividing stock by nothing.
+  double get baseFactor => conversionFactor > 0 ? conversionFactor : 1;
+
+  double get orderedBaseQty => orderedQty * baseFactor;
+  double get receivedBaseQty => receivedQty * baseFactor;
 
   factory PurchaseOrderItem.fromJson(Map<String, dynamic> json) =>
       PurchaseOrderItem(
@@ -34,6 +65,14 @@ class PurchaseOrderItem {
         orderedQty: decimalField(json, 'ordered_qty'),
         unitCost: decimalField(json, 'unit_cost'),
         receivedQty: decimalField(json, 'received_qty'),
+        variantUomId: json['variant_uom'] == null
+            ? null
+            : intField(json, 'variant_uom'),
+        unitCode: json['uom_code'] as String? ?? '',
+        conversionFactor: json['conversion_factor'] == null
+            ? 1
+            : decimalField(json, 'conversion_factor'),
+        unitIsWhole: json['uom_is_whole'] as bool? ?? false,
       );
 }
 

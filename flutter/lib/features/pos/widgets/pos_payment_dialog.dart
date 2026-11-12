@@ -1,4 +1,5 @@
 import 'package:client/core/format/format.dart';
+import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/sale_discount.dart';
 import 'package:client/data/models/store_settings.dart';
 import 'package:client/data/models/tender_method.dart';
@@ -56,12 +57,14 @@ class PosTender {
 }
 
 /// What the payment dialog hands back: the tenders it took, the discount it
-/// applied, and the manager's approval token when the discount needed one.
+/// applied, the manager's approval token when the discount needed one, and the
+/// delivery details when the sale goes out.
 class PosPaymentDetails {
   const PosPaymentDetails({
     required this.tenders,
     this.discount,
     this.discountApprovalToken,
+    this.delivery,
   });
 
   /// Every tender against this sale, in the order the cashier entered them. The
@@ -74,6 +77,10 @@ class PosPaymentDetails {
 
   /// The manager's one-time token, or null when the discount was within the cap.
   final String? discountApprovalToken;
+
+  /// The delivery the cashier described, or null when the customer carries the
+  /// goods out. Its fee is a charge AFTER the discount and is never discounted.
+  final DeliveryDraft? delivery;
 
   /// The first tender, kept for the single-tender callers.
   PosTender get primary => tenders.first;
@@ -157,7 +164,19 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
   final _formKey = GlobalKey<FormState>();
   final _discountValue = TextEditingController();
   final _discountReason = TextEditingController();
+  final _deliveryAddress = TextEditingController();
+  final _deliveryContact = TextEditingController();
+  final _deliveryPhone = TextEditingController();
+  final _deliveryFee = TextEditingController(text: '0.00');
   final List<_TenderRow> _rows = [_TenderRow(method: TenderMethod.cash)];
+
+  /// True once the cashier says the goods go out (decision 18).
+  bool _deliver = false;
+
+  /// The day the goods go out. Defaults to tomorrow: a delivery is arranged
+  /// ahead of the sale that paid for it, and today's date would claim the truck
+  /// is already loaded.
+  DateTime? _deliveryDate;
 
   /// Rows the cashier removed. Their controllers are disposed with the dialog, not
   /// with the rebuild that is still tearing their widgets down.
@@ -185,6 +204,10 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
     }
     _discountValue.dispose();
     _discountReason.dispose();
+    _deliveryAddress.dispose();
+    _deliveryContact.dispose();
+    _deliveryPhone.dispose();
+    _deliveryFee.dispose();
     super.dispose();
   }
 
@@ -200,6 +223,18 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
 
   PosDiscountAmounts get _amounts =>
       PosDiscountAmounts.forDiscount(widget.total, _discount);
+
+  /// The delivery charge as typed, or 0 while the sale is not a delivery.
+  double get _fee =>
+      _deliver ? (double.tryParse(_deliveryFee.text.trim()) ?? 0) : 0;
+
+  /// What the customer owes: the GOODS net plus the delivery charge.
+  ///
+  /// The fee is added AFTER the discount and is never discounted (ENDPOINTS.md,
+  /// *Delivery charge*), so a percentage taken off the goods cannot eat the
+  /// trip. The server computes the same figure; this preview only has to match
+  /// it so the tender rows ask for the right money.
+  double get _due => _amounts.net + _fee;
 
   /// What stopped the pending cheque from being taken, or null.
   String? get _chequeRefusal {
@@ -247,7 +282,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
 
   /// What the sale still asks the drawer for, before any cheque is taken.
   double get _remainingBeforeCheques =>
-      (_amounts.net - _paidNow).clamp(0, double.infinity);
+      (_due - _paidNow).clamp(0, double.infinity);
 
   /// Change is paid from the DRAWER only: cash above what is owed, never from a
   /// cheque the shop has not cashed.
@@ -255,10 +290,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
     final nonCashPaid = _rows
         .where((row) => !row.isCheque && row.method != TenderMethod.cash)
         .fold(0.0, (sum, row) => sum + row.amount);
-    return (_cashTotal - (_amounts.net - nonCashPaid)).clamp(
-      0,
-      double.infinity,
-    );
+    return (_cashTotal - (_due - nonCashPaid)).clamp(0, double.infinity);
   }
 
   /// The server's own refusal, caught before submit (QA High, Phase 4 close).
@@ -297,7 +329,34 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
       if (identical(other, row)) continue;
       others += other.amount;
     }
-    return (_amounts.net - others).clamp(0, double.infinity);
+    return (_due - others).clamp(0, double.infinity);
+  }
+
+  void _setDeliver(bool value) {
+    setState(() {
+      _deliver = value;
+      if (value && _deliveryDate == null) {
+        final now = DateTime.now();
+        _deliveryDate = DateTime(now.year, now.month, now.day + 1);
+      }
+      if (!value) _tenderError = null;
+      // The fee changes what the sale asks for, so a row the cashier has not
+      // typed in follows it - otherwise the till would take the goods total and
+      // leave the trip unpaid.
+      _syncFollowingRows();
+    });
+  }
+
+  Future<void> _pickDeliveryDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _deliveryDate ?? now,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 2),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _deliveryDate = picked);
   }
 
   void _addRow() {
@@ -352,10 +411,15 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                       ? formatPeso(-amounts.discountAmount)
                       : 'None',
                 ),
+                // After the discount and before the total: the fee is added
+                // AFTER the discount and never discounted (decision 18).
+                if (_deliver) _summaryRow('Delivery charge', formatPeso(_fee)),
                 Text(
-                  'Amount due: ${formatPeso(amounts.net)}',
+                  'Amount due: ${formatPeso(_due)}',
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
+                const SizedBox(height: 8),
+                _deliverySection(),
                 const SizedBox(height: 16),
                 const Text('Apply a discount'),
                 const SizedBox(height: 8),
@@ -514,6 +578,105 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton(onPressed: _complete, child: const Text('Complete sale')),
+      ],
+    );
+  }
+
+  /// The Deliver section: off by default, and every field is required once it
+  /// is on (the server refuses a partial delivery with `INVALID_DELIVERY`).
+  Widget _deliverySection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SwitchListTile(
+          key: const ValueKey('pos-deliver-toggle'),
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Deliver to the customer'),
+          subtitle: const Text('Adds a delivery charge after the discount.'),
+          value: _deliver,
+          onChanged: _setDeliver,
+        ),
+        if (_deliver) ...[
+          TextFormField(
+            key: const ValueKey('pos-delivery-address'),
+            controller: _deliveryAddress,
+            maxLines: 2,
+            decoration: const InputDecoration(labelText: 'Delivery address'),
+            validator: (value) => (value ?? '').trim().isEmpty
+                ? 'A delivery needs an address.'
+                : null,
+          ),
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: TextFormField(
+                  key: const ValueKey('pos-delivery-contact'),
+                  controller: _deliveryContact,
+                  decoration: const InputDecoration(labelText: 'Contact name'),
+                  validator: (value) => (value ?? '').trim().isEmpty
+                      ? 'A delivery needs a contact name.'
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextFormField(
+                  key: const ValueKey('pos-delivery-phone'),
+                  controller: _deliveryPhone,
+                  decoration: const InputDecoration(labelText: 'Contact phone'),
+                  validator: (value) => (value ?? '').trim().isEmpty
+                      ? 'A delivery needs a contact phone number.'
+                      : null,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  key: const ValueKey('pos-delivery-date'),
+                  onPressed: _pickDeliveryDate,
+                  icon: const Icon(Icons.event, size: 18),
+                  label: Text(
+                    _deliveryDate == null
+                        ? 'Delivery date'
+                        : formatDate(_deliveryDate!),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextFormField(
+                  key: const ValueKey('pos-delivery-fee'),
+                  controller: _deliveryFee,
+                  onChanged: (_) => setState(_syncFollowingRows),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(labelText: 'Delivery fee'),
+                  validator: (value) {
+                    final text = (value ?? '').trim();
+                    final parsed = double.tryParse(text);
+                    if (parsed == null || parsed < 0) {
+                      return 'The delivery fee must be a number, 0 or more.';
+                    }
+                    // 10.005 is refused by the server, not rounded: money the
+                    // customer was charged is written to the cent.
+                    if (!RegExp(r'^\d+(\.\d{1,2})?$').hasMatch(text)) {
+                      return 'The delivery fee needs at most two decimals.';
+                    }
+                    return null;
+                  },
+                ),
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -712,6 +875,18 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
         ? _approvalToken
         : null;
 
+    // A delivery always carries its date: leaving it blank would post a sale the
+    // server refuses for a reason the cashier cannot see on this screen.
+    final delivery = _deliver
+        ? DeliveryDraft(
+            address: _deliveryAddress.text.trim(),
+            contactName: _deliveryContact.text.trim(),
+            contactPhone: _deliveryPhone.text.trim(),
+            scheduledDate: _deliveryDate ?? _tomorrow(),
+            fee: _fee,
+          )
+        : null;
+
     Navigator.pop(
       context,
       PosPaymentDetails(
@@ -728,8 +903,14 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
         ],
         discount: discount,
         discountApprovalToken: token,
+        delivery: delivery,
       ),
     );
+  }
+
+  static DateTime _tomorrow() {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day + 1);
   }
 
   Future<String?> _askApproval(double percent, String reason) {

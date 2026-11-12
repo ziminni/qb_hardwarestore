@@ -17,6 +17,7 @@
 //   * not resumed            -> plain checkout, untouched.
 
 import 'package:client/data/models/tender_method.dart';
+import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/held_cart.dart';
 import 'package:client/data/models/shift.dart';
 import 'package:client/data/repositories/auth_repository.dart';
@@ -56,6 +57,7 @@ class _FakePosRepository extends PosRepository {
     String? idempotencyKey,
     PosDiscount? discount,
     String? discountApproval,
+    DeliveryDraft? delivery,
   }) async {
     calls++;
     sentPayments = payments;
@@ -89,6 +91,7 @@ class _FakeHeldCartService extends HeldCartService {
     String? idempotencyKey,
     PosDiscount? discount,
     String? discountApproval,
+    DeliveryDraft? delivery,
   }) async {
     completes.add((cartId: cartId, payments: payments, key: idempotencyKey));
     final boom = failComplete;

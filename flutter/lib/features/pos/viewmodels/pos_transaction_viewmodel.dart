@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:client/data/models/customer.dart';
+import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/held_cart.dart';
 // `PosCheckoutResult` lives in TWO libraries (the model file kept the old
 // response shape, pos_service.dart owns the checkout one). The checkout path uses
@@ -437,6 +438,12 @@ class PosTransactionViewmodel extends ChangeNotifier {
             isWhole: uom.uomIsWhole,
             categoryName: record.product.categoryName,
             brandName: record.product.brandName,
+            // Phase 5 B4: the till badges the line with the SERVER's pick-up
+            // point. The unit's own row carries it (a scan needs it without the
+            // product list), and the product is the same fact.
+            storedAtName: uom.storedAtName.isNotEmpty
+                ? uom.storedAtName
+                : record.product.storedAtName,
           ),
         );
       }
@@ -596,6 +603,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
           unit: item.unit,
           unitPrice: item.unitPrice,
           availableQuantity: item.availableSaleQuantity,
+          storedAtName: item.storedAtName,
         ),
       );
     } else {
@@ -680,6 +688,9 @@ class PosTransactionViewmodel extends ChangeNotifier {
           unit: row?.unit ?? '',
           unitPrice: item.unitPrice,
           availableQuantity: row?.availableSaleQuantity ?? 0,
+          // A held line carries ids only; the catalogue row is the only place that
+          // knows where the goods are. Absent row (or an older server) = no badge.
+          storedAtName: row?.storedAtName ?? '',
         ),
       );
     }
@@ -784,6 +795,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
     PosDiscount? discount,
     String? discountApprovalToken,
     double vatRate = 0,
+    DeliveryDraft? delivery,
   }) async {
     if (_lines.isEmpty) return false;
     // The tender goes on the wire as a CODE, never as the label the cashier read.
@@ -829,6 +841,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
             idempotencyKey: attemptKey,
             discount: discount,
             discountApproval: discountApprovalToken,
+            delivery: delivery,
           ),
         );
         _completedHeldCartId = completeCartId;
@@ -853,6 +866,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
           idempotencyKey: attemptKey,
           discount: discount,
           discountApproval: discountApprovalToken,
+          delivery: delivery,
         );
         if (resumedCartId != null) {
           // The edited basket is sold, so the parked copy must not survive to be resumed
@@ -894,6 +908,9 @@ class PosTransactionViewmodel extends ChangeNotifier {
           vatAmount: result.vatAmount,
           vatRegistered: result.vatRegistered,
           vatRate: vatRate,
+          // The server's own "Delivery charge" (Phase 5 B3). Zero for a sale the
+          // customer carried out, and the receipt then prints no line.
+          deliveryFee: result.deliveryFee,
         ),
       );
       _lines.clear();
@@ -957,6 +974,13 @@ class PosTransactionViewmodel extends ChangeNotifier {
           unitPrice: line.unitPrice,
           availableQuantity:
               _soldLine(line.variantUomId, sold)?.availableQuantity ?? 0,
+          // Phase 5 B4: the sale recorded where the goods were, so the receipt
+          // prints THAT rather than today's catalogue. An older body sends none,
+          // and the sold cart's snapshot is the next best fact; if neither knows,
+          // the caption is hidden instead of a place being invented.
+          storedAtName: line.storedAtName.isNotEmpty
+              ? line.storedAtName
+              : (_soldLine(line.variantUomId, sold)?.storedAtName ?? ''),
         ),
     ];
   }

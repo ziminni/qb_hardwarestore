@@ -6,6 +6,7 @@
 // malformed discount as INVALID_DISCOUNT, so the sale never happens.
 
 import 'package:client/data/models/sale_discount.dart';
+import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/services/pos_service.dart';
@@ -37,6 +38,7 @@ class _RecordingPosRepository extends PosRepository {
     String? idempotencyKey,
     PosDiscount? discount,
     String? discountApproval,
+    DeliveryDraft? delivery,
   }) async {
     lastDiscount = discount;
     lastApproval = discountApproval;

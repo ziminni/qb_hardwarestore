@@ -97,6 +97,80 @@ class SalesService {
     );
   }
 
+  /// Creates ONE sales order and returns the server's row.
+  ///
+  /// Phase 5 F3 follow-up: the owner authorised CREATE-ONLY entry. There is no
+  /// update, delete, status or fulfil route on this client, so this is the only
+  /// write a sales order has.
+  ///
+  /// A refusal is re-thrown as the server's own sentence (a `WHOLE_UNIT_QUANTITY`
+  /// detail names the line and the unit; an `INVALID_DELIVERY` detail names the
+  /// field), because the form keeps the clerk's input on screen and needs to say
+  /// which of those went wrong. A body without an order is a FAILURE, never a
+  /// silent success: the screen would otherwise list an order nobody wrote.
+  Future<SalesOrderRow> createSalesOrder(SalesOrderDraft draft) async {
+    try {
+      final response = await _client.post<Map<String, dynamic>>(
+        salesOrdersPath,
+        data: draft.toJson(),
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const SalesServiceException(
+          'The server did not return the saved sales order.',
+        );
+      }
+      return SalesOrderRow.fromJson(data);
+    } on DioException catch (error) {
+      throw SalesServiceException(_refusal(error));
+    }
+  }
+
+  /// Why a create was refused, in words a clerk can act on.
+  ///
+  /// The server's `detail` comes first — it names the line, or the delivery field
+  /// that is missing — and the coded fallbacks exist only for a body that arrived
+  /// without one.
+  String _refusal(DioException error) {
+    if (error.type == DioExceptionType.connectionError ||
+        error.type == DioExceptionType.connectionTimeout ||
+        error.type == DioExceptionType.receiveTimeout) {
+      return 'Cannot connect to the BuildPro server.';
+    }
+    final status = error.response?.statusCode;
+    if (status == 401) return 'Your session has expired. Sign in again.';
+    if (status == 403) {
+      return 'You do not have permission to create a sales order.';
+    }
+    final data = error.response?.data;
+    if (data is Map<String, dynamic>) {
+      final detail = data['detail'];
+      if (detail is String && detail.trim().isNotEmpty) return detail;
+      final code = data['code'];
+      if (code is String) {
+        final mapped = _refusalCodes[code];
+        if (mapped != null) return mapped;
+      }
+      // A field-error dict (`{"items": ["..."]}`) is still an answer a clerk can
+      // act on, so it is read out rather than flattened to the fallback.
+      for (final value in data.values) {
+        if (value is List && value.isNotEmpty) return '${value.first}';
+        if (value is String && value.isNotEmpty) return value;
+      }
+    }
+    return 'The sales order was refused. Nothing was saved.';
+  }
+
+  /// Fallback sentences for a code that arrived without a `detail`.
+  static const Map<String, String> _refusalCodes = {
+    'WHOLE_UNIT_QUANTITY':
+        'That unit is sold in whole numbers, so the quantity must be a whole '
+        'number. Change it and try again.',
+    'INVALID_DELIVERY':
+        'That delivery cannot be saved. Check the address, the contact and the '
+        'scheduled date.',
+  };
+
   /// Runs a read, converting a transport failure into a message worth showing.
   ///
   /// Deliberately does NOT catch `FormatException`: a malformed body is a

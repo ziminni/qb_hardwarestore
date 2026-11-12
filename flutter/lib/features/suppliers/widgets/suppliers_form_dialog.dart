@@ -29,6 +29,14 @@ class _SuppliersFormDialogState extends State<SuppliersFormDialog> {
   late final _address = TextEditingController(
     text: widget.supplier?.address ?? '',
   );
+
+  /// The payment window a bill's due date is built from (Phase 5 B2). Blank
+  /// means 0, the server's own default: due on receipt.
+  late final _termsDays = TextEditingController(
+    text: (widget.supplier?.termsDays ?? 0) == 0
+        ? ''
+        : '${widget.supplier!.termsDays}',
+  );
   @override
   void dispose() {
     _company.dispose();
@@ -36,6 +44,7 @@ class _SuppliersFormDialogState extends State<SuppliersFormDialog> {
     _phone.dispose();
     _email.dispose();
     _address.dispose();
+    _termsDays.dispose();
     super.dispose();
   }
 
@@ -89,6 +98,27 @@ class _SuppliersFormDialogState extends State<SuppliersFormDialog> {
             maxLines: 3,
             decoration: const InputDecoration(labelText: 'Address'),
           ),
+          const SizedBox(height: AppSpacing.md),
+          TextFormField(
+            key: const ValueKey('supplier-terms-days'),
+            controller: _termsDays,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Payment terms (days)',
+              helperText:
+                  'A bill falls due this many days after the goods arrive. '
+                  'Leave blank for due on receipt.',
+              helperMaxLines: 2,
+            ),
+            validator: (value) {
+              final text = (value ?? '').trim();
+              if (text.isEmpty) return null;
+              final parsed = int.tryParse(text);
+              if (parsed == null) return 'Enter a whole number of days.';
+              if (parsed < 0) return 'Payment terms must be 0 or more days.';
+              return null;
+            },
+          ),
           const SizedBox(height: AppSpacing.lg),
           // Neutral guidance: a deactivated supplier disappears from the order
           // form's list, which surprises a user who expects a delete action.
@@ -117,6 +147,7 @@ class _SuppliersFormDialogState extends State<SuppliersFormDialog> {
               email: _email.text.trim(),
               address: _address.text.trim(),
               isActive: widget.supplier?.isActive ?? true,
+              termsDays: int.tryParse(_termsDays.text.trim()) ?? 0,
             ),
           );
         },

@@ -515,6 +515,78 @@ class ChequeAlreadyDecided(ChequeError):
         )
 
 
+class DeliveryError(ValueError):
+    """A delivery the server refuses to record or move (B3, decision 18).
+
+    Same ``{code, detail, **extra}`` shape as `ChequeError`, so the deliveries page
+    branches on a stable code instead of English prose. Raised BEFORE the first write on
+    every path, so a refusal always means "nothing changed".
+
+    ``http_status`` is a class attribute because two of these are not bad requests:
+    a jump the state machine does not allow, and a second move on a terminal row, are
+    CONFLICTS (409) - the request is well formed and the caller is allowed, the fact is
+    simply already settled. The client's answer is to reload the row, not to retry.
+    """
+
+    code = "INVALID_DELIVERY"
+    http_status = status.HTTP_400_BAD_REQUEST
+    # Same reason as `ChequeError.extra`: immutable default, per-instance dict override.
+    extra: Mapping[str, object] = MappingProxyType({})
+
+    def __init__(self, detail, **extra):
+        self.extra = extra
+        super().__init__(detail)
+
+
+class InvalidDelivery(DeliveryError):
+    """The `delivery` object on a checkout or an order is unusable.
+
+    Decision 18 lists what a delivery IS - address, contact name/phone, scheduled date and
+    a fee - and a slip missing any of them cannot be handed to a driver: there is nowhere
+    to go, nobody to call, or no day to go on. The fee is money, so it must be a
+    non-negative amount of whole centavos.
+    """
+
+    code = "INVALID_DELIVERY"
+
+
+class DeliveryTransitionInvalid(DeliveryError):
+    """A status move the state machine does not allow (jump, or a terminal row).
+
+    ``SCHEDULED -> OUT_FOR_DELIVERY -> DELIVERED``, or ``FAILED`` from either of the two
+    live states. Nothing moves backwards and nothing moves out of DELIVERED/FAILED: a
+    delivered slip cannot be un-delivered, and letting one be edited would make the
+    schedule disagree with what the driver actually did.
+    """
+
+    code = "DELIVERY_TRANSITION_INVALID"
+    http_status = status.HTTP_409_CONFLICT
+
+    def __init__(self, current_status, action):
+        super().__init__(
+            f"A delivery that is {str(current_status).lower()} cannot be moved by "
+            f"{action!r}: it goes Scheduled -> Out for delivery -> Delivered, or fails "
+            "with a reason, and a finished delivery stays finished.",
+            status=current_status,
+            action=action,
+        )
+
+
+class DeliveryReasonRequired(DeliveryError):
+    """A FAILED delivery with no reason.
+
+    The trip was made and the goods did not land. That sentence is what the next attempt
+    (and the customer's phone call) is about, so it is required and it is stored.
+    """
+
+    code = "DELIVERY_REASON_REQUIRED"
+
+    def __init__(self):
+        super().__init__(
+            "A failed delivery needs a reason. Write down what went wrong."
+        )
+
+
 def handler(exc, context):
     """Return DRF's own response, except for a short-stock sale.
 
@@ -687,6 +759,14 @@ def handler(exc, context):
         payload: dict[str, object] = {"code": exc.code, "detail": str(exc)}
         payload.update(exc.extra)
         return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+    if isinstance(exc, DeliveryError):
+        # Phase 5 task B3 (decision 18): the delivery refusals. Same {code, detail,
+        # **extra} shape and the same "nothing changed" guarantee; the status is the
+        # exception's own, because a forbidden jump or a second move on a finished
+        # delivery is a CONFLICT (409), not a bad request.
+        payload: dict[str, object] = {"code": exc.code, "detail": str(exc)}
+        payload.update(exc.extra)
+        return Response(payload, status=exc.http_status)
     if isinstance(exc, ChequeError):
         # Phase 4 task B2 (decision 18): the cheque refusals. Same shape and the same
         # "nothing changed" guarantee; the status is the exception's own, because

@@ -170,6 +170,11 @@ class AuditLog(models.Model):
         # type for both decisions, because the trail's question is "who decided this
         # cheque, and when" - the description says which way it went and why.
         CHEQUE_DECISION = 'CHEQUE_DECISION', 'Cheque Cleared or Bounced'
+        # Phase 5 task B3 (decision 18): who took the delivery, who moved it out and who
+        # delivered or failed it. ONE type for the whole life of a slip, because the
+        # trail's question is "what happened to this trip, and who did it" - the
+        # description carries the state, the reason and the document numbers.
+        DELIVERY = 'DELIVERY', 'Delivery'
         ROLE_CHANGE = 'ROLE_CHANGE', 'Role Changed'
         USER_DEACTIVATE = 'USER_DEACTIVATE', 'User Deactivated'
 

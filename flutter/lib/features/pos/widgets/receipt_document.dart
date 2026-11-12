@@ -60,6 +60,13 @@ class ReceiptContent {
                 '${formatQuantity(line.quantity)} ${line.unit} × '
                 '${formatPesoForPrint(line.unitPrice)}',
             total: formatPesoForPrint(line.total),
+            // Phase 5 B4 (decision 18): where the customer picks this line up.
+            // Null when the server (or the sale) did not name a place: a blank
+            // "Pick up at" would send someone looking for a place nobody named,
+            // and a made-up "Store" would be a claim about goods already sold.
+            pickUp: line.storedAtName.trim().isEmpty
+                ? null
+                : 'Pick up at ${line.storedAtName.trim()}',
           ),
       ],
       amounts = [
@@ -69,6 +76,14 @@ class ReceiptContent {
           ReceiptAmountRow(
             receiptDiscountLabel(receipt.discountReason),
             formatPesoForPrint(-receipt.discountAmount),
+          ),
+        // Decision 18: the fee was added AFTER the discount and never discounted,
+        // so the paper reconciles: lines less discount plus charge is the total.
+        // A zero fee prints nothing: the customer was charged for goods only.
+        if (receipt.deliveryFee > 0)
+          ReceiptAmountRow(
+            'Delivery charge',
+            formatPesoForPrint(receipt.deliveryFee),
           ),
         ReceiptAmountRow('Total', formatPesoForPrint(receipt.total)),
         // The VAT split of the NET, computed by the server. A non-VAT store says so
@@ -117,7 +132,8 @@ class ReceiptContent {
       ];
 
   final List<String> header;
-  final List<({String name, String detail, String total})> lines;
+  final List<({String name, String detail, String total, String? pickUp})>
+  lines;
   final List<ReceiptAmountRow> amounts;
 }
 
@@ -166,6 +182,10 @@ Future<Uint8List> buildReceiptPdf(
                       children: [
                         pw.Text(line.name, style: body),
                         pw.Text(line.detail, style: body),
+                        // The pick-up point under its own line, hidden when the
+                        // sale recorded none.
+                        if (line.pickUp != null)
+                          pw.Text(line.pickUp!, style: body),
                       ],
                     ),
                   ),

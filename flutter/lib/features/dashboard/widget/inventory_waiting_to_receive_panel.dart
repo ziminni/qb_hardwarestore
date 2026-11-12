@@ -104,10 +104,9 @@ class InventoryWaitingToReceivePanel extends StatelessWidget {
               label: 'Still due',
               numeric: true,
               flex: 2,
-              // What is on order minus what has already arrived: a real number
-              // from the order's own lines, not a reorder suggestion.
+              // Read off the order's own open lines, never a reorder suggestion.
               cell: (order) => Text(
-                formatQuantity(order.orderedQuantity - order.receivedQuantity),
+                _stillDue(order),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.w700),
@@ -139,5 +138,28 @@ class InventoryWaitingToReceivePanel extends StatelessWidget {
         ],
       ],
     );
+  }
+
+  /// What is still owed, worded so incompatible counts are never added up
+  /// (Phase 5, decision 18; the line-count progress Phase 1d already uses).
+  ///
+  /// Only the lines with something outstanding count: one line still owed names
+  /// its own quantity and unit, but several stay a LINE COUNT. Summing them is
+  /// wrong even when the unit codes match - two BAG lines can be 25 kg and 40 kg
+  /// boxes - and mixed `BAG` plus `KG` is not fourteen of anything. A line from
+  /// a server that predates units carries no code, so its count stays bare
+  /// rather than inventing a unit word.
+  static String _stillDue(PurchaseOrder order) {
+    final open = [
+      for (final item in order.items)
+        if (item.quantity - item.receivedQuantity > 0) item,
+    ];
+    if (open.isEmpty) return formatQuantity(0);
+    if (open.length > 1) return '${open.length} lines remaining';
+    final line = open.single;
+    final due = line.quantity - line.receivedQuantity;
+    return line.uomCode.isEmpty
+        ? formatQuantity(due)
+        : '${formatQuantity(due)} ${line.uomCode}';
   }
 }

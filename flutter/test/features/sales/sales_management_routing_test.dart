@@ -76,7 +76,8 @@ void main() {
     expect(AppRoutes.salesStaff, '/sales/staff');
   });
 
-  test('the sales sidebar offers Staff at 7, with no Approvals entry', () {
+  test('the sales sidebar offers Staff at 7, with no Approvals entry, and appends '
+      'Payables at 9 and Deliveries at 10', () {
     final labels = SalesSkeletonLayout.navigationSections
         .expand((section) => section.destinations)
         .map((destination) => destination.label)
@@ -85,7 +86,17 @@ void main() {
     expect(labels, isNot(contains('Approvals')));
     // Phase 1b appended the store-review queue after Staff, in its own section.
     expect(labels.indexOf('Project requests'), 8);
-    expect(labels, hasLength(9));
+    // Phase 5 F2/F3 appended the two shells' pages after it: the index IS the
+    // position in the sidebar, so both are new entries, not renumberings.
+    expect(labels.indexOf('Payables'), 9);
+    expect(labels.indexOf('Deliveries'), 10);
+    expect(
+      labels,
+      hasLength(11),
+      reason:
+          '11 destinations since Phase 5: 0-8 unchanged, Payables (F2) at 9 and '
+          'Deliveries (F3) at 10. `navigateSales` maps the same 11.',
+    );
   });
 
   testWidgets('index 7 goes to staff', (tester) async {

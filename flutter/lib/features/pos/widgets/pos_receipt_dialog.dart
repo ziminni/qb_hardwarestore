@@ -74,16 +74,32 @@ class _PosReceiptDialogState extends State<PosReceiptDialog> {
               ...receipt.lines.map(
                 (line) => Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(
-                        child: Text(
-                          // Z1 (D18): the product and its variant are two parts
-                          // of one line, joined by a middle dot.
-                          '${line.productName} · ${line.variantName}\n${formatQuantity(line.quantity)} ${line.unit}',
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              // Z1 (D18): the product and its variant are two parts
+                              // of one line, joined by a middle dot.
+                              '${line.productName} · ${line.variantName}\n${formatQuantity(line.quantity)} ${line.unit}',
+                            ),
+                          ),
+                          Text(formatPeso(line.total)),
+                        ],
                       ),
-                      Text(formatPeso(line.total)),
+                      // Phase 5 B4: where THIS line is picked up. Hidden when the
+                      // sale recorded no place: an invented "Store" would tell the
+                      // customer to collect goods from somewhere nobody chose.
+                      if (line.storedAtName.trim().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            'Pick up at ${line.storedAtName.trim()}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -96,6 +112,10 @@ class _PosReceiptDialogState extends State<PosReceiptDialog> {
                   receiptDiscountLabel(receipt.discountReason),
                   -receipt.discountAmount,
                 ),
+              // The fee added AFTER the discount (decision 18). Hidden at 0 so a
+              // carried-out sale prints no charge line.
+              if (receipt.deliveryFee > 0)
+                _amountRow('Delivery charge', receipt.deliveryFee),
               _amountRow('Total', receipt.total),
               if (receipt.vatRegistered) ...[
                 _amountRow('Vatable sales', receipt.vatableSales),

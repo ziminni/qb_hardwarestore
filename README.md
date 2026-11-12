@@ -25,9 +25,17 @@ The Django REST API owns all business logic. A Flutter client (MVVM) talks to it
 
 ## 1. Start the backend
 
-> **Phase 1b closed 2026-11-08 with owner-accepted QA limits; contract v0.2 provisional.** Dev (`buildpro_db`, API :8000) is on Phase 1b: migration 0003 applied on a backend restart, then owner-approved `flush` + `seed_demo` on 2026-11-09, so dev now holds the [seed scenarios below](#2-load-demo-data). Final evidence and accepted gaps: [plan Handoff](planning/pos-evolution/phase-1b-plan.md#handoff--known-limits). The entrypoint runs `migrate` on every start; dev is the demo DB, so writes, reseeds and resets there need owner approval. Backend + client + breaking contract must roll out together; see [rollout/rollback safety](docs/integration/CPMS-CONTRACT.md#rollout-and-rollback-boundary).
+> **Phase 1b closed with owner-accepted QA limits; contract v0.3 is provisionally accepted.** Dev (`buildpro_db`, API :8000) was reseeded on 2026-11-09; the [seed scenarios below](#2-load-demo-data) describe a fresh seed, not verified current dev data. Final evidence and accepted gaps: [plan Handoff](planning/pos-evolution/phase-1b-plan.md#handoff--known-limits). The entrypoint runs `migrate` on every start; dev writes, restarts, reseeds and resets need owner approval. Backend + client + breaking contract must roll out together; see [rollout/rollback safety](docs/integration/CPMS-CONTRACT.md#rollout-and-rollback-boundary).
 
-> **Phase 4 (front counter) code is ahead of dev.** It adds `pos` migrations 0011–0014 (store settings, discount approvals, cheque payments, per-sale `vat_rate`, `change_given`) and a `users` audit-action migration. They run automatically on the next backend start, which needs owner approval on dev. 0012 marks existing payments `CLEARED`; 0013 leaves older sales with no VAT rate (returns of them use 0%, matching their receipts); 0014 fills `change_given` from what each old sale was paid, capped at the cash taken. Defaults after migrating: VAT-registered, 12%, discount cap 10% (Admin → Settings).
+> **Phase 4 (front counter) is done; its migrations were applied on dev by the last read-only check.** Its `pos` migrations 0011–0014 add store settings, discount approvals, cheque payments, per-sale `vat_rate` and `change_given`. 0012 marks existing payments `CLEARED`; 0013 leaves older sales with no VAT rate (returns of them use 0%, matching their receipts); 0014 fills `change_given` from what each old sale was paid, capped at the cash taken. Defaults after migrating: VAT-registered, 12%, discount cap 10% (Admin → Settings).
+
+> **Phase 5 (back office) ✅ Done — owner-closed 2026-11-12.** Order-line unit prices stay editable with catalogue defaults. BAG validation text is fixed, independently approved and widget-verified at 760 / 1.3 (RED→GREEN). Fresh controller gates: backend 1027 OK, check/drift clean, Flutter analyze clean, ordinary 1987 passed / 241 skipped, goldens 241 passed unchanged ([verification record](planning/pos-evolution/phase-5-plan.md)). Prepared for authorized local commit (not yet performed), not push. This is not fresh browser QA or printing verification. Closure does not authorize dev startup/migration/reset or another phase; printing/scaling and other accepted limits remain unverified. It adds five migrations **applied on isolated QA but still pending on local dev**: `inventory` **0009** (a PO line names its `variant_uom`, plus `ordered_qty`/`unit_cost` in that unit), **0010** (`SupplierBill` + `SupplierPayment`), **0011** (`StorageLocation` + `Product.stored_at`), `pos` **0015** (`Delivery` + sale `delivery_fee`) and `users` **0005** (delivery audit actions). What to know before migrating a demo database:
+> - 0011 seeds **Store** and **Bodega** and backfills every product, so new products default to **Store** and `seed_demo` restores both places after a flush (one seeded demo product lives in the Bodega).
+> - One supplier bill is written per **processed receipt**, from the receipt's package quantity × package cost less that receipt's share of the PO discount; a receipt with zero gross value makes no bill, and receipts processed before 0010 get **no retroactive bill**.
+> - A PO is ordered by package (“10 BAG at ₱250/bag”) and stock enters in base units (`qty × factor`), with landed cost per base unit = unit cost ÷ factor.
+> - The **delivery fee is charged on top of the goods total and is never discounted** (VAT is split over the fee-inclusive total). The fee rules are **owner-confirmed (2026-11-12)**: a zero fee is allowed, the discount cap and the return's net refund exclude the fee, a fee is not refunded, and a sales-order fee lives only on its Delivery row.
+>
+> **Dev containers are STOPPED after the host restart.** The assistant restored and migrated only the isolated QA stack (network `172.20.0.*`, API `:8001`, web `:8091`) with current source. **Do not restart dev as if it were safe:** its entrypoint runs `migrate` on every start and would apply the pending Phase 5 migrations to the demo database, which needs owner approval. Dev's last known state is the **Phase 4 schema**; its seed state is unverified.
 
 ```bash
 cd qb_pos_inventory_system
@@ -73,7 +81,7 @@ Post-migration fresh-seed requests (validated by Task 5 on the Django test datab
 | `CPMS-R-1004` | `WAITING` | Store review required; scanning refused |
 | `CPMS-R-1005` | `DECLINED` | Reason visible; scanning refused with store-decline code |
 
-Phase 1d packaging demo (test-DB verified; the dev database is still on Phase 1b until an approved migrate + reseed): **Tile Adhesive / Standard** sold loose by `KG` at ₱12.00 or as a whole `BAG` of 25 kg at ₱275.00, with 250 kg received through a real purchase order and Receiving (no opening-stock shortcut). The seed also ensures the 12 standard units (`PC`, `BAG`, `BOX`, `PACK`, `ROLL`, `SHEET` whole; `KG`, `G`, `M`, `CM`, `L`, `ML` measured), including after a `flush`. Fresh-seed totals: 7 products, 9 variants, 10 selling units, 7 transactions, 3 open utang ledgers, 5 requests.
+Phase 1d packaging demo (test-DB verified): **Tile Adhesive / Standard** sold loose by `KG` at ₱12.00 or as a whole `BAG` of 25 kg at ₱275.00, with 250 kg received through a real purchase order and Receiving (no opening-stock shortcut). The seed also ensures the 12 standard units (`PC`, `BAG`, `BOX`, `PACK`, `ROLL`, `SHEET` whole; `KG`, `G`, `M`, `CM`, `L`, `ML` measured), including after a `flush`. Phase 5 seed additions: the two storage places **Store** and **Bodega** (one demo product kept in the Bodega, every other product in the Store). Fresh-seed totals: 7 products, 9 variants, 10 selling units, 7 transactions, 3 open utang ledgers, 5 requests.
 
 Scanner token UUIDs are random per seed: use the ones **printed in that seed's stdout**; never paste them (or contract example tokens) into docs. QA writes on dev need owner approval each time. QA flow checklist: [QA-PROFILE](docs/testing/QA-PROFILE.md).
 
@@ -212,7 +220,7 @@ qb_pos_inventory_system/
 │   └── lib/
 │       ├── core/            config, network (api_client), layout
 │       ├── data/            models, services, repositories
-│       ├── features/        10 feature modules (views / viewmodels / widgets)
+│       ├── features/        15 feature modules (views / viewmodels / widgets)
 │       └── routes/          go_router route table
 ├── docs/                    SYSTEM_ATLAS.md + system-atlas.html
 ├── planning/                unbuilt work and decisions (read MAP.md first)

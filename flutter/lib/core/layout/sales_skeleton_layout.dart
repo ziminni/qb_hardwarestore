@@ -126,6 +126,28 @@ class SalesSkeletonLayout extends StatelessWidget {
         ),
       ],
     ),
+    // Phase 5 F2: the shop's supplier debts, APPENDED (index 9). The manager
+    // records payments here; a Stock Manager reads the same body read-only.
+    SharedSidebarSection(
+      label: 'Payables',
+      destinations: [
+        SharedSidebarDestination(
+          label: 'Payables',
+          icon: Icons.account_balance_wallet_outlined,
+        ),
+      ],
+    ),
+    // Phase 5 F3: customer deliveries, APPENDED (index 10), so no earlier tab
+    // moves.
+    SharedSidebarSection(
+      label: 'Deliveries',
+      destinations: [
+        SharedSidebarDestination(
+          label: 'Deliveries',
+          icon: Icons.local_shipping_outlined,
+        ),
+      ],
+    ),
   ];
 
   @override

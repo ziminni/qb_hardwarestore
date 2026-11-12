@@ -19,6 +19,7 @@ class NewProductDraft {
     this.barcodeQr = '',
     this.extraSellingUnits = const [],
     this.locationHint = '',
+    this.storedAtId,
   });
 
   final int categoryId;
@@ -49,6 +50,11 @@ class NewProductDraft {
   /// server has no location column, so this never travels in a POST body.
   final String locationHint;
 
+  /// The SERVER's pick-up point for the product (Phase 5 B4). Null means "the
+  /// form had no verified choice", and the field is then left off the body so
+  /// the server's own default answers — never a guessed id.
+  final int? storedAtId;
+
   /// There is deliberately no quantity, cost or opening-batch field.
   ///
   /// User decision 2026-10-25: a product's first stock arrives through a
@@ -61,6 +67,7 @@ class NewProductDraft {
     'base_name': baseName,
     'description': description,
     'image_url': imageUrl,
+    if (storedAtId != null) 'stored_at': storedAtId,
   };
 
   Map<String, dynamic> variantBody(int productId) => {
@@ -133,6 +140,7 @@ class ProductEditDraft {
     this.barcodeQr,
     this.isActive,
     this.locationHint = '',
+    this.storedAtId,
   });
 
   final int productId;
@@ -156,12 +164,21 @@ class ProductEditDraft {
   /// Device-local, like the create draft's. Never in a PATCH body.
   final String locationHint;
 
+  /// The product's SERVER pick-up point, and ONLY when the clerk changed it.
+  ///
+  /// Null means "leave the stored one alone". That is not politeness: the server
+  /// refuses a NEW assignment of a deactivated location, so an edit that named the
+  /// product's current (now inactive) location again would be answered
+  /// `INVALID_STORAGE_LOCATION` and fail a save the clerk never asked to touch.
+  final int? storedAtId;
+
   Map<String, dynamic> get productBody => {
     if (baseName != null) 'base_name': baseName,
     if (description != null) 'description': description,
     if (categoryId != null) 'category': categoryId,
     if (brandId != null) 'brand': brandId,
     if (isActive != null) 'is_active': isActive,
+    if (storedAtId != null) 'stored_at': storedAtId,
   };
 
   Map<String, dynamic> get variantBody => {

@@ -3,14 +3,19 @@
 // What was there (2026-10-24 report): buttons that looked live and did nothing.
 //
 //   Sales Quotations  "New quotation"      — no create screen, no endpoint
-//   Sales Orders      "New sales order"    — same
+//   Sales Orders      "New sales order"    — same, until Phase 5 F3's follow-up
+//                                             (see below) built a create-only form
 //   Sales Returns     "New customer return"— cashiers return from the till
 //                                             (Phase 3 Task 4); the manager's
 //                                             unlinked-return screen is Phase 5
 //   Sales Returns row "View"               — swallowed the tap
 //   Sales Dashboard   "This month"         — filtered nothing
 //
-// The three create buttons are REMOVED (the views are read-only by decision).
+// The quotation and return create buttons are REMOVED (those views are read-only
+// by decision). "New sales order" is BACK as a create-only form: the owner
+// authorised it in the Phase 5 F3 follow-up, and creating is the whole of it —
+// no edit, no delete, no status change, no fulfil-to-sale, and the order sheet
+// stays strictly read-only (pinned below and in the sheet family test).
 // "View" opens the real read-only details sheet — the same document sheet the
 // transactions page uses. "This month" becomes a label that states what the
 // dashboard actually shows: every recorded transaction, with no period filter.
@@ -230,7 +235,7 @@ void main() {
     expect(find.text('View'), findsOneWidget);
   });
 
-  testWidgets('orders: the dead "New sales order" button is gone', (
+  testWidgets('orders: "New sales order" creates, and only creates', (
     tester,
   ) async {
     _sizeUp(tester);
@@ -248,9 +253,26 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('New sales order'), findsNothing);
+    // Phase 5 F3 follow-up: the owner authorised create-only entry, so the
+    // action is real again — and it is the ONLY write the page offers.
+    expect(find.text('New sales order'), findsOneWidget);
+    expect(find.text('New quotation'), findsNothing);
+    expect(find.text('Edit'), findsNothing);
+    expect(find.text('Delete'), findsNothing);
     expect(find.text('SO-20261019-0001'), findsOneWidget);
     expect(find.text('View'), findsOneWidget);
+
+    // The row still opens the read-only document sheet.
+    await tester.tap(find.text('View'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SalesDocumentSheet), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(SalesDocumentSheet),
+        matching: find.byType(TextField),
+      ),
+      findsNothing,
+    );
   });
 
   testWidgets('returns: the dead "New customer return" button is gone', (

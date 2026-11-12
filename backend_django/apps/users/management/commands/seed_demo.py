@@ -17,6 +17,8 @@ from django.utils import timezone
 
 from apps.collectibles.models import CollectibleLedger
 from apps.inventory.models import (
+    BODEGA_LOCATION_NAME,
+    STORE_LOCATION_NAME,
     Brand,
     Category,
     GoodsReceipt,
@@ -29,6 +31,7 @@ from apps.inventory.models import (
     StockAdjustment,
     Supplier,
     UnitOfMeasure,
+    storage_location,
 )
 from apps.inventory.services import (
     allocate_fifo,
@@ -46,48 +49,87 @@ from apps.requisitions.services import (
 )
 from apps.users.models import User
 
-PASSWORD = 'demo1234'  # noqa: S105 - documented demo login (AGENTS.md)
+PASSWORD = "demo1234"
 # Decision 09: a demo whole-Decline always carries the reason the staff screen demands.
-DECLINE_REASON = 'Cannot supply this request: the items are out of season.'
-ROLES = ['System Administrator', 'Store Manager', 'Stock Manager',
-         'Cashier',
-         # Phase 1 (decision 02): the group CPMS's service account lives in. It is not a
-         # POS role - the fence in `apps/users/authentication.py` keeps it inside
-         # `/api/v1/integration/cpms/` - and the foreman role is gone (decision 01).
-         'CPMS Service']
+DECLINE_REASON = "Cannot supply this request: the items are out of season."
+ROLES = [
+    "System Administrator",
+    "Store Manager",
+    "Stock Manager",
+    "Cashier",
+    # Phase 1 (decision 02): the group CPMS's service account lives in. It is not a
+    # POS role - the fence in `apps/users/authentication.py` keeps it inside
+    # `/api/v1/integration/cpms/` - and the foreman role is gone (decision 01).
+    "CPMS Service",
+]
 
 USERS = [
     # username, full_name, group, is_superuser, is_staff
-    ('admin',   'Ada Ministrator', 'System Administrator', True,  True),
-    ('manager', 'Mana Ger',        'Store Manager',        False, False),
-    ('stocker', 'Stock Er',        'Stock Manager',        False, False),
-    ('cashier', 'Cashi Er',        'Cashier',              False, False),
+    ("admin", "Ada Ministrator", "System Administrator", True, True),
+    ("manager", "Mana Ger", "Store Manager", False, False),
+    ("stocker", "Stock Er", "Stock Manager", False, False),
+    ("cashier", "Cashi Er", "Cashier", False, False),
     # Decision 02: the machine account CPMS logs in as. Not staff, not a superuser.
-    ('cpms_service', 'CPMS Service', 'CPMS Service',       False, False),
+    ("cpms_service", "CPMS Service", "CPMS Service", False, False),
 ]
+
+# The ONE seeded product the demo keeps in the Bodega instead of the Store, so the till
+# badge, the receipt line and the delivery slip all have a real "Bodega" to show
+# (Phase 5 B4, decision 18).
+BODEGA_DEMO_PRODUCT = "GI Sheet Plain"
 
 # category, brand, product, [(variant_name, unit_cost, selling_price), ...]
 CATALOG = [
-    ('Cement', 'Rhino', 'Portland Cement', [
-        ('40kg', Decimal('215'), Decimal('260')),
-        ('50kg', Decimal('265'), Decimal('320')),
-    ]),
-    ('Steel', 'SteelCore', 'GI Sheet Plain', [
-        ('0.9mm x 1.8m', Decimal('480'), Decimal('560')),
-    ]),
-    ('Plumbing', 'FlowPro', 'PVC Pipe', [
-        ('1/2 inch x 3m', Decimal('95'), Decimal('118')),
-        ('4 inch x 3m', Decimal('385'), Decimal('450')),
-    ]),
-    ('Plumbing', 'FlowPro', 'Faucet', [
-        ('Standard', Decimal('180'), Decimal('225')),
-    ]),
-    ('Electrical', 'VoltEdge', 'Electrical Wire', [
-        ('2.0mm THHN (roll)', Decimal('1250'), Decimal('1480')),
-    ]),
-    ('Electrical', 'VoltEdge', 'Circuit Breaker', [
-        ('20A 1-pole', Decimal('260'), Decimal('315')),
-    ]),
+    (
+        "Cement",
+        "Rhino",
+        "Portland Cement",
+        [
+            ("40kg", Decimal(215), Decimal(260)),
+            ("50kg", Decimal(265), Decimal(320)),
+        ],
+    ),
+    (
+        "Steel",
+        "SteelCore",
+        "GI Sheet Plain",
+        [
+            ("0.9mm x 1.8m", Decimal(480), Decimal(560)),
+        ],
+    ),
+    (
+        "Plumbing",
+        "FlowPro",
+        "PVC Pipe",
+        [
+            ("1/2 inch x 3m", Decimal(95), Decimal(118)),
+            ("4 inch x 3m", Decimal(385), Decimal(450)),
+        ],
+    ),
+    (
+        "Plumbing",
+        "FlowPro",
+        "Faucet",
+        [
+            ("Standard", Decimal(180), Decimal(225)),
+        ],
+    ),
+    (
+        "Electrical",
+        "VoltEdge",
+        "Electrical Wire",
+        [
+            ("2.0mm THHN (roll)", Decimal(1250), Decimal(1480)),
+        ],
+    ),
+    (
+        "Electrical",
+        "VoltEdge",
+        "Circuit Breaker",
+        [
+            ("20A 1-pole", Decimal(260), Decimal(315)),
+        ],
+    ),
 ]
 
 # Phase 1d Task 4 (decisions 15/16): ONE demo product sold by a base unit and a real
@@ -97,54 +139,71 @@ CATALOG = [
 # category and brand are the catalog's own rows - this step adds master data, not a
 # second Cement or Rhino.
 PACKAGING = {
-    'category': 'Cement',
-    'brand': 'Rhino',
-    'product': 'Tile Adhesive',
-    'variant': 'Standard',
-    'base_unit': ('KG', 'Kilogram'),
-    'base_price': Decimal('12.00'),      # per kg, loose
-    'bag_unit': ('BAG', 'Bag'),
-    'bag_factor': Decimal('25'),         # 1 bag = 25 kg
-    'bag_price': Decimal('275.00'),      # 25 x 11.00/kg
-    'unit_cost': Decimal('9.00'),        # per kg, what Cebu Building Supply charged
-    'stock': Decimal('250'),             # kg received in one delivery
+    "category": "Cement",
+    "brand": "Rhino",
+    "product": "Tile Adhesive",
+    "variant": "Standard",
+    "base_unit": ("KG", "Kilogram"),
+    "base_price": Decimal("12.00"),  # per kg, loose
+    "bag_unit": ("BAG", "Bag"),
+    "bag_factor": Decimal(25),  # 1 bag = 25 kg
+    "bag_price": Decimal("275.00"),  # 25 x 11.00/kg
+    "unit_cost": Decimal("9.00"),  # per kg, what Cebu Building Supply charged
+    "stock": Decimal(250),  # kg received in one delivery
 }
 
 
 class Command(BaseCommand):
-    help = 'Seed realistic demo data (idempotent).'
+    help = "Seed realistic demo data (idempotent)."
 
     def handle(self, *args, **options):
         self._seed_groups()
         users = self._seed_users()
+        self._seed_locations()
         variants = self._seed_catalog()
-        self._seed_stock(users['stocker'], variants)
-        self._seed_adjustments(users['stocker'], variants)
+        self._seed_stock(users["stocker"], variants)
+        self._seed_adjustments(users["stocker"], variants)
         self._seed_customers()
         customers = {c.name: c for c in Customer.objects.all()}
-        self._seed_sales(users['cashier'], variants, customers)
+        self._seed_sales(users["cashier"], variants, customers)
         self._seed_requisitions(users, variants, customers)
-        self._seed_packaging(users['stocker'], variants)
+        self._seed_packaging(users["stocker"], variants)
         self._print_review_instructions()
         self._print_summary(users)
 
     def _seed_groups(self):
         for name in ROLES:
             Group.objects.get_or_create(name=name)
-        self.stdout.write(self.style.MIGRATE_HEADING('Groups ensured'))
+        self.stdout.write(self.style.MIGRATE_HEADING("Groups ensured"))
+
+    def _seed_locations(self):
+        """Store + Bodega (Phase 5 B4, decision 18), restored after a flush.
+
+        Migration 0011 creates both, and `flush` removes them again - exactly like the
+        standard units `_seed_catalog` restores - so the demo puts them back. Idempotent
+        and case-insensitive through `storage_location`, the same helper the FK default
+        uses, so a re-run cannot invent a second spelling.
+        """
+        for name in (STORE_LOCATION_NAME, BODEGA_LOCATION_NAME):
+            storage_location(name)
+        self.stdout.write(self.style.MIGRATE_HEADING("Storage locations ensured"))
 
     def _seed_users(self):
         users = {}
         for username, full_name, group, is_super, is_staff in USERS:
             user, created = User.objects.get_or_create(
                 username=username,
-                defaults={'full_name': full_name, 'email': f'{username}@demo.ph',
-                          'is_superuser': is_super, 'is_staff': is_staff},
+                defaults={
+                    "full_name": full_name,
+                    "email": f"{username}@demo.ph",
+                    "is_superuser": is_super,
+                    "is_staff": is_staff,
+                },
             )
             if created:
                 user.set_password(PASSWORD)
                 user.save()
-                self.stdout.write(f'  + user {username} ({group})')
+                self.stdout.write(f"  + user {username} ({group})")
             group_obj, _ = Group.objects.get_or_create(name=group)
             user.groups.add(group_obj)
             users[username] = user
@@ -152,76 +211,119 @@ class Command(BaseCommand):
 
     def _seed_catalog(self):
         variants = {}
-        if Category.objects.filter(name='Cement').exists():
-            self.stdout.write(self.style.WARNING('Catalog already seeded - skipping'))
+        if Category.objects.filter(name="Cement").exists():
+            self.stdout.write(self.style.WARNING("Catalog already seeded - skipping"))
             for v in ProductVariant.objects.all():
-                variants[v.variant_name] = {'variant': v}
+                variants[v.variant_name] = {"variant": v}
             return variants
         uoms = {}
         # Flush removes migration seed rows; restore the same standard list.
         for code, name, whole in [
-            ('PC', 'Piece', True), ('BAG', 'Bag', True),
-            ('BOX', 'Box', True), ('PACK', 'Pack', True),
-            ('ROLL', 'Roll', True), ('SHEET', 'Sheet', True),
-            ('KG', 'Kilogram', False), ('G', 'Gram', False),
-            ('M', 'Metre', False), ('CM', 'Centimetre', False),
-            ('L', 'Litre', False), ('ML', 'Millilitre', False),
+            ("PC", "Piece", True),
+            ("BAG", "Bag", True),
+            ("BOX", "Box", True),
+            ("PACK", "Pack", True),
+            ("ROLL", "Roll", True),
+            ("SHEET", "Sheet", True),
+            ("KG", "Kilogram", False),
+            ("G", "Gram", False),
+            ("M", "Metre", False),
+            ("CM", "Centimetre", False),
+            ("L", "Litre", False),
+            ("ML", "Millilitre", False),
         ]:
             unit = UnitOfMeasure.objects.filter(code__iexact=code).first()
-            if unit is None and code == 'ROLL':
-                unit = UnitOfMeasure.objects.filter(code__iexact='RL').first()
+            if unit is None and code == "ROLL":
+                unit = UnitOfMeasure.objects.filter(code__iexact="RL").first()
             if unit is None:
                 unit = UnitOfMeasure.objects.create(
-                    code=code, name=name, is_whole=whole)
+                    code=code, name=name, is_whole=whole
+                )
             uoms[code] = unit
         for cat_name, brand_name, prod_name, vs in CATALOG:
             cat, _ = Category.objects.get_or_create(name=cat_name)
             brand, _ = Brand.objects.get_or_create(name=brand_name)
             product, _ = Product.objects.get_or_create(
-                category=cat, brand=brand, base_name=prod_name)
+                category=cat, brand=brand, base_name=prod_name
+            )
             for v_name, cost, price in vs:
                 variant, _ = ProductVariant.objects.get_or_create(
-                    product=product, variant_name=v_name,
-                    defaults={'base_uom': uoms['PC'],
-                              'min_stock_threshold': Decimal('20')},
+                    product=product,
+                    variant_name=v_name,
+                    defaults={
+                        "base_uom": uoms["PC"],
+                        "min_stock_threshold": Decimal(20),
+                    },
                 )
                 vuom, _ = variant.selling_uoms.get_or_create(
                     uom=variant.base_uom,
-                    defaults={'conversion_factor': Decimal('1'),
-                              'default_selling_price': price})
+                    defaults={
+                        "conversion_factor": Decimal(1),
+                        "default_selling_price": price,
+                    },
+                )
                 # Decision 04: a requisition line keys on the selling unit, so the
                 # demo requests quote the base unit CPMS would have been shown.
-                variants[v_name] = {
-                    'variant': variant, 'vuom': vuom, 'cost': cost}
-        self.stdout.write(self.style.SUCCESS(f'Catalog seeded ({len(variants)} variants)'))
+                variants[v_name] = {"variant": variant, "vuom": vuom, "cost": cost}
+            # Phase 5 B4 (decision 18): ONE seeded product lives in the Bodega; every
+            # other product keeps the model default, Store. `update()` writes only this
+            # column and the value is constant, so a re-run changes nothing.
+            if prod_name == BODEGA_DEMO_PRODUCT:
+                Product.objects.filter(pk=product.pk).update(
+                    stored_at=storage_location(BODEGA_LOCATION_NAME)
+                )
+        self.stdout.write(
+            self.style.SUCCESS(f"Catalog seeded ({len(variants)} variants)")
+        )
         return variants
+
+    @staticmethod
+    def _base_unit(variant):
+        """The variant's REAL base selling unit (`uom == base_uom`, factor 1)."""
+        return variant.selling_uoms.filter(
+            uom=variant.base_uom, conversion_factor=1
+        ).first()
 
     def _seed_stock(self, stocker, variants):
         if PurchaseOrder.objects.exists():
-            self.stdout.write(self.style.WARNING('Stock already seeded - skipping'))
+            self.stdout.write(self.style.WARNING("Stock already seeded - skipping"))
             return
         supplier, _ = Supplier.objects.get_or_create(
-            company_name='Cebu Building Supply',
-            defaults={'contact_person': 'Lito Ramos', 'phone': '0917-111-2222'})
+            company_name="Cebu Building Supply",
+            defaults={"contact_person": "Lito Ramos", "phone": "0917-111-2222"},
+        )
         low_stock_variant = None
         for i, (_v_name, info) in enumerate(variants.items()):
             po = PurchaseOrder.objects.create(
-                supplier=supplier, created_by=stocker,
+                supplier=supplier,
+                created_by=stocker,
                 status=PurchaseOrder.Status.ORDERED,
-                expected_delivery=timezone.localdate() + timedelta(days=7))
+                expected_delivery=timezone.localdate() + timedelta(days=7),
+            )
             POItem.objects.create(
-                po=po, variant=info['variant'], ordered_qty=Decimal('100'),
-                unit_cost=info['cost'], received_qty=Decimal('100'))
+                po=po,
+                variant=info["variant"],
+                # Phase 5 B1: the line names its selling unit. The demo buys in the
+                # variant's BASE unit (decision 18 keeps base purchasing meaning), so
+                # the row is tagged with that same base unit and "100" still means 100
+                # base units. A catalog-seeded run may not carry `vuom`; the base row is
+                # looked up then, and a missing row is left null (read as the base unit).
+                variant_uom=info.get("vuom") or self._base_unit(info["variant"]),
+                ordered_qty=Decimal(100),
+                unit_cost=info["cost"],
+                received_qty=Decimal(100),
+            )
             receipt = GoodsReceipt.objects.create(po=po, received_by=stocker)
             process_goods_receipt(receipt=receipt, user=stocker)
             if i == 0:
-                low_stock_variant = info['variant']
+                low_stock_variant = info["variant"]
         # Force one low-stock scenario for the dashboard/alerts demo.
         if low_stock_variant:
             from django.db import transaction as db_txn
+
             with db_txn.atomic():
-                allocate_fifo(variant_id=low_stock_variant.pk, qty_needed=Decimal('90'))
-        self.stdout.write(self.style.SUCCESS('Stock batches seeded (FIFO)'))
+                allocate_fifo(variant_id=low_stock_variant.pk, qty_needed=Decimal(90))
+        self.stdout.write(self.style.SUCCESS("Stock batches seeded (FIFO)"))
 
     def _seed_adjustments(self, stocker, variants):
         """Record stock adjustments through the REAL service path.
@@ -241,17 +343,18 @@ class Command(BaseCommand):
         """
         if StockAdjustment.objects.exists():
             self.stdout.write(
-                self.style.WARNING('Adjustments already seeded - skipping'))
+                self.style.WARNING("Adjustments already seeded - skipping")
+            )
             return
 
         # (adjustment_type, qty, remarks) - one of each type the UI filters on,
         # with the first landing on the variant _seed_stock took below threshold.
         plan = [
-            ('SHRINKAGE', Decimal('-3'), 'Broken in transit.'),
-            ('DAMAGE', Decimal('-2'), 'Water damage in storage.'),
-            ('CORRECTION', Decimal('4'), 'Cycle count correction.'),
-            ('RETURN', Decimal('-1'), 'Returned to supplier.'),
-            ('SHRINKAGE', Decimal('-5'), 'Unaccounted loss.'),
+            ("SHRINKAGE", Decimal(-3), "Broken in transit."),
+            ("DAMAGE", Decimal(-2), "Water damage in storage."),
+            ("CORRECTION", Decimal(4), "Cycle count correction."),
+            ("RETURN", Decimal(-1), "Returned to supplier."),
+            ("SHRINKAGE", Decimal(-5), "Unaccounted loss."),
         ]
         from django.db.models import Sum
 
@@ -269,18 +372,21 @@ class Command(BaseCommand):
         # it is not visible by reading the code.
         below_threshold = None
         for info in variants.values():
-            candidate = info['variant']
+            candidate = info["variant"]
             live = (
-                InventoryBatch.objects
-                .filter(variant=candidate, current_qty__gt=0)
-                .aggregate(total=Sum('current_qty'))['total'] or 0
+                InventoryBatch.objects.filter(
+                    variant=candidate, current_qty__gt=0
+                ).aggregate(total=Sum("current_qty"))["total"]
+                or 0
             )
-            if (candidate.min_stock_threshold > 0
-                    and live < candidate.min_stock_threshold):
+            if (
+                candidate.min_stock_threshold > 0
+                and live < candidate.min_stock_threshold
+            ):
                 below_threshold = candidate
                 break
 
-        targets = [info['variant'] for info in variants.values()]
+        targets = [info["variant"] for info in variants.values()]
         if below_threshold is not None:
             targets.remove(below_threshold)
             targets.insert(0, below_threshold)
@@ -290,8 +396,11 @@ class Command(BaseCommand):
         # outside a transaction. `_seed_stock` wraps its own call for the same
         # reason. Found by actually running the command, not by reading it.
         from django.db import transaction as db_txn
+
         with db_txn.atomic():
-            for (adjustment_type, qty, remarks), variant in zip(plan, targets, strict=False):
+            for (adjustment_type, qty, remarks), variant in zip(
+                plan, targets, strict=False
+            ):
                 adjustment = StockAdjustment.objects.create(
                     variant=variant,
                     user=stocker,
@@ -301,28 +410,34 @@ class Command(BaseCommand):
                 )
                 apply_stock_adjustment(adjustment=adjustment)
                 made += 1
-        self.stdout.write(
-            self.style.SUCCESS(f'{made} stock adjustments seeded'))
+        self.stdout.write(self.style.SUCCESS(f"{made} stock adjustments seeded"))
 
     def _seed_customers(self):
-        Customer.objects.get_or_create(name='Walk-in Customer')
+        Customer.objects.get_or_create(name="Walk-in Customer")
         # Decision 08: an explicit limit for the demo debtor, because NULL now means
         # UNLIMITED and 0 means NO credit - the seed has to say which it wants instead
         # of inheriting the old `default=0`. Migration 0008 turned the legacy zeros into
         # NULL, so the update branch below also teaches an EXISTING row its limit,
         # which keeps re-running the seed idempotent rather than a silent no-op.
         maria, _ = Customer.objects.get_or_create(
-            name='Maria Santos',
-            defaults={'customer_type': 'REGULAR',
-                      'contact_details': '0918-333-4444',
-                      'total_credit_limit': Decimal('10000.00')})
-        if maria.total_credit_limit != Decimal('10000.00'):
-            maria.total_credit_limit = Decimal('10000.00')
-            maria.save(update_fields=['total_credit_limit'])
+            name="Maria Santos",
+            defaults={
+                "customer_type": "REGULAR",
+                "contact_details": "0918-333-4444",
+                "total_credit_limit": Decimal("10000.00"),
+            },
+        )
+        if maria.total_credit_limit != Decimal("10000.00"):
+            maria.total_credit_limit = Decimal("10000.00")
+            maria.save(update_fields=["total_credit_limit"])
         Customer.objects.get_or_create(
-            name='Dela Cruz Construction',
-            defaults={'customer_type': 'CONSTRUCTION_FIRM', 'contact_details': '0917-555-6666'})
-        self.stdout.write(self.style.SUCCESS('Customers seeded'))
+            name="Dela Cruz Construction",
+            defaults={
+                "customer_type": "CONSTRUCTION_FIRM",
+                "contact_details": "0917-555-6666",
+            },
+        )
+        self.stdout.write(self.style.SUCCESS("Customers seeded"))
 
     def _seed_sales(self, cashier, variants, customers):
         from django.utils import timezone
@@ -331,42 +446,58 @@ class Command(BaseCommand):
         from apps.pos.services import compute_z_reading
 
         if SalesTransaction.objects.exists():
-            self.stdout.write(self.style.WARNING('Sales already seeded - skipping'))
+            self.stdout.write(self.style.WARNING("Sales already seeded - skipping"))
             return
         # Phase 4 (decision 06, ruling 2): `process_sale` now REFUSES to record a sale
         # unless the cashier has an open shift, so the seed must open one first - the
         # demo is a real cashier workflow, not a shortcut around the gate. Reused if one
         # is already open, so re-running the command cannot trip the unique constraint.
-        shift = Shift.objects.filter(
-            cashier=cashier, status=Shift.Status.OPEN).first()
+        shift = Shift.objects.filter(cashier=cashier, status=Shift.Status.OPEN).first()
         if shift is None:
-            shift = Shift.objects.create(
-                cashier=cashier, opening_float=Decimal('5000'))
+            shift = Shift.objects.create(cashier=cashier, opening_float=Decimal(5000))
             self.stdout.write(
-                f'  + shift {shift.id} opened for {cashier.username} '
-                f'(float {shift.opening_float})')
-        walk_in = customers.get('Walk-in Customer')
-        maria = customers.get('Maria Santos')
+                f"  + shift {shift.id} opened for {cashier.username} "
+                f"(float {shift.opening_float})"
+            )
+        walk_in = customers.get("Walk-in Customer")
+        maria = customers.get("Maria Santos")
         v_names = list(variants.keys())
         # (customer, variant index, method, qty, amount_tendered)
         sales_plan = [
-            (walk_in, 0, 'CASH', 4, None),
-            (walk_in, 1, 'GCASH', 6, None),
-            (maria, 2, 'CASH', 3, None),
-            (maria, 3, 'CARD', 8, None),
-            (maria, 4, 'CASH', 12, Decimal('500')),  # underpaid -> utang (named customer: walk-ins cannot owe)
+            (walk_in, 0, "CASH", 4, None),
+            (walk_in, 1, "GCASH", 6, None),
+            (maria, 2, "CASH", 3, None),
+            (maria, 3, "CARD", 8, None),
+            (
+                maria,
+                4,
+                "CASH",
+                12,
+                Decimal(500),
+            ),  # underpaid -> utang (named customer: walk-ins cannot owe)
         ]
         for customer, idx, method, qty, tendered in sales_plan:
             info = variants[v_names[idx % len(v_names)]]
-            vuom = info['variant'].selling_uoms.first()
-            payments = [{'method': method,
-                         'amount_tendered': tendered or vuom.default_selling_price * qty}]
+            vuom = info["variant"].selling_uoms.first()
+            payments = [
+                {
+                    "method": method,
+                    "amount_tendered": tendered or vuom.default_selling_price * qty,
+                }
+            ]
             process_sale(
-                customer_id=customer.id, cashier=cashier,
-                items_data=[{'variant_id': vuom.pk, 'qty': qty,
-                             'unit_price': vuom.default_selling_price}],
-                payments_data=payments)
-        self.stdout.write(self.style.SUCCESS(f'{len(sales_plan)} sales seeded'))
+                customer_id=customer.id,
+                cashier=cashier,
+                items_data=[
+                    {
+                        "variant_id": vuom.pk,
+                        "qty": qty,
+                        "unit_price": vuom.default_selling_price,
+                    }
+                ],
+                payments_data=payments,
+            )
+        self.stdout.write(self.style.SUCCESS(f"{len(sales_plan)} sales seeded"))
 
         # Close the shift, so the demo carries a finished Z-reading instead of an open
         # shift that the end-of-shift screen has to close by hand before it shows
@@ -375,29 +506,33 @@ class Command(BaseCommand):
         # same reason `_seed_stock` forces one variant below its threshold. Ruling 3 says
         # a variance is recorded, never blocking - this is that recorded variance.
         z = compute_z_reading(shift)
-        shift.closing_count = Decimal(z['expected_drawer']) - Decimal('50')
+        shift.closing_count = Decimal(z["expected_drawer"]) - Decimal(50)
         shift.status = Shift.Status.CLOSED
         shift.closed_at = timezone.now()
-        shift.notes = 'Seeded demo shift, closed 50.00 short on purpose.'
-        shift.save(update_fields=[
-            'closing_count', 'status', 'closed_at', 'notes'])
+        shift.notes = "Seeded demo shift, closed 50.00 short on purpose."
+        shift.save(update_fields=["closing_count", "status", "closed_at", "notes"])
         z = compute_z_reading(shift)
-        self.stdout.write(self.style.SUCCESS(
-            f'Shift {shift.id} closed: gross {z["gross_sales"]}, '
-            f'cash {z["cash_sales"]}, expected drawer {z["expected_drawer"]}, '
-            f'variance {z["variance"]}'))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Shift {shift.id} closed: gross {z['gross_sales']}, "
+                f"cash {z['cash_sales']}, expected drawer {z['expected_drawer']}, "
+                f"variance {z['variance']}"
+            )
+        )
 
     def _seed_requisitions(self, users, variants, customers):
         if Requisition.objects.exists():
-            self.stdout.write(self.style.WARNING('Requisitions already seeded - skipping'))
+            self.stdout.write(
+                self.style.WARNING("Requisitions already seeded - skipping")
+            )
             return
         v_names = list(variants.keys())
         # Decision 03: CPMS owns the project list, so the demo project is identified by
         # its CPMS id and billed to the contractor customer.
         project = {
-            'cpms_project_id': 'CPMS-P-1001',
-            'name': '2-Storey House - Mandaue',
-            'payer': customers['Dela Cruz Construction'].pk,
+            "cpms_project_id": "CPMS-P-1001",
+            "name": "2-Storey House - Mandaue",
+            "payer": customers["Dela Cruz Construction"].pk,
         }
 
         def push(cpms_request_id, variant_name, quantity, *, answer):
@@ -414,69 +549,84 @@ class Command(BaseCommand):
                 cpms_request_id=cpms_request_id,
                 token=token,
                 project=project,
-                requester_name='Rey Quester',
-                approver_name=users['manager'].full_name,
-                items=[{'code': variants[variant_name]['vuom'].barcode_qr,
-                        'quantity': Decimal(quantity)}],
+                requester_name="Rey Quester",
+                approver_name=users["manager"].full_name,
+                items=[
+                    {
+                        "code": variants[variant_name]["vuom"].barcode_qr,
+                        "quantity": Decimal(quantity),
+                    }
+                ],
             )
-            requisition = Requisition.objects.get(pk=result['request']['id'])
-            if answer == 'accept':
+            requisition = Requisition.objects.get(pk=result["request"]["id"])
+            if answer == "accept":
                 accept_requisition(
                     requisition_id=requisition.pk,
-                    items=[{'id': line.pk, 'available': True, 'decline_reason': ''}
-                           for line in requisition.items.order_by('pk')])
-            elif answer == 'decline':
+                    items=[
+                        {"id": line.pk, "available": True, "decline_reason": ""}
+                        for line in requisition.items.order_by("pk")
+                    ],
+                )
+            elif answer == "decline":
                 decline_requisition(
-                    requisition_id=requisition.pk,
-                    decline_reason=DECLINE_REASON)
+                    requisition_id=requisition.pk, decline_reason=DECLINE_REASON
+                )
             return token
 
         # ACCEPTED (token ready for the POS release demo)
         # Not v_names[0]: the seed drains that one for the low-stock demo.
-        token = push('CPMS-R-1001', v_names[1], '8', answer='accept')
+        token = push("CPMS-R-1001", v_names[1], "8", answer="accept")
 
         # RELEASED (the full flow - deducts stock, posts the project's utang)
-        rel_token = push('CPMS-R-1002', v_names[3], '4', answer='accept')
+        rel_token = push("CPMS-R-1002", v_names[3], "4", answer="accept")
         # Phase 3 (decision 03): a release needs the cashier's OPEN shift, and `_seed_sales`
         # already closed the one it sold through. Reopen (or reuse) here and leave it open:
         # the release belongs inside a shift's Z-reading, and an open shift is also what the
         # advertised "token ready for POS release" needs for a live demo.
         from apps.pos.models import Shift
+
         shift = Shift.objects.filter(
-            cashier=users['cashier'], status=Shift.Status.OPEN).first()
+            cashier=users["cashier"], status=Shift.Status.OPEN
+        ).first()
         if shift is None:
             shift = Shift.objects.create(
-                cashier=users['cashier'], opening_float=Decimal('0'))
+                cashier=users["cashier"], opening_float=Decimal(0)
+            )
             self.stdout.write(
-                f'  + shift {shift.id} opened for {users["cashier"].username} '
-                '(release shift, left open for the demo)')
-        release_materials(token_value=str(rel_token), cashier=users['cashier'])
+                f"  + shift {shift.id} opened for {users['cashier'].username} "
+                "(release shift, left open for the demo)"
+            )
+        release_materials(token_value=str(rel_token), cashier=users["cashier"])
 
         # PARTIAL (decision 05: the shelf is short, the token survives the visit). The
         # line asks for MORE than the shelf holds, derived from the shelf itself so the
         # demo cannot drift into "everything fit after all".
-        partial_variant = variants[v_names[2]]['variant']
-        on_hand = sum(
-            partial_variant.batches.values_list('current_qty', flat=True))
-        partial_token = push('CPMS-R-1003', v_names[2], on_hand + 5, answer='accept')
+        partial_variant = variants[v_names[2]]["variant"]
+        on_hand = sum(partial_variant.batches.values_list("current_qty", flat=True))
+        partial_token = push("CPMS-R-1003", v_names[2], on_hand + 5, answer="accept")
         partial = release_materials(
-            token_value=str(partial_token), cashier=users['cashier'])
+            token_value=str(partial_token), cashier=users["cashier"]
+        )
 
         # WAITING (decision 13): pushed and not answered yet, so its live token must be
         # refused by the till until a manager accepts or declines it.
-        push('CPMS-R-1004', v_names[6], '3', answer='wait')
+        push("CPMS-R-1004", v_names[6], "3", answer="wait")
         # DECLINED (decisions 09/13): the store can serve none of it, the reason is
         # recorded on the request and every line, and the token is spent without a
         # cashier. Nothing left the shelf and nothing was booked.
-        push('CPMS-R-1005', v_names[7], '5', answer='decline')
+        push("CPMS-R-1005", v_names[7], "5", answer="decline")
 
-        self.stdout.write(self.style.SUCCESS(
-            'Requisitions seeded (ACCEPTED/PARTIAL/RELEASED/WAITING/DECLINED, '
-            'pushed by CPMS)'))
-        self.stdout.write(f'  ACCEPTED token (ready for POS release): {token}')
         self.stdout.write(
-            f'  PARTIAL token (scan again after a goods receipt): {partial_token} '
-            f'({partial["status"]}, {partial["items"][0]["outstanding"]} outstanding)')
+            self.style.SUCCESS(
+                "Requisitions seeded (ACCEPTED/PARTIAL/RELEASED/WAITING/DECLINED, "
+                "pushed by CPMS)"
+            )
+        )
+        self.stdout.write(f"  ACCEPTED token (ready for POS release): {token}")
+        self.stdout.write(
+            f"  PARTIAL token (scan again after a goods receipt): {partial_token} "
+            f"({partial['status']}, {partial['items'][0]['outstanding']} outstanding)"
+        )
 
     def _seed_packaging(self, stocker, variants):
         """One product that is really sold two ways (Phase 1d Task 4, decisions 15/16).
@@ -500,58 +650,76 @@ class Command(BaseCommand):
         prices, batches). A half-built product is repaired by a reset, exactly like a
         half-built catalog.
         """
-        base_code, base_name = PACKAGING['base_unit']
-        bag_code, bag_name = PACKAGING['bag_unit']
-        if Product.objects.filter(base_name=PACKAGING['product']).exists():
-            self.stdout.write(
-                self.style.WARNING('Packaging already seeded - skipping'))
+        base_code, base_name = PACKAGING["base_unit"]
+        bag_code, bag_name = PACKAGING["bag_unit"]
+        if Product.objects.filter(base_name=PACKAGING["product"]).exists():
+            self.stdout.write(self.style.WARNING("Packaging already seeded - skipping"))
             return
 
         # Both codes are created by migration 0008 in a fresh database; get_or_create
         # keeps a database seeded before it from inventing a rival spelling.
         base_uom, _ = UnitOfMeasure.objects.get_or_create(
-            code=base_code, defaults={'name': base_name})
+            code=base_code, defaults={"name": base_name}
+        )
         bag_uom, _ = UnitOfMeasure.objects.get_or_create(
-            code=bag_code, defaults={'name': bag_name, 'is_whole': True})
-        category, _ = Category.objects.get_or_create(name=PACKAGING['category'])
-        brand, _ = Brand.objects.get_or_create(name=PACKAGING['brand'])
+            code=bag_code, defaults={"name": bag_name, "is_whole": True}
+        )
+        category, _ = Category.objects.get_or_create(name=PACKAGING["category"])
+        brand, _ = Brand.objects.get_or_create(name=PACKAGING["brand"])
         product, _ = Product.objects.get_or_create(
-            category=category, brand=brand,
-            base_name=PACKAGING['product'])
+            category=category, brand=brand, base_name=PACKAGING["product"]
+        )
         variant, _ = ProductVariant.objects.get_or_create(
-            product=product, variant_name=PACKAGING['variant'],
-            defaults={'base_uom': base_uom,
-                      'min_stock_threshold': Decimal('20')})
+            product=product,
+            variant_name=PACKAGING["variant"],
+            defaults={"base_uom": base_uom, "min_stock_threshold": Decimal(20)},
+        )
         for uom, factor, price in (
-                (base_uom, Decimal('1'), PACKAGING['base_price']),
-                (bag_uom, PACKAGING['bag_factor'], PACKAGING['bag_price'])):
+            (base_uom, Decimal(1), PACKAGING["base_price"]),
+            (bag_uom, PACKAGING["bag_factor"], PACKAGING["bag_price"]),
+        ):
             variant.selling_uoms.get_or_create(
                 uom=uom,
-                defaults={'conversion_factor': factor,
-                          'default_selling_price': price})
+                defaults={"conversion_factor": factor, "default_selling_price": price},
+            )
 
         # Same purchase -> delivery -> process shape `_seed_stock` uses, with the
         # delivery LINE spelling out the 250 kg this order actually brought in.
         supplier, _ = Supplier.objects.get_or_create(
-            company_name='Cebu Building Supply',
-            defaults={'contact_person': 'Lito Ramos', 'phone': '0917-111-2222'})
+            company_name="Cebu Building Supply",
+            defaults={"contact_person": "Lito Ramos", "phone": "0917-111-2222"},
+        )
         po = PurchaseOrder.objects.create(
-            supplier=supplier, created_by=stocker,
+            supplier=supplier,
+            created_by=stocker,
             status=PurchaseOrder.Status.ORDERED,
-            expected_delivery=timezone.localdate())
+            expected_delivery=timezone.localdate(),
+        )
         item = POItem.objects.create(
-            po=po, variant=variant, ordered_qty=PACKAGING['stock'],
-            unit_cost=PACKAGING['unit_cost'],
-            received_qty=PACKAGING['stock'])
+            po=po,
+            variant=variant,
+            # The demo buys the base unit: `PACKAGING['stock']` is 250 KG, so the line is
+            # counted in KG x1 and receiving stocks exactly 250 base units (Phase 5 B1).
+            variant_uom=variant.selling_uoms.get(
+                uom=base_uom, conversion_factor=Decimal(1)
+            ),
+            ordered_qty=PACKAGING["stock"],
+            unit_cost=PACKAGING["unit_cost"],
+            received_qty=PACKAGING["stock"],
+        )
         receipt = GoodsReceipt.objects.create(po=po, received_by=stocker)
         GoodsReceiptItem.objects.create(
-            receipt=receipt, po_item=item, qty=PACKAGING['stock'])
+            receipt=receipt, po_item=item, qty=PACKAGING["stock"]
+        )
         process_goods_receipt(receipt=receipt, user=stocker)
-        self.stdout.write(self.style.SUCCESS(
-            f'Packaging seeded: {product.base_name} / {variant.variant_name} '
-            f'({base_code} x1 at {PACKAGING["base_price"]}, '
-            f'{bag_code} x{PACKAGING["bag_factor"]} at {PACKAGING["bag_price"]}), '
-            f'{PACKAGING["stock"]} {base_code} received on PO {po.pk}'))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Packaging seeded: {product.base_name} / {variant.variant_name} "
+                f"({base_code} x1 at {PACKAGING['base_price']}, "
+                f"{bag_code} x{PACKAGING['bag_factor']} at {PACKAGING['bag_price']}), "
+                f"{PACKAGING['stock']} {base_code} received on PO {po.pk}"
+            )
+        )
 
     def _print_review_instructions(self):
         """What to do with the two requests that only the review screen can move.
@@ -561,41 +729,53 @@ class Command(BaseCommand):
         the releasable requests: the till's own token stays the thing the cashier scans.
         """
         instructions = (
-            ('CPMS-R-1004',
-             'WAITING token',
-             'the store has not answered it, so it cannot be released at the till - '
-             'accept or decline it in Sales > Requests from projects first.'),
-            ('CPMS-R-1005',
-             'DECLINED token',
-             'this token is dead: verify and release answer REQUISITION_DECLINED. '
-             'No cashier was involved and nothing left the shelf.'),
+            (
+                "CPMS-R-1004",
+                "WAITING token",
+                (
+                    "the store has not answered it, so it cannot be released at the "
+                    "till - accept or decline it in Sales > Requests from projects "
+                    "first."
+                ),
+            ),
+            (
+                "CPMS-R-1005",
+                "DECLINED token",
+                (
+                    "this token is dead: verify and release answer "
+                    "REQUISITION_DECLINED. No cashier was involved and nothing left "
+                    "the shelf."
+                ),
+            ),
         )
         for cpms_request_id, label, advice in instructions:
-            request = Requisition.objects.filter(
-                cpms_request_id=cpms_request_id).select_related('token').first()
+            request = (
+                Requisition.objects.filter(cpms_request_id=cpms_request_id)
+                .select_related("token")
+                .first()
+            )
             if request is None:
                 continue
             self.stdout.write(
-                f'  {cpms_request_id} {label} {request.token.token}: {advice}')
+                f"  {cpms_request_id} {label} {request.token.token}: {advice}"
+            )
 
     def _print_summary(self, users):
         from apps.pos.models import SalesTransaction
-        self.stdout.write(self.style.MIGRATE_HEADING(
-            f'--- Demo accounts (password: {PASSWORD}) ---'))
-        for username in users:
-            self.stdout.write(f'  {username:<10} / {PASSWORD}')
-        open_ledgers = CollectibleLedger.objects.filter(
-            status=CollectibleLedger.Status.OPEN).count()
-        self.stdout.write(self.style.MIGRATE_HEADING('--- Quick stats ---'))
+
         self.stdout.write(
-            f'  Users: {User.objects.count()}, '
-            f'Batches: {InventoryBatch.objects.count()}, '
-            f'Transactions: {SalesTransaction.objects.count()}, '
-            f'Open utang ledgers: {open_ledgers}')
-        self.stdout.write(self.style.SUCCESS('Done.'))
-
-
-
-
-
-
+            self.style.MIGRATE_HEADING(f"--- Demo accounts (password: {PASSWORD}) ---")
+        )
+        for username in users:
+            self.stdout.write(f"  {username:<10} / {PASSWORD}")
+        open_ledgers = CollectibleLedger.objects.filter(
+            status=CollectibleLedger.Status.OPEN
+        ).count()
+        self.stdout.write(self.style.MIGRATE_HEADING("--- Quick stats ---"))
+        self.stdout.write(
+            f"  Users: {User.objects.count()}, "
+            f"Batches: {InventoryBatch.objects.count()}, "
+            f"Transactions: {SalesTransaction.objects.count()}, "
+            f"Open utang ledgers: {open_ledgers}"
+        )
+        self.stdout.write(self.style.SUCCESS("Done."))

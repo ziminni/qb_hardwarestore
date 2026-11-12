@@ -5,6 +5,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     ChequeViewSet,
     CustomerViewSet,
+    DeliveryViewSet,
     DiscountApprovalView,
     HeldCartViewSet,
     OfficialReceiptViewSet,
@@ -29,6 +30,9 @@ router.register(r'shifts', ShiftViewSet, basename='shift')
 # `method=CHEQUE`, exposed on its own path because the clearance screen is not a payments
 # screen - it shows what the shop is still waiting for on, and only two POSTs can move it.
 router.register(r'cheques', ChequeViewSet, basename='cheque')
+# Phase 5 task B3 (decision 18): the delivery schedule. Created BY a sale or an order,
+# so the collection has no POST of its own - only the three status actions.
+router.register(r'deliveries', DeliveryViewSet, basename='delivery')
 
 # Phase 4 task B1 (decision 18): TWO singletons, not collections - the shop's settings
 # row and the mint that turns a manager's password into a one-time discount approval.

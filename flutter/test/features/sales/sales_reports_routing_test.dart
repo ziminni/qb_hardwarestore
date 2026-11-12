@@ -45,6 +45,10 @@ const _salesPaths = [
   '/sales/staff',
   // Phase 1b appends the store's review queue after Staff.
   '/sales/project-requests',
+  // Phase 5 F2/F3 append the supplier-debt and delivery screens in the same
+  // shell, so the earlier indices still point where they did.
+  '/sales/payables',
+  '/sales/deliveries',
 ];
 
 Widget _app(Widget child) => ChangeNotifierProvider<AuthViewmodel>.value(
@@ -143,16 +147,29 @@ void main() {
     expect(AppRoutes.salesReports, '/sales/reports');
   });
 
-  test('the sales sidebar has nine destinations', () {
+  test('the sales sidebar has eleven destinations', () {
     expect(
       SalesSkeletonLayout.navigationSections
           .expand((section) => section.destinations)
           .length,
-      9,
+      11,
       reason:
           'index 6 (Reports) is only reachable if the sidebar renders it; '
-          '7 is Staff and 8 is Project requests (Phase 1b). '
+          '7 is Staff and 8 is Project requests (Phase 1b); 9 Payables (Phase 5 '
+          'F2) and 10 Deliveries (F3) were appended, so 0-8 keep their numbers. '
           'Approvals was removed by decision 01',
+    );
+  });
+
+  test('the appended destinations match the sidebar length', () {
+    expect(
+      _salesPaths.length,
+      SalesSkeletonLayout.navigationSections
+          .expand((section) => section.destinations)
+          .length,
+      reason:
+          'the loop below is only complete while `_salesPaths` covers every '
+          'rendered destination',
     );
   });
 

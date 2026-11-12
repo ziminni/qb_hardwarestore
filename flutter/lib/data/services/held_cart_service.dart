@@ -1,4 +1,5 @@
 import 'package:client/core/network/api_client.dart';
+import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/held_cart.dart';
 import 'package:client/data/models/sale_discount.dart';
 import 'package:client/data/services/pos_service.dart';
@@ -135,6 +136,7 @@ class HeldCartService {
     String? idempotencyKey,
     PosDiscount? discount,
     String? discountApproval,
+    DeliveryDraft? delivery,
   }) async {
     try {
       final response = await _client.post<Map<String, dynamic>>(
@@ -149,6 +151,9 @@ class HeldCartService {
           if (discount != null) 'discount': discount.toJson(),
           if (discountApproval != null && discountApproval.isNotEmpty)
             'discount_approval': discountApproval,
+          // Phase 5 B3: the same optional `delivery` object the plain checkout
+          // takes, because `complete` runs the same `process_sale`.
+          if (delivery != null) 'delivery': delivery.toJson(),
         },
       );
       final data = response.data;

@@ -6,6 +6,7 @@ import 'package:client/features/admin/views/inventory_monitoring_page.dart';
 import 'package:client/features/admin/views/reports_page.dart';
 import 'package:client/features/admin/views/sales_monitoring_page.dart';
 import 'package:client/features/admin/views/settings_page.dart';
+import 'package:client/features/admin/views/storage_locations_page.dart';
 import 'package:client/features/categories/views/categories_page.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/auth/views/area_picker_page.dart';
@@ -36,6 +37,8 @@ import 'package:client/features/inventory/views/inventory_receiving_page.dart';
 import 'package:client/features/inventory/views/inventory_reports_page.dart';
 import 'package:client/features/inventory/views/inventory_returns_page.dart';
 import 'package:client/features/inventory/views/inventory_settings_page.dart';
+import 'package:client/features/deliveries/views/deliveries_page.dart';
+import 'package:client/features/payables/views/payables_page.dart';
 import 'package:client/features/products/views/products_page.dart';
 import 'package:client/features/suppliers/views/purchases_page.dart';
 import 'package:client/features/suppliers/views/suppliers_page.dart';
@@ -77,6 +80,29 @@ class AppRoutes {
   /// admin screen; the Store Manager reaches the same body at
   /// [salesProjectRequests] through [salesTwinOf].
   static const String adminProjectRequests = '/admin/project-requests';
+
+  /// Supplier payables (Phase 5 B2/F2, decision 18), one route per shell.
+  ///
+  /// Appended to every sidebar it appears in, so no earlier index moved. A
+  /// Cashier has none at all: supplier money is not till data, and the area
+  /// prefix fence already sends a typed address to the account's own dashboard.
+  static const String adminPayables = '/admin/payables';
+
+  /// Customer deliveries (Phase 5 B3/F3, decision 18), one route per shell.
+  ///
+  /// Appended to every sidebar it appears in, so no earlier index moved. A
+  /// Cashier has none: the server scopes a cashier to their own slips but
+  /// refuses every status move, so the schedule is the manager's and the stock
+  /// manager's to work.
+  static const String adminDeliveries = '/admin/deliveries';
+
+  /// Storage locations (Phase 5 B4/F4, decision 18), APPENDED to the Admin
+  /// sidebar in a group of its own so no earlier index moved.
+  ///
+  /// Admin only, and the fence is this `/admin/` prefix: the server writes this
+  /// list with `IsAdminRole`, so another account typing the address lands on its
+  /// own dashboard rather than a screen whose every button would 403.
+  static const String adminStorageLocations = '/admin/storage-locations';
   static const String inventoryDashboard = '/inventory/dashboard';
   static const String inventoryProducts = '/inventory/products';
   static const String inventoryCategories = '/inventory/categories';
@@ -89,6 +115,8 @@ class AppRoutes {
   static const String inventoryReceiving = '/inventory/receiving';
   static const String inventoryReturns = '/inventory/returns';
   static const String inventoryReports = '/inventory/reports';
+  static const String inventoryPayables = '/inventory/payables';
+  static const String inventoryDeliveries = '/inventory/deliveries';
   static const String inventorySettings = '/inventory/settings';
   static const String posDashboard = '/pos/dashboard';
   static const String posHistory = '/pos/history';
@@ -130,6 +158,14 @@ class AppRoutes {
   /// pattern used for Reports and Staff).
   static const String salesProjectRequests = '/sales/project-requests';
 
+  /// The Store Manager's payables screen (sales sidebar index 9): the same body
+  /// as [adminPayables], in the manager's own shell.
+  static const String salesPayables = '/sales/payables';
+
+  /// The Store Manager's delivery schedule (sales sidebar index 10): the same
+  /// body as [adminDeliveries], in the manager's own shell.
+  static const String salesDeliveries = '/sales/deliveries';
+
   /// The sales-shell twin of an admin screen the Store Manager may use, or null
   /// when [location] has no twin.
   ///
@@ -139,6 +175,8 @@ class AppRoutes {
     adminReports => salesReports,
     adminUserManagement => salesStaff,
     adminProjectRequests => salesProjectRequests,
+    adminPayables => salesPayables,
+    adminDeliveries => salesDeliveries,
     _ => null,
   };
 
@@ -397,6 +435,24 @@ class AppRoutes {
               _transitionPage(state, const AdminProjectRequestsPage()),
         ),
         GoRoute(
+          path: adminPayables,
+          name: 'admin_payables',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const AdminPayablesPage()),
+        ),
+        GoRoute(
+          path: adminDeliveries,
+          name: 'admin_deliveries',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const AdminDeliveriesPage()),
+        ),
+        GoRoute(
+          path: adminStorageLocations,
+          name: 'admin_storage_locations',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const StorageLocationsPage()),
+        ),
+        GoRoute(
           path: adminSettings,
           name: 'admin_settings',
           pageBuilder: (context, state) =>
@@ -473,6 +529,18 @@ class AppRoutes {
           name: 'inventory_reports',
           pageBuilder: (context, state) =>
               _transitionPage(state, const InventoryReportsPage()),
+        ),
+        GoRoute(
+          path: inventoryPayables,
+          name: 'inventory_payables',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const InventoryPayablesPage()),
+        ),
+        GoRoute(
+          path: inventoryDeliveries,
+          name: 'inventory_deliveries',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const InventoryDeliveriesPage()),
         ),
         GoRoute(
           path: inventorySettings,
@@ -573,6 +641,18 @@ class AppRoutes {
           name: 'sales_project_requests',
           pageBuilder: (context, state) =>
               _transitionPage(state, const ProjectRequestsPage()),
+        ),
+        GoRoute(
+          path: salesPayables,
+          name: 'sales_payables',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const SalesPayablesPage()),
+        ),
+        GoRoute(
+          path: salesDeliveries,
+          name: 'sales_deliveries',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const SalesDeliveriesPage()),
         ),
         GoRoute(
           path: salesStaff,

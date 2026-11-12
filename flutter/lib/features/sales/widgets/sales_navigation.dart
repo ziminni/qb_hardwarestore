@@ -21,6 +21,12 @@ void navigateSales(BuildContext context, int index) {
     // (Phase 1b, decision 13). Same silent no-op risk as D-01 if the path is
     // missing here.
     AppRoutes.salesProjectRequests,
+    // Index 9 - Payables, APPENDED with its own sidebar section (Phase 5 F2):
+    // the Store Manager records supplier payments here, in their own shell.
+    AppRoutes.salesPayables,
+    // Index 10 - Deliveries, APPENDED (Phase 5 F3): the manager runs the
+    // schedule from their own shell, so no earlier tab moves.
+    AppRoutes.salesDeliveries,
   ];
   if (index >= 0 && index < paths.length) context.go(paths[index]);
 }

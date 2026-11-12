@@ -17,6 +17,7 @@
 // what the repository was asked to send.
 
 import 'package:client/data/models/inventory.dart';
+import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/pos_transaction.dart' show PosReceipt;
 import 'package:client/data/models/shift.dart';
 import 'package:client/data/models/tender_method.dart';
@@ -59,6 +60,7 @@ class _RecordingPosRepository extends PosRepository {
     String? idempotencyKey,
     PosDiscount? discount,
     String? discountApproval,
+    DeliveryDraft? delivery,
   }) async {
     calls++;
     sentPayments = payments;

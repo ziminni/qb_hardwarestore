@@ -8,6 +8,7 @@
 // The rule now has ONE home on the viewmodel, which is what makes it testable.
 
 import 'package:client/data/models/customer.dart';
+import 'package:client/data/models/delivery.dart';
 import 'package:client/data/repositories/customer_repository.dart';
 import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/services/customer_service.dart';
@@ -32,6 +33,7 @@ class _StubPosRepository extends PosRepository {
     String? idempotencyKey,
     PosDiscount? discount,
     String? discountApproval,
+    DeliveryDraft? delivery,
   }) async => PosCheckoutResult(
     id: 1,
     transactionNo: 'TRX-1',

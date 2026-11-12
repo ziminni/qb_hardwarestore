@@ -17,14 +17,17 @@ import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/product_writes.dart';
 import 'package:client/data/models/receiving.dart';
+import 'package:client/data/models/storage_location.dart';
 import 'package:client/data/models/system_alert.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/repositories/catalogue_repository.dart';
 import 'package:client/data/repositories/inventory_repository.dart';
 import 'package:client/data/repositories/products_repository.dart';
+import 'package:client/data/repositories/storage_location_repository.dart';
 import 'package:client/data/services/catalogue_service.dart';
 import 'package:client/data/services/inventory_service.dart';
 import 'package:client/data/services/products_service.dart';
+import 'package:client/data/services/storage_location_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 
 /// A selling unit at factor 1 — the base unit the till prices.
@@ -541,4 +544,62 @@ InventoryViewmodel seededInventory() {
       category(id: 2, name: 'Plumbing'),
     ],
   );
+}
+
+/// The shop's storage locations (Phase 5 F4), with every write recorded.
+///
+/// Answers from a list the test writes down, so a screen under test asserts the
+/// REQUEST (which id was named, which flag was flipped) rather than pixels.
+class FakeStorageLocationRepository extends StorageLocationRepository {
+  FakeStorageLocationRepository({List<StorageLocation> locations = const []})
+    : _locations = [...locations],
+      super();
+
+  List<StorageLocation> _locations;
+
+  final List<String> created = [];
+  final List<({int id, String? name, bool? isActive})> patches = [];
+
+  /// Set to refuse reads like the API would (a 403/500 message).
+  String? readError;
+
+  /// Set to refuse writes like the API would.
+  String? writeError;
+
+  @override
+  Future<List<StorageLocation>> fetchAll() async {
+    final error = readError;
+    if (error != null) throw StorageLocationServiceException(error);
+    return [..._locations];
+  }
+
+  @override
+  Future<StorageLocation> create(String name) async {
+    final error = writeError;
+    if (error != null) throw StorageLocationServiceException(error);
+    created.add(name);
+    final createdRow = StorageLocation(id: 900 + created.length, name: name);
+    _locations = [..._locations, createdRow];
+    return createdRow;
+  }
+
+  @override
+  Future<StorageLocation> patch(int id, {String? name, bool? isActive}) async {
+    final error = writeError;
+    if (error != null) throw StorageLocationServiceException(error);
+    patches.add((id: id, name: name, isActive: isActive));
+    late StorageLocation updated;
+    _locations = [
+      for (final row in _locations)
+        if (row.id == id)
+          updated = StorageLocation(
+            id: row.id,
+            name: name ?? row.name,
+            isActive: isActive ?? row.isActive,
+          )
+        else
+          row,
+    ];
+    return updated;
+  }
 }

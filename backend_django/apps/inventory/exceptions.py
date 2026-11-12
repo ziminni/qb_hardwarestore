@@ -23,13 +23,13 @@ class CatalogWriteRefused(ValueError):
     refused request leaves no row and no audit row behind.
     """
 
-    code = 'INVALID_CATALOG_WRITE'
+    code = "INVALID_CATALOG_WRITE"
 
 
 class InvalidSellingUnit(CatalogWriteRefused):
     """A selling unit whose numbers cannot be used (factor <= 0, price < 0)."""
 
-    code = 'INVALID_SELLING_UNIT'
+    code = "INVALID_SELLING_UNIT"
 
 
 class DuplicateBaseUnit(CatalogWriteRefused):
@@ -40,7 +40,7 @@ class DuplicateBaseUnit(CatalogWriteRefused):
     box" unanswerable, so the second is refused rather than picked between.
     """
 
-    code = 'DUPLICATE_BASE_UNIT'
+    code = "DUPLICATE_BASE_UNIT"
 
 
 class SellingUnitInUse(CatalogWriteRefused):
@@ -58,7 +58,7 @@ class SellingUnitInUse(CatalogWriteRefused):
     request line freezes the unit exactly like a sale does (decision 16, Q4).
     """
 
-    code = 'SELLING_UNIT_IN_USE'
+    code = "SELLING_UNIT_IN_USE"
 
 
 class BaseUnitRequired(CatalogWriteRefused):
@@ -70,7 +70,7 @@ class BaseUnitRequired(CatalogWriteRefused):
     from "this unit is used": remove another unit, or archive the product.
     """
 
-    code = 'BASE_UNIT_REQUIRED'
+    code = "BASE_UNIT_REQUIRED"
 
 
 class InvalidVariant(CatalogWriteRefused):
@@ -81,7 +81,7 @@ class InvalidVariant(CatalogWriteRefused):
     because changing either re-points the variant's whole stock and sales history.
     """
 
-    code = 'INVALID_VARIANT'
+    code = "INVALID_VARIANT"
 
 
 class SupplierInactive(CatalogWriteRefused):
@@ -92,23 +92,28 @@ class SupplierInactive(CatalogWriteRefused):
     receiving queue that nobody intends to deliver.
     """
 
-    code = 'SUPPLIER_INACTIVE'
+    code = "SUPPLIER_INACTIVE"
 
     def __init__(self, supplier):
-        self.supplier_id = getattr(supplier, 'pk', supplier)
+        self.supplier_id = getattr(supplier, "pk", supplier)
         super().__init__(
-            f'{supplier} is inactive: reactivate it before ordering from it.')
+            f"{supplier} is inactive: reactivate it before ordering from it."
+        )
 
 
 class InvalidPurchaseOrder(CatalogWriteRefused):
     """A purchase-order payload the shop cannot accept.
 
-    No lines, an ordered qty of 0, a negative unit cost, an inactive variant, or the same
-    variant on two lines. All of them are refused BEFORE the order row exists, so a
-    refusal leaves no PO and no lines.
+    No lines, an ordered qty of 0, a negative unit cost, an inactive variant, the same
+    variant on two lines, or a `variant_uom` that does not belong to the line's variant
+    (Phase 5 B1, decision 18). A line is COUNTED in its selling unit, so a unit from
+    another product would price and stock a different product's package; a unit id that
+    does not exist, or a variant with no base selling unit when the unit is omitted, is
+    refused for the same reason - never guessed at. All of them are refused BEFORE the
+    order row exists, so a refusal leaves no PO and no lines.
     """
 
-    code = 'INVALID_PO'
+    code = "INVALID_PO"
 
 
 class InvalidPurchaseOrderState(CatalogWriteRefused):
@@ -117,7 +122,7 @@ class InvalidPurchaseOrderState(CatalogWriteRefused):
     `place/` on anything but a DRAFT, `cancel/` on an already-cancelled order.
     """
 
-    code = 'INVALID_PO_STATE'
+    code = "INVALID_PO_STATE"
 
 
 class PurchaseOrderLocked(CatalogWriteRefused):
@@ -128,7 +133,7 @@ class PurchaseOrderLocked(CatalogWriteRefused):
     is booked against. Cancel and raise a new order instead.
     """
 
-    code = 'PO_LOCKED'
+    code = "PO_LOCKED"
 
 
 class PurchaseOrderHasReceipts(CatalogWriteRefused):
@@ -138,7 +143,7 @@ class PurchaseOrderHasReceipts(CatalogWriteRefused):
     document the books call cancelled. Send the goods back through a stock adjustment.
     """
 
-    code = 'PO_HAS_RECEIPTS'
+    code = "PO_HAS_RECEIPTS"
 
 
 class PurchaseOrderNotOrdered(CatalogWriteRefused):
@@ -149,12 +154,13 @@ class PurchaseOrderNotOrdered(CatalogWriteRefused):
     against the order that was actually placed.
     """
 
-    code = 'PO_NOT_ORDERED'
+    code = "PO_NOT_ORDERED"
 
     def __init__(self, po):
         super().__init__(
-            f'PO #{getattr(po, "pk", po)} is DRAFT and cannot be received: place it '
-            'first.')
+            f"PO #{getattr(po, 'pk', po)} is DRAFT and cannot be received: place it "
+            "first."
+        )
 
 
 class PurchaseOrderNotReceivable(CatalogWriteRefused):
@@ -164,8 +170,28 @@ class PurchaseOrderNotReceivable(CatalogWriteRefused):
     is finished": one is a missing step, the other is a closed document.
     """
 
-    code = 'PO_NOT_RECEIVABLE'
+    code = "PO_NOT_RECEIVABLE"
 
+
+class ReceiptQuantityUnrepresentable(CatalogWriteRefused):
+    """A delivered quantity whose exact base-unit stock cannot be kept as it is.
+
+    `InventoryBatch.initial_qty`/`current_qty` hold TWO decimal places, so a receipt is
+    only storable when `qty x conversion_factor` is a whole hundredth of the variant's
+    base unit. `_create_batch` used to quantize that product HALF_UP instead, which made
+    a factor-0.01 line receiving 0.01 stock **0.00** (stocked nothing while
+    `received_qty` said the delivery arrived) and made 0.50 x 0.03 = 0.015 stock
+    **0.02** (minted a hundredth nobody delivered). Rounding stock is never right: the
+    shelf and the books then disagree, and the only honest answer is to ask for a
+    quantity that fits.
+
+    Raised BEFORE the receipt row is written (the POST path) and again inside
+    `process_goods_receipt`'s atomic block (the ORM/legacy path), so the refusal always
+    means "nothing changed". A `CatalogWriteRefused` subclass, so the shared handler
+    publishes the project's `{code, detail}` **400** with no new machinery.
+    """
+
+    code = "RECEIPT_QUANTITY_UNREPRESENTABLE"
 
 
 class InsufficientStock(ValueError):
@@ -182,7 +208,7 @@ class InsufficientStock(ValueError):
     told how far short the sale was, so it can name the offending line.
     """
 
-    code = 'INSUFFICIENT_STOCK'
+    code = "INSUFFICIENT_STOCK"
 
     def __init__(self, message, *, shortfall=None, variant_id=None):
         super().__init__(message)
@@ -202,12 +228,13 @@ class ReceiptAlreadyProcessed(ValueError):
     it just names a receipt whose delivery is already in stock.
     """
 
-    code = 'RECEIPT_ALREADY_PROCESSED'
+    code = "RECEIPT_ALREADY_PROCESSED"
 
     def __init__(self, receipt_pk, message=None):
         self.receipt_pk = receipt_pk
         super().__init__(
-            message or f'Goods receipt {receipt_pk} was already processed.')
+            message or f"Goods receipt {receipt_pk} was already processed."
+        )
 
 
 class NoBatchHistory(ValueError):
@@ -224,14 +251,15 @@ class NoBatchHistory(ValueError):
     answer is "record the delivery first".
     """
 
-    code = 'NO_BATCH_HISTORY'
+    code = "NO_BATCH_HISTORY"
 
     def __init__(self, variant, message=None):
-        self.variant_id = getattr(variant, 'pk', variant)
+        self.variant_id = getattr(variant, "pk", variant)
         super().__init__(
             message
-            or f'Variant {variant} has no batch history: stock it with a goods '
-               'receipt before correcting its quantity upwards.')
+            or f"Variant {variant} has no batch history: stock it with a goods "
+            "receipt before correcting its quantity upwards."
+        )
 
 
 class BarcodeTaken(CatalogWriteRefused):
@@ -247,7 +275,7 @@ class BarcodeTaken(CatalogWriteRefused):
     code).
     """
 
-    code = 'BARCODE_TAKEN'
+    code = "BARCODE_TAKEN"
 
 
 class BarcodeInvalid(CatalogWriteRefused):
@@ -259,7 +287,7 @@ class BarcodeInvalid(CatalogWriteRefused):
     unit look scannable while no scanner can ever find it.
     """
 
-    code = 'BARCODE_INVALID'
+    code = "BARCODE_INVALID"
 
 
 class BarcodeReservedPrefix(CatalogWriteRefused):
@@ -271,4 +299,115 @@ class BarcodeReservedPrefix(CatalogWriteRefused):
     code a no-op instead of a refusal.
     """
 
-    code = 'BARCODE_RESERVED_PREFIX'
+    code = "BARCODE_RESERVED_PREFIX"
+
+
+# ---------------------------------------------------------------------------
+# Supplier payables (Phase 5 B2, decision 18)
+# ---------------------------------------------------------------------------
+
+
+class PayablesRefused(CatalogWriteRefused):
+    """A supplier-payables write the shop refuses.
+
+    Same family - and therefore the same `{code, detail}` **400** - as every other
+    catalog/purchasing refusal: the request is well formed, it just asks for something
+    the shop's money rules do not allow. Raised BEFORE the first write (serializer
+    `validate()`) or under the bill's row lock (a payment), so a refusal leaves no
+    payment, no balance change and no audit row behind.
+    """
+
+    code = "INVALID_PAYABLES_WRITE"
+
+
+class InvalidSupplierTerms(PayablesRefused):
+    """Payment terms that cannot be a due date (`terms_days` below zero).
+
+    Zero is valid and means "due on receipt"; a negative number would date the bill
+    before the goods arrived, so the column is a `PositiveIntegerField` and the write
+    is refused explicitly instead of failing on a database error.
+    """
+
+    code = "INVALID_SUPPLIER_TERMS"
+
+
+class InvalidSupplierPayment(PayablesRefused):
+    """A supplier payment the shop cannot record.
+
+    Covers everything a payment can be wrong about before any money moves: an amount
+    that is zero, negative, not a number (`NaN`/`Infinity` are refused, not coerced), an
+    unknown method, or a cheque missing its number, bank or date - the three facts that
+    make a cheque answerable later.
+    """
+
+    code = "INVALID_SUPPLIER_PAYMENT"
+
+
+class Overpayment(PayablesRefused):
+    """A payment larger than what the bill still owes.
+
+    A supplier bill is not a credit line: paying past the balance would put the shop in
+    credit with the supplier through a column that only ever counts down, so the amount
+    is refused and the balance is left exactly as it was.
+    """
+
+    code = "OVERPAYMENT"
+
+    def __init__(self, bill, amount, message=None):
+        self.bill_pk = getattr(bill, "pk", bill)
+        super().__init__(
+            message
+            or (
+                f"Bill #{self.bill_pk} has {bill.balance_amount} left to pay: "
+                f"{amount} is more than that. Record a payment up to the balance."
+            )
+        )
+
+
+class BillPaid(PayablesRefused):
+    """A payment against a bill that is already settled.
+
+    Its own code because the clerk's next move differs from an overpayment: there is
+    nothing to fix, the bill is done. It is also what two concurrent payments produce -
+    the loser reads a zero balance under the same row lock.
+    """
+
+    code = "BILL_PAID"
+
+    def __init__(self, bill, message=None):
+        self.bill_pk = getattr(bill, "pk", bill)
+        super().__init__(message or f"Bill #{self.bill_pk} is already paid in full.")
+
+
+class ImmutablePayableRecord(ValueError):
+    """A write that would rewrite money that has already been agreed or paid.
+
+    NOT a client-facing refusal: no endpoint offers such a write (bills are read-only,
+    payments are append-only), so reaching this is a programming error or a shell
+    session. It subclasses `ValueError` so a stray caller still reads as "asked for
+    something impossible" rather than as a 500 from the database.
+    """
+
+    code = "IMMUTABLE_PAYABLE_RECORD"
+
+
+# ---------------------------------------------------------------------------
+# Storage locations (Phase 5 B4, decision 18)
+# ---------------------------------------------------------------------------
+
+
+class InvalidStorageLocation(CatalogWriteRefused):
+    """A storage location the shop cannot accept (Phase 5 B4, decision 18).
+
+    Three shapes, all refused BEFORE any write so a refusal leaves no row and no audit
+    row: a blank name, a name that already belongs to another location (compared
+    case-insensitively, because "Bodega" and "bodega" are one place), and an INACTIVE
+    location being given to a product - deactivating removes a place from the picker, so
+    assigning it would put goods in a spot the shop has just said it no longer uses.
+
+    A product that is already labelled with a location that is LATER deactivated keeps
+    that label: the goods did not move, and the label is where they are. That asymmetry
+    is the ruling for this phase and is stated in ENDPOINTS.md.
+    """
+
+    code = "INVALID_STORAGE_LOCATION"

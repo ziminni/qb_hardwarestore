@@ -12,6 +12,8 @@ class ProductVariant {
     required this.variantName,
     required this.baseUomCode,
     required this.isActive,
+    this.storedAtId,
+    this.storedAtName = '',
   });
 
   final int id;
@@ -32,6 +34,11 @@ class ProductVariant {
   final String variantName;
   final String baseUomCode;
   final bool isActive;
+
+  /// Where this variant's PRODUCT is kept (Phase 5 B4): read-only on the wire,
+  /// because moving goods between places is not this phase's job.
+  final int? storedAtId;
+  final String storedAtName;
 
   /// The variant's barcode — `VariantUom.barcode_qr`, which is the only
   /// identifier the API carries.
@@ -90,6 +97,10 @@ class ProductVariant {
       baseUomId: intField(json, 'base_uom'),
       minStockThreshold: decimalField(json, 'min_stock_threshold'),
       maxStockLevel: decimalField(json, 'max_stock_level'),
+      storedAtId: json['stored_at'] is int ? json['stored_at'] as int : null,
+      storedAtName: json['stored_at_name'] is String
+          ? json['stored_at_name'] as String
+          : '',
       sellingUoms: (json['selling_uoms'] as List<dynamic>? ?? const [])
           .map((u) => VariantUom.fromJson(u as Map<String, dynamic>))
           .toList(growable: false),
@@ -109,6 +120,8 @@ class Product {
     required this.imageUrl,
     required this.isActive,
     required this.variants,
+    this.storedAtId,
+    this.storedAtName = '',
   });
 
   final int id;
@@ -122,6 +135,16 @@ class Product {
   final bool isActive;
   final List<ProductVariant> variants;
 
+  /// Where the shop keeps this product: a SERVER fact (Phase 5 B4, decision 18).
+  ///
+  /// Its variants, selling units, sale lines and delivery slips all READ this
+  /// label, so there is no second copy of it. Null on a body from before B4 —
+  /// the screens then say nothing rather than inventing a place.
+  final int? storedAtId;
+
+  /// `Bodega`. Empty when the server sent no location (an older body).
+  final String storedAtName;
+
   Product copyWith({
     int? id,
     int? categoryId,
@@ -133,6 +156,8 @@ class Product {
     String? imageUrl,
     bool? isActive,
     List<ProductVariant>? variants,
+    int? storedAtId,
+    String? storedAtName,
   }) {
     return Product(
       id: id ?? this.id,
@@ -145,6 +170,8 @@ class Product {
       imageUrl: imageUrl ?? this.imageUrl,
       isActive: isActive ?? this.isActive,
       variants: variants ?? this.variants,
+      storedAtId: storedAtId ?? this.storedAtId,
+      storedAtName: storedAtName ?? this.storedAtName,
     );
   }
 
@@ -159,6 +186,12 @@ class Product {
       description: json['description'] as String? ?? '',
       imageUrl: json['image_url'] as String? ?? '',
       isActive: json['is_active'] as bool? ?? true,
+      // Phase 5 B4: the pick-up point, read-only on the wire. Absent on a body
+      // from before the feature, which is a real state and must not be guessed.
+      storedAtId: json['stored_at'] is int ? json['stored_at'] as int : null,
+      storedAtName: json['stored_at_name'] is String
+          ? json['stored_at_name'] as String
+          : '',
       variants: (json['variants'] as List<dynamic>? ?? const [])
           .map(
             (variant) =>

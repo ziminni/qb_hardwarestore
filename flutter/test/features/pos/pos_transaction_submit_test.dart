@@ -13,6 +13,7 @@
 //     list and would happily mint a zero-value receipt.
 
 import 'package:client/data/models/customer.dart';
+import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/models/sale_discount.dart';
@@ -41,6 +42,7 @@ class _FakePosRepository extends PosRepository {
     String? idempotencyKey,
     PosDiscount? discount,
     String? discountApproval,
+    DeliveryDraft? delivery,
   }) async {
     calls++;
     sentCustomerId = customerId;

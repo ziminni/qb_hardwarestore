@@ -127,9 +127,9 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     if (!mounted) return;
     final failure = settings.loadError;
     if (failure != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Store settings: $failure')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Store settings: $failure')));
     }
   }
 
@@ -660,13 +660,17 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
       return;
     }
 
-    // What the customer actually owes: the gross less the discount the dialog took.
-    // The server recomputes both from its own prices, so this is only what the till
-    // compares the tender against (and what an utang is measured from).
-    final due = PosDiscountAmounts.forDiscount(
-      transaction.total,
-      payment.discount,
-    ).net;
+    // What the customer actually owes: the gross less the discount the dialog
+    // took, PLUS the delivery charge. The fee joins AFTER the discount and is
+    // never discounted (decision 18), so an utang measured from this figure
+    // carries the trip too. The server recomputes both; this is the till's
+    // comparison only.
+    final due =
+        PosDiscountAmounts.forDiscount(
+          transaction.total,
+          payment.discount,
+        ).net +
+        (payment.delivery?.fee ?? 0);
 
     // Decision 06 section 4, extended by decision 14. An underpaid sale posts a receivable,
     // so it is confirmed BEFORE anything is submitted - and an ANONYMOUS one cannot post at
@@ -723,6 +727,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
       discount: payment.discount,
       discountApprovalToken: payment.discountApprovalToken,
       vatRate: vatRate,
+      delivery: payment.delivery,
     );
 
     // A refused or already-spent approval is the one submit failure the cashier can
@@ -751,6 +756,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
           discount: payment.discount,
           discountApprovalToken: token,
           vatRate: vatRate,
+          delivery: payment.delivery,
         );
         if (!context.mounted) return;
       }

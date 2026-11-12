@@ -80,6 +80,10 @@ class _ProductsPageState extends State<ProductsPage> {
         locationHint: variant == null
             ? ''
             : inventory.locationHintFor(variant.id),
+        // The SERVER's pick-up points (Phase 5 B4). The error travels with the list
+        // so the form can refuse to submit an unseen default when the read failed.
+        storageLocations: inventory.storageLocations,
+        storageLocationError: inventory.storageLocationError,
       ),
     );
     if (result == null) return;

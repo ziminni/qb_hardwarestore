@@ -20,6 +20,8 @@ class VariantUom {
     this.productIsActive = true,
     this.variantIsActive = true,
     this.uomIsWhole = false,
+    this.storedAtId,
+    this.storedAtName = '',
     this.inUse = false,
   });
 
@@ -63,6 +65,12 @@ class VariantUom {
   /// request line already references this unit, so it cannot be removed.
   final bool inUse;
 
+  /// Where the unit's PRODUCT is kept (Phase 5 B4, decision 18), so the till can
+  /// badge a scanned line without holding the product list. Null/empty when the
+  /// server did not send it.
+  final int? storedAtId;
+  final String storedAtName;
+
   /// The one normalisation rule for a code, shared by every writer and reader.
   ///
   /// The server trims and upper-cases before it stores or compares (decision 11),
@@ -88,6 +96,10 @@ class VariantUom {
       productIsActive: boolFieldOr(json, 'product_is_active', or: true),
       variantIsActive: boolFieldOr(json, 'variant_is_active', or: true),
       uomIsWhole: boolFieldOr(json, 'uom_is_whole', or: false),
+      storedAtId: json['stored_at'] is int ? json['stored_at'] as int : null,
+      storedAtName: json['stored_at_name'] is String
+          ? json['stored_at_name'] as String
+          : '',
       inUse: boolFieldOr(json, 'in_use', or: false),
     );
   }

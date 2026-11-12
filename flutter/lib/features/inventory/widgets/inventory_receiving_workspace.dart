@@ -6,6 +6,7 @@ import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/receiving.dart';
 import 'package:client/data/models/supplier.dart';
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/receiving_viewmodel.dart';
 import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmodel.dart';
 import 'package:client/shared/widgets/app_panel.dart';
@@ -21,6 +22,30 @@ import 'package:provider/provider.dart';
 String receivingQtyLabel(double value) => value == value.roundToDouble()
     ? formatCount(value.round())
     : value.toStringAsFixed(2);
+
+/// One PO-unit count with the unit the order named: `2 BAG`.
+///
+/// A line from a server that predates units names none, and then the number is
+/// written alone rather than labelled with a guessed unit.
+String poQtyLabel(double qty, PurchaseOrderItem item) => item.unitCode.isEmpty
+    ? receivingQtyLabel(qty)
+    : '${receivingQtyLabel(qty)} ${item.unitCode}';
+
+/// `2 BAG = 50 KG` — what a counted line becomes in stock, or '' when the line
+/// is already counted in base units (factor 1, or no unit on the wire).
+///
+/// This is a LABEL, never a conversion the client performs on the payload: the
+/// server multiplies by the factor when it turns the receipt into batches.
+String poConversionLabel(
+  PurchaseOrderItem item,
+  double qty, {
+  String baseUomCode = '',
+}) {
+  if (item.unitCode.isEmpty || item.baseFactor == 1) return '';
+  final base = baseUomCode.isEmpty ? 'base units' : baseUomCode;
+  return '${formatQuantity(qty)} ${item.unitCode} = '
+      '${formatQuantity(qty * item.baseFactor)} $base';
+}
 
 /// Receiving a purchase order, as the three steps it really is: pick the order,
 /// record what arrived, then process the receipt into FIFO stock.
@@ -547,6 +572,18 @@ class _ReceiptLineRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The base unit's code is catalogue data, not PO data: the line knows its
+    // own unit, and the helper names what it lands as in stock.
+    final baseUomCode =
+        context
+            .watch<InventoryViewmodel?>()
+            ?.variantFor(item.variantId)
+            ?.baseUomCode ??
+        '';
+    final typed = double.tryParse(controller.text.trim());
+    final conversion = typed == null
+        ? ''
+        : poConversionLabel(item, typed, baseUomCode: baseUomCode);
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
@@ -563,8 +600,8 @@ class _ReceiptLineRow extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(
-            'Ordered ${receivingQtyLabel(item.orderedQty)} · already received '
-            '${receivingQtyLabel(item.receivedQty)}',
+            'Ordered ${poQtyLabel(item.orderedQty, item)} · already received '
+            '${poQtyLabel(item.receivedQty, item)}',
             style: const TextStyle(
               fontSize: 12,
               color: AppColors.textSecondary,
@@ -581,15 +618,18 @@ class _ReceiptLineRow extends StatelessWidget {
                 icon: const Icon(Icons.remove, size: 18),
               ),
               SizedBox(
-                width: 96,
+                width: 128,
                 child: TextField(
                   key: Key('receiving-qty-${item.id}'),
                   controller: controller,
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     hintText: '0',
+                    suffixText: item.unitCode.isEmpty ? null : item.unitCode,
+                    helperText: conversion.isEmpty ? null : conversion,
+                    helperMaxLines: 2,
                     isDense: true,
                   ),
                   onChanged: onChanged,

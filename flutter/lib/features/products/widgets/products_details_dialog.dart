@@ -99,6 +99,11 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
                       ? 'No description provided.'
                       : product.description,
                 ),
+                // Phase 5 B4: the SERVER's pick-up point. Shown as its own row and
+                // kept apart from the device-only shelf note in each variant card,
+                // because one is shared with every till and the other is not.
+                if (product.storedAtName.trim().isNotEmpty)
+                  DetailRow(label: 'Stored at', value: product.storedAtName),
                 const SizedBox(height: AppSpacing.xl),
                 Text(
                   'Variants (${product.variants.length})',

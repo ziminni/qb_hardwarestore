@@ -1,3 +1,4 @@
+import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/json_field.dart';
 
 /// Server rows behind the sales screens that render transactions.
@@ -12,6 +13,7 @@ class TransactionLineItem {
     required this.qty,
     required this.unitPrice,
     required this.subtotal,
+    this.storedAtName = '',
   });
 
   final int variantUomId;
@@ -20,6 +22,10 @@ class TransactionLineItem {
   final double unitPrice;
   final double subtotal;
 
+  /// Where the product is picked up, as the SALE recorded it (Phase 5 B4).
+  /// Empty on a row written before B4.
+  final String storedAtName;
+
   factory TransactionLineItem.fromJson(Map<String, dynamic> json) =>
       TransactionLineItem(
         variantUomId: intField(json, 'variant_uom'),
@@ -27,6 +33,9 @@ class TransactionLineItem {
         qty: decimalField(json, 'qty'),
         unitPrice: decimalField(json, 'unit_price'),
         subtotal: decimalField(json, 'subtotal'),
+        storedAtName: json['stored_at_name'] is String
+            ? json['stored_at_name'] as String
+            : '',
       );
 }
 
@@ -265,4 +274,71 @@ class SalesOrderRow {
           .toList(),
     );
   }
+}
+
+/// One line of a sales order the client is CREATING (Phase 5 F3 follow-up).
+///
+/// The wire names the SELLING UNIT (`variant_uom`) rather than the variant: a
+/// line is counted and priced in the unit the customer asked for, and the server
+/// refuses a fractional count of a whole unit (`WHOLE_UNIT_QUANTITY`).
+class SalesOrderLineDraft {
+  const SalesOrderLineDraft({
+    required this.variantUomId,
+    required this.qty,
+    required this.unitPrice,
+  });
+
+  final int variantUomId;
+  final double qty;
+  final double unitPrice;
+
+  double get subtotal => qty * unitPrice;
+
+  Map<String, dynamic> toJson() => {
+    'variant_uom': variantUomId,
+    'qty': qty,
+    // 2 dp text: DRF's DecimalField takes it, and a double can serialize as
+    // 249.99999999999997 for a price nobody typed.
+    'unit_price': unitPrice.toStringAsFixed(2),
+  };
+}
+
+/// What "New sales order" collects: `POST /api/v1/sales-orders/`
+/// (ENDPOINTS.md §3.1, Phase 5 F3 follow-up).
+///
+/// `status` is deliberately absent — the server defaults the order to CONFIRMED
+/// and the client has no status control at all (there is no fulfil-to-sale path
+/// and no edit route in this build). `delivery` is optional and carries the same
+/// object a till sale does ([DeliveryDraft]), so the two forms cannot disagree
+/// about what a delivery is.
+class SalesOrderDraft {
+  const SalesOrderDraft({
+    required this.customerId,
+    required this.lines,
+    this.notes = '',
+    this.delivery,
+  });
+
+  final int customerId;
+  final List<SalesOrderLineDraft> lines;
+
+  /// Free text the customer asked for. Omitted when blank so the server keeps
+  /// its own empty default.
+  final String notes;
+
+  /// The trip described on the Deliver section, or null when the customer
+  /// collects. The FEE lives on the delivery row only: an order carries no money
+  /// total on the wire.
+  final DeliveryDraft? delivery;
+
+  /// What the GOODS come to. Not the order total: a delivery fee is on its
+  /// delivery row and is never discounted.
+  double get goodsTotal => lines.fold<double>(0, (sum, l) => sum + l.subtotal);
+
+  Map<String, dynamic> toJson() => {
+    'customer': customerId,
+    if (notes.isNotEmpty) 'notes': notes,
+    'items': [for (final line in lines) line.toJson()],
+    if (delivery != null) 'delivery': delivery!.toJson(),
+  };
 }

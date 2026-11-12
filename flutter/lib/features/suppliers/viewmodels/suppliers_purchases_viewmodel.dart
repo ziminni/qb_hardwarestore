@@ -148,6 +148,8 @@ class SuppliersPurchasesViewmodel extends ChangeNotifier {
       'phone': supplier.phone,
       'email': supplier.email,
       'address': supplier.address,
+      // Phase 5 B2: the payment window a bill's due date is built from.
+      'terms_days': supplier.termsDays,
     };
     try {
       if (supplier.id == 0) {

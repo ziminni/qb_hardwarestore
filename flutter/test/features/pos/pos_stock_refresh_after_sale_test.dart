@@ -8,6 +8,7 @@
 // and does it while the receipt is on screen rather than after it.
 
 import 'package:client/data/models/product.dart';
+import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/shift.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/repositories/pos_repository.dart';
@@ -78,6 +79,7 @@ class _StubPosRepository extends PosRepository {
     String? idempotencyKey,
     PosDiscount? discount,
     String? discountApproval,
+    DeliveryDraft? delivery,
   }) async {
     calls++;
     onCheckout?.call();

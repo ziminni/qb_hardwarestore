@@ -96,6 +96,13 @@ class SalesTransaction(models.Model):
         max_digits=5, decimal_places=2, null=True, blank=True, default=None
     )
     grand_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Phase 5 task B3 (decision 18): the delivery charge the customer paid ON TOP of the
+    # goods, VAT-inclusive and priced from no stock. Persisted on the sale (not only on
+    # the `Delivery` row) because the receipt, the Z-reading and the return arithmetic
+    # all read the SALE: `grand_total` includes it, `discount_amount` never does, and a
+    # return refunds the goods share only. Default 0 so every row written before this
+    # column behaves exactly as it did.
+    delivery_fee = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     # QA High (Phase 4 close): the change the cashier handed back, in pesos. It comes
     # out of the DRAWER, so the Z-reading subtracts it from the cash tendered - without
     # this column an overpaid sale made the expected drawer look richer than the till
@@ -649,3 +656,107 @@ class DiscountApproval(models.Model):
 
     def __str__(self):
         return f"Approval {self.percent}% by {self.approver_id}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 task B3 (decision 18) — delivery.
+# ---------------------------------------------------------------------------
+
+
+class Delivery(models.Model):
+    """A till sale or a sales order marked Deliver: where it goes, who takes it, when.
+
+    Decision 18 ruled the shape: address, contact name/phone, scheduled date, fee, and
+    three forward-only statuses plus a failure with its reason. The fee is a
+    "Delivery charge" on the receipt - VAT-inclusive, and priced from NO stock, so it
+    joins the sale's `grand_total` while `discount_amount` stays the goods' business.
+
+    Two deliberate details:
+
+    * `sale` and `sales_order` are BOTH nullable but never both set and never both
+      empty - a `CheckConstraint` enforces the exclusive-or in the DATABASE, because a
+      delivery that belongs to nothing (or to two documents) is a slip that cannot be
+      printed and a fee nobody can explain. On a sale the fee is ALSO stored on
+      `SalesTransaction.delivery_fee`; on an order it lives here only, because an order
+      carries no money total and there is no fulfil-to-sale path to carry it into.
+    * There is no `stored_at`/`pickup_location` column yet: B4 owns the location list
+      and will add a nullable FK here, so this model is where that lands.
+
+    Only the three roles the ruling names may move the status (`services
+    .transition_delivery`); the cashier who took the order writes the row and nothing
+    else. Every transition is row-locked and audited, so two clicks cannot both win.
+    """
+
+    class Status(models.TextChoices):
+        SCHEDULED = "SCHEDULED", "Scheduled"
+        OUT_FOR_DELIVERY = "OUT_FOR_DELIVERY", "Out for delivery"
+        DELIVERED = "DELIVERED", "Delivered"
+        # Terminal: the trip was made and did not land the goods. The reason is required
+        # and stays on the row - that sentence is what the next attempt is about.
+        FAILED = "FAILED", "Failed"
+
+    delivery_no = models.CharField(max_length=30, unique=True, db_index=True)
+    # PROTECT both ways: a delivery is evidence that a trip was arranged for that
+    # document, so deleting the sale underneath it must be refused, not cascade.
+    sale = models.ForeignKey(
+        SalesTransaction,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="deliveries",
+    )
+    sales_order = models.ForeignKey(
+        SalesOrder,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="deliveries",
+    )
+    address = models.CharField(max_length=255)
+    contact_name = models.CharField(max_length=150)
+    contact_phone = models.CharField(max_length=50)
+    scheduled_date = models.DateField(db_index=True)
+    # >= 0 and two decimals, enforced by `services._validated_delivery` before the row
+    # exists; the validator here is the second pair of eyes for ORM-written rows.
+    fee = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.SCHEDULED, db_index=True
+    )
+    failure_reason = models.CharField(max_length=255, blank=True, default="")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="deliveries"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "pos_delivery"
+        # Soonest first, like the bills list: the schedule is a work queue. Tuples, not
+        # lists, so this new model adds no RUF012 to the file (Django accepts either).
+        ordering = ("scheduled_date", "id")
+        constraints = (
+            models.CheckConstraint(
+                condition=(
+                    models.Q(sale__isnull=False, sales_order__isnull=True)
+                    | models.Q(sale__isnull=True, sales_order__isnull=False)
+                ),
+                name="delivery_exactly_one_document",
+            ),
+        )
+
+    def __str__(self):
+        return f"{self.delivery_no} — {self.status}"
+
+    def save(self, *args, **kwargs):
+        # Generated server-side, like Quotation.quotation_no: a client-supplied number
+        # would be a second source of truth for something the server must keep unique.
+        if not self.delivery_no:
+            from common.numbering import generate_document_number
+
+            self.delivery_no = generate_document_number(Delivery, "delivery_no", "DEL")
+        super().save(*args, **kwargs)

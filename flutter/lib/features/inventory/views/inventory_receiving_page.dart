@@ -210,7 +210,10 @@ class _ReceiptHistory extends StatelessWidget {
             tooltip: 'View delivery',
             onPressed: () => showDialog<void>(
               context: context,
-              builder: (_) => GoodsReceiptDetailsSheet(receipt: receipt),
+              builder: (_) => GoodsReceiptDetailsSheet(
+                receipt: receipt,
+                itemFor: viewmodel.itemFor,
+              ),
             ),
             icon: const Icon(Icons.visibility_outlined, size: 18),
           ),
@@ -231,9 +234,26 @@ class _ReceiptHistory extends StatelessWidget {
 /// (there is no PATCH and no DELETE on the route), so the only honest thing a
 /// sheet can offer is Close.
 class GoodsReceiptDetailsSheet extends StatelessWidget {
-  const GoodsReceiptDetailsSheet({super.key, required this.receipt});
+  const GoodsReceiptDetailsSheet({
+    super.key,
+    required this.receipt,
+    this.itemFor,
+  });
 
   final GoodsReceiptRecord receipt;
+
+  /// The PO line behind a receipt line, when the order is loaded: the receipt
+  /// itself carries no unit, so this is the only honest source for one.
+  final PurchaseOrderItem? Function(int poItemId)? itemFor;
+
+  /// A delivered count in its PO unit (`2 BAG`) when the order is known, else
+  /// the plain number rather than a guessed unit.
+  String _lineQty(GoodsReceiptLine line) {
+    final item = itemFor?.call(line.poItemId);
+    return item == null
+        ? receivingQtyLabel(line.qty)
+        : poQtyLabel(line.qty, item);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -285,7 +305,7 @@ class GoodsReceiptDetailsSheet extends StatelessWidget {
                 contentPadding: EdgeInsets.zero,
                 dense: true,
                 title: Text(line.variantName),
-                trailing: Text(receivingQtyLabel(line.qty)),
+                trailing: Text(_lineQty(line)),
               ),
         ],
       ),

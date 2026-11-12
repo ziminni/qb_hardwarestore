@@ -7,7 +7,7 @@ Rule: **One home per fact.** Follow the pointers; never paste a copy of a fact t
 | Setup, run, demo credentials, ports | `README.md` |
 | Architecture & Live/Mock matrix (+ cockpit) | `docs/SYSTEM_ATLAS.md` · `docs/system-atlas.html` |
 | API contract: endpoints, auth, role matrix | `ENDPOINTS.md` |
-| Unbuilt work, decisions, roadmap | `planning/MAP.md` (index) → `planning/pos-evolution/MAP.md`; **next build: `planning/pos-evolution/phase-5-plan.md`** (decision 18); last completed: `phase-4-plan.md` |
+| Unbuilt work, decisions, roadmap | `planning/MAP.md` (index) → `planning/pos-evolution/MAP.md`; last owner-closed: `planning/pos-evolution/phase-5-plan.md` (decision 18); no next phase authorized |
 | UI-refresh plan (complete) + ledger | `temp/ui-refresh/TASKS.md` · `.superpowers/sdd/ui-refresh/progress.md` (both untracked) |
 | QA how-to: run the app, roles, flows | `docs/testing/QA-PROFILE.md` |
 | My knowledge gaps | `docs/learning/gaps.md` |
@@ -31,9 +31,9 @@ Every pointer must resolve; a broken pointer is fixed in the commit that breaks 
 
 ## Current Status & Next Step
 
-- **Branch:** `feat/pos-evolution-phase-4`; implementation committed `a94d464`, owner pushes (remote unverified). Phase 4 ✅ Done, owner closed with five Minors deferred; Phase 5 not started. Final recheck: backend 882 tests, check/drift clean; Flutter analyze/1771 tests/241 goldens passed.
-- **Last session:** `docs/sessions/2026-11-11-pos-evolution-phase-4-build.md` (verification, review, QA, limits and learning topics; ownership check skipped).
-- **Next:** `/skill:execute-phase Phase 5` (package purchasing, supplier payables, delivery, bodega-lite). Backend container returned externally; controller reran 882 tests/check/drift successfully. No predictions; phase-level review/isolated QA; CPMS v0.3 provisional, Phase 1c undecided.
-- **Dev DB:** read-only recheck shows Phase 4 migrations applied after external container recreation/restart; assistant did not migrate/restart/reset. Seed/data state unverified; no further dev writes/reset/restart authorized. QA last verified on Phase 4 at API 8001/web 8091 (`buildpro_p1d_qa_*`); current container state unverified. QA server `--noreload` restart recipe in QA-PROFILE. Credential-bearing `temp/` evidence must never be committed.
+- **Branch:** `feat/pos-evolution-phase-5` off Phase 4 closeout `9828b9b`; Phase 4 ✅ Done with five Minors deferred. Phase 5 ✅ Done, owner-closed 2026-11-12; BAG error-text fix reviewed and freshly widget-verified. Prepared for authorized local commit, not push. Latest gates, review and QA evidence: `planning/pos-evolution/phase-5-plan.md` Task 9.
+- **Last session:** `docs/sessions/2026-11-12-pos-evolution-phase-5-build.md` (build/recovery, historical gates/QA and owner closure).
+- **Next:** Controller checks docs, then commits locally (not yet performed). Order-line prices stay editable with catalogue defaults. Fresh gates: Flutter 1987 / 241 skipped, goldens 241 unchanged, backend 1027, analyzer/check/drift clean; BAG 760/1.3 regression RED→GREEN, independent review approved. Widget proof, not fresh browser QA. Fee rules/verification limits remain accepted, unverified where recorded. No push/dev startup/migration/reset/next phase authorized.
+- **Dev DB:** read-only recheck shows Phase 4 migrations applied after external container recreation/restart; assistant did not migrate/restart/reset. Seed/data state unverified; no further dev writes/reset/restart authorized. Dev containers now stopped after host interruption; DO NOT start (entrypoint migrates). Only QA restored, isolated172.20.0.*; five Phase5 migrations applied there. Backend focused tests now use `docker exec buildpro_p1d_qa_backend ...` (disposable test DB); API/web refreshed to current source for Phase 5 live QA. QA server `--noreload` restart recipe in QA-PROFILE. Credential-bearing `temp/` evidence must never be committed.
 - **Proof standard:** a test covers a fix only after it fails without the fix; a claim without its command output in the same message is unverified.
 - **Caveats:** desktop pixels are user-verified only (`flutter run -d linux`); `.superpowers/` is gitignored, so ledgers and goldens live only on this machine; the editor hook re-formats staged Dart files, so re-stage after edits. Local `temp/p1b-qa/` includes credential-bearing artifacts: never stage it.

@@ -11,6 +11,7 @@ from common.exceptions import refuse_fractional_whole_unit
 
 from .models import (
     Customer,
+    Delivery,
     HeldCart,
     HeldCartItem,
     OfficialReceipt,
@@ -132,9 +133,26 @@ class ChequeSerializer(serializers.ModelSerializer):
 
 
 class SalesItemSerializer(serializers.ModelSerializer):
+    """One sale line, with where its product is kept (Phase 5 B4, decision 18).
+
+    `stored_at` / `stored_at_name` are the product's label, read-only: a sale line does
+    not choose a shelf, it reports the one the product has, so the receipt can print
+    "Pick up at Bodega" without a second request per line.
+
+    `stored_at_name` prefers an annotation the VIEW attached (`getattr(obj, ...)`, the
+    same pattern as `VariantUOMSerializer.get_in_use`) and otherwise walks the relation.
+    The walk costs a query per line when a list serializer has not joined
+    `variant_uom__variant__product__stored_at`; that join lives in `apps/pos/views.py`,
+    which this task may not edit, so the annotation path is the one a view should use.
+    """
+
     variant_uom_code = serializers.CharField(
         source="variant_uom.uom.code", read_only=True
     )
+    stored_at = serializers.IntegerField(
+        source="variant_uom.variant.product.stored_at_id", read_only=True
+    )
+    stored_at_name = serializers.SerializerMethodField()
 
     class Meta:
         model = SalesItem
@@ -146,8 +164,16 @@ class SalesItemSerializer(serializers.ModelSerializer):
             "qty",
             "unit_price",
             "subtotal",
+            "stored_at",
+            "stored_at_name",
         ]
         read_only_fields = ["id", "subtotal"]
+
+    def get_stored_at_name(self, obj):
+        annotated = getattr(obj, "stored_at_name", None)
+        if annotated is not None:
+            return annotated
+        return obj.variant_uom.variant.product.stored_at.name
 
 
 class OfficialReceiptSerializer(serializers.ModelSerializer):
@@ -180,6 +206,10 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
             "vat_amount",
             "discount_amount",
             "discount_reason",
+            # Phase 5 task B3 (decision 18): the delivery charge is inside grand_total
+            # and outside discount_amount. Read-only - it comes from the `delivery`
+            # object on the checkout body, never from a money field the client can set.
+            "delivery_fee",
             "grand_total",
             "change_given",
             "source",
@@ -368,6 +398,11 @@ class SalesOrderItemSerializer(serializers.ModelSerializer):
 
 class SalesOrderSerializer(serializers.ModelSerializer):
     items = SalesOrderItemSerializer(many=True, required=False)
+    # Phase 5 task B3 (decision 18): an order may be marked Deliver. WRITE-ONLY and a
+    # plain object, NOT a nested ModelSerializer: the delivery's rules (address, contact,
+    # date, a fee in whole centavos) live in ONE place - `services._validated_delivery` -
+    # so the order form and the till cannot disagree about what a delivery is.
+    delivery = serializers.DictField(write_only=True, required=False)
 
     class Meta:
         model = SalesOrder
@@ -379,6 +414,8 @@ class SalesOrderSerializer(serializers.ModelSerializer):
             "status",
             "notes",
             "items",
+            # Phase 5 task B3 (decision 18): write-only, accepted on create only.
+            "delivery",
             "created_at",
             "updated_at",
         ]
@@ -386,6 +423,7 @@ class SalesOrderSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         items = validated_data.pop("items", [])
+        delivery_data = validated_data.pop("delivery", None)
         # Same rule, lock and single transaction as a quotation above.
         with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
             lock_selling_unit_lines(
@@ -394,6 +432,15 @@ class SalesOrderSerializer(serializers.ModelSerializer):
             order = SalesOrder.objects.create(**validated_data)
             for item in items:
                 SalesOrderItem.objects.create(order=order, **item)
+            # Phase 5 task B3: the delivery row commits or rolls back WITH the order.
+            # The fee stays on this row: an order carries no money total on the wire and
+            # there is no fulfil-to-sale path in this codebase to carry it into.
+            if delivery_data is not None:
+                from .services import create_delivery
+
+                order.delivery = create_delivery(
+                    data=delivery_data, created_by=order.created_by, sales_order=order
+                )
         return order
 
 
@@ -452,3 +499,115 @@ class HeldCartSerializer(serializers.ModelSerializer):
             for item in items_data:
                 HeldCartItem.objects.create(cart=cart, **item)
         return cart
+
+
+class DeliverySerializer(serializers.ModelSerializer):
+    """The delivery slip (Phase 5 task B3, decision 18).
+
+    ONE shape for the list, the detail and the response of every status action, because
+    the deliveries page renders the same card in all three places. The slip's `items`
+    come from the SALE or the ORDER the delivery belongs to - the delivery itself has no
+    lines: it is a trip for documents that already exist.
+
+    `items[].qty` is the SELLING quantity (a box, a bag), the same number the receipt
+    shows, `unit` is that selling unit's code, and `stored_at` / `stored_at_name` are the
+    pick-up point the driver needs (Phase 5 B4, decision 18) - B3 left that spot for B4.
+    """
+
+    customer = serializers.SerializerMethodField()
+    customer_name = serializers.SerializerMethodField()
+    transaction_no = serializers.CharField(
+        source="sale.transaction_no", read_only=True, default=None
+    )
+    order_no = serializers.CharField(
+        source="sales_order.order_no", read_only=True, default=None
+    )
+    created_by_name = serializers.CharField(
+        source="created_by.full_name", read_only=True
+    )
+    items = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Delivery
+        # Tuples, not lists: same reason as `DeliveryViewSet` - the file's other
+        # serializers carry one RUF012 each for these two attributes.
+        fields = (
+            "id",
+            "delivery_no",
+            "sale",
+            "sales_order",
+            "transaction_no",
+            "order_no",
+            "customer",
+            "customer_name",
+            "address",
+            "contact_name",
+            "contact_phone",
+            "scheduled_date",
+            "fee",
+            "status",
+            "failure_reason",
+            "items",
+            "created_by",
+            "created_by_name",
+            "created_at",
+            "updated_at",
+        )
+        # Every field is derived from a document the server already wrote: a delivery is
+        # created by ringing a sale or creating an order, never by POSTing to
+        # `/deliveries/`, and only `start/`, `deliver/` and `fail/` move it.
+        read_only_fields = fields
+
+    def get_customer(self, obj):
+        if obj.sale_id:
+            return obj.sale.customer_id
+        return obj.sales_order.customer_id
+
+    def get_customer_name(self, obj):
+        if obj.sale_id:
+            return obj.sale.customer.name
+        return obj.sales_order.customer.name
+
+    def get_items(self, obj):
+        if obj.sale_id:
+            rows = obj.sale.items.all()
+        elif obj.sales_order_id:
+            rows = obj.sales_order.items.all()
+        else:
+            return []
+        # Phase 5 B4 (decision 18): each line names WHERE it is picked up. ONE query for
+        # the whole slip - not one per line - because the rows' products are not joined
+        # by the viewset's prefetch (that string lives in `apps/pos/views.py`, which this
+        # task does not own) and a slip can carry many lines.
+        stored_at = self._stored_at(rows)
+        return [
+            {
+                "name": str(row.variant_uom.variant),
+                "unit": row.variant_uom.uom.code,
+                "qty": f"{row.qty:.2f}",
+                "stored_at": stored_at.get(row.variant_uom_id, (None, None))[0],
+                "stored_at_name": stored_at.get(row.variant_uom_id, (None, None))[1],
+            }
+            for row in rows
+        ]
+
+    @staticmethod
+    def _stored_at(rows):
+        """`{variant_uom_id: (location_id, location_name)}` in one query.
+
+        Read through the selling unit's PRODUCT: a location labels a product, and its
+        selling units inherit it, so the slip and the till line can never disagree.
+        """
+        from apps.inventory.models import VariantUOM
+
+        unit_ids = {row.variant_uom_id for row in rows}
+        return {
+            unit_id: (location_id, location_name)
+            for unit_id, location_id, location_name in (
+                VariantUOM.objects.filter(pk__in=unit_ids).values_list(
+                    "pk",
+                    "variant__product__stored_at_id",
+                    "variant__product__stored_at__name",
+                )
+            )
+        }

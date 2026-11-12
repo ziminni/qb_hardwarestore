@@ -53,6 +53,15 @@ class AdminSkeletonLayout extends StatelessWidget {
     // short because "Requests from projects" clipped to "Requests from p…"
     // beside its count badge; the page title keeps the long form.
     ('Project requests', Icons.fact_check_outlined, '/admin/project-requests'),
+    // Phase 5 F2: supplier payables. Appended, in a group of its own, so no
+    // earlier index moves.
+    ('Payables', Icons.account_balance_wallet_outlined, '/admin/payables'),
+    // Phase 5 F3: customer deliveries. Appended, in a group of its own, so no
+    // earlier index moves.
+    ('Deliveries', Icons.local_shipping_outlined, '/admin/deliveries'),
+    // Phase 5 F4: the shop's pick-up points. Appended LAST, in a group of its
+    // own, so no earlier index moves.
+    ('Storage locations', Icons.warehouse_outlined, '/admin/storage-locations'),
   ];
 
   /// The admin groups, by the index each item ALREADY has: today's flat order
@@ -66,6 +75,10 @@ class AdminSkeletonLayout extends StatelessWidget {
     // A new final group rather than another row under System: the queue is a
     // different job, and a new heading renumbers nothing because it is last.
     ('Projects', 7),
+    ('Payables', 8),
+    ('Deliveries', 9),
+    // Phase 5 F4: appended last, so every index above keeps its number.
+    ('Locations', 10),
   ];
 
   @override

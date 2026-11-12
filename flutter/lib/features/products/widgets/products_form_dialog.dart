@@ -6,11 +6,13 @@ import 'package:client/data/models/catalogue_option.dart';
 import 'package:client/data/models/category.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/product_writes.dart';
+import 'package:client/data/models/storage_location.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/services/image_file_service.dart';
 import 'package:client/features/products/widgets/products_image.dart';
 import 'package:client/features/products/widgets/selling_unit_fields.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
+import 'package:client/shared/widgets/error_banner.dart';
 import 'package:flutter/material.dart';
 
 /// What the product form produced: a creation draft, or an edit draft.
@@ -50,6 +52,8 @@ class ProductsFormDialog extends StatefulWidget {
     required this.products,
     this.product,
     this.locationHint = '',
+    this.storageLocations = const [],
+    this.storageLocationError,
   });
 
   final List<Category> categories;
@@ -60,6 +64,17 @@ class ProductsFormDialog extends StatefulWidget {
 
   /// Where this device says the stock sits. Blank on a product nobody recorded.
   final String locationHint;
+
+  /// The shop's pick-up points as the SERVER answered (Phase 5 B4). Active rows
+  /// are offered; the product's own (possibly inactive) one stays visible.
+  final List<StorageLocation> storageLocations;
+
+  /// Why the list is not trustworthy, or null.
+  ///
+  /// A failed read must not become a blank picker that quietly submits the
+  /// server's default: the form refuses to create a product until the clerk has
+  /// seen a real list (see [_submit]).
+  final String? storageLocationError;
 
   @override
   State<ProductsFormDialog> createState() => _ProductsFormDialogState();
@@ -79,6 +94,9 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   int? _brandId;
   int? _baseUomId;
   late String _imagePath;
+
+  /// The SERVER pick-up point this product is stored at (Phase 5 B4).
+  int? _storedAtId;
 
   final List<SellingUnitDraft> _extraUnits = [];
   final _imageFileService = const ImageFileService();
@@ -135,7 +153,61 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     _brandId = product?.brandId ?? widget.brands.firstOrNull?.id;
     _baseUomId = variant?.baseUomId ?? widget.units.firstOrNull?.id;
     _imagePath = product?.imageUrl ?? '';
+    _storedAtId = product?.storedAtId ?? _defaultStoredAtId();
   }
+
+  /// What a NEW product is stored at: the row NAMED **Store**, which is the
+  /// server's own default.
+  ///
+  /// Resolved by the name the API returned, not by a hardcoded primary key and
+  /// not by list order — a second location created first would otherwise become
+  /// the default. Null when the list holds no Store (or could not be read), and
+  /// the field then makes the clerk choose instead of guessing.
+  int? _defaultStoredAtId() {
+    for (final location in widget.storageLocations) {
+      if (location.isActive && location.name.toLowerCase() == 'store') {
+        return location.id;
+      }
+    }
+    return null;
+  }
+
+  /// The locations the picker offers.
+  ///
+  /// Every ACTIVE one, plus this product's own place when it is inactive or no
+  /// longer listed: the goods did not move just because the shop stopped using
+  /// the name, so an edit must show that location — and keep it selected —
+  /// rather than silently re-point the product at Store.
+  List<StorageLocation> get _storedAtOptions {
+    final options = [
+      for (final location in widget.storageLocations)
+        if (location.isActive) location,
+    ];
+    final currentId = widget.product?.storedAtId;
+    if (currentId != null && !options.any((l) => l.id == currentId)) {
+      options.add(
+        StorageLocation(
+          id: currentId,
+          name: widget.product!.storedAtName,
+          isActive: false,
+        ),
+      );
+    }
+    return options;
+  }
+
+  /// `Bodega`, marked when the server no longer offers it. A location with no
+  /// name on the wire (a legacy row) says what it is instead of showing a blank.
+  String _storedAtLabel(StorageLocation location) {
+    final name = location.name.trim();
+    final label = name.isEmpty ? 'Unnamed location' : name;
+    return location.isActive ? label : '$label (inactive)';
+  }
+
+  /// True when the clerk changed the product's location.
+  bool get _storedAtChanged =>
+      widget.product?.storedAtId != null &&
+      _storedAtId != widget.product!.storedAtId;
 
   @override
   void dispose() {
@@ -254,6 +326,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
             sellingPrice: price,
             barcodeQr: barcode,
             locationHint: location,
+            storedAtId: _storedAtId,
             // Posted after the base unit, in form order (the repository owns that
             // chain). The code travels with the row so a partial failure can name
             // the unit that was not saved.
@@ -292,6 +365,11 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
           sellingPrice: price,
           barcodeQr: barcode,
           locationHint: location,
+          // Only when the clerk MOVED it. Resending the unchanged id would be
+          // refused for a product sitting at a location the shop has since
+          // deactivated (INVALID_STORAGE_LOCATION), failing an edit that never
+          // touched the place.
+          storedAtId: _storedAtChanged ? _storedAtId : null,
         ),
       ),
     );
@@ -583,13 +661,43 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
         ],
       ),
       const SizedBox(height: AppSpacing.lg),
+      if (widget.storageLocationError != null) ...[
+        ErrorBanner(message: widget.storageLocationError!),
+        const SizedBox(height: AppSpacing.lg),
+      ],
+      DropdownButtonFormField<int>(
+        key: const ValueKey('stored-at-picker'),
+        isExpanded: true,
+        initialValue: _storedAtId,
+        decoration: const InputDecoration(
+          labelText: 'Stored at',
+          helperText: 'Where the shop keeps it: printed on the receipt',
+        ),
+        items: [
+          for (final location in _storedAtOptions)
+            DropdownMenuItem(
+              value: location.id,
+              child: Text(
+                _storedAtLabel(location),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        ],
+        validator: (value) =>
+            value == null ? 'Choose where this product is stored.' : null,
+        onChanged: (value) {
+          if (value != null) setState(() => _storedAtId = value);
+        },
+      ),
+      const SizedBox(height: AppSpacing.lg),
       TextFormField(
         key: const ValueKey('location-field'),
         controller: _locationController,
         decoration: const InputDecoration(
-          labelText: 'Storage location',
-          // The server has no location column (decision 15): never imply it does.
-          helperText: 'Saved on this device only',
+          labelText: 'Shelf note (this device only)',
+          // The shelf hint is DEVICE-LOCAL knowledge: "Stored at" above is the
+          // server's answer, and the two must never be presented as one fact.
+          helperText: 'Not shared with other tills',
           hintText: 'Rack A-01',
         ),
       ),

@@ -23,6 +23,9 @@ class SalesModuleViewmodel extends ChangeNotifier {
 
   List<SalesQuotation> _quotations = const [];
   List<SalesOrderRecord> _orders = const [];
+
+  /// Who the order form may name on an order, from the last load.
+  List<Customer> _customerRows = const [];
   bool _isLoading = false;
   String? _loadError;
 
@@ -32,6 +35,25 @@ class SalesModuleViewmodel extends ChangeNotifier {
   String? get loadError => _loadError;
 
   bool get hasLoaded => _quotations.isNotEmpty || _orders.isNotEmpty;
+
+  /// The customers the order form offers, as the last load read them.
+  List<Customer> get customers => List.unmodifiable(_customerRows);
+
+  /// Creates one sales order, then reloads the lists.
+  ///
+  /// Returns null when the server accepted it, or the sentence to show. A
+  /// refusal changes nothing on screen, so the form keeps every input.
+  Future<String?> createOrder(SalesOrderDraft draft) async {
+    try {
+      await _service.createSalesOrder(draft);
+    } on SalesServiceException catch (error) {
+      return error.message;
+    }
+    // The server has the order, so the list is re-read rather than patched with
+    // the row this client hoped for.
+    await load();
+    return null;
+  }
 
   /// Loads quotations and orders, joining customer display names.
   ///
@@ -51,6 +73,7 @@ class SalesModuleViewmodel extends ChangeNotifier {
       final quotes = results[0] as List<QuotationRecord>;
       final orderRows = results[1] as List<SalesOrderRow>;
       final customers = results[2] as List<Customer>;
+      _customerRows = customers;
       final names = {for (final c in customers) c.id: c.name};
       String nameOf(int id) => names[id] ?? 'Customer #$id';
       _quotations = [

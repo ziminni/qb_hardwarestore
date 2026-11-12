@@ -31,11 +31,19 @@ class PurchasesDetailsDialog extends StatelessWidget {
 
   String _lineQuantity(PurchaseItem item) {
     if (item.receivedQuantity >= item.quantity) {
-      return 'Received ${formatQuantity(item.quantity)}';
+      return 'Received ${_qty(item.quantity, item)}';
     }
-    return 'Received ${formatQuantity(item.receivedQuantity)} '
-        'of ${formatQuantity(item.quantity)}';
+    return 'Received ${_qty(item.receivedQuantity, item)} '
+        'of ${_qty(item.quantity, item)}';
   }
+
+  /// A count with the unit the line is ordered in (`10 BAG`).
+  ///
+  /// A line from a server that predates units names none, and then the number is
+  /// written alone: the unit is never guessed from the variant's other units.
+  static String _qty(double value, PurchaseItem item) => item.uomCode.isEmpty
+      ? formatQuantity(value)
+      : '${formatQuantity(value)} ${item.uomCode}';
 
   @override
   Widget build(BuildContext context) {
@@ -95,11 +103,60 @@ class PurchasesDetailsDialog extends StatelessWidget {
               ),
             ),
           const SizedBox(height: AppSpacing.xl),
-          TotalBar(label: 'Order total', amount: order.total),
+          // Phase 5 B2 money: the server's figures when the payload carried
+          // them, and a sentence (never a bare zero) when it did not.
+          if (order.hasServerTotals) ...[
+            const DialogSectionLabel('Money'),
+            DetailRow(
+              label: 'Gross',
+              value: formatPeso(order.grossAmount ?? order.total),
+            ),
+            DetailRow(
+              label: 'Discount',
+              value: formatPeso(order.discountAmount),
+            ),
+            DetailRow(
+              label: 'Net',
+              value: formatPeso(order.netAmount ?? order.displayTotal),
+            ),
+            DetailRow(
+              label: 'VATable',
+              value: formatPeso(order.vatableAmount ?? 0),
+            ),
+            DetailRow(
+              label: order.vatRate == 0
+                  ? 'VAT'
+                  : 'VAT (${_percent(order.vatRate!)}%)',
+              value: order.vatRate == 0
+                  ? 'Not VAT registered'
+                  : formatPeso(order.vatAmount ?? 0),
+            ),
+            DetailRow(
+              label: 'Prices include VAT',
+              value: order.vatInclusive ? 'Yes' : 'No, VAT is added',
+            ),
+            const SizedBox(height: AppSpacing.xl),
+          ] else
+            const Padding(
+              padding: EdgeInsets.only(bottom: AppSpacing.lg),
+              child: InfoBanner(
+                message:
+                    'This order predates the discount and VAT split, so only '
+                    'the line total is on record for it.',
+              ),
+            ),
+          // The server's total wins over re-adding the lines: it is what the
+          // bills against this order will inherit.
+          TotalBar(label: 'Order total', amount: order.displayTotal),
         ],
       ),
     );
   }
+
+  /// `12` rather than `12.00`: a rate is written the way a shop writes it.
+  static String _percent(double value) => value == value.roundToDouble()
+      ? value.toStringAsFixed(0)
+      : value.toStringAsFixed(2);
 
   Widget _line(PurchaseItem item) {
     return Container(
@@ -129,7 +186,7 @@ class PurchasesDetailsDialog extends StatelessWidget {
                 Text(
                   [
                     if (item.sku.isNotEmpty) item.sku,
-                    'Ordered ${formatQuantity(item.quantity)}',
+                    'Ordered ${_qty(item.quantity, item)}',
                     _lineQuantity(item),
                   ].join(' · '),
                   style: AppTextStyles.bodySmall,

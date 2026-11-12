@@ -1,4 +1,4 @@
-# pyright: reportAttributeAccessIssue=false
+# pyright: reportAttributeAccessIssue=false, reportMissingImports=false
 #
 # Why a file-level directive rather than a pyrightconfig.json:
 # the checker resolves its config by walking up from its WORKING DIRECTORY, and in this
@@ -11,7 +11,7 @@
 """Inventory app — ViewSets for catalog, purchasing & stock."""
 
 from django.db import IntegrityError, transaction
-from django.db.models import Prefetch
+from django.db.models import Count, F, Prefetch
 from django.db.models.deletion import ProtectedError
 from django.http import Http404
 from django.utils import timezone
@@ -22,14 +22,20 @@ from rest_framework.response import Response
 
 from apps.users.models import AuditLog
 from apps.users.permissions import (
+    STAFF_ROLES,
+    IsAdminRole,
     IsInventoryRole,
+    IsManagerRole,
+    has_role,
 )
 from apps.users.services import audit_request
 from common.exceptions import refuse_fractional_whole_unit
+
 from .exceptions import (
     BarcodeTaken,
     BaseUnitRequired,
     InvalidPurchaseOrderState,
+    InvalidStorageLocation,
     PurchaseOrderHasReceipts,
     PurchaseOrderLocked,
     PurchaseOrderNotOrdered,
@@ -37,27 +43,56 @@ from .exceptions import (
     SellingUnitInUse,
 )
 from .models import (
-    Brand, Category, Product, ProductVariant, UnitOfMeasure, VariantUOM,
-    Supplier, PurchaseOrder, GoodsReceipt, GoodsReceiptItem,
-    InventoryBatch, StockAdjustment, SystemAlert,
+    Brand,
+    Category,
+    GoodsReceipt,
+    GoodsReceiptItem,
+    InventoryBatch,
+    Product,
+    ProductVariant,
+    PurchaseOrder,
+    StockAdjustment,
+    StorageLocation,
+    Supplier,
+    SupplierBill,
+    SupplierPayment,
+    SystemAlert,
+    UnitOfMeasure,
+    VariantUOM,
     normalise_barcode,
 )
+from .payables import record_supplier_payment
 from .serializers import (
-    BrandSerializer, CategorySerializer, ProductSerializer,
-    ProductVariantSerializer, UnitOfMeasureSerializer, VariantUOMSerializer,
-    SupplierSerializer, PurchaseOrderSerializer,
-    GoodsReceiptSerializer, InventoryBatchSerializer,
-    StockAdjustmentSerializer, SystemAlertSerializer,
-    annotate_unit_in_use, unit_in_use,
+    BrandSerializer,
+    CategorySerializer,
+    GoodsReceiptSerializer,
+    InventoryBatchSerializer,
+    ProductSerializer,
+    ProductVariantSerializer,
+    PurchaseOrderSerializer,
+    StockAdjustmentSerializer,
+    StorageLocationSerializer,
+    SupplierBillSerializer,
+    SupplierPaymentSerializer,
+    SupplierSerializer,
+    SystemAlertSerializer,
+    UnitOfMeasureSerializer,
+    VariantUOMSerializer,
+    annotate_unit_in_use,
+    unit_in_use,
 )
-from .services import process_goods_receipt, apply_stock_adjustment
+from .services import (
+    apply_stock_adjustment,
+    process_goods_receipt,
+    refuse_unrepresentable_stock,
+)
 
 
 class _InventoryWritePermissions:
     """Read requires auth; every write requires the inventory role."""
 
     def get_permissions(self):
-        if self.action in ('list', 'retrieve'):
+        if self.action in ("list", "retrieve"):
             return [IsAuthenticated()]
         return [IsInventoryRole()]
 
@@ -72,11 +107,29 @@ def _refuse_lost_barcode_race(exc):
     so the savepoint is already rolled back and no half-write survives. Any other
     constraint failure is re-raised untouched — it is not this handler's to explain.
     """
-    if 'uniq_variantuom_barcode' not in str(exc):
+    if "uniq_variantuom_barcode" not in str(exc):
         raise exc
     raise BarcodeTaken(
-        'That barcode was assigned to another selling unit at the same moment: reload '
-        'and use a different code.') from exc
+        "That barcode was assigned to another selling unit at the same moment: reload "
+        "and use a different code."
+    ) from exc
+
+
+def _refuse_lost_storage_name_race(exc):
+    """Turn the location-name unique violation into the API's 400, never a 500.
+
+    `StorageLocationSerializer`'s pre-check reads then writes, so two Admins can both
+    read "free" and both insert/rename; only `uniq_storage_location_name` can refuse the
+    second. Called from OUTSIDE the `atomic` block (the same placement as
+    `_refuse_lost_barcode_race`), so the savepoint is rolled back and neither the losing
+    write nor its audit row survives. Any other constraint failure is re-raised.
+    """
+    if "uniq_storage_location_name" not in str(exc):
+        raise exc
+    raise InvalidStorageLocation(
+        "That location name was taken by another Admin at the same moment: reload the "
+        "list and pick a different name."
+    ) from exc
 
 
 def _nothing_changed(serializer) -> bool:
@@ -102,12 +155,13 @@ def _nothing_changed(serializer) -> bool:
 
 
 class _CatalogBaseViewSet(
-        _InventoryWritePermissions,
-        mixins.CreateModelMixin,
-        mixins.ListModelMixin,
-        mixins.RetrieveModelMixin,
-        mixins.UpdateModelMixin,
-        viewsets.GenericViewSet):
+    _InventoryWritePermissions,
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
     """Base for the catalog and purchasing: **there is no DELETE** (Phase 4 Task 1).
 
     Every one of these rows is referenced through `PROTECT` - a category by its products,
@@ -148,7 +202,9 @@ class _StockRecordBaseViewSet(_InventoryWritePermissions, viewsets.ModelViewSet)
     never an edit of a past one.
     """
 
-    http_method_names = ['get', 'head', 'options', 'post']
+    # A tuple, not the list DRF's default uses: nobody mutates a class attribute, and a
+    # shared list would let one instance's edit change every viewset's verbs.
+    http_method_names = ("get", "head", "options", "post")
 
 
 class _AuditedCatalogViewSet(_CatalogBaseViewSet):
@@ -166,7 +222,7 @@ class _AuditedCatalogViewSet(_CatalogBaseViewSet):
     trail has to read "10.00 -> 12.50", not only "12.50".
     """
 
-    audit_label = 'Catalog row'
+    audit_label = "Catalog row"
 
     def audit_detail(self, instance):
         return str(instance)
@@ -175,7 +231,7 @@ class _AuditedCatalogViewSet(_CatalogBaseViewSet):
         return {}
 
     def audit_changes(self, snapshot, instance) -> str:
-        return ''
+        return ""
 
     def perform_create(self, serializer):
         with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
@@ -183,7 +239,7 @@ class _AuditedCatalogViewSet(_CatalogBaseViewSet):
             audit_request(
                 self.request,
                 AuditLog.ActionType.CREATE,
-                f'{self.audit_label} {self.audit_detail(instance)} created.',
+                f"{self.audit_label} {self.audit_detail(instance)} created.",
             )
 
     def perform_update(self, serializer):
@@ -201,14 +257,13 @@ class _AuditedCatalogViewSet(_CatalogBaseViewSet):
         with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
             instance = serializer.save()
             changes = self.audit_changes(snapshot, instance)
-            description = (
-                f'{self.audit_label} {self.audit_detail(instance)} updated')
+            description = f"{self.audit_label} {self.audit_detail(instance)} updated"
             if changes:
-                description = f'{description}: {changes}'
+                description = f"{description}: {changes}"
             audit_request(
                 self.request,
                 AuditLog.ActionType.UPDATE,
-                f'{description}.',
+                f"{description}.",
             )
 
 
@@ -216,10 +271,10 @@ class CategoryViewSet(_AuditedCatalogViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
 
-    audit_label = 'Category'
+    audit_label = "Category"
 
     def audit_detail(self, instance):
-        return f'{instance.name} (active={instance.is_active})'
+        return f"{instance.name} (active={instance.is_active})"
 
 
 class BrandViewSet(_CatalogBaseViewSet):
@@ -232,56 +287,133 @@ class UnitOfMeasureViewSet(_CatalogBaseViewSet):
     serializer_class = UnitOfMeasureSerializer
 
 
+class StorageLocationViewSet(_AuditedCatalogViewSet):
+    """`/storage-locations/` — where a product is kept (Phase 5 B4, decision 18).
+
+    **Admin writes, everyone logged in reads.** The label is printed on the till line and
+    on the delivery slip, so a Cashier must be able to resolve it without being able to
+    edit the shop's list; adding, renaming and deactivating is an Admin act
+    (`IsAdminRole`), which is narrower than the `IsInventoryRole` the rest of the catalog
+    uses — a Stock Manager reads this list, they do not decide the shop's places.
+
+    **An Admin also reads the deactivated ones** (`STAFF_ROLES`): they are the only role
+    that can restore a place, and a list that hid it would leave "Bodega" unreachable the
+    moment it was switched off. Everyone else sees `is_active=True` only, which is what
+    a picker should offer.
+
+    **No DELETE** (`_CatalogBaseViewSet`): a location a product still points at is
+    `PROTECT`-referenced, and the supported exit is `PATCH {"is_active": false}`. A
+    deactivated location keeps labelling the products that already point at it; only NEW
+    assignments are refused (`INVALID_STORAGE_LOCATION`).
+    """
+
+    queryset = StorageLocation.objects.all()
+    serializer_class = StorageLocationSerializer
+
+    audit_label = "Storage location"
+
+    def audit_detail(self, instance):
+        return f"{instance.name} (active={instance.is_active})"
+
+    def get_permissions(self):  # pyright: ignore[reportIncompatibleMethodOverride]
+        if self.action in ("list", "retrieve"):
+            return [IsAuthenticated()]
+        return [IsAdminRole()]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if has_role(self.request.user, STAFF_ROLES):
+            return queryset
+        return queryset.filter(is_active=True)
+
+    def perform_create(self, serializer):
+        try:
+            super().perform_create(serializer)
+        except IntegrityError as exc:
+            _refuse_lost_storage_name_race(exc)
+
+    def perform_update(self, serializer):
+        try:
+            super().perform_update(serializer)
+        except IntegrityError as exc:
+            _refuse_lost_storage_name_race(exc)
+
+
 class ProductViewSet(_AuditedCatalogViewSet):
     # `annotate_unit_in_use` rides along with the prefetch: every nested selling unit
     # answers `in_use` from the same query the list already ran (Phase 1d Task 1).
-    queryset = Product.objects.select_related(
-        'category', 'brand',
-    ).prefetch_related(
-        Prefetch(
-            'variants__selling_uoms',
-            queryset=annotate_unit_in_use(
-                VariantUOM.objects.select_related('uom')),
-        ),
-        'variants__base_uom',
-    ).all()
+    # `stored_at` and `variant__product__stored_at` are joined for the B4 label, so no
+    # row of a list asks for its own location.
+    queryset = (
+        Product.objects.select_related(
+            "category",
+            "brand",
+            "stored_at",
+        )
+        .prefetch_related(
+            Prefetch(
+                "variants__selling_uoms",
+                queryset=annotate_unit_in_use(
+                    VariantUOM.objects.select_related(
+                        "uom", "variant__product__stored_at"
+                    )
+                ),
+            ),
+            "variants__base_uom",
+        )
+        .all()
+    )
     serializer_class = ProductSerializer
 
-    audit_label = 'Product'
+    audit_label = "Product"
 
     def audit_detail(self, instance):
-        return f'{instance.base_name} (active={instance.is_active})'
+        return f"{instance.base_name} (active={instance.is_active})"
 
 
 class ProductVariantViewSet(_AuditedCatalogViewSet):
-    queryset = ProductVariant.objects.select_related(
-        'product', 'base_uom',
-    ).prefetch_related(
-        Prefetch(
-            'selling_uoms',
-            queryset=annotate_unit_in_use(
-                VariantUOM.objects.select_related('uom')),
-        ),
-    ).all()
+    queryset = (
+        ProductVariant.objects.select_related(
+            "product",
+            "product__stored_at",
+            "base_uom",
+        )
+        .prefetch_related(
+            Prefetch(
+                "selling_uoms",
+                queryset=annotate_unit_in_use(
+                    VariantUOM.objects.select_related(
+                        "uom", "variant__product__stored_at"
+                    )
+                ),
+            ),
+        )
+        .all()
+    )
     serializer_class = ProductVariantSerializer
 
-    audit_label = 'Variant'
+    audit_label = "Variant"
 
 
 class VariantUOMViewSet(_AuditedCatalogViewSet):
     # `variant__product` is joined because the response explains WHY a scanned unit
     # cannot be sold (`product_name`, `product_is_active`): one query, not three per row.
     # `in_use` comes from the same statement (Phase 1d Task 1), so it costs no second one.
-    queryset = annotate_unit_in_use(VariantUOM.objects.select_related(
-        'variant__product', 'uom')).all()
+    # `variant__product__stored_at` joins the B4 label for the same reason: the till's
+    # catalogue and its `?barcode=` lookup must not cost a query per row.
+    queryset = annotate_unit_in_use(
+        VariantUOM.objects.select_related(
+            "variant__product", "variant__product__stored_at", "uom"
+        )
+    ).all()
     serializer_class = VariantUOMSerializer
 
-    audit_label = 'Selling unit'
+    audit_label = "Selling unit"
 
     def audit_snapshot(self, instance):
         return {
-            'default_selling_price': instance.default_selling_price,
-            'barcode_qr': instance.barcode_qr,
+            "default_selling_price": instance.default_selling_price,
+            "barcode_qr": instance.barcode_qr,
         }
 
     def audit_changes(self, snapshot, instance):
@@ -292,14 +424,15 @@ class VariantUOMViewSet(_AuditedCatalogViewSet):
         which is what happened: the unit's code went from an EAN back to its own QB.
         """
         changes = []
-        before = snapshot.get('default_selling_price')
+        before = snapshot.get("default_selling_price")
         if before is not None and before != instance.default_selling_price:
             changes.append(
-                f'price {before:.2f} -> {instance.default_selling_price:.2f}')
-        code_before = snapshot.get('barcode_qr', '')
+                f"price {before:.2f} -> {instance.default_selling_price:.2f}"
+            )
+        code_before = snapshot.get("barcode_qr", "")
         if code_before != instance.barcode_qr:
             changes.append(f"barcode '{code_before}' -> '{instance.barcode_qr}'")
-        return '; '.join(changes)
+        return "; ".join(changes)
 
     def get_queryset(self):
         """`?barcode=` resolves a scan to the exact selling unit (decision 13).
@@ -310,7 +443,7 @@ class VariantUOMViewSet(_AuditedCatalogViewSet):
         rather than "no product has that code", and that needs the row.
         """
         queryset = super().get_queryset()
-        code = normalise_barcode(self.request.query_params.get('barcode'))
+        code = normalise_barcode(self.request.query_params.get("barcode"))
         if not code:
             return queryset
         return queryset.filter(barcode_qr__iexact=code)
@@ -356,14 +489,15 @@ class VariantUOMViewSet(_AuditedCatalogViewSet):
                 # A second DELETE of the same row: the other one committed while this
                 # one waited. The row this request named is gone, so it answers the same
                 # 404 as a bad id - never the `DoesNotExist` a bare `.get()` raised.
-                raise Http404('This selling unit has already been removed.')
+                raise Http404("This selling unit has already been removed.")
             self._refuse_removal(unit)
             # Read the label and code BEFORE the delete: the audit row has to name the
             # unit that went away, and the row cannot be read afterwards.
             description = (
-                f'Selling unit {unit.variant.product.base_name} · '
-                f'{unit.variant.variant_name} · {unit.uom.code} '
-                f'(code {unit.barcode_qr}) removed.')
+                f"Selling unit {unit.variant.product.base_name} · "
+                f"{unit.variant.variant_name} · {unit.uom.code} "
+                f"(code {unit.barcode_qr}) removed."
+            )
             try:
                 unit.delete()
             except ProtectedError as exc:
@@ -382,39 +516,102 @@ class VariantUOMViewSet(_AuditedCatalogViewSet):
         """
         return (
             VariantUOM.objects.select_for_update()
-            .select_related('variant__product', 'uom')
+            .select_related("variant__product", "uom")
             .filter(pk=pk)
-            .first())
+            .first()
+        )
 
     def _refuse_removal(self, unit):
         """Factor 1 is the base unit; anything referenced by history stays."""
         if unit.conversion_factor == 1:
             raise BaseUnitRequired(
-                f'{unit} is the base unit of {unit.variant}: a product is counted in its '
-                'base unit, so it cannot be removed. Remove another selling unit, or '
-                'archive the product.')
+                f"{unit} is the base unit of {unit.variant}: a product is counted in its "
+                "base unit, so it cannot be removed. Remove another selling unit, or "
+                "archive the product."
+            )
         if unit_in_use(unit):
             raise SellingUnitInUse(self._in_use_detail(unit))
 
     @staticmethod
     def _in_use_detail(unit) -> str:
         return (
-            f'{unit} has already been sold, held or requested, so it cannot be removed. '
-            'Its price and code stay editable.')
+            f"{unit} has already been sold, held or requested, so it cannot be removed. "
+            "Its price and code stay editable."
+        )
 
 
 # =========================================================================
 # Purchasing & Stock ViewSets  (Phase 2)
 # =========================================================================
 
+
 class SupplierViewSet(_AuditedCatalogViewSet):
     queryset = Supplier.objects.all()
     serializer_class = SupplierSerializer
 
-    audit_label = 'Supplier'
+    audit_label = "Supplier"
 
     def audit_detail(self, instance):
-        return f'{instance.company_name} (active={instance.is_active})'
+        return f"{instance.company_name} (active={instance.is_active})"
+
+    @action(detail=False, methods=["get"])
+    def payables(self, request):
+        """`GET /suppliers/payables/` — what the shop owes each supplier (decision 18).
+
+        ONE row per supplier that has at least one bill, with the money questions the
+        payables screen asks, each summed over that supplier's bills:
+
+            original  SUM(total_amount)      what the bills were for
+            paid      SUM(total - balance)   money already paid
+            balance   SUM(balance_amount)    what is still owed
+            overdue   SUM(balance where the due date has passed and money is owed)
+
+        Computed in ONE query per supplier group (two aggregates), never a loop over
+        bills, so a screen with twenty suppliers costs one query for the whole page.
+        Stock Manager / Store Manager / Admin read it; a Cashier and the CPMS account do
+        not (supplier money is not till or CPMS data), which `_AuditedCatalogViewSet`'s
+        own permission rule already enforces for any action that is not list/retrieve.
+        """
+        from django.db.models import DecimalField, Q, Sum, Value
+        from django.db.models.functions import Coalesce
+
+        money_field = DecimalField(max_digits=14, decimal_places=2)
+        today = timezone.localdate()
+        rows = (
+            SupplierBill.objects.values("supplier_id", "supplier__company_name")
+            .annotate(
+                bills=Count("id"),
+                original=Coalesce(
+                    Sum("total_amount"), Value(0), output_field=money_field
+                ),
+                balance=Coalesce(
+                    Sum("balance_amount"), Value(0), output_field=money_field
+                ),
+                overdue=Coalesce(
+                    Sum(
+                        "balance_amount",
+                        filter=Q(balance_amount__gt=0, due_date__lt=today),
+                    ),
+                    Value(0),
+                    output_field=money_field,
+                ),
+            )
+            .order_by("supplier__company_name")
+        )
+
+        results = [
+            {
+                "supplier": row["supplier_id"],
+                "supplier_name": row["supplier__company_name"],
+                "bills": row["bills"],
+                "original": f"{row['original']:.2f}",
+                "paid": f"{row['original'] - row['balance']:.2f}",
+                "balance": f"{row['balance']:.2f}",
+                "overdue": f"{row['overdue']:.2f}",
+            }
+            for row in rows
+        ]
+        return Response({"count": len(results), "results": results})
 
 
 class PurchaseOrderViewSet(_CatalogBaseViewSet):
@@ -434,9 +631,14 @@ class PurchaseOrderViewSet(_CatalogBaseViewSet):
        tills cannot both place the same order.
     """
 
-    queryset = PurchaseOrder.objects.select_related(
-        'supplier', 'created_by',
-    ).prefetch_related('items__variant').all()
+    queryset = (
+        PurchaseOrder.objects.select_related(
+            "supplier",
+            "created_by",
+        )
+        .prefetch_related("items__variant")
+        .all()
+    )
     serializer_class = PurchaseOrderSerializer
 
     def perform_create(self, serializer):
@@ -445,8 +647,8 @@ class PurchaseOrderViewSet(_CatalogBaseViewSet):
             audit_request(
                 self.request,
                 AuditLog.ActionType.CREATE,
-                f'Purchase order #{po.pk} created for {po.supplier.company_name} '
-                f'with {po.items.count()} line(s).',
+                f"Purchase order #{po.pk} created for {po.supplier.company_name} "
+                f"with {po.items.count()} line(s).",
             )
 
     def perform_update(self, serializer):
@@ -460,8 +662,8 @@ class PurchaseOrderViewSet(_CatalogBaseViewSet):
             audit_request(
                 self.request,
                 AuditLog.ActionType.UPDATE,
-                f'Purchase order #{po.pk} edited for {po.supplier.company_name} '
-                f'({po.items.count()} line(s)).',
+                f"Purchase order #{po.pk} edited for {po.supplier.company_name} "
+                f"({po.items.count()} line(s)).",
             )
 
     def update(self, request, *args, **kwargs):
@@ -477,7 +679,7 @@ class PurchaseOrderViewSet(_CatalogBaseViewSet):
         process), so they serialize instead of deadlocking.
         """
         with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
-            po = self._locked(kwargs.get('pk'))
+            po = self._locked(kwargs.get("pk"))
             self.check_object_permissions(request, po)
             if po.status != PurchaseOrder.Status.DRAFT:
                 raise PurchaseOrderLocked(po)
@@ -494,7 +696,7 @@ class PurchaseOrderViewSet(_CatalogBaseViewSet):
         viewset; without this hook that second lookup would be an UNLOCKED read of a row
         whose status was just decided against.
         """
-        locked = getattr(self, '_locked_instance', None)
+        locked = getattr(self, "_locked_instance", None)
         if locked is not None:
             return locked
         return super().get_object()
@@ -511,24 +713,25 @@ class PurchaseOrderViewSet(_CatalogBaseViewSet):
             raise Http404
         return po
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=["post"])
     def place(self, request, pk=None):
         """DRAFT → ORDERED. Anything else is `INVALID_PO_STATE`."""
         with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
             po = self._locked(pk)
             if po.status != PurchaseOrder.Status.DRAFT:
                 raise InvalidPurchaseOrderState(
-                    f'PO #{po.pk} is {po.status}: only a DRAFT can be placed.')
+                    f"PO #{po.pk} is {po.status}: only a DRAFT can be placed."
+                )
             po.status = PurchaseOrder.Status.ORDERED
-            po.save(update_fields=['status', 'updated_at'])
+            po.save(update_fields=["status", "updated_at"])
             audit_request(
                 request,
                 AuditLog.ActionType.UPDATE,
-                f'Purchase order #{po.pk} placed with {po.supplier.company_name}.',
+                f"Purchase order #{po.pk} placed with {po.supplier.company_name}.",
             )
         return Response(self.get_serializer(po).data)
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         """DRAFT/ORDERED with nothing received → CANCELLED.
 
@@ -541,21 +744,25 @@ class PurchaseOrderViewSet(_CatalogBaseViewSet):
         with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
             po = self._locked(pk)
             if po.status in (
-                    PurchaseOrder.Status.PARTIAL, PurchaseOrder.Status.COMPLETE):
+                PurchaseOrder.Status.PARTIAL,
+                PurchaseOrder.Status.COMPLETE,
+            ):
                 raise PurchaseOrderHasReceipts(po)
-            if po.status != PurchaseOrder.Status.DRAFT and \
-                    po.status != PurchaseOrder.Status.ORDERED:
+            if (
+                po.status != PurchaseOrder.Status.DRAFT
+                and po.status != PurchaseOrder.Status.ORDERED
+            ):
                 raise InvalidPurchaseOrderState(
-                    f'PO #{po.pk} is {po.status} and cannot be cancelled.')
+                    f"PO #{po.pk} is {po.status} and cannot be cancelled."
+                )
             if po.receipts.exists() or po.items.filter(received_qty__gt=0).exists():
                 raise PurchaseOrderHasReceipts(po)
             po.status = PurchaseOrder.Status.CANCELLED
-            po.save(update_fields=['status', 'updated_at'])
+            po.save(update_fields=["status", "updated_at"])
             audit_request(
                 request,
                 AuditLog.ActionType.UPDATE,
-                f'Purchase order #{po.pk} cancelled '
-                f'({po.supplier.company_name}).',
+                f"Purchase order #{po.pk} cancelled ({po.supplier.company_name}).",
             )
         return Response(self.get_serializer(po).data)
 
@@ -572,10 +779,14 @@ class _ReceiptRefused(Exception):
 
 
 class GoodsReceiptViewSet(_StockRecordBaseViewSet):
-    queryset = GoodsReceipt.objects.select_related(
-        'po', 'received_by',
-    ).prefetch_related(
-        'batches', 'lines__po_item__variant').all()
+    queryset = (
+        GoodsReceipt.objects.select_related(
+            "po",
+            "received_by",
+        )
+        .prefetch_related("batches", "lines__po_item__variant")
+        .all()
+    )
     serializer_class = GoodsReceiptSerializer
 
     def create(self, request, *args, **kwargs):
@@ -585,8 +796,15 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
 
         * adds `qty` to `POItem.received_qty` — the running total across every receipt of
           the PO, and the cap the next delivery is checked against; and
-        * writes one `GoodsReceiptItem` per entry, so `process/` can batch THIS delivery
-          instead of the running total (decision 09 item 4).
+        * writes one `GoodsReceiptItem` per entry WITH a positive `qty`, so `process/`
+          can batch THIS delivery instead of the running total (decision 09 item 4).
+
+        `qty` is counted in the PO LINE's selling unit (`POItem.variant_uom`, Phase 5 B1),
+        which is the same unit `ordered_qty` and `received_qty` are in. A line with no unit
+        (a fixture-written row) is read as the variant's base unit, which is what every
+        pre-B1 delivery meant. `process/` converts to stock in base units, and a `qty`
+        whose conversion is not a whole hundredth of a base unit is refused here with
+        `400 RECEIPT_QUANTITY_UNREPRESENTABLE`: stock is never rounded.
 
         The two are deliberately not the same field. Before the lines existed, process/
         had only `received_qty` to work from and minted a batch from it on every receipt —
@@ -601,18 +819,18 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
         from .models import POItem
 
         data = dict(request.data)
-        raw_items = data.pop('items', [])
+        raw_items = data.pop("items", [])
         if raw_items is None:
             raw_items = []
         if not isinstance(raw_items, list):
             return Response(
-                {'detail': 'items must be a list of {po_item, qty}.'},
+                {"detail": "items must be a list of {po_item, qty}."},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
         ser = self.get_serializer(data=data)
         ser.is_valid(raise_exception=True)
 
-        po = ser.validated_data['po']
+        po = ser.validated_data["po"]
         # Task 4.2: only an ORDERED or PARTIAL order can receive. A DRAFT was never
         # placed, so what arrives is not what this document asked for; a COMPLETE or
         # CANCELLED one is closed. Both were reachable before this gate - a DRAFT receipt
@@ -630,42 +848,58 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
         for entry in raw_items:
             if not isinstance(entry, dict):
                 return Response(
-                    {'detail': 'each item must be {po_item, qty}.'},
+                    {"detail": "each item must be {po_item, qty}."},
                     status=drf_status.HTTP_400_BAD_REQUEST,
                 )
             try:
                 po_item = POItem.objects.select_related(
-                    'po', 'variant__base_uom').get(pk=entry.get('po_item'))
+                    "po", "variant__base_uom", "variant_uom__uom"
+                ).get(pk=entry.get("po_item"))
             except (POItem.DoesNotExist, ValueError, TypeError):
                 return Response(
-                    {'detail': f"unknown po_item: {entry.get('po_item')!r}."},
+                    {"detail": f"unknown po_item: {entry.get('po_item')!r}."},
                     status=drf_status.HTTP_400_BAD_REQUEST,
                 )
             if po_item.po_id != po.id:
                 return Response(
-                    {'detail': f'po_item {po_item.pk} is not on this PO.'},
+                    {"detail": f"po_item {po_item.pk} is not on this PO."},
                     status=drf_status.HTTP_400_BAD_REQUEST,
                 )
             try:
-                qty = Decimal(str(entry.get('qty', 0)))
+                qty = Decimal(str(entry.get("qty", 0)))
             except Exception:
                 return Response(
-                    {'detail': f"qty for po_item {po_item.pk} is not a number."},
+                    {"detail": f"qty for po_item {po_item.pk} is not a number."},
                     status=drf_status.HTTP_400_BAD_REQUEST,
                 )
             if qty < 0:
                 return Response(
-                    {'detail': f'qty for po_item {po_item.pk} must not be negative.'},
+                    {"detail": f"qty for po_item {po_item.pk} must not be negative."},
                     status=drf_status.HTTP_400_BAD_REQUEST,
                 )
-            # Phase 1d Task 2 (decision 16, Q1): a delivery is counted in the variant's
-            # BASE unit, and a whole one takes whole counts only. Raised outside the
-            # atomic block below, so the refusal leaves no receipt row behind; the
-            # project's handler turns it into a 400 `WHOLE_UNIT_QUANTITY`.
+            # Phase 1d Task 2 (decision 16, Q1) + Phase 5 B1 (decision 18): a delivery is
+            # counted in the PO LINE's selling unit, and a whole one (a BAG) takes whole
+            # counts only while a measured one (the KG base unit) still takes 2.5. Raised
+            # outside the atomic block below, so the refusal leaves no receipt row behind;
+            # the project's handler turns it into a 400 `WHOLE_UNIT_QUANTITY`.
+            unit = po_item.variant_uom
+            unit_code = (
+                unit.uom.code if unit is not None else po_item.variant.base_uom.code
+            )
             refuse_fractional_whole_unit(
-                is_whole=po_item.variant.base_uom.is_whole, qty=qty,
-                what=f'po_item {po_item.pk} ({po_item.variant} in '
-                     f'{po_item.variant.base_uom.code})')
+                is_whole=(
+                    unit.uom.is_whole
+                    if unit is not None
+                    else po_item.variant.base_uom.is_whole
+                ),
+                qty=qty,
+                what=f"po_item {po_item.pk} ({po_item.variant} in {unit_code})",
+            )
+            # Phase 5 B1 review fix: the converted stock must FIT the batch column's two
+            # decimals, or the delivery is refused here - same place, same reason
+            # (nothing written yet, `process/` would round it away). A legit factor-0.01
+            # unit receiving 0.01 was stocked as 0.00 and 0.50 x 0.03 as 0.02.
+            refuse_unrepresentable_stock(item=po_item, qty=qty)
             parsed.append((po_item.pk, qty))
 
         try:
@@ -677,10 +911,12 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
                 if po.status == PurchaseOrder.Status.DRAFT:
                     raise PurchaseOrderNotOrdered(po)
                 if po.status in (
-                        PurchaseOrder.Status.COMPLETE,
-                        PurchaseOrder.Status.CANCELLED):
+                    PurchaseOrder.Status.COMPLETE,
+                    PurchaseOrder.Status.CANCELLED,
+                ):
                     raise PurchaseOrderNotReceivable(
-                        f'PO {po.pk} is {po.status} and cannot receive more.')
+                        f"PO {po.pk} is {po.status} and cannot receive more."
+                    )
                 receipt = ser.save(received_by=request.user)
                 for po_item_pk, qty in parsed:
                     # LOCKED before accumulating: two deliveries recorded at the same
@@ -694,24 +930,27 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
                     total = locked.received_qty + qty
                     if total > locked.ordered_qty:
                         raise _ReceiptRefused(
-                            f'qty for po_item {locked.pk} would exceed the '
-                            f'ordered {locked.ordered_qty} '
-                            f'({locked.received_qty} already received).')
+                            f"qty for po_item {locked.pk} would exceed the "
+                            f"ordered {locked.ordered_qty} "
+                            f"({locked.received_qty} already received)."
+                        )
                     locked.received_qty = total
-                    locked.save(update_fields=['received_qty'])
+                    locked.save(update_fields=["received_qty"])
                     if qty > 0:
                         GoodsReceiptItem.objects.create(
-                            receipt=receipt, po_item=locked, qty=qty)
+                            receipt=receipt, po_item=locked, qty=qty
+                        )
         except _ReceiptRefused as exc:
             # Raised inside the atomic block, so the receipt row and every accumulated
             # quantity are rolled back with it — a refused delivery leaves no trace.
             return Response(
-                {'detail': str(exc)}, status=drf_status.HTTP_400_BAD_REQUEST)
+                {"detail": str(exc)}, status=drf_status.HTTP_400_BAD_REQUEST
+            )
         return Response(
-            self.get_serializer(receipt).data,
-            status=drf_status.HTTP_201_CREATED)
+            self.get_serializer(receipt).data, status=drf_status.HTTP_201_CREATED
+        )
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=["post"])
     def process(self, request, pk=None):
         """Turn THIS receipt's lines into FIFO batches.
 
@@ -734,22 +973,21 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
                 audit_request(
                     request,
                     AuditLog.ActionType.RECEIPT,
-                    f'Goods receipt #{receipt.pk} processed into '
-                    f'{len(batches)} batch(es) for PO #{receipt.po_id}.',
+                    f"Goods receipt #{receipt.pk} processed into "
+                    f"{len(batches)} batch(es) for PO #{receipt.po_id}.",
                 )
         except ReceiptAlreadyProcessed as exc:
             # Same 400 and same sentence the view-level guard used to answer with; the
             # added `code` is what lets a client tell this apart from a bad payload.
             return Response(
-                {'code': exc.code, 'detail': str(exc)},
+                {"code": exc.code, "detail": str(exc)},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
-        return Response(
-            InventoryBatchSerializer(batches, many=True).data)
+        return Response(InventoryBatchSerializer(batches, many=True).data)
 
 
 class InventoryBatchViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = InventoryBatch.objects.select_related('variant', 'receipt').all()
+    queryset = InventoryBatch.objects.select_related("variant", "receipt").all()
     serializer_class = InventoryBatchSerializer
     permission_classes = [IsAuthenticated]
 
@@ -773,7 +1011,7 @@ class StockAdjustmentViewSet(_StockRecordBaseViewSet):
        it inside `apply_stock_adjustment` alone -- that would still commit the row first.
     """
 
-    queryset = StockAdjustment.objects.select_related('variant', 'user').all()
+    queryset = StockAdjustment.objects.select_related("variant", "user").all()
     serializer_class = StockAdjustmentSerializer
 
     def perform_create(self, serializer):
@@ -789,8 +1027,8 @@ class StockAdjustmentViewSet(_StockRecordBaseViewSet):
             audit_request(
                 self.request,
                 AuditLog.ActionType.STOCK_ADJUST,
-                f'Stock adjustment #{adj.pk} {adj.adjustment_type} '
-                f'{adj.qty_adjusted} on {adj.variant}.',
+                f"Stock adjustment #{adj.pk} {adj.adjustment_type} "
+                f"{adj.qty_adjusted} on {adj.variant}.",
             )
 
 
@@ -813,17 +1051,17 @@ class SystemAlertViewSet(viewsets.ReadOnlyModelViewSet):
     both read this feed, and third-role accounts on those screens have no other source.
     """
 
-    queryset = SystemAlert.objects.select_related('variant', 'resolved_by').all()
+    queryset = SystemAlert.objects.select_related("variant", "resolved_by").all()
     serializer_class = SystemAlertSerializer
 
     def get_permissions(self):
         # `resolve` is the only write on this viewset; everything else it can reach is a
         # read (the viewset itself no longer registers create/update/destroy).
-        if self.action == 'resolve':
+        if self.action == "resolve":
             return [IsInventoryRole()]
         return [IsAuthenticated()]
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=["post"])
     def resolve(self, request, pk=None):
         """Mark one alert resolved, recording WHO and WHEN.
 
@@ -838,36 +1076,172 @@ class SystemAlertViewSet(viewsets.ReadOnlyModelViewSet):
         keeps any existing caller working.
         """
         with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
-            alert = (
-                SystemAlert.objects.select_for_update()
-                .filter(pk=pk).first()
-            )
+            alert = SystemAlert.objects.select_for_update().filter(pk=pk).first()
             if alert is None:
                 raise Http404
             if alert.is_resolved:
                 return Response(
                     {
-                        'code': 'ALERT_ALREADY_RESOLVED',
-                        'detail': f'Alert {alert.pk} was already resolved.',
+                        "code": "ALERT_ALREADY_RESOLVED",
+                        "detail": f"Alert {alert.pk} was already resolved.",
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             alert.is_resolved = True
             alert.resolved_by = request.user
             alert.resolved_at = timezone.now()
-            alert.save(
-                update_fields=['is_resolved', 'resolved_by', 'resolved_at'])
+            alert.save(update_fields=["is_resolved", "resolved_by", "resolved_at"])
             # Inside the same block as the write (decision 07): the refused second
             # resolve returns above, so it writes no second row.
             audit_request(
                 request,
                 AuditLog.ActionType.ALERT_RESOLVE,
-                f'Alert #{alert.pk} ({alert.alert_type}) resolved.',
+                f"Alert #{alert.pk} ({alert.alert_type}) resolved.",
             )
 
         # `dict(...)` copy, not the ReturnDict itself: the serializer's `.data` is typed
         # as index-only by pyright without django-stubs, but a plain dict accepts the
         # legacy `detail` key below.
         data = dict(SystemAlertSerializer(alert).data)
-        data['detail'] = 'Alert resolved.'
+        data["detail"] = "Alert resolved."
         return Response(data)
+
+
+# =========================================================================
+# Supplier payables  (Phase 5 B2, decision 18)
+# =========================================================================
+
+
+class SupplierBillViewSet(viewsets.ReadOnlyModelViewSet):
+    """`/supplier-bills/` — what the shop owes, one row per processed receipt.
+
+    **Read-only on purpose.** A bill is written by `process_goods_receipt` inside the
+    transaction that stocks the delivery; there is no create, no edit and no delete verb
+    for any role, Admin included. `ReadOnlyModelViewSet` does not even map them, so a
+    `POST`/`PATCH`/`DELETE` answers **405**, and nothing can rewrite what the shop agreed
+    to owe.
+
+    **Who reads it.** `IsInventoryRole` (Stock Manager / Store Manager / Admin): the
+    stocker must see what a delivery costs, while a Cashier and the CPMS service account
+    are refused - supplier money is not till data and is not part of the CPMS contract.
+
+    Filters: `?supplier=<id>`, `?status=UNPAID|PARTIAL|PAID`, `?overdue=true`. Ordering
+    is by due date (oldest first), so a payables screen opens on what is due soonest -
+    the overdue rows are the oldest ones.
+    """
+
+    queryset = (
+        SupplierBill.objects.select_related("supplier", "purchase_order")
+        .prefetch_related("payments__paid_by")
+        .all()
+    )
+    serializer_class = SupplierBillSerializer
+    permission_classes = [IsInventoryRole]  # noqa: RUF012 - declarative, never mutated
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        params = self.request.query_params
+
+        supplier = params.get("supplier")
+        if supplier:
+            queryset = queryset.filter(supplier_id=supplier)
+
+        status = (params.get("status") or "").upper()
+        if status:
+            if status not in SupplierBill.Status.values:
+                from rest_framework.exceptions import ValidationError
+
+                raise ValidationError(
+                    {
+                        "status": (
+                            f"status must be one of "
+                            f"{', '.join(SupplierBill.Status.values)}."
+                        )
+                    }
+                )
+            if status == SupplierBill.Status.PAID:
+                queryset = queryset.filter(balance_amount__lte=0)
+            elif status == SupplierBill.Status.UNPAID:
+                queryset = queryset.filter(balance_amount__gte=F("total_amount"))
+            else:
+                queryset = queryset.filter(
+                    balance_amount__gt=0, balance_amount__lt=F("total_amount")
+                )
+
+        overdue = (params.get("overdue") or "").lower()
+        if overdue in ("1", "true", "yes"):
+            queryset = queryset.filter(
+                balance_amount__gt=0, due_date__lt=timezone.localdate()
+            )
+        return queryset
+
+
+class SupplierPaymentViewSet(
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """`/supplier-payments/` — record a payment and read the history.
+
+    **Store Manager / Admin pay; Stock Manager reads.** The stocker sees what is owed and
+    what was paid, but moving money is a manager's act (`IsManagerRole`). A Cashier and
+    the CPMS account are refused entirely.
+
+    **No edit and no delete for any role.** `PUT`/`PATCH`/`DELETE` answer **405**:
+    `http_method_names` removes the verbs, so the router keeps the routes and DRF refuses
+    before any object lookup. A payment records money that already left the shop;
+    correcting one is another business event, not an edit.
+
+    The payment, the bill's new balance and the `PAYMENT` audit row are ONE transaction.
+    The service takes the bill's row lock before deciding, so two clerks (or one
+    double-clicked button) cannot both spend the same balance - the loser is told
+    `BILL_PAID` (or `OVERPAYMENT`), and a failure anywhere rolls all three back.
+    """
+
+    queryset = SupplierPayment.objects.select_related("bill__supplier", "paid_by").all()
+    serializer_class = SupplierPaymentSerializer
+    http_method_names = ("get", "head", "options", "post")
+
+    def get_permissions(self):
+        if self.action == "create":
+            return [IsManagerRole()]
+        return [IsInventoryRole()]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        bill = self.request.query_params.get("bill")
+        if bill:
+            queryset = queryset.filter(bill_id=bill)
+        supplier = self.request.query_params.get("supplier")
+        if supplier:
+            queryset = queryset.filter(bill__supplier_id=supplier)
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            payment = record_supplier_payment(
+                bill=data["bill"],
+                amount=data["amount"],
+                method=data["method"],
+                reference=data.get("reference", ""),
+                cheque_number=data.get("cheque_number", ""),
+                cheque_bank=data.get("cheque_bank", ""),
+                cheque_date=data.get("cheque_date"),
+                user=request.user,
+            )
+            # Same block as the payment and the moved balance (decision 07): a failed
+            # audit row rolls the money back instead of leaving an unaudited payment.
+            audit_request(
+                request,
+                AuditLog.ActionType.PAYMENT,
+                f"Supplier payment #{payment.pk} of {payment.amount} "
+                f"({payment.method}) against bill #{payment.bill_id} for "
+                f"{payment.bill.supplier.company_name}.",
+            )
+        return Response(
+            self.get_serializer(payment).data, status=status.HTTP_201_CREATED
+        )

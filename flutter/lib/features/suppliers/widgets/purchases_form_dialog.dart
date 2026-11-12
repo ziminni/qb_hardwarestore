@@ -3,8 +3,10 @@ import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/product.dart';
+import 'package:client/data/models/sale_discount.dart' show roundMoney;
 import 'package:client/data/models/purchase_draft.dart';
 import 'package:client/data/models/supplier.dart';
+import 'package:client/data/models/variant_uom.dart';
 import 'package:client/core/time/app_clock.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
@@ -60,11 +62,31 @@ class _PurchaseOrderLineForm {
     required this.variant,
     required this.quantity,
     required this.unitCost,
+    required this.baseCost,
+    this.unit,
   });
 
   final ProductVariant variant;
+
+  /// The landed cost per BASE unit (decision 08). The per-unit prefill is this
+  /// times the selected unit's factor, so switching to BAG does not silently
+  /// turn a per-kilo price into a per-bag one.
+  final double baseCost;
+
+  /// The selling unit this line is counted in; null when the variant's own
+  /// catalogue lists none, and then the line goes to the server without a unit
+  /// (base unit, the older meaning).
+  VariantUom? unit;
+
   final TextEditingController quantity;
   final TextEditingController unitCost;
+
+  String get unitCode => unit?.uomCode ?? variant.baseUomCode;
+  double get factor => unit?.conversionFactor ?? 1;
+  bool get isWhole => unit?.uomIsWhole ?? false;
+
+  /// The prefill this line's cost box starts with, given its current unit.
+  String get prefilledCost => (baseCost * factor).toStringAsFixed(2);
 
   void dispose() {
     quantity.dispose();
@@ -76,6 +98,12 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
   final _formKey = GlobalKey<FormState>();
   final _searchController = TextEditingController();
   final _notesController = TextEditingController();
+
+  /// Pesos off the whole order (Phase 5 B2). Blank means nothing off.
+  final _discountController = TextEditingController();
+
+  /// Whether the line prices already contain VAT. The server's own default.
+  bool _vatInclusive = true;
   final List<_PurchaseOrderLineForm> _lines = [];
 
   late int? _supplierId =
@@ -98,6 +126,7 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
   void dispose() {
     _searchController.dispose();
     _notesController.dispose();
+    _discountController.dispose();
     for (final line in _lines) {
       line.dispose();
     }
@@ -157,18 +186,54 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
   }
 
   void _addLine(ProductVariant variant, {double? quantity}) {
+    final baseCost = widget.costFor(variant.id);
+    // The default is the variant's REAL base row (`uomId == baseUomId` at factor
+    // 1), never the first selling unit: a packaged variant lists its BAG before
+    // its KG, and taking the first row would count the order in bags.
+    final unit = variant.baseSellingUnit;
     _lines.add(
       _PurchaseOrderLineForm(
         variant: variant,
+        baseCost: baseCost,
+        unit: unit,
         quantity: TextEditingController(
           text: (quantity ?? 1).toStringAsFixed(0),
         ),
         unitCost: TextEditingController(
-          text: widget.costFor(variant.id).toStringAsFixed(2),
+          text: (baseCost * (unit?.conversionFactor ?? 1)).toStringAsFixed(2),
         ),
       ),
     );
   }
+
+  /// Switches a line to [unit] without reinterpreting what was typed.
+  ///
+  /// The cost box follows the unit only while it still holds its untouched
+  /// prefill; a typed price and a typed quantity are the user's numbers and stay
+  /// as written, under the explicit `Cost per <unit>` label.
+  void _changeUnit(_PurchaseOrderLineForm line, VariantUom unit) {
+    setState(() {
+      final untouched = line.unitCost.text.trim() == line.prefilledCost;
+      line.unit = unit;
+      if (untouched) line.unitCost.text = line.prefilledCost;
+    });
+  }
+
+  /// `10 BAG = 250 KG` for the typed quantity, or null when the line is counted
+  /// in base units already.
+  String? _conversionText(_PurchaseOrderLineForm line) {
+    final qty = double.tryParse(line.quantity.text.trim());
+    if (line.factor == 1 || qty == null || qty <= 0) return null;
+    return '${formatQuantity(qty)} ${line.unitCode} = '
+        '${formatQuantity(qty * line.factor)} ${line.variant.baseUomCode}';
+  }
+
+  /// The discount as typed, or 0 when the box is blank.
+  double get _discount => double.tryParse(_discountController.text.trim()) ?? 0;
+
+  /// What the order comes to after the discount. The SERVER's figures (which
+  /// include VAT) win once the order exists; this is the before-you-save view.
+  double get _netTotal => roundMoney(_orderTotal - _discount);
 
   double get _orderTotal => _lines.fold(
     0,
@@ -194,6 +259,7 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
       lines.add(
         PurchaseOrderLineDraft(
           variantId: line.variant.id,
+          variantUomId: line.unit?.id,
           quantity: double.tryParse(line.quantity.text.trim()) ?? 0,
           unitCost: double.tryParse(line.unitCost.text.trim()) ?? 0,
           variantName: line.variant.variantName,
@@ -207,6 +273,8 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
           supplierId: _supplierId!,
           expectedDelivery: _expectedDelivery,
           notes: _notesController.text.trim(),
+          discountAmount: _discount,
+          vatInclusive: _vatInclusive,
           lines: lines,
         ),
         place: place,
@@ -302,6 +370,8 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
                 hintText: 'Optional instructions for this order',
               ),
             ),
+            const SizedBox(height: AppSpacing.lg),
+            _moneyBlock(theme, colors),
           ],
         ),
       ),
@@ -330,7 +400,7 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
   /// Viewport height of each list pane. A list needs a bounded height to scroll
   /// itself; these are the panes' own size, not the window's, so the dialog
   /// keeps the same shape on every screen and scrolls when the window is short.
-  static const double _paneHeight = 320;
+  static const double _paneHeight = 230;
   // 200 rather than 220: on a 760 wide window the dialog is capped at 90% of the
   // window height, and 40 px less here is the difference between the Notes field
   // being visible and being below the fold.
@@ -562,6 +632,8 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
                             ),
                             Row(
                               children: [
+                                Expanded(child: _unitPicker(line)),
+                                const SizedBox(width: AppSpacing.md),
                                 Expanded(
                                   child: TextFormField(
                                     key: ValueKey('po-qty-${line.variant.id}'),
@@ -572,32 +644,36 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
                                         ),
                                     decoration: InputDecoration(
                                       labelText: 'Quantity',
-                                      suffixText: line.variant.baseUomCode,
+                                      suffixText: line.unitCode,
                                       isDense: true,
                                     ),
-                                    validator: _positiveNumber,
-                                    onChanged: (_) => setState(() {}),
-                                  ),
-                                ),
-                                const SizedBox(width: AppSpacing.md),
-                                Expanded(
-                                  child: TextFormField(
-                                    key: ValueKey('po-cost-${line.variant.id}'),
-                                    controller: line.unitCost,
-                                    keyboardType:
-                                        const TextInputType.numberWithOptions(
-                                          decimal: true,
-                                        ),
-                                    decoration: const InputDecoration(
-                                      labelText: 'Unit cost',
-                                      prefixText: '₱ ',
-                                      isDense: true,
-                                    ),
-                                    validator: _nonNegativeNumber,
+                                    validator: (value) =>
+                                        _quantityError(line, value),
                                     onChanged: (_) => setState(() {}),
                                   ),
                                 ),
                               ],
+                            ),
+                            const SizedBox(height: AppSpacing.sm),
+                            TextFormField(
+                              key: ValueKey('po-cost-${line.variant.id}'),
+                              controller: line.unitCost,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              decoration: InputDecoration(
+                                // The unit is IN the label: a per-kilo landed
+                                // cost must not read as a per-bag price after a
+                                // unit change.
+                                labelText: 'Cost per ${line.unitCode}',
+                                helperText: _conversionText(line),
+                                helperMaxLines: 2,
+                                prefixText: '₱ ',
+                                isDense: true,
+                              ),
+                              validator: _nonNegativeNumber,
+                              onChanged: (_) => setState(() {}),
                             ),
                           ],
                         ),
@@ -613,7 +689,7 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
               children: [
                 const Text('Order total'),
                 Text(
-                  formatPeso(_orderTotal),
+                  formatPeso(_netTotal),
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
@@ -626,9 +702,170 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
     );
   }
 
-  static String? _positiveNumber(String? value) {
-    final parsed = double.tryParse(value?.trim() ?? '');
+  /// The selling-unit picker for one line, from the variant's OWN catalogue.
+  ///
+  /// A variant with no selling units listed has no unit to name, so the line
+  /// says which unit the server will count it in and sends no id (base unit).
+  Widget _unitPicker(_PurchaseOrderLineForm line) {
+    final units = line.variant.sellingUoms;
+    if (units.isEmpty) {
+      return InputDecorator(
+        decoration: const InputDecoration(labelText: 'Unit', isDense: true),
+        child: Text(line.unitCode),
+      );
+    }
+    return DropdownButtonFormField<int>(
+      key: ValueKey('po-unit-${line.variant.id}'),
+      isExpanded: true,
+      initialValue: line.unit?.id,
+      decoration: const InputDecoration(labelText: 'Unit', isDense: true),
+      items: [
+        for (final unit in units)
+          DropdownMenuItem(
+            value: unit.id,
+            child: Text(unit.uomCode, overflow: TextOverflow.ellipsis),
+          ),
+      ],
+      // No base row in the catalogue means no honest default: the user picks.
+      validator: (value) => value == null ? 'Choose a unit.' : null,
+      onChanged: (id) {
+        if (id == null) return;
+        for (final unit in units) {
+          if (unit.id == id) {
+            _changeUnit(line, unit);
+            return;
+          }
+        }
+      },
+    );
+  }
+
+  /// The typed quantity, checked against the SELECTED unit: a whole unit takes
+  /// whole counts, a measured one takes at most two decimals (the server's own
+  /// quantity precision).
+  static String? _quantityError(_PurchaseOrderLineForm line, String? value) {
+    final text = value?.trim() ?? '';
+    final parsed = double.tryParse(text);
     if (parsed == null || parsed <= 0) return 'Above 0';
+    if (line.isWhole && parsed != parsed.roundToDouble()) {
+      return 'Whole ${line.unitCode} only';
+    }
+    if (!line.isWhole) {
+      final dot = text.indexOf('.');
+      if (dot >= 0 && text.length - dot - 1 > 2) return 'At most 2 decimals';
+    }
+    return null;
+  }
+
+  /// The header money of the order: the discount, whether the prices include
+  /// VAT, and the before-VAT preview (Phase 5 B2).
+  ///
+  /// Both controls are editable here because a new order is always a DRAFT; the
+  /// server locks them once it is placed (`PO_LOCKED`) and this dialog only ever
+  /// creates. The VAT split itself is not previewed: the rate is the shop's,
+  /// taken from `store-settings` when the order is created.
+  Widget _moneyBlock(ThemeData theme, ColorScheme colors) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const DialogSectionLabel('Order money'),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: TextFormField(
+                key: const ValueKey('po-discount'),
+                controller: _discountController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Discount',
+                  prefixText: '₱ ',
+                  helperText: 'Pesos off the whole order. Optional.',
+                  isDense: true,
+                ),
+                validator: _discountError,
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              // A bare Switch, not a SwitchListTile: a ListTile needs a Material
+              // of its own inside this dialog body.
+              child: Row(
+                children: [
+                  Switch(
+                    key: const ValueKey('po-vat-inclusive'),
+                    value: _vatInclusive,
+                    onChanged: (value) => setState(() => _vatInclusive = value),
+                  ),
+                  const Expanded(
+                    child: Text(
+                      'Prices include VAT',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Wrap(
+          spacing: AppSpacing.lg,
+          runSpacing: AppSpacing.xs,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            _previewFigure('Gross', _orderTotal),
+            _previewFigure('Discount', _discount),
+            _previewFigure('Net', _netTotal),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          'VAT is worked out by the server from the shop rate.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: colors.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// One preview figure: a small label over the money.
+  Widget _previewFigure(String label, double amount) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+        ),
+        Text(
+          formatPeso(amount),
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ],
+    );
+  }
+
+  /// A discount is capped by the gross: the server refuses more with
+  /// `INVALID_PO`, and finding that out before the round trip saves a draft
+  /// nobody meant to save.
+  String? _discountError(String? value) {
+    final text = value?.trim() ?? '';
+    if (text.isEmpty) return null;
+    final parsed = double.tryParse(text);
+    if (parsed == null) return 'Enter an amount.';
+    if (parsed < 0) return 'A discount cannot be negative.';
+    if (roundMoney(parsed) > roundMoney(_orderTotal)) {
+      return 'A discount cannot be more than the order total of '
+          '${formatPeso(_orderTotal)}.';
+    }
     return null;
   }
 

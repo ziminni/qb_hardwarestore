@@ -12,6 +12,7 @@ class PosCatalogItem {
     this.categoryName = '',
     this.brandName = '',
     this.isWhole = false,
+    this.storedAtName = '',
   });
   final int variantUomId;
   final int variantId;
@@ -26,6 +27,11 @@ class PosCatalogItem {
   /// Shown on the till's product card and used by its category chips.
   final String categoryName;
   final String brandName;
+
+  /// Where the shop keeps this product: the SERVER's pick-up point (Phase 5 B4).
+  /// Empty when the row came from a server that does not send it, and the till
+  /// then shows no badge rather than an invented one.
+  final String storedAtName;
 
   /// The SERVER's whole-number flag for this selling unit (Phase 1d).
   ///
@@ -58,6 +64,7 @@ class PosCartLine {
     required this.unit,
     required this.unitPrice,
     required this.availableQuantity,
+    this.storedAtName = '',
   });
   final int variantUomId;
   final String productName;
@@ -66,6 +73,13 @@ class PosCartLine {
   final String unit;
   final double unitPrice;
   final double availableQuantity;
+
+  /// The pick-up point the receipt prints as "Pick up at …" (Phase 5 B4).
+  ///
+  /// Empty means "the server did not say" — a legacy sale line, a held cart whose
+  /// catalogue row is gone. The receipt then omits the caption rather than
+  /// guessing a place the customer was never told.
+  final String storedAtName;
   double get total => quantity * unitPrice;
   PosCartLine copyWith({double? quantity}) => PosCartLine(
     variantUomId: variantUomId,
@@ -75,6 +89,7 @@ class PosCartLine {
     unit: unit,
     unitPrice: unitPrice,
     availableQuantity: availableQuantity,
+    storedAtName: storedAtName,
   );
   Map<String, dynamic> toCheckoutJson() => {
     'variant_id': variantUomId,
@@ -100,6 +115,7 @@ class PosReceipt {
     this.vatRegistered = true,
     this.vatRate = 0,
     this.changeGiven = 0,
+    this.deliveryFee = 0,
   });
   final String reference;
   final String officialReceiptNumber;
@@ -158,6 +174,11 @@ class PosReceipt {
   /// net it charged and every tender it stored. The till used to derive this itself
   /// and printed 0.00 for a 15.00 change on a split sale.
   final double changeGiven;
+
+  /// The server's "Delivery charge" (Phase 5 B3, decision 18): part of [total],
+  /// added AFTER the discount and never discounted. Zero for a sale the customer
+  /// carried out, and the receipt then prints no line.
+  final double deliveryFee;
 
   /// What the customer still owes after the money in hand: the utang the pending
   /// cheque is holding open, or the shortfall on an underpaid sale.

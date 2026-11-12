@@ -106,12 +106,20 @@ void main() {
             id: 6,
             variants: [
               // 3 on hand, threshold 20, ceiling 50 → suggested 47.
+              //
+              // The one selling unit carries id 501 on purpose: it is NOT the
+              // variant id (8) and not its base uom id (1), so the POST assertion
+              // below proves the dialog sent the variant's REAL base selling row
+              // (B1) instead of echoing a number that happens to match.
               variant(
                 id: 8,
                 productId: 6,
                 name: '20A 1-pole',
                 threshold: 20,
                 maxStockLevel: 50,
+                sellingUoms: [
+                  variantUom(id: 501, variantId: 8, uomId: 1, uomCode: 'PC'),
+                ],
               ),
             ],
           ),
@@ -184,7 +192,14 @@ void main() {
     expect(suppliers.createdOrders.single['supplier'], 3);
     expect(suppliers.placedOrders, [55]);
     expect(suppliers.createdOrders.single['items'], [
-      {'variant': 8, 'ordered_qty': 47.0, 'unit_cost': 235.0},
+      // B1: the line carries the variant's selected selling unit, and the
+      // fixture's base unit id (501) is neither the variant id nor the uom id.
+      {
+        'variant': 8,
+        'variant_uom': 501,
+        'ordered_qty': 47.0,
+        'unit_cost': 235.0,
+      },
     ]);
   });
 

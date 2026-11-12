@@ -7,16 +7,19 @@ import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/product_writes.dart';
+import 'package:client/data/models/storage_location.dart';
 import 'package:client/data/models/system_alert.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/repositories/catalogue_repository.dart';
 import 'package:client/data/repositories/inventory_repository.dart';
 import 'package:client/data/repositories/products_repository.dart';
+import 'package:client/data/repositories/storage_location_repository.dart';
 import 'package:client/data/services/catalogue_service.dart';
 import 'package:client/data/services/catalogue_assembler.dart';
 import 'package:client/data/services/inventory_service.dart';
 import 'package:client/data/services/location_hint_store.dart';
 import 'package:client/data/services/products_service.dart';
+import 'package:client/data/services/storage_location_service.dart';
 import 'package:flutter/foundation.dart' show ChangeNotifier, visibleForTesting;
 
 /// The catalogue, the stock and the server's alerts, in one store.
@@ -33,9 +36,11 @@ class InventoryViewmodel extends ChangeNotifier {
     ProductsRepository? products,
     InventoryRepository? inventory,
     CatalogueRepository? catalogue,
+    StorageLocationRepository? storageLocations,
   }) : _catalogue = products ?? ProductsRepository(ProductsService()),
        _inventory = inventory ?? InventoryRepository(InventoryService()),
-       _catalogueLists = catalogue ?? CatalogueRepository();
+       _catalogueLists = catalogue ?? CatalogueRepository(),
+       _storageLocationRepo = storageLocations ?? StorageLocationRepository();
 
   /// A store holding a snapshot, for TESTS ONLY (no network, no widget tree).
   ///
@@ -55,15 +60,19 @@ class InventoryViewmodel extends ChangeNotifier {
     ProductsRepository? catalogue,
     InventoryRepository? inventory,
     CatalogueRepository? catalogueLists,
+    StorageLocationRepository? storageLocations,
+    List<StorageLocation> locations = const [],
   }) : _catalogue = catalogue ?? ProductsRepository(ProductsService()),
        _inventory = inventory ?? InventoryRepository(InventoryService()),
-       _catalogueLists = catalogueLists ?? CatalogueRepository() {
+       _catalogueLists = catalogueLists ?? CatalogueRepository(),
+       _storageLocationRepo = storageLocations ?? StorageLocationRepository() {
     _products.addAll(products);
     _batches.addAll(batches);
     _alerts.addAll(alerts);
     _categories.addAll(categories);
     _brands.addAll(brands);
     _units.addAll(units);
+    _storageLocations.addAll(locations);
     _hasLoaded = true;
   }
 
@@ -86,6 +95,21 @@ class InventoryViewmodel extends ChangeNotifier {
   /// cannot be created without.
   final CatalogueRepository _catalogueLists;
 
+  /// Where a product is kept (Phase 5 B4/F4). A SERVER list, unlike
+  /// [LocationHintStore]: the till and the receipt print it, so every device must
+  /// see the same names. Injected so a test can answer without a network.
+  final StorageLocationRepository _storageLocationRepo;
+
+  final List<StorageLocation> _storageLocations = [];
+
+  /// Why the location list could not be read, or null.
+  ///
+  /// Kept APART from [loadError] on purpose: a store whose location read failed
+  /// still has a usable catalogue, and the product form needs to know that the
+  /// picker is untrustworthy rather than blank it silently and submit the
+  /// server's default for a product nobody chose a place for.
+  String? _storageLocationError;
+
   final List<SystemAlert> _alerts = [];
   final List<StockAdjustment> _adjustments = [];
 
@@ -104,6 +128,17 @@ class InventoryViewmodel extends ChangeNotifier {
   List<Product> get products => List.unmodifiable(_products);
   List<Brand> get brands => List.unmodifiable(_brands);
   List<UnitOfMeasure> get units => List.unmodifiable(_units);
+
+  /// The shop's storage locations, AS THE SERVER ANSWERED (Phase 5 B4).
+  ///
+  /// Every signed-in role may read this; an Admin also receives the deactivated
+  /// ones. The product form offers the ACTIVE rows and keeps the product's own
+  /// (possibly inactive) location visible; see [ProductsFormDialog].
+  List<StorageLocation> get storageLocations =>
+      List.unmodifiable(_storageLocations);
+
+  /// The location read's failure, or null. See [_storageLocationError].
+  String? get storageLocationError => _storageLocationError;
 
   /// Every live batch. The dashboard values inventory from these
   /// (on-hand x landed cost), the same lots FIFO deducts from.
@@ -194,6 +229,11 @@ class InventoryViewmodel extends ChangeNotifier {
       final categories = await _catalogueLists.fetchCategories();
       final brands = await _catalogueLists.fetchBrands();
       final units = await _catalogueLists.fetchUnits();
+      // Phase 5 B4/F4: the shop's storage locations. Read AFTER the catalogue so a
+      // failure here cannot hide the products; the error is kept separately (see
+      // [_storageLocationError]) because a product form must know its picker is
+      // untrustworthy rather than offer an empty list that looks like "none exist".
+      await _loadStorageLocations();
       _products
         ..clear()
         ..addAll(snapshot.products);
@@ -250,6 +290,34 @@ class InventoryViewmodel extends ChangeNotifier {
   // real product row that the screen must show rather than hide behind a
   // "could not add product" message the user would retry into a duplicate.
   // ---------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------
+  // Storage locations (Phase 5 B4/F4)
+  // ---------------------------------------------------------------------
+
+  /// Re-reads the shop's pick-up points. A failure is recorded, never thrown: the
+  /// catalogue around it is still usable.
+  Future<void> _loadStorageLocations() async {
+    try {
+      final locations = await _storageLocationRepo.fetchAll();
+      _storageLocations
+        ..clear()
+        ..addAll(locations);
+      _storageLocationError = null;
+    } on StorageLocationServiceException catch (error) {
+      _storageLocationError = error.message;
+    } catch (_) {
+      // Any other failure (a malformed row, an uninitialised client) is still a
+      // failed READ of the locations: the catalogue around it must keep loading.
+      _storageLocationError = 'The storage locations could not be read.';
+    }
+  }
+
+  /// Reloads the locations on their own, for the Admin page after a write.
+  Future<void> reloadStorageLocations() async {
+    await _loadStorageLocations();
+    notifyListeners();
+  }
 
   /// Creates the catalog item (product → variant → factor-1 selling unit, then
   /// every extra selling unit).

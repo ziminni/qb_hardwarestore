@@ -1,3 +1,4 @@
+import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/sale_discount.dart';
 import 'package:client/data/services/pos_service.dart';
 
@@ -25,6 +26,7 @@ class PosRepository {
     String? idempotencyKey,
     PosDiscount? discount,
     String? discountApproval,
+    DeliveryDraft? delivery,
   }) => service.checkout(
     customerId: customerId,
     items: items,
@@ -33,6 +35,7 @@ class PosRepository {
     idempotencyKey: idempotencyKey,
     discount: discount,
     discountApproval: discountApproval,
+    delivery: delivery,
   );
 
   /// The customer id an anonymous sale must still send (decision 06 section 2).

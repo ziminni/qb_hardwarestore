@@ -9,7 +9,7 @@
 | 1c | Payment receipts from CPMS: PM uploads amount + reference + photo, Store Manager approves (posted to project utang, partial allowed) or declines | ✅ [Paying project utang with an uploaded receipt](./decisions/12-payment-receipts.md) · [ ] Receipt storage and allocation | [ ] Pending |
 | 1d | Design sync with teammate `ui/frontend-progress` + real product packaging units: Add product "How is this product sold?", mock tracking removed, storage location back, chosen look items | ✅ [How a product is sold](./decisions/15-product-packaging-units.md) · ✅ [Selling units after creation, unit list and whole numbers](./decisions/16-units-on-existing-products.md) · ✅ [Which teammate look items to adopt](./decisions/17-teammate-look-adoption.md) | ✅ Done 2026-11-11 ([plan](./phase-1d-plan.md), closed with accepted limits) |
 | 4 | Front counter (panel feedback): VAT breakdown, capped discount, split + cheque payments, table pager, barcode masterlist, area switcher for multi-role accounts, role flow docs | ✅ [Panel feedback 2026-11](./decisions/18-panel-feedback-2026-11.md) | ✅ Done 2026-11-11 — owner closed with five Minors deferred; committed `a94d464`, reviewed and isolated-QA passed; fresh backend 882 tests and check/drift passed ([plan](./phase-4-plan.md), [handoff](../../docs/sessions/2026-11-11-pos-evolution-phase-4-build.md)) |
-| 5 | Back office (panel feedback): PO by package, supplier payables, customer delivery + fee, bodega "stored at" | ✅ [Panel feedback 2026-11](./decisions/18-panel-feedback-2026-11.md) | [ ] Pending ([plan](./phase-5-plan.md)) |
+| 5 | Back office (panel feedback): PO by package, supplier payables, customer delivery + fee, bodega "stored at" | ✅ [Panel feedback 2026-11](./decisions/18-panel-feedback-2026-11.md) · ✅ Create-only sales-order form (owner 2026-11-12) | ✅ Done — owner-closed 2026-11-12; editable catalogue-default prices confirmed; BAG fix independently approved, widget regression RED→GREEN at 760/1.3. Fresh gates: Flutter 1987 / 241 skipped, goldens 241 unchanged, backend 1027, analyzer/check/drift clean. Prepared for authorized local commit, not yet performed; accepted limits unchanged ([plan](./phase-5-plan.md)) |
 | 2 | Multiple roles per account: sidebar and dashboard built from the union of the account's permissions (area-switcher lite moved into Phase 4) | fog | [ ] Pending |
 | 3 | Excel import/export: template export, edit, re-import; fresh-store bulk load of current materials | fog | [ ] Pending |
 
@@ -21,7 +21,7 @@ CPMS project requests receive a store answer before release; project debt and re
 
 - **Server is the trust boundary** (audit-remediation invariant): role checks, import validation and stock rules live in Django, Flutter is UX.
 - **Proof rule (AGENTS.md):** a test counts only after it fails without the fix.
-- **Multi-role head start (verified 2026-11-03):** `has_role` already accepts any of a user's groups (`apps/users/permissions.py:73-84`); only `UserSerializer.get_role` reports the first group (`apps/users/serializers.py:34-51`) and the Flutter shell routes on that single role (`flutter/lib/routes/routes.dart` `redirectFor`).
+- **Multi-role baseline superseded by Phase 4:** recognized `roles[]` now drives the area picker/switcher while legacy `role` remains compatible. A merged sidebar/dashboard is still unbuilt; see the Phase 4 plan and system atlas.
 - **Excel today:** no Excel/CSV package in `flutter/pubspec.yaml` or backend requirements; no import/export endpoint.
 - **CPMS is a separate repo** (`../qb_project_management_system/`). Phase 1 defines the POS side and a contract doc; editing CPMS needs the product owner to lift that boundary explicitly.
 
@@ -48,12 +48,13 @@ CPMS project requests receive a store answer before release; project debt and re
 
 ## Active Frontier
 
+Phase 5 ✅ Done, owner-closed; BAG validation-text fix reviewed and freshly widget-verified (not fresh browser QA). Prepared for authorized local commit; no commit yet performed. No next phase, dev startup/migration/reset or push authorized. Printing/scaling and other accepted verification limits remain unverified.
 
 - [ ] Receipt storage and allocation (Phase 1c) — grill + research: image storage and size/type limits, which ledger rows a payment applies to, overpayment, what CPMS sees after a decline
 
 ## Blocked
 
-_(none yet)_
+_(none)_
 
 ## Fog of War
 
@@ -64,4 +65,4 @@ _(none yet)_
 ## Out of Scope
 
 - Editing the CPMS repo until the product owner lifts the boundary (reaffirmed 2026-11-06). CPMS-side: foreman free-text requests, PM matching, QR printing, notifying PM/foreman/client, the read-only **client** user.
-- Camera scanning, payment gateways, discounts/VAT (unchanged from audit-remediation).
+- Camera scanning and payment gateways. Discounts/VAT are implemented in Phase 4, not excluded.

@@ -108,11 +108,19 @@ void main() {
     final labels = _labels(SalesSkeletonLayout.navigationSections);
     expect(labels.indexOf('Project requests'), 8);
     expect(labels.indexOf('Staff'), 7, reason: 'no earlier index may move');
-    expect(labels, hasLength(9));
+    // Phase 5 F2 appended Payables at 9 and F3 appended Deliveries at 10, so
+    // the queue is no longer last and the list is one longer each time.
+    // Neither earlier index moved.
+    expect(labels, hasLength(11));
+    expect(labels[9], 'Payables');
+    expect(labels[10], 'Deliveries');
     expect(
-      SalesSkeletonLayout.navigationSections.last.label,
-      'Projects',
-      reason: 'the entry gets its own section rather than renumbering the rest',
+      SalesSkeletonLayout.navigationSections
+          .map((section) => section.label)
+          .toList(),
+      contains('Projects'),
+      reason:
+          'the entry keeps its own section rather than renumbering the rest',
     );
     expect(SalesSkeletonLayout.projectRequestsIndex, 8);
   });
@@ -127,9 +135,27 @@ void main() {
       'Audit logs',
       'Settings',
       'Project requests',
+      'Payables',
+      'Deliveries',
+      'Storage locations',
     ];
     expect(AdminSkeletonLayout.projectRequestsIndex, 7);
-    expect(AdminSkeletonLayout.groups.last, ('Projects', 7));
+    // Phase 5 F2/F3/F4 appended Payables, Deliveries and Storage locations, each
+    // in a group of its own, so Projects is now fourth from the end; its index is
+    // untouched.
+    expect(AdminSkeletonLayout.groups[AdminSkeletonLayout.groups.length - 4], (
+      'Projects',
+      7,
+    ));
+    expect(AdminSkeletonLayout.groups[AdminSkeletonLayout.groups.length - 3], (
+      'Payables',
+      8,
+    ));
+    expect(AdminSkeletonLayout.groups[AdminSkeletonLayout.groups.length - 2], (
+      'Deliveries',
+      9,
+    ));
+    expect(AdminSkeletonLayout.groups.last, ('Locations', 10));
     // The group slicing is what actually renders the rows; a restated label list
     // that the layout does not produce would prove nothing.
     final source = File(

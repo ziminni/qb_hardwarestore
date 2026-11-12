@@ -7,6 +7,7 @@ import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/theme/app_theme.dart';
 import 'package:client/data/models/catalogue_option.dart';
 import 'package:client/data/models/category.dart';
+import 'package:client/data/models/storage_location.dart';
 import 'package:client/features/products/widgets/products_form_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -109,6 +110,11 @@ void main() {
       await tester.ensureVisible(find.text('Basic information'));
       await tester.pumpAndSettle();
 
+      // Phase 5 F4: the page hands the dialog the server's pick-up points, so
+      // the required "Stored at" picker opens on a real Store. A harness with
+      // none would capture a blank, disabled field that cannot be submitted.
+      _expectStoreSelected(tester);
+
       await expectLater(
         find.byKey(goldenKey),
         matchesGoldenFile(
@@ -123,6 +129,29 @@ void main() {
 }
 
 const goldenKey = ValueKey('AddProductGolden');
+
+/// The shop's pick-up points as the API returns them (Phase 5 F4). The ids are
+/// opaque: the dialog picks its default by the NAME `Store`, never by list order
+/// or a hardcoded primary key.
+const _storageLocations = [
+  StorageLocation(id: 4, name: 'Store'),
+  StorageLocation(id: 9, name: 'Bodega'),
+];
+
+/// The picker must be enabled and already sitting on Store.
+void _expectStoreSelected(WidgetTester tester) {
+  final finder = find.byKey(const ValueKey('stored-at-picker'));
+  expect(
+    tester.widget<DropdownButtonFormField<int>>(finder).onChanged,
+    isNotNull,
+    reason: 'the fixture must pass the locations the page passes',
+  );
+  expect(
+    tester.state<FormFieldState<int>>(finder).value,
+    _storageLocations.first.id,
+    reason: 'a new product defaults to the row named Store',
+  );
+}
 
 /// The page behind the dialog: a button that opens it, so the capture is a real
 /// dialog route on its scrim rather than a floating widget.
@@ -143,6 +172,7 @@ class _FormHostState extends State<_FormHost> {
         builder: (_) => const ProductsFormDialog(
           categories: [Category(id: 1, name: 'Cement')],
           brands: [Brand(id: 1, name: 'Holcim')],
+          storageLocations: _storageLocations,
           units: [
             UnitOfMeasure(id: 1, code: 'KG', name: 'Kilogram'),
             UnitOfMeasure(id: 2, code: 'BAG', name: 'Bag', isWhole: true),

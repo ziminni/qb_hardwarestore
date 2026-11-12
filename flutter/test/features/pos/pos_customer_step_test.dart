@@ -12,6 +12,7 @@ import 'dart:async';
 //   * the sale goes to the SELECTED customer, not to whatever submit() used to resolve.
 
 import 'package:client/data/models/customer.dart';
+import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/repositories/customer_repository.dart';
 import 'package:client/data/repositories/pos_repository.dart';
@@ -45,6 +46,7 @@ class _StubPosRepository extends PosRepository {
     String? idempotencyKey,
     PosDiscount? discount,
     String? discountApproval,
+    DeliveryDraft? delivery,
   }) async {
     final boom = failure;
     if (boom != null) throw boom;

@@ -51,6 +51,21 @@ class ReceivingViewmodel extends ChangeNotifier {
 
   PurchaseOrderRecord? get selected => _selected;
 
+  /// The PO line a receipt line came from, when this screen has the order
+  /// loaded.
+  ///
+  /// `GoodsReceiptItemSerializer` sends no unit, so a receipt line's quantity can
+  /// only be named in its PO unit by reading the order it belongs to. Null means
+  /// "not here", and the caller then shows the bare number instead of guessing.
+  PurchaseOrderItem? itemFor(int poItemId) {
+    for (final order in [?_selected, ..._orders]) {
+      for (final item in order.items) {
+        if (item.id == poItemId) return item;
+      }
+    }
+    return null;
+  }
+
   /// Entered received quantity for a PO line; unset means nothing entered yet.
   double? qtyFor(int poItemId) => _quantities[poItemId];
 

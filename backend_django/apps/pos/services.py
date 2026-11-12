@@ -32,10 +32,13 @@ from common.exceptions import refuse_fractional_whole_unit
 
 from .exceptions import (
     CreditLimitExceeded,
+    DeliveryReasonRequired,
+    DeliveryTransitionInvalid,
     DiscountApprovalInvalid,
     DiscountOverCap,
     DiscountReasonRequired,
     IdempotencyKeyReused,
+    InvalidDelivery,
     InvalidDiscount,
     InvalidIdempotencyKey,
     InvalidSale,
@@ -43,6 +46,7 @@ from .exceptions import (
 )
 from .models import (
     Customer,
+    Delivery,
     DiscountApproval,
     DocumentCounter,
     OfficialReceipt,
@@ -93,6 +97,24 @@ MAX_DISCOUNT_REASON_LENGTH = 255
 # A discount approval is a manager standing at the till, not a standing permission: five
 # minutes is long enough to finish the sale in front of them and short enough that a
 # forgot token cannot be spent on tomorrow's cart.
+# Phase 5 task B3 (decision 18): the delivery state machine, written as DATA so a jump
+# that is not in here is impossible rather than merely unhandled. Terminal states
+# (DELIVERED, FAILED) are absent on purpose - nothing moves out of them.
+DELIVERY_TRANSITIONS = {
+    (Delivery.Status.SCHEDULED, "start"): Delivery.Status.OUT_FOR_DELIVERY,
+    (Delivery.Status.SCHEDULED, "fail"): Delivery.Status.FAILED,
+    (Delivery.Status.OUT_FOR_DELIVERY, "deliver"): Delivery.Status.DELIVERED,
+    (Delivery.Status.OUT_FOR_DELIVERY, "fail"): Delivery.Status.FAILED,
+}
+
+# Same reason as MAX_RETURN_REASON_LENGTH: long enough for what actually happened, short
+# enough that the column (255) and the audit trail stay a note.
+MAX_DELIVERY_REASON_LENGTH = 255
+# The delivery slip's free-text fields, sized to the columns that hold them.
+MAX_DELIVERY_ADDRESS_LENGTH = 255
+MAX_DELIVERY_CONTACT_LENGTH = 150
+MAX_DELIVERY_PHONE_LENGTH = 50
+
 DISCOUNT_APPROVAL_TTL = timedelta(minutes=5)
 # Salt for the signature, so a token minted here cannot be confused with any other
 # signed value this app might hand out.
@@ -589,6 +611,113 @@ def _outstanding_credit(customer_id):
     return total or Decimal(0)
 
 
+def _validated_delivery(data):
+    """Resolve the optional `delivery` object on a checkout or an order.
+
+    Decision 18: a delivery is a trip somebody has to MAKE, so the slip is refused until
+    it says where (address), who (contact name and phone) and when (scheduled date). The
+    fee is money the customer pays, VAT-inclusive and priced from no stock, so it must be
+    a non-negative amount of whole centavos - `10.005` is refused rather than rounded,
+    because the till would otherwise show a charge the customer never agreed to.
+
+    Returns a dict of ready-to-write field values, or None when no delivery was asked
+    for. Called BEFORE the sale's atomic block, so a bad slip leaves no sale, no moved
+    stock and no fee behind.
+    """
+    from django.utils.dateparse import parse_date
+
+    if data is None:
+        return None
+    if not isinstance(data, dict):
+        raise InvalidDelivery("delivery must be an object.")
+
+    def _text(field, label, limit):
+        value = data.get(field)
+        value = value.strip() if isinstance(value, str) else ""
+        if not value:
+            raise InvalidDelivery(f"A delivery needs {label}.")
+        if len(value) > limit:
+            raise InvalidDelivery(f"{label.capitalize()} is too long (max {limit}).")
+        return value
+
+    address = _text("address", "an address", MAX_DELIVERY_ADDRESS_LENGTH)
+    contact_name = _text("contact_name", "a contact name", MAX_DELIVERY_CONTACT_LENGTH)
+    contact_phone = _text("contact_phone", "a contact phone", MAX_DELIVERY_PHONE_LENGTH)
+
+    raw_date = data.get("scheduled_date")
+    scheduled_date = parse_date(str(raw_date).strip()) if raw_date else None
+    if scheduled_date is None:
+        raise InvalidDelivery(
+            "A delivery needs a scheduled date in YYYY-MM-DD (the day it goes out)."
+        )
+
+    raw_fee = data.get("fee", 0)
+    try:
+        fee = Decimal(str(raw_fee or 0))
+    except (InvalidOperation, TypeError, ValueError):
+        raise InvalidDelivery("The delivery charge must be a number.") from None
+    if not fee.is_finite():
+        raise InvalidDelivery("The delivery charge must be a finite number.")
+    if fee < 0:
+        raise InvalidDelivery("The delivery charge cannot be negative.")
+    if fee != fee.quantize(CENT):
+        raise InvalidDelivery(
+            "The delivery charge must be in whole centavos (two decimal places)."
+        )
+
+    return {
+        "address": address,
+        "contact_name": contact_name,
+        "contact_phone": contact_phone,
+        "scheduled_date": scheduled_date,
+        "fee": _money_round(fee),
+    }
+
+
+def create_delivery(*, data, created_by, sale=None, sales_order=None):
+    """Write ONE delivery row for exactly one document (B3, decision 18).
+
+    The exclusive-or is the model's own `CheckConstraint`, so this constructor is simply
+    the one place that fills the slip. It is called INSIDE the sale's atomic block (and
+    inside the order's), which is what makes "a refused sale leaves no delivery" true
+    without a cleanup path.
+    """
+    fields = _validated_delivery(data)
+    if fields is None:
+        return None
+    return Delivery.objects.create(
+        sale=sale, sales_order=sales_order, created_by=created_by, **fields
+    )
+
+
+def transition_delivery(*, delivery_id, action, reason=""):
+    """Move ONE delivery forward, or refuse (B3, decision 18).
+
+    The row is locked and RE-READ under the lock, so two role-holders pressing `start`
+    together serialize: the loser sees `OUT_FOR_DELIVERY` and is refused with a 409
+    instead of writing a second audit row and the same status twice.
+
+    `FAILED` needs its reason stored with it (the trip happened and did not land the
+    goods); every other target keeps the field empty, so a row that was never failed
+    cannot read as if it was.
+    """
+    with transaction.atomic():
+        delivery = Delivery.objects.select_for_update().get(pk=delivery_id)
+        current = delivery.status
+        target = DELIVERY_TRANSITIONS.get((current, action))
+        if target is None:
+            raise DeliveryTransitionInvalid(current, action)
+        if target == Delivery.Status.FAILED:
+            reason = reason.strip() if isinstance(reason, str) else ""
+            if not reason or len(reason) > MAX_DELIVERY_REASON_LENGTH:
+                raise DeliveryReasonRequired()
+        delivery.status = target
+        if target == Delivery.Status.FAILED:
+            delivery.failure_reason = reason
+        delivery.save(update_fields=["status", "failure_reason", "updated_at"])
+    return delivery
+
+
 def process_sale(
     *,
     customer_id,
@@ -600,6 +729,7 @@ def process_sale(
     request_hash="",
     discount_data=None,
     discount_approval=None,
+    delivery_data=None,
 ):
     """Process a complete walk-in sale or requisition release.
 
@@ -617,6 +747,16 @@ def process_sale(
     `InvalidSale` is raised before the atomic block: a refused cart must leave no
     transaction, no receipt, no payment and no moved stock, and raising before the first
     `create()` makes that true by construction rather than by rollback.
+
+    Phase 5 task B3 (decision 18): `delivery_data` is the optional `delivery` object
+    (address, contact name/phone, scheduled date, fee). The fee is a "Delivery charge":
+    VAT-INCLUSIVE, priced from no stock, and charged ON TOP of the goods net. It is
+    deliberately OUTSIDE the discount - `discount_amount` and its cap are computed on the
+    goods gross, so a percentage never eats the delivery charge - and it is part of
+    `grand_total`, which is what makes VAT, change, the utang shortfall and the cheque
+    check all measure the money the customer actually owes. The charge is stored on the
+    sale (`delivery_fee`) as well as on the `Delivery` row, because receipts, the
+    Z-reading and the return arithmetic read the SALE.
 
     `idempotency_key` / `request_hash` are the client's retry token and the fingerprint of
     the body that carried it (decision 09 item 2). Stored ON the row at creation, because
@@ -640,6 +780,10 @@ def process_sale(
         sum((qty * vuom.default_selling_price for vuom, qty in lines), Decimal(0))
     )
     discount_info = _validated_discount(discount_data, gross=gross)
+    # Phase 5 task B3: the slip is validated HERE, with the rest of the payload, so a
+    # delivery missing its address or carrying a negative charge leaves no sale behind.
+    delivery_fields = _validated_delivery(delivery_data)
+    delivery_fee = Decimal(0) if delivery_fields is None else delivery_fields["fee"]
 
     with transaction.atomic():
         # Decision 06, ruling 2: a sale belongs to a shift, and there is no such thing as
@@ -772,14 +916,34 @@ def process_sale(
         # Decision 18: shelf prices INCLUDE VAT, so the tax comes out of the net that is
         # actually being paid - gross minus the discount, not the gross the customer was
         # never charged. `gross` was rounded once above, which makes the net exact.
-        grand_total = _money_round(gross - discount_amount)
+        goods_net = _money_round(gross - discount_amount)
+        # Phase 5 task B3 (decision 18): the delivery charge joins the total AFTER the
+        # discount, so it is never discounted, and the VAT split is taken out of the sum
+        # the customer is actually paying - which is what the receipt has to add up to.
+        grand_total = _money_round(goods_net + delivery_fee)
         vatable_sales, vat_amount = vat_split(
             grand_total, rate=store.vat_rate, registered=store.vat_registered
         )
         txn.vatable_sales = vatable_sales
         txn.vat_amount = vat_amount
+        txn.delivery_fee = delivery_fee
         txn.grand_total = grand_total
-        txn.save(update_fields=["vatable_sales", "vat_amount", "grand_total"])
+        txn.save(
+            update_fields=[
+                "vatable_sales",
+                "vat_amount",
+                "delivery_fee",
+                "grand_total",
+            ]
+        )
+
+        if delivery_fields is not None:
+            # Inside THIS atomic block, so a sale that fails later (change, shortfall,
+            # credit limit) takes the delivery with it - a slip for a sale that never
+            # happened would schedule a trip nobody ordered.
+            txn.delivery = create_delivery(
+                data=delivery_data, created_by=cashier, sale=txn
+            )
 
         # The approval is spent by THIS sale, inside its own transaction: a sale that
         # fails later (short stock, credit limit) rolls the stamp back and the manager's
@@ -1304,7 +1468,12 @@ def _return_net_share(*, original, returned_gross):
         ]
         or Decimal(0)
     )
-    sale_net = _money_round(original.grand_total)
+    # Phase 5 task B3 (decision 18): the delivery charge is GOODS-SEPARATE, so a return
+    # refunds the goods share only. A full return of a delivered sale gives back the
+    # goods net and NOT the fee - the trip was still made - and a refund of the fee
+    # itself is out of scope for this task. Subtracting it here is what keeps the share
+    # and the cumulative cap on the same goods-only basis.
+    sale_net = _money_round(original.grand_total - original.delivery_fee)
     if sale_gross <= 0 or sale_net <= 0:
         # A fully discounted sale (or a zero-priced one) refunds nothing: the customer
         # paid nothing for the goods coming back.

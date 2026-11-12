@@ -1,4 +1,5 @@
 import 'package:client/data/models/held_cart.dart';
+import 'package:client/data/models/delivery.dart';
 import 'package:client/data/services/held_cart_service.dart';
 import 'package:client/data/models/sale_discount.dart';
 import 'package:client/data/services/pos_service.dart';
@@ -57,6 +58,7 @@ class _StubHeldCarts extends HeldCartService {
     String? idempotencyKey,
     PosDiscount? discount,
     String? discountApproval,
+    DeliveryDraft? delivery,
   }) async {
     if (failComplete != null) throw failComplete!;
     completed.add(cartId);

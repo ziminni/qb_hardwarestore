@@ -16,6 +16,7 @@ class Supplier {
     required this.email,
     required this.address,
     this.isActive = true,
+    this.termsDays = 0,
   });
   final int id;
   final String companyName;
@@ -24,6 +25,15 @@ class Supplier {
   final String email;
   final String address;
   final bool isActive;
+
+  /// How many days after the goods arrive this supplier's bill falls due
+  /// (Phase 5 B2). 0 means "due on receipt", which is the server's default, so
+  /// an absent field is read as 0 rather than as an unknown.
+  ///
+  /// Editing it re-dates NO existing bill: each bill snapshots the terms it was
+  /// issued under.
+  final int termsDays;
+
   Supplier copyWith({
     String? companyName,
     String? contactPerson,
@@ -31,6 +41,7 @@ class Supplier {
     String? email,
     String? address,
     bool? isActive,
+    int? termsDays,
   }) => Supplier(
     id: id,
     companyName: companyName ?? this.companyName,
@@ -39,6 +50,7 @@ class Supplier {
     email: email ?? this.email,
     address: address ?? this.address,
     isActive: isActive ?? this.isActive,
+    termsDays: termsDays ?? this.termsDays,
   );
 
   factory Supplier.fromJson(Map<String, dynamic> json) => Supplier(
@@ -49,7 +61,19 @@ class Supplier {
     email: json['email'] as String? ?? '',
     address: json['address'] as String? ?? '',
     isActive: boolFieldOr(json, 'is_active', or: true),
+    // A server that predates terms sends nothing; a negative value is a
+    // contract break, not a payment window.
+    termsDays: _termsDays(json['terms_days']),
   );
+
+  static int _termsDays(Object? value) {
+    if (value == null) return 0;
+    final parsed = value is int ? value : int.tryParse(value.toString());
+    if (parsed == null || parsed < 0) {
+      throw FormatException('Field "terms_days" is not a day count: $value');
+    }
+    return parsed;
+  }
 }
 
 enum PurchaseStatus {
@@ -71,6 +95,7 @@ class PurchaseItem {
     required this.quantity,
     required this.receivedQuantity,
     required this.unitCost,
+    this.uomCode = '',
   });
   final String productName;
   final String variantName;
@@ -78,15 +103,22 @@ class PurchaseItem {
   final double quantity;
   final double receivedQuantity;
   final double unitCost;
+
+  /// The selling unit these counts are in (Phase 5 B1, decision 18). Empty on a
+  /// line from a server that predates units: the numbers are then base units, so
+  /// no unit word is invented for them.
+  final String uomCode;
+
   double get subtotal => quantity * unitCost;
 
-  /// One PO line from `POItemSerializer` (decision D-02).
+  /// One PO line from `POItemSerializer` (decision D-02, Phase 5 B1).
   ///
-  /// The serializer sends `id, po, variant, variant_name, ordered_qty,
-  /// unit_cost, received_qty` — it carries **no product name and no SKU**, only
-  /// the variant's name. Those two fields therefore come back empty and the
-  /// details dialog renders the variant name alone. Inventing a product name
-  /// out of the variant name would be a guess shown as if the server said it.
+  /// The serializer sends `id, po, variant, variant_name, variant_uom, uom_code,
+  /// conversion_factor, uom_is_whole, ordered_qty, unit_cost, received_qty` — it
+  /// carries **no product name and no SKU**, only the variant's name. Those two
+  /// fields therefore come back empty and the details dialog renders the variant
+  /// name alone. Inventing a product name out of the variant name would be a
+  /// guess shown as if the server said it.
   factory PurchaseItem.fromJson(Map<String, dynamic> json) => PurchaseItem(
     productName: '',
     variantName: stringField(json, 'variant_name'),
@@ -94,6 +126,7 @@ class PurchaseItem {
     quantity: decimalField(json, 'ordered_qty'),
     receivedQuantity: decimalField(json, 'received_qty'),
     unitCost: decimalField(json, 'unit_cost'),
+    uomCode: json['uom_code'] as String? ?? '',
   );
 }
 
@@ -123,6 +156,14 @@ class PurchaseOrder {
     required this.createdBy,
     required this.notes,
     required this.items,
+    this.discountAmount = 0,
+    this.vatInclusive = true,
+    this.vatRate,
+    this.grossAmount,
+    this.netAmount,
+    this.vatableAmount,
+    this.vatAmount,
+    this.serverTotalAmount,
   });
   final int id;
   final int supplierId;
@@ -133,6 +174,32 @@ class PurchaseOrder {
   final String createdBy;
   final String notes;
   final List<PurchaseItem> items;
+
+  // Phase 5 B2 money on the header (decision 18). The server computes all of
+  // it: the discount it accepted, the VAT rate snapshot, and the split. Every
+  // figure is null on a payload from a server that predates B2, which is why
+  // [hasServerTotals] exists instead of defaulting them to zero.
+  final double discountAmount;
+
+  /// Whether the line prices already contain VAT (the server's default).
+  final bool vatInclusive;
+
+  /// The rate snapshot taken from `store-settings` when the order was created;
+  /// 0 for a non-VAT shop, null on a pre-B2 order.
+  final double? vatRate;
+  final double? grossAmount;
+  final double? netAmount;
+  final double? vatableAmount;
+  final double? vatAmount;
+  final double? serverTotalAmount;
+
+  /// True when the payload carried the server's figures, so the details dialog
+  /// shows them instead of re-adding the lines.
+  bool get hasServerTotals => serverTotalAmount != null || grossAmount != null;
+
+  /// The total to SHOW: the server's when it said, the line sum otherwise.
+  double get displayTotal => serverTotalAmount ?? total;
+
   double get total => items.fold(0, (sum, item) => sum + item.subtotal);
   double get orderedQuantity =>
       items.fold(0, (sum, item) => sum + item.quantity);
@@ -164,6 +231,14 @@ class PurchaseOrder {
     createdBy: json['created_by_name'] as String? ?? '',
     notes: json['notes'] as String? ?? '',
     items: nestedList(json, 'items', PurchaseItem.fromJson),
+    discountAmount: _moneyOrZero(json, 'discount_amount'),
+    vatInclusive: boolFieldOr(json, 'vat_inclusive', or: true),
+    vatRate: _moneyOrNull(json, 'vat_rate'),
+    grossAmount: _moneyOrNull(json, 'gross_amount'),
+    netAmount: _moneyOrNull(json, 'net_amount'),
+    vatableAmount: _moneyOrNull(json, 'vatable_amount'),
+    vatAmount: _moneyOrNull(json, 'vat_amount'),
+    serverTotalAmount: _moneyOrNull(json, 'total_amount'),
   );
 
   /// Returns this order with its supplier's name attached.
@@ -180,5 +255,37 @@ class PurchaseOrder {
     createdBy: createdBy,
     notes: notes,
     items: items,
+    discountAmount: discountAmount,
+    vatInclusive: vatInclusive,
+    vatRate: vatRate,
+    grossAmount: grossAmount,
+    netAmount: netAmount,
+    vatableAmount: vatableAmount,
+    vatAmount: vatAmount,
+    serverTotalAmount: serverTotalAmount,
   );
+}
+
+/// A money field that a pre-B2 payload omits: read as 0, because the server's
+/// own default for the discount is nothing off.
+double _moneyOrZero(Map<String, dynamic> json, String key) {
+  final value = json[key];
+  if (value == null) return 0;
+  final parsed = value is num ? value.toDouble() : double.tryParse('$value');
+  if (parsed == null) {
+    throw FormatException('Field "$key" is not a decimal: "$value"');
+  }
+  return parsed;
+}
+
+/// A money field whose ABSENCE is meaningful (a figure the server never sent),
+/// so it stays null rather than becoming a zero nobody computed.
+double? _moneyOrNull(Map<String, dynamic> json, String key) {
+  final value = json[key];
+  if (value == null) return null;
+  final parsed = value is num ? value.toDouble() : double.tryParse('$value');
+  if (parsed == null) {
+    throw FormatException('Field "$key" is not a decimal: "$value"');
+  }
+  return parsed;
 }

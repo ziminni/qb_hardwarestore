@@ -1,4 +1,4 @@
-# pyright: reportAttributeAccessIssue=false, reportArgumentType=false
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportMissingImports=false
 #
 # Same directives and reasons as apps/inventory/tests.py: this checker runs from a
 # working directory outside the repo, so `Model.objects` is a false positive on valid
@@ -40,14 +40,15 @@ from .models import (
     ProductVariant,
     PurchaseOrder,
     Supplier,
+    VariantUOM,
 )
 from .tests import InventoryTestBase
 
 User = get_user_model()
 
-LOGIN_URL = '/api/v1/auth/login/'
-PO_URL = '/api/v1/purchase-orders/'
-RECEIPTS_URL = '/api/v1/goods-receipts/'
+LOGIN_URL = "/api/v1/auth/login/"
+PO_URL = "/api/v1/purchase-orders/"
+RECEIPTS_URL = "/api/v1/goods-receipts/"
 
 
 class PurchaseOrderTestBase(InventoryTestBase):
@@ -57,82 +58,112 @@ class PurchaseOrderTestBase(InventoryTestBase):
         super().setUp()
         self.client = APIClient()
         self.password = get_random_string(16)
-        self.stocker = self._make_user('po_stocker', 'Stock Manager')
-        self.cashier = self._make_user('po_cashier', 'Cashier')
-        self.supplier = Supplier.objects.create(company_name='Cebu Building Supply')
-        self.other_supplier = Supplier.objects.create(company_name='Visayas Hardware')
+        self.stocker = self._make_user("po_stocker", "Stock Manager")
+        self.cashier = self._make_user("po_cashier", "Cashier")
+        self.supplier = Supplier.objects.create(company_name="Cebu Building Supply")
+        self.other_supplier = Supplier.objects.create(company_name="Visayas Hardware")
         # A second variant, so "the same variant twice" has a different variant to
         # contrast against.
         self.variant_b = ProductVariant.objects.create(
-            product=self.product, variant_name='50kg', base_uom=self.uom,
-            min_stock_threshold=Decimal('5'))
+            product=self.product,
+            variant_name="50kg",
+            base_uom=self.uom,
+            min_stock_threshold=Decimal(5),
+        )
+        # Phase 5 B1: a line that omits `variant_uom` defaults to the variant's base
+        # selling unit, so these two variants need one - exactly what every real product
+        # has (the seed and the API both create it). The lines below still omit it, which
+        # is the backward-compatible path these tests are about.
+        for variant in (self.variant, self.variant_b):
+            VariantUOM.objects.create(
+                variant=variant,
+                uom=self.uom,
+                conversion_factor=Decimal(1),
+                default_selling_price=Decimal(10),
+            )
 
     # -- fixture helpers ---------------------------------------------------
     def _make_user(self, username, *groups):
         user = User.objects.create_user(
-            username=username, email=f'{username}@example.com',
-            password=self.password, full_name=username)
+            username=username,
+            email=f"{username}@example.com",
+            password=self.password,
+            full_name=username,
+        )
         for name in groups:
             user.groups.add(Group.objects.get_or_create(name=name)[0])
         return user
 
     def _auth(self, user):
         login = APIClient().post(
-            LOGIN_URL, {'username': user.username, 'password': self.password},
-            format='json')
+            LOGIN_URL,
+            {"username": user.username, "password": self.password},
+            format="json",
+        )
         self.assertEqual(login.status_code, 200, login.data)
-        return {'HTTP_AUTHORIZATION': f'Bearer {login.data["access"]}'}
+        return {"HTTP_AUTHORIZATION": f"Bearer {login.data['access']}"}
 
-    def _line(self, variant=None, qty='10', cost='50.00'):
+    def _line(self, variant=None, qty="10", cost="50.00"):
         return {
-            'variant': (variant or self.variant).pk,
-            'ordered_qty': qty,
-            'unit_cost': cost,
+            "variant": (variant or self.variant).pk,
+            "ordered_qty": qty,
+            "unit_cost": cost,
         }
 
     def _body(self, **overrides):
         body = {
-            'supplier': self.supplier.pk,
-            'expected_delivery': '2026-11-30',
-            'notes': 'Deliver to the rear gate.',
-            'items': [self._line()],
+            "supplier": self.supplier.pk,
+            "expected_delivery": "2026-11-30",
+            "notes": "Deliver to the rear gate.",
+            "items": [self._line()],
         }
         body.update(overrides)
         return body
 
     def _create(self, body=None, user=None):
         return self.client.post(
-            PO_URL, body if body is not None else self._body(),
-            format='json', **self._auth(user or self.stocker))
+            PO_URL,
+            body if body is not None else self._body(),
+            format="json",
+            **self._auth(user or self.stocker),
+        )
 
     def _action(self, po_id, name, user=None):
         return self.client.post(
-            f'{PO_URL}{po_id}/{name}/', {}, format='json',
-            **self._auth(user or self.stocker))
+            f"{PO_URL}{po_id}/{name}/",
+            {},
+            format="json",
+            **self._auth(user or self.stocker),
+        )
 
     def _place(self, po_id, user=None):
-        return self._action(po_id, 'place', user=user)
+        return self._action(po_id, "place", user=user)
 
     def _post_receipt(self, po_id, item_id, qty):
         """POST one goods receipt line. Named for the API call, not the model, so it
         does not shadow `InventoryTestBase._receive` (the ORM fixture helper)."""
         return self.client.post(
             RECEIPTS_URL,
-            {'po': po_id, 'items': [{'po_item': item_id, 'qty': str(qty)}]},
-            format='json', **self._auth(self.stocker))
+            {"po": po_id, "items": [{"po_item": item_id, "qty": str(qty)}]},
+            format="json",
+            **self._auth(self.stocker),
+        )
 
     def _process(self, receipt_id):
         return self.client.post(
-            f'{RECEIPTS_URL}{receipt_id}/process/', {}, format='json',
-            **self._auth(self.stocker))
+            f"{RECEIPTS_URL}{receipt_id}/process/",
+            {},
+            format="json",
+            **self._auth(self.stocker),
+        )
 
     def _place_existing(self):
         """An ORDERED PO with one 10-unit line, created through the API."""
         created = self._create()
         self.assertEqual(created.status_code, 201, created.data)
-        placed = self._place(created.data['id'])
+        placed = self._place(created.data["id"])
         self.assertEqual(placed.status_code, 200, placed.data)
-        return PurchaseOrder.objects.get(pk=created.data['id'])
+        return PurchaseOrder.objects.get(pk=created.data["id"])
 
 
 class PurchaseOrderCreateTests(PurchaseOrderTestBase):
@@ -140,13 +171,13 @@ class PurchaseOrderCreateTests(PurchaseOrderTestBase):
         response = self._create()
 
         self.assertEqual(response.status_code, 201, response.data)
-        self.assertEqual(response.data['status'], 'DRAFT')
-        self.assertEqual(len(response.data['items']), 1, response.data)
-        self.assertEqual(response.data['items'][0]['variant'], self.variant.pk)
-        self.assertEqual(response.data['items'][0]['ordered_qty'], '10.00')
-        self.assertEqual(response.data['items'][0]['received_qty'], '0.00')
+        self.assertEqual(response.data["status"], "DRAFT")
+        self.assertEqual(len(response.data["items"]), 1, response.data)
+        self.assertEqual(response.data["items"][0]["variant"], self.variant.pk)
+        self.assertEqual(response.data["items"][0]["ordered_qty"], "10.00")
+        self.assertEqual(response.data["items"][0]["received_qty"], "0.00")
 
-        po = PurchaseOrder.objects.get(pk=response.data['id'])
+        po = PurchaseOrder.objects.get(pk=response.data["id"])
         self.assertEqual(po.items.count(), 1)
         self.assertEqual(po.status, PurchaseOrder.Status.DRAFT)
 
@@ -156,59 +187,58 @@ class PurchaseOrderCreateTests(PurchaseOrderTestBase):
         response = self._create(body)
 
         self.assertEqual(response.status_code, 201, response.data)
-        self.assertEqual(response.data['created_by'], self.stocker.pk)
+        self.assertEqual(response.data["created_by"], self.stocker.pk)
         self.assertEqual(
-            PurchaseOrder.objects.get(pk=response.data['id']).created_by,
-            self.stocker)
+            PurchaseOrder.objects.get(pk=response.data["id"]).created_by, self.stocker
+        )
 
     def test_an_inactive_supplier_is_refused(self):
         self.supplier.is_active = False
-        self.supplier.save(update_fields=['is_active'])
+        self.supplier.save(update_fields=["is_active"])
 
         response = self._create()
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data.get('code'), 'SUPPLIER_INACTIVE', response.data)
+        self.assertEqual(response.data.get("code"), "SUPPLIER_INACTIVE", response.data)
         self.assertEqual(PurchaseOrder.objects.count(), 0)
 
     def test_an_empty_order_is_refused(self):
         response = self._create(self._body(items=[]))
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data.get('code'), 'INVALID_PO', response.data)
+        self.assertEqual(response.data.get("code"), "INVALID_PO", response.data)
         self.assertEqual(PurchaseOrder.objects.count(), 0)
 
     def test_a_zero_ordered_qty_is_refused(self):
-        response = self._create(self._body(items=[self._line(qty='0')]))
+        response = self._create(self._body(items=[self._line(qty="0")]))
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data.get('code'), 'INVALID_PO', response.data)
+        self.assertEqual(response.data.get("code"), "INVALID_PO", response.data)
         self.assertEqual(PurchaseOrder.objects.count(), 0)
         self.assertEqual(POItem.objects.count(), 0)
 
     def test_a_negative_unit_cost_is_refused(self):
-        response = self._create(self._body(items=[self._line(cost='-1')]))
+        response = self._create(self._body(items=[self._line(cost="-1")]))
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data.get('code'), 'INVALID_PO', response.data)
+        self.assertEqual(response.data.get("code"), "INVALID_PO", response.data)
         self.assertEqual(PurchaseOrder.objects.count(), 0)
 
     def test_the_same_variant_twice_on_one_order_is_refused(self):
-        response = self._create(
-            self._body(items=[self._line(), self._line(qty='5')]))
+        response = self._create(self._body(items=[self._line(), self._line(qty="5")]))
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data.get('code'), 'INVALID_PO', response.data)
+        self.assertEqual(response.data.get("code"), "INVALID_PO", response.data)
         self.assertEqual(PurchaseOrder.objects.count(), 0)
 
     def test_an_inactive_variant_is_refused(self):
         self.variant.is_active = False
-        self.variant.save(update_fields=['is_active'])
+        self.variant.save(update_fields=["is_active"])
 
         response = self._create()
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data.get('code'), 'INVALID_PO', response.data)
+        self.assertEqual(response.data.get("code"), "INVALID_PO", response.data)
         self.assertEqual(PurchaseOrder.objects.count(), 0)
 
     def test_a_cashier_cannot_create_a_purchase_order(self):
@@ -218,13 +248,17 @@ class PurchaseOrderCreateTests(PurchaseOrderTestBase):
         self.assertEqual(PurchaseOrder.objects.count(), 0)
 
     def test_two_lines_on_two_variants_are_both_saved(self):
-        response = self._create(self._body(items=[
-            self._line(),
-            self._line(variant=self.variant_b, qty='4', cost='60'),
-        ]))
+        response = self._create(
+            self._body(
+                items=[
+                    self._line(),
+                    self._line(variant=self.variant_b, qty="4", cost="60"),
+                ]
+            )
+        )
 
         self.assertEqual(response.status_code, 201, response.data)
-        self.assertEqual(len(response.data['items']), 2, response.data)
+        self.assertEqual(len(response.data["items"]), 2, response.data)
         self.assertEqual(POItem.objects.count(), 2)
 
 
@@ -233,29 +267,35 @@ class PurchaseOrderStatusTests(PurchaseOrderTestBase):
         po = self._place_existing()
 
         response = self.client.patch(
-            f'{PO_URL}{po.pk}/', {'status': 'COMPLETE'}, format='json',
-            **self._auth(self.stocker))
+            f"{PO_URL}{po.pk}/",
+            {"status": "COMPLETE"},
+            format="json",
+            **self._auth(self.stocker),
+        )
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data.get('code'), 'PO_LOCKED', response.data)
+        self.assertEqual(response.data.get("code"), "PO_LOCKED", response.data)
         po.refresh_from_db()
         self.assertEqual(po.status, PurchaseOrder.Status.ORDERED)
 
     def test_place_moves_a_draft_to_ordered_and_is_audited(self):
         created = self._create()
-        self.assertEqual(created.data['status'], 'DRAFT')
+        self.assertEqual(created.data["status"], "DRAFT")
 
-        response = self._place(created.data['id'])
+        response = self._place(created.data["id"])
 
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual(response.data['status'], 'ORDERED')
+        self.assertEqual(response.data["status"], "ORDERED")
         self.assertEqual(
-            PurchaseOrder.objects.get(pk=created.data['id']).status,
-            PurchaseOrder.Status.ORDERED)
-        rows = AuditLog.objects.filter(action_type='UPDATE')
-        self.assertEqual(rows.count(), 1, list(rows.values_list('description', flat=True)))
-        self.assertIn(f'#{created.data["id"]}', rows.get().description)
-        self.assertIn('placed', rows.get().description)
+            PurchaseOrder.objects.get(pk=created.data["id"]).status,
+            PurchaseOrder.Status.ORDERED,
+        )
+        rows = AuditLog.objects.filter(action_type="UPDATE")
+        self.assertEqual(
+            rows.count(), 1, list(rows.values_list("description", flat=True))
+        )
+        self.assertIn(f"#{created.data['id']}", rows.get().description)
+        self.assertIn("placed", rows.get().description)
 
     def test_placing_a_non_draft_order_is_refused(self):
         po = self._place_existing()
@@ -263,65 +303,68 @@ class PurchaseOrderStatusTests(PurchaseOrderTestBase):
         response = self._place(po.pk)
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data.get('code'), 'INVALID_PO_STATE', response.data)
+        self.assertEqual(response.data.get("code"), "INVALID_PO_STATE", response.data)
         po.refresh_from_db()
         self.assertEqual(po.status, PurchaseOrder.Status.ORDERED)
 
     def test_cancelling_an_ordered_unreceived_order_works_and_is_audited(self):
         po = self._place_existing()
 
-        response = self._action(po.pk, 'cancel')
+        response = self._action(po.pk, "cancel")
 
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual(response.data['status'], 'CANCELLED')
+        self.assertEqual(response.data["status"], "CANCELLED")
         po.refresh_from_db()
         self.assertEqual(po.status, PurchaseOrder.Status.CANCELLED)
-        rows = AuditLog.objects.filter(action_type='UPDATE')
-        self.assertEqual(rows.count(), 2, list(rows.values_list('description', flat=True)))
+        rows = AuditLog.objects.filter(action_type="UPDATE")
+        self.assertEqual(
+            rows.count(), 2, list(rows.values_list("description", flat=True))
+        )
 
     def test_cancelling_a_draft_order_works(self):
         created = self._create()
 
-        response = self._action(created.data['id'], 'cancel')
+        response = self._action(created.data["id"], "cancel")
 
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual(response.data['status'], 'CANCELLED')
+        self.assertEqual(response.data["status"], "CANCELLED")
 
     def test_cancelling_an_order_with_receipts_is_refused(self):
         po = self._place_existing()
-        receipt = self._post_receipt(po.pk, po.items.get().pk, '4')
+        receipt = self._post_receipt(po.pk, po.items.get().pk, "4")
         self.assertEqual(receipt.status_code, 201, receipt.data)
-        self.assertEqual(self._process(receipt.data['id']).status_code, 200)
+        self.assertEqual(self._process(receipt.data["id"]).status_code, 200)
         po.refresh_from_db()
         self.assertEqual(po.status, PurchaseOrder.Status.PARTIAL)
 
-        response = self._action(po.pk, 'cancel')
+        response = self._action(po.pk, "cancel")
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data.get('code'), 'PO_HAS_RECEIPTS', response.data)
+        self.assertEqual(response.data.get("code"), "PO_HAS_RECEIPTS", response.data)
         po.refresh_from_db()
         self.assertEqual(po.status, PurchaseOrder.Status.PARTIAL)
 
     def test_cancelling_a_cancelled_order_is_refused(self):
         created = self._create()
-        self.assertEqual(self._action(created.data['id'], 'cancel').status_code, 200)
+        self.assertEqual(self._action(created.data["id"], "cancel").status_code, 200)
 
-        response = self._action(created.data['id'], 'cancel')
+        response = self._action(created.data["id"], "cancel")
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data.get('code'), 'INVALID_PO_STATE', response.data)
+        self.assertEqual(response.data.get("code"), "INVALID_PO_STATE", response.data)
 
     def test_a_cashier_cannot_place_or_cancel(self):
         created = self._create()
 
-        placed = self._place(created.data['id'], user=self.cashier)
-        cancelled = self._action(created.data['id'], 'cancel', user=self.cashier)
+        placed = self._place(created.data["id"], user=self.cashier)
+        cancelled = self._action(created.data["id"], "cancel", user=self.cashier)
 
         self.assertEqual(placed.status_code, 403, placed.data)
         self.assertEqual(cancelled.status_code, 403, cancelled.data)
         self.assertEqual(
-            PurchaseOrder.objects.get(pk=created.data['id']).status,
-            PurchaseOrder.Status.DRAFT)
+            PurchaseOrder.objects.get(pk=created.data["id"]).status,
+            PurchaseOrder.Status.DRAFT,
+        )
 
 
 class PurchaseOrderEditTests(PurchaseOrderTestBase):
@@ -329,120 +372,127 @@ class PurchaseOrderEditTests(PurchaseOrderTestBase):
         created = self._create()
 
         response = self.client.patch(
-            f'{PO_URL}{created.data["id"]}/',
-            {'notes': 'Call before delivery.'}, format='json',
-            **self._auth(self.stocker))
+            f"{PO_URL}{created.data['id']}/",
+            {"notes": "Call before delivery."},
+            format="json",
+            **self._auth(self.stocker),
+        )
 
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual(response.data['notes'], 'Call before delivery.')
+        self.assertEqual(response.data["notes"], "Call before delivery.")
 
     def test_a_draft_line_can_be_replaced_wholesale(self):
         created = self._create()
 
         response = self.client.patch(
-            f'{PO_URL}{created.data["id"]}/',
-            {'items': [self._line(variant=self.variant_b, qty='7', cost='61')]},
-            format='json', **self._auth(self.stocker))
+            f"{PO_URL}{created.data['id']}/",
+            {"items": [self._line(variant=self.variant_b, qty="7", cost="61")]},
+            format="json",
+            **self._auth(self.stocker),
+        )
 
         self.assertEqual(response.status_code, 200, response.data)
-        po = PurchaseOrder.objects.get(pk=created.data['id'])
-        self.assertEqual(po.items.count(), 1, 'the old line must be replaced, not kept')
+        po = PurchaseOrder.objects.get(pk=created.data["id"])
+        self.assertEqual(po.items.count(), 1, "the old line must be replaced, not kept")
         line = po.items.get()
         self.assertEqual(line.variant, self.variant_b)
-        self.assertEqual(line.ordered_qty, Decimal('7'))
+        self.assertEqual(line.ordered_qty, Decimal(7))
 
     def test_an_ordered_order_is_locked_against_edits(self):
         po = self._place_existing()
 
         response = self.client.patch(
-            f'{PO_URL}{po.pk}/', {'notes': 'Too late.'}, format='json',
-            **self._auth(self.stocker))
+            f"{PO_URL}{po.pk}/",
+            {"notes": "Too late."},
+            format="json",
+            **self._auth(self.stocker),
+        )
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data.get('code'), 'PO_LOCKED', response.data)
+        self.assertEqual(response.data.get("code"), "PO_LOCKED", response.data)
         po.refresh_from_db()
-        self.assertNotEqual(po.notes, 'Too late.')
+        self.assertNotEqual(po.notes, "Too late.")
 
     def test_an_ordered_order_cannot_have_its_lines_replaced(self):
         po = self._place_existing()
 
         response = self.client.patch(
-            f'{PO_URL}{po.pk}/',
-            {'items': [self._line(qty='99')]}, format='json',
-            **self._auth(self.stocker))
+            f"{PO_URL}{po.pk}/",
+            {"items": [self._line(qty="99")]},
+            format="json",
+            **self._auth(self.stocker),
+        )
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data.get('code'), 'PO_LOCKED', response.data)
-        self.assertEqual(po.items.get().ordered_qty, Decimal('10'))
+        self.assertEqual(response.data.get("code"), "PO_LOCKED", response.data)
+        self.assertEqual(po.items.get().ordered_qty, Decimal(10))
 
 
 class PurchaseOrderReceivingTests(PurchaseOrderTestBase):
     def test_a_draft_order_cannot_be_received(self):
         created = self._create()
-        po = PurchaseOrder.objects.get(pk=created.data['id'])
+        po = PurchaseOrder.objects.get(pk=created.data["id"])
         item = po.items.get()
 
-        response = self._post_receipt(po.pk, item.pk, '4')
+        response = self._post_receipt(po.pk, item.pk, "4")
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data.get('code'), 'PO_NOT_ORDERED', response.data)
+        self.assertEqual(response.data.get("code"), "PO_NOT_ORDERED", response.data)
         item.refresh_from_db()
-        self.assertEqual(item.received_qty, Decimal('0'))
+        self.assertEqual(item.received_qty, Decimal(0))
 
     def test_a_completed_order_refusal_carries_a_stable_code(self):
         po = self._place_existing()
-        receipt = self._post_receipt(po.pk, po.items.get().pk, '10')
-        self.assertEqual(self._process(receipt.data['id']).status_code, 200)
+        receipt = self._post_receipt(po.pk, po.items.get().pk, "10")
+        self.assertEqual(self._process(receipt.data["id"]).status_code, 200)
         po.refresh_from_db()
         self.assertEqual(po.status, PurchaseOrder.Status.COMPLETE)
 
-        response = self._post_receipt(po.pk, po.items.get().pk, '1')
+        response = self._post_receipt(po.pk, po.items.get().pk, "1")
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data.get('code'), 'PO_NOT_RECEIVABLE', response.data)
+        self.assertEqual(response.data.get("code"), "PO_NOT_RECEIVABLE", response.data)
 
     def test_a_cancelled_order_refusal_carries_a_stable_code(self):
         created = self._create()
-        self.assertEqual(self._action(created.data['id'], 'cancel').status_code, 200)
-        po = PurchaseOrder.objects.get(pk=created.data['id'])
+        self.assertEqual(self._action(created.data["id"], "cancel").status_code, 200)
+        po = PurchaseOrder.objects.get(pk=created.data["id"])
 
-        response = self._post_receipt(po.pk, po.items.get().pk, '1')
+        response = self._post_receipt(po.pk, po.items.get().pk, "1")
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data.get('code'), 'PO_NOT_RECEIVABLE', response.data)
+        self.assertEqual(response.data.get("code"), "PO_NOT_RECEIVABLE", response.data)
 
 
 class PurchaseOrderFullFlowTests(PurchaseOrderTestBase):
     """Create → place → receive part → receive the rest → stock, at the PO's cost."""
 
     def test_the_whole_purchase_flow(self):
-        created = self._create(self._body(items=[self._line(qty='10', cost='50')]))
+        created = self._create(self._body(items=[self._line(qty="10", cost="50")]))
         self.assertEqual(created.status_code, 201, created.data)
-        po_id = created.data['id']
-        item_id = created.data['items'][0]['id']
+        po_id = created.data["id"]
+        item_id = created.data["items"][0]["id"]
 
         self.assertEqual(self._place(po_id).status_code, 200)
 
-        first = self._post_receipt(po_id, item_id, '5')
+        first = self._post_receipt(po_id, item_id, "5")
         self.assertEqual(first.status_code, 201, first.data)
-        self.assertEqual(self._process(first.data['id']).status_code, 200)
+        self.assertEqual(self._process(first.data["id"]).status_code, 200)
         self.assertEqual(
-            PurchaseOrder.objects.get(pk=po_id).status,
-            PurchaseOrder.Status.PARTIAL)
+            PurchaseOrder.objects.get(pk=po_id).status, PurchaseOrder.Status.PARTIAL
+        )
 
-        second = self._post_receipt(po_id, item_id, '5')
+        second = self._post_receipt(po_id, item_id, "5")
         self.assertEqual(second.status_code, 201, second.data)
-        self.assertEqual(self._process(second.data['id']).status_code, 200)
+        self.assertEqual(self._process(second.data["id"]).status_code, 200)
         self.assertEqual(
-            PurchaseOrder.objects.get(pk=po_id).status,
-            PurchaseOrder.Status.COMPLETE)
+            PurchaseOrder.objects.get(pk=po_id).status, PurchaseOrder.Status.COMPLETE
+        )
 
         batches = InventoryBatch.objects.filter(variant=self.variant)
         self.assertEqual(batches.count(), 2)
-        self.assertEqual(
-            sum(b.current_qty for b in batches), Decimal('10'))
-        self.assertEqual(
-            {b.unit_cost_landed for b in batches}, {Decimal('50')})
+        self.assertEqual(sum(b.current_qty for b in batches), Decimal(10))
+        self.assertEqual({b.unit_cost_landed for b in batches}, {Decimal(50)})
 
 
 class PurchaseOrderEditLockTests(PurchaseOrderTestBase):
@@ -469,8 +519,9 @@ class PurchaseOrderEditLockTests(PurchaseOrderTestBase):
         `inventory_po_item` (receiving takes that one too) is not counted.
         """
         return [
-            q['sql'] for q in queries
-            if 'FOR UPDATE' in q['sql'].upper() and '"inventory_po"' in q['sql']
+            q["sql"]
+            for q in queries
+            if "FOR UPDATE" in q["sql"].upper() and '"inventory_po"' in q["sql"]
         ]
 
     def test_the_edit_refusal_is_decided_while_the_po_row_is_locked(self):
@@ -485,23 +536,29 @@ class PurchaseOrderEditLockTests(PurchaseOrderTestBase):
         seen = {}
 
         def probe(instance):
-            seen['locks'] = self._po_locks(connection.queries)
+            seen["locks"] = self._po_locks(connection.queries)
             return real_refusal(instance)
 
-        with CaptureQueriesContext(connection), mock.patch(
-                'apps.inventory.views.PurchaseOrderLocked', probe):
+        with (
+            CaptureQueriesContext(connection),
+            mock.patch("apps.inventory.views.PurchaseOrderLocked", probe),
+        ):
             response = self.client.patch(
-                f'{PO_URL}{po.pk}/', {'notes': 'Too late.'}, format='json',
-                **self._auth(self.stocker))
+                f"{PO_URL}{po.pk}/",
+                {"notes": "Too late."},
+                format="json",
+                **self._auth(self.stocker),
+            )
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data.get('code'), 'PO_LOCKED', response.data)
-        self.assertIn('locks', seen, 'the PO_LOCKED gate must be reached at all')
+        self.assertEqual(response.data.get("code"), "PO_LOCKED", response.data)
+        self.assertIn("locks", seen, "the PO_LOCKED gate must be reached at all")
         self.assertTrue(
-            seen['locks'],
-            'the edit gate must read the status after locking the order row')
+            seen["locks"],
+            "the edit gate must read the status after locking the order row",
+        )
         po.refresh_from_db()
-        self.assertNotEqual(po.notes, 'Too late.')
+        self.assertNotEqual(po.notes, "Too late.")
 
     def test_a_draft_edit_locks_the_order_row_before_it_writes(self):
         from django.db import connection
@@ -511,36 +568,47 @@ class PurchaseOrderEditLockTests(PurchaseOrderTestBase):
 
         with CaptureQueriesContext(connection) as captured:
             response = self.client.patch(
-                f'{PO_URL}{created.data["id"]}/',
-                {'notes': 'Call before delivery.'}, format='json',
-                **self._auth(self.stocker))
+                f"{PO_URL}{created.data['id']}/",
+                {"notes": "Call before delivery."},
+                format="json",
+                **self._auth(self.stocker),
+            )
 
         self.assertEqual(response.status_code, 200, response.data)
-        sql = [q['sql'].upper() for q in captured.captured_queries]
+        sql = [q["sql"].upper() for q in captured.captured_queries]
         lock_at = next(
-            (i for i, s in enumerate(sql)
-             if 'FOR UPDATE' in s and '"INVENTORY_PO"' in s), None)
-        self.assertIsNotNone(lock_at, 'an edit must lock the order row')
+            (
+                i
+                for i, s in enumerate(sql)
+                if "FOR UPDATE" in s and '"INVENTORY_PO"' in s
+            ),
+            None,
+        )
+        self.assertIsNotNone(lock_at, "an edit must lock the order row")
         write_at = next(
-            (i for i, s in enumerate(sql)
-             if s.startswith('UPDATE "INVENTORY_PO"')), None)
-        self.assertIsNotNone(write_at, 'the edit must write the order row')
+            (i for i, s in enumerate(sql) if s.startswith('UPDATE "INVENTORY_PO"')),
+            None,
+        )
+        self.assertIsNotNone(write_at, "the edit must write the order row")
         self.assertLess(
-            int(lock_at), int(write_at),
-            'the lock must be taken before the write')
+            int(lock_at), int(write_at), "the lock must be taken before the write"
+        )
 
     def test_a_patch_after_place_is_refused_and_the_order_is_unchanged(self):
         po = self._place_existing()
 
         response = self.client.patch(
-            f'{PO_URL}{po.pk}/', {'notes': 'Too late.'}, format='json',
-            **self._auth(self.stocker))
+            f"{PO_URL}{po.pk}/",
+            {"notes": "Too late."},
+            format="json",
+            **self._auth(self.stocker),
+        )
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data.get('code'), 'PO_LOCKED', response.data)
+        self.assertEqual(response.data.get("code"), "PO_LOCKED", response.data)
         po.refresh_from_db()
         self.assertEqual(po.status, PurchaseOrder.Status.ORDERED)
-        self.assertEqual(po.items.get().ordered_qty, Decimal('10'))
+        self.assertEqual(po.items.get().ordered_qty, Decimal(10))
 
 
 class NoOpPatchWritesNoAuditRowTests(PurchaseOrderTestBase):
@@ -553,34 +621,41 @@ class NoOpPatchWritesNoAuditRowTests(PurchaseOrderTestBase):
     """
 
     def _update_rows(self):
-        return AuditLog.objects.filter(
-            action_type=AuditLog.ActionType.UPDATE).count()
+        return AuditLog.objects.filter(action_type=AuditLog.ActionType.UPDATE).count()
 
     def test_a_read_only_field_patch_writes_no_audit_row(self):
         created = self._create()
         before = self._update_rows()
 
         response = self.client.patch(
-            f'{PO_URL}{created.data["id"]}/', {'status': 'ORDERED'},
-            format='json', **self._auth(self.stocker))
+            f"{PO_URL}{created.data['id']}/",
+            {"status": "ORDERED"},
+            format="json",
+            **self._auth(self.stocker),
+        )
 
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual(response.data['status'], 'DRAFT')
+        self.assertEqual(response.data["status"], "DRAFT")
         self.assertEqual(
-            PurchaseOrder.objects.get(pk=created.data['id']).status,
-            PurchaseOrder.Status.DRAFT)
+            PurchaseOrder.objects.get(pk=created.data["id"]).status,
+            PurchaseOrder.Status.DRAFT,
+        )
         self.assertEqual(
-            self._update_rows(), before,
-            'a PATCH that changed nothing must not claim an edit in the trail')
+            self._update_rows(),
+            before,
+            "a PATCH that changed nothing must not claim an edit in the trail",
+        )
 
     def test_a_real_edit_still_writes_exactly_one_audit_row(self):
         created = self._create()
         before = self._update_rows()
 
         response = self.client.patch(
-            f'{PO_URL}{created.data["id"]}/',
-            {'notes': 'Call before delivery.'}, format='json',
-            **self._auth(self.stocker))
+            f"{PO_URL}{created.data['id']}/",
+            {"notes": "Call before delivery."},
+            format="json",
+            **self._auth(self.stocker),
+        )
 
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(self._update_rows(), before + 1)
@@ -601,7 +676,7 @@ class ReceiptProcessRechecksTheOrderTests(PurchaseOrderTestBase):
 
         po = self._place_existing()
         item = po.items.get()
-        receipt = self._post_receipt(po.pk, item.pk, '5')
+        receipt = self._post_receipt(po.pk, item.pk, "5")
         self.assertEqual(receipt.status_code, 201, receipt.data)
 
         # The cancel winning the race the row lock now closes: it commits after the
@@ -609,33 +684,37 @@ class ReceiptProcessRechecksTheOrderTests(PurchaseOrderTestBase):
         # order. Written through the ORM because the API cancel refuses while a receipt
         # exists (the next test) — this is the interleaving, not a reachable sequence.
         PurchaseOrder.objects.filter(pk=po.pk).update(
-            status=PurchaseOrder.Status.CANCELLED)
+            status=PurchaseOrder.Status.CANCELLED
+        )
 
-        response = self._process(receipt.data['id'])
+        response = self._process(receipt.data["id"])
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(
-            response.data.get('code'), 'PO_NOT_RECEIVABLE', response.data)
+        self.assertEqual(response.data.get("code"), "PO_NOT_RECEIVABLE", response.data)
         self.assertFalse(
             InventoryBatch.objects.filter(variant=self.variant).exists(),
-            'no batch may be minted against a cancelled order')
+            "no batch may be minted against a cancelled order",
+        )
         item.refresh_from_db()
-        self.assertEqual(item.received_qty, Decimal('5'),
-                         'the recorded delivery is unchanged, it is just not stocked')
+        self.assertEqual(
+            item.received_qty,
+            Decimal(5),
+            "the recorded delivery is unchanged, it is just not stocked",
+        )
         self.assertIsNone(
-            GoodsReceipt.objects.get(pk=receipt.data['id']).processed_at,
-            'a refused process/ leaves the receipt unprocessed')
+            GoodsReceipt.objects.get(pk=receipt.data["id"]).processed_at,
+            "a refused process/ leaves the receipt unprocessed",
+        )
 
     def test_cancel_is_refused_while_an_unprocessed_receipt_exists(self):
         po = self._place_existing()
-        receipt = self._post_receipt(po.pk, po.items.get().pk, '5')
+        receipt = self._post_receipt(po.pk, po.items.get().pk, "5")
         self.assertEqual(receipt.status_code, 201, receipt.data)
 
-        response = self._action(po.pk, 'cancel')
+        response = self._action(po.pk, "cancel")
 
         self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(
-            response.data.get('code'), 'PO_HAS_RECEIPTS', response.data)
+        self.assertEqual(response.data.get("code"), "PO_HAS_RECEIPTS", response.data)
         po.refresh_from_db()
         self.assertEqual(po.status, PurchaseOrder.Status.ORDERED)
 
@@ -646,20 +725,33 @@ class ReceiptProcessRechecksTheOrderTests(PurchaseOrderTestBase):
         po = self._place_existing()
 
         with CaptureQueriesContext(connection) as captured:
-            response = self._post_receipt(po.pk, po.items.get().pk, '5')
+            response = self._post_receipt(po.pk, po.items.get().pk, "5")
 
         self.assertEqual(response.status_code, 201, response.data)
-        sql = [q['sql'].upper() for q in captured.captured_queries]
+        sql = [q["sql"].upper() for q in captured.captured_queries]
         lock_at = next(
-            (i for i, s in enumerate(sql)
-             if 'FOR UPDATE' in s and '"INVENTORY_PO"' in s), None)
+            (
+                i
+                for i, s in enumerate(sql)
+                if "FOR UPDATE" in s and '"INVENTORY_PO"' in s
+            ),
+            None,
+        )
         self.assertIsNotNone(
-            lock_at, 'recording a receipt must lock the order row first')
+            lock_at, "recording a receipt must lock the order row first"
+        )
         insert_at = next(
-            (i for i, s in enumerate(sql)
-             if s.startswith('INSERT INTO "INVENTORY_GOODS_RECEIPT"')), None)
-        self.assertIsNotNone(insert_at, 'the receipt row must be written')
+            (
+                i
+                for i, s in enumerate(sql)
+                if s.startswith('INSERT INTO "INVENTORY_GOODS_RECEIPT"')
+            ),
+            None,
+        )
+        self.assertIsNotNone(insert_at, "the receipt row must be written")
         self.assertLess(
-            int(lock_at), int(insert_at),
-            'the order must be locked before the receipt row exists, so a cancel '
-            'either sees the receipt or blocks')
+            int(lock_at),
+            int(insert_at),
+            "the order must be locked before the receipt row exists, so a cancel "
+            "either sees the receipt or blocks",
+        )

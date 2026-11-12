@@ -22,6 +22,7 @@ import 'package:client/core/theme/app_theme.dart';
 import 'package:client/data/models/catalogue_option.dart';
 import 'package:client/data/models/category.dart';
 import 'package:client/data/models/product.dart';
+import 'package:client/data/models/storage_location.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/features/products/widgets/products_form_dialog.dart';
 import 'package:flutter/material.dart';
@@ -39,6 +40,13 @@ const _units = [
   UnitOfMeasure(id: 1, code: 'KG', name: 'Kilogram'),
   UnitOfMeasure(id: 2, code: 'BAG', name: 'Bag', isWhole: true),
   UnitOfMeasure(id: 3, code: 'BOX', name: 'Box', isWhole: true),
+];
+
+/// Phase 5 F4: every product form now needs the server's pick-up points. Store
+/// is the default a new product gets.
+const _locations = [
+  StorageLocation(id: 4, name: 'Store'),
+  StorageLocation(id: 9, name: 'Bodega'),
 ];
 
 /// The last dialog result. Set when the dialog pops, read after the test taps a
@@ -94,8 +102,16 @@ Future<void> openForm(
                     brands: _brands,
                     units: _units,
                     products: const [],
-                    product: product,
+                    // A B4 product always carries its pick-up point; these
+                    // fixtures predate the field, so give an edit a real one.
+                    product: product?.storedAtId == null
+                        ? product?.copyWith(
+                            storedAtId: 4,
+                            storedAtName: 'Store',
+                          )
+                        : product,
                     locationHint: locationHint,
+                    storageLocations: _locations,
                   ),
                 );
               },
@@ -373,12 +389,13 @@ void main() {
       );
     });
 
-    testWidgets('the storage location says it stays on this device', (
-      tester,
-    ) async {
+    testWidgets('the shelf note says it stays on this device', (tester) async {
       await openForm(tester);
 
-      expect(find.text('Saved on this device only'), findsOneWidget);
+      expect(find.text('Not shared with other tills'), findsOneWidget);
+      expect(find.text('Shelf note (this device only)'), findsOneWidget);
+      // The SERVER's field is a different fact, shown above it.
+      expect(find.text('Stored at'), findsOneWidget);
     });
 
     testWidgets('a typed location travels in the draft', (tester) async {
@@ -540,8 +557,9 @@ void main() {
       expectBefore('field:Product name', 'field:Base unit');
       expectBefore('field:Base unit', 'field:Price per KG');
       expectBefore('field:Price per KG', 'field:Selling unit');
-      expectBefore('field:Selling unit', 'field:Storage location');
-      expectBefore('field:Storage location', 'button:Cancel');
+      expectBefore('field:Selling unit', 'field:Stored at');
+      expectBefore('field:Stored at', 'field:Shelf note (this device only)');
+      expectBefore('field:Shelf note (this device only)', 'button:Cancel');
       expectBefore('button:Cancel', 'button:Add product');
     });
 

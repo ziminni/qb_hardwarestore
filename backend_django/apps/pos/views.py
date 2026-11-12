@@ -10,19 +10,23 @@ from decimal import Decimal, InvalidOperation
 
 from django.db import IntegrityError
 from django.db import transaction as db_transaction
-from django.db.models import Q, Sum
+from django.db.models import Prefetch, Q, Sum
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.users import lockout
 from apps.users.models import AuditLog
 from apps.users.permissions import (
+    ROLE_STOCK_MANAGER,
+    ROLE_STORE_MANAGER,
+    SALES_READER_ROLES,
+    STAFF_ROLES,
     IsAdminRole,
     IsManagerRole,
     IsPOSOrReadOnly,
@@ -36,10 +40,12 @@ from apps.users.services import audit_request
 from .exceptions import CreditLimitForbidden, DiscountApprovalInvalid, InvalidDiscount
 from .models import (
     Customer,
+    Delivery,
     HeldCart,
     OfficialReceipt,
     Payment,
     Quotation,
+    SalesItem,
     SalesOrder,
     SalesTransaction,
     Shift,
@@ -48,6 +54,7 @@ from .models import (
 from .serializers import (
     ChequeSerializer,
     CustomerSerializer,
+    DeliverySerializer,
     HeldCartSerializer,
     OfficialReceiptSerializer,
     PaymentSerializer,
@@ -64,6 +71,7 @@ from .services import (
     replayed_transaction,
     request_body_hash,
     returnable_payload,
+    transition_delivery,
 )
 
 # Decision 09 item 2: the optional retry token. A client that times out mid-checkout
@@ -128,6 +136,51 @@ def _replayed_response(transaction):
     return Response(
         SalesTransactionSerializer(transaction).data,
         status=status.HTTP_200_OK,
+    )
+
+
+# Phase 5 task B3 (decision 18): who may MOVE a delivery. Decision 18 names Store
+# Manager, Admin and Stock Manager - exactly the inventory-write set, which is why this
+# reads as its own constant rather than reusing `IsInventoryRole.isrequired_roles`
+# by accident: if that set ever changes for stock reasons, deliveries must not move with
+# it silently.
+DELIVERY_UPDATER_ROLES = [ROLE_STORE_MANAGER, ROLE_STOCK_MANAGER, *STAFF_ROLES]
+
+
+class DeliveryReadWritePermission(BasePermission):
+    """Read a delivery with any SALES role; MOVE it with the three the ruling names.
+
+    Reads are wider on purpose: the cashier who took the order at the till has to see the
+    slip they created on the deliveries page, and a Stock Manager reads sales already.
+    Writes are exactly `DELIVERY_UPDATER_ROLES`, so a Cashier - the role that MAY take a
+    delivery order - cannot move one, while a Cashier who also holds Stock Manager can
+    (the union, through `has_role`). The CPMS service account holds no sales role, so it
+    is refused here as everywhere else in this app.
+    """
+
+    message = "Only a Store Manager, Admin or Stock Manager may move a delivery."
+
+    def has_permission(self, request, view):  # pyright: ignore[reportIncompatibleMethodOverride]
+        if request.method in SAFE_METHODS:
+            return has_role(request.user, SALES_READER_ROLES)
+        return has_role(request.user, DELIVERY_UPDATER_ROLES)
+
+
+def _audit_delivery_created(request, txn):
+    """One audit row per delivery taken with a sale or a cart (B3, decision 18).
+
+    Called INSIDE the sale's atomic block on both checkout paths, so the row commits or
+    rolls back with the slip it describes. The delivery is attached to `txn` by
+    `process_sale`; no delivery means no row.
+    """
+    delivery = getattr(txn, "delivery", None)
+    if delivery is None:
+        return
+    audit_request(
+        request,
+        AuditLog.ActionType.DELIVERY,
+        f"Delivery {delivery.delivery_no} scheduled for sale {txn.transaction_no}: "
+        f"charge {delivery.fee}, to {delivery.address} on {delivery.scheduled_date}.",
     )
 
 
@@ -442,7 +495,21 @@ class CustomerViewSet(BaseViewSet):
 class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
     queryset = (
         SalesTransaction.objects.select_related("customer", "cashier")
-        .prefetch_related("items", "payments", "receipt")
+        .prefetch_related(
+            # Phase 5 B4 fix: each line reports `stored_at_name`, so the sale list/detail
+            # must join the line's location (and its unit code, which the serializer also
+            # reads) in the SAME prefetch. Without both, a page costs a few queries per
+            # line; `payments` and `receipt` stay plain prefetches as before.
+            Prefetch(
+                "items",
+                queryset=SalesItem.objects.select_related(
+                    "variant_uom__uom",
+                    "variant_uom__variant__product__stored_at",
+                ),
+            ),
+            "payments",
+            "receipt",
+        )
         .all()
     )
     serializer_class = SalesTransactionSerializer
@@ -562,6 +629,9 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
                     # cart rung from the shelf obeys exactly the same rules.
                     discount_data=request.data.get("discount"),
                     discount_approval=request.data.get("discount_approval"),
+                    # Phase 5 task B3 (decision 18): the optional delivery slip, priced
+                    # into the sale's total inside the same atomic block.
+                    delivery_data=request.data.get("delivery"),
                 )
                 audit_request(
                     request,
@@ -569,6 +639,7 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
                     f"Sale {txn.transaction_no} rung for {txn.grand_total} "
                     f"({source}) by {request.user.username}.",
                 )
+                _audit_delivery_created(request, txn)
         except IntegrityError:
             # The race the pre-check cannot win: two retries both read "no such key" and
             # both insert, and only the unique constraint on (cashier, idempotency_key)
@@ -1037,6 +1108,9 @@ class HeldCartViewSet(BaseViewSet):
                     # held cart is the SAME sale, parked.
                     discount_data=request.data.get("discount"),
                     discount_approval=request.data.get("discount_approval"),
+                    # Same contract as the checkout screen (B3): a cart that has to be
+                    # delivered says so when it is completed.
+                    delivery_data=request.data.get("delivery"),
                 )
                 cart.delete()
                 # Inside THIS block (decision 07): the sale, the deleted cart and the
@@ -1048,6 +1122,7 @@ class HeldCartViewSet(BaseViewSet):
                     f"Sale {txn.transaction_no} rung for {txn.grand_total} from held "
                     f"cart #{cart.pk} by {request.user.username}.",
                 )
+                _audit_delivery_created(request, txn)
         except IntegrityError:
             # Same race as `SalesTransactionViewSet.create`, and handled the same way:
             # the atomic block above has rolled back (cart still held), so re-reading is
@@ -1066,3 +1141,125 @@ class HeldCartViewSet(BaseViewSet):
             SalesTransactionSerializer(txn).data,
             status=status.HTTP_201_CREATED,
         )
+
+
+class DeliveryViewSet(OwnSalesScopeMixin, viewsets.ReadOnlyModelViewSet):
+    """`/api/v1/deliveries/` — the delivery schedule and the slip (B3, decision 18).
+
+    Row scope (B3 review): a slip carries the customer's address, contact name and phone,
+    so a cashier-only user reads only the deliveries THEY took — `created_by`, which both
+    writers fill with the caller (the ring path passes the sale's cashier, the order path
+    the order's `created_by`). Another till's slip is a **404**, not a 403, exactly as on
+    `/transactions/`; the three store-wide roles keep the whole schedule. The scope runs
+    in `get_queryset`, so it also covers the detail URL and the three transition actions
+    (which look their row up through `get_object`).
+
+    Read-only on the resource itself, because a delivery is not a document somebody types:
+    it is created by ringing a sale with a `delivery` object or by creating a sales order
+    with one, inside that document's own atomic block. The only writes are the three
+    status actions, so `POST /deliveries/`, `PUT`, `PATCH` and `DELETE` are **405 for
+    every role, Admin included** - the slip is the record of a trip, and editing it after
+    the fact would make the schedule disagree with what the driver did.
+
+    Filters: `?status=` (one of the four states), `?date_from=` / `?date_to=`
+    (`YYYY-MM-DD`, inclusive, on the SCHEDULED date - the work queue is ordered by it),
+    `?sale=<id>` and `?sales_order=<id>`. An unusable value is a **400**
+    `INVALID_DELIVERY`, not an empty page: a dispatcher who typed `status=done` must be
+    told the code, not shown "no deliveries today".
+    """
+
+    queryset = (
+        Delivery.objects.select_related(
+            "sale__customer",
+            "sales_order__customer",
+            "created_by",
+        )
+        .prefetch_related(
+            "sale__items__variant_uom__variant",
+            "sale__items__variant_uom__uom",
+            "sales_order__items__variant_uom__variant",
+            "sales_order__items__variant_uom__uom",
+        )
+        .all()
+    )
+    serializer_class = DeliverySerializer
+    own_scope_field = "created_by"
+    # Tuples, not lists: this new viewset adds no RUF012 to a file that already carries
+    # one per `permission_classes` list (DRF accepts either).
+    permission_classes = (DeliveryReadWritePermission,)
+    http_method_names = ("get", "head", "options", "post")
+
+    def get_queryset(self):
+        from django.utils.dateparse import parse_date
+
+        from .exceptions import InvalidDelivery
+
+        qs = super().get_queryset()
+        status_param = (self.request.query_params.get("status") or "").strip()
+        if status_param:
+            if status_param.upper() not in Delivery.Status.values:
+                raise InvalidDelivery(
+                    f"{status_param!r} is not a delivery status. Use one of: "
+                    f"{', '.join(Delivery.Status.values)}."  # pyright: ignore[reportArgumentType, reportCallIssue]
+                )
+            qs = qs.filter(status=status_param.upper())
+        for param, lookup in (("date_from", "gte"), ("date_to", "lte")):
+            raw = self.request.query_params.get(param)
+            if raw:
+                parsed = parse_date(raw)
+                if parsed is None:
+                    raise InvalidDelivery(f"{param} must be a date in YYYY-MM-DD.")
+                qs = qs.filter(**{f"scheduled_date__{lookup}": parsed})
+        for param in ("sale", "sales_order"):
+            raw = self.request.query_params.get(param)
+            if not raw:
+                continue
+            try:
+                qs = qs.filter(**{f"{param}_id": int(raw)})  # pyright: ignore[reportArgumentType]
+            except (TypeError, ValueError):
+                raise InvalidDelivery(
+                    f"{param} must be the id of the "
+                    f"{'sale' if param == 'sale' else 'sales order'} it belongs to."
+                ) from None
+        return qs
+
+    def _transition(self, request, action):
+        delivery = self.get_object()
+        # The move and its audit row are ONE transaction (decision 07), and the row lock
+        # inside `transition_delivery` is what makes two simultaneous clicks answer
+        # 200 + 409 instead of writing the same status twice.
+        with db_transaction.atomic():
+            delivery = transition_delivery(
+                delivery_id=delivery.pk,
+                action=action,
+                reason=request.data.get("reason", ""),
+            )
+            audit_request(
+                request,
+                AuditLog.ActionType.DELIVERY,
+                f"Delivery {delivery.delivery_no} marked {delivery.status} by "
+                f"{request.user.username}"
+                + (
+                    f" ({delivery.failure_reason})." if delivery.failure_reason else "."
+                ),
+            )
+        # Re-read through the queryset so the response carries the slip's joined data
+        # (items, customer, document numbers) - the same shape as the list and detail.
+        return Response(
+            self.get_serializer(self.get_queryset().get(pk=delivery.pk)).data
+        )
+
+    @action(detail=True, methods=["post"])
+    def start(self, request, pk=None):
+        """SCHEDULED -> OUT_FOR_DELIVERY."""
+        return self._transition(request, "start")
+
+    @action(detail=True, methods=["post"])
+    def deliver(self, request, pk=None):
+        """OUT_FOR_DELIVERY -> DELIVERED. Terminal."""
+        return self._transition(request, "deliver")
+
+    @action(detail=True, methods=["post"])
+    def fail(self, request, pk=None):
+        """SCHEDULED / OUT_FOR_DELIVERY -> FAILED, with a required `reason`."""
+        return self._transition(request, "fail")

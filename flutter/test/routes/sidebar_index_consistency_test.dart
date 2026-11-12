@@ -74,14 +74,21 @@ void main() {
     );
     expect(
       salesOrder.length,
-      9,
+      11,
       reason:
-          'the sales sidebar has 9 destinations — Reports (index 6) was added by '
+          'the sales sidebar has 11 destinations — Reports (index 6) was added by '
           'decision D-01 so the manager can reach live reports inside their own shell; '
-          'Staff (7) and Project requests (8) were APPENDED the same way. '
+          'Staff (7), Project requests (8) and Payables (9) were APPENDED the same '
+          'way, and Deliveries (10) by Phase 5 F3 (decision 18). '
           'Approvals is gone (decision 01: CPMS approves)',
     );
-    expect(inventoryOrder.length, 13);
+    expect(
+      inventoryOrder.length,
+      15,
+      reason:
+          'the inventory sidebar has 15 destinations — Phase 5 F2 APPENDED '
+          'Payables at 13 and F3 APPENDED Deliveries at 14 (decision 18)',
+    );
     expect(
       posOrder.length,
       7,
@@ -97,6 +104,20 @@ void main() {
     );
     expect(salesOrder[7], 'salesStaff');
     expect(
+      salesOrder[9],
+      'salesPayables',
+      reason:
+          'Phase 5 F2 APPENDED Payables at 9 (decision 18): the Store Manager '
+          'records supplier payments in the sales shell',
+    );
+    expect(
+      salesOrder[10],
+      'salesDeliveries',
+      reason:
+          'Phase 5 F3 APPENDED Deliveries at 10 (decision 18): the manager runs '
+          'the schedule from the sales shell, and no earlier tab moved',
+    );
+    expect(
       salesOrder[8],
       'salesProjectRequests',
       reason:
@@ -110,6 +131,20 @@ void main() {
     expect(inventoryOrder[10], 'inventoryReturns');
     expect(inventoryOrder[11], 'inventoryReports');
     expect(inventoryOrder[12], 'inventorySettings');
+    expect(
+      inventoryOrder[13],
+      'inventoryPayables',
+      reason:
+          'Phase 5 F2 APPENDED Payables at 13, so the Stock Manager reads what '
+          'the shop owes without any earlier tab moving',
+    );
+    expect(
+      inventoryOrder[14],
+      'inventoryDeliveries',
+      reason:
+          'Phase 5 F3 APPENDED Deliveries at 14 (decision 18): the Stock Manager '
+          'runs the schedule, and every earlier tab keeps its number',
+    );
     expect(posOrder[0], 'posDashboard');
     expect(posOrder[2], 'posRelease');
     expect(posOrder[4], 'posHeld');
@@ -199,6 +234,9 @@ void main() {
       'Audit logs',
       'Settings',
       'Project requests',
+      'Payables',
+      'Deliveries',
+      'Storage locations',
     ];
 
     const expected = {
@@ -209,6 +247,9 @@ void main() {
       'admin/views/reports_page.dart': 'Reports',
       'admin/views/audit_logs_page.dart': 'Audit logs',
       'admin/views/settings_page.dart': 'Settings',
+      'payables/views/payables_page.dart': 'Payables',
+      'deliveries/views/deliveries_page.dart': 'Deliveries',
+      'admin/views/storage_locations_page.dart': 'Storage locations',
     };
 
     test('the restated menu really is the layout\'s menu', () {

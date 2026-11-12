@@ -2,6 +2,7 @@ import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_utang_panel.dart';
+import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -370,6 +371,19 @@ class PosTransactionCart extends StatelessWidget {
                           line.productName,
                           style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
+                        // Phase 5 B4: where the shop keeps it, on every line, so the
+                        // cashier can tell the customer at the counter. It is a
+                        // PLACE, never a stock claim: quantities live in the stock
+                        // screens, and "Bodega" says nothing about how many are left.
+                        if (line.storedAtName.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2, bottom: 2),
+                            child: StatusBadge(
+                              key: ValueKey('pos-cart-location-$index'),
+                              label: line.storedAtName,
+                              tone: StatusTone.info,
+                            ),
+                          ),
                         Text(
                           '${line.variantName} · '
                           '${formatPeso(line.unitPrice)} per '

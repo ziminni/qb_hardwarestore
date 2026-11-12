@@ -79,6 +79,10 @@ const _inventoryPaths = <String>[
   AppRoutes.inventoryReturns,
   AppRoutes.inventoryReports,
   AppRoutes.inventorySettings,
+  // Phase 5 F2/F3 APPENDED the supplier-debt and delivery screens (indices 13
+  // and 14), so 0-12 keep their numbers.
+  AppRoutes.inventoryPayables,
+  AppRoutes.inventoryDeliveries,
 ];
 
 Widget _probeApp() {
@@ -113,11 +117,18 @@ Widget _probeApp() {
 void main() {
   test('the parsers find the sidebar and the navigation map', () {
     // Guard against vacuous passes: an empty parse makes every comparison
-    // below trivially true.
-    expect(_sidebarLabels().length, 13);
-    expect(_navOrder().length, 13);
+    // below trivially true. 15 = the 13 pre-Phase-5 destinations plus the
+    // APPENDED Payables (13) and Deliveries (14).
+    expect(_sidebarLabels().length, 15);
+    expect(_navOrder().length, 15);
     expect(_sidebarLabels().first, 'Dashboard');
-    expect(_sidebarLabels().last, 'Settings');
+    // Settings still ends the original block; the two Phase 5 sections follow it.
+    expect(
+      _sidebarLabels()[_sidebarLabels().indexOf('Settings') + 1],
+      'Payables',
+    );
+    expect(_sidebarLabels().last, 'Deliveries');
+    expect(_inventoryPaths.length, _sidebarLabels().length);
   });
 
   test('every sidebar destination has its own route at its own index', () {

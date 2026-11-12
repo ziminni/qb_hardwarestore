@@ -1,5 +1,6 @@
 import 'package:client/core/network/api_client.dart';
 import 'package:client/data/models/customer.dart';
+import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/pos_transaction.dart' show PosReceiptPayment;
 import 'package:client/data/models/sale_discount.dart';
 import 'package:dio/dio.dart';
@@ -96,6 +97,7 @@ class PosCheckoutResult {
     this.vatAmount = 0,
     this.vatRegistered = true,
     this.changeGiven = 0,
+    this.deliveryFee = 0,
   });
 
   factory PosCheckoutResult.fromJson(Map<String, dynamic> json) {
@@ -135,6 +137,9 @@ class PosCheckoutResult {
       // server from the tenders it STORED. The receipt prints this number and never
       // recomputes it from the payment rows.
       changeGiven: _moneyOrZero(json['change_given']),
+      // Phase 5 B3: the "Delivery charge" the server added AFTER the discount.
+      // A body from before B3 has none, and the receipt then prints no line.
+      deliveryFee: _moneyOrZero(json['delivery_fee']),
     );
   }
 
@@ -162,6 +167,12 @@ class PosCheckoutResult {
           quantity: double.parse('${item['qty']}'),
           unitPrice: double.parse('${item['unit_price']}'),
           subtotal: double.parse('${item['subtotal']}'),
+          // Phase 5 B4: the server names the pick-up point on every sale line, so
+          // the receipt prints it from the STORED sale rather than from today's
+          // catalogue. An older body omits it, and the receipt then says nothing.
+          storedAtName: item['stored_at_name'] is String
+              ? item['stored_at_name'] as String
+              : '',
         ),
       );
     }
@@ -200,6 +211,10 @@ class PosCheckoutResult {
   /// Change handed back at the drawer (QA High, Phase 4 close). Money OUT, so the
   /// server decides it - the till only prints it.
   final double changeGiven;
+
+  /// The "Delivery charge" the server added to `grand_total` after the discount
+  /// (Phase 5 B3, decision 18). Zero means this sale was not delivered.
+  final double deliveryFee;
 }
 
 /// One written sale line, read back from the transaction response.
@@ -209,12 +224,17 @@ class PosCheckoutLine {
     required this.quantity,
     required this.unitPrice,
     required this.subtotal,
+    this.storedAtName = '',
   });
 
   final int variantUomId;
   final double quantity;
   final double unitPrice;
   final double subtotal;
+
+  /// The product's pick-up point as the SALE recorded it (Phase 5 B4). Empty on
+  /// a body written before B4.
+  final String storedAtName;
 }
 
 /// Raised when a sale cannot be completed. [message] is safe to show a cashier.
@@ -321,6 +341,7 @@ class PosService {
     String? idempotencyKey,
     PosDiscount? discount,
     String? discountApproval,
+    DeliveryDraft? delivery,
   }) async {
     try {
       final response = await _client.post<Map<String, dynamic>>(
@@ -339,6 +360,10 @@ class PosService {
           if (discount != null) 'discount': discount.toJson(),
           if (discountApproval != null && discountApproval.isNotEmpty)
             'discount_approval': discountApproval,
+          // Phase 5 B3: the delivery object is optional; when it is present the
+          // server writes the slip and adds its fee to `grand_total` AFTER the
+          // discount (ENDPOINTS.md, *Delivery charge*).
+          if (delivery != null) 'delivery': delivery.toJson(),
         },
       );
       final data = response.data;

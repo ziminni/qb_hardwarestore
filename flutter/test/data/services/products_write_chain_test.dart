@@ -266,6 +266,42 @@ void main() {
     });
   });
 
+  // Phase 5 B4 (decision 18): a product may not be GIVEN a deactivated location,
+  // so the server answers 400 `INVALID_STORAGE_LOCATION`. The point of this test is
+  // that the CLERK reads the server's own sentence — it names the place and says
+  // what to do — instead of a fixed sentence from the code map, which cannot know
+  // which location was chosen (the same rule `BARCODE_TAKEN` follows).
+  test(
+    "a refused location shows the server's own sentence, not a canned one",
+    () async {
+      useAdapter(
+        {
+          '/api/v1/products/': {
+            'code': 'INVALID_STORAGE_LOCATION',
+            'detail':
+                '"Bodega" is not an active storage location: pick one that is in '
+                'the list, or have an Admin restore it.',
+          },
+        },
+        statusCodes: {'/api/v1/products/': 400},
+      );
+
+      await expectLater(
+        repository.createProductChain(_draft()),
+        throwsA(
+          isA<ProductWriteException>()
+              .having((e) => e.step, 'step', ProductWriteStep.product)
+              .having(
+                (e) => e.message,
+                'message',
+                '"Bodega" is not an active storage location: pick one that is in '
+                    'the list, or have an Admin restore it.',
+              ),
+        ),
+      );
+    },
+  );
+
   group('createProductChain with extra selling units', () {
     test('posts each extra unit AFTER the base unit, in form order', () async {
       useAdapter({

@@ -11,6 +11,7 @@
 
 import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/models/tender_method.dart';
+import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/sale_discount.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
@@ -39,6 +40,7 @@ class _StubPosRepository extends PosRepository {
     String? idempotencyKey,
     PosDiscount? discount,
     String? discountApproval,
+    DeliveryDraft? delivery,
   }) async {
     final boom = failure;
     if (boom != null) throw boom;

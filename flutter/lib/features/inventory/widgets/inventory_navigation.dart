@@ -28,6 +28,11 @@ void navigateInventory(BuildContext context, int index) {
     10 => AppRoutes.inventoryReturns,
     11 => AppRoutes.inventoryReports,
     12 => AppRoutes.inventorySettings,
+    // Index 13 - Payables, APPENDED with its own sidebar section (Phase 5 F2).
+    13 => AppRoutes.inventoryPayables,
+    // Index 14 - Deliveries, APPENDED (Phase 5 F3). The Stock Manager runs the
+    // schedule, which is why the tab is in this shell.
+    14 => AppRoutes.inventoryDeliveries,
     _ => null,
   };
   if (path != null) context.go(path);

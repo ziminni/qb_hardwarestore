@@ -119,6 +119,27 @@ class InventorySkeletonLayout extends StatelessWidget {
         ),
       ],
     ),
+    // Phase 5 F2: supplier payables, APPENDED in a section of its own so no
+    // earlier destination moves (the index IS the position in this list).
+    SharedSidebarSection(
+      label: 'Payables',
+      destinations: [
+        SharedSidebarDestination(
+          label: 'Payables',
+          icon: Icons.account_balance_wallet_outlined,
+        ),
+      ],
+    ),
+    // Phase 5 F3: the customer delivery schedule, APPENDED (index 14).
+    SharedSidebarSection(
+      label: 'Deliveries',
+      destinations: [
+        SharedSidebarDestination(
+          label: 'Deliveries',
+          icon: Icons.local_shipping_outlined,
+        ),
+      ],
+    ),
   ];
 
   @override
