@@ -319,6 +319,7 @@ class _ProductCard extends StatelessWidget {
               _StockBadge(
                 quantity: product.availableSaleQuantity,
                 unit: product.unit,
+                isLowStock: product.isLowStock,
               ),
               const Spacer(),
               // A narrow card cannot fit the price beside Add without cutting
@@ -391,13 +392,17 @@ class _ProductCard extends StatelessWidget {
 /// Stock on hand, in words AND color: the color alone would not reach a
 /// color-blind cashier, and the tinted pill keeps small text readable.
 class _StockBadge extends StatelessWidget {
-  const _StockBadge({required this.quantity, required this.unit});
+  const _StockBadge({
+    required this.quantity,
+    required this.unit,
+    required this.isLowStock,
+  });
 
   final double quantity;
   final String unit;
 
-  /// At or below this, the badge warns that stock is running low.
-  static const double lowThreshold = 10;
+  /// Derived from the server's threshold in base units, not the printed unit.
+  final bool isLowStock;
 
   @override
   Widget build(BuildContext context) {
@@ -406,7 +411,7 @@ class _StockBadge extends StatelessWidget {
     final unitLabel = unit.toLowerCase();
     final (Color text, Color tint, String label) = quantity <= 0
         ? (AppColors.errorText, AppColors.errorTint, 'Out of stock')
-        : quantity <= lowThreshold
+        : isLowStock
         ? (
             AppColors.warningText,
             AppColors.warningTint,

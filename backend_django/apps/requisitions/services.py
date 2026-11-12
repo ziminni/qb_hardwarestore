@@ -444,10 +444,10 @@ def release_materials(*, token_value: str, cashier) -> dict:
         # function `process_sale` uses, so the two paths can never disagree about what
         # 12% of a release is.
         from apps.pos.models import StoreSettings
-        from apps.pos.services import _money_round, vat_split
+        from apps.pos.services import money_round, vat_split
 
         store = StoreSettings.load()
-        grand_total = _money_round(grand_total)
+        grand_total = money_round(grand_total)
         vatable_sales, vat_amount = vat_split(
             grand_total, rate=store.vat_rate, registered=store.vat_registered
         )

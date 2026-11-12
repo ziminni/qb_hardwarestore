@@ -1,5 +1,6 @@
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
+import 'package:client/core/format/money_input.dart';
 import 'package:client/core/time/app_clock.dart';
 import 'package:client/data/models/catalogue_item.dart';
 import 'package:client/data/models/customer.dart';
@@ -442,6 +443,8 @@ class _SalesOrderFormDialogState extends State<SalesOrderFormDialog> {
                     labelText: 'Price per $code',
                     prefixText: '₱ ',
                     isDense: true,
+                    // A half-width column at 760 px would ellipsize the refusal.
+                    errorMaxLines: 4,
                   ),
                   validator: _moneyError,
                   onChanged: (_) => setState(() {}),
@@ -531,7 +534,11 @@ class _SalesOrderFormDialogState extends State<SalesOrderFormDialog> {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
-                  decoration: const InputDecoration(labelText: 'Delivery fee'),
+                  decoration: const InputDecoration(
+                    labelText: 'Delivery fee',
+                    // Same half-width column as the price: the refusal must fit.
+                    errorMaxLines: 4,
+                  ),
                   validator: _moneyError,
                   onChanged: (_) => setState(() {}),
                 ),
@@ -561,14 +568,14 @@ class _SalesOrderFormDialogState extends State<SalesOrderFormDialog> {
 
   /// A price or a fee: money at two decimals, never negative. `10.005` is refused
   /// by the server rather than rounded, so it is refused here with the same
-  /// sentence the cashier has to correct.
-  static String? _moneyError(String? value) {
-    final text = (value ?? '').trim();
-    final parsed = double.tryParse(text);
-    if (parsed == null || parsed < 0) return 'Enter an amount, 0 or more.';
-    if (!_twoDecimals.hasMatch(text)) return 'At most two decimals.';
-    return null;
-  }
+  /// sentence the cashier has to correct. The rule itself is shared with the till
+  /// (item 10); only this screen's wording lives here.
+  static String? _moneyError(String? value) =>
+      switch (moneyInputProblem(value)) {
+        MoneyInputProblem.notAnAmount => 'Enter an amount, 0 or more.',
+        MoneyInputProblem.moreThanTwoDecimals => 'At most two decimals.',
+        null => null,
+      };
 
   static final RegExp _twoDecimals = RegExp(r'^\d+(\.\d{1,2})?$');
 }

@@ -97,10 +97,11 @@ def discount_share(
     * **Exactness.** When the order is fully received the cumulative share is the whole
       discount, so the last bill takes the remainder and the bills sum to the header
       discount to the centavo - no rounding leak (three receipts of 1.00 against a 1.00
-      discount on a 3.00 order allocate 33.00 / 33.67 / 33.33).
+      discount on a 3.00 order allocate 0.33 / 0.34 / 0.33).
     * **No negative or oversized share.** A guard for a zero-gross order (nothing was
-      ever worth anything, so nothing is discounted) and a clamp at the slice's own
-      gross for pathological data.
+      ever worth anything, so nothing is discounted), a cap at the header discount when
+      the receipts are worth more than the order (over-receipt), and a clamp at the
+      slice's own gross for pathological data.
     """
     header_discount = money(header_discount or 0)
     if header_discount <= 0 or order_gross <= 0 or received_gross <= 0:
@@ -108,6 +109,9 @@ def discount_share(
     cumulative = money(
         Decimal(header_discount) * Decimal(received_gross) / Decimal(order_gross)
     )
+    # Phase 6 B2: over-receipt (received_gross above the order gross) would push the
+    # cumulative share past the discount the header actually granted.
+    cumulative = min(cumulative, header_discount)
     share = cumulative - money(allocated_so_far or 0)
     if share <= 0:
         return Decimal("0.00")

@@ -36,6 +36,9 @@ class _StubSalesService extends SalesService {
   /// Set to a sentence to make the server refuse the create.
   String? refusal;
 
+  /// Set to a sentence to make the ORDER READ fail, as a broken endpoint would.
+  String? readFailure;
+
   /// What a successful create adds to the list the server would answer with.
   SalesOrderRow? createdRow;
 
@@ -47,6 +50,8 @@ class _StubSalesService extends SalesService {
   @override
   Future<List<SalesOrderRow>> fetchSalesOrders() async {
     orderReads++;
+    final failure = readFailure;
+    if (failure != null) throw SalesServiceException(failure);
     return orders;
   }
 
@@ -164,6 +169,24 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('so-submit')));
     await tester.pumpAndSettle();
   }
+
+  testWidgets('a failed load hides "New sales order" and keeps Retry', (
+    tester,
+  ) async {
+    // The form names a customer from the same load that just failed, so an
+    // offered form would open with nothing to pick and refuse the order only
+    // after the clerk filled it in.
+    sales.readFailure = 'The orders could not be loaded.';
+    await pumpPage(tester);
+
+    expect(find.text(sales.readFailure!), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget, reason: 'the retry stays');
+    expect(
+      find.text('New sales order'),
+      findsNothing,
+      reason: 'a form with no customers cannot raise an order',
+    );
+  });
 
   testWidgets('the page offers "New sales order" and opens the form', (
     tester,

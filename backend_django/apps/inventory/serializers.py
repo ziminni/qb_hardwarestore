@@ -622,13 +622,19 @@ class POItemSerializer(serializers.ModelSerializer):
 
     **Phase 5 B1 (decision 18):** `variant_uom` is the selling unit the line is counted
     in (`ordered_qty`, `unit_cost`, `received_qty` are all in it). It is an
-    `IntegerField` rather than a `PrimaryKeyRelatedField` so a bad id is the project's
-    `INVALID_PO` sentence instead of DRF's field-error dict, and it may be OMITTED: the
-    line then defaults to the variant's base selling unit, which is what every pre-B1
-    line meant. `uom_code` / `conversion_factor` / `uom_is_whole` are READ-ONLY copies of
-    the referenced unit, so a purchasing or receiving screen can say "2 BAG (50 kg) at
-    P250/bag" without a second request per line; a null unit (a fixture-written row)
-    reads as the base unit and reports null.
+    `IntegerField` rather than a `PrimaryKeyRelatedField` so a WELL-TYPED id that names no
+    unit, or another variant's unit, is the project's `INVALID_PO` sentence instead of
+    DRF's field-error dict; a value that is not an integer at all (`"abc"`, `2.5`) never
+    reaches `validate()`, so it answers DRF's own field errors —
+    `{"items": [{ "variant_uom": ["A valid integer is required."]}]}`. The field may be
+    OMITTED: the line then defaults to the variant's real base selling unit, which is
+    what every pre-B1 line meant (a variant with no such row is refused `INVALID_PO`).
+    `uom_code` / `conversion_factor` / `uom_is_whole` are READ-ONLY copies of the
+    referenced unit, so a purchasing or receiving screen can say "2 BAG (50 kg) at
+    P250/bag" without a second request per line. On a row stored with no unit at all
+    (an ORM-only write, e.g. a fixture), reading does NOT fall back to the base unit:
+    `variant_uom` reads null and the three copies are OMITTED from the payload (DRF skips
+    a source it cannot traverse), never reported as null values.
     """
 
     variant_name = serializers.CharField(source="variant.variant_name", read_only=True)

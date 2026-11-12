@@ -7,7 +7,7 @@ from django.db import transaction
 from rest_framework import serializers
 
 from apps.inventory.services import lock_selling_unit_lines
-from common.exceptions import refuse_fractional_whole_unit
+from common.exceptions import refuse_fractional_whole_unit, refuse_inactive_selling_unit
 
 from .models import (
     Customer,
@@ -325,9 +325,10 @@ class QuotationItemSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "quotation"]
 
     def validate(self, attrs):
-        # Phase 1d Task 2 (decision 16, Q1): a quote is a promise to sell, so it carries the
-        # same whole-unit rule as the till - a document that cannot be rung is not a quote.
+        # A quote must refer to a currently sellable catalogue row.
         vuom = attrs.get("variant_uom")
+        if vuom is not None:
+            refuse_inactive_selling_unit(variant_uom=vuom, what=str(vuom.variant))
         qty = attrs.get("qty")
         if vuom is not None and qty is not None:
             refuse_fractional_whole_unit(
@@ -355,8 +356,24 @@ class QuotationSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         # quotation_no and created_by are the server's to decide; a client that could set
-        # either could forge a number or attribute a quotation to someone else.
-        read_only_fields = ["id", "quotation_no", "created_at", "updated_at"]
+        # either could forge a number or attribute a quotation to someone else. `status`
+        # joins them (Phase 6 B1, decision 22 #16): a quotation's life cycle is not a
+        # client's to write, which is why the SalesQuoteStatus vocabulary is server-side.
+        read_only_fields = ["id", "quotation_no", "status", "created_at", "updated_at"]
+
+    def validate(self, attrs):
+        # Phase 6 B1 (decision 22 #16): the lines are written ONCE, with the document.
+        # DRF's model serializer cannot nest a writable `items` into an update - it
+        # raises an AssertionError, which is a 500 on an ordinary PATCH. Refusing the
+        # request here is the 400 it always was.
+        if self.instance is not None and "items" in attrs:
+            raise serializers.ValidationError(
+                {
+                    "items": "Quotation lines cannot be rewritten in place. Void this "
+                    "quotation and issue a new one."
+                }
+            )
+        return attrs
 
     def create(self, validated_data):
         items = validated_data.pop("items", [])
@@ -384,8 +401,10 @@ class SalesOrderItemSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "order"]
 
     def validate(self, attrs):
-        # Same rule as a quotation: an order is what the shop promised to deliver.
+        # An order must refer to a currently sellable catalogue row.
         vuom = attrs.get("variant_uom")
+        if vuom is not None:
+            refuse_inactive_selling_unit(variant_uom=vuom, what=str(vuom.variant))
         qty = attrs.get("qty")
         if vuom is not None and qty is not None:
             refuse_fractional_whole_unit(
@@ -419,7 +438,10 @@ class SalesOrderSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "order_no", "created_at", "updated_at"]
+        # `status` is read-only for the same reason as on a quotation (Phase 6 B1,
+        # decision 22 #16): orders are create-only until Phase 7 ships the lifecycle
+        # actions, and a POST body does not get to choose the starting status.
+        read_only_fields = ["id", "order_no", "status", "created_at", "updated_at"]
 
     def create(self, validated_data):
         items = validated_data.pop("items", [])

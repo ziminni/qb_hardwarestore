@@ -388,9 +388,10 @@ class PosTransactionViewmodel extends ChangeNotifier {
     catalogueBuilds++;
     final items = <PosCatalogItem>[];
     for (final record in _inventory.stockRecords) {
+      final baseStock = _inventory.stockOnHandFor(record.variant.id);
       if (!record.product.isActive ||
           !record.variant.isActive ||
-          _inventory.stockOnHandFor(record.variant.id) <= 0) {
+          baseStock <= 0) {
         continue;
       }
       // Decision 06 section 2: the rows are built from the variant's REAL selling
@@ -432,7 +433,10 @@ class PosTransactionViewmodel extends ChangeNotifier {
             // I1, QA defects 1 and 2).
             conversionFactor: uom.conversionFactor,
             unitPrice: uom.defaultSellingPrice,
-            availableBaseStock: _inventory.stockOnHandFor(record.variant.id),
+            availableBaseStock: baseStock,
+            // Match the server's strict threshold in base units, even for packages.
+            isLowStock:
+                baseStock > 0 && baseStock < record.variant.minStockThreshold,
             // Phase 1d: the server's whole-number flag decides whether a scan adds
             // one straight to the cart, so it travels with the row.
             isWhole: uom.uomIsWhole,

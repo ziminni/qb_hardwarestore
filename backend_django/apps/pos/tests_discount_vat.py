@@ -227,6 +227,38 @@ class StoreSettingsTests(DiscountVATBase):
         self.assertEqual(response.status_code, 403)
         self.assertTrue(StoreSettings.load().vat_registered)
 
+    def test_a_patch_that_changes_nothing_saves_and_audits_nothing(self):
+        # Phase 6 B5 item 3: a PATCH that repeats the current values is not an admin
+        # decision. It used to save the row (bumping `updated_at`) and write a
+        # `SETTINGS_UPDATE` audit row saying nothing changed.
+        before = self.client.get(SETTINGS_URL, **self.cashier_auth).json()  # pyright: ignore[reportArgumentType]
+
+        response = self.client.patch(
+            SETTINGS_URL,
+            {
+                "vat_registered": True,
+                "vat_rate": "12.00",
+                "discount_cap_percent": "10.00",
+            },
+            format="json",
+            **self.admin_auth,
+        )  # pyright: ignore[reportArgumentType]
+
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertTrue(body["vat_registered"])
+        self.assertEqual(body["vat_rate"], "12.00")
+        self.assertEqual(body["discount_cap_percent"], "10.00")
+        self.assertEqual(
+            body["updated_at"],
+            before["updated_at"],
+            "an unchanged PATCH must not save the row",
+        )
+        self.assertFalse(
+            AuditLog.objects.filter(action_type="SETTINGS_UPDATE").exists(),
+            "a PATCH that changes nothing is not an admin decision",
+        )
+
     def test_an_impossible_rate_is_refused(self):
         response = self.client.patch(
             SETTINGS_URL, {"vat_rate": "off"}, format="json", **self.admin_auth

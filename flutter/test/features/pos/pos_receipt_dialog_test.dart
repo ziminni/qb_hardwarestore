@@ -1,4 +1,8 @@
-import 'package:client/data/models/pos_transaction.dart';
+import 'package:client/data/models/pos_transaction.dart'
+    hide PosCheckoutResult;
+// The model file declares an older, unrelated `PosCheckoutResult`; the JSON parser
+// this test exercises lives beside the service.
+import 'package:client/data/services/pos_service.dart' show PosCheckoutResult;
 import 'package:client/features/pos/widgets/pos_receipt_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -77,6 +81,51 @@ void main() {
       find.text('₱5.00'),
       findsNothing,
       reason: '240 + 10 - 225 is not change the drawer paid out',
+    );
+  });
+
+  testWidgets('the change printed is the server number, not paid minus total', (
+    tester,
+  ) async {
+    // Built from the JSON `/transactions/` really answers with, so the parse and
+    // the print are both covered. On a 225.00 sale tendered at 250 the till's own
+    // arithmetic would print 25.00; the server says 12.50.
+    final result = PosCheckoutResult.fromJson(const {
+      'id': 38,
+      'transaction_no': 'TRX-20261024-0038',
+      'trans_date': '2026-10-24T12:00:00Z',
+      'grand_total': '225.00',
+      'change_given': '12.50',
+      'receipt': {'or_number': 'OR-20261024-0038'},
+    });
+    expect(result.changeGiven, 12.5, reason: 'the server body carried it');
+
+    await _pump(
+      tester,
+      PosReceipt(
+        reference: result.transactionNo,
+        officialReceiptNumber: result.orNumber,
+        createdAt: result.transDate,
+        lines: const [],
+        paymentMethod: 'CASH',
+        amountPaid: 250,
+        changeGiven: result.changeGiven,
+        total: result.grandTotal,
+        // Non-VAT, so the VAT rows cannot also print a ₱0.00.
+        vatRegistered: false,
+      ),
+    );
+
+    expect(find.text('Change'), findsOneWidget);
+    expect(
+      find.text('₱12.50'),
+      findsOneWidget,
+      reason: 'the server decided how much left the drawer',
+    );
+    expect(
+      find.text('₱25.00'),
+      findsNothing,
+      reason: '250 - 225 is arithmetic the till does not get to do',
     );
   });
 }

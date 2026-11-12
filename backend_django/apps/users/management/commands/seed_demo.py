@@ -213,8 +213,10 @@ class Command(BaseCommand):
         variants = {}
         if Category.objects.filter(name="Cement").exists():
             self.stdout.write(self.style.WARNING("Catalog already seeded - skipping"))
-            for v in ProductVariant.objects.all():
-                variants[v.variant_name] = {"variant": v}
+            # Keyed by (product, variant name): two products can ship a variant called
+            # "Standard" (Phase 6 B6, decision 22 item 17).
+            for v in ProductVariant.objects.select_related("product"):
+                variants[(v.product.base_name, v.variant_name)] = {"variant": v}
             return variants
         uoms = {}
         # Flush removes migration seed rows; restore the same standard list.
@@ -264,7 +266,12 @@ class Command(BaseCommand):
                 )
                 # Decision 04: a requisition line keys on the selling unit, so the
                 # demo requests quote the base unit CPMS would have been shown.
-                variants[v_name] = {"variant": variant, "vuom": vuom, "cost": cost}
+                # (product, variant name) - see the skip branch above.
+                variants[(prod_name, v_name)] = {
+                    "variant": variant,
+                    "vuom": vuom,
+                    "cost": cost,
+                }
             # Phase 5 B4 (decision 18): ONE seeded product lives in the Bodega; every
             # other product keeps the model default, Store. `update()` writes only this
             # column and the value is constant, so a re-run changes nothing.
@@ -535,7 +542,7 @@ class Command(BaseCommand):
             "payer": customers["Dela Cruz Construction"].pk,
         }
 
-        def push(cpms_request_id, variant_name, quantity, *, answer):
+        def push(cpms_request_id, variant_key, quantity, *, answer):
             """One request exactly as CPMS pushes it, then the STORE's answer.
 
             The push lands WAITING (decision 13), so every demo request is answered
@@ -553,7 +560,7 @@ class Command(BaseCommand):
                 approver_name=users["manager"].full_name,
                 items=[
                     {
-                        "code": variants[variant_name]["vuom"].barcode_qr,
+                        "code": variants[variant_key]["vuom"].barcode_qr,
                         "quantity": Decimal(quantity),
                     }
                 ],
@@ -645,16 +652,18 @@ class Command(BaseCommand):
         * the KG unit is the MEASURED one, so the product still accepts 2.5 kg, which is
           the contrast the packaged BAG is there to show.
 
-        Its own guard, like every other half of this command: an existing product means
-        a previous run already built it, and re-running must change nothing (ids, codes,
-        prices, batches). A half-built product is repaired by a reset, exactly like a
-        half-built catalog.
+        Its own guard, like every other half of this command: every part is looked up
+        before it is written, so re-running changes nothing (ids, codes, prices,
+        batches). A HALF-BUILT product is repaired in place - the parts that are missing
+        (product, variant, either selling unit, its factor and price) are the only rows
+        written, so a reset is never needed (Phase 6 B6, decision 22 item 17).
+
+        Stock is the one thing a repair must not redo: the 250 kg is received only when
+        this variant has no batch yet, so a run over existing stock never adds a second
+        purchase order, receipt or batch, and never touches an existing one.
         """
         base_code, base_name = PACKAGING["base_unit"]
         bag_code, bag_name = PACKAGING["bag_unit"]
-        if Product.objects.filter(base_name=PACKAGING["product"]).exists():
-            self.stdout.write(self.style.WARNING("Packaging already seeded - skipping"))
-            return
 
         # Both codes are created by migration 0008 in a fresh database; get_or_create
         # keeps a database seeded before it from inventing a rival spelling.
@@ -674,14 +683,28 @@ class Command(BaseCommand):
             variant_name=PACKAGING["variant"],
             defaults={"base_uom": base_uom, "min_stock_threshold": Decimal(20)},
         )
+        restored = []
         for uom, factor, price in (
             (base_uom, Decimal(1), PACKAGING["base_price"]),
             (bag_uom, PACKAGING["bag_factor"], PACKAGING["bag_price"]),
         ):
-            variant.selling_uoms.get_or_create(
+            _unit, created = variant.selling_uoms.get_or_create(
                 uom=uom,
                 defaults={"conversion_factor": factor, "default_selling_price": price},
             )
+            if created:
+                restored.append(f"{uom.code} x{factor} at {price}")
+        if restored:
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Packaging repaired: {product.base_name} / "
+                    f"{variant.variant_name} ({', '.join(restored)})"
+                )
+            )
+
+        if InventoryBatch.objects.filter(variant=variant).exists():
+            self.stdout.write(self.style.WARNING("Packaging already seeded - skipping"))
+            return
 
         # Same purchase -> delivery -> process shape `_seed_stock` uses, with the
         # delivery LINE spelling out the 250 kg this order actually brought in.

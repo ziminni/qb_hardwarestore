@@ -29,7 +29,7 @@ from unittest import mock
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.db import IntegrityError, connections, transaction
-from django.test import TransactionTestCase
+from django.test import SimpleTestCase, TransactionTestCase
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from rest_framework.test import APIClient
@@ -54,6 +54,7 @@ from .models import (
     UnitOfMeasure,
     VariantUOM,
 )
+from .payables import discount_share
 from .services import process_goods_receipt
 from .tests import InventoryTestBase
 
@@ -65,6 +66,26 @@ RECEIPTS_URL = "/api/v1/goods-receipts/"
 BILLS_URL = "/api/v1/supplier-bills/"
 PAYMENTS_URL = "/api/v1/supplier-payments/"
 SUPPLIERS_URL = "/api/v1/suppliers/payables/"
+
+
+class DiscountShareCapTests(SimpleTestCase):
+    def test_over_receipt_allocates_only_the_remaining_header_discount(self):
+        share = discount_share(
+            header_discount=Decimal("10.00"),
+            order_gross=Decimal("100.00"),
+            received_gross=Decimal("120.00"),
+            allocated_so_far=Decimal("4.00"),
+        )
+        self.assertEqual(share, Decimal("6.00"))
+
+    def test_over_receipt_allocates_nothing_after_header_discount_is_used(self):
+        share = discount_share(
+            header_discount=Decimal("10.00"),
+            order_gross=Decimal("100.00"),
+            received_gross=Decimal("120.00"),
+            allocated_so_far=Decimal("10.00"),
+        )
+        self.assertEqual(share, Decimal("0.00"))
 
 
 class PayablesTestBase(InventoryTestBase):

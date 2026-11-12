@@ -260,6 +260,48 @@ void main() {
     expect(lastResult?.edit?.productBody['stored_at'], 4);
   });
 
+  // Item 12: a legacy product was filed before locations existed, so its
+  // stored id is null. That is not "no location may be chosen" — the first
+  // pick must be saved like any other move.
+  testWidgets('a legacy product with no location can be given one', (
+    tester,
+  ) async {
+    await openForm(
+      tester,
+      product: storedAtProduct(storedAtId: null, storedAtName: ''),
+    );
+
+    await tapKey(tester, const ValueKey('stored-at-picker'));
+    await tester.tap(find.text('Bodega').last);
+    await tester.pumpAndSettle();
+    await save(tester, label: 'Save changes');
+
+    expect(
+      lastResult?.edit?.storedAtId,
+      9,
+      reason: 'the clerk picked Bodega; the product had no location before',
+    );
+    expect(lastResult?.edit?.productBody['stored_at'], 9);
+  });
+
+  testWidgets('a legacy product whose location the clerk left alone sends no '
+      'stored_at', (tester) async {
+    await openForm(
+      tester,
+      product: storedAtProduct(storedAtId: null, storedAtName: ''),
+    );
+
+    await save(tester, label: 'Save changes');
+
+    expect(
+      lastResult?.edit?.productBody.containsKey('stored_at'),
+      isFalse,
+      reason:
+          'the Store row the form prefilled for a NEW product is not a choice '
+          'the clerk made for this one',
+    );
+  });
+
   testWidgets('a failed location read is shown and blocks the create', (
     tester,
   ) async {

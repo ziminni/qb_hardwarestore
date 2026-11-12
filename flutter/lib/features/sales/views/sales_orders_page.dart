@@ -100,14 +100,17 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton.icon(
-              onPressed: _openForm,
-              icon: const Icon(Icons.add),
-              label: const Text('New sales order'),
+          // A failed load left no customers to name and no fresh rows behind it,
+          // so the form is offered only once the page has read what it needs.
+          if (viewmodel.loadError == null)
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.icon(
+                onPressed: _openForm,
+                icon: const Icon(Icons.add),
+                label: const Text('New sales order'),
+              ),
             ),
-          ),
           const SizedBox(height: AppSpacing.md),
           // The list takes the rest of the slot and scrolls its own rows.
           Expanded(

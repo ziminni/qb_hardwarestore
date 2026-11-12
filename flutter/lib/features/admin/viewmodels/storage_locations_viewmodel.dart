@@ -93,7 +93,11 @@ class StorageLocationsViewmodel extends ChangeNotifier {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return 'Enter a name for the location.';
     if (nameTaken(trimmed)) return _duplicateSentence(trimmed);
-    if (_isCreating) return null;
+    if (_isCreating) {
+      // Item 13: null is the success value, so returning it made the page say
+      // '"Yard" added.' for a location nobody added.
+      return 'Still adding the previous location: wait for it to finish.';
+    }
     _isCreating = true;
     _actionError = null;
     notifyListeners();

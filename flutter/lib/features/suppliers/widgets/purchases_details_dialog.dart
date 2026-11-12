@@ -124,10 +124,17 @@ class PurchasesDetailsDialog extends StatelessWidget {
               value: formatPeso(order.vatableAmount ?? 0),
             ),
             DetailRow(
-              label: order.vatRate == 0
+              // Item 9: totals can arrive without the rate snapshot. A missing
+              // rate is plain "VAT" — never a 0% rate, and never a zero tax
+              // standing in for a figure the server did not send.
+              label: order.vatRate == null || order.vatRate == 0
                   ? 'VAT'
                   : 'VAT (${_percent(order.vatRate!)}%)',
-              value: order.vatRate == 0
+              value: order.vatRate == null
+                  ? (order.vatAmount == null
+                        ? 'Not recorded'
+                        : formatPeso(order.vatAmount!))
+                  : order.vatRate == 0
                   ? 'Not VAT registered'
                   : formatPeso(order.vatAmount ?? 0),
             ),

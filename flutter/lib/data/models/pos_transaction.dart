@@ -13,6 +13,7 @@ class PosCatalogItem {
     this.brandName = '',
     this.isWhole = false,
     this.storedAtName = '',
+    this.isLowStock = false,
   });
   final int variantUomId;
   final int variantId;
@@ -32,6 +33,9 @@ class PosCatalogItem {
   /// Empty when the row came from a server that does not send it, and the till
   /// then shows no badge rather than an invented one.
   final String storedAtName;
+
+  /// Derived from base stock and the server's per-variant threshold.
+  final bool isLowStock;
 
   /// The SERVER's whole-number flag for this selling unit (Phase 1d).
   ///

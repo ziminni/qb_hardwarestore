@@ -9,15 +9,28 @@ import 'package:client/core/format/format.dart';
 import 'package:client/data/models/delivery.dart';
 import 'package:client/features/pos/widgets/pos_payment_dialog.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Future<PosPaymentDetails?> _open(
   WidgetTester tester, {
   double total = 1000,
+  Size size = const Size(1400, 1100),
+  double scale = 1.0,
 }) async {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
   PosPaymentDetails? result;
   await tester.pumpWidget(
     MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(scale)),
+        child: child!,
+      ),
       home: Builder(
         builder: (context) => Scaffold(
           body: Center(
@@ -83,6 +96,29 @@ Future<void> _discountPercent(WidgetTester tester, String percent) async {
   );
   await tester.pumpAndSettle();
 }
+
+// Every required sentence must be readable whole: a clipped error tells the
+// cashier nothing. Names the clipped ones in the failure.
+void _expectFullErrors(WidgetTester tester, List<String> messages) {
+  final clipped = <String>[];
+  for (final message in messages) {
+    final error = find.text(message);
+    expect(error, findsOneWidget);
+    if (tester.renderObject<RenderParagraph>(error).didExceedMaxLines) {
+      clipped.add(message);
+    }
+  }
+  expect(clipped, isEmpty, reason: 'these errors are clipped: $clipped');
+}
+
+void _expectDeliveryErrorsFull(WidgetTester tester) => _expectFullErrors(
+  tester,
+  const [
+    'A delivery needs an address.',
+    'A delivery needs a contact name.',
+    'A delivery needs a contact phone number.',
+  ],
+);
 
 void main() {
   testWidgets('Deliver reveals the four fields, pre-dated for tomorrow', (
@@ -171,6 +207,55 @@ void main() {
       reason: 'the server refuses 10.005 rather than rounding it',
     );
   });
+
+  testWidgets('the fee error renders in full at 760 px and 1.3x text', (
+    tester,
+  ) async {
+    // Item 15: the fee sits in a half-width column beside the date button, so its
+    // longest refusal used to ellipsize to one line.
+    await _open(tester, size: const Size(760, 1000), scale: 1.3);
+    await _toggleDeliver(tester);
+    await _enterDelivery(tester, fee: 'ten');
+
+    await tester.tap(find.text('Complete sale'));
+    await tester.pumpAndSettle();
+
+    final error = find.text('The delivery fee must be a number, 0 or more.');
+    expect(error, findsOneWidget);
+    final paragraph = tester.renderObject<RenderParagraph>(error);
+    expect(
+      paragraph.didExceedMaxLines,
+      isFalse,
+      reason: 'a clipped error cannot be read or acted on',
+    );
+  });
+
+  testWidgets('each required delivery error renders in full at 760 px', (
+    tester,
+  ) async {
+    // QA Low cosmetic: the phone shares a half-width row with the contact name,
+    // so its longest refusal used to ellipsize to one line.
+    await _open(tester, size: const Size(760, 1000));
+    await _toggleDeliver(tester);
+
+    await tester.tap(find.text('Complete sale'));
+    await tester.pumpAndSettle();
+
+    _expectDeliveryErrorsFull(tester);
+  });
+
+  testWidgets(
+    'each required delivery error renders in full at 760 px and 1.3x text',
+    (tester) async {
+      await _open(tester, size: const Size(760, 1000), scale: 1.3);
+      await _toggleDeliver(tester);
+
+      await tester.tap(find.text('Complete sale'));
+      await tester.pumpAndSettle();
+
+      _expectDeliveryErrorsFull(tester);
+    },
+  );
 
   testWidgets(
     'completing hands back the delivery exactly as the wire wants it',

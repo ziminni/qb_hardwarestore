@@ -6,6 +6,25 @@ serializers, the goods-receipt view, the adjustment serializer and the CPMS impo
 the same question, and none of those layers may import another's API module to ask it.
 """
 
+from rest_framework.exceptions import APIException
+
+
+class InactiveSellingUnit(APIException):
+    status_code = 400
+
+
+def refuse_inactive_selling_unit(*, variant_uom, what):
+    """Raise `InactiveSellingUnit` when the unit's variant OR its product is archived.
+
+    An archived variant (or a variant whose product was archived) is off the catalogue:
+    a document that names it can never be picked, so it is refused BEFORE the first
+    write. Same `is_active` flags the till's `_validated_sale_lines` reads.
+    """
+    if not variant_uom.variant.is_active or not variant_uom.variant.product.is_active:
+        raise InactiveSellingUnit(
+            {"code": "INACTIVE_SELLING_UNIT", "detail": f"{what} is archived."}
+        )
+
 
 class WholeUnitQuantity(ValueError):
     """A fractional quantity on a unit counted in whole numbers (Phase 1d, decision 16).
@@ -25,7 +44,7 @@ class WholeUnitQuantity(ValueError):
     Published by `apps.pos.exceptions.handler` as `{code, detail}` with HTTP 400.
     """
 
-    code = 'WHOLE_UNIT_QUANTITY'
+    code = "WHOLE_UNIT_QUANTITY"
 
 
 def refuse_fractional_whole_unit(*, is_whole, qty, what):
@@ -37,5 +56,6 @@ def refuse_fractional_whole_unit(*, is_whole, qty, what):
     """
     if is_whole and qty % 1 != 0:
         raise WholeUnitQuantity(
-            f'{what}: {qty} is not a whole number, and this unit is counted in whole '
-            'units only.')
+            f"{what}: {qty} is not a whole number, and this unit is counted in whole "
+            "units only."
+        )

@@ -98,6 +98,21 @@ class _GatedStorageLocationRepository extends FakeStorageLocationRepository {
   }
 }
 
+/// Holds the CREATE on the wire, so a second create can be attempted while the
+/// first is still out.
+class _GatedCreateStorageLocationRepository
+    extends FakeStorageLocationRepository {
+  _GatedCreateStorageLocationRepository({super.locations});
+
+  final Completer<void> gate = Completer<void>();
+
+  @override
+  Future<StorageLocation> create(String name) async {
+    await gate.future;
+    return super.create(name);
+  }
+}
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
   setUpAll(_loadAppFonts);
@@ -274,6 +289,41 @@ void main() {
     await tester.pumpAndSettle();
     expect(repository.patches.single, (id: 1, name: null, isActive: false));
   });
+
+  // Item 13: a create that arrives while the first is still on the wire is not
+  // a success. Returning null (the success value) made the page announce
+  // '"Yard" added.' for a location nobody added.
+  test(
+    'a second create while one is on the wire is not reported as added',
+    () async {
+      final repository = _GatedCreateStorageLocationRepository(
+        locations: const [StorageLocation(id: 1, name: 'Store')],
+      );
+      final state = _state(const [
+        StorageLocation(id: 1, name: 'Store'),
+      ], repository);
+
+      final first = state.create('Yard');
+      final second = await state.create('Shed');
+
+      expect(
+        second,
+        isNotNull,
+        reason: 'null is the success value, and nothing was added',
+      );
+      expect(
+        repository.created,
+        isEmpty,
+        reason: 'the first is still in flight',
+      );
+
+      repository.gate.complete();
+      expect(await first, isNull);
+      expect(repository.created, [
+        'Yard',
+      ], reason: 'one POST, and it is the first one');
+    },
+  );
 
   testWidgets('760 px at 1.3x text, the page renders whole', (tester) async {
     final repository = FakeStorageLocationRepository(

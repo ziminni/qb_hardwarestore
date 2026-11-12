@@ -20,7 +20,11 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/phase4_fakes.dart';
 
-Map<String, dynamic> _orderJson({bool withMoney = true}) => {
+Map<String, dynamic> _orderJson({
+  bool withMoney = true,
+  bool withVatRate = true,
+  bool withVatAmount = true,
+}) => {
   'id': 41,
   'supplier': 9,
   'created_by': 3,
@@ -43,11 +47,11 @@ Map<String, dynamic> _orderJson({bool withMoney = true}) => {
   if (withMoney) ...{
     'discount_amount': '100.00',
     'vat_inclusive': true,
-    'vat_rate': '12.00',
+    if (withVatRate) 'vat_rate': '12.00',
     'gross_amount': '1200.00',
     'net_amount': '1100.00',
     'vatable_amount': '982.14',
-    'vat_amount': '117.86',
+    if (withVatAmount) 'vat_amount': '117.86',
     'total_amount': '1100.00',
   },
 };
@@ -225,6 +229,64 @@ void main() {
       expect(find.text('VAT (12%)'), findsOneWidget);
       expect(find.text(formatPeso(117.86)), findsOneWidget);
       expect(find.text(formatPeso(1100)), findsWidgets);
+    });
+
+    // Item 9: server totals can arrive without the rate snapshot. The row is
+    // still VAT; only the rate nobody sent is dropped — no zero rate, no zero
+    // tax invented to stand in for it.
+    testWidgets('a total without a VAT rate shows VAT, not an invented rate', (
+      tester,
+    ) async {
+      await _size(tester, const Size(1400, 1100));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.lightTheme,
+          home: PurchasesDetailsDialog(
+            order: PurchaseOrder.fromJson(_orderJson(withVatRate: false)),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('VAT'), findsOneWidget);
+      expect(find.textContaining('VAT ('), findsNothing);
+      expect(
+        find.text('Not VAT registered'),
+        findsNothing,
+        reason: 'a missing rate is not a 0% shop',
+      );
+      expect(
+        find.text(formatPeso(117.86)),
+        findsOneWidget,
+        reason: 'the tax the server did send is still shown',
+      );
+    });
+
+    testWidgets('a total without a VAT rate or amount says so, never ₱0.00', (
+      tester,
+    ) async {
+      await _size(tester, const Size(1400, 1100));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.lightTheme,
+          home: PurchasesDetailsDialog(
+            order: PurchaseOrder.fromJson(
+              _orderJson(withVatRate: false, withVatAmount: false),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('VAT'), findsOneWidget);
+      expect(find.text('Not recorded'), findsOneWidget);
+      expect(
+        find.text(formatPeso(0)),
+        findsNothing,
+        reason: 'a zero would claim the order holds no tax',
+      );
     });
 
     testWidgets('a pre-B2 order keeps the plain total bar', (tester) async {

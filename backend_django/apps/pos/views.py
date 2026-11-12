@@ -334,9 +334,14 @@ class StoreSettingsView(APIView):
                 )
             setattr(row, field, value.quantize(Decimal("0.01")))
 
+        after = self._body(row)
+        if after == before:
+            # A PATCH that repeats the current values is not an admin decision: nothing is
+            # saved (a save bumps `updated_at`) and no SETTINGS_UPDATE row is written.
+            return Response(after)
+
         with db_transaction.atomic():
             row.save()
-            after = self._body(row)
             audit_request(
                 request,
                 AuditLog.ActionType.SETTINGS_UPDATE,
@@ -981,6 +986,11 @@ class QuotationViewSet(BaseViewSet):
 
     Reads need a SALES role and writes a POS role (BaseViewSet -> SalesReadPOSWrite), which is
     what lets every sales screen list them while keeping a groupless account out.
+
+    Phase 6 B1 (decision 22 #16): CREATE keeps the POS role it had - a cashier quotes a
+    customer, which is what the quotations screen is for. Rewriting or erasing one is a
+    Store Manager's / Admin's (`IsManagerRole`), audited inside the same transaction as
+    the write, and a line cannot be rewritten in place at all (serializer refuses 400).
     """
 
     queryset = Quotation.objects.select_related("customer").prefetch_related(
@@ -988,21 +998,78 @@ class QuotationViewSet(BaseViewSet):
     )
     serializer_class = QuotationSerializer
 
+    def get_permissions(self):
+        # `partial_update` and `update` are the two ways to PATCH/PUT, and DRF names them
+        # per action, so both are listed; `destroy` covers DELETE.
+        if self.action in ("update", "partial_update", "destroy"):
+            return [IsManagerRole()]
+        return super().get_permissions()
+
     def perform_create(self, serializer):
         # created_by is never taken from the payload: the server records who actually asked.
         serializer.save(created_by=self.request.user)
 
+    def perform_update(self, serializer):
+        if not serializer.validated_data:
+            # A PATCH of read-only fields only (a `status` write) changes nothing, so
+            # there is nothing to save and no UPDATE row may claim an edit that never
+            # happened (the same rule Phase 6 B5 applies to a no-change settings PATCH).
+            return
+        with db_transaction.atomic():
+            quotation = serializer.save()
+            audit_request(
+                self.request,
+                AuditLog.ActionType.UPDATE,
+                f"Quotation {quotation.quotation_no} updated for "
+                f"{quotation.customer.name}.",
+            )
+
+    def perform_destroy(self, instance):
+        # Read the facts the row is about BEFORE it is gone: after `delete()` the
+        # document number is the trail's only handle on what was erased.
+        number, status_of = instance.quotation_no, instance.status
+        customer = instance.customer.name
+        with db_transaction.atomic():
+            instance.delete()
+            audit_request(
+                self.request,
+                AuditLog.ActionType.DELETE,
+                f"Quotation {number} ({status_of}) deleted for {customer}.",
+            )
+
 
 class SalesOrderViewSet(BaseViewSet):
-    """Phase 6 task 6A.2 (decision 05). Reads need a SALES role; writes need a POS role."""
+    """Phase 6 task 6A.2 (decision 05). Reads need a SALES role; writes need a POS role.
+
+    Phase 6 B1 (decision 22 #16): an order is CREATE-only until Phase 7 ships the real
+    lifecycle actions. `PUT`/`PATCH`/`DELETE` are not routed - 405 for every role, an
+    admin included - because DELETE of an order that has a `Delivery` raises
+    `ProtectedError` on the PROTECTed FK, which used to surface as a 500. Same precedent
+    as `SalesTransactionViewSet`: no role rewrites a document the shop promised.
+    """
 
     queryset = SalesOrder.objects.select_related(
         "customer", "quotation"
     ).prefetch_related("items__variant_uom")
     serializer_class = SalesOrderSerializer
+    # Tuple, not a list: same DRF contract, tuple keeps this file's RUF012 noise down
+    # (precedent at `DeliveryViewSet.http_method_names`).
+    http_method_names = ("get", "head", "options", "post")
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        # Decision 07: the CREATE row and the order are ONE transaction, so a refused
+        # create (a bad delivery fee is refused after the order row exists) leaves no
+        # trail claiming an order that was never written.
+        with db_transaction.atomic():
+            order = serializer.save(created_by=self.request.user)
+            lines = order.items.count()
+            audit_request(
+                self.request,
+                AuditLog.ActionType.CREATE,
+                f"Sales order {order.order_no} created for {order.customer.name}: "
+                f"{lines} line{'' if lines == 1 else 's'}, delivery: "
+                f"{'yes' if getattr(order, 'delivery', None) else 'no'}.",
+            )
 
 
 class HeldCartViewSet(BaseViewSet):

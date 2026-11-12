@@ -79,7 +79,7 @@ MAX_RETURN_REASON_LENGTH = 255
 MAX_IDEMPOTENCY_KEY_LENGTH = 64
 
 # Money is two decimal places, and it is rounded HALF_UP exactly ONCE per document
-# (decision 18). Every total in this module goes through `_money_round` so a sale, its
+# (decision 18). Every total in this module goes through `money_round` so a sale, its
 # receipt and its return cannot disagree by a cent.
 CENT = Decimal("0.01")
 
@@ -128,7 +128,7 @@ COUNTER_SOURCES = {
 }
 
 
-def _money_round(value):
+def money_round(value):
     """Two decimal places, `ROUND_HALF_UP`, called ONCE per figure (decision 18).
 
     Banker's rounding is not what a till does: a total ending in half a centavo rounds
@@ -151,7 +151,7 @@ def vat_split(net, *, rate, registered):
     be a claim to the BIR the shop cannot make. Negative `net` (a return) splits the same
     way, so a refund takes its VAT share back out of the reports.
     """
-    net = _money_round(net)
+    net = money_round(net)
     if not registered:
         return Decimal("0.00"), Decimal("0.00")
     divisor = 1 + (Decimal(rate) / 100)
@@ -159,8 +159,8 @@ def vat_split(net, *, rate, registered):
         # A rate of -100% or below would divide by zero or flip the sign. Only an Admin
         # can set it, and the settings serializer refuses it, so this is a belt.
         return Decimal("0.00"), Decimal("0.00")
-    vatable = _money_round(net / divisor)
-    return vatable, _money_round(net - vatable)
+    vatable = money_round(net / divisor)
+    return vatable, money_round(net - vatable)
 
 
 def _validated_discount(discount_data, *, gross):
@@ -194,9 +194,9 @@ def _validated_discount(discount_data, *, gross):
     if kind == DISCOUNT_KIND_PERCENT:
         if value > 100:
             raise InvalidDiscount("A discount cannot be more than 100 percent.")
-        amount = _money_round(gross * value / 100)
+        amount = money_round(gross * value / 100)
     else:
-        amount = _money_round(value)
+        amount = money_round(value)
 
     if amount > gross:
         raise InvalidDiscount(
@@ -237,7 +237,7 @@ def issue_discount_approval(*, approver, percent, reason=""):
     makes it one-time: `_consume_approval` locks it and the sale that spends it stamps
     `used_at`, so a replayed token is refused rather than discounting a second sale.
     """
-    percent = _money_round(percent)
+    percent = money_round(percent)
     row = DiscountApproval.objects.create(
         token_id=uuid.uuid4(),
         approver=approver,
@@ -322,8 +322,11 @@ def _consume_approval(token, *, percent_needed):
     return row
 
 
-def _highest_existing_sequence(model, field_name, stamp):
+def highest_existing_sequence(model, field_name, stamp):
     """The highest numeric suffix already used for `stamp`, or 0.
+
+    Public because `common.numbering` seeds its own counters with it too (Phase 6 B4):
+    QT/SO/DEL/REQ and TRX/OR must not disagree about what "already used" means.
 
     Parsed in PYTHON rather than with `ORDER BY field DESC`: the suffix is zero-padded to
     four digits, so a five-digit day (`-10000`) sorts BEFORE `-9999` lexically and the
@@ -363,7 +366,7 @@ def next_number(prefix, day=None):
             prefix=prefix,
             day=day,
             defaults={
-                "last": _highest_existing_sequence(model, field_name, stamp),
+                "last": highest_existing_sequence(model, field_name, stamp),
             },
         )
         counter.last += 1
@@ -670,7 +673,7 @@ def _validated_delivery(data):
         "contact_name": contact_name,
         "contact_phone": contact_phone,
         "scheduled_date": scheduled_date,
-        "fee": _money_round(fee),
+        "fee": money_round(fee),
     }
 
 
@@ -774,9 +777,9 @@ def process_sale(
 
     # Phase 4 task B1 (decision 18): the gross is pure arithmetic over the lines the
     # server just priced, so a discount can be checked against it BEFORE anything is
-    # written. `_money_round` once here, which is the number the net and the VAT split
+    # written. `money_round` once here, which is the number the net and the VAT split
     # are then computed from - rounding again lower down would drift a centavo.
-    gross = _money_round(
+    gross = money_round(
         sum((qty * vuom.default_selling_price for vuom, qty in lines), Decimal(0))
     )
     discount_info = _validated_discount(discount_data, gross=gross)
@@ -916,11 +919,11 @@ def process_sale(
         # Decision 18: shelf prices INCLUDE VAT, so the tax comes out of the net that is
         # actually being paid - gross minus the discount, not the gross the customer was
         # never charged. `gross` was rounded once above, which makes the net exact.
-        goods_net = _money_round(gross - discount_amount)
+        goods_net = money_round(gross - discount_amount)
         # Phase 5 task B3 (decision 18): the delivery charge joins the total AFTER the
         # discount, so it is never discounted, and the VAT split is taken out of the sum
         # the customer is actually paying - which is what the receipt has to add up to.
-        grand_total = _money_round(goods_net + delivery_fee)
+        grand_total = money_round(goods_net + delivery_fee)
         vatable_sales, vat_amount = vat_split(
             grand_total, rate=store.vat_rate, registered=store.vat_registered
         )
@@ -986,7 +989,7 @@ def process_sale(
         # and anything above the net is change. It must be payable in CASH: the shop
         # cannot hand back money that went to a card or a GCash wallet, so a sale asking
         # for more change than the cash taken is refused and the whole sale rolls back.
-        change_given = _money_round(max(total_paid - grand_total, Decimal(0)))
+        change_given = money_round(max(total_paid - grand_total, Decimal(0)))
         if change_given > cash_tendered:
             from .exceptions import PaymentExceedsTotal
 
@@ -1019,7 +1022,7 @@ def process_sale(
             # received, so it is refused (and the whole sale rolls back with it).
             from .exceptions import ChequeExceedsBalance
 
-            cheque_total = _money_round(
+            cheque_total = money_round(
                 sum((row.amount_tendered for row in cheque_rows), Decimal(0))
             )
             if cheque_total > shortfall:
@@ -1162,7 +1165,7 @@ def record_cheque_against_ledger(
     """
     from apps.collectibles.services import Overpayment
 
-    amount = _money_round(Decimal(amount))
+    amount = money_round(Decimal(amount))
     ledger = CollectibleLedger.objects.select_for_update().get(pk=ledger_id)
     if amount > ledger.balance_due:
         raise Overpayment(ledger.balance_due, amount)
@@ -1462,7 +1465,7 @@ def _return_net_share(*, original, returned_gross):
     if original is None:
         return returned_gross
 
-    sale_gross = _money_round(
+    sale_gross = money_round(
         SalesItem.objects.filter(transaction=original).aggregate(total=Sum("subtotal"))[
             "total"
         ]
@@ -1473,13 +1476,13 @@ def _return_net_share(*, original, returned_gross):
     # goods net and NOT the fee - the trip was still made - and a refund of the fee
     # itself is out of scope for this task. Subtracting it here is what keeps the share
     # and the cumulative cap on the same goods-only basis.
-    sale_net = _money_round(original.grand_total - original.delivery_fee)
+    sale_net = money_round(original.grand_total - original.delivery_fee)
     if sale_gross <= 0 or sale_net <= 0:
         # A fully discounted sale (or a zero-priced one) refunds nothing: the customer
         # paid nothing for the goods coming back.
         return Decimal("0.00")
 
-    share = _money_round(returned_gross * sale_net / sale_gross)
+    share = money_round(returned_gross * sale_net / sale_gross)
     # Negative: every completed return against this sale summed. `room` is what is left
     # of the sale after them.
     already = SalesTransaction.objects.filter(
@@ -1487,7 +1490,7 @@ def _return_net_share(*, original, returned_gross):
         source=SalesTransaction.Source.RETURN,
         status=SalesTransaction.Status.COMPLETED,
     ).aggregate(total=Sum("grand_total"))["total"] or Decimal(0)
-    room = _money_round(sale_net + already)
+    room = money_round(sale_net + already)
     return max(min(share, room), Decimal("0.00"))
 
 
@@ -1722,7 +1725,7 @@ def process_return(
             (vuom, qty, _return_unit_price(original=original, vuom=vuom))
             for vuom, qty in lines
         ]
-        returned_gross = _money_round(
+        returned_gross = money_round(
             sum((qty * unit_price for _, qty, unit_price in priced), Decimal(0))
         )
         refund_net = _return_net_share(original=original, returned_gross=returned_gross)

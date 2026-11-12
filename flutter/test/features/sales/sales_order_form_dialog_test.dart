@@ -592,4 +592,35 @@ void main() {
     expect(submitted, isEmpty);
     expect(find.textContaining('catalogue'), findsWidgets);
   });
+
+  testWidgets('a price and a fee error render in full at 760 px and 1.3x', (
+    tester,
+  ) async {
+    // Item 15: both money fields sit in a half-width column at 760 px, so their
+    // refusal used to ellipsize to one line - a clipped error cannot be fixed.
+    await open(tester, size: const Size(760, 1000), scale: 1.3);
+    await chooseCustomer(tester, 'Dela Cruz Construction');
+    await fillLine(tester, price: '-1');
+    await tester.tap(find.byKey(const ValueKey('so-deliver-toggle')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('so-delivery-fee')),
+      '10.005',
+    );
+    await tester.pumpAndSettle();
+    await submit(tester);
+
+    for (final sentence in [
+      'Enter an amount, 0 or more.',
+      'At most two decimals.',
+    ]) {
+      final error = find.text(sentence);
+      expect(error, findsOneWidget);
+      expect(
+        tester.renderObject<RenderParagraph>(error).didExceedMaxLines,
+        isFalse,
+        reason: '"$sentence" must be readable in full',
+      );
+    }
+  });
 }

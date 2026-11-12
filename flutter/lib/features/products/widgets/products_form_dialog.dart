@@ -98,6 +98,12 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   /// The SERVER pick-up point this product is stored at (Phase 5 B4).
   int? _storedAtId;
 
+  /// True once the clerk picked a location themselves (item 12).
+  ///
+  /// A legacy product has no stored id, so the form pre-fills the Store default
+  /// for it; comparing ids alone cannot tell that prefill from a real choice.
+  bool _storedAtTouched = false;
+
   final List<SellingUnitDraft> _extraUnits = [];
   final _imageFileService = const ImageFileService();
 
@@ -205,9 +211,11 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   }
 
   /// True when the clerk changed the product's location.
+  ///
+  /// A null original id (a legacy product) is changeable too — it just needs an
+  /// explicit pick, so the pre-filled Store default is never silently written.
   bool get _storedAtChanged =>
-      widget.product?.storedAtId != null &&
-      _storedAtId != widget.product!.storedAtId;
+      _storedAtTouched && _storedAtId != widget.product?.storedAtId;
 
   @override
   void dispose() {
@@ -686,7 +694,12 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
         validator: (value) =>
             value == null ? 'Choose where this product is stored.' : null,
         onChanged: (value) {
-          if (value != null) setState(() => _storedAtId = value);
+          if (value != null) {
+            setState(() {
+              _storedAtId = value;
+              _storedAtTouched = true;
+            });
+          }
         },
       ),
       const SizedBox(height: AppSpacing.lg),

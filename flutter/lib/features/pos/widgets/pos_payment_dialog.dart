@@ -1,4 +1,5 @@
 import 'package:client/core/format/format.dart';
+import 'package:client/core/format/money_input.dart';
 import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/sale_discount.dart';
 import 'package:client/data/models/store_settings.dart';
@@ -614,7 +615,11 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                 child: TextFormField(
                   key: const ValueKey('pos-delivery-contact'),
                   controller: _deliveryContact,
-                  decoration: const InputDecoration(labelText: 'Contact name'),
+                  decoration: const InputDecoration(
+                    labelText: 'Contact name',
+                    // Half-width column: the required sentence needs two lines.
+                    errorMaxLines: 4,
+                  ),
                   validator: (value) => (value ?? '').trim().isEmpty
                       ? 'A delivery needs a contact name.'
                       : null,
@@ -625,7 +630,11 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                 child: TextFormField(
                   key: const ValueKey('pos-delivery-phone'),
                   controller: _deliveryPhone,
-                  decoration: const InputDecoration(labelText: 'Contact phone'),
+                  decoration: const InputDecoration(
+                    labelText: 'Contact phone',
+                    // Half-width column: the required sentence needs two lines.
+                    errorMaxLines: 4,
+                  ),
                   validator: (value) => (value ?? '').trim().isEmpty
                       ? 'A delivery needs a contact phone number.'
                       : null,
@@ -658,20 +667,23 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
-                  decoration: const InputDecoration(labelText: 'Delivery fee'),
-                  validator: (value) {
-                    final text = (value ?? '').trim();
-                    final parsed = double.tryParse(text);
-                    if (parsed == null || parsed < 0) {
-                      return 'The delivery fee must be a number, 0 or more.';
-                    }
-                    // 10.005 is refused by the server, not rounded: money the
-                    // customer was charged is written to the cent.
-                    if (!RegExp(r'^\d+(\.\d{1,2})?$').hasMatch(text)) {
-                      return 'The delivery fee needs at most two decimals.';
-                    }
-                    return null;
-                  },
+                  decoration: const InputDecoration(
+                    labelText: 'Delivery fee',
+                    // The fee's longest refusal wraps in this half-width column.
+                    errorMaxLines: 4,
+                  ),
+                  validator: (value) =>
+                      switch (moneyInputProblem(value)) {
+                        // The rule is shared with the order form (item 10); the
+                        // till keeps its own sentence, and its own field label.
+                        MoneyInputProblem.notAnAmount =>
+                          'The delivery fee must be a number, 0 or more.',
+                        MoneyInputProblem.moreThanTwoDecimals =>
+                          // 10.005 is refused by the server, not rounded: money the
+                          // customer was charged is written to the cent.
+                          'The delivery fee needs at most two decimals.',
+                        null => null,
+                      },
                 ),
               ),
             ],
