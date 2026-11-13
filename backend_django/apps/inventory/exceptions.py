@@ -379,6 +379,46 @@ class BillPaid(PayablesRefused):
         super().__init__(message or f"Bill #{self.bill_pk} is already paid in full.")
 
 
+class CreditExceedsRemaining(PayablesRefused):
+    """More supplier credit asked for than the note still has (Phase 8 B4).
+
+    A credit note is not a line of credit: `remaining_amount` counts down as the credit is
+    applied, and spending past it would invent money the supplier never owed back. The
+    check runs under the note's own row lock, so two managers applying at once cannot
+    both spend the last peso - the loser reads 0.00 left and lands here.
+    """
+
+    code = "CREDIT_EXCEEDS_REMAINING"
+
+    def __init__(self, note, amount):
+        self.note_pk = note.pk
+        super().__init__(
+            f"Credit note {note.number} has {note.remaining_amount} left to apply: "
+            f"{amount} is more than that. Apply credit up to the remaining amount."
+        )
+
+
+class CreditNoteSupplierMismatch(PayablesRefused):
+    """A credit note spent on another supplier's bill (Phase 8 B4).
+
+    Supplier credit belongs to ONE supplier: the note records goods that supplier took
+    back, so it can only ever settle that supplier's bills. Applying it elsewhere would
+    pay a stranger with money the creditor owes, so the mismatch is refused under the
+    note's lock before the bill is even touched.
+    """
+
+    code = "CREDIT_NOTE_SUPPLIER_MISMATCH"
+
+    def __init__(self, note, bill):
+        self.note_pk = note.pk
+        self.bill_pk = getattr(bill, "pk", bill)
+        super().__init__(
+            f"Credit note {note.number} belongs to {note.supplier.company_name} and "
+            f"cannot be applied to bill #{self.bill_pk}, which is owed to another "
+            "supplier."
+        )
+
+
 class ImmutablePayableRecord(ValueError):
     """A write that would rewrite money that has already been agreed or paid.
 
@@ -389,6 +429,63 @@ class ImmutablePayableRecord(ValueError):
     """
 
     code = "IMMUTABLE_PAYABLE_RECORD"
+
+
+class InvalidSupplierReturn(PayablesRefused):
+    """A supplier return the shop cannot record, for a reason that is not the quantity.
+
+    Three shapes: no reason (a return with no story behind it is an unexplained hole in
+    the stock ledger), no lines at all, and a receipt line that belongs to a DIFFERENT
+    receipt (that would take stock off a delivery the clerk did not pick).
+
+    Not raised for a quantity problem: a fractional or unrepresentable quantity is the
+    project's own `WHOLE_UNIT_QUANTITY` / `RECEIPT_QUANTITY_UNREPRESENTABLE` (the same two
+    answers receiving gives), and an over-return is `RETURN_EXCEEDS_RECEIPT`.
+    """
+
+    code = "INVALID_SUPPLIER_RETURN"
+
+
+class ReceiptNotProcessed(PayablesRefused):
+    """A return against a receipt that never became stock.
+
+    An unprocessed receipt has moved nothing into the rack, so there is nothing to send
+    back: the goods are not on the shelf yet. Its own code because the clerk's next move
+    is to process the delivery (or pick the receipt that was processed).
+    """
+
+    code = "RECEIPT_NOT_PROCESSED"
+
+
+class ReturnExceedsReceipt(PayablesRefused):
+    """A returned quantity larger than this receipt line can still give back.
+
+    Decision 20 #2: the cap is `min(delivered base qty - base already returned on that
+    line, the receipt's batches' current qty)`. The first half keeps a line from returning
+    the same bags twice; the second keeps the books off stock that a sale, a damage
+    adjustment (or an earlier return through the other receipt line of the same variant)
+    has already taken. Raised UNDER the receipt's row lock and BEFORE any write of the
+    line's quantity, so a refused return leaves no return, no deduction and no moved
+    stock.
+    """
+
+    code = "RETURN_EXCEEDS_RECEIPT"
+
+    def __init__(self, message):
+        super().__init__(message)
+
+
+class ReturnAdjustmentRetired(CatalogWriteRefused):
+    """A new stock adjustment of type RETURN - the path decision 20 replaced.
+
+    Before Phase 8 B2 the adjust dialog offered "Supplier Return" and POSTed
+    `adjustment_type=RETURN`, which moved stock out through FIFO with NO credit note, no
+    record of which receipt the goods came from and no cap. The way out is
+    `POST /supplier-returns/`, which does all three. Historic RETURN rows keep their label
+    - the refusal is on the CREATE path only, so the ledger still shows what happened.
+    """
+
+    code = "USE_SUPPLIER_RETURN"
 
 
 # ---------------------------------------------------------------------------

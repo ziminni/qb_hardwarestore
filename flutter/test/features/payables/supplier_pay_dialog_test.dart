@@ -13,8 +13,10 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:client/core/format/format.dart';
 import 'package:client/core/theme/app_theme.dart';
 import 'package:client/data/models/supplier_payables.dart';
+import 'package:client/data/models/supplier_returns.dart';
 import 'package:client/features/payables/widgets/supplier_pay_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -67,6 +69,7 @@ class _Posted {
 Future<_Posted> _open(
   WidgetTester tester, {
   SupplierBill? bill,
+  List<SupplierCreditNote> creditNotes = const [],
   Size size = const Size(1440, 900),
   double scale = 1.0,
 }) async {
@@ -89,6 +92,7 @@ Future<_Posted> _open(
                 context: context,
                 builder: (_) => SupplierPayDialog(
                   bill: bill ?? _bill(),
+                  creditNotes: creditNotes,
                   onSubmit: (request) async {
                     posted.requests.add(request);
                     final hold = posted.hold;
@@ -111,6 +115,30 @@ Future<_Posted> _open(
 
 Finder _amount() => find.byKey(const ValueKey('pay-amount'));
 Finder _submit() => find.widgetWithText(FilledButton, 'Record payment');
+Finder _applyCredit() => find.byKey(const ValueKey('pay-apply-credit'));
+Finder _notePicker() => find.byKey(const ValueKey('pay-credit-note'));
+
+SupplierCreditNote _note({
+  int id = 12,
+  String number = 'CN-20261113-0001',
+  double total = 300,
+  double remaining = 200,
+}) => SupplierCreditNote(
+  id: id,
+  number: number,
+  supplierId: 2,
+  supplierName: 'Cebu Steel Works',
+  supplierReturnId: 3,
+  sourceBillId: 4,
+  value: 267.86,
+  vatRate: 12,
+  vatInclusive: true,
+  vatAmount: 32.14,
+  totalAmount: total,
+  remainingAmount: remaining,
+  appliedAmount: total - remaining,
+  createdAt: DateTime(2026, 11, 13),
+);
 
 void main() {
   setUpAll(_loadAppFonts);
@@ -253,5 +281,135 @@ void main() {
       find.byKey(const ValueKey('pay-amount')).hitTestable(),
       findsOneWidget,
     );
+  });
+
+  // Phase 8 F3 (decision 20 #1/#4): applying a credit note from the pay dialog.
+  group('apply credit', () {
+    testWidgets("the supplier's open notes are what the picker offers", (
+      tester,
+    ) async {
+      await _open(
+        tester,
+        creditNotes: [
+          _note(id: 12, remaining: 200),
+          _note(id: 13, number: 'CN-20261113-0002', remaining: 0, total: 90),
+        ],
+      );
+
+      await tester.tap(_applyCredit());
+      await tester.pumpAndSettle();
+
+      await tester.tap(_notePicker());
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('CN-20261113-0001'), findsWidgets);
+      expect(
+        find.textContaining('CN-20261113-0002'),
+        findsNothing,
+        reason: 'a spent note has nothing left to spend',
+      );
+    });
+
+    testWidgets('picking a note caps the amount at what it still has', (
+      tester,
+    ) async {
+      final posted = await _open(
+        tester,
+        // The note holds less than the bill owes, so the note is the cap.
+        bill: _bill(balance: 400),
+        creditNotes: [_note(remaining: 200)],
+      );
+
+      await tester.tap(_applyCredit());
+      await tester.pumpAndSettle();
+      await tester.tap(_notePicker());
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('CN-20261113-0001').last);
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<TextFormField>(_amount()).controller?.text,
+        '200.00',
+      );
+
+      await tester.tap(_submit());
+      await tester.pumpAndSettle();
+
+      final request = posted.requests.single;
+      expect(request.method, SupplierPaymentMethod.credit);
+      expect(request.creditNoteId, 12);
+      expect(request.amount, 200);
+    });
+
+    testWidgets('a note worth more than the bill caps at the balance', (
+      tester,
+    ) async {
+      await _open(
+        tester,
+        bill: _bill(balance: 50),
+        creditNotes: [_note(remaining: 200)],
+      );
+
+      await tester.tap(_applyCredit());
+      await tester.pumpAndSettle();
+      await tester.tap(_notePicker());
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('CN-20261113-0001').last);
+      await tester.pumpAndSettle();
+
+      expect(tester.widget<TextFormField>(_amount()).controller?.text, '50.00');
+    });
+
+    testWidgets('more than the note has left is refused before posting', (
+      tester,
+    ) async {
+      final posted = await _open(tester, creditNotes: [_note(remaining: 200)]);
+
+      await tester.tap(_applyCredit());
+      await tester.pumpAndSettle();
+      await tester.tap(_notePicker());
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('CN-20261113-0001').last);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(_amount(), '250');
+      await tester.tap(_submit());
+      await tester.pumpAndSettle();
+
+      expect(posted.requests, isEmpty);
+      expect(
+        find.textContaining('${formatPeso(200)} left'),
+        findsWidgets,
+        reason: "the clerk is told the note's own limit",
+      );
+    });
+
+    testWidgets("the server's refusal wins over the client cap", (
+      tester,
+    ) async {
+      final posted = await _open(tester, creditNotes: [_note(remaining: 200)]);
+      posted.failure =
+          'Credit note CN-20261113-0001 has 100.00 left: 200.00 is more ';
+
+      await tester.tap(_applyCredit());
+      await tester.pumpAndSettle();
+      await tester.tap(_notePicker());
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('CN-20261113-0001').last);
+      await tester.pumpAndSettle();
+      await tester.tap(_submit());
+      await tester.pumpAndSettle();
+
+      expect(find.text(posted.failure!), findsOneWidget);
+      expect(_amount(), findsOneWidget, reason: 'the form stays to correct');
+    });
+
+    testWidgets('with no credit on file the dialog offers no Apply credit', (
+      tester,
+    ) async {
+      await _open(tester);
+
+      expect(_applyCredit(), findsNothing);
+    });
   });
 }

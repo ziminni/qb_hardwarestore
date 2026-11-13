@@ -1,6 +1,12 @@
 import 'package:client/data/models/purchase_draft.dart';
+import 'package:client/data/models/receiving.dart';
 import 'package:client/data/models/supplier.dart';
+import 'package:client/data/models/supplier_returns.dart';
+import 'package:client/data/repositories/inventory_repository.dart';
+import 'package:client/data/repositories/payables_repository.dart';
 import 'package:client/data/repositories/supplier_repository.dart';
+import 'package:client/data/services/inventory_service.dart';
+import 'package:client/data/services/payables_service.dart';
 import 'package:client/data/services/supplier_service.dart';
 import 'package:flutter/foundation.dart';
 
@@ -15,10 +21,20 @@ import 'package:flutter/foundation.dart';
 /// and a purchase order is created with its lines, placed and cancelled through
 /// the server's own transitions.
 class SuppliersPurchasesViewmodel extends ChangeNotifier {
-  SuppliersPurchasesViewmodel({SupplierRepository? repository})
-    : _repository = repository ?? SupplierRepository();
+  SuppliersPurchasesViewmodel({
+    SupplierRepository? repository,
+    InventoryRepository? inventory,
+    PayablesRepository? payables,
+  }) : _repository = repository ?? SupplierRepository(),
+       _inventory = inventory ?? InventoryRepository(InventoryService()),
+       _payables = payables ?? PayablesRepository();
 
   final SupplierRepository _repository;
+
+  /// Deliveries (the goods a return draws from) and payables (the credit note a
+  /// return mints). Injected so a test can answer both without a server.
+  final InventoryRepository _inventory;
+  final PayablesRepository _payables;
 
   List<Supplier> _suppliers = const [];
   List<PurchaseOrder> _purchases = const [];
@@ -241,5 +257,71 @@ class SuppliersPurchasesViewmodel extends ChangeNotifier {
     }
     await load();
     return null;
+  }
+
+  // ---------------------------------------------------------------------
+  // Supplier returns (Phase 8 F2, decision 20)
+  // ---------------------------------------------------------------------
+
+  /// The order's PROCESSED deliveries, newest first, or the sentence to show.
+  ///
+  /// A receipt that was never processed created no batches, so there is no
+  /// stock to take off it — offering it could only produce a refusal. The
+  /// filter is client-side because `GET /goods-receipts/` has no `po` query.
+  Future<({List<GoodsReceiptRecord> receipts, String? error})>
+  processedReceipts(int orderId) async {
+    try {
+      final all = await _inventory.loadGoodsReceipts();
+      return (
+        receipts: [
+          for (final receipt in all)
+            if (receipt.poId == orderId && receipt.isProcessed) receipt,
+        ],
+        error: null,
+      );
+    } on InventoryServiceException catch (error) {
+      return (receipts: const <GoodsReceiptRecord>[], error: error.message);
+    }
+  }
+
+  /// What one delivery can still give back, one row per receipt line and every
+  /// quantity in that line's package unit.
+  Future<({List<SupplierReturnableLine> lines, String? error})> returnableFor(
+    int receiptId,
+  ) async {
+    try {
+      return (lines: await _payables.fetchReturnable(receiptId), error: null);
+    } on PayablesServiceException catch (error) {
+      return (lines: const <SupplierReturnableLine>[], error: error.message);
+    }
+  }
+
+  /// Records a return, and answers with what the server wrote (the return and
+  /// its credit note) or with its refusal in its own words.
+  ///
+  /// The quantities go out as 2 dp strings, for the same reason a payment amount
+  /// does: a double can serialize as `2.0000000000000004`, and the server
+  /// refuses a fraction of a whole package unit.
+  Future<({SupplierReturn? recorded, String? refusal})> returnToSupplier({
+    required int receiptId,
+    required String reason,
+    required List<({int receiptLineId, double qty})> lines,
+  }) async {
+    try {
+      final recorded = await _payables.createReturn(
+        receiptId: receiptId,
+        reason: reason.trim(),
+        lines: [
+          for (final line in lines)
+            {
+              'receipt_line': line.receiptLineId,
+              'qty': line.qty.toStringAsFixed(2),
+            },
+        ],
+      );
+      return (recorded: recorded, refusal: null);
+    } on PayablesServiceException catch (error) {
+      return (recorded: null, refusal: error.message);
+    }
   }
 }

@@ -10,6 +10,8 @@
 # removed. `reportGeneralTypeIssues` is deliberately left ON.
 """Inventory app — ViewSets for catalog, purchasing & stock."""
 
+from typing import cast
+
 from django.db import IntegrityError, transaction
 from django.db.models import Count, F, Prefetch
 from django.db.models.deletion import ProtectedError
@@ -55,13 +57,22 @@ from .models import (
     StorageLocation,
     Supplier,
     SupplierBill,
+    SupplierCreditNote,
     SupplierPayment,
+    SupplierReturn,
+    SupplierReturnLine,
     SystemAlert,
     UnitOfMeasure,
     VariantUOM,
     normalise_barcode,
 )
-from .payables import record_supplier_payment
+from .payables import (
+    apply_credit_to_source_bill,
+    apply_supplier_credit,
+    create_credit_note_for_return,
+    decide_supplier_cheque,
+    record_supplier_payment,
+)
 from .serializers import (
     BrandSerializer,
     CategorySerializer,
@@ -73,7 +84,10 @@ from .serializers import (
     StockAdjustmentSerializer,
     StorageLocationSerializer,
     SupplierBillSerializer,
+    SupplierCreditNoteSerializer,
     SupplierPaymentSerializer,
+    SupplierReturnCreateSerializer,
+    SupplierReturnSerializer,
     SupplierSerializer,
     SystemAlertSerializer,
     UnitOfMeasureSerializer,
@@ -83,7 +97,9 @@ from .serializers import (
 )
 from .services import (
     apply_stock_adjustment,
+    line_factor,
     process_goods_receipt,
+    record_supplier_return,
     refuse_unrepresentable_stock,
 )
 
@@ -561,21 +577,54 @@ class SupplierViewSet(_AuditedCatalogViewSet):
         ONE row per supplier that has at least one bill, with the money questions the
         payables screen asks, each summed over that supplier's bills:
 
-            original  SUM(total_amount)      what the bills were for
-            paid      SUM(total - balance)   money already paid
-            balance   SUM(balance_amount)    what is still owed
-            overdue   SUM(balance where the due date has passed and money is owed)
+            original    SUM(total_amount)      what the bills were for
+            paid        original - balance - credited   money that left the till
+            balance     SUM(balance_amount)   what is still owed
+            overdue     SUM(balance where the due date has passed and money is owed)
+            credited    SUM(CREDIT payments)  bills settled with supplier credit
+            unapplied   SUM(note remaining)   credit still to spend (own column)
+            issued      SUM(ISSUED cheques)   money promised but not yet cleared
 
-        Computed in ONE query per supplier group (two aggregates), never a loop over
-        bills, so a screen with twenty suppliers costs one query for the whole page.
+        Computed in a handful of grouped queries (never a loop over bills), so a screen
+        with twenty suppliers costs a constant number of queries for the whole page.
         Stock Manager / Store Manager / Admin read it; a Cashier and the CPMS account do
         not (supplier money is not till or CPMS data), which `_AuditedCatalogViewSet`'s
         own permission rule already enforces for any action that is not list/retrieve.
+
+        Phase 8 B4 (decision 20 #1): `paid` subtracts `credited` as well as `balance`,
+        because a CREDIT payment is not cash that left the till - without the third term
+        a 100.00 credit would read as 100.00 of cash. `unapplied_credit` is deliberately
+        its own figure and never subtracted from the balance: the note's credit is not
+        owed YET, so folding it in would show a supplier the shop owes money to as a
+        negative balance.
         """
         from django.db.models import DecimalField, Q, Sum, Value
         from django.db.models.functions import Coalesce
 
         money_field = DecimalField(max_digits=14, decimal_places=2)
+
+        def sums_by_supplier(queryset, field, key):
+            return {
+                row[key]: row["total"]
+                for row in queryset.values(key).annotate(total=Sum(field))
+            }
+
+        credited = sums_by_supplier(
+            SupplierPayment.objects.filter(method=SupplierPayment.Method.CREDIT),
+            "amount",
+            "bill__supplier_id",
+        )
+        unapplied = sums_by_supplier(
+            SupplierCreditNote.objects.all(), "remaining_amount", "supplier_id"
+        )
+        issued = sums_by_supplier(
+            SupplierPayment.objects.filter(
+                method=SupplierPayment.Method.CHEQUE,
+                status=SupplierPayment.Status.ISSUED,
+            ),
+            "amount",
+            "bill__supplier_id",
+        )
         today = timezone.localdate()
         rows = (
             SupplierBill.objects.values("supplier_id", "supplier__company_name")
@@ -605,9 +654,12 @@ class SupplierViewSet(_AuditedCatalogViewSet):
                 "supplier_name": row["supplier__company_name"],
                 "bills": row["bills"],
                 "original": f"{row['original']:.2f}",
-                "paid": f"{row['original'] - row['balance']:.2f}",
+                "paid": f"{row['original'] - row['balance'] - credited.get(row['supplier_id'], 0):.2f}",
                 "balance": f"{row['balance']:.2f}",
                 "overdue": f"{row['overdue']:.2f}",
+                "credited": f"{credited.get(row['supplier_id'], 0):.2f}",
+                "unapplied_credit": f"{unapplied.get(row['supplier_id'], 0):.2f}",
+                "issued_cheques": f"{issued.get(row['supplier_id'], 0):.2f}",
             }
             for row in rows
         ]
@@ -765,6 +817,19 @@ class PurchaseOrderViewSet(_CatalogBaseViewSet):
                 f"Purchase order #{po.pk} cancelled ({po.supplier.company_name}).",
             )
         return Response(self.get_serializer(po).data)
+
+
+def _line_units(base_qty, factor):
+    """`base_qty` said in a receipt line's PACKAGE unit, 2dp HALF_UP.
+
+    The returnable report and the return POST speak two units: the clerk enters BAGs,
+    stock is kept in base units. Converting back for the report uses the same rounding the
+    money columns use, so "0.5 BAG still returnable" is the number the POST will accept.
+    """
+    from decimal import ROUND_HALF_UP, Decimal
+
+    cent = Decimal("0.01")
+    return (base_qty / factor).quantize(cent, rounding=ROUND_HALF_UP)
 
 
 class _ReceiptRefused(Exception):
@@ -985,6 +1050,64 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
             )
         return Response(InventoryBatchSerializer(batches, many=True).data)
 
+    @action(detail=True, methods=["get"])
+    def returnable(self, request, pk=None):
+        """`GET /goods-receipts/{id}/returnable/` — what this delivery can still give back.
+
+        One row per receipt LINE, every quantity in THAT line's package unit (a BAG line
+        answers in bags, a BOX line in boxes), because the return dialog shows the clerk
+        the unit the delivery was recorded in.
+
+            delivered   what the line brought in
+            returned    what past returns already took off this line
+            returnable  min(delivered - returned, this receipt's batches' current qty)
+
+        The second half of the min is the honest one: a delivery whose bags have since
+        been sold (or written off) cannot give back what it no longer has, and the POST
+        refuses exactly that with `RETURN_EXCEEDS_RECEIPT`.
+
+        `IsInventoryRole` (via `_InventoryWritePermissions`): an action is a write-side
+        route, and supplier stock is not till data - a Cashier and the CPMS account are
+        refused.
+        """
+        from decimal import Decimal
+
+        from django.db.models import Sum
+
+        receipt = self.get_object()
+        rows = []
+        for line in receipt.lines.select_related(
+            "po_item__variant__base_uom", "po_item__variant_uom__uom"
+        ).order_by("id"):
+            item = line.po_item
+            factor = line_factor(item)
+            returned_base = SupplierReturnLine.objects.filter(
+                receipt_line=line
+            ).aggregate(total=Sum("base_qty")).get("total") or Decimal(0)
+            on_hand_base = InventoryBatch.objects.filter(
+                receipt=receipt, variant=item.variant
+            ).aggregate(total=Sum("current_qty")).get("total") or Decimal(0)
+            returnable_base = min(
+                line.qty * factor - returned_base,
+                on_hand_base,
+            )
+            rows.append(
+                {
+                    "receipt_line": line.pk,
+                    "variant": item.variant_id,
+                    "variant_name": str(item.variant),
+                    "unit": (
+                        item.variant_uom.uom.code
+                        if item.variant_uom_id
+                        else item.variant.base_uom.code
+                    ),
+                    "delivered": f"{_line_units(line.qty * factor, factor):.2f}",
+                    "returned": f"{_line_units(returned_base, factor):.2f}",
+                    "returnable": f"{_line_units(returnable_base, factor):.2f}",
+                }
+            )
+        return Response(rows)
+
 
 class InventoryBatchViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = InventoryBatch.objects.select_related("variant", "receipt").all()
@@ -1182,11 +1305,12 @@ class SupplierPaymentViewSet(
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
 ):
-    """`/supplier-payments/` — record a payment and read the history.
+    """`/supplier-payments/` — record a payment, read the history, decide a cheque.
 
-    **Store Manager / Admin pay; Stock Manager reads.** The stocker sees what is owed and
-    what was paid, but moving money is a manager's act (`IsManagerRole`). A Cashier and
-    the CPMS account are refused entirely.
+    **Store Manager / Admin pay and decide; Stock Manager reads.** The stocker sees what
+    is owed and what was paid, but moving money is a manager's act (`IsManagerRole`) - and
+    so is deciding whether the bank honoured a supplier cheque (`clear/`, `bounce/`, Phase
+    8 B1). A Cashier and the CPMS account are refused entirely.
 
     **No edit and no delete for any role.** `PUT`/`PATCH`/`DELETE` answer **405**:
     `http_method_names` removes the verbs, so the router keeps the routes and DRF refuses
@@ -1199,23 +1323,50 @@ class SupplierPaymentViewSet(
     `BILL_PAID` (or `OVERPAYMENT`), and a failure anywhere rolls all three back.
     """
 
-    queryset = SupplierPayment.objects.select_related("bill__supplier", "paid_by").all()
+    queryset = SupplierPayment.objects.select_related(
+        "bill__supplier", "paid_by", "decided_by"
+    ).all()
     serializer_class = SupplierPaymentSerializer
     http_method_names = ("get", "head", "options", "post")
 
     def get_permissions(self):
-        if self.action == "create":
+        # Phase 8 B1 (decision 20 #3): deciding a cheque moves the shop's debt, so it is a
+        # manager's act exactly as recording the payment was.
+        if self.action in ("create", "clear", "bounce"):
             return [IsManagerRole()]
         return [IsInventoryRole()]
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        bill = self.request.query_params.get("bill")
+        # `clear/` and `bounce/` are cheque decisions only, so their lookup is confined to
+        # cheques: a payment id that is not a cheque is a plain 404, and these actions can
+        # never reach into an ordinary tender.
+        if self.action in ("clear", "bounce"):
+            queryset = queryset.filter(method=SupplierPayment.Method.CHEQUE)
+        params = self.request.query_params
+        bill = params.get("bill")
         if bill:
             queryset = queryset.filter(bill_id=bill)
-        supplier = self.request.query_params.get("supplier")
+        supplier = params.get("supplier")
         if supplier:
             queryset = queryset.filter(bill__supplier_id=supplier)
+        # Phase 8 B1: the cheque queue reads `?status=ISSUED`; the bills screen reads the
+        # decided ones. An unknown value is a 400, not a silent empty list - a typo must
+        # not read as "no cheques waiting".
+        status_filter = (params.get("status") or "").upper()
+        if status_filter:
+            if status_filter not in SupplierPayment.Status.values:
+                from rest_framework.exceptions import ValidationError
+
+                raise ValidationError(
+                    {
+                        "status": (
+                            f"status must be one of "
+                            f"{', '.join(SupplierPayment.Status.values)}."
+                        )
+                    }
+                )
+            queryset = queryset.filter(status=status_filter)
         return queryset
 
     def create(self, request, *args, **kwargs):
@@ -1223,25 +1374,233 @@ class SupplierPaymentViewSet(
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
-            payment = record_supplier_payment(
-                bill=data["bill"],
-                amount=data["amount"],
-                method=data["method"],
-                reference=data.get("reference", ""),
-                cheque_number=data.get("cheque_number", ""),
-                cheque_bank=data.get("cheque_bank", ""),
-                cheque_date=data.get("cheque_date"),
-                user=request.user,
-            )
-            # Same block as the payment and the moved balance (decision 07): a failed
-            # audit row rolls the money back instead of leaving an unaudited payment.
-            audit_request(
-                request,
-                AuditLog.ActionType.PAYMENT,
-                f"Supplier payment #{payment.pk} of {payment.amount} "
-                f"({payment.method}) against bill #{payment.bill_id} for "
-                f"{payment.bill.supplier.company_name}.",
-            )
+            if data["method"] == SupplierPayment.Method.CREDIT:
+                # Phase 8 B4: applying supplier credit by hand. Its own service because
+                # the note's `remaining_amount` moves with the bill's balance, under the
+                # note's lock first - the same order the auto rule takes.
+                payment = apply_supplier_credit(
+                    note=data["credit_note"],
+                    bill=data["bill"],
+                    amount=data["amount"],
+                    user=request.user,
+                )
+                audit_request(
+                    request,
+                    AuditLog.ActionType.PAYMENT,
+                    f"Credit note {payment.credit_note.number} applied {payment.amount} "
+                    f"to bill #{payment.bill_id} "
+                    f"({payment.bill.supplier.company_name}); "
+                    f"{payment.credit_note.remaining_amount} left as supplier credit.",
+                )
+            else:
+                payment = record_supplier_payment(
+                    bill=data["bill"],
+                    amount=data["amount"],
+                    method=data["method"],
+                    reference=data.get("reference", ""),
+                    cheque_number=data.get("cheque_number", ""),
+                    cheque_bank=data.get("cheque_bank", ""),
+                    cheque_date=data.get("cheque_date"),
+                    user=request.user,
+                )
+                # Same block as the payment and the moved balance (decision 07): a failed
+                # audit row rolls the money back instead of leaving an unaudited payment.
+                audit_request(
+                    request,
+                    AuditLog.ActionType.PAYMENT,
+                    f"Supplier payment #{payment.pk} of {payment.amount} "
+                    f"({payment.method}) against bill #{payment.bill_id} for "
+                    f"{payment.bill.supplier.company_name}.",
+                )
         return Response(
             self.get_serializer(payment).data, status=status.HTTP_201_CREATED
+        )
+
+    @action(detail=True, methods=["post"])
+    def clear(self, request, pk=None):
+        """POST /supplier-payments/{id}/clear/ -> the bank honoured it; nothing moves."""
+        return self._decide(request, SupplierPayment.Status.CLEARED)
+
+    @action(detail=True, methods=["post"])
+    def bounce(self, request, pk=None):
+        """POST /supplier-payments/{id}/bounce/ {reason} -> the amount goes back on the bill."""
+        return self._decide(request, SupplierPayment.Status.BOUNCED)
+
+    def _decide(self, request, decision):
+        # Resolved through `self.get_object()`, i.e. the CHEQUE-filtered queryset, so a
+        # payment id that is not a cheque is a 404 rather than a decision on cash.
+        cheque = self.get_object()
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            cheque = decide_supplier_cheque(
+                payment_id=cheque.pk,
+                decision=decision,
+                user=request.user,
+                reason=request.data.get("reason", ""),
+            )
+            # Decision 07: the decision and its audit row are one transaction, so a failed
+            # audit leaves neither a status nor a moved balance. The description names the
+            # cheque, the bill, the money and the reason - the trail answers "which cheque,
+            # how much, why" without opening the bill.
+            audit_request(
+                request,
+                AuditLog.ActionType.CHEQUE_DECISION,
+                f"Supplier cheque {cheque.cheque_number or '(no number)'} for "
+                f"{cheque.amount} against bill #{cheque.bill_id} "
+                f"({cheque.bill.supplier.company_name}) marked {decision} by "
+                f"{request.user.username}"
+                + (f" ({cheque.decision_reason})." if cheque.decision_reason else "."),
+            )
+        return Response(self.get_serializer(cheque).data)
+
+
+# =========================================================================
+# Supplier credit notes  (Phase 8 B4, decision 20 #1)
+# =========================================================================
+
+
+class SupplierCreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
+    """`/supplier-credit-notes/` — the numbered credit a supplier owes the shop.
+
+    A note is minted by a supplier return (B3) and spent by a CREDIT payment, either
+    automatically on its own bill or by hand (B4). This route set exists so the payables
+    screen can offer the notes a manager may still spend: `?open=true` narrows to
+    `remaining_amount > 0`, and `?supplier=<id>` to one supplier's notes.
+
+    **Read-only for every role** (`ReadOnlyModelViewSet` maps no write verb, so POST/PUT/
+    PATCH/DELETE answer **405**): the credit was priced when the goods went back, and the
+    only thing that ever moves is `remaining_amount`, through `apply_supplier_credit`.
+
+    **Who reads it.** `IsInventoryRole` (Stock Manager / Store Manager / Admin), matching
+    the returns and bills it belongs to; a Cashier and the CPMS account are refused.
+    """
+
+    queryset = SupplierCreditNote.objects.select_related(
+        "supplier", "source_bill"
+    ).all()
+    serializer_class = SupplierCreditNoteSerializer
+    permission_classes = [IsInventoryRole]  # noqa: RUF012 - declarative, never mutated
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        params = self.request.query_params
+        supplier = params.get("supplier")
+        if supplier:
+            queryset = queryset.filter(supplier_id=supplier)
+        # `?open=true` is the apply-credit picker: a spent note would offer 0.00.
+        if (params.get("open") or "").lower() in ("1", "true", "yes"):
+            queryset = queryset.filter(remaining_amount__gt=0)
+        return queryset
+
+
+# =========================================================================
+# Supplier returns  (Phase 8 B2, decision 20)
+# =========================================================================
+
+
+class SupplierReturnViewSet(
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """`/supplier-returns/` — send goods back to a supplier, read the history.
+
+    **Stock Manager / Store Manager / Admin record and read alike** (decision 20 #4): the
+    stocker is the person who finds the damaged bags at the gate, and the return is the
+    act that takes them off the rack. A Cashier and the CPMS account are refused - a
+    supplier return is not till data and not part of the CPMS contract.
+
+    **No edit and no delete for any role** (405): a return is the evidence of stock that
+    already moved, so a mistake is corrected by a new business event. The return row, its
+    lines, the deductions that name each batch, the moved `current_qty`, the low-stock
+    check and the `SUPPLIER_RETURN` audit row are ONE transaction - a refused return
+    leaves nothing behind.
+
+    Filters: `?supplier=<id>`, `?receipt=<id>`.
+    """
+
+    queryset = (
+        SupplierReturn.objects.select_related(
+            "receipt", "supplier", "purchase_order", "bill", "created_by"
+        )
+        .prefetch_related("lines__deductions")
+        .all()
+    )
+    serializer_class = SupplierReturnSerializer
+    permission_classes = [IsInventoryRole]  # noqa: RUF012 - declarative, never mutated
+    http_method_names = ("get", "head", "options", "post")
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        params = self.request.query_params
+        supplier = params.get("supplier")
+        if supplier:
+            queryset = queryset.filter(supplier_id=supplier)
+        receipt = params.get("receipt")
+        if receipt:
+            queryset = queryset.filter(receipt_id=receipt)
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        """`POST /supplier-returns/` `{receipt, reason, lines:[{receipt_line, qty}]}`.
+
+        The body is validated for SHAPE here; every business rule lives in
+        `record_supplier_return`, which is the only writer, so the ORM path cannot skip
+        one. The service owns its own `atomic` (the batch row locks need one); this adds
+        the audit row to the same block, so a failed audit rolls the return and the moved
+        stock back with it (decision 07).
+        """
+        serializer = SupplierReturnCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        # Typing-only cast: `SupplierReturnCreateSerializer` is a plain Serializer,
+        # so pyright reads `validated_data` as DRF's untyped `empty`. Runtime is the
+        # dict ValidateMixin builds; nothing here changes at run time.
+        data = cast(dict, serializer.validated_data)
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            supplier_return = record_supplier_return(
+                receipt=data["receipt"],
+                reason=data.get("reason", ""),
+                lines=[(line["receipt_line"], line["qty"]) for line in data["lines"]],
+                user=request.user,
+            )
+            # Phase 8 B3 (decision 20 #1): the stock has moved, so the return is worth a
+            # numbered credit note - and that note immediately lowers the bill the goods
+            # came in on. Both happen in THIS block, so stock can never go back without
+            # the credit that prices it, and a note whose application failed does not
+            # survive on its own.
+            credit_note = create_credit_note_for_return(supplier_return=supplier_return)
+            credit_payment = apply_credit_to_source_bill(
+                note=credit_note, user=request.user
+            )
+            if credit_payment is not None:
+                # The note created above is CACHED on the return instance, so reading it
+                # again would describe the credit as it was minted, not as the payment
+                # just left it. Drop that cache: the response and the two audit sentences
+                # must agree with the ledger, or the screen and the trail would both claim
+                # credit that has already been spent.
+                supplier_return.refresh_from_db()
+                credit_note = supplier_return.credit_note
+            audit_request(
+                request,
+                AuditLog.ActionType.SUPPLIER_RETURN,
+                f"Supplier return #{supplier_return.pk}: {len(data['lines'])} line(s) "
+                f"off goods receipt #{supplier_return.receipt_id} for "
+                f"{supplier_return.supplier.company_name} "
+                f"({supplier_return.reason}). Credit note {credit_note.number} for "
+                f"{credit_note.total_amount}.",
+            )
+            if credit_payment is not None:
+                # Decision 20 #1: applying credit is a PAYMENT event, so the money trail
+                # answers "how was this bill settled" in one place.
+                audit_request(
+                    request,
+                    AuditLog.ActionType.PAYMENT,
+                    f"Credit note {credit_note.number} applied {credit_payment.amount} "
+                    f"to bill #{credit_payment.bill_id} "
+                    f"({supplier_return.supplier.company_name}); "
+                    f"{credit_note.remaining_amount} left as supplier credit.",
+                )
+        return Response(
+            self.get_serializer(supplier_return).data,
+            status=status.HTTP_201_CREATED,
         )

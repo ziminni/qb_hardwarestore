@@ -10,6 +10,7 @@
 //     399.99999999999994 and the server would refuse a payment nobody typed.
 
 import 'package:client/data/models/supplier_payables.dart';
+import 'package:client/data/models/supplier_returns.dart';
 import 'package:client/data/repositories/payables_repository.dart';
 import 'package:client/data/services/payables_service.dart';
 import 'package:client/features/payables/viewmodels/payables_viewmodel.dart';
@@ -90,7 +91,135 @@ class _StubRepository extends PayablesRepository {
     if (payFailure != null) throw PayablesServiceException(payFailure!);
     postedPayments.add(body);
   }
+
+  List<SupplierCreditNote> creditNotes = const [];
+  List<SupplierPayment> paymentRows = const [];
+  String? creditFailure;
+  String? chequeFailure;
+
+  /// The code a decision answers with, when it must be refused.
+  String? decisionCode;
+  int fetchCreditNotesCount = 0;
+  int fetchChequesCount = 0;
+  final List<int> cleared = [];
+  final List<(int, String)> bounced = [];
+
+  @override
+  Future<List<SupplierCreditNote>> fetchCreditNotes({
+    int? supplierId,
+    bool openOnly = false,
+  }) async {
+    fetchCreditNotesCount++;
+    if (creditFailure != null) throw PayablesServiceException(creditFailure!);
+    return creditNotes;
+  }
+
+  @override
+  Future<List<SupplierPayment>> fetchCheques({
+    int? supplierId,
+    SupplierPaymentStatus? status,
+  }) async {
+    fetchChequesCount++;
+    if (chequeFailure != null) throw PayablesServiceException(chequeFailure!);
+    return paymentRows;
+  }
+
+  @override
+  Future<SupplierPayment> clearCheque(int paymentId) async {
+    if (decisionCode != null) {
+      throw PayablesServiceException(
+        'Cheque 000123 is already cleared.',
+        code: decisionCode,
+      );
+    }
+    cleared.add(paymentId);
+    return _decided(paymentId, SupplierPaymentStatus.cleared);
+  }
+
+  @override
+  Future<SupplierPayment> bounceCheque(int paymentId, String reason) async {
+    if (decisionCode != null) {
+      throw PayablesServiceException(
+        'Cheque 000123 is already cleared.',
+        code: decisionCode,
+      );
+    }
+    bounced.add((paymentId, reason));
+    return _decided(paymentId, SupplierPaymentStatus.bounced);
+  }
+
+  /// The server's answer after a decision: the same row, newly stamped.
+  SupplierPayment _decided(int id, SupplierPaymentStatus status) {
+    final row = paymentRows.firstWhere((payment) => payment.id == id);
+    return SupplierPayment(
+      id: row.id,
+      billId: row.billId,
+      amount: row.amount,
+      method: row.method,
+      methodCode: row.methodCode,
+      reference: row.reference,
+      chequeNumber: row.chequeNumber,
+      chequeBank: row.chequeBank,
+      chequeDate: row.chequeDate,
+      paidByName: row.paidByName,
+      paidOn: row.paidOn,
+      status: status,
+      statusCode: status.code,
+      decidedByName: 'Maria Santos',
+      decidedAt: DateTime(2026, 11, 13),
+      decisionReason: status == SupplierPaymentStatus.bounced
+          ? 'Insufficient funds'
+          : '',
+    );
+  }
 }
+
+SupplierCreditNote _note({
+  int id = 12,
+  int supplierId = 2,
+  double total = 300,
+  double remaining = 200,
+}) => SupplierCreditNote(
+  id: id,
+  number: 'CN-20261113-000$id',
+  supplierId: supplierId,
+  supplierName: supplierId == 2 ? 'Cebu Steel Works' : 'Bohol Lumber',
+  supplierReturnId: 3,
+  sourceBillId: 4,
+  value: 267.86,
+  vatRate: 12,
+  vatInclusive: true,
+  vatAmount: 32.14,
+  totalAmount: total,
+  remainingAmount: remaining,
+  appliedAmount: total - remaining,
+  createdAt: DateTime(2026, 11, 13),
+);
+
+SupplierPayment _payment({
+  int id = 7,
+  int billId = 4,
+  double amount = 400,
+  SupplierPaymentMethod method = SupplierPaymentMethod.cheque,
+  SupplierPaymentStatus? status = SupplierPaymentStatus.issued,
+  DateTime? chequeDate,
+}) => SupplierPayment(
+  id: id,
+  billId: billId,
+  amount: amount,
+  method: method,
+  methodCode: method.code,
+  reference: '',
+  chequeNumber: method == SupplierPaymentMethod.cheque ? '000123' : null,
+  chequeBank: method == SupplierPaymentMethod.cheque ? 'BDO' : null,
+  chequeDate: method == SupplierPaymentMethod.cheque
+      ? (chequeDate ?? DateTime(2026, 10, 20))
+      : null,
+  paidByName: 'Maria Santos',
+  paidOn: DateTime(2026, 10, 20),
+  status: status,
+  statusCode: status?.code ?? '',
+);
 
 void main() {
   test('load reads the bills and the per-supplier summary', () async {
@@ -316,4 +445,197 @@ void main() {
       expect(repository.postedPayments, hasLength(1));
     },
   );
+
+  // Phase 8 F3 (decision 20): the credit-note picker and the cheque queue.
+  group('supplier credit', () {
+    test(
+      'the open notes of one supplier are what Apply credit offers',
+      () async {
+        final repository = _StubRepository()
+          ..creditNotes = [
+            _note(id: 12, remaining: 200),
+            _note(id: 13, remaining: 0, total: 100),
+            _note(id: 14, supplierId: 3, remaining: 50),
+          ];
+        final viewmodel = PayablesViewmodel(repository: repository);
+
+        await viewmodel.ensureCreditNotes();
+
+        expect(viewmodel.openCreditNotesFor(2).map((note) => note.id), [
+          12,
+        ], reason: "a spent note and another supplier's note are not offered");
+        expect(
+          viewmodel.creditNotes,
+          hasLength(3),
+          reason: 'the tab shows all',
+        );
+      },
+    );
+
+    test('the notes are read once, not on every pay dialog', () async {
+      final repository = _StubRepository()..creditNotes = [_note()];
+      final viewmodel = PayablesViewmodel(repository: repository);
+
+      await viewmodel.ensureCreditNotes();
+      await viewmodel.ensureCreditNotes();
+
+      expect(repository.fetchCreditNotesCount, 1);
+    });
+
+    test('a failed read is retried next time and says why', () async {
+      final repository = _StubRepository()..creditFailure = 'Credit is down.';
+      final viewmodel = PayablesViewmodel(repository: repository);
+
+      await viewmodel.ensureCreditNotes();
+      expect(viewmodel.creditNotesError, 'Credit is down.');
+
+      repository.creditFailure = null;
+      await viewmodel.ensureCreditNotes();
+
+      expect(repository.fetchCreditNotesCount, 2);
+      expect(viewmodel.creditNotesError, isNull);
+    });
+
+    test('applying credit posts a CREDIT payment naming the note', () async {
+      final repository = _StubRepository(bills: [_bill(balance: 400)])
+        ..creditNotes = [_note(remaining: 200)];
+      final viewmodel = PayablesViewmodel(repository: repository);
+      await viewmodel.load();
+      await viewmodel.ensureCreditNotes();
+
+      repository.bills = [_bill(balance: 200)];
+      repository.creditNotes = [_note(remaining: 0, total: 300)];
+
+      final error = await viewmodel.pay(
+        bill: viewmodel.bills.single,
+        amount: 200,
+        method: SupplierPaymentMethod.credit,
+        creditNoteId: 12,
+      );
+
+      expect(error, isNull);
+      expect(repository.postedPayments.single, {
+        'bill': 4,
+        'amount': '200.00',
+        'method': 'CREDIT',
+        'credit_note': 12,
+      });
+      expect(
+        repository.fetchCreditNotesCount,
+        2,
+        reason: "the note's remaining changed, so it is re-read",
+      );
+      expect(viewmodel.creditNotes.single.remainingAmount, 0);
+      expect(viewmodel.bills.single.balanceAmount, 200);
+    });
+  });
+
+  group('supplier cheque queue', () {
+    test('the queue holds cheques only, oldest cheque date first', () async {
+      final repository = _StubRepository()
+        ..paymentRows = [
+          _payment(id: 7, chequeDate: DateTime(2026, 10, 20)),
+          _payment(
+            id: 8,
+            method: SupplierPaymentMethod.cash,
+            status: SupplierPaymentStatus.cleared,
+          ),
+          _payment(id: 9, chequeDate: DateTime(2026, 10, 1)),
+        ];
+      final viewmodel = PayablesViewmodel(repository: repository);
+
+      await viewmodel.ensureCheques();
+
+      expect(viewmodel.cheques.map((cheque) => cheque.id), [
+        9,
+        7,
+      ], reason: 'cash is not a cheque, and the oldest cheque is chased first');
+    });
+
+    test('the status chip narrows the queue', () async {
+      final repository = _StubRepository()
+        ..paymentRows = [
+          _payment(id: 7),
+          _payment(id: 8, status: SupplierPaymentStatus.cleared),
+        ];
+      final viewmodel = PayablesViewmodel(repository: repository);
+      await viewmodel.ensureCheques();
+
+      viewmodel.setChequeStatusFilter(SupplierPaymentStatus.issued);
+      expect(viewmodel.filteredCheques.map((cheque) => cheque.id), [7]);
+
+      viewmodel.setChequeStatusFilter(null);
+      expect(viewmodel.filteredCheques, hasLength(2));
+    });
+
+    test('clearing a cheque replaces its row and re-reads the bills', () async {
+      final repository = _StubRepository(bills: [_bill(balance: 0)])
+        ..paymentRows = [_payment(id: 7)];
+      final viewmodel = PayablesViewmodel(repository: repository);
+      await viewmodel.load();
+      await viewmodel.ensureCheques();
+
+      final ok = await viewmodel.clearCheque(viewmodel.cheques.single);
+
+      expect(ok, isTrue);
+      expect(repository.cleared, [7]);
+      expect(viewmodel.cheques.single.status, SupplierPaymentStatus.cleared);
+      expect(viewmodel.decisionError, isNull);
+    });
+
+    test('a bounce puts the money back, so the bill is re-read', () async {
+      final repository = _StubRepository(bills: [_bill(balance: 0)])
+        ..paymentRows = [_payment(id: 7)];
+      final viewmodel = PayablesViewmodel(repository: repository);
+      await viewmodel.load();
+      await viewmodel.ensureCheques();
+
+      // The server restored the balance the cheque had settled.
+      repository.bills = [_bill(balance: 400)];
+
+      final ok = await viewmodel.bounceCheque(
+        viewmodel.cheques.single,
+        'Insufficient funds',
+      );
+
+      expect(ok, isTrue);
+      expect(repository.bounced.single, (7, 'Insufficient funds'));
+      expect(viewmodel.bills.single.balanceAmount, 400);
+      expect(viewmodel.cheques.single.status, SupplierPaymentStatus.bounced);
+    });
+
+    test('a second decision reloads the queue and says so', () async {
+      final repository = _StubRepository(bills: [_bill(balance: 0)])
+        ..paymentRows = [_payment(id: 7)];
+      final viewmodel = PayablesViewmodel(repository: repository);
+      await viewmodel.load();
+      await viewmodel.ensureCheques();
+      repository
+        ..decisionCode = 'CHEQUE_ALREADY_DECIDED'
+        ..paymentRows = [
+          _payment(id: 7, status: SupplierPaymentStatus.cleared),
+        ];
+
+      final ok = await viewmodel.clearCheque(viewmodel.cheques.single);
+
+      expect(ok, isFalse);
+      expect(viewmodel.decisionError, 'Cheque 000123 is already cleared.');
+      expect(repository.fetchChequesCount, 2, reason: 'the rows are now wrong');
+      expect(viewmodel.cheques.single.status, SupplierPaymentStatus.cleared);
+    });
+
+    test('a decision in flight is not sent twice', () async {
+      final repository = _StubRepository()..paymentRows = [_payment(id: 7)];
+      final viewmodel = PayablesViewmodel(repository: repository);
+      await viewmodel.ensureCheques();
+      final cheque = viewmodel.cheques.single;
+
+      await Future.wait([
+        viewmodel.clearCheque(cheque),
+        viewmodel.clearCheque(cheque),
+      ]);
+
+      expect(repository.cleared, hasLength(1));
+    });
+  });
 }

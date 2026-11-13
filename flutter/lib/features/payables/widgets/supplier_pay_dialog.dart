@@ -2,6 +2,7 @@ import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/time/app_clock.dart';
 import 'package:client/data/models/supplier_payables.dart';
+import 'package:client/data/models/supplier_returns.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/status_badge.dart';
@@ -17,6 +18,7 @@ class SupplierPaymentRequest {
     this.chequeNumber,
     this.chequeBank,
     this.chequeDate,
+    this.creditNoteId,
   });
 
   final double amount;
@@ -25,6 +27,9 @@ class SupplierPaymentRequest {
   final String? chequeNumber;
   final String? chequeBank;
   final DateTime? chequeDate;
+
+  /// The note a `CREDIT` payment spends; null for every other method.
+  final int? creditNoteId;
 }
 
 /// Record a payment against one bill (Phase 5 F2, decision 18).
@@ -47,10 +52,16 @@ class SupplierPayDialog extends StatefulWidget {
     super.key,
     required this.bill,
     required this.onSubmit,
+    this.creditNotes = const [],
   });
 
   final SupplierBill bill;
   final Future<String?> Function(SupplierPaymentRequest request) onSubmit;
+
+  /// This supplier's OPEN credit notes — what an "Apply credit" click may spend.
+  /// Empty means the shop holds no credit with this supplier, and the choice is
+  /// not offered at all rather than offered and refused.
+  final List<SupplierCreditNote> creditNotes;
 
   @override
   State<SupplierPayDialog> createState() => _SupplierPayDialogState();
@@ -72,6 +83,29 @@ class _SupplierPayDialogState extends State<SupplierPayDialog> {
   DateTime? _chequeDate;
   String? _refusal;
   bool _submitting = false;
+
+  /// Applying a credit note instead of paying money: the two are exclusive, so
+  /// one flag decides which half of the form is shown.
+  bool _applyCredit = false;
+  SupplierCreditNote? _note;
+
+  /// The notes that still have money on them. A spent note cannot settle
+  /// anything, so it is never offered.
+  List<SupplierCreditNote> get _openNotes => [
+    for (final note in widget.creditNotes)
+      if (note.isOpen) note,
+  ];
+
+  /// The most this bill can take from [_note]: the note's own remainder and the
+  /// bill's balance, whichever runs out first. The SERVER enforces the same cap
+  /// (`CREDIT_EXCEEDS_REMAINING` / `OVERPAYMENT`); this only saves a round trip.
+  double get _creditCap {
+    final note = _note;
+    if (note == null) return widget.bill.balanceAmount;
+    return note.remainingAmount < widget.bill.balanceAmount
+        ? note.remainingAmount
+        : widget.bill.balanceAmount;
+  }
 
   @override
   void dispose() {
@@ -103,6 +137,7 @@ class _SupplierPayDialogState extends State<SupplierPayDialog> {
     if (_submitting) return;
     if (!_formKey.currentState!.validate()) return;
 
+    final applying = _applyCredit && _note != null;
     setState(() {
       _submitting = true;
       _refusal = null;
@@ -110,13 +145,20 @@ class _SupplierPayDialogState extends State<SupplierPayDialog> {
     final error = await widget.onSubmit(
       SupplierPaymentRequest(
         amount: double.parse(_amount.text.trim()),
-        method: _method,
-        reference: _reference.text.trim(),
-        chequeNumber: _method.needsChequeDetails
+        // A credit is a settlement, not a tender: it never carries a reference
+        // or a cheque's three facts.
+        method: applying ? SupplierPaymentMethod.credit : _method,
+        reference: applying ? '' : _reference.text.trim(),
+        chequeNumber: !applying && _method.needsChequeDetails
             ? _chequeNumber.text.trim()
             : null,
-        chequeBank: _method.needsChequeDetails ? _chequeBank.text.trim() : null,
-        chequeDate: _method.needsChequeDetails ? _chequeDate : null,
+        chequeBank: !applying && _method.needsChequeDetails
+            ? _chequeBank.text.trim()
+            : null,
+        chequeDate: !applying && _method.needsChequeDetails
+            ? _chequeDate
+            : null,
+        creditNoteId: applying ? _note!.id : null,
       ),
     );
     if (!mounted) return;
@@ -165,81 +207,144 @@ class _SupplierPayDialogState extends State<SupplierPayDialog> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Amount',
                 prefixText: '₱ ',
-                helperText: 'A partial payment is allowed.',
+                helperText: _applyCredit
+                    ? 'Capped at what the note and the bill allow.'
+                    : 'A partial payment is allowed.',
               ),
               validator: (value) {
                 final parsed = double.tryParse(value?.trim() ?? '');
                 if (parsed == null) return 'Enter an amount.';
                 if (parsed <= 0) return 'Above zero.';
+                // The server refuses this too; saying it here saves the clerk a
+                // round trip and names the note's own limit.
+                if (_applyCredit &&
+                    _note != null &&
+                    parsed > _creditCap + 0.005) {
+                  return '${_note!.number} has ${formatPeso(_creditCap)} left.';
+                }
                 return null;
               },
             ),
             const SizedBox(height: AppSpacing.md),
-            DropdownButtonFormField<SupplierPaymentMethod>(
-              key: const ValueKey('pay-method'),
-              isExpanded: true,
-              initialValue: _method,
-              decoration: const InputDecoration(labelText: 'Method'),
-              items: [
-                for (final method in SupplierPaymentMethod.values)
-                  DropdownMenuItem(value: method, child: Text(method.label)),
-              ],
-              onChanged: (value) {
-                if (value == null) return;
-                setState(() => _method = value);
-              },
-            ),
-            const SizedBox(height: AppSpacing.md),
-            TextFormField(
-              key: const ValueKey('pay-reference'),
-              controller: _reference,
-              decoration: const InputDecoration(
-                labelText: 'Reference (optional)',
-                helperText: 'Voucher, bank reference or note.',
-              ),
-            ),
-            if (_method.needsChequeDetails) ...[
-              const SizedBox(height: AppSpacing.lg),
-              const DialogSectionLabel('Cheque'),
-              TextFormField(
-                key: const ValueKey('pay-cheque-number'),
-                controller: _chequeNumber,
-                decoration: const InputDecoration(labelText: 'Cheque number'),
-                validator: (value) => value == null || value.trim().isEmpty
-                    ? 'A cheque needs its number.'
-                    : null,
-              ),
-              const SizedBox(height: AppSpacing.md),
-              TextFormField(
-                key: const ValueKey('pay-cheque-bank'),
-                controller: _chequeBank,
-                decoration: const InputDecoration(labelText: 'Bank'),
-                validator: (value) => value == null || value.trim().isEmpty
-                    ? 'A cheque needs its bank.'
-                    : null,
-              ),
-              const SizedBox(height: AppSpacing.md),
-              TextFormField(
-                key: const ValueKey('pay-cheque-date'),
-                controller: _chequeDateText,
-                readOnly: true,
-                onTap: _pickChequeDate,
-                decoration: const InputDecoration(
-                  labelText: 'Cheque date',
-                  suffixIcon: Icon(Icons.event_outlined),
+            // Only offered when there is credit to spend: a choice that can only
+            // answer "nothing available" is a dead end, not an option.
+            if (_openNotes.isNotEmpty)
+              SwitchListTile(
+                key: const ValueKey('pay-apply-credit'),
+                value: _applyCredit,
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: const Text('Apply supplier credit'),
+                subtitle: Text(
+                  _openNotes.length == 1
+                      ? '1 credit note can settle this bill'
+                      : '${_openNotes.length} credit notes can settle this '
+                            'bill',
                 ),
-                validator: (_) =>
-                    _chequeDate == null ? 'A cheque needs its date.' : null,
+                onChanged: (value) => setState(() {
+                  _applyCredit = value;
+                  _note = null;
+                  _refusal = null;
+                }),
               ),
+            if (_applyCredit) ...[
               const SizedBox(height: AppSpacing.sm),
-              const InfoBanner(
-                message:
-                    'A supplier cheque is recorded as paid when it is issued. '
-                    'There is no later clearing step.',
+              DropdownButtonFormField<SupplierCreditNote>(
+                key: const ValueKey('pay-credit-note'),
+                isExpanded: true,
+                initialValue: _note,
+                decoration: const InputDecoration(labelText: 'Credit note'),
+                items: [
+                  for (final note in _openNotes)
+                    DropdownMenuItem(
+                      value: note,
+                      child: Text(
+                        '${note.number} · ${formatPeso(note.remainingAmount)} '
+                        'left',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+                onChanged: (note) => setState(() {
+                  _note = note;
+                  // The cap is the whole point: prefill what this bill can take.
+                  if (note != null) {
+                    _amount.text = _creditCap.toStringAsFixed(2);
+                  }
+                }),
+                validator: (note) =>
+                    note == null ? 'Pick the credit note to apply.' : null,
               ),
+            ] else ...[
+              DropdownButtonFormField<SupplierPaymentMethod>(
+                key: const ValueKey('pay-method'),
+                isExpanded: true,
+                initialValue: _method,
+                decoration: const InputDecoration(labelText: 'Method'),
+                // An explicit list, not `values`: a CREDIT payment spends a
+                // credit note through its own flow, never the till (Phase 8).
+                items: [
+                  for (final method in SupplierPaymentMethod.selectable)
+                    DropdownMenuItem(value: method, child: Text(method.label)),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _method = value);
+                },
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                key: const ValueKey('pay-reference'),
+                controller: _reference,
+                decoration: const InputDecoration(
+                  labelText: 'Reference (optional)',
+                  helperText: 'Voucher, bank reference or note.',
+                ),
+              ),
+              if (_method.needsChequeDetails) ...[
+                const SizedBox(height: AppSpacing.lg),
+                const DialogSectionLabel('Cheque'),
+                TextFormField(
+                  key: const ValueKey('pay-cheque-number'),
+                  controller: _chequeNumber,
+                  decoration: const InputDecoration(labelText: 'Cheque number'),
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'A cheque needs its number.'
+                      : null,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                TextFormField(
+                  key: const ValueKey('pay-cheque-bank'),
+                  controller: _chequeBank,
+                  decoration: const InputDecoration(labelText: 'Bank'),
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'A cheque needs its bank.'
+                      : null,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                TextFormField(
+                  key: const ValueKey('pay-cheque-date'),
+                  controller: _chequeDateText,
+                  readOnly: true,
+                  onTap: _pickChequeDate,
+                  decoration: const InputDecoration(
+                    labelText: 'Cheque date',
+                    suffixIcon: Icon(Icons.event_outlined),
+                  ),
+                  validator: (_) =>
+                      _chequeDate == null ? 'A cheque needs its date.' : null,
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                const InfoBanner(
+                  message:
+                      'A supplier cheque is issued to the supplier now. A '
+                      'manager clears or bounces it once the bank answers.',
+                ),
+              ],
             ],
             if (_refusal case final refusal?) ...[
               const SizedBox(height: AppSpacing.lg),

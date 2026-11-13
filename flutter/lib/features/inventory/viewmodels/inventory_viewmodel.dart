@@ -644,6 +644,20 @@ class InventoryViewmodel extends ChangeNotifier {
     return true;
   }
 
+  /// The reasons the adjust dialog offers, in the order a counter reads them.
+  ///
+  /// "Supplier Return" is deliberately NOT here (Phase 8 F2, decision 20):
+  /// goods going back to a supplier come off the RECEIPT's own batches and mint
+  /// a numbered credit note, which a bare RETURN adjustment cannot do — it moved
+  /// stock and credited nobody. The server now refuses that type
+  /// (`USE_SUPPLIER_RETURN`), so offering it could only produce a refusal.
+  /// Historical RETURN rows keep their own label.
+  static const List<String> adjustmentReasons = [
+    'Count Correction',
+    'Damaged Items',
+    'Shrinkage / Loss',
+  ];
+
   /// Maps the adjust dialog's human wording onto the server's `adjustment_type`
   /// codes. An unknown wording becomes a count correction, matching
   /// `StockAdjustmentType.fromApiValue`'s own fallback in the other direction.
@@ -653,8 +667,6 @@ class InventoryViewmodel extends ChangeNotifier {
         return StockAdjustmentType.damage;
       case 'Shrinkage / Loss':
         return StockAdjustmentType.shrinkage;
-      case 'Supplier Return':
-        return StockAdjustmentType.returnToSupplier;
       default:
         return StockAdjustmentType.correction;
     }

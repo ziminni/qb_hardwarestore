@@ -25,6 +25,7 @@ from .exceptions import (
     InvalidSupplierPayment,
     InvalidSupplierTerms,
     InvalidVariant,
+    ReturnAdjustmentRetired,
     SellingUnitInUse,
     SupplierInactive,
 )
@@ -43,7 +44,11 @@ from .models import (
     StorageLocation,
     Supplier,
     SupplierBill,
+    SupplierCreditNote,
     SupplierPayment,
+    SupplierReturn,
+    SupplierReturnDeduction,
+    SupplierReturnLine,
     SystemAlert,
     UnitOfMeasure,
     VariantUOM,
@@ -1051,6 +1056,17 @@ class StockAdjustmentSerializer(serializers.ModelSerializer):
                 qty=qty,
                 what=f"{variant} in {variant.base_uom.code}",
             )
+        # Phase 8 B2 (decision 20): the adjustment dialog's "Supplier Return" is retired.
+        # It moved stock out through FIFO with no credit note, no record of the receipt
+        # the goods came in on and no cap - the three things a supplier return is for.
+        # `POST /supplier-returns/` is the way out now. Historic RETURN rows keep their
+        # label: the refusal is here, on CREATE, not in the choices list.
+        if attrs.get("adjustment_type") == StockAdjustment.AdjustmentType.RETURN:
+            raise ReturnAdjustmentRetired(
+                "A supplier return is no longer recorded as a stock adjustment: use "
+                "POST /supplier-returns/ so the goods come off the receipt that brought "
+                "them in and the credit note says what they were worth."
+            )
         return attrs
 
 
@@ -1120,6 +1136,9 @@ class SupplierPaymentSerializer(serializers.ModelSerializer):
         required=False, allow_blank=True, max_length=100, default=""
     )
     paid_by_name = serializers.CharField(source="paid_by.full_name", read_only=True)
+    decided_by_name = serializers.CharField(
+        source="decided_by.full_name", read_only=True
+    )
 
     class Meta:
         model = SupplierPayment
@@ -1132,11 +1151,30 @@ class SupplierPaymentSerializer(serializers.ModelSerializer):
             "cheque_number",
             "cheque_bank",
             "cheque_date",
+            "status",
+            "decided_by",
+            "decided_by_name",
+            "decided_at",
+            "decision_reason",
+            # Phase 8 B3: the note a `CREDIT` payment spent (NULL for every other
+            # method), so a bill's history says WHICH credit settled that peso.
+            "credit_note",
             "paid_by",
             "paid_by_name",
             "paid_on",
         ]
-        read_only_fields = ["id", "paid_by", "paid_on"]  # noqa: RUF012
+        # Phase 8 B1: the cheque's status and its decision are the server's to write -
+        # `decide_supplier_cheque` stamps them through the clear/bounce actions only, so a
+        # POST that names them is ignored rather than honoured.
+        read_only_fields = [  # noqa: RUF012
+            "id",
+            "status",
+            "decided_by",
+            "decided_at",
+            "decision_reason",
+            "paid_by",
+            "paid_on",
+        ]
 
     def validate_amount(self, value):
         """A peso amount, parsed once: `{code, detail}` instead of a field-error dict."""
@@ -1160,8 +1198,29 @@ class SupplierPaymentSerializer(serializers.ModelSerializer):
         clear/bounce step to fill these in afterwards: a cheque whose number, bank or
         date is unknown could never be reconciled with the bank statement, so the
         payment is refused now.
+
+        Phase 8 B4: `method=CREDIT` is the one method that spends a credit note, so it
+        names `credit_note` and nothing about a cheque, and every other method refuses a
+        note - a cash payment settling with credit would spend the supplier's money
+        without the document that records it.
         """
         method = attrs.get("method")
+        if method == SupplierPayment.Method.CREDIT:
+            if attrs.get("credit_note") is None:
+                raise InvalidSupplierPayment(
+                    "method CREDIT needs the credit_note it spends: pick one of the "
+                    "supplier's open credit notes."
+                )
+            # Applying credit is not a cheque: clear any that a stale form posted.
+            attrs["cheque_number"] = ""
+            attrs["cheque_bank"] = ""
+            attrs["cheque_date"] = None
+            return attrs
+        if attrs.get("credit_note") is not None:
+            raise InvalidSupplierPayment(
+                "credit_note only applies to a CREDIT payment; cash, cheque and "
+                "transfer payments settle with their own money."
+            )
         if method == SupplierPayment.Method.CHEQUE:
             missing = [
                 label
@@ -1186,6 +1245,44 @@ class SupplierPaymentSerializer(serializers.ModelSerializer):
             attrs["cheque_bank"] = ""
             attrs["cheque_date"] = None
         return attrs
+
+
+class SupplierCreditNoteSerializer(serializers.ModelSerializer):
+    """One credit note a supplier return minted — read-only, the note to apply (B4).
+
+    The payables screen lists a supplier's OPEN notes (`?open=true`) and offers them in
+    the "apply credit" field, so the figures a manager picks an amount from are here:
+    `remaining_amount` is what is left to spend, and `applied_amount` (derived) is what
+    was already spent. Nothing is writable: a note is evidence of credit the shop is owed
+    and `payables.apply_supplier_credit` is the only writer, through a CREDIT payment.
+    """
+
+    supplier_name = serializers.CharField(
+        source="supplier.company_name", read_only=True
+    )
+    applied_amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, read_only=True
+    )
+
+    class Meta:
+        model = SupplierCreditNote
+        fields = [  # noqa: RUF012 - declarative DRF Meta option, not mutable state
+            "id",
+            "number",
+            "supplier",
+            "supplier_name",
+            "supplier_return",
+            "source_bill",
+            "value",
+            "vat_rate",
+            "vat_inclusive",
+            "vat_amount",
+            "total_amount",
+            "remaining_amount",
+            "applied_amount",
+            "created_at",
+        ]
+        read_only_fields = fields
 
 
 class SupplierBillSerializer(serializers.ModelSerializer):
@@ -1239,3 +1336,119 @@ class SupplierBillSerializer(serializers.ModelSerializer):
         # Everything a client could send is refused by the viewset's missing verbs; this
         # is the second lock, so a future mixin cannot quietly make a bill writable.
         read_only_fields = fields
+
+
+class SupplierReturnDeductionSerializer(serializers.ModelSerializer):
+    """One batch a return line drew from - the provenance, read-only."""
+
+    class Meta:
+        model = SupplierReturnDeduction
+        fields = ["id", "batch", "qty", "unit_cost_landed"]  # noqa: RUF012
+        read_only_fields = fields
+
+
+class SupplierReturnLineSerializer(serializers.ModelSerializer):
+    """One returned quantity: what the clerk entered, what left, what it was worth."""
+
+    deductions = SupplierReturnDeductionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = SupplierReturnLine
+        fields = [  # noqa: RUF012 - declarative DRF Meta option, not mutable state
+            "id",
+            "receipt_line",
+            "qty",
+            "base_qty",
+            "credit_value",
+            "deductions",
+        ]
+        read_only_fields = fields
+
+
+class SupplierReturnSerializer(serializers.ModelSerializer):
+    """A recorded return, read-only, with its lines and the batches they came from.
+
+    Nothing here is writable: a return is written by `services.record_supplier_return`
+    inside the transaction that moves the stock, so an edit would re-write history the
+    batches can no longer explain. Both figures the client typed and the base quantity it
+    did not are shown, because the returnable report speaks the LINE's unit while stock
+    is counted in base units and a screen has to reconcile the two.
+
+    Phase 8 B3: every return mints ONE numbered credit note, flattened here as
+    `credit_note_number`, `credit_note_total` and `credit_note_remaining` - the number a
+    clerk quotes to the supplier, what the goods were worth, and what the source bill
+    could not absorb (and therefore stays applyable to a later bill of that supplier).
+    """
+
+    supplier_name = serializers.CharField(
+        source="supplier.company_name", read_only=True
+    )
+    created_by_name = serializers.CharField(
+        source="created_by.full_name", read_only=True
+    )
+    lines = SupplierReturnLineSerializer(many=True, read_only=True)
+    # Flattened rather than nested: DRF's `get_attribute` answers `None` for a missing
+    # reverse OneToOne (so the shape stays honest for any return written before B3), and
+    # a payables list needs the number, not a sub-object.
+    credit_note_number = serializers.CharField(
+        source="credit_note.number", read_only=True
+    )
+    credit_note_total = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        source="credit_note.total_amount",
+        read_only=True,
+    )
+    credit_note_remaining = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        source="credit_note.remaining_amount",
+        read_only=True,
+    )
+
+    class Meta:
+        model = SupplierReturn
+        fields = [  # noqa: RUF012 - declarative DRF Meta option, not mutable state
+            "id",
+            "receipt",
+            "supplier",
+            "supplier_name",
+            "purchase_order",
+            "bill",
+            "reason",
+            "created_by",
+            "created_by_name",
+            "created_at",
+            "credit_note_number",
+            "credit_note_total",
+            "credit_note_remaining",
+            "lines",
+        ]
+        read_only_fields = fields
+
+
+class SupplierReturnLineInputSerializer(serializers.Serializer):
+    """`{receipt_line, qty}` — the quantity in that receipt line's PACKAGE unit."""
+
+    receipt_line = serializers.PrimaryKeyRelatedField(
+        queryset=GoodsReceiptItem.objects.all()
+    )
+    qty = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal("0.01")
+    )
+
+
+class SupplierReturnCreateSerializer(serializers.Serializer):
+    """`{receipt, reason, lines:[{receipt_line, qty}]}` — shape only.
+
+    The business rules (blank reason, a line from another receipt, the whole-unit and
+    whole-hundredth checks, the per-line cap) live in `services.record_supplier_return`
+    and stay there: the same call is the only writer, so a rule kept here would be a
+    second copy for the ORM path to skip. `reason` allows a blank string on purpose - a
+    missing reason is answered by the service's own 400 `INVALID_SUPPLIER_RETURN`, not by
+    DRF's field error, so a client branches on one code.
+    """
+
+    receipt = serializers.PrimaryKeyRelatedField(queryset=GoodsReceipt.objects.all())
+    reason = serializers.CharField(allow_blank=True, required=False, default="")
+    lines = SupplierReturnLineInputSerializer(many=True, allow_empty=False)

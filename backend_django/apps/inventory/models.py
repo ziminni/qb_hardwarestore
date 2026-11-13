@@ -852,17 +852,45 @@ class SupplierPayment(models.Model):
     corrected by recording the real business event, not by rewriting the ledger.
 
     `paid_on` is the ISSUE moment (auto_now_add). Decision 18 keeps supplier cheques
-    simple: they are recorded as paid when issued - the clear/bounce workflow exists for
-    CUSTOMER cheques only, so this table has no pending state.
+    simple: they are recorded as paid whenever they are issued and lowering the bill
+    balance at once - the clear/bounce workflow exists for CUSTOMER cheques only, so this
+    table has no pending state.
+
+    Phase 8 B1 (decision 20 #3) added the pending state that matters for a SUPPLIER
+    cheque: it starts `ISSUED` and a Store Manager/Admin marks it `CLEARED` or `BOUNCED`.
+    The bill balance STILL drops at issue (the money is promised when the cheque changes
+    hands); clearing moves nothing, and a bounce puts the amount back on the bill. Every
+    other method is born `CLEARED` - cash and transfers leave nothing to decide - which
+    is also the migration default for rows that already existed.
     """
 
     class Method(models.TextChoices):
         CASH = "CASH", "Cash"
         CHEQUE = "CHEQUE", "Cheque"
         BANK_TRANSFER = "BANK_TRANSFER", "Bank Transfer"
+        # Phase 8 B1 adds the CHOICE only; applying a credit note is B3's job, so no code
+        # path creates a CREDIT payment yet (the serializer refuses one with no note).
+        CREDIT = "CREDIT", "Supplier Credit"
+
+    class Status(models.TextChoices):
+        # Only a CHEQUE is ever ISSUED. CLEARED is the settled state of every other
+        # method (and of a cheque the bank honoured), BOUNCED only ever applies to one.
+        ISSUED = "ISSUED", "Issued"
+        CLEARED = "CLEARED", "Cleared"
+        BOUNCED = "BOUNCED", "Bounced"
 
     bill = models.ForeignKey(
         SupplierBill, on_delete=models.PROTECT, related_name="payments"
+    )
+    # Phase 8 B3 (decision 20 #1): the note an applied credit came from. NULL for every
+    # other method, and the only row that ever carries it is `method=CREDIT`, written by
+    # `payables.apply_credit_to_source_bill` inside the return's transaction.
+    credit_note = models.ForeignKey(
+        "SupplierCreditNote",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="payments",
     )
     # The actor is assigned from `request.user`; it is never a client input.
     paid_by = models.ForeignKey(
@@ -881,6 +909,28 @@ class SupplierPayment(models.Model):
     cheque_date = models.DateField(null=True, blank=True)
     paid_on = models.DateTimeField(auto_now_add=True, db_index=True)
 
+    # Phase 8 B1 (decision 20 #3): the cheque's own life. `CLEARED` is the column default
+    # so the migration settles every existing row (old supplier cheques included) and any
+    # creator that does not think about status. `payables.record_supplier_payment` is the
+    # only writer that sets ISSUED.
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.CLEARED
+    )
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decision_reason = models.CharField(max_length=255, blank=True, default="")
+
+    # The ONLY fields a stored row may ever be written with, and only while it is ISSUED:
+    # `payables.decide_supplier_cheque` stamps exactly these under the row lock. Listed
+    # once, here, so neither the service nor a shell session can widen the door.
+    DECISION_FIELDS = ("status", "decided_by", "decided_at", "decision_reason")
+
     class Meta:
         db_table = "inventory_supplier_payment"
         ordering = ["-paid_on", "-pk"]  # noqa: RUF012 - declarative, never mutated
@@ -893,15 +943,32 @@ class SupplierPayment(models.Model):
         )
 
     def save(self, *args, **kwargs):
-        """Insert only: a stored payment is a fact about money that already moved."""
+        """Insert only - except the one decision a cheque is waiting for.
+
+        A stored payment is a fact about money that already moved, so an UPDATE raises.
+        The single door is decision 20 #3: a row whose STORED status is `ISSUED` may be
+        written with nothing but `DECISION_FIELDS`. The stored status is read on every
+        write, so "decided once" holds even if a caller holds a stale instance, and
+        `update_fields` is required - a bare `save()` rewrites every column and is
+        refused.
+        """
         if self.pk is not None:
             from .exceptions import ImmutablePayableRecord
 
-            if type(self).objects.filter(pk=self.pk).exists():
-                raise ImmutablePayableRecord(
-                    f"Supplier payment #{self.pk} cannot be changed: a payment is a "
-                    "record of money that already moved."
+            stored = type(self).objects.filter(pk=self.pk).values("status").first()
+            if stored is not None:
+                update_fields = kwargs.get("update_fields")
+                is_decision = (
+                    stored["status"] == self.Status.ISSUED
+                    and bool(update_fields)
+                    and set(update_fields) <= set(self.DECISION_FIELDS)
                 )
+                if not is_decision:
+                    raise ImmutablePayableRecord(
+                        f"Supplier payment #{self.pk} cannot be changed: a payment is a "
+                        "record of money that already moved. Only an issued cheque may "
+                        "still be cleared or bounced."
+                    )
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
@@ -910,4 +977,334 @@ class SupplierPayment(models.Model):
         raise ImmutablePayableRecord(
             f"Supplier payment #{self.pk} cannot be deleted: remove it from the books "
             "only by recording the real business event."
+        )
+
+
+# =========================================================================
+# Supplier returns  (Phase 8 B2, decision 20)
+# =========================================================================
+
+
+class SupplierReturn(models.Model):
+    """Goods going BACK to a supplier, off the receipt they arrived on.
+
+    Decision 20 #2: a return picks the PO RECEIPT the goods came in on, so the stock
+    leaves THAT receipt's batches (see `services.allocate_from_receipt`) and the cap is
+    what that delivery still holds - not the shop's total for the variant, which may sit
+    in a dozen other deliveries with other landed costs.
+
+    **No number of its own.** Decision 20 #1 makes the credit note the numbered
+    document (Phase 8 B3), and a second sequence nobody prints would be a unique value to
+    maintain for nothing. Until B3 lands, a return is identified by its pk and by the
+    receipt it came from.
+
+    Append-only like `SupplierBill`: every column is a snapshot of the act - which
+    receipt, which supplier, which bill, why, who - and none of it may be edited or
+    deleted afterwards. A wrong return is corrected by a new business event, never by
+    rewriting this one.
+    """
+
+    receipt = models.ForeignKey(
+        GoodsReceipt, on_delete=models.PROTECT, related_name="supplier_returns"
+    )
+    # Copied at write time, not joined through the receipt: a return names the supplier
+    # and the PO it answers, so a payables screen can group by supplier in one query.
+    supplier = models.ForeignKey(
+        Supplier, on_delete=models.PROTECT, related_name="supplier_returns"
+    )
+    purchase_order = models.ForeignKey(
+        PurchaseOrder, on_delete=models.PROTECT, related_name="supplier_returns"
+    )
+    # The bill the goods came in on, when the receipt was billed (Phase 5 B2). NULL for
+    # a receipt processed before bills existed and for a zero-value delivery; B3's credit
+    # note is then born unapplied instead of lowering a bill.
+    bill = models.ForeignKey(
+        SupplierBill,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_returns",
+    )
+    reason = models.TextField()
+    # The actor comes from `request.user`; it is never a client input.
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "inventory_supplier_return"
+        ordering = ["-created_at", "-pk"]  # noqa: RUF012 - declarative, never mutated
+
+    def __str__(self):
+        return f"Supplier return #{self.pk} ← receipt #{self.receipt_id}"
+
+    def save(self, *args, **kwargs):
+        """Insert only. Nothing on a stored return may be written again."""
+        if self.pk is not None:
+            from .exceptions import ImmutablePayableRecord
+
+            raise ImmutablePayableRecord(
+                f"Supplier return #{self.pk} cannot be changed: it records stock that "
+                "has already left the shop. Correct it with a new business event."
+            )
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        from .exceptions import ImmutablePayableRecord
+
+        raise ImmutablePayableRecord(
+            f"Supplier return #{self.pk} cannot be deleted: it is the only record of "
+            "the stock that went back to the supplier."
+        )
+
+
+class SupplierReturnLine(models.Model):
+    """One returned quantity, counted in the receipt LINE's package unit.
+
+    `qty` is what the clerk typed (e.g. 2 BAG), `base_qty` is the stock that left
+    (`qty x the line's conversion factor`), and `credit_value` is what those units were
+    worth at the landed cost of the batches they came out of - rounded ONCE with
+    `payables.money`, because the same stock may have left two batches at slightly
+    different costs.
+
+    The two quantities are stored rather than derived because the line's unit is a
+    moving target: editing a selling unit's conversion factor is refused while history
+    references it (decision 16), but the stored pair also keeps this row readable
+    without a join to the PO line.
+    """
+
+    supplier_return = models.ForeignKey(
+        SupplierReturn, on_delete=models.CASCADE, related_name="lines"
+    )
+    # PROTECT: the delivered line is the evidence of what arrived and what is still
+    # returnable against it, so it cannot be removed out from under a return.
+    receipt_line = models.ForeignKey(
+        GoodsReceiptItem, on_delete=models.PROTECT, related_name="return_lines"
+    )
+    qty = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    )
+    base_qty = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    )
+    credit_value = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal(0))]
+    )
+
+    class Meta:
+        db_table = "inventory_supplier_return_line"
+        ordering = ["pk"]  # noqa: RUF012 - declarative, never mutated
+
+    def __str__(self):
+        return (
+            f"Return #{self.supplier_return_id} line: {self.qty} ({self.base_qty} base)"
+        )
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            from .exceptions import ImmutablePayableRecord
+
+            raise ImmutablePayableRecord(
+                f"Supplier return line #{self.pk} cannot be changed: it records a "
+                "quantity that has already left the shop."
+            )
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        from .exceptions import ImmutablePayableRecord
+
+        raise ImmutablePayableRecord(
+            f"Supplier return line #{self.pk} cannot be deleted: it explains stock that "
+            "is no longer on the rack."
+        )
+
+
+class SupplierReturnDeduction(models.Model):
+    """Which batches one return line drew from, and how much from each.
+
+    Mirrors `pos.SalesItemDeduction`: one row per batch touched, so a return spanning two
+    batches writes two rows and the sum is exactly the line's `base_qty`. `unit_cost_landed`
+    is a SNAPSHOT - a batch's cost is history, and the credit this return is worth must
+    stay readable even if a later code path ever recomputes a batch's cost.
+    """
+
+    line = models.ForeignKey(
+        SupplierReturnLine, on_delete=models.CASCADE, related_name="deductions"
+    )
+    batch = models.ForeignKey(
+        InventoryBatch, on_delete=models.PROTECT, related_name="return_deductions"
+    )
+    qty = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    )
+    unit_cost_landed = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal(0))]
+    )
+
+    class Meta:
+        db_table = "inventory_supplier_return_deduction"
+        ordering = ["pk"]  # noqa: RUF012 - declarative, never mutated
+        indexes = [models.Index(fields=["batch"])]  # noqa: RUF012
+
+    def __str__(self):
+        return f"Return line #{self.line_id}: {self.qty} from batch #{self.batch_id}"
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            from .exceptions import ImmutablePayableRecord
+
+            raise ImmutablePayableRecord(
+                f"Supplier return deduction #{self.pk} cannot be changed: it records "
+                "stock that has already left the shop."
+            )
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        from .exceptions import ImmutablePayableRecord
+
+        raise ImmutablePayableRecord(
+            f"Supplier return deduction #{self.pk} cannot be deleted: it explains which "
+            "batch the returned stock came out of."
+        )
+
+
+# =========================================================================
+# Supplier credit notes  (Phase 8 B3, decision 20 #1)
+# =========================================================================
+
+
+class SupplierCreditNote(models.Model):
+    """The numbered document a supplier return is worth (decision 20 #1).
+
+    Decision 20 #1 is one combined rule: each supplier return creates a numbered CREDIT
+    NOTE, and that note's value first lowers the unpaid balance of the bill the goods came
+    in on. Whatever that bill cannot absorb - it was already paid, or the note is worth
+    more than what is left - stays as supplier-level credit (`remaining_amount`) for a
+    manager to apply by hand against any later bill of the same supplier.
+
+    **`supplier_return` is ONE-TO-ONE**: a return is worth exactly one note, and the
+    DATABASE refuses a second one. The number comes from `pos.services.next_number`
+    (`CN-YYYYMMDD-NNNN`, a locked `DocumentCounter`), reserved inside the return's own
+    transaction so two concurrent returns cannot share it.
+
+    **Money shape** (the same two-way VAT rule bills follow, so a credit mirrors what was
+    billed):
+
+    * `value` = the returned stock's landed cost, `SUM(base qty x batch unit_cost_landed)`
+      over the return's deductions, rounded once HALF_UP.
+    * `vat_inclusive` (from the source bill's PO snapshot): `total_amount = value` and the
+      tax is EXTRACTED - `vat_amount = value - round(value / (1 + rate/100))`.
+    * VAT-exclusive: `vat_amount = round(value x rate/100)` and
+      `total_amount = value + vat_amount`.
+    * `vat_rate` is the SOURCE BILL's snapshot (the PO's own rate when the receipt created
+      no bill), never today's settings: a later rate change re-prices no history.
+
+    Append-only like `SupplierBill` - see `save()`. `remaining_amount` is the single
+    mutable figure and moves only under the note's row lock, in the same transaction that
+    creates the CREDIT payment lowering the bill.
+    """
+
+    number = models.CharField(max_length=24, unique=True)
+    supplier_return = models.OneToOneField(
+        SupplierReturn, on_delete=models.PROTECT, related_name="credit_note"
+    )
+    # Copied from the return (not joined) so a payables screen groups by supplier without
+    # walking back through the return to the receipt to the PO.
+    supplier = models.ForeignKey(
+        Supplier, on_delete=models.PROTECT, related_name="credit_notes"
+    )
+    # The bill this credit tries to lower first. NULL when the receipt created no bill
+    # (a pre-Phase-5 receipt or a zero-value delivery): the whole note is then born
+    # unapplied and lives on as supplier credit.
+    source_bill = models.ForeignKey(
+        SupplierBill,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="credit_notes",
+    )
+    value = models.DecimalField(max_digits=12, decimal_places=2)
+    vat_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    vat_inclusive = models.BooleanField(default=True)
+    vat_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    # The one mutable figure: credit still available to apply. Never negative - the
+    # application takes `min(remaining, bill balance)`, so 0 is exactly "used up".
+    remaining_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal(0))]
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    # What the note was when it was issued. `save()` refuses any change to one of these,
+    # so no UPDATE - API, admin, shell or a future service - can re-price a credit.
+    IMMUTABLE_FIELDS = (
+        "number",
+        "supplier_return",
+        "supplier",
+        "source_bill",
+        "value",
+        "vat_rate",
+        "vat_inclusive",
+        "vat_amount",
+        "total_amount",
+    )
+
+    class Meta:
+        db_table = "inventory_supplier_credit_note"
+        ordering = ["-created_at", "-pk"]  # noqa: RUF012 - declarative, never mutated
+        indexes = [  # noqa: RUF012
+            models.Index(fields=["supplier", "remaining_amount"]),
+        ]
+
+    def __str__(self):
+        return f"Credit note {self.number} — {self.supplier.company_name}"
+
+    @property
+    def applied_amount(self):
+        """How much of this note has already been used - derived, never stored."""
+        return self.total_amount - self.remaining_amount
+
+    @property
+    def vatable_amount(self):
+        """The VAT-able part, for both tax treatments (mirrors `SupplierBill`)."""
+        return self.total_amount - self.vat_amount
+
+    def save(self, *args, **kwargs):
+        """Insert freely; after that only `remaining_amount` may move.
+
+        The stored row is read on every update, so the guard holds even for a caller
+        holding a stale instance - only the application path (which changes nothing else
+        and passes `update_fields`) gets through.
+        """
+        if self.pk is not None:
+            stored = (
+                type(self)
+                .objects.filter(pk=self.pk)
+                .values(*self.IMMUTABLE_FIELDS)
+                .first()
+            )
+            if stored is not None:
+                from .exceptions import ImmutablePayableRecord
+
+                for field in self.IMMUTABLE_FIELDS:
+                    # `.values()` returns a FOREIGN KEY as its id while the instance holds
+                    # the related row, so both sides are compared by pk.
+                    current = getattr(self, field)
+                    current = getattr(current, "pk", current)
+                    if stored[field] != current:
+                        raise ImmutablePayableRecord(
+                            f"Credit note {self.number}: {field} is history and cannot "
+                            "be changed. A wrong note is corrected by a counter-entry, "
+                            "never by editing this row."
+                        )
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        """A note is credit the shop is owed, so it cannot be erased."""
+        from .exceptions import ImmutablePayableRecord
+
+        raise ImmutablePayableRecord(
+            f"Credit note {self.number} cannot be deleted: it records credit the supplier "
+            "owes the shop for goods that already went back."
         )

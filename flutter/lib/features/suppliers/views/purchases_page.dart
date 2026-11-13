@@ -5,6 +5,7 @@ import 'package:client/data/models/supplier.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/receiving_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
+import 'package:client/features/payables/widgets/supplier_return_dialog.dart';
 import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmodel.dart';
 import 'package:client/features/suppliers/widgets/purchases_details_dialog.dart';
 import 'package:client/features/suppliers/widgets/purchases_form_dialog.dart';
@@ -123,10 +124,30 @@ class _PurchasesPageState extends State<PurchasesPage> {
     navigateInventory(context, 8);
   }
 
-  void _openDetails(PurchaseOrder order) => showDialog<void>(
-    context: context,
-    builder: (_) => PurchasesDetailsDialog(order: order),
-  );
+  /// Opens the order, with the door to its supplier returns wired.
+  ///
+  /// This page is the only place that constructs the dialog, and the page is
+  /// reached in the Stock/Store/Admin shell only — the same roles the server
+  /// allows to record a return (`IsInventoryRole`), so the control is offered
+  /// exactly where it can work.
+  void _openDetails(PurchaseOrder order) {
+    final state = context.read<SuppliersPurchasesViewmodel>();
+    showDialog<void>(
+      context: context,
+      builder: (_) => PurchasesDetailsDialog(
+        order: order,
+        returnFlow: SupplierReturnFlow(
+          loadReceipts: () => state.processedReceipts(order.id),
+          loadReturnable: state.returnableFor,
+          submit: (request) => state.returnToSupplier(
+            receiptId: request.receiptId,
+            reason: request.reason,
+            lines: request.lines,
+          ),
+        ),
+      ),
+    );
+  }
 
   /// `All statuses 3`, `Ordered 2`, ... over the orders the search left.
   ///

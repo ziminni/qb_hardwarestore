@@ -1,4 +1,5 @@
 import 'package:client/data/models/supplier_payables.dart';
+import 'package:client/data/models/supplier_returns.dart';
 import 'package:client/data/services/payables_service.dart';
 
 /// Policy-free pass-through over [PayablesService], preserving the one data
@@ -29,4 +30,30 @@ class PayablesRepository {
 
   Future<void> createPayment(Map<String, dynamic> body) =>
       _service.createPayment(body);
+
+  Future<List<SupplierReturnableLine>> fetchReturnable(int receiptId) =>
+      _service.fetchReturnable(receiptId);
+
+  Future<SupplierReturn> createReturn({
+    required int receiptId,
+    required String reason,
+    required List<Map<String, dynamic>> lines,
+  }) =>
+      _service.createReturn(receiptId: receiptId, reason: reason, lines: lines);
+
+  Future<List<SupplierCreditNote>> fetchCreditNotes({
+    int? supplierId,
+    bool openOnly = false,
+  }) => _service.fetchCreditNotes(supplierId: supplierId, openOnly: openOnly);
+
+  Future<List<SupplierPayment>> fetchCheques({
+    int? supplierId,
+    SupplierPaymentStatus? status,
+  }) => _service.fetchCheques(supplierId: supplierId, status: status);
+
+  Future<SupplierPayment> clearCheque(int paymentId) =>
+      _service.clearCheque(paymentId);
+
+  Future<SupplierPayment> bounceCheque(int paymentId, String reason) =>
+      _service.bounceCheque(paymentId, reason);
 }

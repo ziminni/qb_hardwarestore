@@ -13,7 +13,10 @@
 import 'dart:io';
 
 import 'package:client/core/format/format.dart';
+import 'package:client/data/models/receiving.dart';
 import 'package:client/data/models/supplier.dart';
+import 'package:client/data/models/supplier_returns.dart';
+import 'package:client/features/payables/widgets/supplier_return_dialog.dart';
 import 'package:client/features/suppliers/widgets/purchases_details_dialog.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
@@ -77,6 +80,37 @@ PurchaseOrder _order({
   ],
 );
 
+/// One processed delivery: two lines in two units, so a return has something to
+/// offer and the receipt label has its own numbers to print.
+GoodsReceiptRecord _receipt({
+  int id = 5,
+  DateTime? receiveDate,
+}) => GoodsReceiptRecord(
+  id: id,
+  poId: 41,
+  deliveryReceiptNo: 'DR-100$id',
+  batches: const [],
+  receiveDate: receiveDate ?? DateTime(2026, 11, 12),
+  processedAt: DateTime(2026, 11, 12),
+  lines: const [
+    GoodsReceiptLine(id: 51, poItemId: 1, variantName: '40 kg bag', qty: 40),
+    GoodsReceiptLine(id: 52, poItemId: 2, variantName: '10 mm x 6 m', qty: 60),
+  ],
+);
+
+/// The return flow as the page wires it. [loadReturnable] and [submit] are never
+/// reached from the PO details dialog itself, so they stay inert here.
+SupplierReturnFlow _flow({
+  List<GoodsReceiptRecord> receipts = const [],
+  String? error,
+  Future<SupplierReceiptsLoad> Function()? loadReceipts,
+}) => SupplierReturnFlow(
+  loadReceipts: loadReceipts ?? () async => (receipts: receipts, error: error),
+  loadReturnable: (receiptId) async =>
+      (lines: const <SupplierReturnableLine>[], error: null),
+  submit: (request) async => (recorded: null, refusal: null),
+);
+
 void main() {
   setUpAll(_loadAppFonts);
 
@@ -85,6 +119,7 @@ void main() {
     Size size = const Size(1440, 1000),
     double scale = 1.0,
     PurchaseOrder? order,
+    SupplierReturnFlow? flow,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -110,8 +145,10 @@ void main() {
                 builder: (context) => ElevatedButton(
                   onPressed: () => showDialog<void>(
                     context: context,
-                    builder: (_) =>
-                        PurchasesDetailsDialog(order: order ?? _order()),
+                    builder: (_) => PurchasesDetailsDialog(
+                      order: order ?? _order(),
+                      returnFlow: flow,
+                    ),
                   ),
                   child: const Text('Open PO'),
                 ),
@@ -242,6 +279,97 @@ void main() {
 
     expect(find.byType(AppDialog), findsNothing);
     expect(opener.hasPrimaryFocus, isTrue);
+  });
+
+  // Phase 8 F2: "Return to supplier" is offered only where it can work — an
+  // order whose delivery the server has processed into batches. A receipt that
+  // was never processed created no stock, so a return off it would 400.
+  testWidgets('a processed delivery raises the return control', (tester) async {
+    await open(tester, flow: _flow(receipts: [_receipt()]));
+
+    expect(find.text('Return to supplier'), findsOneWidget);
+    expect(
+      find.text('1 processed delivery can still give goods back.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('an order with no processed delivery offers no return', (
+    tester,
+  ) async {
+    await open(tester, flow: _flow());
+
+    expect(find.text('Return to supplier'), findsNothing);
+    expect(
+      find.text('No processed deliveries to return from.'),
+      findsOneWidget,
+      reason: 'the absence must be explained, not silently empty',
+    );
+  });
+
+  testWidgets('without a wired flow the dialog is exactly as before', (
+    tester,
+  ) async {
+    await open(tester);
+
+    expect(find.text('Return to supplier'), findsNothing);
+    expect(find.text('No processed deliveries to return from.'), findsNothing);
+  });
+
+  testWidgets('a failed delivery load is named, with a retry', (tester) async {
+    var calls = 0;
+    final flow = _flow(
+      loadReceipts: () async {
+        calls++;
+        return calls == 1
+            ? (
+                receipts: const <GoodsReceiptRecord>[],
+                error: 'The goods receipts could not be read.',
+              )
+            : (receipts: [_receipt()], error: null);
+      },
+    );
+    await open(tester, flow: flow);
+
+    expect(find.text('The goods receipts could not be read.'), findsOneWidget);
+    expect(
+      find.text('Return to supplier'),
+      findsNothing,
+      reason: 'an unread delivery list cannot say whether a return is possible',
+    );
+
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(calls, 2);
+    expect(find.text('Return to supplier'), findsOneWidget);
+  });
+
+  testWidgets('the control opens the return dialog on this order', (
+    tester,
+  ) async {
+    await open(tester, flow: _flow(receipts: [_receipt()]));
+
+    await tester.tap(find.text('Return to supplier'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SupplierReturnDialog), findsOneWidget);
+    expect(find.text('PO-41 · Cebu Steel Works'), findsOneWidget);
+  });
+
+  testWidgets('the return section fits 760 px at 1.3x text', (tester) async {
+    await open(
+      tester,
+      size: const Size(760, 1000),
+      scale: 1.3,
+      flow: _flow(receipts: [_receipt()]),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Return to supplier').hitTestable(), findsOneWidget);
+    final rect = tester.getRect(find.byType(AppDialog));
+    expect(rect.left, greaterThanOrEqualTo(0));
+    expect(rect.right, lessThanOrEqualTo(760));
   });
 
   for (final (width, scale) in const [

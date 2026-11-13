@@ -182,6 +182,11 @@ class AuditLog(models.Model):
         SALES_ORDER = "SALES_ORDER", "Sales Order"
         ROLE_CHANGE = "ROLE_CHANGE", "Role Changed"
         USER_DEACTIVATE = "USER_DEACTIVATE", "User Deactivated"
+        # Phase 8 task B2 (decision 20): goods sent back to a supplier. Its own type, not
+        # RETURN: that one is a customer bringing a sale back, the opposite direction of
+        # the same money and stock. The description names the return, the receipt, the
+        # supplier and the reason.
+        SUPPLIER_RETURN = "SUPPLIER_RETURN", "Supplier Return"
 
     user = models.ForeignKey(
         User,

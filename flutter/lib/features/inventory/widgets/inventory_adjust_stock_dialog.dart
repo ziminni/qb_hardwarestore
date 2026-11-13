@@ -4,6 +4,7 @@ import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/constants/app_text_styles.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/product.dart';
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
@@ -51,7 +52,7 @@ class _InventoryAdjustStockDialogState
     text: _plainQuantity(widget.currentStock),
   );
   final _notes = TextEditingController();
-  String _reason = 'Count Correction';
+  String _reason = InventoryViewmodel.adjustmentReasons.first;
 
   @override
   void dispose() {
@@ -131,18 +132,15 @@ class _InventoryAdjustStockDialogState
               isExpanded: true,
               initialValue: _reason,
               decoration: const InputDecoration(labelText: 'Reason'),
-              items:
-                  const [
-                        'Count Correction',
-                        'Damaged Items',
-                        'Shrinkage / Loss',
-                        'Supplier Return',
-                      ]
-                      .map(
-                        (item) =>
-                            DropdownMenuItem(value: item, child: Text(item)),
-                      )
-                      .toList(),
+              // The list lives on the viewmodel, which also owns the wording ->
+              // `adjustment_type` mapping, so the two cannot drift. "Supplier
+              // Return" is not offered (Phase 8 F2): a return to a supplier goes
+              // through its own flow, and the server refuses a RETURN adjustment.
+              items: InventoryViewmodel.adjustmentReasons
+                  .map(
+                    (item) => DropdownMenuItem(value: item, child: Text(item)),
+                  )
+                  .toList(),
               onChanged: (value) => setState(() => _reason = value ?? _reason),
             ),
             const SizedBox(height: AppSpacing.md),

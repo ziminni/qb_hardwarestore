@@ -1,13 +1,23 @@
 import 'package:client/core/network/api_client.dart';
 import 'package:client/data/models/supplier_payables.dart';
+import 'package:client/data/models/supplier_returns.dart';
 import 'package:dio/dio.dart';
 
 /// Raised when payables cannot be read or a payment is refused. [message] is
 /// safe to show.
+///
+/// [code] is the server's stable token (`CHEQUE_ALREADY_DECIDED`,
+/// `CHEQUE_REASON_REQUIRED`, `RETURN_EXCEEDS_RECEIPT`, …) so a screen can branch
+/// on the fact while [message] stays the sentence written for a person.
 class PayablesServiceException implements Exception {
-  const PayablesServiceException(this.message);
+  const PayablesServiceException(this.message, {this.code});
 
   final String message;
+  final String? code;
+
+  /// A second decision on a cheque that is already settled (409). The caller
+  /// must re-read the queue: its rows are now wrong about this cheque.
+  bool get alreadyDecided => code == 'CHEQUE_ALREADY_DECIDED';
 
   @override
   String toString() => message;
@@ -33,6 +43,9 @@ class PayablesService {
   static const billsPath = '/api/v1/supplier-bills/';
   static const paymentsPath = '/api/v1/supplier-payments/';
   static const summaryPath = '/api/v1/suppliers/payables/';
+  static const creditNotesPath = '/api/v1/supplier-credit-notes/';
+  static const returnsPath = '/api/v1/supplier-returns/';
+  static const receiptsPath = '/api/v1/goods-receipts/';
 
   /// Every bill, oldest due first (the server orders by `due_date`, then id).
   ///
@@ -93,8 +106,162 @@ class PayablesService {
     } on DioException catch (error) {
       throw PayablesServiceException(
         _message(error, 'The payment was refused.'),
+        code: _codeFor(error),
       );
     }
+  }
+
+  /// What one delivery can still give back, one row per receipt LINE and every
+  /// quantity in that line's package unit (B2).
+  ///
+  /// This route answers a BARE ARRAY, not a page, so it cannot go through
+  /// [ApiClient.getAll]: asking for pages here would throw a parse failure the
+  /// clerk would read as "the server is broken".
+  Future<List<SupplierReturnableLine>> fetchReturnable(int receiptId) async {
+    try {
+      final response = await _client.get<dynamic>(
+        '$receiptsPath$receiptId/returnable/',
+      );
+      final body = response.data;
+      if (body is! List) {
+        throw const FormatException('A returnable report is a list of lines.');
+      }
+      return body
+          .map(
+            (row) =>
+                SupplierReturnableLine.fromJson(row as Map<String, dynamic>),
+          )
+          .toList(growable: false);
+    } on DioException catch (error) {
+      throw PayablesServiceException(
+        _message(error, 'The returnable quantities could not be loaded.'),
+      );
+    } on FormatException catch (error) {
+      throw PayablesServiceException(
+        'The returnable quantities could not be loaded. (${error.message})',
+      );
+    } on TypeError {
+      throw const PayablesServiceException(
+        'The returnable quantities could not be loaded. (a line was not the '
+        'shape this app expects)',
+      );
+    }
+  }
+
+  /// Records a return (`{receipt, reason, lines: [{receipt_line, qty}]}`).
+  ///
+  /// [lines] carries the quantities exactly as the clerk typed them, as 2 dp
+  /// strings: the server refuses a fraction of a whole package unit, and a
+  /// double could send `2.0000000000000004`.
+  ///
+  /// The answer is the recorded return with its minted credit note, so the
+  /// dialog can show the number, what it was worth and what is left as credit.
+  Future<SupplierReturn> createReturn({
+    required int receiptId,
+    required String reason,
+    required List<Map<String, dynamic>> lines,
+  }) async {
+    try {
+      final response = await _client.post<dynamic>(
+        returnsPath,
+        data: {'receipt': receiptId, 'reason': reason.trim(), 'lines': lines},
+      );
+      final body = response.data;
+      if (body is! Map<String, dynamic>) {
+        throw const FormatException('A recorded return is a single object.');
+      }
+      return SupplierReturn.fromJson(body);
+    } on DioException catch (error) {
+      throw PayablesServiceException(
+        _message(error, 'The return was refused.'),
+        code: _codeFor(error),
+      );
+    } on FormatException catch (error) {
+      // The return WAS written. Saying "refused" would invite a second one that
+      // would move the same stock twice.
+      throw PayablesServiceException(
+        'The return was recorded but could not be read back. '
+        'Reload before returning anything again. (${error.message})',
+      );
+    }
+  }
+
+  /// A supplier's credit notes, newest first (B4).
+  ///
+  /// [openOnly] is the "apply credit" picker: `?open=true` keeps only notes with
+  /// money left, so the server decides what is spendable rather than the client
+  /// filtering a page it happened to load.
+  Future<List<SupplierCreditNote>> fetchCreditNotes({
+    int? supplierId,
+    bool openOnly = false,
+  }) => _readAll(
+    creditNotesPath,
+    SupplierCreditNote.fromJson,
+    'The supplier credit notes could not be loaded.',
+    query: {'supplier': ?supplierId, if (openOnly) 'open': true},
+  );
+
+  /// The cheque queue: supplier payments, optionally one supplier's or one
+  /// status's (B1), read from the same route the bills screen uses.
+  ///
+  /// [status] is the server's filter (`?status=ISSUED`), and an unknown code is
+  /// its 400 rather than a silent empty list.
+  Future<List<SupplierPayment>> fetchCheques({
+    int? supplierId,
+    SupplierPaymentStatus? status,
+  }) => _readAll(
+    paymentsPath,
+    SupplierPayment.fromJson,
+    'The supplier cheques could not be loaded.',
+    query: {'supplier': ?supplierId, if (status != null) 'status': status.code},
+  );
+
+  /// The bank honoured a supplier cheque: nothing moves, the bill already
+  /// counted it at issue. Returns the decided row.
+  Future<SupplierPayment> clearCheque(int paymentId) =>
+      _decideCheque(paymentId, 'clear');
+
+  /// The bank refused it ([reason] required): the amount goes back on the bill.
+  /// Returns the decided row.
+  Future<SupplierPayment> bounceCheque(int paymentId, String reason) =>
+      _decideCheque(paymentId, 'bounce', reason: reason);
+
+  Future<SupplierPayment> _decideCheque(
+    int paymentId,
+    String action, {
+    String? reason,
+  }) async {
+    try {
+      final response = await _client.post<dynamic>(
+        '$paymentsPath$paymentId/$action/',
+        data: reason == null ? null : {'reason': reason.trim()},
+      );
+      final body = response.data;
+      if (body is! Map<String, dynamic>) {
+        throw const FormatException('A decided cheque is a single object.');
+      }
+      return SupplierPayment.fromJson(body);
+    } on DioException catch (error) {
+      throw PayablesServiceException(
+        _message(error, 'The cheque decision was refused.'),
+        code: _codeFor(error),
+      );
+    } on FormatException {
+      // The decision went through but its answer is unreadable. Saying it was
+      // refused would invite a second Clear on a cheque the server settled.
+      throw const PayablesServiceException(
+        'The decision was sent, but the cheque could not be read back. '
+        'Reload before deciding again.',
+      );
+    }
+  }
+
+  String? _codeFor(DioException error) {
+    final data = error.response?.data;
+    if (data is Map<String, dynamic> && data['code'] is String) {
+      return data['code'] as String;
+    }
+    return null;
   }
 
   Future<List<T>> _readAll<T>(
@@ -133,6 +300,9 @@ class PayablesService {
     if (status == 401) return 'Your session has expired. Sign in again.';
     if (status == 403) {
       return 'No permission to view or record supplier payments.';
+    }
+    if (status == 404) {
+      return 'That supplier record no longer exists. Reload the list.';
     }
     final data = error.response?.data;
     if (data is Map<String, dynamic>) {

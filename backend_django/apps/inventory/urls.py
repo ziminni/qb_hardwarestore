@@ -17,7 +17,9 @@ from .views import (
     StockAdjustmentViewSet,
     StorageLocationViewSet,
     SupplierBillViewSet,
+    SupplierCreditNoteViewSet,
     SupplierPaymentViewSet,
+    SupplierReturnViewSet,
     SystemAlertViewSet,
 )
 
@@ -41,6 +43,14 @@ router.register(r'alerts', SystemAlertViewSet, basename='alert')
 # route set is READ-ONLY; payments are append-only (POST + read).
 router.register(r'supplier-bills', SupplierBillViewSet, basename='supplierbill')
 router.register(r'supplier-payments', SupplierPaymentViewSet, basename='supplierpayment')
+# Phase 8 B4 (decision 20 #1): the credit a supplier return minted - read-only, so the
+# payables screen can offer the open ones (`?supplier=&open=true`) to apply by hand.
+router.register(
+    r'supplier-credit-notes', SupplierCreditNoteViewSet, basename='suppliercreditnote'
+)
+# Phase 8 B2 (decision 20): goods going back to a supplier come off the receipt they
+# arrived on, so this route set is POST + read only, never an edit of history.
+router.register(r'supplier-returns', SupplierReturnViewSet, basename='supplierreturn')
 
 urlpatterns = [
     path('', include(router.urls)),

@@ -13,6 +13,7 @@ import 'dart:io';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/theme/app_theme.dart';
 import 'package:client/data/models/supplier_payables.dart';
+import 'package:client/data/models/supplier_returns.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/repositories/payables_repository.dart';
 import 'package:client/data/services/auth_service.dart';
@@ -64,6 +65,9 @@ class _StubRepository extends PayablesRepository {
   final List<Map<String, dynamic>> posted = [];
   String? failure;
 
+  List<SupplierCreditNote> creditNotes = const [];
+  List<SupplierPayment> chequeRows = const [];
+
   @override
   Future<List<SupplierBill>> fetchBills({
     int? supplierId,
@@ -85,7 +89,41 @@ class _StubRepository extends PayablesRepository {
   Future<void> createPayment(Map<String, dynamic> body) async {
     posted.add(body);
   }
+
+  @override
+  Future<List<SupplierCreditNote>> fetchCreditNotes({
+    int? supplierId,
+    bool openOnly = false,
+  }) async => creditNotes;
+
+  @override
+  Future<List<SupplierPayment>> fetchCheques({
+    int? supplierId,
+    SupplierPaymentStatus? status,
+  }) async => chequeRows;
 }
+
+SupplierCreditNote _note({
+  int id = 12,
+  String number = 'CN-20261113-0001',
+  double total = 300,
+  double remaining = 200,
+}) => SupplierCreditNote(
+  id: id,
+  number: number,
+  supplierId: 2,
+  supplierName: 'Cebu Steel Works',
+  supplierReturnId: 3,
+  sourceBillId: 4,
+  value: 267.86,
+  vatRate: 12,
+  vatInclusive: true,
+  vatAmount: 32.14,
+  totalAmount: total,
+  remainingAmount: remaining,
+  appliedAmount: total - remaining,
+  createdAt: DateTime(2026, 11, 13),
+);
 
 const _summaryRow = SupplierPayable(
   supplierId: 2,
@@ -278,5 +316,149 @@ void main() {
       find.widgetWithText(FilledButton, 'Record payment').hitTestable(),
       findsOneWidget,
     );
+  });
+
+  // Phase 8 F3 (decision 20): the screen is three TABS, and the money a manager
+  // needs on the same page — supplier credit and the cheque queue — is one click
+  // away instead of on another screen.
+  group('tabs', () {
+    testWidgets('the screen offers Bills, Credit notes and Supplier cheques', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        SalesPayablesPage(
+          viewmodel: PayablesViewmodel(repository: _StubRepository()),
+        ),
+      );
+
+      expect(find.byKey(const ValueKey('payables-tab-bills')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('payables-tab-credit-notes')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('payables-tab-cheques')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the Credit notes tab lists what is left to spend', (
+      tester,
+    ) async {
+      final repository = _StubRepository()..creditNotes = [_note()];
+      await _pump(
+        tester,
+        SalesPayablesPage(viewmodel: PayablesViewmodel(repository: repository)),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('payables-tab-credit-notes')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('CN-20261113-0001'), findsWidgets);
+      expect(find.text(formatPeso(200)), findsWidgets, reason: 'remaining');
+    });
+
+    testWidgets('the Supplier cheques tab is the manager\'s queue', (
+      tester,
+    ) async {
+      final repository = _StubRepository()
+        ..chequeRows = [
+          SupplierPayment(
+            id: 7,
+            billId: 4,
+            amount: 400,
+            method: SupplierPaymentMethod.cheque,
+            methodCode: 'CHEQUE',
+            reference: '',
+            chequeNumber: '000123',
+            chequeBank: 'BDO',
+            chequeDate: DateTime(2026, 10, 20),
+            paidByName: 'Maria Santos',
+            paidOn: DateTime(2026, 10, 21),
+            status: SupplierPaymentStatus.issued,
+            statusCode: 'ISSUED',
+          ),
+        ];
+      await _pump(
+        tester,
+        SalesPayablesPage(viewmodel: PayablesViewmodel(repository: repository)),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('payables-tab-cheques')));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('000123'), findsWidgets);
+      expect(find.widgetWithText(TextButton, 'Clear'), findsOneWidget);
+    });
+
+    testWidgets('the summary shows unapplied credit as its own column', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        SalesPayablesPage(
+          viewmodel: PayablesViewmodel(
+            repository: _StubRepository(
+              summary: const [
+                SupplierPayable(
+                  supplierId: 2,
+                  supplierName: 'Cebu Steel Works',
+                  billCount: 1,
+                  original: 900,
+                  paid: 500,
+                  balance: 200,
+                  overdue: 0,
+                  credited: 200,
+                  unappliedCredit: 150,
+                  issuedCheques: 100,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Unapplied credit'), findsOneWidget);
+      expect(find.text(formatPeso(150)), findsOneWidget);
+    });
+
+    testWidgets('a bill settled with credit names the note in its history', (
+      tester,
+    ) async {
+      final repository = _StubRepository(
+        bills: [
+          _bill(
+            payments: [
+              SupplierPayment(
+                id: 7,
+                billId: 4,
+                amount: 200,
+                method: SupplierPaymentMethod.credit,
+                methodCode: 'CREDIT',
+                reference: '',
+                chequeNumber: null,
+                chequeBank: null,
+                chequeDate: null,
+                paidByName: 'Maria Santos',
+                paidOn: DateTime(2026, 11, 13),
+                status: SupplierPaymentStatus.cleared,
+                statusCode: 'CLEARED',
+                creditNoteId: 12,
+              ),
+            ],
+          ),
+        ],
+      )..creditNotes = [_note()];
+      await _pump(
+        tester,
+        SalesPayablesPage(viewmodel: PayablesViewmodel(repository: repository)),
+      );
+
+      await tester.tap(find.text('Bill #4'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('CN-20261113-0001'), findsOneWidget);
+    });
   });
 }

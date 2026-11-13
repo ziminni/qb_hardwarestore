@@ -8,6 +8,8 @@ import 'package:client/data/models/supplier_payables.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:client/features/payables/viewmodels/payables_viewmodel.dart';
 import 'package:client/features/payables/widgets/supplier_bill_details_dialog.dart';
+import 'package:client/features/payables/widgets/supplier_cheque_queue_tab.dart';
+import 'package:client/features/payables/widgets/supplier_credit_notes_tab.dart';
 import 'package:client/features/payables/widgets/supplier_pay_dialog.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
 import 'package:client/shared/widgets/data_panel.dart';
@@ -87,6 +89,9 @@ class _PayablesBodyState extends State<_PayablesBody> {
   bool _overdueOnly = false;
   int? _supplierId;
 
+  /// Which tab is showing: Bills, Credit notes, Supplier cheques.
+  int _tab = 0;
+
   /// Recording a payment is the Store Manager's and Admin's job; the server
   /// answers 403 to anyone else, so the control is not rendered.
   bool get _canPay => widget.shell != PayablesShell.inventory;
@@ -94,10 +99,15 @@ class _PayablesBodyState extends State<_PayablesBody> {
   Future<void> _pay(SupplierBill bill) async {
     final state = context.read<PayablesViewmodel>();
     state.clearPayError();
+    // The supplier's open credit is what the dialog may offer; a screen that has
+    // not read it yet reads it now (once — a retry after a failure).
+    await state.ensureCreditNotes();
+    if (!mounted) return;
     final recorded = await showDialog<bool>(
       context: context,
       builder: (_) => SupplierPayDialog(
         bill: bill,
+        creditNotes: state.openCreditNotesFor(bill.supplierId),
         onSubmit: (request) => state.pay(
           bill: bill,
           amount: request.amount,
@@ -106,6 +116,7 @@ class _PayablesBodyState extends State<_PayablesBody> {
           chequeNumber: request.chequeNumber,
           chequeBank: request.chequeBank,
           chequeDate: request.chequeDate,
+          creditNoteId: request.creditNoteId,
         ),
       ),
     );
@@ -117,9 +128,18 @@ class _PayablesBodyState extends State<_PayablesBody> {
   }
 
   Future<void> _openBill(SupplierBill bill) async {
+    final state = context.read<PayablesViewmodel>();
+    // A CREDIT row names the note it spent, so the notes are read before the
+    // history is drawn (a failure here still leaves the rows readable by id).
+    await state.ensureCreditNotes();
+    if (!mounted) return;
     final wantsPay = await showDialog<bool>(
       context: context,
-      builder: (_) => SupplierBillDetailsDialog(bill: bill, canPay: _canPay),
+      builder: (_) => SupplierBillDetailsDialog(
+        bill: bill,
+        canPay: _canPay,
+        creditNotes: state.creditNotes,
+      ),
     );
     if (wantsPay == true && mounted) await _pay(bill);
   }
@@ -148,7 +168,40 @@ class _PayablesBodyState extends State<_PayablesBody> {
           ),
         _summaryTable(state),
         const SizedBox(height: AppSpacing.lg),
-        _billsTable(state, bills, filtered),
+        // Bills | Credit notes | Supplier cheques — TABS, not sidebar entries:
+        // every earlier index (13 / 9 / 8) stays exactly where it was.
+        //
+        // No TabBarView: it demands a height of its own, and this page scrolls
+        // as one list (the shape it had before the tabs). Only the selected
+        // tab is built, exactly like TabBarView.
+        DefaultTabController(
+          length: 3,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TabBar(
+                onTap: (index) => setState(() => _tab = index),
+                tabs: const [
+                  Tab(key: ValueKey('payables-tab-bills'), text: 'Bills'),
+                  Tab(
+                    key: ValueKey('payables-tab-credit-notes'),
+                    text: 'Credit notes',
+                  ),
+                  Tab(
+                    key: ValueKey('payables-tab-cheques'),
+                    text: 'Supplier cheques',
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              switch (_tab) {
+                1 => SupplierCreditNotesTab(supplierId: _supplierId),
+                2 => SupplierChequeQueueTab(canDecide: _canPay),
+                _ => _billsTable(state, bills, filtered),
+              },
+            ],
+          ),
+        ),
       ],
     );
 
@@ -284,6 +337,21 @@ class _PayablesBodyState extends State<_PayablesBody> {
             ),
           ),
         ),
+        // Its OWN column, never subtracted from the balance: credit the shop
+        // holds is not a debt, and a negative balance would read as one.
+        DataPanelColumn<SupplierPayable>(
+          label: 'Unapplied credit',
+          numeric: true,
+          flex: 2,
+          cell: (row) => Text(
+            formatPeso(row.unappliedCredit),
+            style: TextStyle(
+              color: row.unappliedCredit > 0
+                  ? AppColors.textPrimary
+                  : AppColors.textSecondary,
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -293,119 +361,122 @@ class _PayablesBodyState extends State<_PayablesBody> {
     List<SupplierBill> bills,
     bool filtered,
   ) {
-    return DataPanel<SupplierBill>(
-      title: 'Bills',
-      count: bills.length,
-      rows: bills,
-      isLoading: state.isLoading && bills.isEmpty,
-      error: state.bills.isEmpty ? state.loadError : null,
-      onRetry: state.load,
-      emptyMessage: filtered
-          ? 'No supplier bills match these filters.'
-          : 'No supplier bills yet. A bill is written when a goods receipt is '
-                'processed, so nothing is owed until then.',
-      onRowTap: _openBill,
-      rowKey: (bill) => ValueKey('payables-bill.${bill.id}'),
-      columns: [
-        DataPanelColumn<SupplierBill>(
-          label: 'Bill',
-          flex: 2,
-          cell: (bill) => Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Bill #${bill.id}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              Text(
-                'Received ${formatDate(bill.receivedDate)}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: AppColors.textSecondary,
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.md),
+      child: DataPanel<SupplierBill>(
+        title: 'Bills',
+        count: bills.length,
+        rows: bills,
+        isLoading: state.isLoading && bills.isEmpty,
+        error: state.bills.isEmpty ? state.loadError : null,
+        onRetry: state.load,
+        emptyMessage: filtered
+            ? 'No supplier bills match these filters.'
+            : 'No supplier bills yet. A bill is written when a goods receipt is '
+                  'processed, so nothing is owed until then.',
+        onRowTap: _openBill,
+        rowKey: (bill) => ValueKey('payables-bill.${bill.id}'),
+        columns: [
+          DataPanelColumn<SupplierBill>(
+            label: 'Bill',
+            flex: 2,
+            cell: (bill) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Bill #${bill.id}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
-              ),
-            ],
-          ),
-        ),
-        DataPanelColumn<SupplierBill>(
-          label: 'Supplier',
-          flex: 3,
-          cell: (bill) => Text(
-            bill.supplierName.isEmpty
-                ? 'No supplier on file'
-                : bill.supplierName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-        DataPanelColumn<SupplierBill>(
-          label: 'Due',
-          flex: 2,
-          cell: (bill) => Text(
-            formatDate(bill.dueDate),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-        DataPanelColumn<SupplierBill>(
-          label: 'Total',
-          numeric: true,
-          flex: 2,
-          cell: (bill) => Text(formatPeso(bill.totalAmount)),
-        ),
-        DataPanelColumn<SupplierBill>(
-          label: 'Balance',
-          numeric: true,
-          flex: 2,
-          cell: (bill) => Text(
-            formatPeso(bill.balanceAmount),
-            style: TextStyle(
-              color: bill.balanceAmount > 0 ? AppColors.errorText : null,
-            ),
-          ),
-        ),
-        DataPanelColumn<SupplierBill>(
-          label: 'Status',
-          flex: 2,
-          cell: (bill) => bill.isOverdue
-              ? const StatusBadge(label: 'Overdue', tone: StatusTone.error)
-              : StatusBadge(
-                  label: bill.status.label,
-                  tone: bill.status == SupplierBillStatus.paid
-                      ? StatusTone.success
-                      : bill.status == SupplierBillStatus.partial
-                      ? StatusTone.warning
-                      : StatusTone.neutral,
-                ),
-        ),
-        DataPanelColumn<SupplierBill>(
-          label: 'Actions',
-          flex: 2,
-          cell: (bill) => bill.canPay && _canPay
-              ? IconButton(
-                  tooltip: 'Record a payment',
-                  onPressed: () => _pay(bill),
-                  icon: const Icon(Icons.payments_outlined, size: 18),
-                )
-              : Text(
-                  bill.canPay
-                      ? 'Read only'
-                      : bill.status == SupplierBillStatus.paid
-                      ? 'Settled'
-                      : 'No balance',
-                  maxLines: 2,
+                Text(
+                  'Received ${formatDate(bill.receivedDate)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 12,
                     color: AppColors.textSecondary,
                   ),
                 ),
-        ),
-      ],
+              ],
+            ),
+          ),
+          DataPanelColumn<SupplierBill>(
+            label: 'Supplier',
+            flex: 3,
+            cell: (bill) => Text(
+              bill.supplierName.isEmpty
+                  ? 'No supplier on file'
+                  : bill.supplierName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          DataPanelColumn<SupplierBill>(
+            label: 'Due',
+            flex: 2,
+            cell: (bill) => Text(
+              formatDate(bill.dueDate),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          DataPanelColumn<SupplierBill>(
+            label: 'Total',
+            numeric: true,
+            flex: 2,
+            cell: (bill) => Text(formatPeso(bill.totalAmount)),
+          ),
+          DataPanelColumn<SupplierBill>(
+            label: 'Balance',
+            numeric: true,
+            flex: 2,
+            cell: (bill) => Text(
+              formatPeso(bill.balanceAmount),
+              style: TextStyle(
+                color: bill.balanceAmount > 0 ? AppColors.errorText : null,
+              ),
+            ),
+          ),
+          DataPanelColumn<SupplierBill>(
+            label: 'Status',
+            flex: 2,
+            cell: (bill) => bill.isOverdue
+                ? const StatusBadge(label: 'Overdue', tone: StatusTone.error)
+                : StatusBadge(
+                    label: bill.status.label,
+                    tone: bill.status == SupplierBillStatus.paid
+                        ? StatusTone.success
+                        : bill.status == SupplierBillStatus.partial
+                        ? StatusTone.warning
+                        : StatusTone.neutral,
+                  ),
+          ),
+          DataPanelColumn<SupplierBill>(
+            label: 'Actions',
+            flex: 2,
+            cell: (bill) => bill.canPay && _canPay
+                ? IconButton(
+                    tooltip: 'Record a payment',
+                    onPressed: () => _pay(bill),
+                    icon: const Icon(Icons.payments_outlined, size: 18),
+                  )
+                : Text(
+                    bill.canPay
+                        ? 'Read only'
+                        : bill.status == SupplierBillStatus.paid
+                        ? 'Settled'
+                        : 'No balance',
+                    maxLines: 2,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }

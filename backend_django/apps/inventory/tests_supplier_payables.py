@@ -50,6 +50,7 @@ from .models import (
     PurchaseOrder,
     Supplier,
     SupplierBill,
+    SupplierCreditNote,
     SupplierPayment,
     UnitOfMeasure,
     VariantUOM,
@@ -65,6 +66,7 @@ PO_URL = "/api/v1/purchase-orders/"
 RECEIPTS_URL = "/api/v1/goods-receipts/"
 BILLS_URL = "/api/v1/supplier-bills/"
 PAYMENTS_URL = "/api/v1/supplier-payments/"
+RETURNS_URL = "/api/v1/supplier-returns/"
 SUPPLIERS_URL = "/api/v1/suppliers/payables/"
 
 
@@ -955,3 +957,175 @@ class ConcurrentPayablesTests(TransactionTestCase):
         bill.refresh_from_db()
         self.assertEqual(bill.balance_amount, bill.total_amount - Decimal(100))
         self.assertEqual(SupplierPayment.objects.count(), 1)
+
+    def test_two_concurrent_returns_get_distinct_credit_note_numbers(self):
+        """Decision 20 #1: the note number is a LOCKED counter, not a read-then-add.
+
+        Two returns on two DIFFERENT receipts of one PO really do race for the number -
+        the receipt row lock cannot serialize them, only `DocumentCounter` can. The
+        numbers must differ even though both returns commit.
+        """
+        receipts = []
+        for _ in range(2):
+            receipt = GoodsReceipt.objects.create(po=self.po, received_by=self.user)
+            GoodsReceiptItem.objects.create(
+                receipt=receipt, po_item=self.item, qty=Decimal(1)
+            )
+            process_goods_receipt(receipt=receipt, user=self.user)
+            receipts.append((receipt, GoodsReceiptItem.objects.get(receipt=receipt)))
+
+        from rest_framework.test import APIClient as Client
+
+        login = Client().post(
+            LOGIN_URL,
+            {"username": self.user.username, "password": self.password},
+            format="json",
+        )
+        auth = {"HTTP_AUTHORIZATION": f"Bearer {login.data['access']}"}
+        taken = iter(receipts)
+
+        def worker():
+            receipt, line = next(taken)
+            client = Client()
+            return client.post(
+                RETURNS_URL,
+                {
+                    "receipt": receipt.pk,
+                    "reason": "Damaged in transit",
+                    "lines": [{"receipt_line": line.pk, "qty": "1"}],
+                },
+                format="json",
+                **auth,
+            ).status_code
+
+        results = self._workers(worker)
+
+        self.assertEqual(sorted(results), [201, 201], results)
+        numbers = list(SupplierCreditNote.objects.values_list("number", flat=True))
+        self.assertEqual(len(numbers), 2)
+        self.assertEqual(len(set(numbers)), 2, numbers)
+
+
+# =========================================================================
+# Phase 8 B4 - the supplier balance
+# =========================================================================
+
+
+class SupplierBalanceTests(PayablesTestBase):
+    """The supplier row answers cash, credit and cheque questions apart (B4).
+
+    Hand math for the fixture below (`_row()`):
+
+        original  SUM(total_amount)          200.00 + 300.00 = 500.00
+        cash      (a payment that is not credit)               350.00
+        credited  SUM(CREDIT payments)       note worth 100.00 lowers bill A
+        balance   SUM(balance_amount)        A 50.00 + B 0.00 =  50.00
+        paid      original - balance - credited              350.00
+        unapplied SUM(note remaining_amount) note for B:      200.00
+        issued    SUM(CHEQUE payments still ISSUED)             0.00
+
+    `paid` is what actually left the till, so it subtracts the applied credit as well as
+    the balance: without the `- credited` term a 100.00 credit would read as 100.00 of
+    cash. Unapplied credit is never subtracted from the balance - it is shown on its own
+    line, or a supplier with settled bills would read as "-200.00 owed".
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Bill A 200.00, partially paid in cash -> 150.00 left.
+        po_a, item_a = self._po(ordered="10", cost="100")
+        self.receipt_a = self._receipt(po_a, [(item_a, "2")])
+        self.bill_a = self._bill(self.receipt_a)
+        # Bill B 300.00, paid in full - so returning those goods leaves pure credit.
+        po_b, item_b = self._po(ordered="10", cost="100")
+        self.receipt_b = self._receipt(po_b, [(item_b, "3")])
+        self.bill_b = self._bill(self.receipt_b)
+        self._post_payment(self.bill_a, "50")
+        self._post_payment(self.bill_b, "300")
+        # Return 2 of B (worth 200.00): nothing to lower, stays as supplier credit.
+        self.open_note = self._return(receipt=self.receipt_b, qty="2")
+        # Return 1 of A (worth 100.00): lowers A's balance to 50.00.
+        self.applied_note = self._return(receipt=self.receipt_a, qty="1")
+
+    def _post_payment(self, bill, amount, **extra):
+        payload = {"bill": bill.pk, "amount": amount, "method": "CASH"}
+        payload.update(extra)
+        response = self._login(self.manager).post(PAYMENTS_URL, payload, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        return response
+
+    def _return(self, *, receipt, qty):
+        line = GoodsReceiptItem.objects.filter(receipt=receipt).order_by("id").first()
+        response = self._login(self.manager).post(
+            RETURNS_URL,
+            {
+                "receipt": receipt.pk,
+                "reason": "Dented at the gate",
+                "lines": [{"receipt_line": line.pk, "qty": qty}],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        return SupplierCreditNote.objects.get(supplier_return_id=response.data["id"])
+
+    def _row(self, supplier=None):
+        response = self._login(self.stocker).get(SUPPLIERS_URL)
+        self.assertEqual(response.status_code, 200, response.data)
+        rows = {row["supplier"]: row for row in response.data["results"]}
+        return rows[(supplier or self.supplier).pk]
+
+    def test_cash_credit_and_unapplied_credit_are_counted_apart(self):
+        row = self._row()
+
+        self.assertEqual(row["original"], "500.00")
+        self.assertEqual(row["balance"], "50.00")
+        self.assertEqual(row["credited"], "100.00")
+        self.assertEqual(row["paid"], "350.00")
+        self.assertEqual(row["unapplied_credit"], "200.00")
+        self.assertEqual(row["issued_cheques"], "0.00")
+
+    def test_an_issued_cheque_counts_until_it_is_decided(self):
+        cheque = self._post_payment(
+            self.bill_a,
+            "20",
+            method="CHEQUE",
+            cheque_number="CHQ-1",
+            cheque_bank="BPI",
+            cheque_date="2026-11-20",
+        )
+        self.assertEqual(cheque.data["status"], "ISSUED")
+
+        row = self._row()
+
+        # A 20.00 cheque drops A's balance to 30.00 and counts as money promised.
+        self.assertEqual(row["balance"], "30.00")
+        self.assertEqual(row["issued_cheques"], "20.00")
+        self.assertEqual(row["paid"], "370.00")
+
+        bounced = self._login(self.manager).post(
+            f"{PAYMENTS_URL}{cheque.data['id']}/bounce/",
+            {"reason": "Insufficient funds"},
+            format="json",
+        )
+        self.assertEqual(bounced.status_code, 200, bounced.data)
+
+        row = self._row()
+
+        self.assertEqual(row["balance"], "50.00")
+        self.assertEqual(row["issued_cheques"], "0.00")
+        self.assertEqual(row["paid"], "350.00")
+
+    def test_unapplied_credit_never_makes_the_balance_negative(self):
+        other = Supplier.objects.create(company_name="Credit Only Supply")
+        po, item = self._po(ordered="10", cost="100", supplier=other)
+        receipt = self._receipt(po, [(item, "1")])
+        bill = self._bill(receipt)
+        self._post_payment(bill, "100")
+        self._return(receipt=receipt, qty="1")  # 100.00 with nothing left to lower
+
+        row = self._row(other)
+
+        self.assertEqual(row["balance"], "0.00")
+        self.assertEqual(row["credited"], "0.00")
+        self.assertEqual(row["paid"], "100.00")
+        self.assertEqual(row["unapplied_credit"], "100.00")

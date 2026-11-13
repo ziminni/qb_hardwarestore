@@ -2,6 +2,7 @@ import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/supplier_payables.dart';
+import 'package:client/data/models/supplier_returns.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
@@ -20,10 +21,15 @@ class SupplierBillDetailsDialog extends StatelessWidget {
     super.key,
     required this.bill,
     this.canPay = false,
+    this.creditNotes = const [],
   });
 
   final SupplierBill bill;
   final bool canPay;
+
+  /// The notes read for this screen, so a `CREDIT` row can name the note it
+  /// spent. A row whose note is not here still reads, by its own id.
+  final List<SupplierCreditNote> creditNotes;
 
   String get _terms =>
       bill.termsDays == 0 ? 'Due on receipt' : '${bill.termsDays} days';
@@ -124,10 +130,14 @@ class SupplierBillDetailsDialog extends StatelessWidget {
   Widget _payment(SupplierPayment payment) {
     final facts = [
       payment.methodLabel,
+      // A credit row's whole point: no money left the till, a note did.
+      if (payment.creditNoteId case final noteId?)
+        'Credit note ${_noteNumber(noteId)}',
       if (payment.reference.isNotEmpty) 'Ref ${payment.reference}',
       if (payment.chequeNumber != null) 'Cheque ${payment.chequeNumber}',
       if (payment.chequeBank != null) payment.chequeBank!,
       if (payment.chequeDate != null) formatDate(payment.chequeDate!),
+      if (payment.decisionReason.isNotEmpty) 'Reason ${payment.decisionReason}',
       if (payment.paidByName.isNotEmpty) 'By ${payment.paidByName}',
       if (payment.paidOn != null) formatDate(payment.paidOn!),
     ].join(' · ');
@@ -141,9 +151,24 @@ class SupplierBillDetailsDialog extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: Text(
-              facts,
-              style: const TextStyle(color: AppColors.textSecondary),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  facts,
+                  style: const TextStyle(color: AppColors.textSecondary),
+                ),
+                // A payment carries its OWN status: a supplier cheque is issued
+                // until a manager decides it, whatever the bill says.
+                if (payment.statusLabel.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  StatusBadge(
+                    label: payment.statusLabel,
+                    tone: _paymentTone(payment.status),
+                  ),
+                ],
+              ],
             ),
           ),
           const SizedBox(width: AppSpacing.md),
@@ -155,6 +180,23 @@ class SupplierBillDetailsDialog extends StatelessWidget {
       ),
     );
   }
+
+  /// `CN-YYYYMMDD-NNNN` when the note was read with this screen, its id when it
+  /// was not: a row must never print a blank where the money's source belongs.
+  String _noteNumber(int noteId) {
+    for (final note in creditNotes) {
+      if (note.id == noteId) return note.number;
+    }
+    return '#$noteId';
+  }
+
+  static StatusTone _paymentTone(SupplierPaymentStatus? status) =>
+      switch (status) {
+        SupplierPaymentStatus.issued => StatusTone.warning,
+        SupplierPaymentStatus.cleared => StatusTone.success,
+        SupplierPaymentStatus.bounced => StatusTone.error,
+        null => StatusTone.neutral,
+      };
 
   static String _percent(double value) => value == value.roundToDouble()
       ? value.toStringAsFixed(0)

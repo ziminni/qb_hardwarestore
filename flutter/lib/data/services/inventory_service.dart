@@ -151,16 +151,18 @@ class InventoryService {
   /// `GoodsReceiptSerializer` carries `received_by_name`, `receive_date`, the
   /// delivered `lines` and `processed_at`, so one call describes a delivery
   /// without a request per line.
-  Future<List<GoodsReceiptRecord>> fetchGoodsReceipts() async {
-    final page = await _guard(
-      () => _client.getList<GoodsReceiptRecord>(
-        goodsReceiptsPath,
-        GoodsReceiptRecord.fromJson,
-      ),
-      'The goods receipts could not be read.',
-    );
-    return page.items;
-  }
+  ///
+  /// F2 fix round: this reads EVERY page, like [fetchPurchaseOrders]. One DRF
+  /// page (50, newest first) hid an older order's processed deliveries from the
+  /// return dialog, which then stated "No processed deliveries to return from."
+  /// about an order that has several.
+  Future<List<GoodsReceiptRecord>> fetchGoodsReceipts() => _guard(
+    () => _client.getAll<GoodsReceiptRecord>(
+      goodsReceiptsPath,
+      GoodsReceiptRecord.fromJson,
+    ),
+    'The goods receipts could not be read.',
+  );
 
   Future<GoodsReceiptRecord> createReceipt({
     required int poId,

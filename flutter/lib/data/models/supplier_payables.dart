@@ -32,12 +32,27 @@ enum SupplierBillStatus {
 enum SupplierPaymentMethod {
   cash('CASH', 'Cash'),
   cheque('CHEQUE', 'Cheque'),
-  bankTransfer('BANK_TRANSFER', 'Bank transfer');
+  bankTransfer('BANK_TRANSFER', 'Bank transfer'),
+
+  /// Phase 8 (decision 20): a CREDIT payment spends a credit note, never the
+  /// till, so it is decoded but is NOT offered by the pay dialog.
+  credit('CREDIT', 'Supplier Credit');
 
   const SupplierPaymentMethod(this.code, this.label);
 
   final String code;
   final String label;
+
+  /// The methods the pay dialog offers, written out instead of `values`.
+  ///
+  /// Applying a credit note is its own flow (it picks a note and caps against
+  /// that note), so listing `values` in the dropdown would offer a method whose
+  /// server route refuses a body with no note.
+  static const List<SupplierPaymentMethod> selectable = [
+    cash,
+    cheque,
+    bankTransfer,
+  ];
 
   /// True for the one method whose three facts the server insists on.
   bool get needsChequeDetails => this == cheque;
@@ -50,11 +65,41 @@ enum SupplierPaymentMethod {
   }
 }
 
+/// A supplier cheque's own life (B1, decision 20): it starts `ISSUED` and a
+/// Store Manager/Admin marks it `CLEARED` or `BOUNCED` exactly once. Every
+/// non-cheque method is born `CLEARED` — cash and transfers leave nothing to
+/// decide.
+enum SupplierPaymentStatus {
+  issued('ISSUED', 'Issued'),
+  cleared('CLEARED', 'Cleared'),
+  bounced('BOUNCED', 'Bounced');
+
+  const SupplierPaymentStatus(this.code, this.label);
+
+  /// The server's code, and the value `?status=` filters the queue by.
+  final String code;
+
+  final String label;
+
+  /// The status [value] names, or null when it names none of them.
+  ///
+  /// Null is the safe fallback: a status this build does not know must never
+  /// read as [issued], because that would offer Clear on a decided cheque.
+  static SupplierPaymentStatus? fromWire(String? value) {
+    final wanted = value?.trim().toUpperCase();
+    if (wanted == null || wanted.isEmpty) return null;
+    for (final status in values) {
+      if (status.code == wanted) return status;
+    }
+    return null;
+  }
+}
+
 /// One payment against one bill (`SupplierPaymentSerializer`).
 ///
-/// A supplier cheque is recorded as paid when it is issued — there is no later
-/// clear/bounce step (ENDPOINTS.md §3.3), so the cheque facts are history here,
-/// never a pending state.
+/// The cheque facts are history, but the cheque's STATUS is not: since Phase 8
+/// (decision 20) a supplier cheque is born `ISSUED` and a manager clears or
+/// bounces it, and a bounce puts the amount back on the bill.
 class SupplierPayment {
   const SupplierPayment({
     required this.id,
@@ -68,6 +113,13 @@ class SupplierPayment {
     required this.chequeDate,
     required this.paidByName,
     required this.paidOn,
+    this.status,
+    this.statusCode = '',
+    this.decidedById,
+    this.decidedByName,
+    this.decidedAt,
+    this.decisionReason = '',
+    this.creditNoteId,
   });
 
   final int id;
@@ -84,12 +136,33 @@ class SupplierPayment {
   final String paidByName;
   final DateTime? paidOn;
 
+  /// Null when this build does not know the server's status code.
+  final SupplierPaymentStatus? status;
+
+  /// The raw wire code, kept so a row always has something to show.
+  final String statusCode;
+  final int? decidedById;
+  final String? decidedByName;
+  final DateTime? decidedAt;
+  final String decisionReason;
+
+  /// The credit note a `CREDIT` payment spent; null for every other method.
+  final int? creditNoteId;
+
   /// [method]'s label, or the raw code when this build does not know it (a
   /// payment is history: its row must still read, not crash the dialog).
   String get methodLabel => method?.label ?? methodCode;
 
+  /// [status]'s label, or the raw code when this build does not know it.
+  String get statusLabel => status?.label ?? statusCode;
+
+  /// True only while the bank has not been heard from: the one state a manager
+  /// may clear or bounce. An unknown status is never this.
+  bool get isIssued => status == SupplierPaymentStatus.issued;
+
   factory SupplierPayment.fromJson(Map<String, dynamic> json) {
     final raw = stringField(json, 'method');
+    final rawStatus = json['status'] as String?;
     return SupplierPayment(
       id: intField(json, 'id'),
       billId: intField(json, 'bill'),
@@ -102,6 +175,17 @@ class SupplierPayment {
       chequeDate: nullableDateField(json, 'cheque_date'),
       paidByName: json['paid_by_name'] as String? ?? '',
       paidOn: nullableDateField(json, 'paid_on'),
+      status: SupplierPaymentStatus.fromWire(rawStatus),
+      statusCode: rawStatus ?? '',
+      decidedById: json['decided_by'] == null
+          ? null
+          : intField(json, 'decided_by'),
+      decidedByName: _text(json, 'decided_by_name'),
+      decidedAt: nullableDateField(json, 'decided_at'),
+      decisionReason: json['decision_reason'] as String? ?? '',
+      creditNoteId: json['credit_note'] == null
+          ? null
+          : intField(json, 'credit_note'),
     );
   }
 }
@@ -215,6 +299,9 @@ class SupplierPayable {
     required this.paid,
     required this.balance,
     required this.overdue,
+    this.credited = 0,
+    this.unappliedCredit = 0,
+    this.issuedCheques = 0,
   });
 
   final int supplierId;
@@ -223,11 +310,23 @@ class SupplierPayable {
 
   /// `SUM(total_amount)` over the supplier's bills.
   final double original;
+
+  /// Money that left the till: `original - balance - credited`.
   final double paid;
   final double balance;
 
   /// The part of [balance] past its due date and still owed.
   final double overdue;
+
+  /// Bills settled with supplier credit (`SUM` of CREDIT payments).
+  final double credited;
+
+  /// Credit still to spend, its own column — deliberately NOT subtracted from
+  /// [balance], because that credit is not owed yet.
+  final double unappliedCredit;
+
+  /// Cheques issued and not yet cleared (money promised, not yet paid).
+  final double issuedCheques;
 
   factory SupplierPayable.fromJson(Map<String, dynamic> json) =>
       SupplierPayable(
@@ -238,6 +337,12 @@ class SupplierPayable {
         paid: decimalField(json, 'paid'),
         balance: decimalField(json, 'balance'),
         overdue: decimalField(json, 'overdue'),
+        // Required, not defaulted: a 0.00 here would claim the shop holds no
+        // supplier credit, which is the reading a manager must never be given
+        // by accident.
+        credited: decimalField(json, 'credited'),
+        unappliedCredit: decimalField(json, 'unapplied_credit'),
+        issuedCheques: decimalField(json, 'issued_cheques'),
       );
 }
 

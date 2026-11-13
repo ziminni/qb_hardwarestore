@@ -7,6 +7,7 @@
 //    a raw double into copy the stock manager reads (Z1 / D18);
 //  - the difference is said IN WORDS ("Increase by 50"), not by colour alone.
 
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_adjust_stock_dialog.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/status_badge.dart';
@@ -143,6 +144,42 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(result?.quantity, 25);
+  });
+
+  // Phase 8 F2 (decision 20): goods must go back through the supplier return
+  // flow, which takes them off the RECEIPT's batches and mints a credit note. A
+  // bare RETURN adjustment moves stock and credits nobody, so the server now
+  // refuses it (`USE_SUPPLIER_RETURN`) and the dialog stops offering it.
+  testWidgets('the reason list no longer offers a supplier return', (
+    tester,
+  ) async {
+    await _pump(tester, currentStock: 10);
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Supplier Return'),
+      findsNothing,
+      reason: 'the client cannot ask for a RETURN the server refuses',
+    );
+    for (final reason in [
+      'Count Correction',
+      'Damaged Items',
+      'Shrinkage / Loss',
+    ]) {
+      expect(find.text(reason), findsWidgets);
+    }
+  });
+
+  testWidgets('the offered reasons are the viewmodel\'s one list', (
+    tester,
+  ) async {
+    expect(InventoryViewmodel.adjustmentReasons, const [
+      'Count Correction',
+      'Damaged Items',
+      'Shrinkage / Loss',
+    ]);
   });
 
   testWidgets('Esc closes the dialog without a result', (tester) async {

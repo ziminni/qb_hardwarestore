@@ -2,9 +2,12 @@ import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/constants/app_text_styles.dart';
 import 'package:client/core/format/format.dart';
+import 'package:client/data/models/receiving.dart';
 import 'package:client/data/models/supplier.dart';
+import 'package:client/features/payables/widgets/supplier_return_dialog.dart';
 import 'package:client/features/suppliers/widgets/purchases_status_badge.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
+import 'package:client/shared/widgets/error_banner.dart';
 import 'package:flutter/material.dart';
 
 /// One purchase order, read-only: what was ordered, what has arrived, and what
@@ -14,9 +17,72 @@ import 'package:flutter/material.dart';
 /// the sum of the quantities: one line's quantity is in bags and another's in
 /// pieces, so adding them would be adding bags to pieces. A line that is only
 /// part of the way in is named as such below its own quantity.
-class PurchasesDetailsDialog extends StatelessWidget {
-  const PurchasesDetailsDialog({super.key, required this.order});
+///
+/// Since Phase 8 F2 it also carries the way goods go BACK: "Return to supplier"
+/// appears only when this order has a delivery the server processed into stock,
+/// because a return takes stock off that delivery's own batches (decision 20).
+/// The return itself is a dialog of its own — this one only offers the door.
+class PurchasesDetailsDialog extends StatefulWidget {
+  const PurchasesDetailsDialog({
+    super.key,
+    required this.order,
+    this.returnFlow,
+  });
+
   final PurchaseOrder order;
+
+  /// Everything the return flow needs from the viewmodel. Null in a shell that
+  /// does not act on suppliers (and in the tests that do not exercise returns):
+  /// no flow, no deliveries loaded, no control rendered.
+  final SupplierReturnFlow? returnFlow;
+
+  @override
+  State<PurchasesDetailsDialog> createState() => _PurchasesDetailsDialogState();
+}
+
+class _PurchasesDetailsDialogState extends State<PurchasesDetailsDialog> {
+  /// The order's processed deliveries — the only ones a return can draw from.
+  List<GoodsReceiptRecord> _receipts = const [];
+  String? _receiptsError;
+  bool _loadingReceipts = false;
+
+  PurchaseOrder get order => widget.order;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.returnFlow != null) _loadReceipts();
+  }
+
+  Future<void> _loadReceipts() async {
+    final flow = widget.returnFlow;
+    if (flow == null) return;
+    setState(() {
+      _loadingReceipts = true;
+      _receiptsError = null;
+    });
+    final loaded = await flow.loadReceipts();
+    if (!mounted) return;
+    setState(() {
+      _loadingReceipts = false;
+      _receipts = loaded.receipts;
+      _receiptsError = loaded.error;
+    });
+  }
+
+  Future<void> _openReturn() async {
+    final flow = widget.returnFlow;
+    if (flow == null) return;
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => SupplierReturnDialog(
+        receipts: _receipts,
+        purchaseOrderId: order.id,
+        supplierName: order.supplierName,
+        flow: flow,
+      ),
+    );
+  }
 
   /// Lines where everything that was ordered has arrived.
   int get _receivedLines => order.items
@@ -102,6 +168,11 @@ class PurchasesDetailsDialog extends StatelessWidget {
                 style: AppTextStyles.bodySmall,
               ),
             ),
+          if (widget.returnFlow != null) ...[
+            const SizedBox(height: AppSpacing.xl),
+            const DialogSectionLabel('Supplier return'),
+            _returnSection(),
+          ],
           const SizedBox(height: AppSpacing.xl),
           // Phase 5 B2 money: the server's figures when the payload carried
           // them, and a sentence (never a bare zero) when it did not.
@@ -157,6 +228,49 @@ class PurchasesDetailsDialog extends StatelessWidget {
           TotalBar(label: 'Order total', amount: order.displayTotal),
         ],
       ),
+    );
+  }
+
+  /// The return control, and an honest account of why it is missing when it is.
+  ///
+  /// Three states, never a bare empty space: still reading the deliveries, the
+  /// read failed (with a retry), or the answer — a door when at least one
+  /// delivery has been processed, and a sentence when none has.
+  Widget _returnSection() {
+    if (_loadingReceipts) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+        child: Text('Reading deliveries…', style: AppTextStyles.bodySmall),
+      );
+    }
+    if (_receiptsError case final error?) {
+      return ErrorBanner(message: error, onRetry: _loadReceipts);
+    }
+    if (_receipts.isEmpty) {
+      return Text(
+        'No processed deliveries to return from.',
+        style: AppTextStyles.bodySmall,
+      );
+    }
+    final count = _receipts.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '$count processed ${count == 1 ? 'delivery' : 'deliveries'} '
+          'can still give goods back.',
+          style: AppTextStyles.bodySmall,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.tonalIcon(
+            onPressed: _openReturn,
+            icon: const Icon(Icons.assignment_return_outlined, size: 18),
+            label: const Text('Return to supplier'),
+          ),
+        ),
+      ],
     );
   }
 

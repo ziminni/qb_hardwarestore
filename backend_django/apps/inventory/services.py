@@ -14,13 +14,18 @@ from django.db import transaction
 from django.db.models import F, Sum
 from django.utils import timezone
 
+from common.exceptions import refuse_fractional_whole_unit
+
 from . import payables
 from .exceptions import (
     InsufficientStock,
+    InvalidSupplierReturn,
     NoBatchHistory,
     PurchaseOrderNotReceivable,
     ReceiptAlreadyProcessed,
+    ReceiptNotProcessed,
     ReceiptQuantityUnrepresentable,
+    ReturnExceedsReceipt,
     SellingUnitInUse,
 )
 from .models import (
@@ -30,6 +35,10 @@ from .models import (
     ProductVariant,
     PurchaseOrder,
     StockAdjustment,
+    SupplierBill,
+    SupplierReturn,
+    SupplierReturnDeduction,
+    SupplierReturnLine,
     SystemAlert,
     VariantUOM,
 )
@@ -343,6 +352,208 @@ def allocate_fifo(*, variant_id: int, qty_needed: Decimal):
     InventoryBatch.objects.bulk_update([b for b, _ in allocations], ["current_qty"])
 
     return allocations
+
+
+def allocate_from_receipt(*, receipt, variant, base_qty):
+    """Take `base_qty` off the batches ONE receipt brought in; returns [(batch, qty)].
+
+    `allocate_fifo` is variant-wide, so a supplier return through it could draw stock
+    that arrived on a DIFFERENT delivery - at a different landed cost - while the receipt
+    the clerk picked still showed its own bags on the shelf. Decision 20 #2: the goods go
+    back out of the delivery they came in on, so the filter is `receipt` + `variant`.
+
+    PK order, oldest first. Inside one receipt that is also arrival order, and taking the
+    batches in ONE order keeps two concurrent deductions queueing instead of deadlocking
+    on two batches taken in opposite orders.
+
+    Raises `ReturnExceedsReceipt` (400 `RETURN_EXCEEDS_RECEIPT`) when these batches cannot
+    cover the quantity. Every allocation is planned BEFORE the first write, so the refusal
+    leaves `current_qty` exactly as it was.
+
+    Phase 9 compatibility (plan, binding): the filter is `receipt`, NEVER a location. A
+    transfer copies `receipt` onto the destination batch, so a return still finds the
+    stock wherever it now sits.
+    """
+    batches = list(
+        InventoryBatch.objects.select_for_update()
+        .filter(receipt=receipt, variant=variant, current_qty__gt=0)
+        .order_by("pk")
+    )
+
+    allocations = []
+    remaining = base_qty
+    for batch in batches:
+        if remaining <= 0:
+            break
+        take = min(batch.current_qty, remaining)
+        batch.current_qty -= take
+        allocations.append((batch, take))
+        remaining -= take
+
+    if remaining > 0:
+        raise ReturnExceedsReceipt(
+            f"Goods receipt #{getattr(receipt, 'pk', receipt)} holds "
+            f"{base_qty - remaining} {variant.base_uom.code} of {variant}, which is "
+            f"{remaining} less than the {base_qty} asked for: a return can only take "
+            "stock this receipt still has."
+        )
+
+    InventoryBatch.objects.bulk_update([b for b, _ in allocations], ["current_qty"])
+    return allocations
+
+
+def record_supplier_return(*, receipt, reason, lines, user):
+    """Record ONE supplier return and take its stock off that receipt's batches.
+
+    `lines` is `[(GoodsReceiptItem, qty_in_the_line's_package_unit), ...]`. Decision 20:
+    the quantity is entered in the purchase unit the delivery was recorded in (a BAG, a
+    BOX) and converted to base stock with `line_factor`, with the same whole-unit and
+    whole-hundredth rules receiving uses - stock is never rounded.
+
+    **Order of work.** Shape refusals (blank reason, no lines, a line from another
+    receipt, a fractional or unrepresentable quantity) are checked for EVERY line before
+    the first write. Then the receipt row is locked, so two returns from one receipt
+    serialize and neither reads a stale "already returned" total, and each line's cap is
+    `min(delivered base - base already returned on that line, the receipt's batches'
+    current qty)` - the first half keeps a clerk from returning the same bags twice, the
+    second keeps the books off stock a sale or a damage adjustment already took.
+
+    Opened here, not by the caller: the batch row locks refuse to run outside a
+    transaction, and the return, its lines, its deductions and the deduction of
+    `current_qty` must commit or roll back together. The calling view wraps this in its
+    own `atomic` so the audit row joins the same block.
+
+    `credit_value` is what the returned units were worth at the landed cost of the
+    batches they came out of, rounded ONCE per line (`payables.money`): the same stock may
+    leave two batches at slightly different costs. B3 turns those values into the numbered
+    credit note; B2 only records what left.
+    """
+    reason = reason.strip() if isinstance(reason, str) else ""
+    if not reason:
+        raise InvalidSupplierReturn(
+            "A supplier return needs a reason: the trail has to say why the goods went "
+            "back (damaged, refused at the gate, wrong item)."
+        )
+    lines = list(lines)
+    if not lines:
+        raise InvalidSupplierReturn("A supplier return needs at least one line.")
+
+    with transaction.atomic():
+        receipt = GoodsReceipt.objects.select_for_update().get(pk=receipt.pk)
+        if receipt.processed_at is None:
+            raise ReceiptNotProcessed(
+                f"Goods receipt #{receipt.pk} was never processed: its goods are not in "
+                "stock, so there is nothing to send back. Process the delivery first."
+            )
+
+        # Pass 1 - every line's shape, before anything is written. A payload whose third
+        # line is bad must leave nothing behind, and saying so is cheaper to trust than a
+        # rollback of two written lines.
+        plan = []
+        for receipt_line, qty in lines:
+            if receipt_line.receipt_id != receipt.pk:
+                raise InvalidSupplierReturn(
+                    f"Receipt line #{receipt_line.pk} belongs to goods receipt "
+                    f"#{receipt_line.receipt_id}, not #{receipt.pk}: return only the "
+                    "lines of the receipt you picked."
+                )
+            if not isinstance(qty, Decimal):
+                qty = Decimal(str(qty))
+            if qty <= 0:
+                raise InvalidSupplierReturn(
+                    f"Receipt line #{receipt_line.pk}: a return must be a quantity above "
+                    "zero."
+                )
+            item = receipt_line.po_item
+            unit = item.variant_uom
+            unit_code = (
+                unit.uom.code if unit is not None else item.variant.base_uom.code
+            )
+            refuse_fractional_whole_unit(
+                is_whole=(
+                    unit.uom.is_whole
+                    if unit is not None
+                    else item.variant.base_uom.is_whole
+                ),
+                qty=qty,
+                what=(
+                    f"receipt line #{receipt_line.pk} ({item.variant} in {unit_code})"
+                ),
+            )
+            refuse_unrepresentable_stock(item=item, qty=qty)
+            plan.append((receipt_line, item, qty, qty * line_factor(item)))
+
+        supplier_return = SupplierReturn.objects.create(
+            receipt=receipt,
+            supplier=receipt.po.supplier,
+            purchase_order=receipt.po,
+            # The bill this delivery created (Phase 5 B2), when it has one: B3's credit
+            # note lowers THAT bill first. A pre-Phase-5 receipt has none.
+            bill=SupplierBill.objects.filter(receipt=receipt).first(),
+            reason=reason,
+            created_by=user,
+        )
+
+        # Pass 2 - the cap, the deduction and its provenance, one line at a time.
+        variant_ids = []
+        for receipt_line, item, qty, base_qty in plan:
+            already_base = (
+                SupplierReturnLine.objects.filter(receipt_line=receipt_line)
+                .aggregate(total=Sum("base_qty"))
+                .get("total")
+                or Decimal(0)
+            )
+            on_hand_base = (
+                InventoryBatch.objects.filter(
+                    receipt=receipt, variant=item.variant
+                )
+                .aggregate(total=Sum("current_qty"))
+                .get("total")
+                or Decimal(0)
+            )
+            delivered_base = receipt_line.qty * line_factor(item)
+            cap = min(delivered_base - already_base, on_hand_base)
+            if base_qty > cap:
+                raise ReturnExceedsReceipt(
+                    f"Cannot return {qty} "
+                    f"{item.variant_uom.uom.code if item.variant_uom_id else item.variant.base_uom.code} "
+                    f"of {item.variant} from goods receipt #{receipt.pk}: line "
+                    f"#{receipt_line.pk} can still give back {cap} "
+                    f"{item.variant.base_uom.code} ({delivered_base - already_base} "
+                    f"delivered and not yet returned, {on_hand_base} still on hand)."
+                )
+
+            allocations = allocate_from_receipt(
+                receipt=receipt, variant=item.variant, base_qty=base_qty
+            )
+            credit_value = payables.money(
+                sum(
+                    (take * batch.unit_cost_landed for batch, take in allocations),
+                    Decimal(0),
+                )
+            )
+            return_line = SupplierReturnLine.objects.create(
+                supplier_return=supplier_return,
+                receipt_line=receipt_line,
+                qty=qty,
+                base_qty=base_qty,
+                credit_value=credit_value,
+            )
+            for batch, take in allocations:
+                SupplierReturnDeduction.objects.create(
+                    line=return_line,
+                    batch=batch,
+                    qty=take,
+                    unit_cost_landed=batch.unit_cost_landed,
+                )
+            variant_ids.append(item.variant_id)
+
+        # Stock went OUT, so the threshold is re-read - inside this transaction, exactly
+        # like a sale: a return that drops the shelf below the minimum raises the alert,
+        # and a refused return raises nothing.
+        check_low_stock_after_stock_out(variant_ids=variant_ids)
+
+    return supplier_return
 
 
 def apply_stock_adjustment(*, adjustment: StockAdjustment) -> None:

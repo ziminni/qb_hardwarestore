@@ -23,6 +23,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.collectibles.models import CollectibleLedger
+from apps.inventory.models import SupplierCreditNote
 from apps.inventory.services import (
     allocate_fifo,
     check_low_stock_after_stock_out,
@@ -151,6 +152,11 @@ DISCOUNT_APPROVAL_SALT = "pos.discount-approval"
 COUNTER_SOURCES = {
     "TRX": ("transaction_no", SalesTransaction),
     "OR": ("or_number", OfficialReceipt),
+    # Phase 8 B3 (decision 20 #1): a supplier return mints ONE numbered credit note, so
+    # the CN counter counts `SupplierCreditNote.number`. Inventory reaches this module
+    # lazily (see `payables.create_credit_note_for_return`), so this name is already
+    # resolved by the time a return asks for a number.
+    "CN": ("number", SupplierCreditNote),
 }
 
 
