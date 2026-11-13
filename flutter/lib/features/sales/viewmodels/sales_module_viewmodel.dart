@@ -41,16 +41,53 @@ class SalesModuleViewmodel extends ChangeNotifier {
 
   /// Creates one sales order, then reloads the lists.
   ///
-  /// Returns null when the server accepted it, or the sentence to show. A
-  /// refusal changes nothing on screen, so the form keeps every input.
-  Future<String?> createOrder(SalesOrderDraft draft) async {
+  /// Returns null when the server accepted it, or the refusal itself — the CODE
+  /// as well as the sentence, exactly like [updateOrder]: `DISCOUNT_OVER_CAP`
+  /// turns into a manager approval prompt and one retry, not a dead end, and
+  /// the rule is per line and per role (decision 19 follow-up ruling).
+  Future<SalesServiceException?> createOrder(SalesOrderDraft draft) async {
     try {
       await _service.createSalesOrder(draft);
     } on SalesServiceException catch (error) {
-      return error.message;
+      return error;
     }
     // The server has the order, so the list is re-read rather than patched with
     // the row this client hoped for.
+    await load();
+    return null;
+  }
+
+  /// Rewrites one order a manager has not started keeping (Phase 7 F1).
+  ///
+  /// Returns null when the server accepted the edit, or the refusal itself: the
+  /// form needs the CODE as well as the sentence, because `DISCOUNT_OVER_CAP`
+  /// turns into a manager approval prompt rather than a dead end.
+  Future<SalesServiceException?> updateOrder(
+    int id,
+    SalesOrderEdit edit,
+  ) async {
+    try {
+      await _service.editSalesOrder(id, edit);
+    } on SalesServiceException catch (error) {
+      return error;
+    }
+    await load();
+    return null;
+  }
+
+  /// Writes off what is left of one order (Phase 7 F1).
+  ///
+  /// Same contract as [updateOrder]: null for success, the server's own refusal
+  /// otherwise, so the dialog can say why and keep the reason typed.
+  Future<SalesServiceException?> cancelOrder(
+    int id, {
+    required String reason,
+  }) async {
+    try {
+      await _service.cancelSalesOrder(id, reason: reason);
+    } on SalesServiceException catch (error) {
+      return error;
+    }
     await load();
     return null;
   }
@@ -96,6 +133,7 @@ class SalesModuleViewmodel extends ChangeNotifier {
       _orders = [
         for (final o in orderRows)
           SalesOrderRecord(
+            o.id,
             o.number,
             nameOf(o.customerId),
             DateTime.parse(o.createdAt),
@@ -133,14 +171,21 @@ class SalesModuleViewmodel extends ChangeNotifier {
     }
   }
 
+  /// The wire's status mapped onto what the screen may show.
+  ///
+  /// `PROCESSING`/`READY` are legacy: the server never writes them any more and
+  /// reads both as CONFIRMED, so they land here as [SalesOrderStatus.confirmed]
+  /// rather than inventing two states no action can move.
   SalesOrderStatus _orderStatus(String api) {
     switch (api) {
       case 'CONFIRMED':
-        return SalesOrderStatus.confirmed;
       case 'PROCESSING':
-        return SalesOrderStatus.processing;
       case 'READY':
-        return SalesOrderStatus.ready;
+        return SalesOrderStatus.confirmed;
+      case 'PARTIAL':
+        return SalesOrderStatus.partial;
+      case 'CANCELLED':
+        return SalesOrderStatus.cancelled;
       case 'COMPLETED':
         return SalesOrderStatus.completed;
       default:

@@ -57,7 +57,11 @@ class SalesOrderApiTests(TestCase):
         self.manager = User.objects.create_superuser(
             username="somanager", email="so@x.com", password="pass12345"
         )
-        self.customer = Customer.objects.create(name="Dela Cruz Construction")
+        # REGULAR, not the model's WALK_IN default: Phase 7 B5 refuses an order on the
+        # walk-in placeholder (decision 19's "walk-in orders are already impossible").
+        self.customer = Customer.objects.create(
+            name="Dela Cruz Construction", customer_type=Customer.Type.REGULAR
+        )
         category = Category.objects.create(name="Cement")
         brand = Brand.objects.create(name="Rhino")
         uom, _ = UnitOfMeasure.objects.get_or_create(
@@ -152,12 +156,21 @@ class SalesOrderApiTests(TestCase):
         self.assertEqual(Decimal(rows[0]["items"][0]["qty"]), Decimal("10.00"))
 
     def test_the_order_status_vocabulary_matches_the_client_enum(self):
-        # SalesOrderStatus { confirmed, processing, ready, completed }
+        # Phase 7 B1 (decision 19): the lifecycle adds PARTIAL and CANCELLED. PROCESSING
+        # and READY stay as choices for the legacy rows Phase 5 wrote; they are never
+        # written again and read as CONFIRMED (`SalesOrder.effective_status`).
         from apps.pos.models import SalesOrder
 
         self.assertEqual(
             [value for value, _ in SalesOrder.Status.choices],
-            ["CONFIRMED", "PROCESSING", "READY", "COMPLETED"],
+            [
+                "CONFIRMED",
+                "PROCESSING",
+                "READY",
+                "PARTIAL",
+                "COMPLETED",
+                "CANCELLED",
+            ],
         )
 
     def test_an_order_can_be_linked_to_the_quotation_it_came_from(self):
@@ -176,18 +189,32 @@ class SalesOrderApiTests(TestCase):
         self.assertIn(response.status_code, (401, 403))
 
     # --- Phase 6 B1 (decision 22 #16): Phase 5's create-only contract is the contract.
+    # Phase 7 B3 (decision 19 #4) superseded the PATCH half of it: a Store Manager/Admin
+    # now EDITS an order that has not been fulfilled. PUT and DELETE stay unrouted.
 
-    def test_update_and_delete_of_an_order_are_not_routed(self):
+    def test_put_and_delete_of_an_order_are_not_routed(self):
         created = self.client.post(ORDERS_URL, self._payload(), format="json")
         self.assertEqual(created.status_code, 201, created.data)
         url = f"{ORDERS_URL}{created.data['id']}/"
 
         put = self.client.put(url, self._payload(status="READY"), format="json")
-        patch = self.client.patch(url, {"status": "READY"}, format="json")
         delete = self.client.delete(url)
 
-        for response in (put, patch, delete):
+        for response in (put, delete):
             self.assertEqual(response.status_code, 405, response.data)
+        order = SalesOrder.objects.get(pk=created.data["id"])
+        self.assertEqual(order.status, SalesOrder.Status.CONFIRMED)
+
+    def test_patch_is_the_routed_edit_and_still_cannot_write_a_status(self):
+        # B3: PATCH is a manager's edit, so it answers (400 for the missing `reason`
+        # here) instead of 405 - but the status stays the server's to write.
+        created = self.client.post(ORDERS_URL, self._payload(), format="json")
+        url = f"{ORDERS_URL}{created.data['id']}/"
+
+        patch = self.client.patch(url, {"status": "READY"}, format="json")
+
+        self.assertEqual(patch.status_code, 400, patch.data)
+        self.assertEqual(patch.data["code"], "SALES_ORDER_REASON_REQUIRED")
         order = SalesOrder.objects.get(pk=created.data["id"])
         self.assertEqual(order.status, SalesOrder.Status.CONFIRMED)
 

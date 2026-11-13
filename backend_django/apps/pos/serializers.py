@@ -4,6 +4,7 @@
 # resolves its config from its WORKING DIRECTORY, so no pyrightconfig.json is found, and
 # `Model.objects` is a false positive on valid Django without django-stubs.
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import serializers
 
 from apps.inventory.services import lock_selling_unit_lines
@@ -392,13 +393,38 @@ class QuotationSerializer(serializers.ModelSerializer):
 
 
 class SalesOrderItemSerializer(serializers.ModelSerializer):
+    # Phase 7 B1 (decision 19 #3): what has been fulfilled, what was cancelled, and what
+    # is left. `remaining_qty` is the MODEL's arithmetic, not a second copy of it.
+    remaining_qty = serializers.DecimalField(
+        max_digits=12, decimal_places=2, read_only=True
+    )
+
     class Meta:
         model = SalesOrderItem
-        fields = ["id", "order", "variant_uom", "qty", "unit_price"]
+        # Tuples, not lists: same reason as the Delivery serializer below - this file's
+        # other serializers carry one RUF012 each for these attributes.
+        fields = (
+            "id",
+            "order",
+            "variant_uom",
+            "qty",
+            "unit_price",
+            "fulfilled_qty",
+            "cancelled_qty",
+            "remaining_qty",
+        )
         # `order` is read-only for the same reason `quotation` is on the item serializer above:
         # the parent's create() sets it, and leaving it writable makes it REQUIRED on every nested
         # item, rejecting a legitimate payload.
-        read_only_fields = ["id", "order"]
+        # The three quantity columns are SERVER-owned (decision 19): a client that could set
+        # `fulfilled_qty` could claim a promise was kept without ringing a sale.
+        read_only_fields = (
+            "id",
+            "order",
+            "fulfilled_qty",
+            "cancelled_qty",
+            "remaining_qty",
+        )
 
     def validate(self, attrs):
         # An order must refer to a currently sellable catalogue row.
@@ -417,11 +443,38 @@ class SalesOrderItemSerializer(serializers.ModelSerializer):
 
 class SalesOrderSerializer(serializers.ModelSerializer):
     items = SalesOrderItemSerializer(many=True, required=False)
+    # Phase 7 B1 (decision 19): the wire carries the status the RULES see, so a legacy
+    # PROCESSING/READY row shows as CONFIRMED here exactly as it does to B3/B4. Declared
+    # (not a model field) because it reads `effective_status`; declaring it also makes it
+    # definitively read-only, so no client can name a status - the actions in B3/B4 do.
+    status = serializers.CharField(source="effective_status", read_only=True)
     # Phase 5 task B3 (decision 18): an order may be marked Deliver. WRITE-ONLY and a
     # plain object, NOT a nested ModelSerializer: the delivery's rules (address, contact,
     # date, a fee in whole centavos) live in ONE place - `services._validated_delivery` -
     # so the order form and the till cannot disagree about what a delivery is.
     delivery = serializers.DictField(write_only=True, required=False)
+    # Phase 7 B2 (decision 19 #1): a manager's one-time approval token for an order whose
+    # largest line discount is above the Admin's cap. Write-only - a token is a credential
+    # for one save, not part of what an order IS - and spent in `create` below.
+    discount_approval = serializers.CharField(
+        write_only=True, required=False, allow_blank=True
+    )
+    # Phase 7 B3 (decision 19 #4): the manager's EDIT reuses `items` for the whole line
+    # set - one key for lines on create and on edit, because it is the same list - and a
+    # nested per-line patch (an entry carrying `id`) is refused in `validate` below: a
+    # document somebody promised is replaced whole, never patched a row at a time.
+    # The reason an edit is being made. Required on PATCH (checked in `validate` below),
+    # audited, and never stored: an order's lines and notes are the correction, and the
+    # audit trail is where the explanation belongs.
+    reason = serializers.CharField(
+        write_only=True,
+        required=False,
+        max_length=255,
+        # Blank is allowed at FIELD level so `validate` below can answer it with the
+        # stable `SALES_ORDER_REASON_REQUIRED` code the client branches on, instead of
+        # DRF's field sentence.
+        allow_blank=True,
+    )
 
     class Meta:
         model = SalesOrder
@@ -435,34 +488,216 @@ class SalesOrderSerializer(serializers.ModelSerializer):
             "items",
             # Phase 5 task B3 (decision 18): write-only, accepted on create only.
             "delivery",
+            # Phase 7 B2 (decision 19 #1): write-only, the manager's approval token.
+            "discount_approval",
+            # Phase 7 B3 (decision 19 #4): the edit's required, audited reason. Write-only,
+            # so the wire shape of an order is byte-identical to B1/B2.
+            "reason",
             "created_at",
             "updated_at",
         ]
-        # `status` is read-only for the same reason as on a quotation (Phase 6 B1,
-        # decision 22 #16): orders are create-only until Phase 7 ships the lifecycle
-        # actions, and a POST body does not get to choose the starting status.
-        read_only_fields = ["id", "order_no", "status", "created_at", "updated_at"]
+        # `status` is the declared read-only field above (Phase 7 B1, decision 19): a
+        # POST body does not get to choose the starting status, and the wire shows the
+        # EFFECTIVE one so legacy READY rows read as CONFIRMED.
+        read_only_fields = ("id", "order_no", "created_at", "updated_at")
+
+    def to_representation(self, instance):
+        """Add each line's live stock hint (Phase 7 B5, decision 19 #2).
+
+        Injected here rather than as a serializer-method field on the LINE serializer
+        because the hint costs one stock query for the WHOLE order: a per-line field
+        would spend one query per line, and the order list renders many orders. Keyed by
+        the rendered line `id`, so no assumption is made about row order.
+        """
+        data = super().to_representation(instance)
+        from .services import order_line_available_qty
+
+        hints = order_line_available_qty(instance.items.all())
+        for row in data["items"]:
+            hint = hints.get(row["id"])
+            row["available_qty"] = "0.00" if hint is None else f"{hint:.2f}"
+        return data
 
     def create(self, validated_data):
         items = validated_data.pop("items", [])
         delivery_data = validated_data.pop("delivery", None)
+        discount_approval = validated_data.pop("discount_approval", None)
+        # Phase 7 B3 review: `reason` belongs to the EDIT and the CANCEL, where it is
+        # audited; an order has no column for it (`cancel_reason` is the cancellation's).
+        # Popped here because a client that echoes the field on create would otherwise
+        # reach `SalesOrder.objects.create(reason=...)` and die as a TypeError 500.
+        validated_data.pop("reason", None)
         # Same rule, lock and single transaction as a quotation above.
         with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
             lock_selling_unit_lines(
                 ((item["variant_uom"], item) for item in items), document="sales order"
             )
+            # Phase 7 B2 (decision 19 #1): the per-line price guard runs HERE - inside the
+            # saving transaction and before the first write - so a refused discount leaves
+            # no order, no lines and no audit row, and the approval it consumes rolls back
+            # with the order if a later write fails.
+            from .services import guard_order_line_prices
+
+            approval = guard_order_line_prices(
+                lines=((item["variant_uom"], item["unit_price"]) for item in items),
+                discount_approval=discount_approval,
+            )
             order = SalesOrder.objects.create(**validated_data)
             for item in items:
                 SalesOrderItem.objects.create(order=order, **item)
+            # The token is spent by THIS order, in the same transaction: the approval row
+            # records that the price on this order was signed off, so B4's fulfilment
+            # charges the agreed price without asking the manager again.
+            if approval is not None:
+                approval.used_at = timezone.now()
+                approval.sales_order = order
+                approval.save(update_fields=["used_at", "sales_order"])
             # Phase 5 task B3: the delivery row commits or rolls back WITH the order.
-            # The fee stays on this row: an order carries no money total on the wire and
-            # there is no fulfil-to-sale path in this codebase to carry it into.
+            # The fee stays on this row (an order carries no money total on the wire) and
+            # the FIRST fulfilment (Phase 7 B4) moves the slip onto that sale, carrying
+            # the fee into its `grand_total` exactly once.
             if delivery_data is not None:
                 from .services import create_delivery
 
                 order.delivery = create_delivery(
                     data=delivery_data, created_by=order.created_by, sales_order=order
                 )
+        return order
+
+    # Phase 7 B3 (decision 19 #4): what an EDIT may carry. Anything else in the body -
+    # a new customer, a different quotation - is refused rather than silently ignored,
+    # because an order that reads back differently from what the manager sent is worse
+    # than a 400.
+    EDITABLE_FIELDS = ("notes",)
+
+    def validate(self, attrs):
+        if self.instance is None:
+            # B5 (decision 19's premise, now code): a fulfilment rings the ORDER's
+            # customer into an ordinary sale, and only a named customer may owe
+            # (decision 14). An order on the walk-in placeholder would promise goods to
+            # nobody, so it is refused HERE - before the order, its lines and its audit
+            # row exist.
+            from .exceptions import WalkInCannotOrder
+
+            customer = attrs.get("customer")
+            if customer is not None and customer.customer_type == Customer.Type.WALK_IN:
+                raise WalkInCannotOrder(customer.name)
+            return attrs
+        from .exceptions import SalesOrderReasonRequired
+
+        # A per-line patch (`{"items": [{"id": 3, "qty": "2.00"}]}`) is NOT an edit this
+        # API offers: lines are replaced as a whole. Checked on the RAW body because
+        # `id` is read-only on the nested serializer and never reaches `attrs`.
+        raw_items = (self.initial_data or {}).get("items")
+        if isinstance(raw_items, list) and any(
+            isinstance(entry, dict) and "id" in entry for entry in raw_items
+        ):
+            raise serializers.ValidationError(
+                {
+                    "items": "Lines are replaced as a whole, not patched one at a "
+                    "time: send every line without its `id`."
+                }
+            )
+        # Decision 19 #4: an edit is a reasoned act, and the sentence is the audit trail.
+        if not (attrs.get("reason") or "").strip():
+            raise SalesOrderReasonRequired(what="edited")
+        refused = sorted(
+            set(attrs)
+            - set(self.EDITABLE_FIELDS)
+            - {"items", "delivery", "discount_approval", "reason"}
+        )
+        if refused:
+            raise serializers.ValidationError(
+                {
+                    field: "An order edit changes its lines, its notes or its delivery."
+                    for field in refused
+                }
+            )
+        return attrs
+
+    def update(self, instance, validated_data):
+        """Edit a promise the shop has not started keeping (B3, decision 19 #4).
+
+        The caller (`SalesOrderViewSet.partial_update`) holds the order's row lock and
+        wraps this in the edit's transaction, so the state read here cannot be raced by a
+        fulfilment: the loser of that race either sees PARTIAL and is refused, or lands
+        first and this edit is refused.
+
+        Order of work is the order `create` uses, and for the same reason: the price
+        guard runs BEFORE the first write, so a discount refused for want of a token
+        leaves the old lines, the old notes and no audit row behind.
+        """
+        from .exceptions import SalesOrderEditRefused
+        from .services import guard_order_line_prices
+
+        order = instance
+        items = validated_data.pop("items", None)
+        delivery_data = validated_data.pop("delivery", None)
+        discount_approval = validated_data.pop("discount_approval", None)
+        # The reason is audited by the view, which reads it before calling `save`; there
+        # is no column for it here.
+        validated_data.pop("reason", None)
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            if order.effective_status != SalesOrder.Status.CONFIRMED or any(
+                line.fulfilled_qty for line in order.items.all()
+            ):
+                raise SalesOrderEditRefused(
+                    f"Sales order {order.order_no} is {order.effective_status} and "
+                    "cannot be rewritten: only a CONFIRMED order with nothing "
+                    "fulfilled can be edited. Cancel the remainder instead.",
+                    status=order.effective_status,
+                )
+            delivery = order.deliveries.first()
+            if (
+                delivery_data is not None
+                and delivery is not None
+                and delivery.status != Delivery.Status.SCHEDULED
+            ):
+                raise SalesOrderEditRefused(
+                    f"Delivery {delivery.delivery_no} is {delivery.status}: the slip "
+                    "can only be corrected while it is still SCHEDULED.",
+                    delivery_no=delivery.delivery_no,
+                    delivery_status=delivery.status,
+                )
+            if "notes" in validated_data:
+                order.notes = validated_data["notes"]
+            order.save(update_fields=["notes", "updated_at"])
+            if items is not None:
+                lock_selling_unit_lines(
+                    ((item["variant_uom"], item) for item in items),
+                    document="sales order",
+                )
+                # Decision 19 #1 + B3 review: the approval is spent PER SAVE. A create-time
+                # token was already consumed by the order that carried it, so re-pricing the
+                # lines above the cap here needs a FRESH token - the old one is `used_at`.
+                approval = guard_order_line_prices(
+                    lines=((item["variant_uom"], item["unit_price"]) for item in items),
+                    discount_approval=discount_approval,
+                )
+                order.items.all().delete()
+                for item in items:
+                    SalesOrderItem.objects.create(order=order, **item)
+                if approval is not None:
+                    approval.used_at = timezone.now()
+                    approval.sales_order = order
+                    approval.save(update_fields=["used_at", "sales_order"])
+            if delivery_data is not None:
+                from .services import _validated_delivery, create_delivery
+
+                if delivery is None:
+                    create_delivery(
+                        data=delivery_data,
+                        created_by=order.created_by,
+                        sales_order=order,
+                    )
+                else:
+                    # The SAME validation the create path uses: one definition of what
+                    # a delivery is, so the form and the till cannot disagree.
+                    fields = _validated_delivery(delivery_data) or {}
+                    for name, value in fields.items():
+                        setattr(delivery, name, value)
+                    if fields:
+                        delivery.save(update_fields=[*fields, "updated_at"])
         return order
 
 

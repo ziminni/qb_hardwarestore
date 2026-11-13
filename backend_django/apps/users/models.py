@@ -23,7 +23,6 @@ from django.contrib.auth.models import (
     PermissionsMixin,
 )
 from django.db import models
-from django.utils import timezone
 
 from .exceptions import ImmutableAuditLog
 
@@ -33,9 +32,9 @@ class UserManager(BaseUserManager):
 
     def _create_user(self, username, email, password, **extra_fields):
         if not username:
-            raise ValueError('Username is required')
+            raise ValueError("Username is required")
         if not email:
-            raise ValueError('Email is required')
+            raise ValueError("Email is required")
         email = self.normalize_email(email)
         user = self.model(username=username, email=email, **extra_fields)
         user.set_password(password)
@@ -43,17 +42,17 @@ class UserManager(BaseUserManager):
         return user
 
     def create_user(self, username, email=None, password=None, **extra_fields):
-        extra_fields.setdefault('is_staff', False)
-        extra_fields.setdefault('is_superuser', False)
+        extra_fields.setdefault("is_staff", False)
+        extra_fields.setdefault("is_superuser", False)
         return self._create_user(username, email, password, **extra_fields)
 
     def create_superuser(self, username, email=None, password=None, **extra_fields):
-        extra_fields.setdefault('is_staff', True)
-        extra_fields.setdefault('is_superuser', True)
-        if not extra_fields.get('is_staff'):
-            raise ValueError('Superuser must have is_staff=True.')
-        if not extra_fields.get('is_superuser'):
-            raise ValueError('Superuser must have is_superuser=True.')
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+        if not extra_fields.get("is_staff"):
+            raise ValueError("Superuser must have is_staff=True.")
+        if not extra_fields.get("is_superuser"):
+            raise ValueError("Superuser must have is_superuser=True.")
         return self._create_user(username, email, password, **extra_fields)
 
 
@@ -66,22 +65,23 @@ class User(AbstractBaseUser, PermissionsMixin):
     Roles are managed via Django's built-in Group (auth_group)
     and Permission (auth_permission).
     """
+
     username = models.CharField(
         max_length=80,
         unique=True,
         db_index=True,
-        help_text='Short login name (e.g. staff ID, first name).',
+        help_text="Short login name (e.g. staff ID, first name).",
     )
     email = models.EmailField(
         unique=True,
         db_index=True,
-        help_text='Used for notifications and password resets.',
+        help_text="Used for notifications and password resets.",
     )
     full_name = models.CharField(max_length=255)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(
         default=False,
-        help_text='Designates whether the user can log into Django Admin.',
+        help_text="Designates whether the user can log into Django Admin.",
     )
     last_login = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -89,28 +89,28 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     objects = UserManager()
 
-    USERNAME_FIELD = 'username'
-    REQUIRED_FIELDS = ['email', 'full_name']
+    USERNAME_FIELD = "username"
+    REQUIRED_FIELDS = ["email", "full_name"]
 
     class Meta:
-        db_table = 'apps_users'
-        verbose_name = 'user'
-        verbose_name_plural = 'users'
-        ordering = ['-created_at']
+        db_table = "apps_users"
+        verbose_name = "user"
+        verbose_name_plural = "users"
+        ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=['username']),
-            models.Index(fields=['email']),
-            models.Index(fields=['is_active']),
-            models.Index(fields=['-created_at']),
+            models.Index(fields=["username"]),
+            models.Index(fields=["email"]),
+            models.Index(fields=["is_active"]),
+            models.Index(fields=["-created_at"]),
         ]
 
     def __str__(self):
-        return f'{self.username} ({self.full_name})'
+        return f"{self.username} ({self.full_name})"
 
     @property
     def role_names(self):
         """Convenience: list of group/role names this user belongs to."""
-        return list(self.groups.values_list('name', flat=True))
+        return list(self.groups.values_list("name", flat=True))
 
 
 class AuditLogQuerySet(models.QuerySet):
@@ -143,46 +143,51 @@ class AuditLog(models.Model):
     """
 
     class ActionType(models.TextChoices):
-        LOGIN = 'LOGIN', 'Login'
-        LOGIN_FAILED = 'LOGIN_FAILED', 'Failed Login'
-        LOGOUT = 'LOGOUT', 'Logout'
-        CREATE = 'CREATE', 'Create'
-        UPDATE = 'UPDATE', 'Update'
-        DELETE = 'DELETE', 'Delete'
-        SALE = 'SALE', 'Sale'
-        RETURN = 'RETURN', 'Return'
-        RELEASE = 'RELEASE', 'Material Release'
-        STOCK_ADJUST = 'STOCK_ADJUST', 'Stock Adjustment'
-        RECEIPT = 'RECEIPT', 'Goods Receipt'
-        PAYMENT = 'PAYMENT', 'Payment'
-        REQ_APPROVE = 'REQ_APPROVE', 'Requisition Approved'
-        REQ_REJECT = 'REQ_REJECT', 'Requisition Rejected'
-        ALERT_RESOLVE = 'ALERT_RESOLVE', 'Alert Resolved'
-        SHIFT_OPEN = 'SHIFT_OPEN', 'Shift Opened'
-        SHIFT_CLOSE = 'SHIFT_CLOSE', 'Shift Closed'
-        CART_VOID = 'CART_VOID', 'Held Cart Voided'
+        LOGIN = "LOGIN", "Login"
+        LOGIN_FAILED = "LOGIN_FAILED", "Failed Login"
+        LOGOUT = "LOGOUT", "Logout"
+        CREATE = "CREATE", "Create"
+        UPDATE = "UPDATE", "Update"
+        DELETE = "DELETE", "Delete"
+        SALE = "SALE", "Sale"
+        RETURN = "RETURN", "Return"
+        RELEASE = "RELEASE", "Material Release"
+        STOCK_ADJUST = "STOCK_ADJUST", "Stock Adjustment"
+        RECEIPT = "RECEIPT", "Goods Receipt"
+        PAYMENT = "PAYMENT", "Payment"
+        REQ_APPROVE = "REQ_APPROVE", "Requisition Approved"
+        REQ_REJECT = "REQ_REJECT", "Requisition Rejected"
+        ALERT_RESOLVE = "ALERT_RESOLVE", "Alert Resolved"
+        SHIFT_OPEN = "SHIFT_OPEN", "Shift Opened"
+        SHIFT_CLOSE = "SHIFT_CLOSE", "Shift Closed"
+        CART_VOID = "CART_VOID", "Held Cart Voided"
         # Phase 4 task B1 (decision 18): the two manager/admin decisions the trail has to
         # answer - who changed the shop's VAT and discount policy, and who approved a
         # discount above the cap. Neither row ever carries a password.
-        SETTINGS_UPDATE = 'SETTINGS_UPDATE', 'Store Settings Updated'
-        DISCOUNT_APPROVAL = 'DISCOUNT_APPROVAL', 'Discount Approval Granted'
+        SETTINGS_UPDATE = "SETTINGS_UPDATE", "Store Settings Updated"
+        DISCOUNT_APPROVAL = "DISCOUNT_APPROVAL", "Discount Approval Granted"
         # Phase 4 task B2 (decision 18): who cleared or bounced a customer cheque. ONE
         # type for both decisions, because the trail's question is "who decided this
         # cheque, and when" - the description says which way it went and why.
-        CHEQUE_DECISION = 'CHEQUE_DECISION', 'Cheque Cleared or Bounced'
+        CHEQUE_DECISION = "CHEQUE_DECISION", "Cheque Cleared or Bounced"
         # Phase 5 task B3 (decision 18): who took the delivery, who moved it out and who
         # delivered or failed it. ONE type for the whole life of a slip, because the
         # trail's question is "what happened to this trip, and who did it" - the
         # description carries the state, the reason and the document numbers.
-        DELIVERY = 'DELIVERY', 'Delivery'
-        ROLE_CHANGE = 'ROLE_CHANGE', 'Role Changed'
-        USER_DEACTIVATE = 'USER_DEACTIVATE', 'User Deactivated'
+        DELIVERY = "DELIVERY", "Delivery"
+        # Phase 7 task B1 (decision 19): the whole life of a sales order - created, edited,
+        # cancelled, fulfilled - under ONE type for the same reason as DELIVERY: the
+        # trail's question is "what happened to this order, and who did it", and the
+        # description carries the transition, the reason and the document numbers.
+        SALES_ORDER = "SALES_ORDER", "Sales Order"
+        ROLE_CHANGE = "ROLE_CHANGE", "Role Changed"
+        USER_DEACTIVATE = "USER_DEACTIVATE", "User Deactivated"
 
     user = models.ForeignKey(
         User,
         on_delete=models.PROTECT,
         null=True,
-        related_name='audit_logs',
+        related_name="audit_logs",
     )
     # Filled by `log_audit` from `user.username`, or from the `username=` kwarg when the
     # actor is unknown. It is the row's own copy of the name, so a deactivated account
@@ -196,18 +201,18 @@ class AuditLog(models.Model):
     objects = AuditLogQuerySet.as_manager()
 
     class Meta:
-        db_table = 'apps_audit_log'
-        verbose_name = 'audit log'
-        verbose_name_plural = 'audit logs'
-        ordering = ['-timestamp']
+        db_table = "apps_audit_log"
+        verbose_name = "audit log"
+        verbose_name_plural = "audit logs"
+        ordering = ["-timestamp"]
         indexes = [
-            models.Index(fields=['user', '-timestamp']),
-            models.Index(fields=['action_type']),
+            models.Index(fields=["user", "-timestamp"]),
+            models.Index(fields=["action_type"]),
         ]
 
     def __str__(self):
         actor = self.username_snapshot or self.user
-        return f'[{self.action_type}] {actor} @ {self.timestamp:%Y-%m-%d %H:%M}'
+        return f"[{self.action_type}] {actor} @ {self.timestamp:%Y-%m-%d %H:%M}"
 
     def save(self, *args, **kwargs):
         """Insert only. A pk that already exists is an attempt to rewrite history."""

@@ -45,9 +45,18 @@ QuotationRecord _quote() => const QuotationRecord(
   validUntil: '2026-11-19', createdAt: '2026-10-19T08:00:00Z', items: [],
 );
 
-SalesOrderRow _order() => const SalesOrderRow(
-  id: 7, number: 'SO-20261019-0001', customerId: 3, quotationId: 1,
-  status: 'CONFIRMED', createdAt: '2026-10-19T08:00:00Z', items: [],
+SalesOrderRow _order({
+  int id = 7,
+  String number = 'SO-20261019-0001',
+  String status = 'CONFIRMED',
+}) => SalesOrderRow(
+  id: id,
+  number: number,
+  customerId: 3,
+  quotationId: 1,
+  status: status,
+  createdAt: '2026-10-19T08:00:00Z',
+  items: const [],
 );
 
 Customer _customer() => const Customer(id: 3, name: 'Dela Cruz Construction', customerType: 'CONSTRUCTION_FIRM');
@@ -87,5 +96,52 @@ void main() {
 
     expect(viewmodel.loadError, contains('Cannot connect'));
     expect(viewmodel.quotations, hasLength(1));
+  });
+
+  test('legacy PROCESSING and READY read as confirmed', () async {
+    // Phase 7 F1 (decision 19): no code path writes PROCESSING/READY any more,
+    // so a legacy row must reach the screen as the status the RULES see.
+    sales.orders = [
+      _order(status: 'PROCESSING'),
+      _order(id: 8, number: 'SO-B', status: 'READY'),
+    ];
+    customers.customers = [_customer()];
+
+    await viewmodel.load();
+
+    // Compared by NAME so this assertion compiles against the old enum too:
+    // the point is which words reach the screen, not a new member existing.
+    expect(viewmodel.orders.map((o) => o.status.name), [
+      'confirmed',
+      'confirmed',
+    ]);
+  });
+
+  test('PARTIAL and CANCELLED are mapped, not treated as contract breaks',
+      () async {
+    sales.orders = [
+      _order(status: 'PARTIAL'),
+      _order(id: 8, number: 'SO-B', status: 'CANCELLED'),
+    ];
+    customers.customers = [_customer()];
+
+    await viewmodel.load();
+
+    expect(viewmodel.loadError, isNull);
+    expect(viewmodel.orders.map((o) => o.status.name), [
+      'partial',
+      'cancelled',
+    ]);
+  });
+
+  test('an unknown order status is still reported, never silently dropped',
+      () async {
+    sales.orders = [_order(status: 'SHIPPED')];
+    customers.customers = [_customer()];
+
+    await viewmodel.load();
+
+    expect(viewmodel.loadError, contains('SHIPPED'));
+    expect(viewmodel.orders, isEmpty);
   });
 }

@@ -12,15 +12,18 @@
 //   Sales Dashboard   "This month"         — filtered nothing
 //
 // The quotation and return create buttons are REMOVED (those views are read-only
-// by decision). "New sales order" is BACK as a create-only form: the owner
-// authorised it in the Phase 5 F3 follow-up, and creating is the whole of it —
-// no edit, no delete, no status change, no fulfil-to-sale, and the order sheet
-// stays strictly read-only (pinned below and in the sheet family test).
+// by decision). "New sales order" is BACK as a form: the owner authorised it in
+// the Phase 5 F3 follow-up. Phase 7 F1 supersedes the ORDER half of these pins —
+// a Store Manager/Admin now gets Edit and Cancel on an unfulfilled order (decision
+// 19 #4) — and keeps the rest: DELETE is still gone (cancellation replaces it),
+// a cashier is offered neither action, and the QUOTATION pins are untouched.
 // "View" opens the real read-only details sheet — the same document sheet the
 // transactions page uses. "This month" becomes a label that states what the
 // dashboard actually shows: every recorded transaction, with no period filter.
 
 import 'package:client/data/models/reports.dart';
+import 'package:client/data/models/role.dart';
+import 'package:client/data/models/user.dart';
 import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/models/customer.dart';
 import 'package:client/data/repositories/auth_repository.dart';
@@ -183,11 +186,37 @@ Future<InventoryViewmodel> _inventory() async {
   return inventory;
 }
 
-Widget _app(Widget child, {InventoryViewmodel? inventory}) => MultiProvider(
+/// The role CODE the server sends as `role.name`, keyed by the label a person
+/// reads (the Phase 4 fixture trap: putting the label in both fields passed a
+/// test the live server would fail).
+const _roleCodes = {
+  'Store Manager': 'sales',
+  'Cashier': 'pos',
+  'Stock Manager': 'inventory',
+};
+
+AuthViewmodel _auth({String? role}) {
+  final auth = AuthViewmodel(AuthRepository(AuthService()));
+  if (role != null) {
+    auth.user = User(
+      id: 1,
+      username: 'manager',
+      email: 'manager@qb.ph',
+      fullName: 'Ana Lopez',
+      role: Role(id: 4, name: _roleCodes[role]!, displayName: role),
+    );
+    auth.selectArea(_roleCodes[role]!);
+  }
+  return auth;
+}
+
+Widget _app(
+  Widget child, {
+  InventoryViewmodel? inventory,
+  String? role,
+}) => MultiProvider(
   providers: [
-    ChangeNotifierProvider<AuthViewmodel>.value(
-      value: AuthViewmodel(AuthRepository(AuthService())),
-    ),
+    ChangeNotifierProvider<AuthViewmodel>.value(value: _auth(role: role)),
     if (inventory != null)
       ChangeNotifierProvider<InventoryViewmodel>.value(value: inventory),
   ],
@@ -235,7 +264,7 @@ void main() {
     expect(find.text('View'), findsOneWidget);
   });
 
-  testWidgets('orders: "New sales order" creates, and only creates', (
+  testWidgets('orders: a manager may edit or cancel, never delete', (
     tester,
   ) async {
     _sizeUp(tester);
@@ -249,23 +278,28 @@ void main() {
           ),
           child: const SalesOrdersPage(),
         ),
+        role: 'Store Manager',
       ),
     );
     await tester.pumpAndSettle();
 
-    // Phase 5 F3 follow-up: the owner authorised create-only entry, so the
-    // action is real again — and it is the ONLY write the page offers.
+    // Phase 5 F3 follow-up made creating real; Phase 7 F1 adds the two lifecycle
+    // actions decision 19 #4 grants a manager, and NOT a delete: a cancellation
+    // with a reason replaces it (decision 19, "DELETE removed for orders").
     expect(find.text('New sales order'), findsOneWidget);
     expect(find.text('New quotation'), findsNothing);
-    expect(find.text('Edit'), findsNothing);
     expect(find.text('Delete'), findsNothing);
     expect(find.text('SO-20261019-0001'), findsOneWidget);
     expect(find.text('View'), findsOneWidget);
 
-    // The row still opens the read-only document sheet.
     await tester.tap(find.text('View'));
     await tester.pumpAndSettle();
     expect(find.byType(SalesDocumentSheet), findsOneWidget);
+    expect(_inSheet('Edit'), findsOneWidget);
+    expect(_inSheet('Cancel'), findsOneWidget);
+    expect(_inSheet('Delete'), findsNothing);
+    // The sheet itself still edits nothing: the actions close it and the page
+    // opens the dialog that writes.
     expect(
       find.descendant(
         of: find.byType(SalesDocumentSheet),
@@ -273,6 +307,32 @@ void main() {
       ),
       findsNothing,
     );
+  });
+
+  testWidgets('orders: a cashier is offered neither action', (tester) async {
+    _sizeUp(tester);
+    sales.orders = [_order()];
+    await tester.pumpWidget(
+      _app(
+        ChangeNotifierProvider<SalesModuleViewmodel>(
+          create: (_) => SalesModuleViewmodel(
+            service: sales,
+            customerService: _StubCustomerService(),
+          ),
+          child: const SalesOrdersPage(),
+        ),
+        role: 'Cashier',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('View'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SalesDocumentSheet), findsOneWidget);
+    expect(_inSheet('Edit'), findsNothing);
+    // 'Cancelled' is not on this sheet, so 'Cancel' can only be the action.
+    expect(_inSheet('Cancel'), findsNothing);
+    expect(_inSheet('Delete'), findsNothing);
   });
 
   testWidgets('returns: the dead "New customer return" button is gone', (

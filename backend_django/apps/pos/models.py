@@ -184,6 +184,17 @@ class SalesItem(models.Model):
     )
     unit_price = models.DecimalField(max_digits=12, decimal_places=2)
     subtotal = models.DecimalField(max_digits=12, decimal_places=2)
+    # Phase 7 B1 (decision 19 #3): the order line a fulfilment sale line was rung from,
+    # which is what makes "fulfilled vs remaining" arithmetically checkable. NULL for
+    # every ordinary till sale; a fulfilment (B4) sets it, and a return against that sale
+    # copies nothing - a return is its own line.
+    order_line = models.ForeignKey(
+        "SalesOrderItem",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="sale_items",
+    )
 
     class Meta:
         db_table = "pos_sales_item"
@@ -379,11 +390,17 @@ class SalesOrder(models.Model):
     """
 
     class Status(models.TextChoices):
-        # Matches the client's canonical SalesOrderStatus enum exactly.
+        # Phase 7 B1 (decision 19): CONFIRMED -> PARTIAL -> COMPLETED, plus CANCELLED.
+        # PROCESSING and READY are LEGACY - Phase 5 let a client pick a status
+        # (decision 22 #16 stopped that) and wrote these two. They stay as choices so
+        # old rows keep validating, are never written again, and READ as CONFIRMED
+        # everywhere (`effective_status`, the rule table in `services.py`, the wire).
         CONFIRMED = "CONFIRMED", "Confirmed"
         PROCESSING = "PROCESSING", "Processing"
         READY = "READY", "Ready"
+        PARTIAL = "PARTIAL", "Partially fulfilled"
         COMPLETED = "COMPLETED", "Completed"
+        CANCELLED = "CANCELLED", "Cancelled"
 
     order_no = models.CharField(max_length=30, unique=True, db_index=True)
     customer = models.ForeignKey(
@@ -402,6 +419,18 @@ class SalesOrder(models.Model):
         max_length=15, choices=Status.choices, default=Status.CONFIRMED, db_index=True
     )
     notes = models.TextField(blank=True, default="")
+    # Phase 7 B1 (decision 19 #4): cancelling is a reasoned, attributed event, exactly
+    # like a failed delivery. PROTECT on the actor (same as `Delivery.created_by`) so the
+    # trail never loses WHO cancelled a promise the shop made.
+    cancel_reason = models.CharField(max_length=255, blank=True, default="")
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    cancelled_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
     )
@@ -415,12 +444,32 @@ class SalesOrder(models.Model):
     def __str__(self):
         return f"{self.order_no} — {self.customer}"
 
+    @property
+    def effective_status(self):
+        """The status every rule and the wire read (decision 19).
+
+        `PROCESSING` and `READY` are Phase 5 spellings of CONFIRMED. Mapping them HERE,
+        on the model, is what keeps every later rule (edit, cancel, fulfil, the order
+        sheet) free of a legacy branch: they all ask `effective_status`.
+        """
+        return LEGACY_SALES_ORDER_STATUSES.get(self.status, self.status)
+
     def save(self, *args, **kwargs):
         if not self.order_no:
             from common.numbering import generate_document_number
 
             self.order_no = generate_document_number(SalesOrder, "order_no", "SO")
         super().save(*args, **kwargs)
+
+
+# Phase 7 B1 (decision 19): the two statuses Phase 5 wrote before the lifecycle existed.
+# They stay as choices so legacy rows keep validating, are never written again, and read
+# as CONFIRMED wherever this dict is applied - `SalesOrder.effective_status` is the only
+# reader, so no rule anywhere else needs a legacy branch.
+LEGACY_SALES_ORDER_STATUSES = {
+    SalesOrder.Status.PROCESSING.value: SalesOrder.Status.CONFIRMED,
+    SalesOrder.Status.READY.value: SalesOrder.Status.CONFIRMED,
+}
 
 
 class SalesOrderItem(models.Model):
@@ -432,12 +481,26 @@ class SalesOrderItem(models.Model):
     )
     qty = models.DecimalField(max_digits=12, decimal_places=2)
     unit_price = models.DecimalField(max_digits=12, decimal_places=2)
+    # Phase 7 B1 (decision 19 #3): what has already been rung into a sale, and what the
+    # manager wrote off. B4 adds to the first, B3 moves a remainder into the second; both
+    # start at zero so every pre-Phase-7 line reads "nothing fulfilled, nothing cancelled".
+    fulfilled_qty = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    cancelled_qty = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
     class Meta:
         db_table = "pos_sales_order_item"
 
     def __str__(self):
         return f"{self.order.order_no} — {self.variant_uom} × {self.qty}"
+
+    @property
+    def remaining_qty(self) -> Decimal:
+        """`qty - fulfilled - cancelled`: what a till may still ring (decision 19 #3)."""
+        return (
+            Decimal(self.qty)
+            - Decimal(self.fulfilled_qty)
+            - Decimal(self.cancelled_qty)
+        )
 
 
 class HeldCart(models.Model):
@@ -649,6 +712,16 @@ class DiscountApproval(models.Model):
         blank=True,
         related_name="discount_approvals",
     )
+    # Phase 7 B1 (decision 19 #1): an order below the cap is an approval spent on the
+    # ORDER, not on a sale - fulfilment then charges the agreed price without asking
+    # again. PROTECT, like `transaction`: the approval is evidence of a decision.
+    sales_order = models.ForeignKey(
+        SalesOrder,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="discount_approvals",
+    )
 
     class Meta:
         db_table = "pos_discount_approval"
@@ -673,12 +746,13 @@ class Delivery(models.Model):
 
     Two deliberate details:
 
-    * `sale` and `sales_order` are BOTH nullable but never both set and never both
-      empty - a `CheckConstraint` enforces the exclusive-or in the DATABASE, because a
-      delivery that belongs to nothing (or to two documents) is a slip that cannot be
-      printed and a fee nobody can explain. On a sale the fee is ALSO stored on
-      `SalesTransaction.delivery_fee`; on an order it lives here only, because an order
-      carries no money total and there is no fulfil-to-sale path to carry it into.
+    * `sale` and `sales_order` are BOTH nullable but never both empty - a
+      `CheckConstraint` enforces "at least one document" in the DATABASE, because a
+      delivery that belongs to nothing is a slip that cannot be printed and a fee nobody
+      can explain. BOTH may be set: Phase 7 B4 re-links an ORDER's delivery to the first
+      fulfilment sale, and that row must keep the order it came from (decision 19). On a
+      sale the fee is ALSO stored on `SalesTransaction.delivery_fee`; on an order it
+      lives here until that first fulfilment carries it into the sale.
     * There is no `stored_at`/`pickup_location` column yet: B4 owns the location list
       and will add a nullable FK here, so this model is where that lands.
 
@@ -741,11 +815,13 @@ class Delivery(models.Model):
         ordering = ("scheduled_date", "id")
         constraints = (
             models.CheckConstraint(
+                # Phase 7 B1 (decision 19): "at least one", not "exactly one" - a
+                # delivery re-linked to the first fulfilment sale keeps its order, so
+                # both columns may be set. Belonging to NOTHING is still refused.
                 condition=(
-                    models.Q(sale__isnull=False, sales_order__isnull=True)
-                    | models.Q(sale__isnull=True, sales_order__isnull=False)
+                    models.Q(sale__isnull=False) | models.Q(sales_order__isnull=False)
                 ),
-                name="delivery_exactly_one_document",
+                name="delivery_at_least_one_document",
             ),
         )
 

@@ -19,6 +19,7 @@ import 'package:client/data/models/customer.dart';
 import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/services/catalogue_assembler.dart';
+import 'package:client/data/services/sales_service.dart';
 import 'package:client/features/sales/widgets/sales_order_form_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -96,7 +97,7 @@ void main() {
   setUpAll(_loadAppFonts);
 
   late List<SalesOrderDraft> submitted;
-  late String? refusal;
+  late SalesServiceException? refusal;
 
   setUp(() {
     submitted = [];
@@ -520,7 +521,9 @@ void main() {
   testWidgets('a server refusal keeps the form open with the input intact', (
     tester,
   ) async {
-    refusal = 'Cement 40kg, BAG: a whole unit takes a whole number of units.';
+    refusal = const SalesServiceException(
+      'Cement 40kg, BAG: a whole unit takes a whole number of units.',
+    );
     await open(tester);
     await chooseCustomer(tester, 'Dela Cruz Construction');
     await fillLine(tester, qty: '2');
@@ -528,7 +531,7 @@ void main() {
 
     expect(submitted, hasLength(1));
     expect(find.byType(SalesOrderFormDialog), findsOneWidget);
-    expect(find.text(refusal!), findsOneWidget);
+    expect(find.text(refusal!.message), findsOneWidget);
     // The input the clerk typed is still there.
     final qty = tester.widget<TextField>(
       find.descendant(

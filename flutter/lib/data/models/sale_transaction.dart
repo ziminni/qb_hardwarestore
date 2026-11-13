@@ -216,16 +216,51 @@ class OrderLineItem {
     required this.variantUomId,
     required this.qty,
     required this.unitPrice,
+    this.fulfilledQty = 0,
+    this.cancelledQty = 0,
+    this.remainingQty,
+    this.availableQty,
   });
 
   final int variantUomId;
+
+  /// What the customer ordered.
   final double qty;
   final double unitPrice;
+
+  /// Rung into a sale so far (server-owned, Phase 7 B1/B4).
+  final double fulfilledQty;
+
+  /// Written off by a cancellation (server-owned).
+  final double cancelledQty;
+
+  /// What is left to ring, exactly as the SERVER computed it. Null on a body
+  /// that predates Phase 7, in which case [remaining] derives it.
+  final double? remainingQty;
+
+  /// Sellable stock in this line's unit when the server sends it (B5). A live
+  /// hint only: nothing is reserved for an order.
+  final double? availableQty;
+
+  /// What is still owed on this line.
+  double get remaining => remainingQty ?? qty - fulfilledQty - cancelledQty;
 
   factory OrderLineItem.fromJson(Map<String, dynamic> json) => OrderLineItem(
     variantUomId: intField(json, 'variant_uom'),
     qty: decimalField(json, 'qty'),
     unitPrice: decimalField(json, 'unit_price'),
+    fulfilledQty: json['fulfilled_qty'] == null
+        ? 0
+        : decimalField(json, 'fulfilled_qty'),
+    cancelledQty: json['cancelled_qty'] == null
+        ? 0
+        : decimalField(json, 'cancelled_qty'),
+    remainingQty: json['remaining_qty'] == null
+        ? null
+        : decimalField(json, 'remaining_qty'),
+    availableQty: json['available_qty'] == null
+        ? null
+        : decimalField(json, 'available_qty'),
   );
 }
 
@@ -317,6 +352,7 @@ class SalesOrderDraft {
     required this.lines,
     this.notes = '',
     this.delivery,
+    this.approvalToken,
   });
 
   final int customerId;
@@ -331,6 +367,11 @@ class SalesOrderDraft {
   /// total on the wire.
   final DeliveryDraft? delivery;
 
+  /// Filled in on the SECOND attempt only, after a Store Manager signed off an
+  /// above-cap price (decision 19 #1: the approval is taken at save, create or
+  /// edit — the same token the till uses).
+  final String? approvalToken;
+
   /// What the GOODS come to. Not the order total: a delivery fee is on its
   /// delivery row and is never discounted.
   double get goodsTotal => lines.fold<double>(0, (sum, l) => sum + l.subtotal);
@@ -340,5 +381,47 @@ class SalesOrderDraft {
     if (notes.isNotEmpty) 'notes': notes,
     'items': [for (final line in lines) line.toJson()],
     if (delivery != null) 'delivery': delivery!.toJson(),
+    if (approvalToken != null) 'discount_approval': approvalToken,
+  };
+}
+
+/// What a manager's EDIT sends: `PATCH /api/v1/sales-orders/{id}/`
+/// (Phase 7 B3, decision 19 #4).
+///
+/// Deliberately NOT a [SalesOrderDraft]: the customer cannot move on an edit
+/// (the server refuses the field), the whole line set is replaced rather than
+/// patched line by line, and the edit carries the reason the audit trail keeps.
+/// [approvalToken] is filled in on the second attempt, after a Store Manager
+/// signed off a price above the cap.
+///
+/// [delivery] is the corrected slip, and it is OPTIONAL for a money reason: the
+/// slip is not on the order wire, so a form cannot know whether one exists or
+/// which status it has. An edit that says nothing about the delivery sends no
+/// key at all and leaves the slip untouched; the server refuses one that names a
+/// slip past `SCHEDULED` (`DELIVERY_NOT_SCHEDULED`).
+class SalesOrderEdit {
+  const SalesOrderEdit({
+    required this.lines,
+    required this.reason,
+    this.notes = '',
+    this.delivery,
+    this.approvalToken,
+  });
+
+  final List<SalesOrderLineDraft> lines;
+  final String reason;
+  final String notes;
+
+  /// The corrected (or newly booked) delivery, or null when this edit does not
+  /// touch the slip.
+  final DeliveryDraft? delivery;
+  final String? approvalToken;
+
+  Map<String, dynamic> toJson() => {
+    'notes': notes,
+    'reason': reason,
+    'items': [for (final line in lines) line.toJson()],
+    if (delivery != null) 'delivery': delivery!.toJson(),
+    if (approvalToken != null) 'discount_approval': approvalToken,
   };
 }

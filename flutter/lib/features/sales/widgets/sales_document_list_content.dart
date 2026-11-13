@@ -105,11 +105,14 @@ class _SalesDocumentListContentState extends State<SalesDocumentListContent> {
       'Accepted',
       'Expired',
     ],
+    // Phase 7 F1 (decision 19): the order lifecycle is CONFIRMED / PARTIAL /
+    // CANCELLED / COMPLETED. PROCESSING and READY are legacy words the server
+    // reads as CONFIRMED, so a chip for either would filter to nothing.
     SalesDocumentKind.order => const [
       _anyStatus,
       'Confirmed',
-      'Processing',
-      'Ready',
+      'Partial',
+      'Cancelled',
       'Completed',
     ],
   };

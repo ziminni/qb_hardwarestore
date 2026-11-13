@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:client/core/network/api_client.dart';
 import 'package:client/data/models/customer.dart';
 import 'package:client/data/models/delivery.dart';
@@ -237,6 +239,135 @@ class PosCheckoutLine {
   final String storedAtName;
 }
 
+/// One line of a sales order as the TILL needs it (Phase 7 F2, decision 19).
+///
+/// Not reused from `sale_transaction.dart`: `fulfil/` keys a line by its
+/// `SalesOrderItem` pk (`order_line`), which the sales-side model does not carry,
+/// and the till is the only caller that sends one.
+class PosOpenOrderLine {
+  const PosOpenOrderLine({
+    required this.id,
+    required this.variantUomId,
+    required this.qty,
+    required this.unitPrice,
+    required this.remainingQty,
+    this.availableQty,
+    this.fulfilledQty = 0,
+  });
+
+  /// The order line's pk - what `fulfil/` calls `order_line`.
+  final int id;
+  final int variantUomId;
+
+  /// What was ordered, and the price the customer agreed to. The till charges
+  /// this price: it is READ-ONLY at the counter.
+  final double qty;
+  final double unitPrice;
+
+  /// What is still owed on this line (server arithmetic).
+  final double remainingQty;
+
+  /// Sellable stock in this line's unit right now, or null when the server did
+  /// not say. A live hint only: nothing is reserved for an order.
+  final double? availableQty;
+
+  /// What has already been rung. Zero means this order has never been fulfilled
+  /// and so carries the agreed delivery fee on its next sale.
+  final double fulfilledQty;
+
+  /// "Enough in stock" / "Short by N", or null when the wire sent no hint.
+  String? get stockHint {
+    final available = availableQty;
+    if (available == null) return null;
+    final shortfall = remainingQty - available;
+    if (shortfall <= 0) return 'Enough in stock';
+    return 'Short by ${_units(shortfall)}';
+  }
+
+  static String _units(double value) => value == value.roundToDouble()
+      ? value.toStringAsFixed(0)
+      : value.toStringAsFixed(2);
+
+  /// A Decimal from the wire (DRF sends strings), or null when absent.
+  static double? _amount(Object? value) =>
+      value == null ? null : double.tryParse('$value');
+
+  factory PosOpenOrderLine.fromJson(
+    Map<String, dynamic> json,
+  ) => PosOpenOrderLine(
+    id: json['id'] as int,
+    variantUomId: json['variant_uom'] as int,
+    qty: _amount(json['qty']) ?? 0,
+    unitPrice: _amount(json['unit_price']) ?? 0,
+    // A body from before B1 has neither column: what was ordered is still owed.
+    remainingQty: _amount(json['remaining_qty']) ?? _amount(json['qty']) ?? 0,
+    availableQty: _amount(json['available_qty']),
+    fulfilledQty: _amount(json['fulfilled_qty']) ?? 0,
+  );
+}
+
+/// A sales order the till may ring (Phase 7 F2, decision 19 #3/#4).
+class PosOpenOrder {
+  const PosOpenOrder({
+    required this.id,
+    required this.number,
+    required this.customerId,
+    required this.status,
+    required this.lines,
+  });
+
+  final int id;
+  final String number;
+  final int customerId;
+
+  /// The EFFECTIVE status the server sent: a legacy PROCESSING/READY row reads
+  /// as CONFIRMED, and only CONFIRMED/PARTIAL can still be rung.
+  final String status;
+  final List<PosOpenOrderLine> lines;
+
+  static const openStatuses = {'CONFIRMED', 'PARTIAL'};
+
+  bool get isOpen => openStatuses.contains(status);
+
+  /// True before anything was rung: the agreed delivery fee is charged on the
+  /// FIRST fulfilment and on no later one.
+  bool get hasNothingFulfilled => lines.every((line) => line.fulfilledQty == 0);
+
+  /// What the goods still come to - not the total, because the delivery fee
+  /// lives on its own slip and is never discounted.
+  double get remainingTotal => lines.fold<double>(
+    0,
+    (sum, line) => sum + line.remainingQty * line.unitPrice,
+  );
+
+  factory PosOpenOrder.fromJson(Map<String, dynamic> json) {
+    final items = json['items'];
+    if (items is! List) {
+      throw FormatException('Missing required list field "items"');
+    }
+    return PosOpenOrder(
+      id: json['id'] as int,
+      number: json['order_no'] as String,
+      customerId: json['customer'] as int,
+      status: json['status'] as String,
+      lines: [
+        for (final item in items)
+          PosOpenOrderLine.fromJson(item as Map<String, dynamic>),
+      ],
+    );
+  }
+}
+
+/// One line the till sends to `POST /sales-orders/{id}/fulfil/`.
+class PosFulfilLine {
+  const PosFulfilLine({required this.orderLineId, required this.quantity});
+
+  final int orderLineId;
+  final double quantity;
+
+  Map<String, dynamic> toJson() => {'order_line': orderLineId, 'qty': quantity};
+}
+
 /// Raised when a sale cannot be completed. [message] is safe to show a cashier.
 class PosServiceException implements Exception {
   const PosServiceException(
@@ -301,6 +432,8 @@ class PosService {
 
   static const transactionsPath = '/api/v1/transactions/';
   static const customersPath = '/api/v1/customers/';
+  static const salesOrdersPath = '/api/v1/sales-orders/';
+  static const deliveriesPath = '/api/v1/deliveries/';
 
   /// The customer id to send for an anonymous sale.
   ///
@@ -376,6 +509,99 @@ class PosService {
     } on DioException catch (error) {
       throw _failureFor(error);
     }
+  }
+
+  /// The orders the counter may still ring: CONFIRMED or PARTIAL, with a line
+  /// left to ring (Phase 7 F2, decision 19 #3).
+  ///
+  /// Filtered HERE, on the status the wire carries, rather than with `?status=`:
+  /// the server reports the EFFECTIVE status, so a legacy PROCESSING/READY row is
+  /// a live order and a column filter would hide it.
+  Future<List<PosOpenOrder>> fetchOpenOrders() async {
+    try {
+      // Every page: an order taken three weeks ago is still CONFIRMED, so page 1
+      // of the newest orders is not "the open ones".
+      final rows = await _client.getAll<PosOpenOrder>(
+        salesOrdersPath,
+        PosOpenOrder.fromJson,
+      );
+      return [
+        for (final row in rows)
+          if (row.isOpen && row.lines.any((line) => line.remainingQty > 0)) row,
+      ];
+    } on DioException catch (error) {
+      throw _failureFor(error);
+    }
+  }
+
+  /// The delivery fee the FIRST fulfilment must charge, or null when the order
+  /// has no slip (Phase 7 B4: the fee moves onto the sale once).
+  ///
+  /// A slip this cashier may not read (another till took the order) answers 404
+  /// under the row scope, and that is not an error at the counter: the till then
+  /// cannot PREVIEW the charge, while the server still bills it exactly once.
+  Future<double?> fetchOrderDeliveryFee(int orderId) async {
+    try {
+      final response = await _client.get<dynamic>(
+        deliveriesPath,
+        queryParameters: {'sales_order': orderId},
+      );
+      final body = response.data;
+      if (body is! Map<String, dynamic>) return null;
+      final results = body['results'];
+      if (results is! List || results.isEmpty) return null;
+      final slip = results.first;
+      return slip is Map<String, dynamic> ? _amount(slip['fee']) : null;
+    } on DioException {
+      return null;
+    }
+  }
+
+  /// Rings what is left of an order into a real sale (Phase 7 B4).
+  ///
+  /// The response IS the finished transaction, receipt and all, exactly as on
+  /// checkout - so the receipt path is shared and this method adds no second one.
+  /// No `delivery` is ever sent: the slip belongs to the order and the server
+  /// refuses one on every fulfilment.
+  Future<PosCheckoutResult> fulfilOrder({
+    required int orderId,
+    required List<PosFulfilLine> lines,
+    required List<PosCheckoutPayment> payments,
+    String? idempotencyKey,
+  }) async {
+    try {
+      final response = await _client.post<Map<String, dynamic>>(
+        '$salesOrdersPath$orderId/fulfil/',
+        headers: _idempotencyHeaders(idempotencyKey),
+        data: {
+          'lines': [for (final line in lines) line.toJson()],
+          'payments': [for (final payment in payments) payment.toJson()],
+        },
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const PosServiceException(
+          'The server did not return the completed sale.',
+        );
+      }
+      return PosCheckoutResult.fromJson(data);
+    } on DioException catch (error) {
+      throw _failureFor(error);
+    }
+  }
+
+  /// 32 hex characters from a CSPRNG: one sale attempt's `Idempotency-Key`.
+  ///
+  /// Well inside the server's 64-character cap, and NOT a UUID dependency: the
+  /// server only requires uniqueness per cashier, and `Random.secure()` gives that
+  /// without adding a package.
+  static String newIdempotencyKey() {
+    final random = Random.secure();
+    final buffer = StringBuffer();
+    for (var i = 0; i < 32; i++) {
+      buffer.write(random.nextInt(16).toRadixString(16));
+    }
+    return buffer.toString();
   }
 
   /// The `Idempotency-Key` header, or null when this attempt carries no key.

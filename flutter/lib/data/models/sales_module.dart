@@ -2,7 +2,11 @@ import 'package:client/data/models/sale_transaction.dart';
 
 enum SalesQuoteStatus { draft, sent, accepted, expired }
 
-enum SalesOrderStatus { confirmed, processing, ready, completed }
+/// The statuses an order can really carry (Phase 7 F1, decision 19).
+///
+/// Legacy `PROCESSING`/`READY` rows still exist in the database; the server
+/// reads them as CONFIRMED on the wire, so no member here stands for them.
+enum SalesOrderStatus { confirmed, partial, cancelled, completed }
 
 /// A quotation as the sales screens render it.
 ///
@@ -35,6 +39,7 @@ class SalesQuotation {
 /// [QuotationLineItem]'s reasoning: already on the wire, no detail fetch needed.
 class SalesOrderRecord {
   const SalesOrderRecord(
+    this.id,
     this.number,
     this.customer,
     this.date,
@@ -43,6 +48,9 @@ class SalesOrderRecord {
     this.items = const [],
     this.notes,
   });
+
+  /// The order's database id: the Edit and Cancel actions address it.
+  final int id;
   final String number;
   final String customer;
   final DateTime date;

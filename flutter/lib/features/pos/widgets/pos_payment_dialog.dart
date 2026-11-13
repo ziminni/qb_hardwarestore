@@ -114,6 +114,8 @@ class PosPaymentDialog extends StatefulWidget {
     this.discountCapPercent = StoreSettings.defaultDiscountCapPercent,
     this.approvalService,
     this.customerIsNamed = true,
+    this.lockedDeliveryFee,
+    this.allowDiscount = true,
   });
 
   /// The cart's gross: what the sale is worth before any discount.
@@ -129,6 +131,21 @@ class PosPaymentDialog extends StatefulWidget {
   /// False for the seeded walk-in customer. A cheque is refused then, because the
   /// pending amount would be owed by nobody (server: `CHEQUE_NEEDS_CUSTOMER`).
   final bool customerIsNamed;
+
+  /// The delivery fee an order's fulfilment must charge, or null for an ordinary
+  /// till sale (Phase 7 F2, decision 19).
+  ///
+  /// Non-null means the sale is the order's: the fee was agreed on its slip and
+  /// is charged once, so it is SHOWN and never edited, and the Deliver section is
+  /// not offered - the trip is not re-booked at the counter (the server refuses a
+  /// `delivery` object on every fulfilment).
+  final double? lockedDeliveryFee;
+
+  /// False when the sale takes no new discount (an order's fulfilment: the
+  /// approval was spent when the order was saved). Hiding the fields is the
+  /// honest thing: a discount typed here would never reach the server, and the
+  /// till would take less money than the sale asks for.
+  final bool allowDiscount;
 
   @override
   State<PosPaymentDialog> createState() => _PosPaymentDialogState();
@@ -195,7 +212,9 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
   @override
   void initState() {
     super.initState();
-    _rows.first.amountController.text = widget.total.toStringAsFixed(2);
+    // What the sale ASKS FOR, which is not always the goods total: an order's
+    // fulfilment carries the delivery fee agreed on its slip.
+    _rows.first.amountController.text = _due.toStringAsFixed(2);
   }
 
   @override
@@ -229,13 +248,17 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
   double get _fee =>
       _deliver ? (double.tryParse(_deliveryFee.text.trim()) ?? 0) : 0;
 
+  /// What this sale charges for the trip: the order's agreed fee when the sale is
+  /// a fulfilment, otherwise whatever the cashier described here.
+  double get _deliveryCharge => widget.lockedDeliveryFee ?? _fee;
+
   /// What the customer owes: the GOODS net plus the delivery charge.
   ///
   /// The fee is added AFTER the discount and is never discounted (ENDPOINTS.md,
   /// *Delivery charge*), so a percentage taken off the goods cannot eat the
   /// trip. The server computes the same figure; this preview only has to match
   /// it so the tender rows ask for the right money.
-  double get _due => _amounts.net + _fee;
+  double get _due => _amounts.net + _deliveryCharge;
 
   /// What stopped the pending cheque from being taken, or null.
   String? get _chequeRefusal {
@@ -414,99 +437,105 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                 ),
                 // After the discount and before the total: the fee is added
                 // AFTER the discount and never discounted (decision 18).
-                if (_deliver) _summaryRow('Delivery charge', formatPeso(_fee)),
+                if (widget.lockedDeliveryFee != null
+                    ? _deliveryCharge > 0
+                    : _deliver)
+                  _summaryRow('Delivery charge', formatPeso(_deliveryCharge)),
                 Text(
                   'Amount due: ${formatPeso(_due)}',
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
                 const SizedBox(height: 8),
-                _deliverySection(),
-                const SizedBox(height: 16),
-                const Text('Apply a discount'),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    for (final kind in DiscountKind.values) ...[
-                      ChoiceChip(
-                        label: Text(
-                          kind == DiscountKind.amount
-                              ? '₱ Amount'
-                              : '% Percent',
+                // A fulfilment's trip is already agreed on the order.
+                if (widget.lockedDeliveryFee == null) _deliverySection(),
+                if (widget.allowDiscount) ...[
+                  const SizedBox(height: 16),
+                  const Text('Apply a discount'),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      for (final kind in DiscountKind.values) ...[
+                        ChoiceChip(
+                          label: Text(
+                            kind == DiscountKind.amount
+                                ? '₱ Amount'
+                                : '% Percent',
+                          ),
+                          selected: _kind == kind,
+                          onSelected: (_) {
+                            if (_kind == kind) return;
+                            setState(() => _kind = kind);
+                            _onDiscountChanged();
+                          },
                         ),
-                        selected: _kind == kind,
-                        onSelected: (_) {
-                          if (_kind == kind) return;
-                          setState(() => _kind = kind);
-                          _onDiscountChanged();
-                        },
-                      ),
-                      const SizedBox(width: 8),
+                        const SizedBox(width: 8),
+                      ],
                     ],
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        key: const ValueKey('pos-discount-value'),
-                        controller: _discountValue,
-                        onChanged: (_) => _onDiscountChanged(),
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: InputDecoration(
-                          labelText: _kind == DiscountKind.amount
-                              ? 'Discount amount'
-                              : 'Discount percent',
-                        ),
-                        validator: (value) {
-                          final text = (value ?? '').trim();
-                          if (text.isEmpty) return null;
-                          final parsed = double.tryParse(text);
-                          if (parsed == null) return 'Enter a valid number';
-                          if (parsed < 0) {
-                            return 'A discount cannot be negative';
-                          }
-                          if (_kind == DiscountKind.percent && parsed > 100) {
-                            return 'A discount cannot be more than 100 percent';
-                          }
-                          return null;
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      flex: 2,
-                      child: TextFormField(
-                        key: const ValueKey('pos-discount-reason'),
-                        controller: _discountReason,
-                        onChanged: (_) => _onDiscountChanged(),
-                        decoration: const InputDecoration(
-                          labelText: 'Reason for the discount',
-                        ),
-                        validator: (value) {
-                          if ((_discountValue.text.trim().isNotEmpty) &&
-                              (value ?? '').trim().isEmpty) {
-                            return 'A discount needs a reason';
-                          }
-                          return null;
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                if (needsApproval) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    'Needs manager approval: ${amounts.percentOfGross.toStringAsFixed(2)}% '
-                    'is above the ${widget.discountCapPercent.toStringAsFixed(2)}% cap.',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                      fontWeight: FontWeight.bold,
-                    ),
                   ),
+                  const SizedBox(height: 10),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          key: const ValueKey('pos-discount-value'),
+                          controller: _discountValue,
+                          onChanged: (_) => _onDiscountChanged(),
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: _kind == DiscountKind.amount
+                                ? 'Discount amount'
+                                : 'Discount percent',
+                          ),
+                          validator: (value) {
+                            final text = (value ?? '').trim();
+                            if (text.isEmpty) return null;
+                            final parsed = double.tryParse(text);
+                            if (parsed == null) return 'Enter a valid number';
+                            if (parsed < 0) {
+                              return 'A discount cannot be negative';
+                            }
+                            if (_kind == DiscountKind.percent && parsed > 100) {
+                              return 'A discount cannot be more than 100 percent';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        flex: 2,
+                        child: TextFormField(
+                          key: const ValueKey('pos-discount-reason'),
+                          controller: _discountReason,
+                          onChanged: (_) => _onDiscountChanged(),
+                          decoration: const InputDecoration(
+                            labelText: 'Reason for the discount',
+                          ),
+                          validator: (value) {
+                            if ((_discountValue.text.trim().isNotEmpty) &&
+                                (value ?? '').trim().isEmpty) {
+                              return 'A discount needs a reason';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (needsApproval) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      'Needs manager approval: ${amounts.percentOfGross.toStringAsFixed(2)}% '
+                      'is above the ${widget.discountCapPercent.toStringAsFixed(2)}% cap.',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
                 ],
                 const SizedBox(height: 16),
                 Row(
@@ -869,7 +898,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
     }
 
     final amounts = _amounts;
-    final discount = _discount;
+    final discount = widget.allowDiscount ? _discount : null;
 
     if (amounts.needsApproval(widget.discountCapPercent)) {
       final token = await _askApproval(
@@ -889,7 +918,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
 
     // A delivery always carries its date: leaving it blank would post a sale the
     // server refuses for a reason the cashier cannot see on this screen.
-    final delivery = _deliver
+    final delivery = _deliver && widget.lockedDeliveryFee == null
         ? DeliveryDraft(
             address: _deliveryAddress.text.trim(),
             contactName: _deliveryContact.text.trim(),

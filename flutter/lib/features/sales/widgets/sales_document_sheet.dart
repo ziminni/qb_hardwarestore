@@ -18,14 +18,38 @@ class SalesDocumentLine {
     required this.name,
     required this.qty,
     required this.unitPrice,
+    this.fulfilledQty,
+    this.remainingQty,
+    this.availableQty,
   });
 
   final String name;
+
+  /// What was ordered.
   final double qty;
   final double unitPrice;
 
+  /// Order lines only (Phase 7 F1): what has been rung into a sale. Null on a
+  /// document with no lifecycle, which is how the sheet knows to stay quiet.
+  final double? fulfilledQty;
+
+  /// What is still owed. Derived from [qty] and [fulfilledQty] when the wire
+  /// left it out.
+  final double? remainingQty;
+
+  /// Sellable stock in this line's unit, when the server sends it (B5). A live
+  /// hint only — an order reserves nothing.
+  final double? availableQty;
+
   double get subtotal => qty * unitPrice;
+
+  /// What is still owed on this line.
+  double get remaining => remainingQty ?? qty - (fulfilledQty ?? 0);
 }
+
+/// What a reader picked on the document sheet. The sheet pops with this rather
+/// than acting itself: it is a view, and the page owns the dialogs.
+enum SalesDocumentAction { edit, cancel }
 
 /// A quantity in the app's one quantity format (D7).
 ///
@@ -56,15 +80,21 @@ String variantUomName(InventoryViewmodel? inventory, int variantUomId) {
   return 'Variant unit #$variantUomId';
 }
 
-/// Opens a read-only document sheet (decision D-02 option A).
-Future<void> showSalesDocumentSheet(
+/// Opens a document sheet (decision D-02 option A).
+///
+/// [canEdit]/[canCancel] are decided by the PAGE, from the role and the order's
+/// status: the sheet never reads auth, and a sheet with neither flag is the
+/// strictly read-only family it was before Phase 7.
+Future<SalesDocumentAction?> showSalesDocumentSheet(
   BuildContext context, {
   required String title,
   required List<(String, String)> fields,
   required List<SalesDocumentLine> lines,
   required num total,
+  bool canEdit = false,
+  bool canCancel = false,
 }) {
-  return showModalBottomSheet<void>(
+  return showModalBottomSheet<SalesDocumentAction>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
@@ -73,15 +103,18 @@ Future<void> showSalesDocumentSheet(
       fields: fields,
       lines: lines,
       total: total,
+      canEdit: canEdit,
+      canCancel: canCancel,
     ),
   );
 }
 
-/// A document, read-only.
+/// A document, read-only unless the page grants an action.
 ///
-/// Strictly view: no `TextField`, no submit button. D-02 decided View is a
-/// display action — create/edit/delete have no scope and no wired backend for
-/// the sales role, so there is deliberately nothing here to press.
+/// Strictly view: no `TextField`, no money on the way in. D-02 decided View is a
+/// display action, and that still holds for every posted document; Phase 7 F1
+/// added the two LIFECYCLE actions an unfulfilled order has (Edit, Cancel) for
+/// managers, and those close the sheet and hand the choice back to the page.
 ///
 /// Scrollable with `isScrollControlled`, because a long order has more lines
 /// than a half-height sheet shows. The header, the label/value rows and the gold
@@ -94,12 +127,16 @@ class SalesDocumentSheet extends StatelessWidget {
     required this.fields,
     required this.lines,
     required this.total,
+    this.canEdit = false,
+    this.canCancel = false,
   });
 
   final String title;
   final List<(String, String)> fields;
   final List<SalesDocumentLine> lines;
   final num total;
+  final bool canEdit;
+  final bool canCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -167,6 +204,35 @@ class SalesDocumentSheet extends StatelessWidget {
                   for (final line in lines) _line(line),
                 const SizedBox(height: AppSpacing.xl),
                 TotalBar(label: 'Total', amount: total),
+                if (canEdit || canCancel) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      if (canCancel)
+                        TextButton(
+                          key: const ValueKey('so-sheet-cancel'),
+                          onPressed: () => Navigator.pop(
+                            context,
+                            SalesDocumentAction.cancel,
+                          ),
+                          child: const Text('Cancel'),
+                        ),
+                      if (canEdit)
+                        Padding(
+                          padding: const EdgeInsets.only(left: AppSpacing.sm),
+                          child: FilledButton.tonal(
+                            key: const ValueKey('so-sheet-edit'),
+                            onPressed: () => Navigator.pop(
+                              context,
+                              SalesDocumentAction.edit,
+                            ),
+                            child: const Text('Edit'),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
@@ -176,41 +242,72 @@ class SalesDocumentSheet extends StatelessWidget {
   }
 
   Widget _line(SalesDocumentLine line) {
+    final fulfilled = line.fulfilledQty;
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            flex: 3,
-            child: Text(
-              line.name,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: AppTextStyles.bodyMedium,
-            ),
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: Text(
+                  line.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.bodyMedium,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                flex: 2,
+                child: Text(
+                  '${salesQty(line.qty)} × ${formatPeso(line.unitPrice)}',
+                  textAlign: TextAlign.right,
+                  style: AppTextStyles.bodySmall,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                flex: 2,
+                child: Text(
+                  formatPeso(line.subtotal),
+                  textAlign: TextAlign.right,
+                  style: AppTextStyles.labelLarge.copyWith(
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            flex: 2,
-            child: Text(
-              '${salesQty(line.qty)} × ${formatPeso(line.unitPrice)}',
-              textAlign: TextAlign.right,
-              style: AppTextStyles.bodySmall,
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            flex: 2,
-            child: Text(
-              formatPeso(line.subtotal),
-              textAlign: TextAlign.right,
-              style: AppTextStyles.labelLarge.copyWith(
-                fontFeatures: const [FontFeature.tabularFigures()],
+          // Phase 7 F1: an order's progress, and whether today's stock covers
+          // what is left. Nothing is reserved, so this is a hint and says so.
+          if (fulfilled != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                [
+                  'Ordered ${salesQty(line.qty)}',
+                  'Fulfilled ${salesQty(fulfilled)}',
+                  'Remaining ${salesQty(line.remaining)}',
+                  ?_stockHint(line),
+                ].join(' · '),
+                style: AppTextStyles.bodySmall,
               ),
             ),
-          ),
         ],
       ),
     );
+  }
+
+  /// "Enough in stock", "Short by N", or nothing when the wire sent no
+  /// `available_qty` (a server that predates B5 says nothing rather than "short").
+  static String? _stockHint(SalesDocumentLine line) {
+    final available = line.availableQty;
+    if (available == null) return null;
+    final shortfall = line.remaining - available;
+    if (shortfall <= 0) return 'Enough in stock';
+    return 'Short by ${salesQty(shortfall)}';
   }
 }

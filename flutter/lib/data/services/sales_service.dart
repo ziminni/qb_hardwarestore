@@ -4,9 +4,16 @@ import 'package:dio/dio.dart';
 
 /// Raised for anything a sales screen must show to a human.
 class SalesServiceException implements Exception {
-  const SalesServiceException(this.message);
+  const SalesServiceException(this.message, {this.code, this.requestedPercent});
 
   final String message;
+
+  /// The server's stable machine-readable code, when it sent one. The order form
+  /// branches on `DISCOUNT_OVER_CAP` to ask a manager to approve in place.
+  final String? code;
+
+  /// How far above the cap an order's largest line was, when the server said so.
+  final double? requestedPercent;
 
   @override
   String toString() => message;
@@ -99,9 +106,9 @@ class SalesService {
 
   /// Creates ONE sales order and returns the server's row.
   ///
-  /// Phase 5 F3 follow-up: the owner authorised CREATE-ONLY entry. There is no
-  /// update, delete, status or fulfil route on this client, so this is the only
-  /// write a sales order has.
+  /// Phase 5 F3 follow-up gave the sales screen create-only entry; Phase 7 F1
+  /// added a manager's edit and cancel ([editSalesOrder], [cancelSalesOrder]) and
+  /// left DELETE off the client entirely — a cancellation replaces it.
   ///
   /// A refusal is re-thrown as the server's own sentence (a `WHOLE_UNIT_QUANTITY`
   /// detail names the line and the unit; an `INVALID_DELIVERY` detail names the
@@ -122,43 +129,115 @@ class SalesService {
       }
       return SalesOrderRow.fromJson(data);
     } on DioException catch (error) {
-      throw SalesServiceException(_refusal(error));
+      throw _refusal(error);
     }
   }
 
-  /// Why a create was refused, in words a clerk can act on.
+  /// Edits ONE sales order: `PATCH /api/v1/sales-orders/{id}/` (Phase 7 B3).
   ///
-  /// The server's `detail` comes first — it names the line, or the delivery field
-  /// that is missing — and the coded fallbacks exist only for a body that arrived
-  /// without one.
-  String _refusal(DioException error) {
+  /// The whole line set is sent, the reason goes with it (the server writes it
+  /// into the audit trail), and an above-cap price carries the manager's token.
+  Future<SalesOrderRow> editSalesOrder(int id, SalesOrderEdit edit) async {
+    try {
+      final response = await _client.patch<Map<String, dynamic>>(
+        '$salesOrdersPath$id/',
+        data: edit.toJson(),
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const SalesServiceException(
+          'The server did not return the edited sales order.',
+        );
+      }
+      return SalesOrderRow.fromJson(data);
+    } on DioException catch (error) {
+      throw _refusal(error);
+    }
+  }
+
+  /// Writes off what is not going to happen: `POST .../{id}/cancel/`
+  /// (Phase 7 B3). The reason is required by the server and audited.
+  Future<SalesOrderRow> cancelSalesOrder(
+    int id, {
+    required String reason,
+  }) async {
+    try {
+      final response = await _client.post<Map<String, dynamic>>(
+        '$salesOrdersPath$id/cancel/',
+        data: {'reason': reason},
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const SalesServiceException(
+          'The server did not return the cancelled sales order.',
+        );
+      }
+      return SalesOrderRow.fromJson(data);
+    } on DioException catch (error) {
+      throw _refusal(error);
+    }
+  }
+
+  /// Why a write was refused, in words a manager can act on.
+  ///
+  /// The sentence comes first for the human, but the CODE rides along: the order
+  /// form branches on `DISCOUNT_OVER_CAP` to ask a manager to sign the price off
+  /// without losing a word it typed.
+  SalesServiceException _refusal(DioException error) {
     if (error.type == DioExceptionType.connectionError ||
         error.type == DioExceptionType.connectionTimeout ||
         error.type == DioExceptionType.receiveTimeout) {
-      return 'Cannot connect to the BuildPro server.';
+      return const SalesServiceException(
+        'Cannot connect to the BuildPro server.',
+      );
     }
     final status = error.response?.statusCode;
-    if (status == 401) return 'Your session has expired. Sign in again.';
+    if (status == 401) {
+      return const SalesServiceException(
+        'Your session has expired. Sign in again.',
+      );
+    }
     if (status == 403) {
-      return 'You do not have permission to create a sales order.';
+      return const SalesServiceException(
+        'You do not have permission to change this sales order.',
+      );
     }
     final data = error.response?.data;
     if (data is Map<String, dynamic>) {
+      final code = data['code'] is String ? data['code'] as String : null;
+      final percent = double.tryParse('${data['requested_percent']}');
       final detail = data['detail'];
-      if (detail is String && detail.trim().isNotEmpty) return detail;
-      final code = data['code'];
-      if (code is String) {
+      if (detail is String && detail.trim().isNotEmpty) {
+        return SalesServiceException(
+          detail,
+          code: code,
+          requestedPercent: percent,
+        );
+      }
+      if (code != null) {
         final mapped = _refusalCodes[code];
-        if (mapped != null) return mapped;
+        if (mapped != null) {
+          return SalesServiceException(
+            mapped,
+            code: code,
+            requestedPercent: percent,
+          );
+        }
       }
       // A field-error dict (`{"items": ["..."]}`) is still an answer a clerk can
       // act on, so it is read out rather than flattened to the fallback.
       for (final value in data.values) {
-        if (value is List && value.isNotEmpty) return '${value.first}';
-        if (value is String && value.isNotEmpty) return value;
+        if (value is List && value.isNotEmpty) {
+          return SalesServiceException('${value.first}', code: code);
+        }
+        if (value is String && value.isNotEmpty) {
+          return SalesServiceException(value, code: code);
+        }
       }
     }
-    return 'The sales order was refused. Nothing was saved.';
+    return const SalesServiceException(
+      'The sales order was refused. Nothing was saved.',
+    );
   }
 
   /// Fallback sentences for a code that arrived without a `detail`.

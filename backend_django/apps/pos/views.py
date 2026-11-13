@@ -15,7 +15,7 @@ from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -37,7 +37,12 @@ from apps.users.permissions import (
 )
 from apps.users.services import audit_request
 
-from .exceptions import CreditLimitForbidden, DiscountApprovalInvalid, InvalidDiscount
+from .exceptions import (
+    CreditLimitForbidden,
+    DiscountApprovalInvalid,
+    InvalidDiscount,
+    SalesOrderReasonRequired,
+)
 from .models import (
     Customer,
     Delivery,
@@ -64,6 +69,8 @@ from .serializers import (
     ShiftSerializer,
 )
 from .services import (
+    MAX_SALES_ORDER_REASON_LENGTH,
+    cancel_sales_order,
     decide_cheque,
     issue_discount_approval,
     parse_idempotency_key,
@@ -1038,14 +1045,57 @@ class QuotationViewSet(BaseViewSet):
             )
 
 
+def _order_snapshot(order):
+    """What an order IS, in the terms an edit's audit row compares (B3).
+
+    Lines are summed at their AGREED prices - an order carries no money total of its own
+    (the delivery fee lives on its `Delivery` row) - so the trail shows what the promise
+    was worth before the manager touched it and what it is worth after. The delivery's
+    address and date ride along because correcting them is an edit too.
+    """
+    lines = list(order.items.all())
+    total = sum(
+        (Decimal(line.qty) * Decimal(line.unit_price) for line in lines), Decimal(0)
+    )
+    delivery = order.deliveries.first()
+    return {
+        "lines": len(lines),
+        "total": total,
+        "delivery": (
+            "no delivery"
+            if delivery is None
+            else f"delivery to {delivery.address} on {delivery.scheduled_date}"
+        ),
+    }
+
+
+def _edit_audit_line(before, after):
+    """`lines 1 -> 2, total 3150.00 -> 6000.00, <delivery>` - the before/after summary."""
+    return (
+        f"lines {before['lines']} -> {after['lines']}, "
+        f"total {before['total']:.2f} -> {after['total']:.2f}, "
+        f"{before['delivery']} -> {after['delivery']}"
+    )
+
+
 class SalesOrderViewSet(BaseViewSet):
     """Phase 6 task 6A.2 (decision 05). Reads need a SALES role; writes need a POS role.
 
-    Phase 6 B1 (decision 22 #16): an order is CREATE-only until Phase 7 ships the real
-    lifecycle actions. `PUT`/`PATCH`/`DELETE` are not routed - 405 for every role, an
-    admin included - because DELETE of an order that has a `Delivery` raises
-    `ProtectedError` on the PROTECTed FK, which used to surface as a 500. Same precedent
-    as `SalesTransactionViewSet`: no role rewrites a document the shop promised.
+    An order is CREATED at the till (`POST`, any POS role) and then channelled through the
+    lifecycle actions decision 19 ruled, which are the only three things that may change
+    it:
+
+    * `PATCH /sales-orders/{id}/` (Phase 7 B3) - a **Store Manager/Admin** corrects the
+      lines, the notes or the delivery slip while the order is CONFIRMED and nothing has
+      been fulfilled. `reason` is required and the change is audited.
+    * `POST /sales-orders/{id}/cancel/` (Phase 7 B3) - a **Store Manager/Admin** writes the
+      order off (or its remainder) with a reason.
+    * `POST /sales-orders/{id}/fulfil/` (Phase 7 B4) lands here next.
+
+    `PUT` and `DELETE` stay **unrouted - 405 for every role, an Admin included** (Phase 6
+    B1, decision 22 #16; decision 19 replaces DELETE with cancellation). DELETE of an
+    order that has a `Delivery` raises `ProtectedError` on the PROTECTed FK, which used to
+    surface as a 500, and a document the shop promised is never rewritten wholesale.
     """
 
     queryset = SalesOrder.objects.select_related(
@@ -1053,8 +1103,189 @@ class SalesOrderViewSet(BaseViewSet):
     ).prefetch_related("items__variant_uom")
     serializer_class = SalesOrderSerializer
     # Tuple, not a list: same DRF contract, tuple keeps this file's RUF012 noise down
-    # (precedent at `DeliveryViewSet.http_method_names`).
-    http_method_names = ("get", "head", "options", "post")
+    # (precedent at `DeliveryViewSet.http_method_names`). `patch` is B3's edit; `delete`
+    # and `put` are absent on purpose.
+    http_method_names = ("get", "head", "options", "post", "patch")
+
+    def get_permissions(self):
+        """Creating an order is till work; REWRITING one is a manager's act (B3).
+
+        Decision 19 #4: a cashier takes an order, a Store Manager/Admin edits or cancels
+        it - `IsManagerRole`, the same fence requisitions use. Everything else keeps the
+        B1 rules (`SalesReadPOSWrite`: read with any sales role, POST with a POS role), so
+        this changes one action and nothing else.
+        """
+        if self.action == "partial_update":
+            return [IsManagerRole()]
+        return super().get_permissions()
+
+    def partial_update(self, request, *args, **kwargs):
+        """`PATCH /sales-orders/{id}/` - a manager corrects a promise not yet kept.
+
+        Decision 19 #4: editable only while `effective_status` is CONFIRMED and nothing
+        has been fulfilled (the serializer enforces that, and the price guard B2 installed
+        runs again for any new line). The order row is locked for the WHOLE edit, so a
+        fulfilment landing at the same instant either waits behind this or wins first -
+        never both. The edit and its SALES_ORDER audit row are one transaction, so a
+        refused edit leaves no trail claiming it happened.
+        """
+        with db_transaction.atomic():
+            # `get_object()` answers 404 and permissions as everywhere else; the locked
+            # re-read is what makes the state check inside the serializer true. The lock
+            # is taken on the BARE row: `select_for_update` on this viewset's queryset
+            # would join the nullable `quotation`, and Postgres refuses FOR UPDATE on the
+            # nullable side of an outer join.
+            instance = self.get_object()
+            order = SalesOrder.objects.select_for_update().get(pk=instance.pk)
+            before = _order_snapshot(order)
+            serializer = self.get_serializer(order, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            # Read BEFORE `save()`: the serializer pops `reason` out of `validated_data`
+            # (there is no column for it - the audit row is where it lives).
+            reason = (serializer.validated_data.get("reason") or "").strip()
+            order = serializer.save()
+            # Re-read through the queryset: the edit replaced the lines, so the response
+            # and the "after" snapshot need the fresh ones, not the prefetch cache.
+            updated = self.get_queryset().get(pk=order.pk)
+            after = _order_snapshot(updated)
+            audit_request(
+                request,
+                AuditLog.ActionType.SALES_ORDER,
+                f"Sales order {updated.order_no} edited by {request.user.username}: "
+                f"{_edit_audit_line(before, after)}. Reason: {reason}.",
+            )
+        return Response(self.get_serializer(updated).data)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsManagerRole])
+    def cancel(self, request, pk=None):
+        """`POST /sales-orders/{id}/cancel/` - write off what is not going to happen.
+
+        CONFIRMED becomes CANCELLED (everything written off); PARTIAL becomes COMPLETED
+        with only the remainder written off (decision 19 #3/#4). `reason` is required and
+        stored on the order; a SCHEDULED delivery on an unfulfilled order goes FAILED.
+        `cancel_sales_order` owns the row lock and the line/status/delivery writes.
+        """
+        order = self.get_object()
+        reason = request.data.get("reason")
+        reason = reason.strip() if isinstance(reason, str) else ""
+        if not reason:
+            raise SalesOrderReasonRequired()
+        if len(reason) > MAX_SALES_ORDER_REASON_LENGTH:
+            # The column is 255: refused HERE, before the write, because Postgres would
+            # answer a 500 for the over-long value instead of a bad request.
+            raise ValidationError(
+                {
+                    "reason": f"A reason is too long (max "
+                    f"{MAX_SALES_ORDER_REASON_LENGTH} characters)."
+                }
+            )
+        with db_transaction.atomic():
+            cancelled, was = cancel_sales_order(
+                order_id=order.pk, reason=reason, actor=request.user
+            )
+            lines = list(cancelled.items.all())
+            written_off = sum(
+                (Decimal(line.cancelled_qty) for line in lines), Decimal(0)
+            )
+            audit_request(
+                request,
+                AuditLog.ActionType.SALES_ORDER,
+                f"Sales order {cancelled.order_no} cancelled by "
+                f"{request.user.username}: {was} -> {cancelled.status}, "
+                f"{len(lines)} line(s), {written_off:.2f} written off. "
+                f"Reason: {reason}.",
+            )
+        return Response(
+            self.get_serializer(self.get_queryset().get(pk=cancelled.pk)).data
+        )
+
+    @action(detail=True, methods=["post"], permission_classes=[IsPOSRole])
+    def fulfil(self, request, pk=None):
+        """`POST /sales-orders/{id}/fulfil/` - ring what is left into a real sale (B4).
+
+        Decision 19 #3/#4: a cashier fulfils at the till, partially or in full, and each
+        fulfilment is an ordinary sale with its own receipt. `fulfil_sales_order` owns the
+        order's row lock, the per-line quantity/whole-unit/archived-unit refusals and the
+        `fulfilled_qty`/status writes, and calls `process_sale` so every checkout guard
+        (open shift, FIFO, VAT, tender, credit limit, change, OR) runs unchanged.
+
+        `Idempotency-Key` behaves as it does on checkout and on a held cart's `complete/`:
+        a retry of a response the client never saw answers 200 with the SAME sale instead
+        of ringing a second one. The scope names THIS order, so a key spent here cannot
+        replay a checkout, another order's fulfilment, or a held cart.
+
+        The sale, the order's lines and status, the re-linked delivery and both audit rows
+        are ONE transaction: a refused fulfilment (short stock, no shift, over-remaining)
+        leaves no sale, no moved stock and no trail claiming otherwise.
+        """
+        from .services import fulfil_sales_order
+
+        idempotency_key, body_hash = _idempotency_inputs(
+            request, f"sales-orders.{pk}.fulfil"
+        )
+        if idempotency_key:
+            replayed = replayed_transaction(
+                cashier=request.user,
+                idempotency_key=idempotency_key,
+                request_hash=body_hash,
+            )
+            if replayed is not None:
+                return _replayed_response(replayed)
+
+        # `get_object()` answers 404 and the role fence as everywhere else; the locked
+        # re-read lives in the service, on the BARE row (the viewset's queryset joins the
+        # nullable `quotation`, and Postgres refuses FOR UPDATE on the nullable side of an
+        # outer join - the same trap B3's edit documents).
+        order = self.get_object()
+        lines_data = request.data.get("lines", [])
+        try:
+            with db_transaction.atomic():
+                txn = fulfil_sales_order(
+                    order_id=order.pk,
+                    cashier=request.user,
+                    lines_data=lines_data,
+                    payments_data=request.data.get("payments", []),
+                    delivery_data=request.data.get("delivery"),
+                    idempotency_key=idempotency_key,
+                    request_hash=body_hash,
+                )
+                # Read the order back: the service wrote its status and quantities, and
+                # the audit line names both ends of that move.
+                fulfilled = SalesOrder.objects.get(pk=order.pk)
+                count = len(lines_data) if isinstance(lines_data, list) else 0
+                audit_request(
+                    request,
+                    AuditLog.ActionType.SALE,
+                    f"Sale {txn.transaction_no} rung for {txn.grand_total} from sales "
+                    f"order {fulfilled.order_no} by {request.user.username}.",
+                )
+                audit_request(
+                    request,
+                    AuditLog.ActionType.SALES_ORDER,
+                    f"Sales order {fulfilled.order_no} fulfilled by "
+                    f"{request.user.username}: {count} line(s) rung as "
+                    f"{txn.transaction_no}, {order.effective_status} -> "
+                    f"{fulfilled.status}.",
+                )
+                _audit_delivery_created(request, txn)
+        except IntegrityError:
+            # Two retries of the same fulfilment both read "no such key" and both insert;
+            # the unique constraint on (cashier, idempotency_key) settles it, so this
+            # handler re-reads the winner outside the rolled-back block and answers the
+            # replay (200) or the 409 for a key spent on a different body.
+            if not idempotency_key:
+                raise
+            replayed = replayed_transaction(
+                cashier=request.user,
+                idempotency_key=idempotency_key,
+                request_hash=body_hash,
+            )
+            if replayed is None:
+                raise
+            return _replayed_response(replayed)
+        return Response(
+            SalesTransactionSerializer(txn).data, status=status.HTTP_201_CREATED
+        )
 
     def perform_create(self, serializer):
         # Decision 07: the CREATE row and the order are ONE transaction, so a refused

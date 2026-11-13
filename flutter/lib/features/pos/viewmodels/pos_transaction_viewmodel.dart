@@ -1,5 +1,3 @@
-import 'dart:math';
-
 import 'package:client/data/models/customer.dart';
 import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/held_cart.dart';
@@ -28,10 +26,12 @@ class PosTransactionViewmodel extends ChangeNotifier {
     CustomerRepository? customers,
     HeldCartService? heldCarts,
     ProductsRepository? products,
+    PosService? orderService,
   }) : _pos = pos ?? PosRepository(PosService()),
        _customers = customers,
        _injectedHeldCarts = heldCarts,
-       _injectedProducts = products {
+       _injectedProducts = products,
+       _injectedOrders = orderService {
     _inventory.addListener(_inventoryChanged);
   }
 
@@ -51,6 +51,14 @@ class PosTransactionViewmodel extends ChangeNotifier {
   final ProductsRepository? _injectedProducts;
   ProductsRepository get _productRepo =>
       _injectedProducts ?? ProductsRepository(ProductsService());
+
+  /// The sales-order side of the till: the open-order list, the agreed delivery
+  /// fee and the `fulfil/` call (Phase 7 F2). Injected by tests and built on
+  /// FIRST USE for the same reason as [_heldCartService].
+  final PosService? _injectedOrders;
+  PosService? _ownedOrderService;
+  PosService get _orderService =>
+      _injectedOrders ?? (_ownedOrderService ??= PosService());
 
   /// Built on FIRST USE, not in the constructor.
   ///
@@ -189,19 +197,141 @@ class PosTransactionViewmodel extends ChangeNotifier {
     }
   }
 
+  /// The order being rung at the till, or null for an ordinary sale (Phase 7 F2).
+  ///
+  /// An open order turns the cart into "what is LEFT of this promise": the lines
+  /// are the order's remaining quantities, their prices are the order's agreed
+  /// prices (read-only), and `submit` rings them through `fulfil/` instead of
+  /// posting a new sale.
+  PosOpenOrder? _openOrder;
+  PosOpenOrder? get openOrder => _openOrder;
+
+  /// True while the cart holds an order's remainder.
+  bool get isFulfillingOrder => _openOrder != null;
+
+  /// The agreed delivery fee this fulfilment must charge, 0 when it carries none.
+  ///
+  /// Decision 19: the fee is charged ONCE, on the first fulfilment. The till shows
+  /// it (never edits it) so the cashier asks for the money the customer agreed to.
+  double _openOrderFee = 0;
+  double get orderDeliveryFee => _openOrderFee;
+
+  /// What may still be rung per line, keyed by `variantUom` (the cart's own key).
+  final Map<int, double> _orderLineCaps = {};
+
+  /// Each order line's pk, so `fulfil/` gets `order_line` per line.
+  final Map<int, int> _orderLineIds = {};
+
+  /// The orders the counter may ring, as of the last read.
+  List<PosOpenOrder> _openOrders = const [];
+  List<PosOpenOrder> get openOrders => List.unmodifiable(_openOrders);
+  bool _isLoadingOrders = false;
+  bool get isLoadingOrders => _isLoadingOrders;
+  String? _ordersError;
+  String? get ordersError => _ordersError;
+
+  /// Reads CONFIRMED/PARTIAL orders for the open-order list. Never throws: the
+  /// failure is [ordersError] so the dialog can say it and offer a retry.
+  Future<void> loadOpenOrders() async {
+    _isLoadingOrders = true;
+    _ordersError = null;
+    notifyListeners();
+    try {
+      _openOrders = await _orderService.fetchOpenOrders();
+    } on PosServiceException catch (error) {
+      _ordersError = error.message;
+    } finally {
+      _isLoadingOrders = false;
+      notifyListeners();
+    }
+  }
+
+  /// The catalogue's name for a selling unit, or null when the row is gone.
+  ///
+  /// The open-order dialog names its lines from here: an order line carries ids
+  /// and money only, and the catalogue is the one place that knows whether a
+  /// `variant_uom` id sells bags or metres.
+  String? productNameFor(int variantUomId) {
+    final row = _catalogRowFor(variantUomId);
+    if (row == null) return null;
+    return row.variantName.isEmpty
+        ? row.productName
+        : '${row.productName} ${row.variantName}';
+  }
+
+  /// The customer's name when the till already holds the list, else null.
+  String? customerNameFor(int customerId) {
+    for (final customer in _customerList) {
+      if (customer.id == customerId) return customer.name;
+    }
+    return null;
+  }
+
+  /// Loads an order's REMAINDER into the till, like resuming a held cart.
+  ///
+  /// The cart is REPLACED (this is that order, not an addition to it), every line
+  /// is rung at the ORDER's price, and a line with nothing left is not loaded.
+  /// Returns how many lines were loaded.
+  Future<int> loadOpenOrder(PosOpenOrder order) async {
+    _lines.clear();
+    _dropAttemptKey();
+    // An order is not a parked basket: nothing here may try to complete one.
+    _forgetResumedCart();
+    _forgetOrder();
+    for (final line in order.lines) {
+      if (line.remainingQty <= 0) continue;
+      final row = _catalogRowFor(line.variantUomId);
+      _lines.add(
+        PosCartLine(
+          variantUomId: line.variantUomId,
+          // Names come from the catalogue; an order line carries ids and money only.
+          productName: row?.productName ?? 'Order item',
+          variantName: row?.variantName ?? '',
+          quantity: line.remainingQty,
+          unit: row?.unit ?? '',
+          unitPrice: line.unitPrice,
+          availableQuantity: row?.availableSaleQuantity ?? 0,
+          storedAtName: row?.storedAtName ?? '',
+        ),
+      );
+      _orderLineCaps[line.variantUomId] = line.remainingQty;
+      _orderLineIds[line.variantUomId] = line.id;
+    }
+    _openOrder = order;
+    // The fee belongs to the FIRST fulfilment only, and only it needs the slip read.
+    _openOrderFee = order.hasNothingFulfilled
+        ? (await _orderService.fetchOrderDeliveryFee(order.id) ?? 0)
+        : 0;
+    // The order's customer is the sale's customer (decision 19 #1): a fulfilment
+    // cannot be re-addressed at the counter.
+    selectCustomer(
+      Customer(
+        id: order.customerId,
+        name: customerNameFor(order.customerId) ?? 'Order ${order.number}',
+        customerType: '',
+      ),
+    );
+    notifyListeners();
+    return _lines.length;
+  }
+
+  void _forgetOrder() {
+    _openOrder = null;
+    _openOrderFee = 0;
+    _orderLineCaps.clear();
+    _orderLineIds.clear();
+  }
+
+  /// What is still owed on [variantUomId]'s order line, or null for an ordinary
+  /// sale line (which is capped by stock instead).
+  double? _orderCapFor(int variantUomId) => _orderLineCaps[variantUomId];
+
   /// 32 hex characters from a CSPRNG.
   ///
   /// Well inside the server's 64-character cap, and NOT a UUID dependency: the
   /// server only requires uniqueness per cashier, and `Random.secure()` gives that
   /// without adding a package.
-  static String _newAttemptKey() {
-    final random = Random.secure();
-    final buffer = StringBuffer();
-    for (var i = 0; i < 32; i++) {
-      buffer.write(random.nextInt(16).toRadixString(16));
-    }
-    return buffer.toString();
-  }
+  static String _newAttemptKey() => PosService.newIdempotencyKey();
 
   /// Forgets the attempt key because the next submit will sell a DIFFERENT body.
   void _dropAttemptKey() => _attemptKey = null;
@@ -597,6 +727,12 @@ class PosTransactionViewmodel extends ChangeNotifier {
     if (reservedBaseStock + requestedBaseStock > item.availableBaseStock) {
       return 'Only ${_quantity(item.availableSaleQuantity)} ${item.unit} available.';
     }
+    // An order line can be rung only up to what is still owed on it: the promise
+    // is the ceiling, whatever the shelf holds (decision 19 #2/#3).
+    final cap = _orderCapFor(item.variantUomId);
+    if (cap != null && cartQuantity + quantity > cap + 0.000001) {
+      return 'This order has only ${_quantity(cap)} ${item.unit} left to ring.';
+    }
     if (index < 0) {
       _lines.add(
         PosCartLine(
@@ -652,6 +788,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
     // The till no longer holds the parked basket, so a later sale must not try to
     // complete (or void) a cart this basket came from.
     _forgetResumedCart();
+    // Nor does it hold an order's remainder: the next sale is an ordinary one.
+    _forgetOrder();
     _dropAttemptKey();
     notifyListeners();
   }
@@ -730,6 +868,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
 
   String? validate() {
     if (_lines.isEmpty) return 'Add at least one product to the transaction.';
+    if (_openOrder != null) return _validateOrderRemainder();
     final requestedByVariant = <int, double>{};
     for (final line in _lines) {
       final item = _rowFor(line);
@@ -746,6 +885,24 @@ class PosTransactionViewmodel extends ChangeNotifier {
           line.quantity * item.conversionFactor;
       if (requestedByVariant[item.variantId]! > item.availableBaseStock) {
         return '${line.productName}: the combined units exceed available stock.';
+      }
+    }
+    return null;
+  }
+
+  /// The till's pre-flight checks for an order's remainder.
+  ///
+  /// Deliberately NOT the catalogue's stock arithmetic: an order's quantities are
+  /// capped by what is still owed (never by the shelf), stock is a live HINT, and
+  /// the server is the authority that refuses a short shelf with
+  /// `INSUFFICIENT_STOCK`. What the till must catch here is a basket that is no
+  /// longer this order - a product scanned on top of it - because `fulfil/` keys
+  /// every line by its order line.
+  String? _validateOrderRemainder() {
+    for (final line in _lines) {
+      if (!_orderLineIds.containsKey(line.variantUomId)) {
+        return '${line.productName} is not on this order. Clear the cart and '
+            'open the order again.';
       }
     }
     return null;
@@ -836,8 +993,27 @@ class PosTransactionViewmodel extends ChangeNotifier {
           ? resumedCartId
           : null;
 
+      final order = _openOrder;
+
       final PosCheckoutResult result;
-      if (completeCartId != null) {
+      if (order != null) {
+        // A fulfilment keeps the checkout guards and drops the till's own terms:
+        // the price is the order line's, the delivery is the slip's, and a new
+        // discount is not on offer (it was approved when the order was saved).
+        result = await _orderService.fulfilOrder(
+          orderId: order.id,
+          lines: [
+            for (final line in sold)
+              if (line.quantity > 0)
+                PosFulfilLine(
+                  orderLineId: _orderLineIds[line.variantUomId]!,
+                  quantity: line.quantity,
+                ),
+          ],
+          payments: payments,
+          idempotencyKey: attemptKey,
+        );
+      } else if (completeCartId != null) {
         result = PosCheckoutResult.fromJson(
           await _heldCartService.complete(
             completeCartId,
@@ -921,6 +1097,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
       // The basket is sold, so it is no longer a resumed cart: a second sale must not
       // try to complete the same parked cart again.
       _forgetResumedCart();
+      // The order's remainder was rung, so the till is an ordinary till again.
+      _forgetOrder();
       // The sale is written, so this attempt is finished and its key is spent.
       _dropAttemptKey();
       return true;

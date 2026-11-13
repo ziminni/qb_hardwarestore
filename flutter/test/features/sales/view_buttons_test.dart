@@ -533,10 +533,13 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Phase 7 F1: 'Ready' is gone from the chips (the server reads a legacy
+      // READY order as Confirmed), so an empty result is asked for with a chip
+      // that exists: nothing on this list is cancelled.
       await tester.tap(
         find.descendant(
           of: find.byType(FilterBar),
-          matching: find.text('Ready'),
+          matching: find.text('Cancelled'),
         ),
       );
       await tester.pumpAndSettle();

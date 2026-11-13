@@ -46,7 +46,10 @@ class QuotationFixtureCase(TestCase):
         self.manager = User.objects.create_superuser(
             username="qmanager", email="q@x.com", password="pass12345"
         )
-        self.customer = Customer.objects.create(name="Dela Cruz Construction")
+        # REGULAR: B5 refuses an order for the seeded WALK_IN placeholder.
+        self.customer = Customer.objects.create(
+            name="Dela Cruz Construction", customer_type=Customer.Type.REGULAR
+        )
         category = Category.objects.create(name="Cement")
         brand = Brand.objects.create(name="Rhino")
         uom, _ = UnitOfMeasure.objects.get_or_create(

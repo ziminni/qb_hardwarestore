@@ -190,6 +190,26 @@ class WalkInCannotOwe(Exception):
         )
 
 
+class WalkInCannotOrder(Exception):
+    """An order cannot be booked against the walk-in placeholder (B5, decision 19).
+
+    A fulfilment rings the ORDER's customer into an ordinary sale, and decision 14 lets
+    only a NAMED customer owe. An order on the placeholder would therefore promise goods
+    to nobody - and could one day carry a balance owed by nobody, the same fiction
+    `WalkInCannotOwe` refuses at the till. Decision 19 shipped this as a premise
+    ("walk-in orders are already impossible"); B5 makes it code at ORDER CREATE, in the
+    serializer's `validate`, so a refusal writes nothing.
+    """
+
+    code = "WALK_IN_CANNOT_ORDER"
+
+    def __init__(self, customer_name="Walk-in Customer"):
+        super().__init__(
+            f"An order cannot be booked for {customer_name}: the walk-in record is a "
+            "placeholder, not a customer. Name the customer the order is for."
+        )
+
+
 class CreditLimitExceeded(Exception):
     """A credit sale that would push the customer past their limit (decision 08).
 
@@ -587,6 +607,115 @@ class DeliveryReasonRequired(DeliveryError):
         )
 
 
+class SalesOrderError(ValueError):
+    """An order action the server refuses (Phase 7 B3, decision 19 #4).
+
+    Same ``{code, detail, **extra}`` shape as `DeliveryError`, so the order sheet and the
+    cancel dialog branch on a stable code instead of English prose. Every raise happens
+    BEFORE the first write of its transaction, so a refusal always means "nothing
+    changed" - no new line, no moved quantity, no audit row, no spent approval.
+
+    ``http_status`` is a class attribute because these are not all bad requests: an order
+    that has moved on (a fulfilment landed, the slip has left) is a CONFLICT, while a
+    promise the state machine has already settled is a bad request.
+    """
+
+    code = "INVALID_SALES_ORDER"
+    http_status = status.HTTP_400_BAD_REQUEST
+    # Same reason as `DeliveryError.extra`: immutable default, per-instance override.
+    extra: Mapping[str, object] = MappingProxyType({})
+
+    def __init__(self, detail, **extra):
+        self.extra = extra
+        super().__init__(detail)
+
+
+class SalesOrderEditRefused(SalesOrderError):
+    """The order cannot be edited in the state it is in.
+
+    Decision 19 #4 lets a manager edit a promise the shop has NOT started keeping: while
+    the order reads CONFIRMED and nothing has been fulfilled. Once a single unit has been
+    rung into a sale - or the order is cancelled or completed - the lines are the record
+    of what was promised and cannot be rewritten; cancelling the remainder (B3's
+    `cancel/`) is the action left.
+
+    The same refusal covers the delivery slip: its address, contact, date and fee may be
+    corrected only while it is still SCHEDULED. A slip the driver already has cannot be
+    changed underneath them.
+    """
+
+    code = "SALES_ORDER_NOT_EDITABLE"
+
+
+class SalesOrderTransitionInvalid(SalesOrderError):
+    """The order is already over, so the move the caller asked for does not exist.
+
+    COMPLETED and CANCELLED are terminal - `SALES_ORDER_TRANSITIONS` in `services.py` has
+    no entry for them - so a second cancel is refused with the code the client branches
+    on instead of silently doing nothing.
+    """
+
+    code = "SALES_ORDER_TRANSITION_INVALID"
+
+
+class SalesOrderCancelBlocked(SalesOrderError):
+    """The goods are already on their way, so the order cannot be written off (409).
+
+    A CONFLICT rather than a bad request because this one can change: once the trip lands
+    the order can be cancelled or fulfilled normally. A delivery that is still SCHEDULED
+    is not blocked - cancelling fails it with "Order cancelled: <reason>".
+    """
+
+    code = "SALES_ORDER_CANCEL_BLOCKED"
+    http_status = status.HTTP_409_CONFLICT
+
+
+class SalesOrderFulfilRefused(SalesOrderError):
+    """The fulfilment payload cannot be rung as it stands (Phase 7 B4, decision 19 #3).
+
+    Four ways to get here, all answered before anything is written: no lines at all, a
+    line naming an order line that belongs to a DIFFERENT order, the same order line twice
+    (two entries would each pass `qty <= remaining` while together exceeding it), and a
+    quantity above what that line still has to give.
+
+    A 400 rather than a 409: the till can fix all four by reading the order back and
+    correcting the cart, and `detail` names the line and the figure to change.
+    """
+
+    code = "SALES_ORDER_FULFIL_REFUSED"
+
+
+class SalesOrderDeliveryNotAccepted(SalesOrderError):
+    """A fulfilment tried to bring its own delivery slip (Phase 7 B4, decision 19).
+
+    The fee lives on the ORDER's `Delivery` row, written when the order was taken and
+    correctable by a manager's edit, and the FIRST fulfilment bills it once. A `delivery`
+    object on the fulfilment body is therefore refused on every fulfilment - not only the
+    later ones - because accepting it on the first would either duplicate the slip or
+    silently drop a charge the cashier typed. The answer names where the fee lives.
+    """
+
+    code = "SALES_ORDER_DELIVERY_NOT_ACCEPTED"
+
+
+class SalesOrderReasonRequired(SalesOrderError):
+    """An edit or a cancel with no reason.
+
+    Decision 19 #4 makes both actions reasoned and audited, so the sentence is what the
+    trail is for: "customer backed out" is the fact that survives everyone's memory. One
+    code for both endpoints (the client's answer is "ask for a reason" either way) and one
+    length rule, the `cancel_reason` column's 255.
+    """
+
+    code = "SALES_ORDER_REASON_REQUIRED"
+
+    def __init__(self, what="cancelled"):
+        super().__init__(
+            f"An order cannot be {what} without a reason. Write down why: it goes into "
+            "the audit trail."
+        )
+
+
 def handler(exc, context):
     """Return DRF's own response, except for a short-stock sale.
 
@@ -708,6 +837,14 @@ def handler(exc, context):
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
+    if isinstance(exc, WalkInCannotOrder):
+        # B5: the same shape as `WalkInCannotOwe` - a stable `code` the client branches on
+        # and a sentence for the human, 400 because this order cannot be recorded as
+        # entered. Raised in the serializer's `validate`, so nothing was written.
+        return Response(
+            {"code": WalkInCannotOrder.code, "detail": str(exc)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     if isinstance(exc, CreditLimitExceeded):
         # Decision 08's payload: the stable `code` the client branches on, a sentence
         # for the cashier, and the three money figures as 2-decimal strings (never
@@ -764,6 +901,14 @@ def handler(exc, context):
         # **extra} shape and the same "nothing changed" guarantee; the status is the
         # exception's own, because a forbidden jump or a second move on a finished
         # delivery is a CONFLICT (409), not a bad request.
+        payload: dict[str, object] = {"code": exc.code, "detail": str(exc)}
+        payload.update(exc.extra)
+        return Response(payload, status=exc.http_status)
+    if isinstance(exc, SalesOrderError):
+        # Phase 7 task B3 (decision 19 #4): the order edit/cancel refusals, in the same
+        # shape and with the same guarantee. Ordered AFTER `DeliveryError` because the
+        # two families are unrelated classes; the status is the exception's own, since
+        # an order that has moved on or whose goods have left is a CONFLICT.
         payload: dict[str, object] = {"code": exc.code, "detail": str(exc)}
         payload.update(exc.extra)
         return Response(payload, status=exc.http_status)

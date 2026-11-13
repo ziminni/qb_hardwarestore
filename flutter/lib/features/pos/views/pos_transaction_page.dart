@@ -20,6 +20,7 @@ import 'package:client/features/pos/widgets/pos_opening_float_form.dart';
 import 'package:client/features/pos/widgets/pos_shift_close_dialog.dart';
 import 'package:client/features/pos/widgets/pos_customer_picker_dialog.dart';
 import 'package:client/features/pos/widgets/pos_discount_approval_dialog.dart';
+import 'package:client/features/pos/widgets/pos_open_order_dialog.dart';
 import 'package:client/features/pos/widgets/pos_payment_dialog.dart';
 import 'package:client/features/pos/widgets/pos_underpayment_dialog.dart';
 import 'package:client/features/pos/widgets/pos_product_browser.dart';
@@ -199,7 +200,10 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
             scrollable: false,
             // Which shift the sales are counted in, and the way out of it.
             actions: [
-              if (shift.currentShift != null) ..._shiftActions(context, shift),
+              if (shift.currentShift != null) ...[
+                _openOrderAction(context),
+                ..._shiftActions(context, shift),
+              ],
             ],
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -377,6 +381,93 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
         );
       },
     );
+  }
+
+  /// The way into a sales order's remainder (Phase 7 F2, decision 19 #3/#4).
+  ///
+  /// It sits with the shift actions because an order is rung as a SALE: with no
+  /// open shift `process_sale` refuses the fulfilment and the till is not built at
+  /// all, so the entry point is hidden with it.
+  Widget _openOrderAction(BuildContext context) {
+    final transaction = context.watch<PosTransactionViewmodel>();
+    // On a narrower window the header already carries the shift chip and Close
+    // shift; the label moves into the tooltip so the row never overflows.
+    final compact =
+        MediaQuery.sizeOf(context).width < AppBreakpoints.expanded;
+    return Padding(
+      padding: const EdgeInsets.only(right: AppSpacing.md),
+      child: Tooltip(
+        message: 'Open order',
+        child: TextButton.icon(
+          key: const ValueKey('pos-open-order'),
+          onPressed: () => _openOrder(context),
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.textPrimary,
+            minimumSize: const Size(44, 44),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+              side: const BorderSide(color: AppColors.border),
+            ),
+          ),
+          icon: Icon(
+            transaction.isFulfillingOrder
+                ? Icons.assignment_turned_in_outlined
+                : Icons.assignment_outlined,
+            size: 18,
+          ),
+          label: compact
+              ? const SizedBox.shrink()
+              : Text(
+                  transaction.isFulfillingOrder ? 'Order loaded' : 'Open order',
+                ),
+        ),
+      ),
+    );
+  }
+
+  /// Lists the orders the counter may ring, then loads the chosen remainder.
+  ///
+  /// The customer list is read first and OPTIONALLY: it only lends the order's
+  /// customer a name in the list, and a counter that may not read it still rings
+  /// the order (the server uses the order's own customer regardless).
+  Future<void> _openOrder(BuildContext context) async {
+    final transaction = context.read<PosTransactionViewmodel>();
+    await transaction.loadCustomers();
+    if (!context.mounted) return;
+    await transaction.loadOpenOrders();
+    if (!context.mounted) return;
+
+    final chosen = await showDialog<PosOpenOrder>(
+      context: context,
+      builder: (_) => PosOpenOrderDialog(
+        orders: transaction.openOrders,
+        customerName: (customerId) =>
+            transaction.customerNameFor(customerId) ?? 'Customer #$customerId',
+        productName: (variantUomId) =>
+            transaction.productNameFor(variantUomId) ??
+            'Item $variantUomId',
+        loadError: transaction.ordersError,
+        onRetry: () => _openOrder(context),
+      ),
+    );
+    if (chosen == null || !context.mounted) {
+      _restoreScannerFocus();
+      return;
+    }
+
+    final loaded = await transaction.loadOpenOrder(chosen);
+    if (!context.mounted) return;
+    _announce(
+      context,
+      loaded == 0
+          ? 'Order ${chosen.number} has nothing left to ring.'
+          : 'Order ${chosen.number} loaded · '
+                '$loaded line${loaded == 1 ? '' : 's'}',
+    );
+    // The order's balance, so an utang fulfilment shows what is already owed.
+    await transaction.loadLedgerForSelection();
+    _restoreScannerFocus();
   }
 
   /// The header's shift chip and Close shift button.
@@ -653,6 +744,12 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
         // A pending cheque is owed by a NAMED customer; the seeded walk-in record
         // owes nobody, so the dialog refuses the cheque before the round trip.
         customerIsNamed: !transaction.isAnonymousSelection,
+        // An order's fulfilment carries the fee agreed on its slip (once, on the
+        // first fulfilment) and takes no new discount (decision 19 #1/#3).
+        lockedDeliveryFee: transaction.isFulfillingOrder
+            ? transaction.orderDeliveryFee
+            : null,
+        allowDiscount: !transaction.isFulfillingOrder,
       ),
     );
     if (payment == null || !context.mounted) {
@@ -670,7 +767,9 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
           transaction.total,
           payment.discount,
         ).net +
-        (payment.delivery?.fee ?? 0);
+        (payment.delivery?.fee ?? 0) +
+        // The order's agreed delivery fee, which the dialog showed and cannot edit.
+        transaction.orderDeliveryFee;
 
     // Decision 06 section 4, extended by decision 14. An underpaid sale posts a receivable,
     // so it is confirmed BEFORE anything is submitted - and an ANONYMOUS one cannot post at

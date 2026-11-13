@@ -6,15 +6,33 @@ import 'package:client/data/models/catalogue_item.dart';
 import 'package:client/data/models/customer.dart';
 import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/sale_transaction.dart';
+import 'package:client/data/models/sales_module.dart';
+import 'package:client/data/services/discount_approval_service.dart';
+import 'package:client/data/services/sales_service.dart';
+import 'package:client/features/pos/widgets/pos_discount_approval_dialog.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:flutter/material.dart';
 
-/// Raise ONE sales order (Phase 5 F3 follow-up, owner-authorised).
+/// Raise ONE sales order, or — since Phase 7 F1 — correct one.
 ///
-/// Create-only, and that is the whole of it: there is no status control, no edit
-/// and no fulfil-to-sale action here, because no such route exists in this build.
-/// The server writes the order as CONFIRMED and the client never sends a status.
+/// Two modes on one form, because both collect the same thing and a second
+/// dialog would be the same 500 lines again:
+///   * CREATE (Phase 5 F3 follow-up): no status control, and the client never
+///     sends one; the server writes the order as CONFIRMED.
+///   * EDIT (decision 19 #4): [order] is set, the customer is fixed (the server
+///     refuses a customer change outright), the lines and notes are prefilled,
+///     and a reason is REQUIRED — it is the audit trail's account of the change.
+///     An above-cap price is refused with `DISCOUNT_OVER_CAP` in BOTH modes (the
+///     server guard runs at save, decision 19 #1); the form asks a Store Manager
+///     to sign it off in place and resubmits once with the token, keeping every
+///     number it was given.
+///
+/// Both modes carry the Deliver section, because this form is the ONLY place a
+/// slip's address or fee can be corrected (`/deliveries/` is read-only) and that
+/// fee is billed once, at fulfilment — a wrong one is a customer billed wrongly.
+/// In edit mode it starts OFF and empty: the slip is not on the order wire, so
+/// leaving it alone sends no `delivery` key at all.
 ///
 /// Everything it shows comes from what the page passes in: the customers the
 /// sales module loaded and the live catalogue (so a line is counted and priced in
@@ -25,7 +43,7 @@ import 'package:flutter/material.dart';
 ///   * a fee is money at two decimals — `10.005` is REFUSED by the server, not
 ///     rounded, and a zero fee is allowed.
 ///
-/// [onSubmit] returns null when the order was created, or the sentence to show.
+/// [onSubmit] returns null when the order was saved, or the server's refusal.
 /// It is awaited, so the button is disabled for exactly as long as the request
 /// runs and a second tap cannot post twice. A refusal keeps this dialog OPEN with
 /// every input intact: what the clerk typed is the thing being corrected.
@@ -34,8 +52,14 @@ class SalesOrderFormDialog extends StatefulWidget {
     super.key,
     required this.customers,
     required this.catalogue,
-    required this.onSubmit,
-  });
+    this.onSubmit,
+    this.order,
+    this.onSubmitEdit,
+    this.approvalService,
+  }) : assert(
+         onSubmit != null || onSubmitEdit != null,
+         'a form either creates an order or edits one',
+       );
 
   /// The accounts an order can be raised for. The Walk-in placeholder is not one
   /// of them: an order is a promise to a named customer.
@@ -44,7 +68,23 @@ class SalesOrderFormDialog extends StatefulWidget {
   /// One row per (variant, selling unit) — the same catalogue the till sells from.
   final List<CatalogueItem> catalogue;
 
-  final Future<String?> Function(SalesOrderDraft draft) onSubmit;
+  /// Posts a NEW order. Null when [order] is set.
+  ///
+  /// Returns null when the server accepted it, or the refusal itself — the CODE
+  /// as well as the sentence, so `DISCOUNT_OVER_CAP` can ask a manager in place.
+  final Future<SalesServiceException?> Function(SalesOrderDraft draft)?
+  onSubmit;
+
+  /// The order being edited, or null when raising a new one.
+  final SalesOrderRecord? order;
+
+  /// Patches [order]. Null when raising a new one.
+  final Future<SalesServiceException?> Function(SalesOrderEdit edit)?
+  onSubmitEdit;
+
+  /// Injected by tests, exactly as the till's payment dialog does, so the
+  /// approval branch can be exercised without a server.
+  final DiscountApprovalService? approvalService;
 
   @override
   State<SalesOrderFormDialog> createState() => _SalesOrderFormDialogState();
@@ -74,6 +114,7 @@ class _OrderLineForm {
 class _SalesOrderFormDialogState extends State<SalesOrderFormDialog> {
   final _formKey = GlobalKey<FormState>();
   final _notes = TextEditingController();
+  final _reason = TextEditingController();
 
   final _deliveryAddress = TextEditingController();
   final _deliveryContact = TextEditingController();
@@ -99,15 +140,41 @@ class _SalesOrderFormDialogState extends State<SalesOrderFormDialog> {
       if (item.product.isActive && item.variant.isActive) item,
   ];
 
+  /// True when this form corrects an order instead of raising one.
+  bool get _isEdit => widget.order != null;
+
   @override
   void initState() {
     super.initState();
-    if (_offered.isNotEmpty) _lines.add(_OrderLineForm(_offered.first));
+    final order = widget.order;
+    if (order == null) {
+      if (_offered.isNotEmpty) _lines.add(_OrderLineForm(_offered.first));
+      return;
+    }
+    _notes.text = order.notes ?? '';
+    for (final line in order.items) {
+      // A unit that left the live catalogue cannot be priced against it, and the
+      // server refuses an archived selling unit anyway: the manager re-picks that
+      // line from what is on offer today.
+      final item = _itemFor(line.variantUomId);
+      if (item == null) continue;
+      final form = _OrderLineForm(item);
+      form.qty.text = _plainQty(line.qty);
+      form.price.text = line.unitPrice.toStringAsFixed(2);
+      _lines.add(form);
+    }
+  }
+
+  /// A quantity as a person types it: no grouping, no trailing zeros.
+  static String _plainQty(double qty) {
+    if (qty == qty.roundToDouble()) return qty.toStringAsFixed(0);
+    return qty.toStringAsFixed(2).replaceAll(RegExp(r'0+$'), '');
   }
 
   @override
   void dispose() {
     _notes.dispose();
+    _reason.dispose();
     _deliveryAddress.dispose();
     _deliveryContact.dispose();
     _deliveryPhone.dispose();
@@ -144,6 +211,19 @@ class _SalesOrderFormDialogState extends State<SalesOrderFormDialog> {
 
   double get _fee =>
       _deliver ? (double.tryParse(_deliveryFee.text.trim()) ?? 0) : 0;
+
+  /// The Deliver section as a wire object, or null when this form is not
+  /// touching a delivery. Shared by create and edit so the two cannot disagree
+  /// about what a slip is.
+  DeliveryDraft? _deliveryDraft() => _deliver
+      ? DeliveryDraft(
+          address: _deliveryAddress.text.trim(),
+          contactName: _deliveryContact.text.trim(),
+          contactPhone: _deliveryPhone.text.trim(),
+          scheduledDate: _deliveryDate ?? _tomorrow(),
+          fee: _fee,
+        )
+      : null;
 
   void _addLine() {
     if (_offered.isEmpty) return;
@@ -200,38 +280,103 @@ class _SalesOrderFormDialogState extends State<SalesOrderFormDialog> {
       return;
     }
 
+    final lines = [
+      for (final line in _lines)
+        SalesOrderLineDraft(
+          variantUomId: line.unitId,
+          qty: double.parse(line.qty.text.trim()),
+          unitPrice: double.parse(line.price.text.trim()),
+        ),
+    ];
+
+    if (_isEdit) {
+      final edit = SalesOrderEdit(
+        lines: lines,
+        notes: _notes.text.trim(),
+        reason: _reason.text.trim(),
+        delivery: _deliveryDraft(),
+      );
+      await _saveWithApproval(
+        (token) => widget.onSubmitEdit!(
+          SalesOrderEdit(
+            lines: edit.lines,
+            notes: edit.notes,
+            reason: edit.reason,
+            // The slip the manager just corrected goes with the token: a retry
+            // that dropped it would silently undo the fee being approved.
+            delivery: edit.delivery,
+            approvalToken: token,
+          ),
+        ),
+        reason: edit.reason,
+      );
+      return;
+    }
+
     final draft = SalesOrderDraft(
       customerId: _customerId!,
       notes: _notes.text.trim(),
-      lines: [
-        for (final line in _lines)
-          SalesOrderLineDraft(
-            variantUomId: line.unitId,
-            qty: double.parse(line.qty.text.trim()),
-            unitPrice: double.parse(line.price.text.trim()),
-          ),
-      ],
-      delivery: _deliver
-          ? DeliveryDraft(
-              address: _deliveryAddress.text.trim(),
-              contactName: _deliveryContact.text.trim(),
-              contactPhone: _deliveryPhone.text.trim(),
-              scheduledDate: _deliveryDate ?? _tomorrow(),
-              fee: _fee,
-            )
-          : null,
+      lines: lines,
+      delivery: _deliveryDraft(),
     );
+    await _saveWithApproval(
+      (token) => widget.onSubmit!(
+        SalesOrderDraft(
+          customerId: draft.customerId,
+          notes: draft.notes,
+          lines: draft.lines,
+          delivery: draft.delivery,
+          approvalToken: token,
+        ),
+      ),
+      // An order has no reason field: the notes are what the clerk wrote about
+      // the deal, and the approval audit row records them.
+      reason: draft.notes,
+    );
+  }
 
+  /// Sends the form once, and on an above-cap price asks a manager and sends it
+  /// ONCE more with the token.
+  ///
+  /// Both modes go through here, because the price guard runs at save for a
+  /// create and an edit alike (decision 19 #1) and the two must not disagree
+  /// about what an approval is. The retry is deliberate and bounded: the token is
+  /// signed for that percent, so the second answer is final either way — a
+  /// second refusal lands inline. Everything typed is still on screen, because
+  /// the refusal names a price the manager has to see to sign.
+  Future<void> _saveWithApproval(
+    Future<SalesServiceException?> Function(String? token) send, {
+    required String reason,
+  }) async {
     setState(() => _submitting = true);
-    final error = await widget.onSubmit(draft);
+    var refusal = await send(null);
     if (!mounted) return;
-    if (error == null) {
+
+    if (refusal?.code == 'DISCOUNT_OVER_CAP') {
+      final token = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => PosDiscountApprovalDialog(
+          percent: refusal?.requestedPercent ?? 0,
+          reason: reason,
+          service: widget.approvalService,
+        ),
+      );
+      if (!mounted) return;
+      if (token != null) {
+        setState(() => _refusal = null);
+        refusal = await send(token);
+        if (!mounted) return;
+      }
+    }
+
+    if (refusal == null) {
       Navigator.pop(context, true);
       return;
     }
     setState(() {
       _submitting = false;
-      _refusal = error;
+      _refusal = refusal?.message;
     });
   }
 
@@ -250,8 +395,10 @@ class _SalesOrderFormDialogState extends State<SalesOrderFormDialog> {
 
     return AppDialog(
       icon: Icons.assignment_outlined,
-      title: 'New sales order',
-      subtitle: 'Raise the order now; the store confirms it as it is prepared.',
+      title: _isEdit ? 'Edit sales order' : 'New sales order',
+      subtitle: _isEdit
+          ? 'Correct what was promised; the reason goes into the audit trail.'
+          : 'Raise the order now; the store confirms it as it is prepared.',
       width: 640,
       content: Form(
         key: _formKey,
@@ -260,22 +407,35 @@ class _SalesOrderFormDialogState extends State<SalesOrderFormDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const FormStepHeader(step: 1, title: 'Who is the order for?'),
-            DropdownButtonFormField<int>(
-              key: const ValueKey('so-customer'),
-              isExpanded: true,
-              initialValue: _customerId,
-              decoration: const InputDecoration(labelText: 'Customer'),
-              items: [
-                for (final customer in _namedCustomers)
-                  DropdownMenuItem(
-                    value: customer.id,
-                    child: Text(customer.name, overflow: TextOverflow.ellipsis),
-                  ),
-              ],
-              validator: (value) => value == null ? 'Choose a customer.' : null,
-              onChanged: (value) => setState(() => _customerId = value),
-            ),
-            if (noCustomers)
+            if (widget.order case final order?)
+              // A promise's customer does not move: the server refuses the field
+              // on an edit, so this is a fact to read, not a control to change.
+              DetailRow(
+                label: 'Customer',
+                value: order.customer,
+                labelWidth: 120,
+              )
+            else
+              DropdownButtonFormField<int>(
+                key: const ValueKey('so-customer'),
+                isExpanded: true,
+                initialValue: _customerId,
+                decoration: const InputDecoration(labelText: 'Customer'),
+                items: [
+                  for (final customer in _namedCustomers)
+                    DropdownMenuItem(
+                      value: customer.id,
+                      child: Text(
+                        customer.name,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+                validator: (value) =>
+                    value == null ? 'Choose a customer.' : null,
+                onChanged: (value) => setState(() => _customerId = value),
+              ),
+            if (noCustomers && !_isEdit)
               const Padding(
                 padding: EdgeInsets.only(top: AppSpacing.sm),
                 child: Text(
@@ -315,6 +475,30 @@ class _SalesOrderFormDialogState extends State<SalesOrderFormDialog> {
                 hintText: 'Optional instructions for this order',
               ),
             ),
+            if (_isEdit) ...[
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                key: const ValueKey('so-reason'),
+                controller: _reason,
+                maxLength: 255,
+                decoration: const InputDecoration(
+                  labelText: 'Reason for the change',
+                  hintText: 'Why is this order being corrected?',
+                ),
+                // Decision 19 #4: an edit is a reasoned act and the sentence is
+                // the audit trail's account of it.
+                validator: (value) => (value ?? '').trim().isEmpty
+                    ? 'An edit needs a reason: it goes into the audit trail.'
+                    : null,
+              ),
+            ],
+            // A slip's address and FEE are only correctable here: `/deliveries/`
+            // is read-only and no delivery-edit screen ships, so hiding this
+            // would leave a wrong fee billed at fulfilment. The slip is not on
+            // the order wire, so the section cannot be prefilled and starts off:
+            // left alone it sends no `delivery` key and the slip is untouched;
+            // switched on it replaces the slip's fields, and the server refuses
+            // one past SCHEDULED.
             const SizedBox(height: AppSpacing.xl),
             FormStepHeader(step: 3, title: 'Deliver it?'),
             _deliverySection(),
@@ -344,8 +528,14 @@ class _SalesOrderFormDialogState extends State<SalesOrderFormDialog> {
         ),
         FilledButton(
           key: const ValueKey('so-submit'),
-          onPressed: _submitting || noCatalogue || noCustomers ? null : _submit,
-          child: Text(_submitting ? 'Creating…' : 'Create order'),
+          onPressed: _submitting || noCatalogue || (noCustomers && !_isEdit)
+              ? null
+              : _submit,
+          child: Text(
+            _isEdit
+                ? (_submitting ? 'Saving…' : 'Save changes')
+                : (_submitting ? 'Creating…' : 'Create order'),
+          ),
         ),
       ],
     );

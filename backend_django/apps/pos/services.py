@@ -28,7 +28,10 @@ from apps.inventory.services import (
     check_low_stock_after_stock_out,
     lock_selling_unit_lines,
 )
-from common.exceptions import refuse_fractional_whole_unit
+from common.exceptions import (
+    refuse_fractional_whole_unit,
+    refuse_inactive_selling_unit,
+)
 
 from .exceptions import (
     CreditLimitExceeded,
@@ -42,6 +45,10 @@ from .exceptions import (
     InvalidDiscount,
     InvalidIdempotencyKey,
     InvalidSale,
+    SalesOrderCancelBlocked,
+    SalesOrderDeliveryNotAccepted,
+    SalesOrderFulfilRefused,
+    SalesOrderTransitionInvalid,
     WalkInCannotOwe,
 )
 from .models import (
@@ -52,6 +59,7 @@ from .models import (
     OfficialReceipt,
     Payment,
     SalesItem,
+    SalesOrder,
     SalesTransaction,
     StoreSettings,
 )
@@ -107,9 +115,27 @@ DELIVERY_TRANSITIONS = {
     (Delivery.Status.OUT_FOR_DELIVERY, "fail"): Delivery.Status.FAILED,
 }
 
+# Phase 7 B1 (decision 19): the sales-order lifecycle, written as DATA for the same
+# reason as the delivery machine - a move that is not listed here cannot happen, so B3's
+# cancel and B4's fulfil read this instead of each deciding for themselves. Keyed by the
+# status the rules ask about, which is ALWAYS `SalesOrder.effective_status`: the legacy
+# PROCESSING/READY rows therefore arrive as CONFIRMED and need no branch here.
+# Terminal statuses (COMPLETED, CANCELLED) are absent on purpose.
+SALES_ORDER_TRANSITIONS = {
+    SalesOrder.Status.CONFIRMED: (
+        SalesOrder.Status.PARTIAL,
+        SalesOrder.Status.COMPLETED,
+        SalesOrder.Status.CANCELLED,
+    ),
+    SalesOrder.Status.PARTIAL: (SalesOrder.Status.COMPLETED,),
+}
+
 # Same reason as MAX_RETURN_REASON_LENGTH: long enough for what actually happened, short
 # enough that the column (255) and the audit trail stay a note.
 MAX_DELIVERY_REASON_LENGTH = 255
+# Phase 7 B3 (decision 19 #4): a sales-order edit or cancel reason goes into the same kind
+# of column (`SalesOrder.cancel_reason`, 255), so it gets the same ceiling.
+MAX_SALES_ORDER_REASON_LENGTH = 255
 # The delivery slip's free-text fields, sized to the columns that hold them.
 MAX_DELIVERY_ADDRESS_LENGTH = 255
 MAX_DELIVERY_CONTACT_LENGTH = 150
@@ -322,6 +348,49 @@ def _consume_approval(token, *, percent_needed):
     return row
 
 
+def guard_order_line_prices(*, lines, discount_approval=None):
+    """Refuse - or park - the largest PER-LINE discount a sales order asks for.
+
+    Phase 7 B2 (decision 19 #1 and its follow-up ruling): an order's agreed line price
+    may sit below the catalogue price, and a line below the catalogue IS a discount of
+    `(catalogue - agreed) / catalogue`. The catalogue price is the selling unit's own
+    `default_selling_price`, and the LARGEST line percent decides - no whole-order
+    averaging, so one deeply discounted line cannot hide behind nine full-price ones.
+
+    Above the Admin's cap the rule is the till's, unchanged: no token at all is
+    `DISCOUNT_OVER_CAP` (carrying the cap and the requested percent so the client opens
+    the approval dialog already knowing what it is asking for), a token that is forged,
+    expired, spent or too small is `DISCOUNT_APPROVAL_INVALID`. A price ABOVE the
+    catalogue is a markup, not a discount, and needs nothing.
+
+    `lines` is `((VariantUOM, agreed_unit_price), ...)` - the shape both the order create
+    and the B3 edit already hold. Returns the approved `DiscountApproval` row (LOCKED but
+    not yet spent: the caller stamps `used_at` and `sales_order` in its own transaction,
+    so a save that fails later returns the manager's token unused) or None when every
+    line is within the cap.
+
+    Called from inside the saving transaction and before its first write, so a refusal
+    leaves no order, no lines, no audit row and no spent approval.
+    """
+    cap_percent = StoreSettings.load().discount_cap_percent
+    largest = Decimal(0)
+    for unit, agreed_price in lines:
+        catalogue = Decimal(unit.default_selling_price)
+        agreed = Decimal(agreed_price)
+        # `catalogue <= 0` would divide by zero, and a free catalogue row has no share to
+        # discount; a price at or above the catalogue is not a discount at all.
+        if catalogue <= 0 or agreed >= catalogue:
+            continue
+        percent = money_round((catalogue - agreed) / catalogue * 100)
+        largest = max(largest, percent)
+
+    if largest <= cap_percent:
+        return None
+    if not discount_approval:
+        raise DiscountOverCap(cap_percent, largest)
+    return _consume_approval(discount_approval, percent_needed=largest)
+
+
 def highest_existing_sequence(model, field_name, stamp):
     """The highest numeric suffix already used for `stamp`, or 0.
 
@@ -455,6 +524,32 @@ def _parse_decimal(raw, *, field, line_no):
     if not value.is_finite():
         raise InvalidSale(f"Line {line_no}: {field} must be a finite number.")
     return value
+
+
+def _priced_sale_lines(lines, items_data, order_lines):
+    """Pair every validated line with the price it is charged (Phase 7 B4).
+
+    On the till that is the catalogue's `default_selling_price` and no order line, so the
+    list is the same `(vuom, qty)` cart read back with the price decision 01 always used.
+
+    On a FULFILMENT (`order_lines` = `{order_line_id: SalesOrderItem}`) each entry of
+    `items_data` names the order line it rings and the price comes from THAT row - the
+    price the manager agreed, which is why a fulfilment needs no new discount approval.
+    A line that names no order line the caller resolved is refused here, before anything
+    is written, because a fulfilment line without an order line has no price to charge.
+
+    `items_data` and `lines` are index-aligned: `_validated_sale_lines` builds exactly one
+    tuple per item it accepts.
+    """
+    if order_lines is None:
+        return [(vuom, qty, vuom.default_selling_price, None) for vuom, qty in lines]
+    priced = []
+    for index, ((vuom, qty), raw) in enumerate(zip(lines, items_data), start=1):
+        order_line = order_lines.get(raw.get("order_line"))
+        if order_line is None:
+            raise InvalidSale(f"Line {index}: this fulfilment names no order line.")
+        priced.append((vuom, qty, order_line.unit_price, order_line))
+    return priced
 
 
 def _validated_sale_lines(items_data):
@@ -721,6 +816,311 @@ def transition_delivery(*, delivery_id, action, reason=""):
     return delivery
 
 
+def cancel_sales_order(*, order_id, reason, actor):
+    """Write off an order the shop is not going to keep (Phase 7 B3, decision 19).
+
+    Two moves, both read from `SALES_ORDER_TRANSITIONS` rather than decided here:
+
+    * **CONFIRMED -> CANCELLED** - nothing was rung, so the whole promise is written off
+      and every line's remaining quantity moves into `cancelled_qty`.
+    * **PARTIAL -> COMPLETED** - some of it was sold, so the order CLOSES and only the
+      remainder is written off. The fulfilled quantity is left exactly as the till wrote
+      it: a sale that happened cannot be un-happened (decision 19 #3).
+
+    The order row is LOCKED and re-read first, so a cancel and a fulfilment arriving
+    together serialize instead of both believing they were last. Lines, status, the
+    delivery and the caller's audit row are one transaction.
+
+    A delivery still SCHEDULED on an unfulfilled order goes FAILED with
+    "Order cancelled: <reason>" (delegated default in decision 19): nobody is making that
+    trip, and a slip left Scheduled would sit on the dispatch queue for ever. Only a slip
+    the driver is HOLDING blocks the cancel - OUT_FOR_DELIVERY or DELIVERED, where the
+    goods may still arrive, so the manager must wait for the trip to land (B3 review: a
+    slip already FAILED is a closed fact and does not block, nor is it rewritten). On a
+    PARTIAL order the slip belongs to the SALE the fulfilment created (B4 re-links it), so
+    it is left alone and cannot block closing the remainder.
+
+    Raises `SalesOrderTransitionInvalid` (the order is already over) or
+    `SalesOrderCancelBlocked` (the goods are out) before any write, so a refusal changes
+    nothing.
+
+    Returns `(order, previous_status)` - the caller names both ends of the move in the
+    audit row it writes in this same transaction.
+    """
+    reason = reason.strip() if isinstance(reason, str) else ""
+    with transaction.atomic():
+        order = SalesOrder.objects.select_for_update().get(pk=order_id)
+        current = order.effective_status
+        target = (
+            SalesOrder.Status.COMPLETED
+            if current == SalesOrder.Status.PARTIAL
+            else SalesOrder.Status.CANCELLED
+        )
+        if target not in SALES_ORDER_TRANSITIONS.get(current, ()):
+            raise SalesOrderTransitionInvalid(
+                f"Sales order {order.order_no} is {current}: it is already over, so "
+                "there is nothing left to cancel.",
+                status=current,
+            )
+        if target == SalesOrder.Status.CANCELLED:
+            for delivery in order.deliveries.all():
+                # Decision 19 refuses exactly TWO states: the slip the driver is holding.
+                # A FAILED trip is over - the order can still be written off, and the
+                # slip keeps the reason it already carries.
+                if delivery.status in (
+                    Delivery.Status.OUT_FOR_DELIVERY,
+                    Delivery.Status.DELIVERED,
+                ):
+                    raise SalesOrderCancelBlocked(
+                        f"Delivery {delivery.delivery_no} for {order.order_no} is "
+                        f"{delivery.status}: the goods may still arrive, so the order "
+                        "cannot be cancelled. Wait for the trip to land first.",
+                        delivery_no=delivery.delivery_no,
+                        delivery_status=delivery.status,
+                    )
+                if delivery.status != Delivery.Status.SCHEDULED:
+                    continue
+                # Reused, not re-implemented: the delivery machine validates the move,
+                # stores the reason and keeps its own row lock.
+                transition_delivery(
+                    delivery_id=delivery.pk,
+                    action="fail",
+                    reason=f"Order cancelled: {reason}",
+                )
+        for line in order.items.select_for_update():
+            line.cancelled_qty += line.remaining_qty
+            line.save(update_fields=["cancelled_qty"])
+        order.status = target
+        order.cancel_reason = reason
+        order.cancelled_by = actor
+        order.cancelled_at = timezone.now()
+        order.save(
+            update_fields=[
+                "status",
+                "cancel_reason",
+                "cancelled_by",
+                "cancelled_at",
+                "updated_at",
+            ]
+        )
+    return order, current
+
+
+def order_line_available_qty(lines):
+    """`{line pk: sellable quantity}` per order line, in that line's OWN selling unit.
+
+    Phase 7 B5 (decision 19 #2): the order screen shows a live per-line "enough / short"
+    hint, so the order read carries `available_qty`. It is a HINT, not a reservation -
+    nothing is held, and a short shelf is refused by `process_sale` at fulfilment time,
+    never here.
+
+    The arithmetic is not restated: `releasable_qty` (decision 05) already answers "how
+    much can leave the store now, in this line's selling unit", whole-unit rounding
+    included. It is capped by the line's own remaining quantity, so a client reads the
+    shortfall as `remaining_qty - available_qty`. Imported INSIDE the function because
+    `apps.requisitions.services` imports this module at import time.
+
+    ONE stock query for every line given, never one query per line. The batch filter is
+    the allocator's (`current_qty__gt=0`): an emptied batch is history, not stock.
+    """
+    from django.db.models import Sum
+
+    from apps.inventory.models import InventoryBatch
+    from apps.requisitions.services import releasable_qty
+
+    lines = list(lines)
+    if not lines:
+        return {}
+    on_hand = {
+        row["variant_id"]: row["total"]
+        for row in InventoryBatch.objects.filter(
+            variant_id__in={line.variant_uom.variant_id for line in lines},
+            current_qty__gt=0,
+        )
+        .values("variant_id")
+        .annotate(total=Sum("current_qty"))
+    }
+    return {
+        line.pk: releasable_qty(
+            remaining=line.remaining_qty,
+            available_base=on_hand.get(line.variant_uom.variant_id, Decimal(0)),
+            conversion_factor=line.variant_uom.conversion_factor,
+            is_whole=line.variant_uom.uom.is_whole,
+        )
+        for line in lines
+    }
+
+
+def fulfil_sales_order(
+    *,
+    order_id,
+    cashier,
+    lines_data,
+    payments_data,
+    delivery_data=None,
+    idempotency_key=None,
+    request_hash="",
+):
+    """Ring a sales order's remaining lines into a real sale (Phase 7 B4, decision 19).
+
+    The order row is LOCKED and re-read first, which is the whole concurrency story: two
+    tills fulfilling the same order serialize on that lock, so the second one re-reads the
+    quantities the first one wrote and is refused instead of selling the same goods twice.
+    The same lock is the one B3's edit and cancel take, so an edit and a fulfilment can
+    never both believe they were last. `select_for_update` is taken on the BARE row (no
+    `select_related`): Postgres refuses FOR UPDATE on the nullable side of an outer join,
+    which is why B3 reads the row again here rather than locking the viewset's queryset.
+
+    Everything else is `process_sale`'s, deliberately UNCHANGED: an open shift, the unit
+    locks, FIFO in base units (short stock raises `InsufficientStock` and refuses the WHOLE
+    fulfilment - nothing is written, the order stays where it was), the VAT split, the
+    split/cheque/utang tender rules, the credit limit and the change arithmetic. This
+    function only supplies the two things a fulfilment does differently:
+
+    * the price source - each line is charged its ORDER line's agreed price and records
+      `SalesItem.order_line` (decision 19 #1). No sale-level discount is passed: the
+      manager's approval was spent when the order was SAVED, and re-taking it here would
+      charge the discount twice or demand a second approval nobody owes;
+    * the delivery fee - the order's own `Delivery` row is re-linked to the FIRST
+      fulfilment sale and its fee lands in that sale's `grand_total`, once.
+
+    Then, in the same transaction, each line's `fulfilled_qty` grows and the order becomes
+    PARTIAL or COMPLETED (`SALES_ORDER_TRANSITIONS` still decides whether that move
+    exists). The caller writes the audit rows inside the same atomic block.
+
+    Returns the sale. Raises `SalesOrderTransitionInvalid` for an order that is already
+    over, `SalesOrderFulfilRefused` for a line that cannot be rung, and
+    `SalesOrderDeliveryNotAccepted` for a `delivery` object on the body - all before the
+    first write, so a refusal always means "nothing changed".
+    """
+    with transaction.atomic():
+        order = SalesOrder.objects.select_for_update().get(pk=order_id)
+        current = order.effective_status
+        # Terminal statuses have no entry in the table, so this is the one test that
+        # refuses a CANCELLED or COMPLETED order (decision 19: 400, not 500).
+        if current not in SALES_ORDER_TRANSITIONS:
+            raise SalesOrderTransitionInvalid(
+                f"Sales order {order.order_no} is {current}: it is already over, so "
+                "nothing can be fulfilled from it.",
+                status=current,
+            )
+        if delivery_data is not None:
+            raise SalesOrderDeliveryNotAccepted(
+                "A fulfilment carries no delivery of its own: the order's slip already "
+                "holds the charge, and the first sale bills it once. Edit the slip on "
+                "the order instead.",
+            )
+
+        # Locked like B3's cancel does, and AFTER the order row, so the two paths take
+        # their locks in the same order.
+        order_lines = {line.pk: line for line in order.items.select_for_update().all()}
+        chosen = _validated_fulfil_lines(order, order_lines, lines_data)
+
+        # Fee once (delegated default in decision 19): the slip is billed by the first
+        # fulfilment and the link to that sale is the record that it was. A slip already
+        # carrying a sale - or an order whose lines are already partly rung - means this
+        # is a later fulfilment and it carries no fee at all.
+        delivery_link = None
+        slip = (
+            Delivery.objects.select_for_update().filter(sales_order_id=order.pk).first()
+        )
+        if slip is not None and slip.sale_id is None:
+            delivery_link = slip
+
+        items_data = [
+            {"variant_id": line.variant_uom_id, "qty": qty, "order_line": line.pk}
+            for line, qty in chosen
+        ]
+        txn = process_sale(
+            customer_id=order.customer_id,
+            cashier=cashier,
+            items_data=items_data,
+            payments_data=payments_data,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            order_lines={line.pk: line for line, _qty in chosen},
+            delivery_link=delivery_link,
+        )
+
+        for line, qty in chosen:
+            line.fulfilled_qty += qty
+            line.save(update_fields=["fulfilled_qty"])
+        # Read the remaining quantities back from the database, not from the values above:
+        # a line the payload did not name may still have been moved by an earlier
+        # fulfilment, and "nothing remains" is a question about every line.
+        target = (
+            SalesOrder.Status.COMPLETED
+            if all(line.remaining_qty <= 0 for line in order.items.all())
+            else SalesOrder.Status.PARTIAL
+        )
+        if target != current and target not in SALES_ORDER_TRANSITIONS.get(current, ()):
+            raise SalesOrderTransitionInvalid(
+                f"Sales order {order.order_no} is {current} and cannot become "
+                f"{target}.",
+                status=current,
+            )
+        order.status = target
+        order.save(update_fields=["status", "updated_at"])
+    return txn
+
+
+def _validated_fulfil_lines(order, order_lines, lines_data):
+    """The payload's lines, resolved against the order's own lines (B4).
+
+    Every refusal here happens before the sale starts, so a bad fulfilment leaves no
+    transaction, no moved stock and an unchanged `fulfilled_qty`. Each check is a rule the
+    plan names:
+
+    * the line must BELONG to this order (else a cart could ring another order's price);
+    * `qty` must be positive and at most ``remaining_qty`` - what is left after everything
+      already fulfilled and cancelled;
+    * a unit counted in whole numbers takes whole numbers only
+      (`refuse_fractional_whole_unit`, reuse not copy);
+    * an archived unit is refused (`refuse_inactive_selling_unit`, the Phase 6 B3 helper).
+    """
+    if not isinstance(lines_data, (list, tuple)) or not lines_data:
+        raise SalesOrderFulfilRefused(
+            "A fulfilment needs at least one line: name the order line and the qty "
+            "being rung."
+        )
+    chosen = []
+    seen = set()
+    for index, entry in enumerate(lines_data, start=1):
+        if not isinstance(entry, dict):
+            raise SalesOrderFulfilRefused(f"Line {index}: each line must be an object.")
+        raw_id = entry.get("order_line")
+        line = order_lines.get(raw_id)
+        if line is None:
+            raise SalesOrderFulfilRefused(
+                f"Line {index}: {raw_id!r} is not a line of {order.order_no}."
+            )
+        if line.pk in seen:
+            raise SalesOrderFulfilRefused(
+                f"Line {index}: order line {line.pk} appears twice. Send each line once."
+            )
+        seen.add(line.pk)
+        qty = _parse_decimal(entry.get("qty"), field="qty", line_no=index)
+        if qty <= 0:
+            raise SalesOrderFulfilRefused(
+                f"Line {index}: qty must be greater than zero."
+            )
+        remaining = line.remaining_qty
+        if qty > remaining:
+            raise SalesOrderFulfilRefused(
+                f"Line {index}: only {remaining} of {line.variant_uom} is left to "
+                f"fulfil, and {qty} was asked for.",
+            )
+        vuom = line.variant_uom
+        refuse_inactive_selling_unit(variant_uom=vuom, what=str(vuom.variant))
+        refuse_fractional_whole_unit(
+            is_whole=vuom.uom.is_whole,
+            qty=qty,
+            what=f"Line {index} ({vuom.variant}, {vuom.uom.code})",
+        )
+        chosen.append((line, qty))
+    return chosen
+
+
 def process_sale(
     *,
     customer_id,
@@ -733,6 +1133,8 @@ def process_sale(
     discount_data=None,
     discount_approval=None,
     delivery_data=None,
+    order_lines=None,
+    delivery_link=None,
 ):
     """Process a complete walk-in sale or requisition release.
 
@@ -746,6 +1148,22 @@ def process_sale(
       is ignored, not rejected, so an older client keeps working;
     * FIFO deducts `qty x conversion_factor` BASE units while `SalesItem.qty` keeps the
       selling quantity, so the receipt reads "1 box" and the shelf loses 12 pieces.
+
+    Phase 7 task B4 (decision 19 #1/#3): a sales-order FULFILMENT calls this same
+    function, because every checkout guard - open shift, unit locks, FIFO in base units,
+    VAT split, split/cheque/utang tender, credit limit, change, OR, low-stock, idempotency
+    - has to run unchanged on it. Exactly two inputs differ:
+
+    * `order_lines` is `{order_line_id: SalesOrderItem}`, and each `items_data` entry names
+      the order line it rings (`'order_line': <id>`). The line's AGREED price is then
+      charged instead of the catalogue price, and `SalesItem.order_line` records where it
+      came from. No sale-level discount is taken: the manager's approval was spent when
+      the order was saved, so passing `discount_data` here would spend it twice.
+    * `delivery_link` is the order's existing `Delivery` row. Its fee is already ON that
+      row, so it is charged into THIS sale's `grand_total` (VAT, change and utang all
+      measure the money the customer actually owes) and the row is re-linked to the sale
+      while keeping its order - this is what bills a delivery exactly once (decision 19:
+      the first fulfilment carries it, later ones have no fee at all).
 
     `InvalidSale` is raised before the atomic block: a refused cart must leave no
     transaction, no receipt, no payment and no moved stock, and raising before the first
@@ -768,6 +1186,11 @@ def process_sale(
     either request.
     """
     lines = _validated_sale_lines(items_data)
+    # Phase 7 B4: every line now carries the price THIS sale charges and the order line it
+    # rings (None/None on the till). Done once, before the atomic block, so the gross - and
+    # with it the discount, the VAT, the change and the utang check - is computed from the
+    # money the customer actually owes.
+    priced_lines = _priced_sale_lines(lines, items_data, order_lines)
     payments = _validated_payments(payments_data)
     # Phase 4 task B2 (decision 18): a cheque is the one tender that is not money yet.
     # Everything below treats it as a CLAIM against the utang it will settle, never as
@@ -780,13 +1203,23 @@ def process_sale(
     # written. `money_round` once here, which is the number the net and the VAT split
     # are then computed from - rounding again lower down would drift a centavo.
     gross = money_round(
-        sum((qty * vuom.default_selling_price for vuom, qty in lines), Decimal(0))
+        sum(
+            (qty * unit_price for _vuom, qty, unit_price, _line in priced_lines),
+            Decimal(0),
+        )
     )
     discount_info = _validated_discount(discount_data, gross=gross)
     # Phase 5 task B3: the slip is validated HERE, with the rest of the payload, so a
     # delivery missing its address or carrying a negative charge leaves no sale behind.
     delivery_fields = _validated_delivery(delivery_data)
-    delivery_fee = Decimal(0) if delivery_fields is None else delivery_fields["fee"]
+    # Phase 7 B4: a fulfilment bills the fee already sitting on the ORDER's slip, so the
+    # free-text fields are not re-validated - the row was written by `create_delivery`.
+    if delivery_fields is not None:
+        delivery_fee = delivery_fields["fee"]
+    elif delivery_link is not None:
+        delivery_fee = money_round(delivery_link.fee)
+    else:
+        delivery_fee = Decimal(0)
 
     with transaction.atomic():
         # Decision 06, ruling 2: a sale belongs to a shift, and there is no such thing as
@@ -875,10 +1308,10 @@ def process_sale(
         # per line.
         affected_variant_ids = set()
 
-        for vuom, qty in lines:
-            # Decision 01: the server prices the line. `item.get('unit_price')` is never
-            # read again - a forged or stale price is not an error, it is simply not input.
-            unit_price = vuom.default_selling_price
+        for vuom, qty, unit_price, order_line in priced_lines:
+            # Decision 01: the server prices the line - from the catalogue, or (Phase 7 B4)
+            # from the order line's agreed price. `item.get('unit_price')` is never read
+            # again: a forged or stale price is not an error, it is simply not input.
             subtotal = qty * unit_price
 
             item_row = SalesItem.objects.create(
@@ -887,6 +1320,7 @@ def process_sale(
                 qty=qty,
                 unit_price=unit_price,
                 subtotal=subtotal,
+                order_line=order_line,
             )
 
             # Decision 01: FIFO works in BASE units. Selling 1 box of 12 must remove 12
@@ -947,6 +1381,14 @@ def process_sale(
             txn.delivery = create_delivery(
                 data=delivery_data, created_by=cashier, sale=txn
             )
+        elif delivery_link is not None:
+            # Phase 7 B4: the order's own slip moves to the first fulfilment sale and
+            # KEEPS its order (`sales_order` is untouched), which is the record that the
+            # charge on it has now been billed - a second fulfilment finds it linked and
+            # carries no fee.
+            delivery_link.sale = txn
+            delivery_link.save(update_fields=["sale", "updated_at"])
+            txn.delivery = delivery_link
 
         # The approval is spent by THIS sale, inside its own transaction: a sale that
         # fails later (short stock, credit limit) rolls the stamp back and the manager's

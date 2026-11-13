@@ -979,7 +979,7 @@ class ConcurrentDeliveryTransitionTests(TransactionTestCase):
 class DeliverySchemaTests(TestCase):
     """The invariants that live in the DATABASE, not in a view-level lookup."""
 
-    def test_a_delivery_is_linked_to_exactly_one_document(self):
+    def test_a_delivery_needs_at_least_one_document(self):
         cashier = User.objects.create_user(
             username="schema_cashier", email="s@x.com", password="pass12345"
         )
@@ -1015,11 +1015,15 @@ class DeliverySchemaTests(TestCase):
             "fee": Decimal(0),
             "created_by": cashier,
         }
-        with self.assertRaises(IntegrityError), transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
-            Delivery.objects.create(sale=txn, sales_order=order, **common)
+        # Phase 7 B1 (decision 19): BOTH links are allowed now - B4 re-links an order's
+        # delivery to the first fulfilment sale and the row must keep the order it was
+        # arranged for. The database refuses only a delivery that belongs to NOTHING.
+        re_linked = Delivery.objects.create(sale=txn, sales_order=order, **common)
+        self.assertEqual(re_linked.sale_id, txn.pk)
+        self.assertEqual(re_linked.sales_order_id, order.pk)
         with self.assertRaises(IntegrityError), transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
             Delivery.objects.create(**common)
-        self.assertEqual(Delivery.objects.count(), 0)
+        self.assertEqual(Delivery.objects.count(), 1)
 
 
 class DeliveryScopeTests(DeliveryTestBase):
