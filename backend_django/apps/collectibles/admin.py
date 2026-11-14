@@ -10,7 +10,7 @@ class CollectibleLedgerAdmin(admin.ModelAdmin):
         'balance_due', 'due_date', 'status', 'is_overdue',
     ]
     list_filter = ['status', 'due_date']
-    search_fields = ['customer__full_name', 'id']
+    search_fields = ['customer__name', 'id']
     readonly_fields = ['created_at', 'updated_at']
 
 

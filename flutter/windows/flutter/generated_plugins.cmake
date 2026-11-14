@@ -3,7 +3,9 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  file_selector_windows
   flutter_secure_storage_windows
+  printing
   screen_retriever
   window_manager
 )

@@ -1,0 +1,337 @@
+import 'package:client/core/network/api_client.dart';
+import 'package:client/data/models/inventory_batch.dart';
+import 'package:client/data/models/product.dart';
+import 'package:client/data/models/stock_on_hand.dart';
+import 'package:client/data/models/variant_uom.dart';
+import 'package:dio/dio.dart';
+
+/// Raised when the catalogue cannot be loaded. [message] is safe to show a user.
+class ProductsServiceException implements Exception {
+  const ProductsServiceException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+/// One load of the products catalogue: the catalogue itself, plus the stock that
+/// gives each row its quantity.
+///
+/// Stock is separate lists rather than a field on the product because a batch is
+/// "a lot at a cost" (decision 02) and lives on its own endpoint.
+class ProductsSnapshot {
+  const ProductsSnapshot({
+    required this.products,
+    required this.batches,
+    this.stockOnHand = const [],
+  });
+
+  final List<Product> products;
+
+  /// The FIFO lots. COST only (the newest batch's landed cost, decision 08) and
+  /// the valuation dashboards — never summed for quantity since Phase 9 F1.
+  final List<InventoryBatch> batches;
+
+  /// `GET /api/v1/stock-on-hand/` — quantity per (variant, location). This is
+  /// what every "how many do we have" question reads (decision 21 §5).
+  final List<StockOnHand> stockOnHand;
+}
+
+/// Loads the products catalogue from the two list endpoints it needs.
+///
+/// Contract: `ENDPOINTS.md` §3.3 — `/api/v1/products/` nests each product's
+/// variants and each variant's selling units, so one call carries the name, the
+/// barcode and the price; `/api/v1/batches/` carries the quantities. Verified
+/// against the live API on 2026-10-16 (count 6 and count 8).
+class ProductsService {
+  ProductsService({ApiClient? client}) : _client = client ?? ApiClient.instance;
+
+  final ApiClient _client;
+
+  /// What the screen says when the catalogue read fails for a reason other than
+  /// a specific HTTP status. A contract break appends its parse detail to this.
+  static const _loadFallback = 'The product catalogue could not be loaded.';
+
+  static const productsPath = '/api/v1/products/';
+  static const batchesPath = '/api/v1/batches/';
+  static const stockOnHandPath = '/api/v1/stock-on-hand/';
+
+  /// Loads the catalogue and its stock together.
+  ///
+  /// Both envelopes are unwrapped by `parsePaged`, reached through
+  /// [ApiClient.getList] — so the DRF `{count, next, previous, results}` shape is
+  /// known in exactly one place (decision 03).
+  ///
+  /// This deliberately does **not** read `data['results']` by hand. The lost
+  /// `PosService` (commit `22c7c26`) did, and that turns a contract break into a
+  /// silently EMPTY catalogue: the screen reports "no products" when the truth is
+  /// that the response was malformed. `parsePaged` throws instead, and there is a
+  /// test pinning that.
+  ///
+  /// F1: that throw is turned into a [ProductsServiceException] here rather than
+  /// escaping as a raw `FormatException`/`TypeError`. Neither was caught by
+  /// `InventoryViewmodel.load()`, so a malformed envelope left `loadError` null
+  /// and the screen painted "No products in the catalogue yet." over a fetch that
+  /// had actually failed — with no banner and no Retry.
+  ///
+  /// The two requests run together because neither depends on the other.
+  Future<ProductsSnapshot> fetchCatalogue() => _read(() async {
+    // F5: `getList` reads ONE page (DRF `PAGE_SIZE` = 50). Product #51 was
+    // unsearchable and unscannable, and batch #51's quantity was missing from
+    // every stock figure. `getAll` walks the `next` links.
+    // The two reads run one after the other, NOT in parallel: `Future.wait` (and
+    // the record `.wait`) wraps a failure in ParallelWaitError, which is neither a
+    // DioException nor a FormatException — the exact leak F1 fixed. A second
+    // round trip is cheaper than a contract break reported as "no products".
+    final products = await _client.getAll<Product>(
+      productsPath,
+      Product.fromJson,
+    );
+    final batches = await _client.getAll<InventoryBatch>(
+      batchesPath,
+      InventoryBatch.fromJson,
+    );
+    final stockOnHand = await fetchStockOnHand();
+    return ProductsSnapshot(
+      products: products,
+      batches: batches,
+      stockOnHand: stockOnHand,
+    );
+  });
+
+  /// How much of each variant sits at each location (Phase 9 F1, decision 21 §5).
+  ///
+  /// Deliberately NOT `getAll`: this route answers a BARE JSON array
+  /// (`[{variant, location, location_name, location_active, is_home, qty}]`,
+  /// ENDPOINTS.md §3.3), not the `{count, next, previous, results}` envelope, so
+  /// `parsePaged` would read a contract the server never agreed to. The rows are
+  /// already grouped per (variant, location) by the server, so there is no page
+  /// to walk — the list is as long as the shop has shelves in use, not as long as
+  /// its stock.
+  ///
+  /// [variantId] narrows the read to one variant's shelves (`?variant=`), which
+  /// is what a transfer dialog asks. Catalogues and stock pages read the lot.
+  Future<List<StockOnHand>> fetchStockOnHand({int? variantId}) =>
+      _read(() async {
+        final response = await _client.get<dynamic>(
+          stockOnHandPath,
+          queryParameters: variantId == null ? null : {'variant': variantId},
+        );
+        final data = response.data;
+        if (data is! List) {
+          throw FormatException(
+            'Expected a list of on-hand rows but got ${data.runtimeType}.',
+          );
+        }
+        return [
+          for (final row in data)
+            StockOnHand.fromJson(row as Map<String, dynamic>),
+        ];
+      });
+
+  /// Resolves a scanned code to the selling unit that owns it (decision 13).
+  ///
+  /// The server compares the normalised code exactly (`Upper(barcode_qr) ==`),
+  /// so this normalises first and a scanner's ` qb000013-0 ` finds
+  /// `QB000013-0`. One page is enough: a code identifies at most one unit.
+  ///
+  /// Archived variants and products come back TOO — that row is how the till can
+  /// say "that code belongs to X, which is archived" instead of "no such code".
+  Future<List<VariantUom>> lookupByBarcode(String code) {
+    final normalised = VariantUom.normalise(code);
+    if (normalised.isEmpty) return Future.value(const <VariantUom>[]);
+    return _read(
+      () async => (await _client.getList<VariantUom>(
+        variantUomsPath,
+        VariantUom.fromJson,
+        queryParameters: {'barcode': normalised},
+      )).items,
+    );
+  }
+
+  /// Runs a read, turning every way it can fail into a [ProductsServiceException]
+  /// the screen can show. The three failures deserve three messages: a transport
+  /// refusal, a malformed envelope, and a row of the wrong TYPE.
+  Future<T> _read<T>(Future<T> Function() read) async {
+    try {
+      return await read();
+    } on DioException catch (error) {
+      throw ProductsServiceException(_message(error));
+    } on FormatException catch (error) {
+      // A malformed envelope or row: a contract break, reported as a message the
+      // screen can show, with the parse detail kept for whoever debugs it.
+      throw ProductsServiceException('$_loadFallback (${error.message})');
+    } on TypeError {
+      // A row whose field is the wrong TYPE throws from its `fromJson` cast. The
+      // raw message is a Dart type name, so the clerk gets the plain sentence.
+      throw const ProductsServiceException(
+        '$_loadFallback (a row was not the shape this app expects)',
+      );
+    }
+  }
+
+  static const variantsPath = '/api/v1/variants/';
+  static const variantUomsPath = '/api/v1/variant-uoms/';
+
+  /// POSTs one product row and returns the server id.
+  Future<int> createProduct(Map<String, dynamic> body) async {
+    final response = await _write(
+      () => _client.post<Map<String, dynamic>>(productsPath, data: body),
+    );
+    return _idOf(response.data);
+  }
+
+  /// POSTs one variant row and returns the server id.
+  Future<int> createVariant(Map<String, dynamic> body) async {
+    final response = await _write(
+      () => _client.post<Map<String, dynamic>>(variantsPath, data: body),
+    );
+    return _idOf(response.data);
+  }
+
+  /// POSTs one selling unit and returns the server id.
+  Future<int> createSellingUnit(Map<String, dynamic> body) async {
+    final response = await _write(
+      () => _client.post<Map<String, dynamic>>(variantUomsPath, data: body),
+    );
+    return _idOf(response.data);
+  }
+
+  Future<void> patchProduct(int id, Map<String, dynamic> body) async {
+    if (body.isEmpty) return;
+    await _write(
+      () =>
+          _client.patch<Map<String, dynamic>>('$productsPath$id/', data: body),
+    );
+  }
+
+  Future<void> patchVariant(int id, Map<String, dynamic> body) async {
+    if (body.isEmpty) return;
+    await _write(
+      () =>
+          _client.patch<Map<String, dynamic>>('$variantsPath$id/', data: body),
+    );
+  }
+
+  Future<void> patchSellingUnit(int id, Map<String, dynamic> body) async {
+    if (body.isEmpty) return;
+    await _write(
+      () => _client.patch<Map<String, dynamic>>(
+        '$variantUomsPath$id/',
+        data: body,
+      ),
+    );
+  }
+
+  /// Removes one selling unit (Phase 1d decision 16).
+  ///
+  /// The one DELETE in the catalogue: `VariantUOMViewSet` answers 204 for a unit
+  /// nothing references, and 400s the base unit or a used one. Its copy differs
+  /// from a PATCH refusal for the SAME code (an edit is "frozen, still editable";
+  /// this is "cannot be removed"), so [_removalCodes] is consulted first.
+  Future<void> deleteSellingUnit(int id) async {
+    try {
+      await _client.dio.delete<void>('$variantUomsPath$id/');
+    } on DioException catch (error) {
+      throw ProductsServiceException(_message(error, codes: _removalCodes));
+    }
+  }
+
+  int _idOf(Map<String, dynamic>? data) {
+    final id = data?['id'];
+    if (id is int) return id;
+    throw const ProductsServiceException(
+      'The server did not return the saved row.',
+    );
+  }
+
+  Future<Response<Map<String, dynamic>>> _write(
+    Future<Response<Map<String, dynamic>>> Function() write,
+  ) async {
+    try {
+      return await write();
+    } on DioException catch (error) {
+      throw ProductsServiceException(_message(error));
+    }
+  }
+
+  String _message(DioException error, {Map<String, String> codes = const {}}) {
+    final status = error.response?.statusCode;
+    final data = error.response?.data;
+
+    if (data is Map<String, dynamic>) {
+      final code = data['code'];
+      if (code is String) {
+        final mapped = codes[code] ?? _codes[code];
+        if (mapped != null) return mapped;
+      }
+      final detail = data['detail'];
+      if (detail is String) return detail;
+      final fieldError = _firstFieldError(data);
+      if (fieldError != null) return fieldError;
+    }
+
+    if (error.type == DioExceptionType.connectionError ||
+        error.type == DioExceptionType.connectionTimeout ||
+        error.type == DioExceptionType.receiveTimeout) {
+      return 'Cannot connect to the BuildPro server.';
+    }
+    return switch (status) {
+      401 => 'Your session has expired. Sign in again.',
+      403 => 'Only a stock manager can change the product catalogue.',
+      404 => 'That product no longer exists. Reload and try again.',
+      405 => 'Products cannot be deleted: archive the product instead.',
+      _ => 'Unable to load the product catalogue.',
+    };
+  }
+
+  /// The refusal codes this service can be answered with (ENDPOINTS.md §3.3),
+  /// each turned into something a clerk can act on.
+  static const Map<String, String> _codes = {
+    'INVALID_VARIANT':
+        'A stock level cannot be negative. Correct the reorder level and save '
+        'again.',
+    'INVALID_SELLING_UNIT':
+        'The selling price cannot be negative, and one selling unit always '
+        'holds at least one base unit.',
+    'DUPLICATE_BASE_UNIT': 'This variant already has a base-unit selling unit.',
+    'SELLING_UNIT_IN_USE':
+        'This selling unit has already been sold, so its unit and factor are '
+        'frozen. The price is still editable.',
+    // Phase 6 decision 18: the two code rules the client can word better than the
+    // server does. `BARCODE_TAKEN` is deliberately ABSENT — its detail names the
+    // product, variant and unit already holding the code, which is more useful
+    // than anything this map could say.
+    'BARCODE_INVALID':
+        'Check the barcode. The check digit or characters are not valid.',
+    'BARCODE_RESERVED_PREFIX':
+        "QB codes are generated by the system and can't be typed.",
+    // Phase 5 B4 (decision 18): a product write that names a DEACTIVATED location
+    // is refused. This map is deliberately NOT used for it: the server's `detail`
+    // names the place and tells the clerk what to do, which says more than any
+    // fixed sentence here could (the rule `BARCODE_TAKEN` follows).
+  };
+
+  /// The refusals that mean something different on a REMOVAL than on an edit.
+  ///
+  /// `SELLING_UNIT_IN_USE` is the same code in both places, but a clerk removing
+  /// a bag is not editing a price — telling them "its unit and factor are frozen"
+  /// would describe an action they did not take.
+  static const Map<String, String> _removalCodes = {
+    'BASE_UNIT_REQUIRED':
+        'The base unit cannot be removed: the product is counted in it.',
+    'SELLING_UNIT_IN_USE':
+        'This selling unit has already been sold, held or requested, so it '
+        'cannot be removed. Its price and code stay editable.',
+  };
+
+  String? _firstFieldError(Map<String, dynamic> data) {
+    for (final entry in data.entries) {
+      final value = entry.value;
+      if (value is List && value.isNotEmpty) return '${value.first}';
+      if (value is String && value.isNotEmpty) return value;
+    }
+    return null;
+  }
+}

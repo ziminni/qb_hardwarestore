@@ -1,8 +1,11 @@
-import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
-import 'package:client/shared/widgets/system_brand.dart';
+import 'package:client/core/constants/app_areas.dart';
+import 'package:client/core/navigation/app_destinations.dart';
+import 'package:client/core/navigation/merged_sidebar.dart';
+import 'package:client/shared/widgets/app_shell.dart';
+import 'package:client/shared/widgets/notifications_button.dart';
+import 'package:client/shared/widgets/shared_sidebar.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:provider/provider.dart';
 
 class AdminSkeletonLayout extends StatelessWidget {
   const AdminSkeletonLayout({
@@ -12,6 +15,9 @@ class AdminSkeletonLayout extends StatelessWidget {
     required this.selectedNavigationIndex,
     required this.child,
     this.onNavigationSelected,
+    this.scrollable = true,
+    this.loadMarkers = projectRequestsMarkers,
+    this.markers,
   });
 
   final String title;
@@ -20,136 +26,67 @@ class AdminSkeletonLayout extends StatelessWidget {
   final Widget child;
   final ValueChanged<int>? onNavigationSelected;
 
-  static const _navigationItems = [
-    ('Overview', Icons.dashboard_outlined, '/admin/dashboard'),
-    ('User management', Icons.manage_accounts_outlined, '/admin/users'),
-    ('Inventory', Icons.inventory_2_outlined, '/admin/inventory'),
-    ('Sales & POS', Icons.point_of_sale_outlined, '/admin/sales'),
-    ('Requisitions', Icons.receipt_long_outlined, '/admin/requisitions'),
-    ('Reports', Icons.bar_chart_rounded, '/admin/reports'),
-    ('Audit logs', Icons.history_rounded, '/admin/audit-logs'),
-    ('Settings', Icons.settings_outlined, '/admin/settings'),
-  ];
+  /// See [AppShell.scrollable]. A page whose list must build rows lazily passes
+  /// false and gives the list an `Expanded` slot of its own.
+  final bool scrollable;
+
+  /// See [AppShell.loadMarkers]: the waiting-request count, read once when the
+  /// shell mounts. A failed read draws no badge at all.
+  final Future<Map<int, int>> Function() loadMarkers;
+
+  /// See [AppShell.markers]. The queue page passes its OWN fresh count, so a
+  /// decision taken on that screen updates the badge immediately.
+  final Map<int, int>? markers;
+
+  /// Flat sidebar index of "Project requests" (decision 13). APPENDED in a
+  /// final group, so no earlier index moves.
+  static const int projectRequestsIndex = 7;
+
+  /// The admin menu as the sidebar renders it, derived from [AppDestinations]
+  /// (Phase 2 F1). Read by the index tests so they pin the menu production
+  /// actually draws.
+  static List<SharedSidebarSection> get navigationSections =>
+      AppDestinations.sectionsFor(AppAreas.admin);
+
+  /// The admin groups, by the index each destination ALREADY has, derived from
+  /// [AppDestinations]: today's flat order with headings only, so no index moves.
+  static List<(String, int)> get groups =>
+      AppDestinations.groupsFor(AppAreas.admin);
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthViewmodel>();
-
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      body: Row(
-        children: [
-          Container(
-            width: 220,
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              border: Border(right: BorderSide(color: Colors.black26)),
-            ),
-            child: Column(
-              children: [
-                const SizedBox(
-                  height: 72,
-                  child: Center(
-                    child: SystemBrand(
-                      logoSize: 42,
-                      fontSize: 14,
-                      subtitle: '& CONSTRUCTION SUPPLIES',
-                    ),
-                  ),
-                ),
-                const Divider(height: 1),
-                Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(10),
-                    itemCount: _navigationItems.length,
-                    itemBuilder: (context, index) {
-                      final item = _navigationItems[index];
-                      final selected = index == selectedNavigationIndex;
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 4),
-                        color: selected
-                            ? const Color(0xFFE5E5E5)
-                            : Colors.transparent,
-                        child: ListTile(
-                          dense: true,
-                          selected: selected,
-                          onTap: onNavigationSelected != null
-                              ? () => onNavigationSelected!(index)
-                              : () => context.go(item.$3),
-                          leading: Icon(item.$2, size: 19),
-                          title: Text(item.$1),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  title: Text(auth.user?.fullName ?? 'Administrator'),
-                  subtitle: Text(auth.user?.role.displayName ?? 'Admin'),
-                  trailing: IconButton(
-                    tooltip: 'Log out',
-                    onPressed: auth.logout,
-                    icon: const Icon(Icons.logout, size: 18),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Column(
-              children: [
-                Container(
-                  height: 72,
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    border: Border(bottom: BorderSide(color: Colors.black26)),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Text(
-                              subtitle,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Colors.black54,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () {},
-                        icon: const Icon(Icons.notifications_none, size: 17),
-                        label: const Text('Notifications'),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(20),
-                    child: child,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    return AppShell(
+      title: title,
+      subtitle: subtitle,
+      sections: navigationSections,
+      selectedIndex: selectedNavigationIndex,
+      originArea: AppAreas.admin,
+      scrollable: scrollable,
+      onDestinationSelected:
+          onNavigationSelected ?? (index) => _open(context, index),
+      loadMarkers: loadMarkers,
+      markers: markers,
+      actions: const [NotificationsButton()],
+      fallbackUserName: 'Administrator',
+      fallbackRoleLabel: 'Admin',
+      child: child,
     );
   }
+
+  /// Taps that the page does not handle itself open the destination's own route.
+  static void _open(BuildContext context, int index) {
+    final route = AppDestinations.routeAt(AppAreas.admin, index);
+    if (route != null) context.go(route);
+  }
+}
+
+/// How many requests are waiting for the store, for the sidebar badge.
+///
+/// The server's own `count` for `?status=WAITING` (no page walk), read when the
+/// shell mounts. A failed read throws and [AppShell] draws nothing: a badge
+/// reading 0 is a claim that the queue is empty, which a failed read has not
+/// established.
+Future<Map<int, int>> projectRequestsMarkers() async {
+  final count = await waitingProjectRequestsCount();
+  return {AdminSkeletonLayout.projectRequestsIndex: count};
 }

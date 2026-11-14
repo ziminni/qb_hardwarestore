@@ -1,1 +1,203 @@
+import 'package:client/data/models/json_field.dart';
+import 'package:client/data/models/variant_uom.dart';
 
+class ProductVariant {
+  const ProductVariant({
+    required this.id,
+    required this.productId,
+    required this.baseUomId,
+    required this.minStockThreshold,
+    required this.maxStockLevel,
+    this.sellingUoms = const [],
+    required this.variantName,
+    required this.baseUomCode,
+    required this.isActive,
+    this.storedAtId,
+    this.storedAtName = '',
+  });
+
+  final int id;
+
+  /// Owning product id. API field `product`.
+  final int productId;
+
+  /// Base unit id. API field `base_uom`.
+  final int baseUomId;
+
+  /// Low-stock threshold. API field `min_stock_threshold`; replaces `reorderLevel`.
+  final double minStockThreshold;
+  final double maxStockLevel;
+
+  /// Selling units, each owning the charged price. API field `selling_uoms`.
+  final List<VariantUom> sellingUoms;
+
+  final String variantName;
+  final String baseUomCode;
+  final bool isActive;
+
+  /// Where this variant's PRODUCT is kept (Phase 5 B4): read-only on the wire,
+  /// because moving goods between places is not this phase's job.
+  final int? storedAtId;
+  final String storedAtName;
+
+  /// The variant's barcode — `VariantUom.barcode_qr`, which is the only
+  /// identifier the API carries.
+  ///
+  /// Derived rather than stored, and it replaces the invented `sku`
+  /// (decision 10): there is no SKU field in any backend model or serializer,
+  /// and the `CEM-HOL-40`-style values were fabricated by the mock data. Empty
+  /// when no selling unit carries one — which is every seeded row today.
+  String get barcode {
+    for (final uom in sellingUoms) {
+      if (uom.barcodeQr.isNotEmpty) return uom.barcodeQr;
+    }
+    return '';
+  }
+
+  /// The selling unit that IS the base unit: this variant's own `base_uom` at
+  /// factor 1 (Phase 1d).
+  ///
+  /// List order is not identity. Once a product is sold by the bag the server
+  /// may answer `[BAG (factor 40), KG (factor 1)]`, so a screen that took the
+  /// first row would price and label the bag as if it were the base unit.
+  VariantUom? get baseSellingUnit {
+    for (final uom in sellingUoms) {
+      if (uom.uomId == baseUomId && uom.conversionFactor == 1) return uom;
+    }
+    return null;
+  }
+
+  ProductVariant copyWith({
+    bool? isActive,
+    String? variantName,
+    String? baseUomCode,
+    double? minStockThreshold,
+    List<VariantUom>? sellingUoms,
+  }) {
+    return ProductVariant(
+      id: id,
+      productId: productId,
+      baseUomId: baseUomId,
+      minStockThreshold: minStockThreshold ?? this.minStockThreshold,
+      maxStockLevel: maxStockLevel,
+      sellingUoms: sellingUoms ?? this.sellingUoms,
+      variantName: variantName ?? this.variantName,
+      baseUomCode: baseUomCode ?? this.baseUomCode,
+      isActive: isActive ?? this.isActive,
+    );
+  }
+
+  factory ProductVariant.fromJson(Map<String, dynamic> json) {
+    return ProductVariant(
+      id: intField(json, 'id'),
+      variantName: stringField(json, 'variant_name'),
+      baseUomCode: stringField(json, 'base_uom_code'),
+      isActive: boolFieldOr(json, 'is_active', or: true),
+      productId: intField(json, 'product'),
+      baseUomId: intField(json, 'base_uom'),
+      minStockThreshold: decimalField(json, 'min_stock_threshold'),
+      maxStockLevel: decimalField(json, 'max_stock_level'),
+      storedAtId: json['stored_at'] is int ? json['stored_at'] as int : null,
+      storedAtName: json['stored_at_name'] is String
+          ? json['stored_at_name'] as String
+          : '',
+      sellingUoms: (json['selling_uoms'] as List<dynamic>? ?? const [])
+          .map((u) => VariantUom.fromJson(u as Map<String, dynamic>))
+          .toList(growable: false),
+    );
+  }
+}
+
+class Product {
+  const Product({
+    required this.id,
+    required this.categoryId,
+    required this.categoryName,
+    required this.brandId,
+    required this.brandName,
+    required this.baseName,
+    required this.description,
+    required this.imageUrl,
+    required this.isActive,
+    required this.variants,
+    this.storedAtId,
+    this.storedAtName = '',
+  });
+
+  final int id;
+  final int categoryId;
+  final String categoryName;
+  final int brandId;
+  final String brandName;
+  final String baseName;
+  final String description;
+  final String imageUrl;
+  final bool isActive;
+  final List<ProductVariant> variants;
+
+  /// Where the shop keeps this product: a SERVER fact (Phase 5 B4, decision 18).
+  ///
+  /// Its variants, selling units, sale lines and delivery slips all READ this
+  /// label, so there is no second copy of it. Null on a body from before B4 —
+  /// the screens then say nothing rather than inventing a place.
+  final int? storedAtId;
+
+  /// `Bodega`. Empty when the server sent no location (an older body).
+  final String storedAtName;
+
+  Product copyWith({
+    int? id,
+    int? categoryId,
+    String? categoryName,
+    int? brandId,
+    String? brandName,
+    String? baseName,
+    String? description,
+    String? imageUrl,
+    bool? isActive,
+    List<ProductVariant>? variants,
+    int? storedAtId,
+    String? storedAtName,
+  }) {
+    return Product(
+      id: id ?? this.id,
+      categoryId: categoryId ?? this.categoryId,
+      categoryName: categoryName ?? this.categoryName,
+      brandId: brandId ?? this.brandId,
+      brandName: brandName ?? this.brandName,
+      baseName: baseName ?? this.baseName,
+      description: description ?? this.description,
+      imageUrl: imageUrl ?? this.imageUrl,
+      isActive: isActive ?? this.isActive,
+      variants: variants ?? this.variants,
+      storedAtId: storedAtId ?? this.storedAtId,
+      storedAtName: storedAtName ?? this.storedAtName,
+    );
+  }
+
+  factory Product.fromJson(Map<String, dynamic> json) {
+    return Product(
+      id: json['id'] as int,
+      categoryId: json['category'] as int,
+      categoryName: json['category_name'] as String? ?? '',
+      brandId: json['brand'] as int,
+      brandName: json['brand_name'] as String? ?? '',
+      baseName: json['base_name'] as String,
+      description: json['description'] as String? ?? '',
+      imageUrl: json['image_url'] as String? ?? '',
+      isActive: json['is_active'] as bool? ?? true,
+      // Phase 5 B4: the pick-up point, read-only on the wire. Absent on a body
+      // from before the feature, which is a real state and must not be guessed.
+      storedAtId: json['stored_at'] is int ? json['stored_at'] as int : null,
+      storedAtName: json['stored_at_name'] is String
+          ? json['stored_at_name'] as String
+          : '',
+      variants: (json['variants'] as List<dynamic>? ?? const [])
+          .map(
+            (variant) =>
+                ProductVariant.fromJson(variant as Map<String, dynamic>),
+          )
+          .toList(growable: false),
+    );
+  }
+}

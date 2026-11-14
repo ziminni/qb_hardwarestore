@@ -1,0 +1,279 @@
+import 'package:client/data/models/inventory_batch.dart';
+import 'package:client/data/models/receiving.dart';
+import 'package:client/data/services/inventory_service.dart';
+import 'package:flutter/foundation.dart';
+
+/// Owns the receiving screen: purchase orders in, goods receipts recorded,
+/// receipts processed into FIFO batches, and the deliveries already received.
+///
+/// Screen-scoped like every other viewmodel (decision 11): it lives as long as
+/// the receiving page and no longer. Amounts entered per PO line travel to the
+/// server as `items: [{po_item, qty}]`, which is what `process/` turns into
+/// batches — the screen never invents stock itself.
+///
+/// Phase 4 added two things the server allows and the screen did not show:
+///
+///  * the list is filtered to **ORDERED / PARTIAL** orders, the only ones that
+///    can be received (`PO_NOT_ORDERED`, `PO_NOT_RECEIVABLE` elsewhere), and
+///  * **received deliveries** from `GET /goods-receipts/`, so a delivery can be
+///    looked up after the fact instead of only at the moment it was booked.
+class ReceivingViewmodel extends ChangeNotifier {
+  ReceivingViewmodel({InventoryService? service})
+    : _service = service ?? InventoryService();
+
+  final InventoryService _service;
+
+  List<PurchaseOrderRecord> _orders = const [];
+  bool _isLoading = false;
+  String? _loadError;
+
+  List<GoodsReceiptRecord> _receipts = const [];
+  bool _isLoadingReceipts = false;
+  String? _receiptsError;
+
+  PurchaseOrderRecord? _selected;
+  final Map<int, double> _quantities = {};
+
+  /// The shelf the receiver chose per PO line, keyed by PO item id. ABSENT means
+  /// the product's home shelf, which the server applies when the field is
+  /// omitted (Phase 9 F2, decision 21 §7).
+  final Map<int, int> _destinations = {};
+  String? _actionError;
+  bool _isActing = false;
+  int? _lastReceiptId;
+  List<InventoryBatch> _lastBatches = const [];
+
+  /// Only the orders that can actually be received.
+  List<PurchaseOrderRecord> get orders => List.unmodifiable(_orders);
+  bool get isLoading => _isLoading;
+  bool get hasOrders => _orders.isNotEmpty;
+  String? get loadError => _loadError;
+
+  /// Deliveries already booked into stock, newest first.
+  List<GoodsReceiptRecord> get receipts => List.unmodifiable(_receipts);
+  bool get isLoadingReceipts => _isLoadingReceipts;
+  String? get receiptsError => _receiptsError;
+
+  PurchaseOrderRecord? get selected => _selected;
+
+  /// The PO line a receipt line came from, when this screen has the order
+  /// loaded.
+  ///
+  /// `GoodsReceiptItemSerializer` sends no unit, so a receipt line's quantity can
+  /// only be named in its PO unit by reading the order it belongs to. Null means
+  /// "not here", and the caller then shows the bare number instead of guessing.
+  PurchaseOrderItem? itemFor(int poItemId) {
+    for (final order in [?_selected, ..._orders]) {
+      for (final item in order.items) {
+        if (item.id == poItemId) return item;
+      }
+    }
+    return null;
+  }
+
+  /// Entered received quantity for a PO line; unset means nothing entered yet.
+  double? qtyFor(int poItemId) => _quantities[poItemId];
+
+  /// The destination the receiver PICKED for a PO line, or null when the line
+  /// goes to the product's home shelf (the server's default).
+  int? destinationFor(int poItemId) => _destinations[poItemId];
+
+  String? get actionError => _actionError;
+  bool get isActing => _isActing;
+  int? get lastReceiptId => _lastReceiptId;
+  List<InventoryBatch> get lastBatches => List.unmodifiable(_lastBatches);
+
+  /// True once a receipt has been processed: the Process button must go away,
+  /// because process/ has no receipt-level guard against a second run client-side.
+  bool get isProcessed => _lastReceiptId != null && _lastBatches.isNotEmpty;
+
+  /// Something has been counted, so recording is worth offering.
+  bool get hasQuantities => _quantities.isNotEmpty;
+
+  /// The purchase order the Purchases row's Receive action asked for.
+  ///
+  /// `AppRoutes.inventoryReceiving` carries no query string and `routes.dart` is
+  /// outside this card, so the intent is parked here for ONE load: the panel
+  /// opens on that order, and a later visit from the sidebar opens on none.
+  static int? pendingPurchaseOrderId;
+
+  static int? _takePendingPurchaseOrderId() {
+    final id = pendingPurchaseOrderId;
+    pendingPurchaseOrderId = null;
+    return id;
+  }
+
+  /// Loads the orders that can be received. A failed load keeps the rows already
+  /// shown: emptying the table would read as "nothing on order".
+  Future<void> load() async {
+    // Taken FIRST, before the read: the hand-off belongs to the visit that the
+    // Receive tap started, so a load that fails must drop it too. Taken only on
+    // success it outlived the visit and preselected that PO on a later one,
+    // possibly after a sign-out and for another user.
+    final pendingId = _takePendingPurchaseOrderId();
+    _isLoading = true;
+    _loadError = null;
+    notifyListeners();
+    try {
+      final orders = await _service.fetchPurchaseOrders();
+      _orders = orders
+          .where((order) => order.isReceivable)
+          .toList(growable: false);
+      // The open panel must show the SERVER's copy of the selected order, not
+      // the object it was selected from: otherwise it reads "ORDERED · received
+      // 0" after a delivery. Matched against the UNFILTERED list, so an order
+      // this delivery just completed still updates (and stays on screen with
+      // its final state) although it has left the receivable list.
+      final selectedId = _selected?.id;
+      if (selectedId != null) {
+        for (final order in orders) {
+          if (order.id == selectedId) {
+            _selected = order;
+            break;
+          }
+        }
+      } else if (pendingId != null) {
+        // First load after a Receive tap on Purchases: open on that order.
+        // An order the server will not let this screen receive (a DRAFT, or one
+        // finished since the list was read) simply stays unpicked.
+        for (final order in _orders) {
+          if (order.id == pendingId) {
+            _selected = order;
+            break;
+          }
+        }
+      }
+      _loadError = null;
+    } on InventoryServiceException catch (error) {
+      _loadError = error.message;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Loads the goods-receipt history.
+  Future<void> loadReceipts() async {
+    _isLoadingReceipts = true;
+    _receiptsError = null;
+    notifyListeners();
+    try {
+      _receipts = await _service.fetchGoodsReceipts();
+      _receiptsError = null;
+    } on InventoryServiceException catch (error) {
+      _receiptsError = error.message;
+    } finally {
+      _isLoadingReceipts = false;
+      notifyListeners();
+    }
+  }
+
+  /// Selects the order being received; clears any quantities from the last one.
+  void select(PurchaseOrderRecord order) {
+    _selected = order;
+    _quantities.clear();
+    _destinations.clear();
+    _actionError = null;
+    _lastReceiptId = null;
+    _lastBatches = const [];
+    notifyListeners();
+  }
+
+  void setQty(int poItemId, double qty) {
+    _quantities[poItemId] = qty;
+    notifyListeners();
+  }
+
+  /// Withdraws a line: clearing a field must not post the value it used to hold.
+  void clearQty(int poItemId) {
+    _quantities.remove(poItemId);
+    notifyListeners();
+  }
+
+  /// Records where a line goes. A null RESTORES the default (home), which is a
+  /// different act from picking home explicitly: the wire carries no location,
+  /// so the server's `stored_at` decides.
+  void setDestination(int poItemId, int? locationId) {
+    if (locationId == null) {
+      _destinations.remove(poItemId);
+    } else {
+      _destinations[poItemId] = locationId;
+    }
+    notifyListeners();
+  }
+
+  /// Records the receipt with one line per order item that has a quantity.
+  Future<bool> recordReceipt({String deliveryReceiptNo = ''}) async {
+    final order = _selected;
+    if (order == null) {
+      _actionError = 'Select a purchase order first.';
+      notifyListeners();
+      return false;
+    }
+    final lines = [
+      for (final item in order.items)
+        if (_quantities.containsKey(item.id))
+          ReceiptLine(
+            poItemId: item.id,
+            qty: _quantities[item.id]!,
+            // Only a shelf the receiver CHOSE travels: an omitted `location` is
+            // the server's home default, and sending it would pretend the clerk
+            // picked a shelf they never looked at.
+            locationId: _destinations[item.id],
+          ),
+    ];
+    if (lines.isEmpty) {
+      _actionError = 'Enter a received quantity for at least one line.';
+      notifyListeners();
+      return false;
+    }
+    _isActing = true;
+    _actionError = null;
+    notifyListeners();
+    try {
+      final receipt = await _service.createReceipt(
+        poId: order.id,
+        items: lines,
+        deliveryReceiptNo: deliveryReceiptNo,
+      );
+      _lastReceiptId = receipt.id;
+      // The delivery is now part of the history, and the order's received
+      // quantity moved: reload both so the screen agrees with the server.
+      await load();
+      await loadReceipts();
+      return true;
+    } on InventoryServiceException catch (error) {
+      _actionError = error.message;
+      return false;
+    } finally {
+      _isActing = false;
+      notifyListeners();
+    }
+  }
+
+  /// Processes the recorded receipt into FIFO batches.
+  Future<bool> processReceipt() async {
+    final receiptId = _lastReceiptId;
+    if (receiptId == null) {
+      _actionError = 'Record a receipt before processing it.';
+      notifyListeners();
+      return false;
+    }
+    _isActing = true;
+    _actionError = null;
+    notifyListeners();
+    try {
+      _lastBatches = await _service.processReceipt(receiptId);
+      // process/ is where the server moves the order to PARTIAL or COMPLETE.
+      await load();
+      await loadReceipts();
+      return _lastBatches.isNotEmpty;
+    } on InventoryServiceException catch (error) {
+      _actionError = error.message;
+      return false;
+    } finally {
+      _isActing = false;
+      notifyListeners();
+    }
+  }
+}

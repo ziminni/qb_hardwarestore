@@ -1,0 +1,145 @@
+import 'package:client/core/constants/app_text_styles.dart';
+import 'package:client/core/theme/app_theme.dart';
+import 'package:client/data/repositories/auth_repository.dart';
+import 'package:client/data/services/auth_service.dart';
+import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
+import 'package:client/features/dashboard/widget/dashboard_shell.dart';
+import 'package:client/features/pos/widgets/pos_navigation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+
+/// The shell follows the window: full sidebar, icon rail, then a drawer.
+/// Every role shell wraps the same AppShell, so the POS shell stands in for
+/// all of them here.
+void main() {
+  Future<List<int>> pumpShell(
+    WidgetTester tester,
+    Size size, {
+    double textScale = 1.0,
+  }) async {
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = textScale;
+    addTearDown(tester.view.reset);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final taps = <int>[];
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthViewmodel>.value(
+        value: AuthViewmodel(AuthRepository(AuthService())),
+        child: MaterialApp(
+          // The real app always carries the brand theme; without it these
+          // tests would read the platform text scale instead.
+          theme: AppTheme.lightTheme,
+          home: DashboardShell(
+            title: 'Point of Sale',
+            subtitle: 'New transaction',
+            selectedNavigationIndex: 0,
+            navigationItems: posNavigationItems,
+            onNavigationSelected: taps.add,
+            child: const Text('BODY'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    return taps;
+  }
+
+  testWidgets('a wide window shows the full sidebar with labels', (
+    tester,
+  ) async {
+    final taps = await pumpShell(tester, const Size(1400, 900));
+
+    expect(find.text('Transaction history'), findsOneWidget);
+    expect(find.byTooltip('Open menu'), findsNothing);
+    await tester.tap(find.text('Transaction history'));
+    expect(taps, [1]);
+  });
+
+  testWidgets('a resized window collapses the sidebar to an icon rail', (
+    tester,
+  ) async {
+    final taps = await pumpShell(tester, const Size(1000, 800));
+
+    // The label moves into a tooltip; the icon is still the way to navigate.
+    expect(find.text('Transaction history'), findsNothing);
+    expect(find.byTooltip('Transaction history'), findsOneWidget);
+    expect(find.byTooltip('Open menu'), findsNothing);
+    await tester.tap(find.byIcon(Icons.receipt_long_outlined));
+    expect(taps, [1]);
+  });
+
+  testWidgets('a half-screen window moves the menu into a drawer', (
+    tester,
+  ) async {
+    final taps = await pumpShell(tester, const Size(800, 700));
+
+    expect(find.text('Transaction history'), findsNothing);
+    expect(find.byTooltip('Transaction history'), findsNothing);
+    expect(find.text('BODY'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Open menu'));
+    await tester.pumpAndSettle();
+    expect(find.text('Transaction history'), findsOneWidget);
+
+    await tester.tap(find.text('Transaction history'));
+    await tester.pumpAndSettle();
+    expect(taps, [1]);
+    // Choosing a destination closes the drawer.
+    expect(find.text('Transaction history'), findsNothing);
+  });
+
+  testWidgets('no width between phone and wide desktop overflows the shell', (
+    tester,
+  ) async {
+    for (final width in [600.0, 899.0, 900.0, 1199.0, 1200.0, 1920.0]) {
+      await pumpShell(tester, Size(width, 700));
+      expect(tester.takeException(), isNull, reason: 'width $width');
+    }
+  });
+
+  testWidgets('the rail avatar initials use the brand heading font', (
+    tester,
+  ) async {
+    // Only the rail shows the avatar. A TextStyle with no family renders the
+    // initials in the platform font, which is what the goldens caught.
+    await pumpShell(tester, const Size(1000, 800));
+
+    final initials = find.descendant(
+      of: find.byType(CircleAvatar),
+      matching: find.byType(Text),
+    );
+    expect(initials, findsOneWidget);
+    expect(
+      tester.widget<Text>(initials).style?.fontFamily,
+      AppTextStyles.cinzelFont,
+    );
+  });
+
+  testWidgets('the brand subtitle is never truncated', (tester) async {
+    // Z2 fix task B (D-08): the subtitle was one clipped line, so a wide window
+    // with a raised text scale read "& CONSTRUCTION SUP..." - the company name
+    // cut in half. The brand block now fits itself into the sidebar instead.
+    for (final scale in [1.0, 1.3]) {
+      await pumpShell(tester, const Size(1440, 900), textScale: scale);
+
+      final subtitle = find.text('& CONSTRUCTION SUPPLIES');
+      expect(subtitle, findsOneWidget, reason: 'scale $scale');
+      final paragraph = tester.renderObject<RenderParagraph>(subtitle);
+      expect(
+        paragraph.didExceedMaxLines,
+        isFalse,
+        reason: 'the whole subtitle is laid out at scale $scale',
+      );
+    }
+  });
+
+  testWidgets('the header title uses the brand heading font', (tester) async {
+    await pumpShell(tester, const Size(1400, 900));
+
+    final title = tester.widget<Text>(find.text('Point of Sale'));
+    expect(title.style?.fontFamily, AppTextStyles.cinzelFont);
+  });
+}

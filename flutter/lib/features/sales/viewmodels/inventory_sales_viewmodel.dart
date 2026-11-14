@@ -1,0 +1,232 @@
+import 'package:client/data/models/reports.dart';
+import 'package:client/data/models/sale_transaction.dart';
+import 'package:client/data/models/sales.dart';
+import 'package:client/data/models/tender_method.dart';
+import 'package:client/data/repositories/reports_repository.dart';
+import 'package:client/data/services/reports_service.dart';
+import 'package:client/data/services/sales_service.dart';
+import 'package:flutter/foundation.dart';
+
+class InventorySalesViewmodel extends ChangeNotifier {
+  InventorySalesViewmodel({SalesService? service, ReportsRepository? reports})
+    : _service = service ?? SalesService(),
+      _reports = reports ?? ReportsRepository();
+
+  final SalesService _service;
+  final ReportsRepository _reports;
+
+  List<InventorySale> _sales = const [];
+  List<InventoryReturn> _returns = const [];
+  bool _isLoading = false;
+  String? _loadError;
+
+  /// Server-computed 30-day totals. Tiles read THIS, never the client fold:
+  /// the fold walks a capped page list, so past ~2000 transactions it would
+  /// understate revenue — a wrong number presented as a fact.
+  SalesSummary? _summary;
+  String? _summaryError;
+
+  SalesSummary? get summary => _summary;
+  String? get summaryError => _summaryError;
+
+  List<InventorySale> get sales => List.unmodifiable(_sales);
+  List<InventoryReturn> get returns => List.unmodifiable(_returns);
+  bool get isLoading => _isLoading;
+  String? get loadError => _loadError;
+
+  double get completedRevenue => _sales
+      .where((sale) => sale.status == InventorySaleStatus.completed)
+      .fold(0, (sum, sale) => sum + sale.total);
+
+  /// Revenue net of refunds. RETURN rows carry negative grand totals on the
+  /// wire precisely so they net — omitting them overstates month-end revenue.
+  double get netRevenue =>
+      completedRevenue +
+      _returns.fold<double>(0, (sum, item) => sum + item.total);
+  double get soldUnits => _sales
+      .where((sale) => sale.status == InventorySaleStatus.completed)
+      .fold(0, (sum, sale) => sum + sale.totalQuantity);
+  int get completedReturns => _returns
+      .where((item) => item.status == InventoryReturnStatus.completed)
+      .length;
+
+  /// Loads the server-computed 30-day totals the tiles read.
+  ///
+  /// A failure names itself in [summaryError] and keeps any older summary
+  /// cleared — a stale total beside fresh rows would be a wrong number
+  /// presented as a fact. The transaction list is untouched: rows and tiles
+  /// fail independently.
+  Future<void> loadSummary() async {
+    _summaryError = null;
+    notifyListeners();
+    try {
+      _summary = await _reports.fetchSalesSummary();
+      _summaryError = null;
+    } on ReportsServiceException catch (error) {
+      _summary = null;
+      _summaryError = error.message;
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  /// Loads every sales transaction once and splits it in memory.
+  ///
+  /// Returns are `SalesTransaction` rows with `source='RETURN'` (decision 15),
+  /// so no second endpoint is involved — the same list feeds the dashboard,
+  /// the transactions table and the returns page. A failed load keeps the rows
+  /// already shown: emptying the table would read as "no sales".
+  Future<void> load() async {
+    _isLoading = true;
+    _loadError = null;
+    notifyListeners();
+    try {
+      final rows = await _service.fetchTransactions();
+      final byId = {for (final r in rows) r.id: r.transactionNo};
+      _sales = [
+        for (final r in rows)
+          if (r.source != 'RETURN') _saleOf(r),
+      ];
+      _returns = [
+        for (final r in rows)
+          if (r.source == 'RETURN') _returnOf(r, byId),
+      ];
+      _loadError = null;
+    } on SalesServiceException catch (error) {
+      _loadError = error.message;
+    } on FormatException catch (error) {
+      // An unknown source or status is a contract break, not a crash: it
+      // reaches the screen as an error the user can report and retry.
+      _loadError = error.message;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  InventorySale _saleOf(TransactionRecord r) => InventorySale(
+    transactionNo: r.transactionNo,
+    date: r.transDate,
+    customer: r.customerName,
+    cashier: r.cashierName,
+    // A row built for the screen shows the LABEL; the code stays on the wire (C1).
+    // A sale with no payment row is a word, not a dash (D18): this string is
+    // printed at the top of the View sheet.
+    paymentMethod: r.payments.isEmpty
+        ? 'No payment'
+        : TenderMethod.labelFor(r.payments.first.method),
+    source: _sourceLabel(r.source),
+    status: _saleStatus(r.status),
+    // The View sheet shows how it was paid and how much, so the payment rows
+    // ride along instead of being reduced to their first method name.
+    payments: [
+      for (final p in r.payments)
+        InventorySalePayment(
+          method: TenderMethod.labelFor(p.method),
+          amount: p.amountTendered,
+        ),
+    ],
+    lines: [
+      // The wire carries no product names — only the selling unit's id and code
+      // — so the code stands in for both the product name and the SKU here, and
+      // the screen resolves the name from the catalogue when it has one.
+      for (final i in r.items)
+        InventorySaleLine(
+          variantUomId: i.variantUomId,
+          productName: i.variantUomCode,
+          variantName: i.variantUomCode,
+          sku: i.variantUomCode,
+          quantity: i.qty,
+          unitPrice: i.unitPrice,
+        ),
+    ],
+    // Phase 4 F4: the discount and the VAT split come from the server, so the
+    // View sheet prints what the customer was actually charged.
+    discountAmount: r.discountAmount,
+    discountReason: r.discountReason,
+    vatableSales: r.vatableSales,
+    vatAmount: r.vatAmount,
+    vatRegistered: r.vatRegistered,
+  );
+
+  InventoryReturn _returnOf(
+    TransactionRecord r,
+    Map<int, String> transactionNos,
+  ) {
+    final original = r.originalTransactionId;
+    return InventoryReturn(
+      reference: r.transactionNo,
+      date: r.transDate,
+      type: InventoryReturnType.customer,
+      // Empty, not a dash (D18): a return the wire tied to no original sale has
+      // no reference at all, and both returns pages read an empty one as
+      // "Not linked". The pair moves together — see _related in both pages.
+      relatedReference: original == null
+          ? ''
+          : (transactionNos[original] ?? 'TRX-$original'),
+      // Empty for a return with no line items. These three fields are the old
+      // single-line summary; the pages render `lines`, so nothing prints them.
+      productName: r.items.isEmpty ? '' : r.items.first.variantUomCode,
+      variantName: r.items.isEmpty ? '' : r.items.first.variantUomCode,
+      sku: r.items.isEmpty ? '' : r.items.first.variantUomCode,
+      quantity: r.items.fold<double>(0, (sum, i) => sum + i.qty.abs()),
+      reason: 'Customer return',
+      status: _returnStatus(r.status),
+      processedBy: r.cashierName,
+      total: r.grandTotal,
+      lines: [
+        for (final i in r.items)
+          InventorySaleLine(
+            variantUomId: i.variantUomId,
+            productName: i.variantUomCode,
+            variantName: i.variantUomCode,
+            sku: i.variantUomCode,
+            quantity: i.qty,
+            unitPrice: i.unitPrice,
+          ),
+      ],
+    );
+  }
+
+  InventoryReturnStatus _returnStatus(String api) {
+    // RETURN rows post final: the server has no pending-return state, so
+    // pending/approved never occur and a zero pending count is true, not a lie.
+    switch (api) {
+      case 'COMPLETED':
+        return InventoryReturnStatus.completed;
+      case 'VOID':
+        // A voided return was not honored; rejected is the closest member.
+        return InventoryReturnStatus.rejected;
+      case 'REFUNDED':
+        return InventoryReturnStatus.completed;
+      default:
+        throw FormatException('Unknown return status: "$api"');
+    }
+  }
+
+  String _sourceLabel(String api) {
+    switch (api) {
+      case 'WALK_IN':
+        return 'Walk-in';
+      case 'REQUISITION':
+        return 'Requisition';
+      case 'RETURN':
+        return 'Return';
+      default:
+        throw FormatException('Unknown transaction source: "$api"');
+    }
+  }
+
+  InventorySaleStatus _saleStatus(String api) {
+    switch (api) {
+      case 'COMPLETED':
+        return InventorySaleStatus.completed;
+      case 'VOID':
+        return InventorySaleStatus.voided;
+      case 'REFUNDED':
+        return InventorySaleStatus.refunded;
+      default:
+        throw FormatException('Unknown transaction status: "$api"');
+    }
+  }
+}

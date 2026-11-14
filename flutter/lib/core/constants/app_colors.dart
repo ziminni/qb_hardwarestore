@@ -8,6 +8,10 @@ class AppColors {
   static const Color brandBlack = Color(0xFF050505);
   static const Color brandGold = Color(0xFFAC934F);
   static const Color brandGoldLight = Color(0xFFE1C684);
+
+  /// Brand gold as INK: the fill colour above is too pale for small text on
+  /// white, so labels and the brand subtitle use this darker shade.
+  static const Color brandGoldText = Color(0xFF6E5A22);
   static const Color brandWhite = Color(0xFFFFFFFF);
 
   // Theme aliases.
@@ -29,6 +33,18 @@ class AppColors {
   static const Color disabled = Color(0xFFAAA394);
   static const Color selected = Color(0xFFF1E6C9);
 
+  // Warm surface tones layered between softWhite and the card background
+  // (the teammate's design system).
+  static const Color surfaceSunken = Color(0xFFF3EFE5);
+  static const Color surfaceMuted = Color(0xFFEDE7D9);
+  static const Color tableHeader = Color(0xFFF6F2E8);
+
+  // Dark chrome used by the sidebar, splash and login brand panel.
+  static const Color chrome = brandBlack;
+  static const Color chromeRaised = Color(0xFF141311);
+  static const Color chromeBorder = Color(0xFF262420);
+  static const Color chromeText = Color(0xFFBDB6A6);
+
   // Status Colors
   static const Color success = Color(0xFF10B981);
   static const Color warning = Color(0xFFF59E0B);
@@ -39,4 +55,14 @@ class AppColors {
   static const Color stockOk = success;
   static const Color stockLow = warning;
   static const Color stockCritical = error;
+
+  // Status text on a light tint. The status colors above are too faint for
+  // small text on white (under 4.5:1), so badges pair these darker shades
+  // with the matching tint background.
+  static const Color successText = Color(0xFF065F46);
+  static const Color successTint = Color(0xFFE7F6EF);
+  static const Color warningText = Color(0xFF7C2D12);
+  static const Color warningTint = Color(0xFFFEF3C7);
+  static const Color errorText = Color(0xFF991B1B);
+  static const Color errorTint = Color(0xFFFEE2E2);
 }

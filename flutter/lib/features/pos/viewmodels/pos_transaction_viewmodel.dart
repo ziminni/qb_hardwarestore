@@ -1,0 +1,1182 @@
+import 'package:client/data/models/customer.dart';
+import 'package:client/data/models/delivery.dart';
+import 'package:client/data/models/held_cart.dart';
+// `PosCheckoutResult` lives in TWO libraries (the model file kept the old
+// response shape, pos_service.dart owns the checkout one). The checkout path uses
+// the service's, so the stale duplicate is hidden rather than left ambiguous.
+import 'package:client/data/models/pos_transaction.dart' hide PosCheckoutResult;
+import 'package:client/data/models/sale_discount.dart';
+import 'package:client/data/models/tender_method.dart';
+import 'package:client/data/models/variant_uom.dart';
+import 'package:client/data/repositories/customer_repository.dart';
+import 'package:client/data/repositories/pos_repository.dart';
+import 'package:client/data/repositories/products_repository.dart';
+import 'package:client/data/services/customer_service.dart';
+import 'package:client/data/services/held_cart_service.dart';
+import 'package:client/data/services/pos_service.dart';
+import 'package:client/data/services/products_service.dart';
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
+import 'package:client/features/pos/viewmodels/pos_scan_result.dart';
+import 'package:flutter/foundation.dart';
+
+class PosTransactionViewmodel extends ChangeNotifier {
+  PosTransactionViewmodel(
+    this._inventory, {
+    PosRepository? pos,
+    CustomerRepository? customers,
+    HeldCartService? heldCarts,
+    ProductsRepository? products,
+    PosService? orderService,
+  }) : _pos = pos ?? PosRepository(PosService()),
+       _customers = customers,
+       _injectedHeldCarts = heldCarts,
+       _injectedProducts = products,
+       _injectedOrders = orderService {
+    _inventory.addListener(_inventoryChanged);
+  }
+
+  final InventoryViewmodel _inventory;
+  final PosRepository _pos;
+  final CustomerRepository? _customers;
+
+  /// The parked-cart endpoint, built on FIRST USE for the same reason as
+  /// [_customerRepo]: a test about the cart must not construct a transport it never
+  /// uses.
+  final HeldCartService? _injectedHeldCarts;
+  HeldCartService get _heldCartService =>
+      _injectedHeldCarts ?? HeldCartService();
+
+  /// The catalogue endpoint, for the scan fallback (decision 13). Injected by tests
+  /// and built on FIRST USE, so a scan-free test never touches it.
+  final ProductsRepository? _injectedProducts;
+  ProductsRepository get _productRepo =>
+      _injectedProducts ?? ProductsRepository(ProductsService());
+
+  /// The sales-order side of the till: the open-order list, the agreed delivery
+  /// fee and the `fulfil/` call (Phase 7 F2). Injected by tests and built on
+  /// FIRST USE for the same reason as [_heldCartService].
+  final PosService? _injectedOrders;
+  PosService? _ownedOrderService;
+  PosService get _orderService =>
+      _injectedOrders ?? (_ownedOrderService ??= PosService());
+
+  /// Built on FIRST USE, not in the constructor.
+  ///
+  /// Eager construction meant every test that only wanted the cart still built a real
+  /// `CustomerService` over `ApiClient.instance`, and any test whose `ApiClient.init()` had
+  /// not run died with `LateInitializationError: Field 'dio' has not been initialized` -
+  /// a failure about the transport, in tests about the cart.
+  CustomerRepository get _customerRepo =>
+      _customers ?? CustomerRepository(CustomerService());
+  final List<PosCartLine> _lines = [];
+  final List<PosReceipt> _receipts = [];
+  String _query = '';
+  String? _category;
+  bool _isSubmitting = false;
+  String? _submitError;
+
+  /// The server's stable code for the last submit failure, when it sent one.
+  ///
+  /// The page needs it for ONE decision `submitError` cannot carry: a refused
+  /// discount approval (`DISCOUNT_APPROVAL_INVALID`) means ask the manager again and
+  /// resubmit, which is a different screen, not a different sentence.
+  String? _submitErrorCode;
+
+  /// The `Idempotency-Key` of the payment attempt in progress, or null when no
+  /// attempt is pending.
+  ///
+  /// The server answers a repeat of (cashier, key) with the ORIGINAL transaction
+  /// instead of writing a second one, so this value is the difference between a
+  /// retry and a double sale. It is created on the FIRST submit of an attempt and
+  /// reused by every retry of it, then dropped on success - or whenever the body
+  /// could differ (cart edited, customer changed), because a changed body under a
+  /// spent key earns a 409 `IDEMPOTENCY_KEY_REUSED` instead of ringing the sale.
+  String? _attemptKey;
+  int? _walkInCustomerId;
+  int? _insufficientStockLineId;
+  Customer? _selectedCustomer;
+  final List<Customer> _customerList = [];
+  String? _customersError;
+  CustomerLedgerSummary? _ledgerSummary;
+  String? _ledgerError;
+  bool _isLoadingLedger = false;
+
+  List<PosCartLine> get lines => List.unmodifiable(_lines);
+  List<PosReceipt> get receipts => List.unmodifiable(_receipts);
+  double get subtotal => _lines.fold(0, (sum, line) => sum + line.total);
+  double get total => subtotal;
+  int get itemCount => _lines.length;
+
+  /// True while a sale is in flight. The submit action must be disabled, because the
+  /// sale is one atomic server operation and a double submit would be two sales.
+  bool get isSubmitting => _isSubmitting;
+
+  /// The last submit failure, safe to show a cashier. Null after a success.
+  String? get submitError => _submitError;
+
+  /// The server's code behind [submitError], or null when it sent none.
+  String? get submitErrorCode => _submitErrorCode;
+
+  /// The key the next submit will send, once an attempt has started.
+  ///
+  /// Null before the first press and after a success; tests and the error message
+  /// for `IDEMPOTENCY_KEY_REUSED` both need to see which attempt is in flight.
+  String? get idempotencyKey => _attemptKey;
+
+  /// The parked cart the last successful sale removed, or null.
+  ///
+  /// The till posts the sale; the Held transactions list owns the ROWS. This is the
+  /// one-shot hand-off between them, consumed by the page with
+  /// [takeCompletedHeldCartId] so a rebuild cannot re-remove an id.
+  int? _completedHeldCartId;
+  int? get completedHeldCartId => _completedHeldCartId;
+
+  /// Reads and clears [completedHeldCartId].
+  int? takeCompletedHeldCartId() {
+    final id = _completedHeldCartId;
+    _completedHeldCartId = null;
+    return id;
+  }
+
+  /// The parked cart this basket was RESUMED from, or null.
+  ///
+  /// Decision 05 says a parked basket is completed through
+  /// `POST /held-carts/{id}/complete/`, where the server rings the sale and deletes the
+  /// cart in one transaction. Remembering the id is what makes that possible - and what
+  /// stops the defect this replaces: the till posted a resumed basket through
+  /// `/transactions/`, left the parked cart on the server, and the same basket could be
+  /// resumed and sold a second time.
+  int? _resumedCartId;
+  int? get resumedCartId => _resumedCartId;
+
+  /// The basket as it stood when it was resumed, so `submit` can tell an UNCHANGED
+  /// parked basket (safe to `complete`) from one the cashier edited (whose server copy
+  /// is stale, so it must be rung from the till and the cart voided afterwards).
+  String? _resumedSignature;
+
+  /// Why the parked cart could not be removed after an EDITED basket was sold, or null.
+  ///
+  /// The sale is written and the money is in the drawer, so this is never a failed sale:
+  /// it is a row the cashier must void by hand, because the cart surviving means the
+  /// basket could be resumed and sold again. The page shows it as a warning.
+  String? _heldCartCleanupError;
+  String? get heldCartCleanupError => _heldCartCleanupError;
+
+  /// Everything about the basket that a parked cart holds, as one comparable string.
+  ///
+  /// The cart's own copy is what `complete` sells, so the comparison has to cover the
+  /// same facts: the selling units, their quantities and prices, and the account the
+  /// sale is addressed to.
+  String _basketSignature() => [
+    for (final line in _lines)
+      '${line.variantUomId}:${line.quantity}:${line.unitPrice}',
+    'customer:${_selectedCustomer?.id}',
+  ].join('|');
+
+  bool _resumedBasketIsUnchanged() =>
+      _resumedSignature != null && _resumedSignature == _basketSignature();
+
+  void _forgetResumedCart() {
+    _resumedCartId = null;
+    _resumedSignature = null;
+  }
+
+  /// Removes the parked copy of a basket that was rung from the till instead.
+  ///
+  /// Never throws: the sale has already been written, so turning a failed DELETE into a
+  /// failed sale would be a lie about money. A failure is REPORTED instead, naming the
+  /// cart the cashier must void, because a surviving cart can be resumed and sold again.
+  Future<void> _voidParkedCart(int cartId) async {
+    try {
+      await _heldCartService.voidCart(cartId);
+      _completedHeldCartId = cartId;
+    } on HeldCartServiceException catch (error) {
+      _heldCartCleanupError =
+          'The sale was completed, but parked cart #$cartId could not be removed '
+          '(${error.message}) Void it in Held transactions, or it can be sold again.';
+    }
+  }
+
+  /// The order being rung at the till, or null for an ordinary sale (Phase 7 F2).
+  ///
+  /// An open order turns the cart into "what is LEFT of this promise": the lines
+  /// are the order's remaining quantities, their prices are the order's agreed
+  /// prices (read-only), and `submit` rings them through `fulfil/` instead of
+  /// posting a new sale.
+  PosOpenOrder? _openOrder;
+  PosOpenOrder? get openOrder => _openOrder;
+
+  /// True while the cart holds an order's remainder.
+  bool get isFulfillingOrder => _openOrder != null;
+
+  /// The agreed delivery fee this fulfilment must charge, 0 when it carries none.
+  ///
+  /// Decision 19: the fee is charged ONCE, on the first fulfilment. The till shows
+  /// it (never edits it) so the cashier asks for the money the customer agreed to.
+  double _openOrderFee = 0;
+  double get orderDeliveryFee => _openOrderFee;
+
+  /// What may still be rung per line, keyed by `variantUom` (the cart's own key).
+  final Map<int, double> _orderLineCaps = {};
+
+  /// Each order line's pk, so `fulfil/` gets `order_line` per line.
+  final Map<int, int> _orderLineIds = {};
+
+  /// The orders the counter may ring, as of the last read.
+  List<PosOpenOrder> _openOrders = const [];
+  List<PosOpenOrder> get openOrders => List.unmodifiable(_openOrders);
+  bool _isLoadingOrders = false;
+  bool get isLoadingOrders => _isLoadingOrders;
+  String? _ordersError;
+  String? get ordersError => _ordersError;
+
+  /// Reads CONFIRMED/PARTIAL orders for the open-order list. Never throws: the
+  /// failure is [ordersError] so the dialog can say it and offer a retry.
+  Future<void> loadOpenOrders() async {
+    _isLoadingOrders = true;
+    _ordersError = null;
+    notifyListeners();
+    try {
+      _openOrders = await _orderService.fetchOpenOrders();
+    } on PosServiceException catch (error) {
+      _ordersError = error.message;
+    } finally {
+      _isLoadingOrders = false;
+      notifyListeners();
+    }
+  }
+
+  /// The catalogue's name for a selling unit, or null when the row is gone.
+  ///
+  /// The open-order dialog names its lines from here: an order line carries ids
+  /// and money only, and the catalogue is the one place that knows whether a
+  /// `variant_uom` id sells bags or metres.
+  String? productNameFor(int variantUomId) {
+    final row = _catalogRowFor(variantUomId);
+    if (row == null) return null;
+    return row.variantName.isEmpty
+        ? row.productName
+        : '${row.productName} ${row.variantName}';
+  }
+
+  /// The customer's name when the till already holds the list, else null.
+  String? customerNameFor(int customerId) {
+    for (final customer in _customerList) {
+      if (customer.id == customerId) return customer.name;
+    }
+    return null;
+  }
+
+  /// Loads an order's REMAINDER into the till, like resuming a held cart.
+  ///
+  /// The cart is REPLACED (this is that order, not an addition to it), every line
+  /// is rung at the ORDER's price, and a line with nothing left is not loaded.
+  /// Returns how many lines were loaded.
+  Future<int> loadOpenOrder(PosOpenOrder order) async {
+    _lines.clear();
+    _dropAttemptKey();
+    // An order is not a parked basket: nothing here may try to complete one.
+    _forgetResumedCart();
+    _forgetOrder();
+    for (final line in order.lines) {
+      if (line.remainingQty <= 0) continue;
+      final row = _catalogRowFor(line.variantUomId);
+      _lines.add(
+        PosCartLine(
+          variantUomId: line.variantUomId,
+          // Names come from the catalogue; an order line carries ids and money only.
+          productName: row?.productName ?? 'Order item',
+          variantName: row?.variantName ?? '',
+          quantity: line.remainingQty,
+          unit: row?.unit ?? '',
+          unitPrice: line.unitPrice,
+          availableQuantity: row?.availableSaleQuantity ?? 0,
+          storedAtName: row?.storedAtName ?? '',
+        ),
+      );
+      _orderLineCaps[line.variantUomId] = line.remainingQty;
+      _orderLineIds[line.variantUomId] = line.id;
+    }
+    _openOrder = order;
+    // The fee belongs to the FIRST fulfilment only, and only it needs the slip read.
+    _openOrderFee = order.hasNothingFulfilled
+        ? (await _orderService.fetchOrderDeliveryFee(order.id) ?? 0)
+        : 0;
+    // The order's customer is the sale's customer (decision 19 #1): a fulfilment
+    // cannot be re-addressed at the counter.
+    selectCustomer(
+      Customer(
+        id: order.customerId,
+        name: customerNameFor(order.customerId) ?? 'Order ${order.number}',
+        customerType: '',
+      ),
+    );
+    notifyListeners();
+    return _lines.length;
+  }
+
+  void _forgetOrder() {
+    _openOrder = null;
+    _openOrderFee = 0;
+    _orderLineCaps.clear();
+    _orderLineIds.clear();
+  }
+
+  /// What is still owed on [variantUomId]'s order line, or null for an ordinary
+  /// sale line (which is capped by stock instead).
+  double? _orderCapFor(int variantUomId) => _orderLineCaps[variantUomId];
+
+  /// 32 hex characters from a CSPRNG.
+  ///
+  /// Well inside the server's 64-character cap, and NOT a UUID dependency: the
+  /// server only requires uniqueness per cashier, and `Random.secure()` gives that
+  /// without adding a package.
+  static String _newAttemptKey() => PosService.newIdempotencyKey();
+
+  /// Forgets the attempt key because the next submit will sell a DIFFERENT body.
+  void _dropAttemptKey() => _attemptKey = null;
+
+  /// The cart line the server rejected for stock, or null.
+  ///
+  /// Non-null means the failure is **recoverable in place**, as decision 06 section 3
+  /// requires: the sale did not happen, the cart is intact, and this is the row to fix.
+  /// A terminal failure (a 5xx, or a stock rejection naming a variant no line sells)
+  /// leaves this null rather than pointing the cashier at an innocent row.
+  ///
+  /// The server blames a *variant* while the cart is keyed by `VariantUom`, so the id
+  /// is mapped through the catalogue; the cart holds the row, the server holds the
+  /// variant, and only the catalogue knows which units a variant sells.
+  int? get insufficientStockLineId => _insufficientStockLineId;
+
+  /// Who this sale is addressed to, or null for an **anonymous** sale.
+  ///
+  /// Null is the DEFAULT and not an error state: decision 14 made a walk-in stop being a
+  /// customer record, so an anonymous sale is the ordinary case and reuses the seeded
+  /// Walk-in Customer without asking the buyer anything. A non-null value means the cashier
+  /// picked or created a named account, and the debt that may follow belongs to someone
+  /// collectable.
+  Customer? get selectedCustomer => _selectedCustomer;
+
+  /// Whether the sale being rung up is ANONYMOUS, by the SERVER's definition.
+  ///
+  /// The server refuses a shortfall when `customer.customer_type == WALK_IN`, so anonymity is
+  /// a property of the customer's TYPE, not of the selection being null. A `Customer` typed
+  /// walk-in is selected and still cannot owe - treating it as named let the underpayment
+  /// dialog promise a receivable the server then refused, which is the dead end task 6
+  /// removed.
+  ///
+  /// This lives on the viewmodel so the rule has ONE home and can be tested; the dialog's
+  /// copy and the picker's answer both read it rather than re-deriving it.
+  bool get isAnonymousSelection => _selectedCustomer?.isWalkIn ?? true;
+
+  /// The live customer list the picker searches, loaded by [loadCustomers].
+  List<Customer> get customers => List.unmodifiable(_customerList);
+
+  /// Set when the list could not be loaded. The picker shows this rather than looking empty,
+  /// because "no customers" and "could not ask the server" are different statements.
+  String? get customersError => _customersError;
+
+  /// Loads the picker's list.
+  ///
+  /// On failure the existing list is KEPT: emptying it would read as "this store has no
+  /// customers", which is a different and false claim, and the cashier could not tell the
+  /// difference between a network blip and an empty database.
+  Future<void> loadCustomers() async {
+    try {
+      final loaded = await _customerRepo.fetchCustomers();
+      _customerList
+        ..clear()
+        ..addAll(loaded);
+      _customersError = null;
+    } on CustomerServiceException catch (error) {
+      _customersError = error.message;
+    }
+    notifyListeners();
+  }
+
+  /// What the checkout shows as the buyer. Never empty, so the cashier can always tell who
+  /// the sale is for. The `(anonymous)` marker matters: it is the difference between "this
+  /// will be paid in full" and "this may become someone's debt".
+  String get customerLabel =>
+      _selectedCustomer?.name ?? 'Walk-in Customer (anonymous)';
+
+  /// Chooses the buyer, or null to go back to an anonymous sale.
+  ///
+  /// Clears any loaded balance: a summary belonging to the PREVIOUS customer must never be
+  /// displayed against the new one, which would show the cashier someone else's debt.
+  void selectCustomer(Customer? customer) {
+    if (_selectedCustomer?.id != customer?.id) {
+      _ledgerSummary = null;
+      _ledgerError = null;
+      // A different buyer is a different sale body, so a key spent on the previous
+      // attempt must not be replayed against this one.
+      _dropAttemptKey();
+    }
+    _selectedCustomer = customer;
+    notifyListeners();
+  }
+
+  /// The selected customer's outstanding utang, once loaded. Null for an anonymous sale.
+  CustomerLedgerSummary? get ledgerSummary => _ledgerSummary;
+
+  /// Set when the balance could not be loaded. The panel shows this rather than a zero
+  /// balance, because a zero is a claim that the customer owes nothing.
+  String? get ledgerError => _ledgerError;
+
+  bool get isLoadingLedger => _isLoadingLedger;
+
+  /// Loads the utang for whoever is currently selected.
+  ///
+  /// An ANONYMOUS sale makes no request at all: decision 14 says a walk-in cannot owe, so
+  /// there is no balance to ask for - and asking would be asking about the shared placeholder.
+  Future<void> loadLedgerForSelection() async {
+    final customer = _selectedCustomer;
+    if (customer == null) {
+      _ledgerSummary = null;
+      _ledgerError = null;
+      _isLoadingLedger = false;
+      notifyListeners();
+      return;
+    }
+
+    _isLoadingLedger = true;
+    _ledgerError = null;
+    notifyListeners();
+
+    try {
+      final summary = await _customerRepo.fetchLedgerSummary(customer.id);
+      // A response that lands after the cashier moved on belongs to the old customer - and
+      // that applies to a FAILURE as much as a success. Guarding only the success path meant
+      // a late failure for the previous customer could leave its message sitting over the
+      // new one, and the panel reads the error BEFORE the summary.
+      if (_selectedCustomer?.id == customer.id) {
+        _ledgerSummary = summary;
+        _ledgerError = null;
+      }
+    } on CustomerServiceException catch (error) {
+      if (_selectedCustomer?.id == customer.id) {
+        _ledgerError = error.message;
+        _ledgerSummary = null;
+      }
+    } finally {
+      _isLoadingLedger = false;
+      notifyListeners();
+    }
+  }
+
+  /// Records a customer at the counter and selects them.
+  ///
+  /// Returns null on success, or a message safe to show a cashier. On failure NOTHING is
+  /// selected - selecting a customer that was never created would post the sale, and any
+  /// utang with it, to a record that does not exist.
+  ///
+  /// The record is deliberately minimal (name + type): decision 14's locked decision 1 keeps
+  /// contact details, TIN and the credit limit out of the cashier's hands at the till.
+  Future<String?> createAndSelectCustomer({
+    required String name,
+    required CustomerType type,
+  }) async {
+    try {
+      final created = await _customerRepo.createCustomer(
+        name: name,
+        type: type,
+      );
+      // Routed through selectCustomer so the utang state is cleared by the SAME rule that
+      // clears it for a pick. Assigning the field directly left the previous customer's
+      // balance on screen under the new customer's name whenever the caller did not follow
+      // with loadLedgerForSelection - reachable because the picker's barrier is dismissible
+      // while the create is in flight, so the page can take its "cancelled" early return.
+      selectCustomer(created);
+      return null;
+    } on CustomerServiceException catch (error) {
+      return error.message;
+    }
+  }
+
+  /// The cart line selling [variantId], or null when the cart sells no such variant.
+  int? _lineForVariant(int? variantId) {
+    if (variantId == null) return null;
+    for (final line in _lines) {
+      if (_rowFor(line)?.variantId == variantId) return line.variantUomId;
+    }
+    return null;
+  }
+
+  /// The sellable rows, built once per inventory change.
+  ///
+  /// Building walks every variant and sums every batch, so it is cached: the
+  /// till reads it several times per keystroke (search, chips, cart checks).
+  /// [_inventoryChanged] drops the cache, so stock and prices stay live.
+  List<PosCatalogItem> get _catalog => _catalogCache ??= _buildCatalog();
+  List<PosCatalogItem>? _catalogCache;
+
+  /// How many times the catalogue was built. For tests of the cache.
+  @visibleForTesting
+  int catalogueBuilds = 0;
+
+  List<PosCatalogItem> _buildCatalog() {
+    catalogueBuilds++;
+    final items = <PosCatalogItem>[];
+    for (final record in _inventory.stockRecords) {
+      final baseStock = _inventory.stockOnHandFor(record.variant.id);
+      if (!record.product.isActive ||
+          !record.variant.isActive ||
+          baseStock <= 0) {
+        continue;
+      }
+      // Decision 06 section 2: the rows are built from the variant's REAL selling
+      // units, because that is both what the catalogue can actually sell and the
+      // only source of a valid `variantUomId` for the payload.
+      //
+      // Building from tracking's labels instead produced DUPLICATE ids: variant 19 is
+      // tracked with two sale units ('kg', 'g') but carries a single selling unit, so
+      // both rows resolved to id 19. That silently merged two cart lines in `addLine`
+      // (which de-duplicates on `variantUomId`) and made `complete()` price and deduct
+      // a 'g' line as 'kg' (it takes the FIRST row matching the id).
+      final sellableUnits = <String, VariantUom>{};
+      for (final uom in record.variant.sellingUoms) {
+        final code = uom.uomCode.trim();
+        if (code.isEmpty) continue;
+        // Decision 01: the selling unit is the single authority. The server charges
+        // `default_selling_price` and deducts `qty × conversion_factor`, and it
+        // refuses a unit whose factor is not positive — so a row for one would only
+        // ever be a refusal at checkout.
+        if (uom.conversionFactor <= 0) continue;
+        sellableUnits.putIfAbsent(code.toLowerCase(), () => uom);
+      }
+      for (final uom in sellableUnits.values) {
+        items.add(
+          PosCatalogItem(
+            variantUomId: uom.id,
+            variantId: record.variant.id,
+            productName: record.product.baseName,
+            variantName: record.variant.variantName,
+            unit: uom.uomCode,
+            // Decision 11 F3: the unit's OWN code. `record.variant.barcode` is the
+            // variant's first non-blank code, so a piece and a box of one variant
+            // answered to the same code and the box was unscannable.
+            barcode: uom.barcodeQr,
+            // Both of these used to come from the local tracking config (and from
+            // the variant's FIRST unit's price), which made a scanned box show the
+            // piece price and an unscaled availability while the server charged the
+            // box price — a walk-in sale refused, or wrong change (Phase 6 review
+            // I1, QA defects 1 and 2).
+            conversionFactor: uom.conversionFactor,
+            unitPrice: uom.defaultSellingPrice,
+            availableBaseStock: baseStock,
+            // Match the server's strict threshold in base units, even for packages.
+            isLowStock:
+                baseStock > 0 && baseStock < record.variant.minStockThreshold,
+            // Phase 1d: the server's whole-number flag decides whether a scan adds
+            // one straight to the cart, so it travels with the row.
+            isWhole: uom.uomIsWhole,
+            categoryName: record.product.categoryName,
+            brandName: record.product.brandName,
+            // Phase 5 B4: the till badges the line with the SERVER's pick-up
+            // point. The unit's own row carries it (a scan needs it without the
+            // product list), and the product is the same fact.
+            storedAtName: uom.storedAtName.isNotEmpty
+                ? uom.storedAtName
+                : record.product.storedAtName,
+          ),
+        );
+      }
+    }
+    return items;
+  }
+
+  /// The till's category chips: each category in the catalogue once, sorted.
+  List<String> get categories {
+    final names = {
+      for (final item in _catalog)
+        if (item.categoryName.isNotEmpty) item.categoryName,
+    }.toList()..sort();
+    return names;
+  }
+
+  /// The chip in force, or null for all categories.
+  String? get selectedCategory => _category;
+
+  void setCategory(String? category) {
+    _category = category;
+    notifyListeners();
+  }
+
+  List<PosCatalogItem> get filteredProducts {
+    final inCategory = _category == null
+        ? _catalog
+        : _catalog
+              .where((item) => item.categoryName == _category)
+              .toList(growable: false);
+    final matched = _query.isEmpty
+        ? inCategory
+        : inCategory
+              .where(
+                (item) =>
+                    item.productName.toLowerCase().contains(_query) ||
+                    item.variantName.toLowerCase().contains(_query) ||
+                    item.barcode.toLowerCase().contains(_query) ||
+                    item.unit.toLowerCase().contains(_query),
+              )
+              .toList(growable: false);
+    final variants = <int, PosCatalogItem>{};
+    for (final item in matched) {
+      variants.putIfAbsent(item.variantId, () => item);
+    }
+    return variants.values.toList(growable: false);
+  }
+
+  List<PosCatalogItem> saleOptionsFor(PosCatalogItem product) => _catalog
+      .where((item) => item.variantId == product.variantId)
+      .toList(growable: false);
+
+  /// The catalogue line whose OWN selling unit carries [value], or null.
+  ///
+  /// Both sides are normalised the one way the server stores codes
+  /// ([VariantUom.normalise]), so a scanner's padded lower-case text matches the
+  /// stored `QB000013-0` (decision 11).
+  PosCatalogItem? findByBarcode(String value) {
+    final barcode = VariantUom.normalise(value);
+    if (barcode.isEmpty) return null;
+    for (final item in _catalog) {
+      if (VariantUom.normalise(item.barcode) == barcode) return item;
+    }
+    return null;
+  }
+
+  /// Resolves a scanned code to the exact selling unit it names (decision 13).
+  ///
+  /// Loaded catalogue first — the common case, no round trip. On a miss ONE server
+  /// lookup, then a catalogue reload, because the usual reason a code is missing at
+  /// the till is that the unit was created after the till opened. No retry loop: a
+  /// second scan is the retry.
+  Future<ScanResult> resolveScan(String raw) async {
+    final code = VariantUom.normalise(raw);
+    if (code.isEmpty) return const ScanNotFound('');
+    final cached = findByBarcode(code);
+    if (cached != null) return ScanHit(cached);
+
+    final List<VariantUom> rows;
+    try {
+      rows = await _productRepo.lookupByBarcode(code);
+    } on ProductsServiceException catch (error) {
+      // A failed lookup is NOT "no product has that code": the cashier would go
+      // hunting for a product that may well exist.
+      return ScanError(error.message);
+    }
+    if (rows.isEmpty) return ScanNotFound(code);
+
+    final row = rows.first;
+    if (!row.productIsActive || !row.variantIsActive) {
+      // Archived: the server still holds the code, so reloading cannot help. The
+      // names are what let the till say WHICH product this was.
+      return ScanArchived(code: code, productName: row.productName);
+    }
+
+    // Active on the server but missing from the catalogue: the unit was created
+    // after the till loaded, OR the variant is at zero stock (the catalogue skips
+    // those). Reload once, then look again.
+    await _inventory.load();
+    final reloaded = findByBarcode(code);
+    if (reloaded != null) return ScanHit(reloaded);
+    if (_inventory.loadError case final message?) return ScanError(message);
+    // Nothing is archived here — the flags above said ACTIVE — so the only reason
+    // the reload still has no row is that there is no stock to sell. Calling that
+    // "archived" told the customer a product that may be re-stocked tomorrow was
+    // discontinued (Phase 6 review Minor 1).
+    return ScanOutOfStock(
+      code: code,
+      productName: row.productName,
+      unit: row.uomCode,
+    );
+  }
+
+  void setQuery(String value) {
+    _query = value.trim().toLowerCase();
+    notifyListeners();
+  }
+
+  void _inventoryChanged() {
+    _catalogCache = null;
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _inventory.removeListener(_inventoryChanged);
+    super.dispose();
+  }
+
+  String? addLine(PosCatalogItem item, double quantity) {
+    if (quantity <= 0) return 'Enter a quantity greater than zero.';
+    final index = _lines.indexWhere(
+      (line) => line.variantUomId == item.variantUomId,
+    );
+    final cartQuantity = index < 0 ? 0.0 : _lines[index].quantity;
+    // Walked as a loop rather than a where/fold chain so a stale line can be SKIPPED.
+    var reservedBaseStock = 0.0;
+    for (final line in _lines) {
+      final option = _rowFor(line);
+      // A line whose catalogue row is gone reserves nothing, and validate() refuses
+      // the sale while it is there, so ignoring it here cannot oversell.
+      if (option == null) continue;
+      if (option.variantId != item.variantId) continue;
+      reservedBaseStock += line.quantity * option.conversionFactor;
+    }
+    final requestedBaseStock = quantity * item.conversionFactor;
+    if (reservedBaseStock + requestedBaseStock > item.availableBaseStock) {
+      return 'Only ${_quantity(item.availableSaleQuantity)} ${item.unit} available.';
+    }
+    // An order line can be rung only up to what is still owed on it: the promise
+    // is the ceiling, whatever the shelf holds (decision 19 #2/#3).
+    final cap = _orderCapFor(item.variantUomId);
+    if (cap != null && cartQuantity + quantity > cap + 0.000001) {
+      return 'This order has only ${_quantity(cap)} ${item.unit} left to ring.';
+    }
+    if (index < 0) {
+      _lines.add(
+        PosCartLine(
+          variantUomId: item.variantUomId,
+          productName: item.productName,
+          variantName: item.variantName,
+          quantity: quantity,
+          unit: item.unit,
+          unitPrice: item.unitPrice,
+          availableQuantity: item.availableSaleQuantity,
+          storedAtName: item.storedAtName,
+        ),
+      );
+    } else {
+      _lines[index] = _lines[index].copyWith(quantity: cartQuantity + quantity);
+    }
+    // The payload changed, so any attempt already started is no longer this sale.
+    _dropAttemptKey();
+    notifyListeners();
+    return null;
+  }
+
+  /// One more or one fewer of a cart line's unit (the cart's +/- buttons).
+  ///
+  /// A + goes through [addLine], so it meets the same stock check as a scan;
+  /// a - that reaches zero removes the line. Returns the refusal, or null.
+  String? stepLine(int index, int delta) {
+    final line = _lines[index];
+    if (delta > 0) {
+      final row = _rowFor(line);
+      if (row == null) return 'This item is no longer in the catalogue.';
+      return addLine(row, delta.toDouble());
+    }
+    final quantity = line.quantity + delta;
+    if (quantity <= 0) {
+      removeLine(index);
+      return null;
+    }
+    _lines[index] = line.copyWith(quantity: quantity);
+    _dropAttemptKey();
+    notifyListeners();
+    return null;
+  }
+
+  void removeLine(int index) {
+    _lines.removeAt(index);
+    _dropAttemptKey();
+    notifyListeners();
+  }
+
+  void clear() {
+    _lines.clear();
+    // The till no longer holds the parked basket, so a later sale must not try to
+    // complete (or void) a cart this basket came from.
+    _forgetResumedCart();
+    // Nor does it hold an order's remainder: the next sale is an ordinary one.
+    _forgetOrder();
+    _dropAttemptKey();
+    notifyListeners();
+  }
+
+  /// Restores a PARKED basket into the till (Phase 3 resume).
+  ///
+  /// Three rules, each of which the counter depends on:
+  ///
+  /// * **The held prices are the quoted prices.** The cart is rebuilt with the
+  ///   prices the customer was told when the basket was parked, not today's
+  ///   catalogue price — a resumed basket that silently re-prices is a different
+  ///   sale from the one the customer agreed to.
+  /// * **A line whose catalogue row is gone is KEPT, not dropped.** Dropping it
+  ///   would silently shorten the customer's order; keeping it makes
+  ///   [validate] name the row and refuse the sale until the cashier removes it.
+  /// * **The cart is REPLACED.** Resume means "this basket", so the till holds
+  ///   exactly what was parked.
+  ///
+  /// Names and units come from the catalogue because a held line carries only
+  /// ids, a quantity and a price (`HeldCartItem`); the catalogue is the only
+  /// place that knows a `variant_uom` id sells kilograms or pieces.
+  ///
+  /// Returns how many lines were restored.
+  int loadHeldCart(HeldCart cart) {
+    _lines.clear();
+    // A resumed basket is a new body, so the parked till starts a new attempt.
+    _dropAttemptKey();
+    for (final item in cart.items) {
+      // One lookup per line: the row supplies names and unit, and null means the
+      // catalogue no longer sells that unit (kept anyway, see above).
+      final row = _catalogRowFor(item.variantUom);
+      _lines.add(
+        PosCartLine(
+          variantUomId: item.variantUom,
+          productName: row?.productName ?? 'Held item',
+          variantName: row?.variantName ?? '',
+          quantity: item.qty,
+          unit: row?.unit ?? '',
+          unitPrice: item.unitPrice,
+          availableQuantity: row?.availableSaleQuantity ?? 0,
+          // A held line carries ids only; the catalogue row is the only place that
+          // knows where the goods are. Absent row (or an older server) = no badge.
+          storedAtName: row?.storedAtName ?? '',
+        ),
+      );
+    }
+    // A parked cart keeps its account: a basket held for a named customer must
+    // come back addressed to them, or the resumed sale would post to nobody and
+    // any utang with it would land nowhere.
+    final customerId = cart.customerId;
+    if (customerId != null && cart.customerName != null) {
+      selectCustomer(
+        Customer(id: customerId, name: cart.customerName!, customerType: ''),
+      );
+    }
+    // Remember WHICH parked cart this is, and what it looked like when it arrived:
+    // `submit` completes the cart when nothing changed (server rings and deletes it
+    // atomically) and rings from the till when the cashier edited it.
+    _resumedCartId = cart.id;
+    _resumedSignature = _basketSignature();
+    notifyListeners();
+    return _lines.length;
+  }
+
+  /// The catalogue row selling [variantUomId], or null when it no longer exists.
+  ///
+  /// Looked up by `variantUomId` rather than by line, because a held line has no
+  /// [PosCartLine] to look up yet. Nullable on purpose: the same reasoning as
+  /// [_rowFor] — a missing row must not throw inside a resume.
+  PosCatalogItem? _catalogRowFor(int variantUomId) {
+    for (final item in _catalog) {
+      if (item.variantUomId == variantUomId) return item;
+    }
+    return null;
+  }
+
+  String? validate() {
+    if (_lines.isEmpty) return 'Add at least one product to the transaction.';
+    if (_openOrder != null) return _validateOrderRemainder();
+    final requestedByVariant = <int, double>{};
+    for (final line in _lines) {
+      final item = _rowFor(line);
+      // The catalogue is rebuilt from live stock and skips a variant at zero, so a
+      // line can outlive its row. Refusing by NAME is the honest outcome: silently
+      // dropping the line would submit a sale the cashier did not assemble, and
+      // pricing it anyway would sell something the catalogue says is gone.
+      if (item == null) {
+        return '${line.productName} ${line.variantName} is no longer '
+            'available. Remove it from the cart.';
+      }
+      requestedByVariant[item.variantId] =
+          (requestedByVariant[item.variantId] ?? 0) +
+          line.quantity * item.conversionFactor;
+      if (requestedByVariant[item.variantId]! > item.availableBaseStock) {
+        return '${line.productName}: the combined units exceed available stock.';
+      }
+    }
+    return null;
+  }
+
+  /// The till's pre-flight checks for an order's remainder.
+  ///
+  /// Deliberately NOT the catalogue's stock arithmetic: an order's quantities are
+  /// capped by what is still owed (never by the shelf), stock is a live HINT, and
+  /// the server is the authority that refuses a short shelf with
+  /// `INSUFFICIENT_STOCK`. What the till must catch here is a basket that is no
+  /// longer this order - a product scanned on top of it - because `fulfil/` keys
+  /// every line by its order line.
+  String? _validateOrderRemainder() {
+    for (final line in _lines) {
+      if (!_orderLineIds.containsKey(line.variantUomId)) {
+        return '${line.productName} is not on this order. Clear the cart and '
+            'open the order again.';
+      }
+    }
+    return null;
+  }
+
+  /// The catalogue row a cart line refers to, or null when the row is gone.
+  ///
+  /// The catalogue is a getter rebuilt from live stock and it SKIPS any variant whose
+  /// stock has reached zero. A line can outlive its row: a server refresh (`load()`) or
+  /// a sale on another screen sharing this InventoryViewmodel can drain the variant
+  /// while the basket still holds it. Every lookup by line must go through here,
+  /// because `_catalog.firstWhere(...)` with no `orElse` throws
+  /// `StateError: Bad state: No element` and takes the whole POS down.
+  ///
+  /// Found by the Phase 3 review's adversarial pass, which reproduced the crash before
+  /// it was fixed. `addLine`'s reserved-stock arithmetic threw first, on the line it
+  /// was not even looking at.
+  PosCatalogItem? _rowFor(PosCartLine line) {
+    for (final item in _catalog) {
+      if (item.variantUomId == line.variantUomId) return item;
+    }
+    return null;
+  }
+
+  /// Completes the sale ON THE SERVER, then clears the cart.
+  ///
+  /// Decision 06 sections 3 and 5. Three rules are load-bearing here:
+  ///
+  /// * The cart is cleared **only** after a successful sale. `process_sale` runs in one
+  ///   `transaction.atomic()`, so a failure rolls back wholesale - the server state is
+  ///   unchanged, and the cashier's basket must survive so it can be corrected and
+  ///   retried. Clearing optimistically would lose a real order.
+  /// * An empty cart is never submitted. The server has no guard on an empty `items`
+  ///   list, so an empty sale would **succeed** and mint a zero-value receipt.
+  /// * Insufficient stock and a server failure both keep the cart, but they are
+  ///   different messages. The distinction comes from the server's code, never from
+  ///   the status alone.
+  ///
+  /// [tenders] is every tender of the sale, in order: cash + GCash + a cheque, or
+  /// just one. A one-tender sale may pass [method] and [amountPaid] instead, which is
+  /// what the single-tender callers still do; the wire always carries a LIST, because
+  /// collapsing a split sale into one method would tell the server money arrived in a
+  /// drawer it never reached.
+  ///
+  /// Returns whether the sale was confirmed, so a caller cannot announce success
+  /// unconditionally.
+  Future<bool> submit({
+    List<PosCheckoutPayment>? tenders,
+    TenderMethod? method,
+    double? amountPaid,
+    PosDiscount? discount,
+    String? discountApprovalToken,
+    double vatRate = 0,
+    DeliveryDraft? delivery,
+  }) async {
+    if (_lines.isEmpty) return false;
+    // The tender goes on the wire as a CODE, never as the label the cashier read.
+    final payments =
+        tenders ??
+        [
+          PosCheckoutPayment(
+            method: (method ?? TenderMethod.cash).code,
+            amountTendered: amountPaid ?? 0,
+          ),
+        ];
+
+    _isSubmitting = true;
+    _submitError = null;
+    _submitErrorCode = null;
+    _insufficientStockLineId = null;
+    _heldCartCleanupError = null;
+    notifyListeners();
+
+    try {
+      // Snapshot the lines being sold: the receipt must describe THIS sale, not
+      // whatever the cart holds when the response lands.
+      final sold = List<PosCartLine>.of(_lines);
+      // One key per ATTEMPT: created on the first press and reused by a retry, so
+      // a dropped response cannot turn one basket into two sales.
+      final attemptKey = _attemptKey ??= _newAttemptKey();
+      final resumedCartId = _resumedCartId;
+      // An UNCHANGED resumed basket is sold through the parked cart, so the server
+      // writes the sale and deletes the cart in ONE transaction (decision 05). A basket
+      // the cashier edited must NOT go that way: `complete` sells the SERVER's copy,
+      // which is now stale, so it would ring what they removed.
+      final completeCartId =
+          resumedCartId != null && _resumedBasketIsUnchanged()
+          ? resumedCartId
+          : null;
+
+      final order = _openOrder;
+
+      final PosCheckoutResult result;
+      if (order != null) {
+        // A fulfilment keeps the checkout guards and drops the till's own terms:
+        // the price is the order line's, the delivery is the slip's, and a new
+        // discount is not on offer (it was approved when the order was saved).
+        result = await _orderService.fulfilOrder(
+          orderId: order.id,
+          lines: [
+            for (final line in sold)
+              if (line.quantity > 0)
+                PosFulfilLine(
+                  orderLineId: _orderLineIds[line.variantUomId]!,
+                  quantity: line.quantity,
+                ),
+          ],
+          payments: payments,
+          idempotencyKey: attemptKey,
+        );
+      } else if (completeCartId != null) {
+        result = PosCheckoutResult.fromJson(
+          await _heldCartService.complete(
+            completeCartId,
+            payments: payments,
+            idempotencyKey: attemptKey,
+            discount: discount,
+            discountApproval: discountApprovalToken,
+            delivery: delivery,
+          ),
+        );
+        _completedHeldCartId = completeCartId;
+      } else {
+        // The buyer is the SELECTED customer when the cashier picked or created one, and
+        // the seeded Walk-in Customer otherwise - a walk-in sale still cannot omit the
+        // customer, because the FK is not nullable (decision 06 section 2).
+        final buyer =
+            _selectedCustomer?.id ??
+            (_walkInCustomerId ??= await _pos.walkInCustomerId());
+        result = await _pos.checkout(
+          customerId: buyer,
+          items: [
+            for (final line in sold)
+              PosCheckoutItem(
+                variantUomId: line.variantUomId,
+                quantity: line.quantity,
+                unitPrice: line.unitPrice,
+              ),
+          ],
+          payments: payments,
+          idempotencyKey: attemptKey,
+          discount: discount,
+          discountApproval: discountApprovalToken,
+          delivery: delivery,
+        );
+        if (resumedCartId != null) {
+          // The edited basket is sold, so the parked copy must not survive to be resumed
+          // and sold again. Voided AFTER the 201: voiding first would destroy the cart
+          // for a sale that then failed.
+          await _voidParkedCart(resumedCartId);
+        }
+      }
+
+      // The receipt's numbers are the SERVER's, not the cart's arithmetic: decision
+      // 06 section 1 says the response is the finished transaction. That now covers
+      // the LINES too - the server prices from VariantUOM.default_selling_price and
+      // ignores the client's `unit_price`, so a receipt printed from the cart could
+      // print a price the customer was never charged.
+      _receipts.insert(
+        0,
+        PosReceipt(
+          reference: result.transactionNo,
+          officialReceiptNumber: result.orNumber,
+          createdAt: result.transDate,
+          lines: List.unmodifiable(_serverLines(result.lines, sold)),
+          // The tenders the CASHIER entered, then the server's own rows: a split
+          // sale keeps every method, and a cheque keeps its PENDING status.
+          paymentMethod: payments.first.method,
+          amountPaid: payments.fold(
+            0.0,
+            (sum, payment) => sum + payment.amountTendered,
+          ),
+          payments: result.payments,
+          // QA High (Phase 4 close): the change the SERVER recorded. The receipt
+          // prints this number - a till-side recomputation got a split sale wrong.
+          changeGiven: result.changeGiven,
+          // The server's net, not the cart's arithmetic: `grand_total` already has the
+          // discount taken off (decision 18), so change is counted from what was owed.
+          total: result.grandTotal,
+          discountAmount: result.discountAmount,
+          discountReason: result.discountReason,
+          vatableSales: result.vatableSales,
+          vatAmount: result.vatAmount,
+          vatRegistered: result.vatRegistered,
+          vatRate: vatRate,
+          // The server's own "Delivery charge" (Phase 5 B3). Zero for a sale the
+          // customer carried out, and the receipt then prints no line.
+          deliveryFee: result.deliveryFee,
+        ),
+      );
+      _lines.clear();
+      // The basket is sold, so it is no longer a resumed cart: a second sale must not
+      // try to complete the same parked cart again.
+      _forgetResumedCart();
+      // The order's remainder was rung, so the till is an ordinary till again.
+      _forgetOrder();
+      // The sale is written, so this attempt is finished and its key is spent.
+      _dropAttemptKey();
+      return true;
+    } on PosServiceException catch (error) {
+      _submitError = error.message;
+      _submitErrorCode = error.code;
+      // Decision 06 section 3 separates a recoverable stock rejection from a terminal
+      // failure. Recording WHICH line is what makes it recoverable: the cashier is
+      // told which row to fix instead of being left to re-read the basket.
+      _insufficientStockLineId = error.isInsufficientStock
+          ? _lineForVariant(error.variantId)
+          : null;
+      return false;
+    } on HeldCartServiceException catch (error) {
+      // A resumed basket is sold by the SERVER's `complete` action, which runs
+      // `process_sale` — so its refusals (stock, credit limit, no open shift) arrive here
+      // with the same codes. The cart stays: nothing was written.
+      _submitError = error.message;
+      _submitErrorCode = error.code;
+      _insufficientStockLineId = error.isInsufficientStock
+          ? _lineForVariant(error.variantId)
+          : null;
+      return false;
+    } finally {
+      _isSubmitting = false;
+      notifyListeners();
+    }
+  }
+
+  String _quantity(double value) => value == value.roundToDouble()
+      ? value.toStringAsFixed(0)
+      : value.toStringAsFixed(2);
+
+  /// The receipt's lines, priced by the SERVER.
+  ///
+  /// The response carries ids, quantities and money but no product names, so each
+  /// server line borrows the NAME and UNIT of the cart line it belongs to and takes
+  /// its quantity and price from the server. Falls back to the cart snapshot when
+  /// the response omitted `items`, so a cosmetic omission still prints a receipt
+  /// for a sale that really happened.
+  List<PosCartLine> _serverLines(
+    List<PosCheckoutLine> serverLines,
+    List<PosCartLine> sold,
+  ) {
+    if (serverLines.isEmpty) return sold;
+    return [
+      for (final line in serverLines)
+        PosCartLine(
+          variantUomId: line.variantUomId,
+          productName:
+              _soldLine(line.variantUomId, sold)?.productName ?? 'Sale line',
+          variantName: _soldLine(line.variantUomId, sold)?.variantName ?? '',
+          quantity: line.quantity,
+          unit: _soldLine(line.variantUomId, sold)?.unit ?? '',
+          unitPrice: line.unitPrice,
+          availableQuantity:
+              _soldLine(line.variantUomId, sold)?.availableQuantity ?? 0,
+          // Phase 5 B4: the sale recorded where the goods were, so the receipt
+          // prints THAT rather than today's catalogue. An older body sends none,
+          // and the sold cart's snapshot is the next best fact; if neither knows,
+          // the caption is hidden instead of a place being invented.
+          storedAtName: line.storedAtName.isNotEmpty
+              ? line.storedAtName
+              : (_soldLine(line.variantUomId, sold)?.storedAtName ?? ''),
+          // Phase 9 F2 (decision 21 §2): which shelves the sale actually LEFT.
+          // The server groups its deduction rows, so the receipt prints the split
+          // as fact; an older body sends none and the fallback above still reads.
+          pickUp: line.pickUp,
+        ),
+    ];
+  }
+
+  /// The sold cart line for [variantUomId], or null when the server wrote a line
+  /// the cart no longer names.
+  PosCartLine? _soldLine(int variantUomId, List<PosCartLine> sold) {
+    for (final line in sold) {
+      if (line.variantUomId == variantUomId) return line;
+    }
+    return null;
+  }
+}

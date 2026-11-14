@@ -1,0 +1,201 @@
+import 'package:client/core/network/api_client.dart';
+import 'package:client/data/models/user.dart';
+import 'package:dio/dio.dart';
+
+class UsersServiceException implements Exception {
+  const UsersServiceException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+/// Reads and creates staff accounts over the admin users endpoints.
+///
+/// The list and the stats are both admin-only server-side
+/// (`IsAdminUser`); a non-admin caller gets a 403, which surfaces as a
+/// permission error rather than a load error. Creation posts the register
+/// shape, which mandates a group. The LIST can still contain a role-less
+/// account (`createsuperuser`, a group removed in the Django admin), so
+/// `User.role` is nullable and such a row renders "No role" instead of
+/// failing the whole list (Phase 3 Task 0).
+class UserService {
+  UserService({ApiClient? client}) : _client = client ?? ApiClient.instance;
+
+  static const usersPath = '/api/v1/users/';
+  static const statsPath = '/api/v1/users/stats/';
+  static const registerPath = '/api/v1/auth/register/';
+
+  final ApiClient _client;
+
+  /// Every account, walked page by page.
+  ///
+  /// The screen counts, filters and searches this list, so one DRF page would
+  /// misreport the staff: a manager's 51st account would simply be missing, and
+  /// the summary line would undercount. [ApiClient.getAll] is the same walk the
+  /// other counting screens use.
+  Future<List<User>> fetchUsers({String? search}) async {
+    try {
+      final query = <String, dynamic>{};
+      if (search != null && search.isNotEmpty) query['search'] = search;
+      return await _client.getAll<User>(
+        usersPath,
+        User.fromJson,
+        queryParameters: query.isEmpty ? null : query,
+      );
+    } on DioException catch (error) {
+      throw UsersServiceException(
+        _message(error, 'The staff list could not be loaded.'),
+      );
+    }
+    // getList parses rows eagerly, so a malformed row throws HERE, not at
+    // items.toList(). It must read as a load error with a retry — never a raw
+    // crash that blanks the whole staff list with no message. A NULL role is
+    // no longer malformed (see [User.role]); a non-object role still is.
+    on FormatException catch (error) {
+      throw UsersServiceException(
+        'The staff list could not be read: ${error.message}',
+      );
+    }
+  }
+
+  Future<UserStats> fetchUserStats() async {
+    try {
+      final response = await _client.dio.get<Map<String, dynamic>>(statsPath);
+      final data = response.data;
+      if (data == null) throw const FormatException('Empty stats response');
+      return UserStats.fromJson(data);
+    } on DioException catch (error) {
+      throw UsersServiceException(
+        _message(error, 'The account summary could not be loaded.'),
+      );
+    } on FormatException catch (error) {
+      throw UsersServiceException(error.message);
+    }
+  }
+
+  Future<User> createUser({
+    required String username,
+    required String email,
+    required String fullName,
+    required String password,
+    required List<String> roles,
+  }) async {
+    try {
+      final response = await _client.dio.post<Map<String, dynamic>>(
+        registerPath,
+        data: {
+          'username': username,
+          'email': email,
+          'full_name': fullName,
+          'password': password,
+          // Phase 4 B3/F3b: `roles[]` is the wire shape. `group_name` (one
+          // existing Group) is still accepted by the server for released
+          // clients, but sending BOTH is refused with 400 ROLES_CONFLICT, so
+          // this client sends one field only.
+          'roles': roles,
+        },
+      );
+      final data = response.data;
+      if (data == null) throw const FormatException('Empty create response');
+      return User.fromJson(data);
+    } on DioException catch (error) {
+      throw UsersServiceException(
+        _message(error, 'The account could not be created.'),
+      );
+    } on FormatException catch (error) {
+      throw UsersServiceException(error.message);
+    }
+  }
+
+  /// Flips `is_active` and returns the server row.
+  ///
+  /// Deactivation is reversible: the UI offers reactivate on inactive rows.
+  /// A 403 `USER_ADMIN_FORBIDDEN` names the admin boundary; a 400
+  /// `LAST_ADMIN` carries the server sentence verbatim.
+  Future<User> setActive({required int id, required bool isActive}) async {
+    try {
+      final response = await _client.patch<Map<String, dynamic>>(
+        '$usersPath$id/',
+        data: {'is_active': isActive},
+      );
+      final data = response.data;
+      if (data == null) throw const FormatException('Empty update response');
+      return User.fromJson(data);
+    } on DioException catch (error) {
+      throw UsersServiceException(
+        _message(error, 'The account could not be updated.'),
+      );
+    } on FormatException catch (error) {
+      throw UsersServiceException(error.message);
+    }
+  }
+
+  /// Replaces the account's roles, then returns the reloaded server row.
+  ///
+  /// `roles[]` is a FULL replacement, not an addition (Phase 4 B3): a code the
+  /// list leaves out is a code the account loses. The action answers
+  /// `{'detail': ...}`, not a user row, so the row is re-read: the screen shows
+  /// what the server owns, never what the client assumed.
+  /// The server refuses admin-bound changes with 403 `USER_ADMIN_FORBIDDEN`,
+  /// the last-admin strip with 400 `LAST_ADMIN`, and an empty/unknown/duplicate
+  /// list with 400.
+  Future<User> assignRoles({
+    required int id,
+    required List<String> roles,
+  }) async {
+    try {
+      await _client.dio.post<void>(
+        '$usersPath$id/assign_role/',
+        data: {'roles': roles},
+      );
+      final users = await fetchUsers();
+      return users.firstWhere(
+        (user) => user.id == id,
+        orElse: () => throw const FormatException('Updated row missing'),
+      );
+    } on DioException catch (error) {
+      throw UsersServiceException(
+        _message(error, 'The role could not be changed.'),
+      );
+    } on FormatException catch (error) {
+      throw UsersServiceException(error.message);
+    }
+  }
+
+  String _message(DioException error, String fallback) {
+    if (error.type == DioExceptionType.connectionError ||
+        error.type == DioExceptionType.connectionTimeout ||
+        error.type == DioExceptionType.receiveTimeout) {
+      return 'Cannot connect to the BuildPro server.';
+    }
+    if (error.response?.statusCode == 401) {
+      return 'Your session has expired. Sign in again.';
+    }
+    if (error.response?.statusCode == 403) {
+      // Phase 5 Task 2: the server names the admin boundary with a stable
+      // code — surface it, not the generic permission sentence, so a manager
+      // learns WHY this account is untouchable instead of retrying it.
+      final data = error.response?.data;
+      if (data is Map<String, dynamic> &&
+          data['code'] == 'USER_ADMIN_FORBIDDEN') {
+        final detail = data['detail'];
+        if (detail is String && detail.isNotEmpty) return detail;
+        return 'Only an Admin may change that account.';
+      }
+      return 'You do not have permission to manage accounts.';
+    }
+    final data = error.response?.data;
+    if (data is Map<String, dynamic>) {
+      final detail = data['detail'];
+      if (detail is String) return detail;
+      for (final entry in data.values) {
+        if (entry is List && entry.isNotEmpty && entry.first is String) {
+          return entry.first as String;
+        }
+      }
+    }
+    return fallback;
+  }
+}

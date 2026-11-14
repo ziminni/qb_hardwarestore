@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 
 from pathlib import Path
 
+from corsheaders.defaults import default_headers
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -43,6 +45,10 @@ INSTALLED_APPS = [
     # Third-party
     'rest_framework',
     'corsheaders',
+    # Refresh-token blacklist. Without this app the blacklist models do not exist,
+    # so `BLACKLIST_AFTER_ROTATION` below silently does nothing: a rotated refresh
+    # token stays valid forever and a logout cannot revoke anything.
+    'rest_framework_simplejwt.token_blacklist',
 
     # BuildPro Modules
     'apps.users',
@@ -51,6 +57,9 @@ INSTALLED_APPS = [
     'apps.collectibles',
     'apps.requisitions',
     'apps.reports',
+    # Phase 1, Task 2: the CPMS boundary (`/api/v1/integration/cpms/`). Has no models;
+    # it is an app so its URLconf and tests sit where every other feature's do.
+    'apps.integration',
 
 ]
 
@@ -159,11 +168,17 @@ AUTH_USER_MODEL = 'apps_users.User'
 # =============================================
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        # Phase 1, Task 2: plain JWTAuthentication plus the CPMS fence. A member of the
+        # `CPMS Service` group is refused (403 CPMS_SCOPE) everywhere outside
+        # `/api/v1/integration/cpms/`, in ONE place instead of on every POS view.
+        'apps.users.authentication.CpmsFencedJWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    # Decision 06: publishes InsufficientStock as a 400 with a stable code so a
+    # short-stock sale is distinguishable from a server failure.
+    'EXCEPTION_HANDLER': 'apps.pos.exceptions.handler',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 50,
 }
@@ -184,8 +199,34 @@ SIMPLE_JWT = {
 
 
 # =============================================
+# Cache
+# Backs the failed-login lockout (apps/users/lockout.py). An explicit entry even
+# though LocMem is Django's default, because this cache is now load-bearing.
+#
+# LocMem is PER-PROCESS: with N workers, each worker keeps its own failure counter,
+# so the 5-attempt limit is effectively 5N and a restart clears it. Fine for dev;
+# production MUST point 'default' at a shared cache (Redis/Memcached) for the
+# lockout to hold across workers.
+# =============================================
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'buildpro-locmem',
+    },
+}
+
+
+# =============================================
 # CORS (Cross-Origin Resource Sharing)
 # Allows Flutter Web and other dev origins to call the API.
 # Dev-only convenience; switch to CORS_ALLOWED_ORIGINS in production.
 # =============================================
 CORS_ALLOW_ALL_ORIGINS = True
+
+# `Idempotency-Key` is a CUSTOM header (ENDPOINTS.md, *Idempotency*), so it is not in
+# django-cors-headers' default allow-list. A browser will not send a header the preflight
+# did not allow: checkout failed on web with "Cannot connect to the BuildPro server"
+# while desktop worked, because CORS never applies to Dio's native client. Extend the
+# defaults rather than replace them - dropping `authorization` or `content-type` would
+# break every other browser call.
+CORS_ALLOW_HEADERS = (*default_headers, 'idempotency-key')

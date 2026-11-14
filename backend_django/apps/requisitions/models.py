@@ -1,9 +1,16 @@
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false
+#
+# Same directive and reason as apps/requisitions/services.py: this checker runs with a
+# working directory outside the repo, so the root pyrightconfig.json is not found. Without
+# django-stubs every `models.BooleanField(default=...)` and every FK attribute access
+# reads as a type error on valid Django. The test run is the authority.
 """
 Requisitions Module — Construction Material Requests (Phase 3).
 
-Supports the dual-business flow: site foreman requests materials,
-manager approves, cashier releases via digital token at POS,
-stock is FIFO-deducted, and the amount posts to Collectibles.
+CPMS creates a material request and its project manager approves it; the POS keeps a
+read-only copy, the cashier releases it with a digital token, stock is FIFO-deducted,
+and the amount posts to Collectibles. Decision 01 removed the POS-side request and
+approval, so the requester and the approver here are NAMES, not accounts.
 
 ERD extension (not in original ERD):
     PROJECT           → Project
@@ -13,17 +20,21 @@ ERD extension (not in original ERD):
 """
 
 import uuid
+from decimal import Decimal
 
 from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import models
-from decimal import Decimal
 
 
 class Project(models.Model):
     """A construction project linked to a contractor/construction-firm Customer."""
 
     name = models.CharField(max_length=255, db_index=True)
+    # Decision 03: CPMS owns the project list. The id is how a second push finds the same
+    # row again; legacy rows created in the POS have none.
+    cpms_project_id = models.CharField(
+        max_length=100, unique=True, null=True, blank=True)
     customer = models.ForeignKey(
         'pos.Customer',
         on_delete=models.PROTECT,
@@ -48,44 +59,57 @@ class Project(models.Model):
 
 
 class Requisition(models.Model):
-    """Material request submitted by a site foreman."""
+    """An approved material request CPMS pushed, released by token at the POS."""
 
     class Status(models.TextChoices):
+        # Phase 1b decision 13: a pushed request waits for the STORE, which accepts or
+        # declines it; `APPROVED` (CPMS' answer alone) no longer exists. DRAFT,
+        # SUBMITTED, REJECTED and CANCELLED stay readable for rows older than that
+        # decision, but nothing new enters them.
         DRAFT = 'DRAFT', 'Draft'
         SUBMITTED = 'SUBMITTED', 'Submitted'
-        APPROVED = 'APPROVED', 'Approved'
+        WAITING = 'WAITING', 'Waiting for store'
+        ACCEPTED = 'ACCEPTED', 'Accepted'
+        DECLINED = 'DECLINED', 'Declined'
         REJECTED = 'REJECTED', 'Rejected'
         PARTIAL = 'PARTIAL', 'Partially Released'
         RELEASED = 'RELEASED', 'Fully Released'
         CANCELLED = 'CANCELLED', 'Cancelled'
+        # Decision 06: CPMS can close an open remainder. The token dies with it.
+        CLOSED = 'CLOSED', 'Closed'
 
     project = models.ForeignKey(
         Project,
         on_delete=models.PROTECT,
         related_name='requisitions',
     )
-    requested_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
-        related_name='+',
-        help_text='Site foreman who requested the materials.',
-    )
-    approved_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='+',
-        help_text='Manager who approved the request.',
-    )
+    # Decision 08: the POS has no foreman and no approver accounts any more, and the two
+    # people are what CPMS reports, not who can log in here — so they are plain names.
+    requester_name = models.CharField(max_length=255, blank=True, default='')
+    approver_name = models.CharField(max_length=255, blank=True, default='')
+    # Decision 04: CPMS's own id for this request, so a retried push finds the same copy.
+    cpms_request_id = models.CharField(
+        max_length=100, unique=True, null=True, blank=True)
     req_number = models.CharField(max_length=50, unique=True, db_index=True)
     status = models.CharField(
         max_length=12,
         choices=Status.choices,
-        default=Status.DRAFT,
+        default=Status.WAITING,
         db_index=True,
     )
     notes = models.TextField(blank=True, default='')
+    # Decisions 13/14: the store's whole-request refusal, and the released sale value
+    # accumulated in the same transaction as each release. NULL means "unknown" — a
+    # request released before Phase 1b has no sale that names it, so its history cannot
+    # be totalled and must never read as 0.00 owed.
+    decline_reason = models.CharField(max_length=255, blank=True, default='')
+    released_amount = models.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        null=True,
+        default=Decimal('0.00'),
+        help_text='Cumulative released sale value; NULL when the history is unknown.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -108,8 +132,10 @@ class RequisitionItem(models.Model):
         on_delete=models.CASCADE,
         related_name='items',
     )
-    variant = models.ForeignKey(
-        'inventory.ProductVariant',
+    # Decision 04: a line keys on the SELLING unit CPMS was shown, so the till can release
+    # it with one scan; `quantity` / `released_qty` are counted in that unit.
+    variant_uom = models.ForeignKey(
+        'inventory.VariantUOM',
         on_delete=models.PROTECT,
         related_name='requisition_items',
     )
@@ -125,19 +151,23 @@ class RequisitionItem(models.Model):
         validators=[MinValueValidator(Decimal('0'))],
     )
     notes = models.CharField(max_length=255, blank=True, default='')
+    # Decision 10: the store's answer per line. NULL = not answered yet, which is NOT
+    # "available": it is what an import or a legacy row carries.
+    available = models.BooleanField(null=True, default=None)
+    decline_reason = models.CharField(max_length=255, blank=True, default='')
 
     class Meta:
         db_table = 'requisitions_item'
 
     def __str__(self):
-        return f'{self.variant} × {self.quantity}'
+        return f'{self.variant_uom} × {self.quantity}'
 
 
 class MaterialToken(models.Model):
     """One-time digital token (QR code) for POS material release.
 
-    Generated on requisition approval.  Scanned by cashier at the
-    hardware store POS to verify and release materials.
+    Minted by the CPMS push, with the request it belongs to (decision 02).
+    Scanned by cashier at the hardware store POS to verify and release materials.
     """
     requisition = models.OneToOneField(
         Requisition,

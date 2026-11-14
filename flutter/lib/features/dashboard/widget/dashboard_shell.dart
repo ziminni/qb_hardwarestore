@@ -1,8 +1,11 @@
-import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
-import 'package:client/shared/widgets/system_brand.dart';
+import 'package:client/core/constants/app_areas.dart';
+import 'package:client/core/navigation/app_destinations.dart';
+import 'package:client/core/navigation/merged_sidebar.dart';
+import 'package:client/shared/widgets/app_shell.dart';
+import 'package:client/shared/widgets/shared_sidebar.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
+/// The POS (cashier) shell: the shared menu pattern inside [AppShell], grouped.
 class DashboardShell extends StatelessWidget {
   const DashboardShell({
     super.key,
@@ -11,6 +14,10 @@ class DashboardShell extends StatelessWidget {
     required this.selectedNavigationIndex,
     required this.navigationItems,
     required this.child,
+    this.onNavigationSelected,
+    this.scrollable = true,
+    this.actions = const [],
+    this.loadMarkers = cashierMarkers,
   });
 
   final String title;
@@ -18,121 +25,70 @@ class DashboardShell extends StatelessWidget {
   final int selectedNavigationIndex;
   final List<DashboardNavigationItem> navigationItems;
   final Widget child;
+  final ValueChanged<int>? onNavigationSelected;
+
+  /// See [AppShell.scrollable].
+  final bool scrollable;
+
+  /// Widgets at the right end of the header (see [AppShell.actions]).
+  final List<Widget> actions;
+
+  /// See [AppShell.loadMarkers].
+  final Future<Map<int, int>> Function() loadMarkers;
+
+  /// Flat sidebar index of Held transactions, the destination the parked-cart
+  /// count belongs to (0 New transaction, 1 Transaction history,
+  /// 2 Release materials, 3 Record payment, 4 Held transactions). Shared by
+  /// [cashierMarkers] and pinned by `sidebar_pattern_test.dart`.
+  static const heldTransactionsIndex = 4;
+
+  /// The cashier groups, by the index each item ALREADY has, derived from
+  /// [AppDestinations] (Phase 2 F1).
+  ///
+  /// The Till menu is append-only and its indexes are pinned by
+  /// `sidebar_index_consistency_test.dart`, so a group is expressed as "where it
+  /// starts". Grouping therefore cannot renumber a single destination.
+  static List<(String, int)> get groups =>
+      AppDestinations.groupsFor(AppAreas.pos);
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthViewmodel>();
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      body: Row(
-        children: [
-          Container(
-            width: 220,
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              border: Border(right: BorderSide(color: Colors.black26)),
-            ),
-            child: Column(
-              children: [
-                const SizedBox(
-                  height: 72,
-                  child: Center(
-                    child: SystemBrand(
-                      logoSize: 42,
-                      fontSize: 14,
-                      subtitle: '& CONSTRUCTION SUPPLIES',
-                    ),
-                  ),
-                ),
-                const Divider(height: 1),
-                Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(10),
-                    itemCount: navigationItems.length,
-                    itemBuilder: (context, index) {
-                      final item = navigationItems[index];
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 4),
-                        color: index == selectedNavigationIndex
-                            ? const Color(0xFFE5E5E5)
-                            : Colors.transparent,
-                        child: ListTile(
-                          dense: true,
-                          onTap: () {},
-                          leading: Icon(item.icon, size: 19),
-                          title: Text(item.label),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  title: Text(auth.user?.fullName ?? '[ USER NAME ]'),
-                  subtitle: Text(auth.user?.role.displayName ?? '[ ROLE ]'),
-                  trailing: IconButton(
-                    tooltip: 'Log out',
-                    onPressed: auth.logout,
-                    icon: const Icon(Icons.logout, size: 18),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Column(
-              children: [
-                Container(
-                  height: 72,
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    border: Border(bottom: BorderSide(color: Colors.black26)),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Text(
-                              subtitle,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Colors.black54,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () {},
-                        icon: const Icon(Icons.notifications_none, size: 17),
-                        label: const Text('Notifications'),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(20),
-                    child: child,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    return AppShell(
+      title: title,
+      subtitle: subtitle,
+      sections: _sectionsFor(navigationItems),
+      selectedIndex: selectedNavigationIndex,
+      originArea: AppAreas.pos,
+      onDestinationSelected: onNavigationSelected,
+      scrollable: scrollable,
+      actions: actions,
+      loadMarkers: loadMarkers,
+      child: child,
     );
+  }
+
+  static List<SharedSidebarSection> _sectionsFor(
+    List<DashboardNavigationItem> items,
+  ) {
+    final sections = <SharedSidebarSection>[];
+    for (var group = 0; group < groups.length; group++) {
+      final start = groups[group].$2;
+      if (start >= items.length) break;
+      final nextStart = group + 1 < groups.length
+          ? groups[group + 1].$2
+          : items.length;
+      final end = nextStart > items.length ? items.length : nextStart;
+      sections.add(
+        SharedSidebarSection(
+          label: groups[group].$1,
+          destinations: [
+            for (final item in items.sublist(start, end))
+              SharedSidebarDestination(label: item.label, icon: item.icon),
+          ],
+        ),
+      );
+    }
+    return sections;
   }
 }
 
@@ -141,4 +97,12 @@ class DashboardNavigationItem {
 
   final String label;
   final IconData icon;
+}
+
+/// Parked baskets, the one live count on the cashier menu (ledger ruling, F4):
+/// held transactions at index 4. Read once when the shell mounts; a failure
+/// shows no marker rather than a false 0.
+Future<Map<int, int>> cashierMarkers() async {
+  final count = await heldCartsCount();
+  return {DashboardShell.heldTransactionsIndex: count};
 }

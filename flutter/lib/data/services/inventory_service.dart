@@ -1,0 +1,266 @@
+import 'package:client/core/network/api_client.dart';
+import 'package:client/data/models/inventory.dart';
+import 'package:client/data/models/inventory_batch.dart';
+import 'package:client/data/models/receiving.dart';
+import 'package:client/data/models/system_alert.dart';
+import 'package:dio/dio.dart';
+
+/// Raised when inventory state cannot be read or written. [message] is safe to show.
+class InventoryServiceException implements Exception {
+  const InventoryServiceException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+/// Reads and writes the two inventory endpoints that are the **server's**
+/// authority over inventory state (decision 13).
+///
+/// Decision 13 settled that the client stops deciding these things for itself:
+/// low stock is whatever the server has alerted, and movement history is
+/// whatever the server has recorded. The client's job is to read and to report.
+///
+/// Both reads walk EVERY page through [ApiClient.getAll], so the DRF envelope is
+/// unwrapped by `parsePaged` in exactly one place (decision 03) and rows past the
+/// first page of 50 are not silently missing. Verified contracts
+/// (2026-10-16):
+///
+/// * `SystemAlertSerializer` — `id, alert_type, variant, message, is_resolved, created_at`
+/// * `StockAdjustmentSerializer` — `id, variant, user, adjustment_type, qty_adjusted, remarks, timestamp`
+class InventoryService {
+  InventoryService({ApiClient? client})
+    : _client = client ?? ApiClient.instance;
+
+  final ApiClient _client;
+
+  static const alertsPath = '/api/v1/alerts/';
+  static const adjustmentsPath = '/api/v1/adjustments/';
+  static const purchaseOrdersPath = '/api/v1/purchase-orders/';
+  static const goodsReceiptsPath = '/api/v1/goods-receipts/';
+
+  /// Alerts the backend has raised — low stock, out of stock, expiring.
+  ///
+  /// Note the consequence decision 13 accepted: this is a list of **events the
+  /// server generated**, not a live view. A variant that drops below its
+  /// threshold without going through an alerted path will not appear here until
+  /// an alert exists. That is the price of one authority.
+  ///
+  /// Every page, for the same reason as [fetchAdjustments]: a truncated alert
+  /// list reads as a quiet server, and "nothing to fix" is a claim.
+  Future<List<SystemAlert>> fetchAlerts() => _guard(
+    () => _client.getAll<SystemAlert>(alertsPath, SystemAlert.fromJson),
+    'The alerts could not be read.',
+  );
+
+  /// Recorded stock adjustments, newest first (the backend orders by
+  /// `-timestamp`).
+  ///
+  /// FX1: this reads EVERY page, like [fetchPurchaseOrders]. `getList` answers
+  /// one DRF page (50), so the stock adjustments screen showed the newest fifty
+  /// writes as the whole book, and its empty message ("No adjustments recorded
+  /// for this period.") asserted a fact about a truncated read.
+  Future<List<StockAdjustment>> fetchAdjustments() => _guard(
+    () => _client.getAll<StockAdjustment>(
+      adjustmentsPath,
+      StockAdjustment.fromJson,
+    ),
+    'The stock adjustments could not be read.',
+  );
+
+  /// Records an adjustment on the server and returns the stored row.
+  ///
+  /// Returns the server's row rather than the caller's input, so the screen can
+  /// show what was actually stored (ids, the authoritative timestamp) instead of
+  /// what it hoped was stored.
+  Future<StockAdjustment> createAdjustment({
+    required int variantId,
+    required StockAdjustmentType type,
+    required double quantity,
+    String remarks = '',
+    int? locationId,
+  }) async {
+    try {
+      final response = await _client.post<Map<String, dynamic>>(
+        adjustmentsPath,
+        data: {
+          'variant': variantId,
+          'adjustment_type': type.apiValue,
+          'qty_adjusted': quantity,
+          'remarks': remarks,
+          // Phase 9 F2 (decision 21 §8): the shelf the count belongs to. Omitted
+          // means the variant's home shelf, which is what the server applied to
+          // every adjustment before this phase — so the client stays silent about
+          // a default it did not choose.
+          'location': ?locationId,
+        },
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const InventoryServiceException(
+          'The server did not return the saved adjustment.',
+        );
+      }
+      return StockAdjustment.fromJson(data);
+    } on DioException catch (error) {
+      throw InventoryServiceException(_message(error));
+    }
+  }
+
+  /// Open purchase orders with their lines, for the receiving screen.
+  ///
+  /// Decision 17: a PO can be created through the UI and then never received —
+  /// this list is where receiving starts.
+  ///
+  /// F3: this reads EVERY page. `getList` answers one page (DRF `PAGE_SIZE` is
+  /// 50), so a single-page read hid every order past the first fifty from
+  /// receiving — silently, because a short list looks exactly like a complete
+  /// one.
+  Future<List<PurchaseOrderRecord>> fetchPurchaseOrders() => _guard(
+    () => _client.getAll<PurchaseOrderRecord>(
+      purchaseOrdersPath,
+      PurchaseOrderRecord.fromJson,
+    ),
+    'The purchase orders could not be read.',
+  );
+
+  /// Records a goods receipt, carrying the received quantities.
+  ///
+  /// The `items` payload sets POItem.received_qty server-side, which is what a
+  /// later process/ turns into FIFO batches. Returns the server's row.
+  /// Resolves one alert on the server and returns the stored row.
+  ///
+  /// Decision 06: resolving is a named act with a trail — the server stamps
+  /// `resolved_by` and `resolved_at`, so the screen can show WHO cleared it and
+  /// WHEN. The client never guesses either.
+  Future<SystemAlert> resolveAlert(int alertId) async {
+    try {
+      final response = await _client.post<Map<String, dynamic>>(
+        '$alertsPath$alertId/resolve/',
+        data: const <String, dynamic>{},
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const InventoryServiceException(
+          'The server did not return the resolved alert.',
+        );
+      }
+      return SystemAlert.fromJson(data);
+    } on DioException catch (error) {
+      throw InventoryServiceException(_message(error));
+    }
+  }
+
+  /// Every goods receipt the server has recorded, for the receiving history.
+  ///
+  /// `GoodsReceiptSerializer` carries `received_by_name`, `receive_date`, the
+  /// delivered `lines` and `processed_at`, so one call describes a delivery
+  /// without a request per line.
+  ///
+  /// F2 fix round: this reads EVERY page, like [fetchPurchaseOrders]. One DRF
+  /// page (50, newest first) hid an older order's processed deliveries from the
+  /// return dialog, which then stated "No processed deliveries to return from."
+  /// about an order that has several.
+  Future<List<GoodsReceiptRecord>> fetchGoodsReceipts() => _guard(
+    () => _client.getAll<GoodsReceiptRecord>(
+      goodsReceiptsPath,
+      GoodsReceiptRecord.fromJson,
+    ),
+    'The goods receipts could not be read.',
+  );
+
+  Future<GoodsReceiptRecord> createReceipt({
+    required int poId,
+    required List<ReceiptLine> items,
+    String deliveryReceiptNo = '',
+  }) async {
+    try {
+      final response = await _client.post<Map<String, dynamic>>(
+        goodsReceiptsPath,
+        data: {
+          'po': poId,
+          'delivery_receipt_no': deliveryReceiptNo,
+          'items': [for (final line in items) line.toJson()],
+        },
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const InventoryServiceException(
+          'The server did not return the saved receipt.',
+        );
+      }
+      return GoodsReceiptRecord.fromJson(data);
+    } on DioException catch (error) {
+      throw InventoryServiceException(_message(error));
+    }
+  }
+
+  /// Processes a receipt into FIFO batches and returns the minted rows.
+  ///
+  /// The process endpoint answers with a bare list, not a paginated envelope —
+  /// there is exactly one receipt being processed, so paging it would be absurd.
+  Future<List<InventoryBatch>> processReceipt(int receiptId) async {
+    try {
+      final response = await _client.post<List<dynamic>>(
+        '$goodsReceiptsPath$receiptId/process/',
+        data: {},
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const InventoryServiceException(
+          'The server did not return the minted batches.',
+        );
+      }
+      return data
+          .map((b) => InventoryBatch.fromJson(b as Map<String, dynamic>))
+          .toList();
+    } on DioException catch (error) {
+      throw InventoryServiceException(_message(error));
+    }
+  }
+
+  /// Runs a read, converting a failure into a message worth showing.
+  ///
+  /// Three failures reach here and all three used to be some screens' problem
+  /// and nobody's job:
+  ///
+  ///  * a transport failure — a `DioException`, described from the server's own
+  ///    `detail` where there is one;
+  ///  * a malformed envelope — `parsePaged` throws a `FormatException`;
+  ///  * a row that does not match its model — a `fromJson` cast throws a
+  ///    `TypeError`.
+  ///
+  /// The last two are CONTRACT BREAKS, and letting them escape was the bug F1
+  /// fixed: `InventoryViewmodel.load()` caught only the service exceptions, so
+  /// the parse failure left `loadError` null and the empty list rendered as
+  /// "nothing here" with no retry. [fallback] is the sentence the screen shows.
+  Future<T> _guard<T>(Future<T> Function() read, String fallback) async {
+    try {
+      return await read();
+    } on DioException catch (error) {
+      throw InventoryServiceException(_message(error));
+    } on FormatException catch (error) {
+      throw InventoryServiceException('$fallback (${error.message})');
+    } on TypeError {
+      // The raw message is a Dart type name; the user gets the fact that the
+      // response was unreadable, and the retry the screen offers.
+      throw InventoryServiceException(
+        '$fallback (a row was not the shape this app expects)',
+      );
+    }
+  }
+
+  String _message(DioException error) {
+    final data = error.response?.data;
+    if (data is Map<String, dynamic> && data['detail'] is String) {
+      return data['detail'] as String;
+    }
+    if (error.type == DioExceptionType.connectionError ||
+        error.type == DioExceptionType.connectionTimeout ||
+        error.type == DioExceptionType.receiveTimeout) {
+      return 'Cannot connect to the BuildPro server.';
+    }
+    return 'Unable to load inventory data.';
+  }
+}

@@ -1,0 +1,281 @@
+// Phase 1 (decision 12): the product list has exactly ONE home —
+// `InventoryViewmodel` — and Phase 1 makes that home API-backed.
+//
+// The load contract these tests pin:
+//   * a successful load REPLACES the mock catalogue with the API's
+//   * a FAILED load surfaces its message and does NOT quietly empty or half-fill
+//     the catalogue (decision 12 rule 3: failures surface, they do not silently
+//     empty, and a stale list must never present itself as current)
+//   * the mock is retained for what the API cannot serve yet, so a load must not
+//     disturb movements, adjustments or tracking
+
+import 'dart:async';
+
+import 'package:client/data/models/inventory.dart';
+import 'package:client/data/models/inventory_batch.dart';
+import 'package:client/data/models/product.dart';
+import 'package:client/data/models/system_alert.dart';
+import 'package:client/data/repositories/inventory_repository.dart';
+import 'package:client/data/repositories/products_repository.dart';
+import 'package:client/data/services/inventory_service.dart';
+import 'package:client/data/services/products_service.dart';
+import 'package:client/data/models/variant_uom.dart';
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
+import '../../support/phase4_fakes.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+/// The API's catalogue as the live one looked on 2026-10-16: ONE product with
+/// ONE variant, against a mock catalogue of ten. The sizes differ on purpose —
+/// that is how these tests can tell which source won.
+ProductsSnapshot _apiSnapshot() => ProductsSnapshot(
+  products: [
+    Product(
+      id: 6,
+      categoryId: 3,
+      categoryName: 'Electrical',
+      brandId: 1,
+      brandName: 'Omni',
+      baseName: 'Circuit Breaker',
+      description: '',
+      imageUrl: '',
+      isActive: true,
+      variants: [
+        ProductVariant(
+          productId: 6,
+          baseUomId: 2,
+          maxStockLevel: 0,
+          id: 8,
+          variantName: '20A 1-pole',
+          baseUomCode: 'PC',
+          isActive: true,
+          minStockThreshold: 5,
+          sellingUoms: [
+            VariantUom(
+              id: 8,
+              variantId: 8,
+              uomId: 2,
+              uomCode: 'PC',
+              uomName: 'Piece',
+              barcodeQr: '',
+              conversionFactor: 1,
+              defaultSellingPrice: 315,
+            ),
+          ],
+        ),
+      ],
+    ),
+  ],
+  // Quantity is the server's on-hand read (Phase 9 F1); the lot stays for cost.
+  stockOnHand: [onHand(variantId: 8, qty: 100)],
+  batches: [
+    InventoryBatch(
+      id: 6,
+      variantId: 8,
+      receiptId: 6,
+      initialQty: 100,
+      currentQty: 100,
+      unitCostLanded: 180,
+      markupPercentage: 0,
+      batchSellingPrice: 180,
+      expirationDate: null,
+      createdAt: null,
+    ),
+  ],
+);
+
+/// Task 2 (decision 13) made load() also reach the inventory endpoints, so a
+/// test that calls load() must supply this — otherwise it hits the real
+/// ApiClient, whose Dio is never initialised here.
+class _FakeInventoryRepository extends InventoryRepository {
+  _FakeInventoryRepository() : super(InventoryService());
+  @override
+  Future<List<SystemAlert>> loadAlerts() async => const [];
+  @override
+  Future<List<StockAdjustment>> loadAdjustments() async => const [];
+}
+
+class _FakeProductsRepository extends ProductsRepository {
+  _FakeProductsRepository({this.snapshot})
+    : error = null,
+      super(ProductsService());
+
+  ProductsSnapshot? snapshot;
+  ProductsServiceException? error;
+  int calls = 0;
+
+  /// Completes only when the test releases it, so "in flight" is observable.
+  Future<void>? gate;
+
+  @override
+  Future<ProductsSnapshot> loadCatalogue() async {
+    calls++;
+    if (gate != null) await gate;
+    final failure = error;
+    if (failure != null) throw failure;
+    return snapshot!;
+  }
+}
+
+void main() {
+  late _FakeProductsRepository products;
+  late _FakeInventoryRepository inventory;
+
+  setUp(() {
+    products = _FakeProductsRepository(snapshot: _apiSnapshot());
+    inventory = _FakeInventoryRepository();
+  });
+
+  test('the store starts EMPTY — the mock seed is gone (Phase 4 Task 4)', () {
+    // The baseline the next test moves away from is now "nothing at all". Until
+    // Phase 4 this asserted the opposite (twelve invented products, and the API's
+    // product deliberately absent). User decision 2026-10-25 and the map's "no
+    // local-only mutation" rule retired the seed: an empty store plus
+    // `hasLoaded == false` is what makes the pages show a spinner instead of
+    // claiming "no products" before anyone asked the server.
+    final store = InventoryViewmodel(
+      products: products,
+      inventory: inventory,
+      catalogue: FakeCatalogueRepository(),
+    );
+
+    expect(store.products, isEmpty);
+    expect(store.batches, isEmpty);
+    expect(store.categories, isEmpty);
+    expect(store.hasLoaded, isFalse);
+    expect(store.isLoading, isFalse);
+    expect(store.loadError, isNull);
+  });
+
+  test('load() fills the empty store with the API data', () async {
+    final store = InventoryViewmodel(
+      products: products,
+      inventory: inventory,
+      catalogue: FakeCatalogueRepository(),
+    );
+
+    await store.load();
+
+    expect(store.products, hasLength(1));
+    expect(store.products.single.baseName, 'Circuit Breaker');
+    // Stock moves with it, or the assembler would pair live products with mock
+    // batches and invent quantities.
+    expect(store.stockOnHandFor(8), 100);
+    expect(products.calls, 1);
+  });
+
+  test('it reports loading while the fetch is in flight', () async {
+    final store = InventoryViewmodel(
+      products: products,
+      inventory: inventory,
+      catalogue: FakeCatalogueRepository(),
+    );
+    final gate = Completer<void>();
+    products.gate = gate.future;
+    var notifications = 0;
+    store.addListener(() => notifications++);
+
+    final pending = store.load();
+
+    expect(
+      store.isLoading,
+      isTrue,
+      reason: 'AsyncView must be able to show it',
+    );
+    expect(notifications, greaterThan(0));
+
+    gate.complete();
+    await pending;
+
+    expect(store.isLoading, isFalse);
+    expect(store.loadError, isNull);
+  });
+
+  test('a failed load surfaces the message and keeps the catalogue', () async {
+    final store = InventoryViewmodel(
+      products: products,
+      inventory: inventory,
+      catalogue: FakeCatalogueRepository(),
+    );
+    final before = store.products.map((product) => product.baseName).toList();
+    products.error = const ProductsServiceException('Cannot connect.');
+
+    await store.load();
+
+    expect(store.loadError, 'Cannot connect.');
+    expect(store.isLoading, isFalse);
+    // The assertion that matters: a failed load must leave the catalogue EXACTLY
+    // as it was. Emptying it would render as a legitimate "no products" the user
+    // cannot act on, and half-filling it would invent a catalogue. Compared
+    // against the captured baseline rather than a count, because the property is
+    // "unchanged", not "a particular size".
+    expect(store.products.map((product) => product.baseName).toList(), before);
+  });
+
+  test('a failed load can be retried and then succeeds', () async {
+    final store = InventoryViewmodel(
+      products: products,
+      inventory: inventory,
+      catalogue: FakeCatalogueRepository(),
+    );
+    products.error = const ProductsServiceException('Cannot connect.');
+    await store.load();
+
+    products.error = null;
+    await store.load();
+
+    expect(store.loadError, isNull, reason: 'a retry must clear the old error');
+    expect(store.products, hasLength(1));
+    expect(products.calls, 2);
+  });
+
+  test('a load invents no movements of its own', () async {
+    // SUPERSEDED IN PHASE 2. This test used to assert that the constructor
+    // seeded fixture movements and that a load left them alone. Decision 13
+    // makes movements the SERVER's record, so the seeding is gone and the
+    // property worth holding is the opposite one: a load must not fabricate any
+    // movement row. The fake repository returns none, so this stays empty.
+    final store = InventoryViewmodel(
+      products: products,
+      inventory: inventory,
+      catalogue: FakeCatalogueRepository(),
+    );
+    expect(store.movements, isEmpty, reason: 'nothing is invented any more');
+
+    await store.load();
+
+    expect(store.movements, isEmpty);
+  });
+
+  test('hasLoaded is false until an attempt has finished', () async {
+    // The screen needs to tell "not fetched yet" from "fetched and empty".
+    // Without it the page renders the 12 mock products for one frame before the
+    // API's 6 arrive — a visible flash of data that is not real.
+    final store = InventoryViewmodel(
+      products: products,
+      inventory: inventory,
+      catalogue: FakeCatalogueRepository(),
+    );
+
+    expect(store.hasLoaded, isFalse);
+
+    await store.load();
+
+    expect(store.hasLoaded, isTrue);
+  });
+
+  test('a FAILED attempt still counts as loaded, so the error shows', () async {
+    // If a failure left hasLoaded false the page would sit on a spinner forever
+    // instead of offering the retry it can actually perform.
+    final store = InventoryViewmodel(
+      products: products,
+      inventory: inventory,
+      catalogue: FakeCatalogueRepository(),
+    );
+    products.error = const ProductsServiceException('Cannot connect.');
+
+    await store.load();
+
+    expect(store.hasLoaded, isTrue);
+    expect(store.loadError, 'Cannot connect.');
+  });
+}

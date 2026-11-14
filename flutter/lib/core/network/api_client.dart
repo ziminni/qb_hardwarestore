@@ -1,6 +1,8 @@
 import 'package:client/core/config/api_config.dart';
+import 'package:client/core/network/paged.dart';
+import 'package:client/core/network/token_store.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter/foundation.dart';
 
 /// Shared Django API client with persistent JWT authentication.
 class ApiClient {
@@ -11,9 +13,13 @@ class ApiClient {
   static const _accessTokenKey = 'auth_access_token';
   static const _refreshTokenKey = 'auth_refresh_token';
 
-  final FlutterSecureStorage _storage = const FlutterSecureStorage(
-    mOptions: MacOsOptions(usesDataProtectionKeychain: false),
-  );
+  // Linux (non-web) uses shared_preferences to avoid the gnome-keyring prompt;
+  // every other platform keeps the OS secret store. Injectable for tests.
+  // See planning/cashier-workflow/decisions/01-linux-token-storage.md.
+  TokenStore _store = tokenStoreForPlatform();
+
+  @visibleForTesting
+  set tokenStore(TokenStore store) => _store = store;
   late final Dio dio;
   String? _accessToken;
   String? _refreshToken;
@@ -69,9 +75,23 @@ class ApiClient {
 
   bool get hasTokens => _accessToken != null && _refreshToken != null;
 
+  /// The refresh token held RIGHT NOW, or null when signed out.
+  ///
+  /// Exposed because the token rotates: after every refresh the live credential
+  /// is a different string from the one login returned, and only this client
+  /// knows which of the chain is current. `AuthService.logout` hands this one to
+  /// the server so it can be blacklisted (ENDPOINTS.md §auth — a garbage or
+  /// already-rotated token is ignored; the current one is revoked).
+  String? get refreshToken => _refreshToken;
+
   Future<void> restoreTokens() async {
-    _accessToken = await _storage.read(key: _accessTokenKey);
-    _refreshToken = await _storage.read(key: _refreshTokenKey);
+    try {
+      _accessToken = await _store.read(_accessTokenKey);
+      _refreshToken = await _store.read(_refreshTokenKey);
+    } catch (_) {
+      _accessToken = null;
+      _refreshToken = null;
+    }
   }
 
   Future<void> saveTokens({
@@ -80,19 +100,39 @@ class ApiClient {
   }) async {
     _accessToken = accessToken;
     _refreshToken = refreshToken;
-    await Future.wait([
-      _storage.write(key: _accessTokenKey, value: accessToken),
-      _storage.write(key: _refreshTokenKey, value: refreshToken),
-    ]);
+    await _persistTokens();
+  }
+
+  /// Writes both held tokens to the store, never throwing.
+  ///
+  /// One writer for every path that changes the pair (login, refresh) so a
+  /// rotated token cannot be kept in memory only and lost on the next launch.
+  /// A store failure keeps the tokens in memory rather than failing the request.
+  Future<void> _persistTokens() async {
+    final accessToken = _accessToken;
+    final refreshToken = _refreshToken;
+    if (accessToken == null || refreshToken == null) return;
+    try {
+      await Future.wait([
+        _store.write(_accessTokenKey, accessToken),
+        _store.write(_refreshTokenKey, refreshToken),
+      ]);
+    } catch (_) {
+      // Keep tokens in memory even if secure storage fails
+    }
   }
 
   Future<void> clearTokens() async {
     _accessToken = null;
     _refreshToken = null;
-    await Future.wait([
-      _storage.delete(key: _accessTokenKey),
-      _storage.delete(key: _refreshTokenKey),
-    ]);
+    try {
+      await Future.wait([
+        _store.delete(_accessTokenKey),
+        _store.delete(_refreshTokenKey),
+      ]);
+    } catch (_) {
+      // Ignored
+    }
   }
 
   Future<bool> _refreshOnce() {
@@ -106,15 +146,25 @@ class ApiClient {
     if (refreshToken == null) return false;
 
     try {
-      final refreshClient = Dio(BaseOptions(baseUrl: ApiConfig.baseUrl));
-      final response = await refreshClient.post<Map<String, dynamic>>(
+      // Same `dio` as every other call: the interceptor skips the refresh path
+      // above, so there is no loop, and one client means one place to inspect
+      // the traffic. (A second Dio here also hid the refresh from every test.)
+      final response = await dio.post<Map<String, dynamic>>(
         '/api/v1/auth/refresh/',
         data: {'refresh': refreshToken},
       );
       final accessToken = response.data?['access'] as String?;
       if (accessToken == null) return false;
+
+      // Rotation is ON server-side (`ROTATE_REFRESH_TOKENS` +
+      // `BLACKLIST_AFTER_ROTATION`, Phase 2 Task 6): the token just spent is
+      // blacklisted, so this NEW refresh is the only one that still works.
+      // Dropping it 401s the NEXT refresh and signs the user out mid-shift.
+      // Absent key = rotation off, so the current token stays valid.
+      final rotated = response.data?['refresh'] as String?;
       _accessToken = accessToken;
-      await _storage.write(key: _accessTokenKey, value: accessToken);
+      if (rotated != null && rotated.isNotEmpty) _refreshToken = rotated;
+      await _persistTokens();
       return true;
     } on DioException {
       await clearTokens();
@@ -129,7 +179,96 @@ class ApiClient {
     return dio.get<T>(path, queryParameters: queryParameters);
   }
 
-  Future<Response<T>> post<T>(String path, {Object? data}) {
-    return dio.post<T>(path, data: data);
+  /// GETs a **list** endpoint and unwraps the pagination envelope.
+  ///
+  /// Every list route returns `{count, next, previous, results}`. That envelope
+  /// is unwrapped in exactly one place — [parsePaged] — so no repository and no
+  /// screen has to know its shape (decision 03).
+  ///
+  /// Prefer this over [get] for any list route: [get] hands back the envelope
+  /// itself, which is almost never what a caller wants.
+  ///
+  /// The body is fetched as `dynamic` deliberately. Asking Dio for
+  /// `Map<String, dynamic>` would throw a type error before [parsePaged] could
+  /// report what actually arrived, and that report is the more useful failure.
+  Future<Paged<T>> getList<T>(
+    String path,
+    T Function(Map<String, dynamic> json) fromJson, {
+    Map<String, dynamic>? queryParameters,
+  }) async {
+    final response = await dio.get<dynamic>(
+      path,
+      queryParameters: queryParameters,
+    );
+    return parsePaged<T>(response.data, fromJson);
+  }
+
+  /// How many pages [getAll] will read before giving up.
+  ///
+  /// 40 x DRF's `PAGE_SIZE` (50) = 2000 rows, far past any list this app shows.
+  /// Hitting it means the API keeps answering `next`, and failing loudly beats
+  /// returning a silently truncated list the user would read as complete.
+  static const maxListPages = 40;
+
+  /// Walks EVERY page of a list endpoint and returns the flattened rows.
+  ///
+  /// [getList] answers one page. Any screen that counts, searches or picks from
+  /// a list needs all of them: a customer past row 50 could not be selected at
+  /// the till, and a purchase order past row 50 could not be received. The walk
+  /// lives here, next to the envelope it follows, so a service asks for "the
+  /// list" once instead of writing its own `while (next)` loop.
+  ///
+  /// `next` — not a short page — is the signal, which is the same rule
+  /// [parsePaged] documents.
+  ///
+  /// [queryParameters] are sent with every page: a filtered list must filter all
+  /// of it, not just the page the user happens to be looking at.
+  Future<List<T>> getAll<T>(
+    String path,
+    T Function(Map<String, dynamic> json) fromJson, {
+    Map<String, dynamic>? queryParameters,
+    int maxPages = maxListPages,
+  }) async {
+    final all = <T>[];
+    var page = 1;
+    while (true) {
+      final result = await getList<T>(
+        path,
+        fromJson,
+        queryParameters: {...?queryParameters, 'page': page},
+      );
+      all.addAll(result.items);
+      if (!result.hasMore) return all;
+      page++;
+      if (page > maxPages) {
+        throw const FormatException('The list did not end.');
+      }
+    }
+  }
+
+  /// POSTs [data], optionally with per-request [headers].
+  ///
+  /// [headers] exists for the `Idempotency-Key` the checkout contract requires
+  /// (ENDPOINTS.md, *Idempotency*): it is per REQUEST, not per client, because a
+  /// new sale must carry a new key while a retry of the same sale reuses one.
+  Future<Response<T>> post<T>(
+    String path, {
+    Object? data,
+    Map<String, String>? headers,
+  }) {
+    return dio.post<T>(
+      path,
+      data: data,
+      options: headers == null ? null : Options(headers: headers),
+    );
+  }
+
+  /// PATCHes [data] — the verb every catalog edit uses (Phase 4 Task 4).
+  ///
+  /// There is deliberately no `delete`: the catalog and purchasing routes
+  /// answer **405** to DELETE (Phase 4 Task 1), so a client method for it could
+  /// only ever produce a refusal. Archive through `PATCH {"is_active": false}`.
+  Future<Response<T>> patch<T>(String path, {Object? data}) {
+    return dio.patch<T>(path, data: data);
   }
 }

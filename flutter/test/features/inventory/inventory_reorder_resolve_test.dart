@@ -1,0 +1,347 @@
+// Phase 4 Task 4 — the two low-stock controls that used to lie.
+//
+//   Reorder  opened "Future Purchasing connection — will connect to the
+//            Purchasing module in a future implementation." It now opens the real
+//            New purchase order dialog, prefilled with the variant and a suggested
+//            quantity.
+//   Resolve  did not exist, so a cleared alert stayed open for ever. It now calls
+//            POST /alerts/{id}/resolve/ and shows who cleared it and when — and
+//            only the roles the server admits (IsInventoryRole) see the button.
+
+import 'package:client/data/models/purchase_draft.dart';
+import 'package:client/data/models/role.dart';
+import 'package:client/data/models/supplier.dart';
+import 'package:client/data/models/user.dart';
+import 'package:client/data/repositories/auth_repository.dart';
+import 'package:client/data/repositories/supplier_repository.dart';
+import 'package:client/data/services/auth_service.dart';
+import 'package:client/data/services/supplier_service.dart';
+import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
+import 'package:client/features/inventory/views/inventory_low_stock_page.dart';
+import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmodel.dart';
+import 'package:client/features/suppliers/widgets/purchases_form_dialog.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+
+import '../../support/phase4_fakes.dart';
+
+class _StubSupplierRepository extends SupplierRepository {
+  _StubSupplierRepository() : super(service: SupplierService());
+
+  final List<Map<String, dynamic>> createdOrders = [];
+  final List<int> placedOrders = [];
+  String? failure;
+
+  @override
+  Future<List<Supplier>> fetchSuppliers() async => const [
+    Supplier(
+      id: 3,
+      companyName: 'Cebu Steel Works',
+      contactPerson: 'Dan Uy',
+      phone: '',
+      email: '',
+      address: '',
+    ),
+  ];
+
+  @override
+  Future<List<PurchaseOrder>> fetchPurchaseOrders() async => const [];
+
+  @override
+  Future<int> createPurchaseOrder(PurchaseOrderDraft draft) async {
+    final error = failure;
+    if (error != null) throw SupplierServiceException(error);
+    createdOrders.add(draft.toJson());
+    return 55;
+  }
+
+  /// "Place order" is a SECOND call (`place/`), so the stub must answer it too —
+  /// otherwise the test would reach a real ApiClient that was never initialised.
+  @override
+  Future<void> placePurchaseOrder(int id) async {
+    final error = failure;
+    if (error != null) throw SupplierServiceException(error);
+    placedOrders.add(id);
+  }
+}
+
+/// The role CODE the server sends as `role.name`, keyed by the label a person
+/// reads (`role.display_name`). The fixture used to put the label in BOTH
+/// fields, so a page comparing `roleName` to 'Stock Manager' passed here while
+/// the live server (which sends `inventory`) never showed the button.
+const _roleCodes = {
+  'Stock Manager': 'inventory',
+  'Store Manager': 'sales',
+  'System Administrator': 'admin',
+  'Cashier': 'pos',
+};
+
+AuthViewmodel _auth({String? role}) {
+  final auth = AuthViewmodel(AuthRepository(AuthService()));
+  if (role != null) {
+    auth.user = User(
+      id: 1,
+      username: 'stock',
+      email: 'stock@qb.ph',
+      fullName: 'Ana Lopez',
+      role: Role(id: 4, name: _roleCodes[role]!, displayName: role),
+    );
+  }
+  return auth;
+}
+
+void main() {
+  late FakeInventoryRepository alerts;
+  late InventoryViewmodel inventory;
+  late _StubSupplierRepository suppliers;
+
+  setUp(() {
+    alerts = FakeInventoryRepository(alerts: [alert(id: 41, variantId: 8)]);
+    inventory = InventoryViewmodel(
+      products: FakeProductsRepository(
+        products: [
+          product(
+            id: 6,
+            variants: [
+              // 3 on hand, threshold 20, ceiling 50 → suggested 47.
+              //
+              // The one selling unit carries id 501 on purpose: it is NOT the
+              // variant id (8) and not its base uom id (1), so the POST assertion
+              // below proves the dialog sent the variant's REAL base selling row
+              // (B1) instead of echoing a number that happens to match.
+              variant(
+                id: 8,
+                productId: 6,
+                name: '20A 1-pole',
+                threshold: 20,
+                maxStockLevel: 50,
+                sellingUoms: [
+                  variantUom(id: 501, variantId: 8, uomId: 1, uomCode: 'PC'),
+                ],
+              ),
+            ],
+          ),
+        ],
+        // cost 235 = the newest batch's landed cost, which the dialog prefills as
+        // the unit cost (decision 08 — the DISPLAYED cost, not a charging price).
+        batches: [batch(id: 8, variantId: 8, qty: 3, cost: 235)],
+      ),
+      inventory: alerts,
+      catalogue: FakeCatalogueRepository(),
+    );
+    suppliers = _StubSupplierRepository();
+  });
+
+  Future<void> pump(
+    WidgetTester tester, {
+    String? role,
+    Size size = const Size(3600, 1600),
+  }) async {
+    await inventory.load();
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<AuthViewmodel>.value(value: _auth(role: role)),
+          ChangeNotifierProvider<InventoryViewmodel>.value(value: inventory),
+          ChangeNotifierProvider<SuppliersPurchasesViewmodel>(
+            create: (_) => SuppliersPurchasesViewmodel(repository: suppliers),
+          ),
+        ],
+        child: const MaterialApp(home: InventoryLowStockPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('Reorder opens the REAL purchase-order dialog, prefilled', (
+    tester,
+  ) async {
+    await pump(tester, role: 'Stock Manager');
+
+    await tester.tap(find.text('Reorder'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PurchasesFormDialog), findsOneWidget);
+    // Prefilled from `suggestedReorderQty`: max_stock_level (50) − on hand (3),
+    // read off the quantity field itself rather than any text that happens to
+    // show the same number.
+    final qty = tester.widget<TextFormField>(
+      find.byKey(const ValueKey('po-qty-8')),
+    );
+    expect(qty.controller?.text, '47');
+    expect(find.text('Circuit Breaker'), findsWidgets);
+    // The placeholder dialog is gone for good.
+    expect(find.text('Future Purchasing connection'), findsNothing);
+  });
+
+  testWidgets('placing the prefilled order POSTs it with that one line', (
+    tester,
+  ) async {
+    await pump(tester, role: 'Stock Manager');
+
+    await tester.tap(find.text('Reorder'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Place order'));
+    await tester.pumpAndSettle();
+
+    expect(suppliers.createdOrders.single['supplier'], 3);
+    expect(suppliers.placedOrders, [55]);
+    expect(suppliers.createdOrders.single['items'], [
+      // B1: the line carries the variant's selected selling unit, and the
+      // fixture's base unit id (501) is neither the variant id nor the uom id.
+      {
+        'variant': 8,
+        'variant_uom': 501,
+        'ordered_qty': 47.0,
+        'unit_cost': 235.0,
+      },
+    ]);
+  });
+
+  testWidgets('Resolve calls the server and the trail is shown', (
+    tester,
+  ) async {
+    await pump(tester, role: 'Stock Manager');
+
+    await tester.tap(find.text('Resolve'));
+    await tester.pumpAndSettle();
+
+    expect(alerts.resolvedAlertIds, [41]);
+
+    // The row leaves the open list; the resolved tab shows who and when — both
+    // read from the server's answer, not from a local guess.
+    await tester.tap(find.text('Show resolved'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Resolved by Ana Lopez'), findsOneWidget);
+    // D6 (locked): the whole app dates a moment as `Oct 25, 2026, 2:30 PM`, so
+    // this screen stops printing the server's `2026-10-25 14:30`.
+    expect(find.textContaining('Oct 25, 2026, 2:30 PM'), findsOneWidget);
+    // A resolved alert is not offered for resolving again.
+    expect(find.text('Resolve'), findsNothing);
+  });
+
+  testWidgets('the sidebar badge clears on Resolve, without leaving the screen', (
+    tester,
+  ) async {
+    // QA wave 3a: the badge stayed at 1 until another route mounted. It was read
+    // once by the shell, from its own alerts call, so the Resolve that emptied
+    // this page could not reach it. It now follows the store this page resolves
+    // through, so the same rebuild that empties the table empties the badge.
+    await pump(tester, role: 'Stock Manager');
+
+    expect(
+      find.byKey(const ValueKey('sidebar-marker-5')),
+      findsOneWidget,
+      reason: 'one open alert, one badge on Low stock',
+    );
+
+    await tester.tap(find.text('Resolve'));
+    await tester.pumpAndSettle();
+
+    expect(alerts.resolvedAlertIds, [41]);
+    expect(
+      find.byKey(const ValueKey('sidebar-marker-5')),
+      findsNothing,
+      reason: 'no open alerts are left, so a 0 badge would be a false count',
+    );
+  });
+
+  for (final role in ['Store Manager', 'System Administrator']) {
+    testWidgets('$role is offered Resolve too (server: IsInventoryRole)', (
+      tester,
+    ) async {
+      await pump(tester, role: role);
+
+      expect(find.text('Resolve'), findsOneWidget);
+    });
+  }
+
+  testWidgets('Reorder and Resolve stay reachable at 760 px, as cards', (
+    tester,
+  ) async {
+    // The ten column DataTable this screen used to show put both actions off
+    // the right edge below about 1300 px, so on the narrowest window the two
+    // things the screen exists for were unreachable.
+    await pump(tester, role: 'Stock Manager', size: const Size(760, 900));
+
+    expect(find.byKey(const ValueKey('DataPanel.cards')), findsOneWidget);
+    for (final action in ['Reorder', 'Resolve']) {
+      expect(
+        tester.getRect(find.text(action)).right,
+        lessThanOrEqualTo(760),
+        reason: '$action must be inside the window, not pushed off it',
+      );
+    }
+
+    await tester.tap(find.text('Resolve'));
+    await tester.pumpAndSettle();
+
+    expect(alerts.resolvedAlertIds, [41]);
+  });
+
+  testWidgets('Reorder and Resolve stay inside a 1100 px window, as a table', (
+    tester,
+  ) async {
+    await pump(tester, role: 'Stock Manager', size: const Size(1100, 900));
+
+    expect(find.byKey(const ValueKey('DataPanel.table')), findsOneWidget);
+    // Inside the window, not scrolled past its right edge.
+    for (final action in ['Reorder', 'Resolve']) {
+      expect(tester.getRect(find.text(action)).right, lessThanOrEqualTo(1100));
+    }
+
+    // The dialog the button opens is still prefilled for THIS item. It is
+    // checked here and not at 760 because the purchase-order dialog is K7's file
+    // and it overflows its own footer below ~1000 px (reported, not fixed here).
+    await tester.tap(find.text('Reorder'));
+    await tester.pumpAndSettle();
+    expect(find.byType(PurchasesFormDialog), findsOneWidget);
+    final qty = tester.widget<TextFormField>(
+      find.byKey(const ValueKey('po-qty-8')),
+    );
+    expect(qty.controller?.text, '47');
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    // Resolving takes the row off the open list (it is now on "Show resolved"),
+    // so it is the last thing this test does.
+    await tester.tap(find.text('Resolve'));
+    await tester.pumpAndSettle();
+    expect(alerts.resolvedAlertIds, [41]);
+  });
+
+  testWidgets('both actions stay inside a 1440 px window', (tester) async {
+    await pump(tester, role: 'Stock Manager', size: const Size(1440, 900));
+
+    for (final action in ['Reorder', 'Resolve']) {
+      expect(tester.getRect(find.text(action)).right, lessThanOrEqualTo(1440));
+    }
+  });
+
+  testWidgets('a cashier does not see Resolve at all', (tester) async {
+    await pump(tester, role: 'Cashier');
+
+    // The server refuses `resolve/` for this role (`IsInventoryRole`), so the
+    // button is not rendered rather than rendered-and-refused.
+    expect(find.text('Resolve'), findsNothing);
+    expect(find.text('Reorder'), findsOneWidget);
+  });
+
+  testWidgets('a refused resolve shows the server message, not a success', (
+    tester,
+  ) async {
+    await pump(tester, role: 'Stock Manager');
+    alerts.resolveError = 'Alert 41 was already resolved.';
+
+    await tester.tap(find.text('Resolve'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Alert 41 was already resolved.'), findsOneWidget);
+  });
+}

@@ -33,7 +33,10 @@ class BrandAdmin(admin.ModelAdmin):
 
 @admin.register(UnitOfMeasure)
 class UnitOfMeasureAdmin(admin.ModelAdmin):
-    list_display = ('code', 'name', 'created_at')
+    # Decision 16: there is no in-app "new unit" screen, so the rare extra unit - and any
+    # correction to the whole-number flag - happens here.
+    list_display = ('code', 'name', 'is_whole', 'created_at')
+    list_editable = ('is_whole',)
     search_fields = ('code', 'name')
 
 

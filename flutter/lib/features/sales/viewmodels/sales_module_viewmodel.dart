@@ -1,0 +1,195 @@
+import 'package:client/data/models/customer.dart';
+import 'package:client/data/models/sale_transaction.dart';
+import 'package:client/data/models/sales_module.dart';
+import 'package:client/data/services/customer_service.dart';
+import 'package:client/data/services/sales_service.dart';
+import 'package:flutter/foundation.dart';
+
+/// Owns the sales role's quotation and order screens.
+///
+/// Decision 05: this is the CANONICAL stack for quotations and orders — and
+/// since Phase 6 gave them real backends, it reads live endpoints instead of
+/// the mock rows it carried before. The shapes stay: pages render
+/// `SalesQuotation`/`SalesOrderRecord` exactly as before.
+class SalesModuleViewmodel extends ChangeNotifier {
+  SalesModuleViewmodel({
+    SalesService? service,
+    CustomerService? customerService,
+  }) : _service = service ?? SalesService(),
+       _customers = customerService ?? CustomerService();
+
+  final SalesService _service;
+  final CustomerService _customers;
+
+  List<SalesQuotation> _quotations = const [];
+  List<SalesOrderRecord> _orders = const [];
+
+  /// Who the order form may name on an order, from the last load.
+  List<Customer> _customerRows = const [];
+  bool _isLoading = false;
+  String? _loadError;
+
+  List<SalesQuotation> get quotations => List.unmodifiable(_quotations);
+  List<SalesOrderRecord> get orders => List.unmodifiable(_orders);
+  bool get isLoading => _isLoading;
+  String? get loadError => _loadError;
+
+  bool get hasLoaded => _quotations.isNotEmpty || _orders.isNotEmpty;
+
+  /// The customers the order form offers, as the last load read them.
+  List<Customer> get customers => List.unmodifiable(_customerRows);
+
+  /// Creates one sales order, then reloads the lists.
+  ///
+  /// Returns null when the server accepted it, or the refusal itself — the CODE
+  /// as well as the sentence, exactly like [updateOrder]: `DISCOUNT_OVER_CAP`
+  /// turns into a manager approval prompt and one retry, not a dead end, and
+  /// the rule is per line and per role (decision 19 follow-up ruling).
+  Future<SalesServiceException?> createOrder(SalesOrderDraft draft) async {
+    try {
+      await _service.createSalesOrder(draft);
+    } on SalesServiceException catch (error) {
+      return error;
+    }
+    // The server has the order, so the list is re-read rather than patched with
+    // the row this client hoped for.
+    await load();
+    return null;
+  }
+
+  /// Rewrites one order a manager has not started keeping (Phase 7 F1).
+  ///
+  /// Returns null when the server accepted the edit, or the refusal itself: the
+  /// form needs the CODE as well as the sentence, because `DISCOUNT_OVER_CAP`
+  /// turns into a manager approval prompt rather than a dead end.
+  Future<SalesServiceException?> updateOrder(
+    int id,
+    SalesOrderEdit edit,
+  ) async {
+    try {
+      await _service.editSalesOrder(id, edit);
+    } on SalesServiceException catch (error) {
+      return error;
+    }
+    await load();
+    return null;
+  }
+
+  /// Writes off what is left of one order (Phase 7 F1).
+  ///
+  /// Same contract as [updateOrder]: null for success, the server's own refusal
+  /// otherwise, so the dialog can say why and keep the reason typed.
+  Future<SalesServiceException?> cancelOrder(
+    int id, {
+    required String reason,
+  }) async {
+    try {
+      await _service.cancelSalesOrder(id, reason: reason);
+    } on SalesServiceException catch (error) {
+      return error;
+    }
+    await load();
+    return null;
+  }
+
+  /// Loads quotations and orders, joining customer display names.
+  ///
+  /// A failed load keeps the rows already shown: an empty list would read as
+  /// "no quotations", which is a different and far more dangerous statement
+  /// than "this did not load".
+  Future<void> load() async {
+    _isLoading = true;
+    _loadError = null;
+    notifyListeners();
+    try {
+      final results = await Future.wait([
+        _service.fetchQuotations(),
+        _service.fetchSalesOrders(),
+        _customers.fetchCustomers(),
+      ]);
+      final quotes = results[0] as List<QuotationRecord>;
+      final orderRows = results[1] as List<SalesOrderRow>;
+      final customers = results[2] as List<Customer>;
+      _customerRows = customers;
+      final names = {for (final c in customers) c.id: c.name};
+      String nameOf(int id) => names[id] ?? 'Customer #$id';
+      _quotations = [
+        for (final q in quotes)
+          SalesQuotation(
+            q.number,
+            nameOf(q.customerId),
+            DateTime.parse(q.createdAt),
+            // No expiry on the wire means none set: fall back to creation.
+            DateTime.tryParse(q.validUntil ?? '') ??
+                DateTime.parse(q.createdAt),
+            q.items.fold<double>(0, (sum, i) => sum + i.qty * i.unitPrice),
+            _quoteStatus(q.status),
+            // The list endpoint already carries the lines; the View sheet needs
+            // no second fetch (decision D-02).
+            items: q.items,
+            notes: q.notes,
+          ),
+      ];
+      _orders = [
+        for (final o in orderRows)
+          SalesOrderRecord(
+            o.id,
+            o.number,
+            nameOf(o.customerId),
+            DateTime.parse(o.createdAt),
+            o.total,
+            _orderStatus(o.status),
+            items: o.items,
+            notes: o.notes,
+          ),
+      ];
+      _loadError = null;
+    } on SalesServiceException catch (error) {
+      _loadError = error.message;
+    } on CustomerServiceException catch (error) {
+      _loadError = error.message;
+    } on FormatException catch (error) {
+      _loadError = error.message;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  SalesQuoteStatus _quoteStatus(String api) {
+    switch (api) {
+      case 'DRAFT':
+        return SalesQuoteStatus.draft;
+      case 'SENT':
+        return SalesQuoteStatus.sent;
+      case 'ACCEPTED':
+        return SalesQuoteStatus.accepted;
+      case 'EXPIRED':
+        return SalesQuoteStatus.expired;
+      default:
+        throw FormatException('Unknown quotation status: "$api"');
+    }
+  }
+
+  /// The wire's status mapped onto what the screen may show.
+  ///
+  /// `PROCESSING`/`READY` are legacy: the server never writes them any more and
+  /// reads both as CONFIRMED, so they land here as [SalesOrderStatus.confirmed]
+  /// rather than inventing two states no action can move.
+  SalesOrderStatus _orderStatus(String api) {
+    switch (api) {
+      case 'CONFIRMED':
+      case 'PROCESSING':
+      case 'READY':
+        return SalesOrderStatus.confirmed;
+      case 'PARTIAL':
+        return SalesOrderStatus.partial;
+      case 'CANCELLED':
+        return SalesOrderStatus.cancelled;
+      case 'COMPLETED':
+        return SalesOrderStatus.completed;
+      default:
+        throw FormatException('Unknown order status: "$api"');
+    }
+  }
+}

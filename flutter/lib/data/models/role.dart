@@ -11,6 +11,14 @@ class Role {
   final String displayName;
   final List<int> permissions;
 
+  /// The wire identity this client compares against.
+  ///
+  /// Codes ('admin', 'sales', ...), never group ids: the server's
+  /// canonicalisation may rename a group (`System Administrator` -> `Admin`)
+  /// and the id is free to change. `roles[]` always carries the code, so every
+  /// role check in the app reads this, not [displayName].
+  String get code => name.trim().toLowerCase();
+
   factory Role.fromJson(Map<String, dynamic> json) {
     return Role(
       id: json['id'] as int,

@@ -1,0 +1,486 @@
+// Decision 04: every role in `apps/users/permissions.py` must resolve to either a
+// dashboard or an explicit unsupported-role screen — never a silent loop to
+// `/login`.
+//
+// The defect this replaces: `routes.dart` did
+//     if (dashboard == null) return isLogin ? null : login;
+// so an authenticated `site_foreman` (a CPMS-side identity with deliberately no
+// POS dashboard) was bounced to `/login` and sat there while apparently signed
+// in, with nothing telling them why.
+//
+// The role rules are tested through the **pure** `AppRoutes.redirectFor`, not by
+// rendering a destination: every dashboard shares one skeleton whose existing
+// layout assertions fire under a widget test, so a routing test that rendered a
+// dashboard would fail for a reason unrelated to routing. The page itself is
+// covered by rendering it directly, which is safe.
+
+import 'dart:typed_data';
+
+import 'package:client/app.dart';
+import 'package:client/core/network/api_client.dart';
+import 'package:client/data/models/role.dart';
+import 'package:client/data/models/user.dart';
+import 'package:client/data/repositories/auth_repository.dart';
+import 'package:client/data/services/auth_service.dart';
+import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
+import 'package:client/features/auth/views/login_page.dart';
+import 'package:client/features/auth/views/unsupported_role_page.dart';
+import 'package:client/routes/routes.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:dio/dio.dart';
+import 'package:provider/provider.dart';
+
+/// No saved session: secure storage answers "nothing here", so the splash can
+/// hand over to the login screen.
+class _NoSessionRepository extends AuthRepository {
+  _NoSessionRepository() : super(_FakeAuthService());
+
+  @override
+  Future<User?> restoreSession() async => null;
+}
+
+class _FakeAuthService extends AuthService {
+  @override
+  Future<AuthSession> login(String identifier, String password) async {
+    throw const AuthException('not used in this test');
+  }
+
+  @override
+  Future<void> logout() async {}
+}
+
+/// [redirectFor] with a signed-in actor, so each case states only what it varies.
+String? _redirectFor(String? role, String location, {bool signedIn = true}) =>
+    AppRoutes.redirectFor(
+      isAuthenticated: signedIn,
+      role: role,
+      location: location,
+    );
+
+void main() {
+  group('dashboardForRole (decision 04)', () {
+    test('maps the four seeded roles that have a dashboard', () {
+      expect(AppRoutes.dashboardForRole('admin'), AppRoutes.adminDashboard);
+      expect(
+        AppRoutes.dashboardForRole('inventory'),
+        AppRoutes.inventoryDashboard,
+      );
+      expect(AppRoutes.dashboardForRole('pos'), AppRoutes.posDashboard);
+      expect(AppRoutes.dashboardForRole('sales'), AppRoutes.salesDashboard);
+    });
+
+    test('gives site_foreman NO dashboard, deliberately', () {
+      // Not an oversight: a Site Foreman is a CPMS-side identity. If this ever
+      // gains a dashboard that is a product decision, not a bug fix.
+      expect(AppRoutes.dashboardForRole('site_foreman'), isNull);
+    });
+
+    test('returns null for an unknown role and for a role-less account', () {
+      expect(AppRoutes.dashboardForRole('something_new'), isNull);
+      expect(AppRoutes.dashboardForRole(null), isNull);
+    });
+  });
+
+  group('redirectFor — unmapped roles (the decision 04 fix)', () {
+    test(
+      'an unmapped role at the login page goes to the unsupported screen',
+      () {
+        // The defect: this returned null and left them on a login form they had
+        // already passed.
+        expect(
+          _redirectFor('site_foreman', AppRoutes.login),
+          AppRoutes.unsupportedRole,
+        );
+      },
+    );
+
+    test('a role-less account goes to the unsupported screen', () {
+      expect(_redirectFor(null, AppRoutes.login), AppRoutes.unsupportedRole);
+    });
+
+    test('an unknown role goes to the unsupported screen', () {
+      expect(
+        _redirectFor('something_new', AppRoutes.login),
+        AppRoutes.unsupportedRole,
+      );
+    });
+
+    test('an unmapped role is taken off a real screen too', () {
+      expect(
+        _redirectFor('site_foreman', AppRoutes.inventoryStock),
+        AppRoutes.unsupportedRole,
+      );
+    });
+
+    test('NO LOOP: an unmapped role already on the screen stays there', () {
+      // This is the assertion that matters. If it returned anything but null the
+      // router would redirect to itself forever.
+      expect(_redirectFor('site_foreman', AppRoutes.unsupportedRole), isNull);
+      expect(_redirectFor(null, AppRoutes.unsupportedRole), isNull);
+    });
+
+    test('a mapped role who lands on the unsupported screen is sent on', () {
+      // Someone whose role is fixed in another tab should not be stranded.
+      expect(
+        _redirectFor('admin', AppRoutes.unsupportedRole),
+        AppRoutes.adminDashboard,
+      );
+    });
+  });
+
+  group('redirectFor — the paths that must not regress', () {
+    test('a signed-out user at the login page stays there', () {
+      expect(_redirectFor(null, AppRoutes.login, signedIn: false), isNull);
+    });
+
+    test('a signed-out user anywhere else is sent to the login page', () {
+      expect(
+        _redirectFor(null, AppRoutes.inventoryStock, signedIn: false),
+        AppRoutes.login,
+      );
+      expect(
+        _redirectFor('admin', AppRoutes.adminDashboard, signedIn: false),
+        AppRoutes.login,
+      );
+    });
+
+    test('a mapped role at the login page reaches its dashboard', () {
+      expect(_redirectFor('admin', AppRoutes.login), AppRoutes.adminDashboard);
+      expect(
+        _redirectFor('inventory', AppRoutes.login),
+        AppRoutes.inventoryDashboard,
+      );
+      expect(_redirectFor('pos', AppRoutes.login), AppRoutes.posDashboard);
+      expect(_redirectFor('sales', AppRoutes.login), AppRoutes.salesDashboard);
+    });
+
+    test('a role sitting on its own dashboard stays put', () {
+      expect(_redirectFor('admin', AppRoutes.adminDashboard), isNull);
+      expect(_redirectFor('pos', AppRoutes.posDashboard), isNull);
+    });
+
+    test('a role is kept out of another role\'s area', () {
+      expect(
+        _redirectFor('pos', AppRoutes.adminDashboard),
+        AppRoutes.posDashboard,
+      );
+      expect(
+        _redirectFor('inventory', AppRoutes.salesDashboard),
+        AppRoutes.inventoryDashboard,
+      );
+      expect(
+        _redirectFor('sales', AppRoutes.inventoryStock),
+        AppRoutes.salesDashboard,
+      );
+    });
+  });
+
+  group('UnsupportedRolePage', () {
+    // [roleLabel] is the server's `display_name`: the words a person reads. It
+    // is deliberately DIFFERENT from [role] (the code) in the copy tests, so a
+    // page that leaks the code cannot pass by accident.
+    Future<void> pump(
+      WidgetTester tester, {
+      String? role,
+      String? roleLabel,
+    }) async {
+      final auth = AuthViewmodel(AuthRepository(AuthService()));
+      if (role != null) {
+        auth.user = User(
+          id: 1,
+          username: role,
+          email: '$role@example.com',
+          fullName: 'Fore Man',
+          role: Role(id: 1, name: role, displayName: roleLabel ?? role),
+          isActive: true,
+        );
+      }
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AuthViewmodel>.value(
+          value: auth,
+          child: const MaterialApp(home: UnsupportedRolePage()),
+        ),
+      );
+      await tester.pump();
+    }
+
+    // Card L2 (decision D5): a Site Foreman is not a POS user. The page must
+    // say which role the account holds in the WORDS the server sends, because
+    // `site_foreman` is a database value and reads like an error message.
+    testWidgets('shows the role display label, never the raw role code', (
+      tester,
+    ) async {
+      await pump(tester, role: 'site_foreman', roleLabel: 'Site Foreman');
+
+      expect(find.textContaining('Site Foreman'), findsWidgets);
+      expect(
+        find.textContaining('site_foreman'),
+        findsNothing,
+        reason: 'the code is a database value; a person reads the display name',
+      );
+    });
+
+    testWidgets('an unknown role also reads as a label, not a code', (
+      tester,
+    ) async {
+      await pump(tester, role: 'something_new', roleLabel: 'Something New');
+
+      expect(find.textContaining('Something New'), findsWidgets);
+      expect(find.textContaining('something_new'), findsNothing);
+    });
+
+    // Decision 01 (2026-11-03): the Site Foreman group is gone, so the page
+    // has no foreman-specific branch left. An unmapped account - a CPMS-side
+    // identity, or one whose group was removed - reads the SAME generic
+    // explanation as any other role the POS has no dashboard for.
+    testWidgets('a CPMS-side account reads the generic no-dashboard copy', (
+      tester,
+    ) async {
+      await pump(tester, role: 'site_foreman', roleLabel: 'Site Foreman');
+
+      expect(find.text('No dashboard for this account'), findsOneWidget);
+      expect(find.textContaining('no POS dashboard'), findsOneWidget);
+      expect(
+        find.textContaining('Construction Project Management System'),
+        findsNothing,
+        reason: 'the foreman branch is gone from the POS client',
+      );
+      expect(find.textContaining('Hello,'), findsNothing);
+    });
+
+    testWidgets('every word on it uses no em or en dash', (tester) async {
+      // D18, the user's rule: no em or en dashes in anything we write.
+      await pump(tester, role: 'site_foreman', roleLabel: 'Site Foreman');
+      final written = tester
+          .widgetList<Text>(find.byType(Text))
+          .map((text) => text.data ?? '')
+          .join(' ');
+
+      expect(written, isNot(contains('\u2014')), reason: 'em dash');
+      expect(written, isNot(contains('\u2013')), reason: 'en dash');
+    });
+
+    testWidgets('explains a role-less account without naming a role', (
+      tester,
+    ) async {
+      await pump(tester);
+
+      expect(find.textContaining('no role assigned'), findsOneWidget);
+      expect(find.textContaining('site_foreman'), findsNothing);
+    });
+
+    testWidgets('offers a way out', (tester) async {
+      // Without an exit the user is stranded on a dead end while authenticated.
+      await pump(tester, role: 'site_foreman');
+
+      expect(find.text('Sign out'), findsOneWidget);
+    });
+  });
+
+  group('router wiring', () {
+    testWidgets('a signed-out launch still reaches the login page', (
+      tester,
+    ) async {
+      // The launch path is splash then login (card SYNC), and the restore has to
+      // answer for the splash to hand over, so the repository is stubbed
+      // instead of reaching secure storage.
+      final auth = AuthViewmodel(_NoSessionRepository());
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AuthViewmodel>.value(
+          value: auth,
+          child: MyApp(auth: auth),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(LoginPage), findsOneWidget);
+      expect(find.byType(UnsupportedRolePage), findsNothing);
+    });
+
+    testWidgets('an unmapped role reaches the unsupported screen end to end', (
+      tester,
+    ) async {
+      // The real router, the real redirect: site_foreman must not be left on the
+      // login page. The destination renders cleanly, unlike a dashboard.
+      final auth = AuthViewmodel(AuthRepository(AuthService()))
+        ..user = User(
+          id: 1,
+          username: 'foreman',
+          email: 'foreman@example.com',
+          fullName: 'Site Foreman',
+          role: const Role(
+            id: 5,
+            name: 'site_foreman',
+            displayName: 'Site Foreman',
+          ),
+          isActive: true,
+        );
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AuthViewmodel>.value(
+          value: auth,
+          child: MyApp(auth: auth),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(UnsupportedRolePage), findsOneWidget);
+      expect(find.byType(LoginPage), findsNothing);
+    });
+
+    testWidgets('the offered way out actually ARRIVES at the login page', (
+      tester,
+    ) async {
+      // 'offers a way out' only proves the button exists. This proves the exit
+      // works: logout() clears the user, the router re-evaluates through its
+      // refreshListenable, and the sign-out lands on /login instead of bouncing
+      // back to the screen the user is trying to leave.
+      //
+      // The client is pointed at an UNREACHABLE backend on purpose: this is the
+      // path `AuthService.logout` promises in its own comment, "Local logout
+      // must still succeed if the backend is unavailable", and DioException is
+      // what it catches for it. (An UNINITIALISED client would instead throw a
+      // LateError, which escapes that catch — so init() is called here; dio is
+      // `late final`, so this happens exactly once.)
+      ApiClient.instance.init();
+      ApiClient.instance.dio.httpClientAdapter = _OfflineAdapter();
+
+      // Secure storage is a PLATFORM CHANNEL, and its reply arrives on the real
+      // event loop that a widget test never yields to — so an unmocked logout()
+      // parks in the FakeAsync zone forever and `isLoading` never clears. The
+      // package ships this in-memory double for exactly this. Diagnosed, not
+      // guessed: a plain-test logout completed fine, a widget-test one did not.
+      FlutterSecureStorage.setMockInitialValues({});
+
+      final auth = AuthViewmodel(AuthRepository(AuthService()))
+        ..user = User(
+          id: 1,
+          username: 'foreman',
+          email: 'foreman@example.com',
+          fullName: 'Site Foreman',
+          role: const Role(
+            id: 5,
+            name: 'site_foreman',
+            displayName: 'Site Foreman',
+          ),
+          isActive: true,
+        );
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AuthViewmodel>.value(
+          value: auth,
+          child: MyApp(auth: auth),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(UnsupportedRolePage), findsOneWidget);
+
+      await tester.tap(find.text('Sign out'));
+
+      // The button does NOT await logout(). With storage mocked the remaining
+      // awaits resolve as ordinary microtasks, but pumpAndSettle still only
+      // chases FRAMES, so pump with a duration to advance the fake clock and
+      // flush them. Bounded, so a genuine hang fails the assertion below rather
+      // than looping forever.
+      for (var i = 0; i < 20 && auth.isLoading; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+      await tester.pumpAndSettle();
+
+      expect(auth.isLoading, isFalse, reason: 'logout() never completed');
+      expect(find.byType(LoginPage), findsOneWidget);
+      expect(find.byType(UnsupportedRolePage), findsNothing);
+      expect(auth.user, isNull);
+    });
+  });
+
+  group('a role-less account from the wire (Phase 3 Task 0)', () {
+    // The live staff list broke on `role: null`, and the same payload reaches
+    // `/auth/me/` for a superuser or an account whose group was removed. The
+    // nullable role must NOT weaken authentication: a signed-in account with
+    // no role still lands on the unsupported-role screen, never on a dashboard
+    // and never silently back on the login form.
+    const payload = {
+      'id': 8,
+      'username': 'root',
+      'email': 'root@demo.ph',
+      'full_name': 'Root Operator',
+      'is_active': true,
+      'role': null,
+    };
+
+    test('parses, and routes to the unsupported screen', () {
+      User? parsed;
+      Object? failure;
+      try {
+        parsed = User.fromJson(payload);
+      } catch (error) {
+        failure = error;
+      }
+      expect(
+        failure,
+        isNull,
+        reason:
+            'a null role is a real state (groupless account), not a contract '
+            'break: $failure',
+      );
+
+      final auth = AuthViewmodel(AuthRepository(AuthService()))..user = parsed;
+
+      expect(auth.isAuthenticated, isTrue, reason: 'they ARE signed in');
+      expect(auth.roleName, isNull);
+      expect(
+        _redirectFor(auth.roleName, AppRoutes.login),
+        AppRoutes.unsupportedRole,
+      );
+      expect(
+        _redirectFor(auth.roleName, AppRoutes.unsupportedRole),
+        isNull,
+        reason: 'no redirect loop on the screen they were sent to',
+      );
+    });
+
+    testWidgets('the real router shows them the unsupported screen', (
+      tester,
+    ) async {
+      final auth = AuthViewmodel(AuthRepository(AuthService()))
+        ..user = User.fromJson(payload);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AuthViewmodel>.value(
+          value: auth,
+          child: MyApp(auth: auth),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(UnsupportedRolePage), findsOneWidget);
+      expect(find.byType(LoginPage), findsNothing);
+      expect(find.textContaining('no role assigned'), findsOneWidget);
+    });
+  });
+}
+
+/// Answers every request the way an unreachable backend does, so sign-out is
+/// tested against the failure it is supposed to tolerate rather than against a
+/// happy-path server that would hide the interesting branch.
+class _OfflineAdapter implements HttpClientAdapter {
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    throw DioException(
+      requestOptions: options,
+      type: DioExceptionType.connectionError,
+      error: 'offline',
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
