@@ -49,6 +49,73 @@ void main() {
     }
   });
 
+  test('a merged account holding Sales and Cashier gets the twin', () {
+    // F3 (decision 24): the union of the areas decides, not one active area.
+    // This account holds Sales but not Admin, so every admin address with a
+    // sales twin opens that twin instead of bouncing it to a dashboard.
+    for (final adminRoute in [
+      AppRoutes.adminReports,
+      AppRoutes.adminUserManagement,
+      AppRoutes.adminProjectRequests,
+      AppRoutes.adminPayables,
+      AppRoutes.adminDeliveries,
+      AppRoutes.adminTransfers,
+    ]) {
+      expect(
+        AppRoutes.redirectFor(
+          isAuthenticated: true,
+          role: null,
+          location: adminRoute,
+          assignedAreas: const ['sales', 'pos'],
+        ),
+        AppRoutes.salesTwinOf(adminRoute),
+        reason: adminRoute,
+      );
+    }
+    // An admin address with no twin is still fenced.
+    expect(
+      AppRoutes.redirectFor(
+        isAuthenticated: true,
+        role: null,
+        location: AppRoutes.adminAuditLogs,
+        assignedAreas: const ['sales', 'pos'],
+      ),
+      AppRoutes.combinedDashboard,
+    );
+  });
+
+  test('a merged account holding Admin opens the admin originals', () {
+    // Admin + Cashier: the admin screens are its own, so nothing is twinned.
+    for (final adminRoute in [
+      AppRoutes.adminReports,
+      AppRoutes.adminUserManagement,
+      AppRoutes.adminSettings,
+    ]) {
+      expect(
+        AppRoutes.redirectFor(
+          isAuthenticated: true,
+          role: null,
+          location: adminRoute,
+          assignedAreas: const ['admin', 'pos'],
+        ),
+        isNull,
+        reason: adminRoute,
+      );
+    }
+  });
+
+  test('a merged account with no Sales and no Admin gets no twin', () {
+    expect(
+      AppRoutes.redirectFor(
+        isAuthenticated: true,
+        role: null,
+        location: AppRoutes.adminReports,
+        assignedAreas: const ['inventory', 'pos'],
+      ),
+      AppRoutes.combinedDashboard,
+    );
+  });
+
   test('an admin still opens the admin screens', () {
     for (final location in [
       AppRoutes.adminReports,

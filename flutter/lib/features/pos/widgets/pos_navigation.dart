@@ -1,35 +1,21 @@
+import 'package:client/core/constants/app_areas.dart';
+import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
-import 'package:client/routes/routes.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 /// Canonical POS sidebar items, in the append-only order from
-/// planning/cashier-workflow/decisions/03-cashier-tab-set.md.
-/// Phases 3 and 4 append items at the end; existing indices never renumber.
-const List<DashboardNavigationItem> posNavigationItems = [
-  DashboardNavigationItem('New transaction', Icons.point_of_sale_outlined),
-  DashboardNavigationItem('Transaction history', Icons.receipt_long_outlined),
-  DashboardNavigationItem('Release materials', Icons.inventory_2_outlined),
-  DashboardNavigationItem('Record payment', Icons.payments_outlined),
-  DashboardNavigationItem('Held transactions', Icons.pause_circle_outline),
-  DashboardNavigationItem('Shifts', Icons.access_time),
-  // Appended by decision 05 (Phase 3). Index 6 is the FIRST free slot: the tab
-  // order is append-only, so no existing page renumbers.
-  DashboardNavigationItem('Returns', Icons.assignment_return_outlined),
+/// planning/cashier-workflow/decisions/03-cashier-tab-set.md, derived from
+/// [AppDestinations] (Phase 2 F1). The menu is no longer written here: it is the
+/// Till rows of the registry, and the index is a row's position.
+final List<DashboardNavigationItem> posNavigationItems = [
+  for (final destination in AppDestinations.forArea(AppAreas.pos))
+    DashboardNavigationItem(destination.label, destination.icon),
 ];
 
-/// Routes the POS shell sidebar tap to the matching page.
+/// Routes the POS shell sidebar tap to the matching page, from the registry.
 /// Same shape as `navigateInventory` / `navigateSales`.
 void navigatePos(BuildContext context, int index) {
-  final path = switch (index) {
-    0 => AppRoutes.posDashboard,
-    1 => AppRoutes.posHistory,
-    2 => AppRoutes.posRelease,
-    3 => AppRoutes.posReceivables,
-    4 => AppRoutes.posHeld,
-    5 => AppRoutes.posShifts,
-    6 => AppRoutes.posReturns,
-    _ => null,
-  };
+  final path = AppDestinations.routeAt(AppAreas.pos, index);
   if (path != null) context.go(path);
 }

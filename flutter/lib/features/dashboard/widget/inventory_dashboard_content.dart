@@ -39,10 +39,95 @@ class InventoryDashboardContent extends StatefulWidget {
       _InventoryDashboardContentState();
 }
 
-class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
-  /// How many rows each panel shows before it counts the rest.
-  static const int _rowLimit = 5;
+/// How many rows [buildInventoryRestockPanel], [buildInventoryWaitingPanel] and
+/// the recent-adjustments panel show before they count the rest.
+const int _dashboardRowLimit = 5;
 
+/// The restock queue: most urgent first (zero stock before low stock, then the
+/// lowest coverage, on hand / reorder level). Shared by the Stock dashboard and
+/// the combined landing (Phase 2 F4), so both read the SAME derivation the Low
+/// stock screen uses — never a number this file invents on its own.
+///
+/// A silent `take(5)` once hid a zero-stock variant at position 6 while the
+/// manager restocked others, so the panel also says how many were cut.
+Widget buildInventoryRestockPanel(
+  BuildContext context,
+  InventoryViewmodel inventory,
+) {
+  final needsRestock =
+      [
+        for (final product in inventory.products)
+          for (final variant in product.variants)
+            if (inventory.statusForVariant(variant.id) !=
+                InventoryStockStatus.inStock)
+              InventoryRestockRow(
+                variantId: variant.id,
+                item: '${product.baseName} ${variant.variantName}',
+                onHand: inventory.stockOnHandFor(variant.id),
+                threshold: variant.minStockThreshold,
+                status: inventory.statusForVariant(variant.id),
+              ),
+      ]..sort((a, b) {
+        final aOut = a.onHand <= 0;
+        final bOut = b.onHand <= 0;
+        if (aOut != bOut) return aOut ? -1 : 1;
+        double coverage(InventoryRestockRow row) =>
+            row.threshold > 0 ? row.onHand / row.threshold : 0;
+        return coverage(a).compareTo(coverage(b));
+      });
+
+  return InventoryRestockQueuePanel(
+    rows: needsRestock.take(_dashboardRowLimit).toList(),
+    total: needsRestock.length,
+    emptyMessage: 'Nothing to restock.',
+    // The dashboard cannot clear a shortage, only point at the screen that
+    // can: every row and the header lead to Low stock, where Reorder lives.
+    onViewAll: () => context.go(AppRoutes.inventoryLowStock),
+    onRowTap: (_) => context.go(AppRoutes.inventoryLowStock),
+  );
+}
+
+/// The orders still owed to the store, soonest expected first. Shared by the
+/// Stock dashboard and the combined landing (Phase 2 F4).
+Widget buildInventoryWaitingPanel(
+  BuildContext context,
+  SuppliersPurchasesViewmodel purchases,
+) {
+  // Only the two states the server will accept a receipt against: a draft has
+  // not been sent and a complete order has nothing left to come.
+  final waiting =
+      purchases.purchases
+          .where(
+            (order) =>
+                order.status == PurchaseStatus.ordered ||
+                order.status == PurchaseStatus.partial,
+          )
+          .toList()
+        ..sort((a, b) {
+          final aDate = a.expectedDelivery;
+          final bDate = b.expectedDelivery;
+          if (aDate == null && bDate == null) return a.id.compareTo(b.id);
+          if (aDate == null) return 1;
+          if (bDate == null) return -1;
+          final byDate = aDate.compareTo(bDate);
+          return byDate != 0 ? byDate : a.id.compareTo(b.id);
+        });
+
+  return InventoryWaitingToReceivePanel(
+    orders: waiting.take(_dashboardRowLimit).toList(),
+    total: waiting.length,
+    emptyMessage: 'No purchase order is waiting to be received.',
+    onViewAll: () => context.go(AppRoutes.inventoryReceiving),
+    onRowTap: (_) => context.go(AppRoutes.inventoryReceiving),
+    // A first read in flight shows the panel's spinner; a failure shows the
+    // banner with the retry that re-reads just this list.
+    isLoading: purchases.isLoading && waiting.isEmpty,
+    error: purchases.isLoading ? null : purchases.loadError,
+    onRetry: purchases.load,
+  );
+}
+
+class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
   /// The narrowest content width that still leaves a ~900 px restock table and
   /// a ~600 px "Waiting to receive" panel side by side.
   static const double _twoColumnWidth = 1520;
@@ -213,81 +298,13 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
     );
   }
 
-  Widget _restockPanel(InventoryViewmodel inventory) {
-    // Most urgent first: zero stock before low stock, then the lowest coverage
-    // (on hand / reorder level). A silent `take(5)` once hid a zero-stock
-    // variant at position 6 while the manager restocked others, so the panel
-    // also says how many were cut.
-    final needsRestock =
-        [
-          for (final product in inventory.products)
-            for (final variant in product.variants)
-              if (inventory.statusForVariant(variant.id) !=
-                  InventoryStockStatus.inStock)
-                InventoryRestockRow(
-                  variantId: variant.id,
-                  item: '${product.baseName} ${variant.variantName}',
-                  onHand: inventory.stockOnHandFor(variant.id),
-                  threshold: variant.minStockThreshold,
-                  status: inventory.statusForVariant(variant.id),
-                ),
-        ]..sort((a, b) {
-          final aOut = a.onHand <= 0;
-          final bOut = b.onHand <= 0;
-          if (aOut != bOut) return aOut ? -1 : 1;
-          double coverage(InventoryRestockRow row) =>
-              row.threshold > 0 ? row.onHand / row.threshold : 0;
-          return coverage(a).compareTo(coverage(b));
-        });
-
-    return InventoryRestockQueuePanel(
-      rows: needsRestock.take(_rowLimit).toList(),
-      total: needsRestock.length,
-      emptyMessage: 'Nothing to restock.',
-      // The dashboard cannot clear a shortage, only point at the screen that
-      // can: every row and the header lead to Low stock, where Reorder lives.
-      onViewAll: () => context.go(AppRoutes.inventoryLowStock),
-      onRowTap: (_) => context.go(AppRoutes.inventoryLowStock),
-    );
-  }
+  Widget _restockPanel(InventoryViewmodel inventory) =>
+      buildInventoryRestockPanel(context, inventory);
 
   Widget _waitingPanel(
     BuildContext context,
     SuppliersPurchasesViewmodel purchases,
-  ) {
-    // Only the two states the server will accept a receipt against: a draft has
-    // not been sent and a complete order has nothing left to come.
-    final waiting =
-        purchases.purchases
-            .where(
-              (order) =>
-                  order.status == PurchaseStatus.ordered ||
-                  order.status == PurchaseStatus.partial,
-            )
-            .toList()
-          ..sort((a, b) {
-            final aDate = a.expectedDelivery;
-            final bDate = b.expectedDelivery;
-            if (aDate == null && bDate == null) return a.id.compareTo(b.id);
-            if (aDate == null) return 1;
-            if (bDate == null) return -1;
-            final byDate = aDate.compareTo(bDate);
-            return byDate != 0 ? byDate : a.id.compareTo(b.id);
-          });
-
-    return InventoryWaitingToReceivePanel(
-      orders: waiting.take(_rowLimit).toList(),
-      total: waiting.length,
-      emptyMessage: 'No purchase order is waiting to be received.',
-      onViewAll: () => context.go(AppRoutes.inventoryReceiving),
-      onRowTap: (_) => context.go(AppRoutes.inventoryReceiving),
-      // A first read in flight shows the panel's spinner; a failure shows the
-      // banner with the retry that re-reads just this list.
-      isLoading: purchases.isLoading && waiting.isEmpty,
-      error: purchases.isLoading ? null : purchases.loadError,
-      onRetry: purchases.load,
-    );
-  }
+  ) => buildInventoryWaitingPanel(context, purchases);
 
   Widget _adjustmentsPanel(
     InventoryViewmodel inventory,
@@ -298,7 +315,7 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
 
     return InventoryRecentAdjustmentsPanel(
       rows: [
-        for (final adjustment in newest.take(_rowLimit))
+        for (final adjustment in newest.take(_dashboardRowLimit))
           InventoryAdjustmentRow(
             adjustment: adjustment,
             item: itemNames[adjustment.variantId] ?? 'Unknown item',

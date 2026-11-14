@@ -1,4 +1,6 @@
-import 'package:client/data/repositories/requisition_repository.dart';
+import 'package:client/core/constants/app_areas.dart';
+import 'package:client/core/navigation/app_destinations.dart';
+import 'package:client/core/navigation/merged_sidebar.dart';
 import 'package:client/shared/widgets/app_shell.dart';
 import 'package:client/shared/widgets/notifications_button.dart';
 import 'package:client/shared/widgets/shared_sidebar.dart';
@@ -40,63 +42,28 @@ class AdminSkeletonLayout extends StatelessWidget {
   /// final group, so no earlier index moves.
   static const int projectRequestsIndex = 7;
 
-  static const _navigationItems = [
-    ('Overview', Icons.dashboard_outlined, '/admin/dashboard'),
-    ('User management', Icons.manage_accounts_outlined, '/admin/users'),
-    ('Inventory', Icons.inventory_2_outlined, '/admin/inventory'),
-    ('Sales & POS', Icons.point_of_sale_outlined, '/admin/sales'),
-    ('Reports', Icons.bar_chart_rounded, '/admin/reports'),
-    ('Audit logs', Icons.history_rounded, '/admin/audit-logs'),
-    ('Settings', Icons.settings_outlined, '/admin/settings'),
-    // Phase 1b (decisions 09, 10 and 13): the store answers CPMS's material
-    // requests here too. Appended, in a group of its own below. The label is
-    // short because "Requests from projects" clipped to "Requests from p…"
-    // beside its count badge; the page title keeps the long form.
-    ('Project requests', Icons.fact_check_outlined, '/admin/project-requests'),
-    // Phase 5 F2: supplier payables. Appended, in a group of its own, so no
-    // earlier index moves.
-    ('Payables', Icons.account_balance_wallet_outlined, '/admin/payables'),
-    // Phase 5 F3: customer deliveries. Appended, in a group of its own, so no
-    // earlier index moves.
-    ('Deliveries', Icons.local_shipping_outlined, '/admin/deliveries'),
-    // Phase 5 F4: the shop's pick-up points. Appended LAST, in a group of its
-    // own, so no earlier index moves.
-    ('Storage locations', Icons.warehouse_outlined, '/admin/storage-locations'),
-    // Phase 9 F3: stock transfers. Appended AFTER Storage locations, in its own
-    // group, so every index above keeps its number.
-    ('Transfers', Icons.swap_horiz_rounded, '/admin/transfers'),
-  ];
+  /// The admin menu as the sidebar renders it, derived from [AppDestinations]
+  /// (Phase 2 F1). Read by the index tests so they pin the menu production
+  /// actually draws.
+  static List<SharedSidebarSection> get navigationSections =>
+      AppDestinations.sectionsFor(AppAreas.admin);
 
-  /// The admin groups, by the index each item ALREADY has: today's flat order
-  /// with headings only, so no index moves.
-  static const groups = [
-    ('Overview', 0),
-    ('People', 1),
-    ('Operations', 2),
-    ('Insights', 4),
-    ('System', 5),
-    // A new final group rather than another row under System: the queue is a
-    // different job, and a new heading renumbers nothing because it is last.
-    ('Projects', 7),
-    ('Payables', 8),
-    ('Deliveries', 9),
-    // Phase 5 F4: appended last, so every index above keeps its number.
-    ('Locations', 10),
-    // Phase 9 F3: appended after Locations for the same reason.
-    ('Transfers', 11),
-  ];
+  /// The admin groups, by the index each destination ALREADY has, derived from
+  /// [AppDestinations]: today's flat order with headings only, so no index moves.
+  static List<(String, int)> get groups =>
+      AppDestinations.groupsFor(AppAreas.admin);
 
   @override
   Widget build(BuildContext context) {
     return AppShell(
       title: title,
       subtitle: subtitle,
-      sections: _sections,
+      sections: navigationSections,
       selectedIndex: selectedNavigationIndex,
+      originArea: AppAreas.admin,
       scrollable: scrollable,
       onDestinationSelected:
-          onNavigationSelected ??
-          (index) => context.go(_navigationItems[index].$3),
+          onNavigationSelected ?? (index) => _open(context, index),
       loadMarkers: loadMarkers,
       markers: markers,
       actions: const [NotificationsButton()],
@@ -106,21 +73,11 @@ class AdminSkeletonLayout extends StatelessWidget {
     );
   }
 
-  static List<SharedSidebarSection> get _sections => [
-    for (var group = 0; group < groups.length; group++)
-      SharedSidebarSection(
-        label: groups[group].$1,
-        destinations: [
-          for (final item in _navigationItems.sublist(
-            groups[group].$2,
-            group + 1 < groups.length
-                ? groups[group + 1].$2
-                : _navigationItems.length,
-          ))
-            SharedSidebarDestination(label: item.$1, icon: item.$2),
-        ],
-      ),
-  ];
+  /// Taps that the page does not handle itself open the destination's own route.
+  static void _open(BuildContext context, int index) {
+    final route = AppDestinations.routeAt(AppAreas.admin, index);
+    if (route != null) context.go(route);
+  }
 }
 
 /// How many requests are waiting for the store, for the sidebar badge.
@@ -130,6 +87,6 @@ class AdminSkeletonLayout extends StatelessWidget {
 /// reading 0 is a claim that the queue is empty, which a failed read has not
 /// established.
 Future<Map<int, int>> projectRequestsMarkers() async {
-  final count = await RequisitionRepository().waitingCount();
+  final count = await waitingProjectRequestsCount();
   return {AdminSkeletonLayout.projectRequestsIndex: count};
 }

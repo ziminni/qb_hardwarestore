@@ -103,7 +103,9 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isAdmin = context.watch<AuthViewmodel>().roleName == 'admin';
+    // Holds Admin, not "is working in Admin": a merged Admin + Cashier account
+    // keeps the form (Phase 2 F3).
+    final isAdmin = context.watch<AuthViewmodel>().hasArea('admin');
     return AdminSkeletonLayout(
       title: 'Settings',
       subtitle: 'Store details this system keeps.',

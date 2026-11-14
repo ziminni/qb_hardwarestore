@@ -14,6 +14,7 @@ import 'package:client/features/auth/views/login_page.dart';
 import 'package:client/features/auth/views/unsupported_role_page.dart';
 import 'package:client/features/dashboard/viewmodels/admin_overview_viewmodel.dart';
 import 'package:client/features/dashboard/views/admin_dashboard.dart';
+import 'package:client/features/dashboard/views/combined_dashboard_page.dart';
 import 'package:client/features/dashboard/views/inventory_dashboard.dart';
 import 'package:client/features/pos/views/pos_receivables_page.dart';
 import 'package:client/features/pos/views/pos_returns_page.dart';
@@ -68,6 +69,12 @@ class AppRoutes {
   /// redirects here first. It is not a staff picker: it offers only the areas
   /// the server assigned (see `redirectFor`'s `assignedAreas`).
   static const String areaPicker = '/select-area';
+
+  /// Where an account holding SEVERAL areas lands (Phase 2 F3, decision 24):
+  /// one page carrying every assigned area's "needs you" tiles.
+  ///
+  /// Registered by Phase 2 F4 ([CombinedDashboardPage]).
+  static const String combinedDashboard = '/dashboard';
   static const String adminDashboard = '/admin/dashboard';
   static const String adminUserManagement = '/admin/users';
   static const String adminInventory = '/admin/inventory';
@@ -238,11 +245,12 @@ class AppRoutes {
   /// The pure routing decision: where a request to [location] should go, or null
   /// to stay.
   ///
-  /// [role] is the ACTIVE area, not the whole authority: an account may hold
-  /// several areas ([assignedAreas]) and works in one at a time. With no active
-  /// area and several assigned, nothing opens before the picker answers. A call
-  /// passing no [assignedAreas] keeps the released single-role behaviour, where
-  /// the [role] argument is the whole assignment.
+  /// [role] is the ACTIVE area, not the whole authority. A call passing no
+  /// [assignedAreas] keeps the released single-role behaviour, where the [role]
+  /// argument is the whole assignment. With ONE assigned area the Phase 4 rules
+  /// hold unchanged. With SEVERAL (Phase 2 F3, decision 24) the account works
+  /// from the union: no active area, no picker, every held prefix open, and the
+  /// [combinedDashboard] for everything else.
   static String? redirectFor({
     required bool isAuthenticated,
     required String? role,
@@ -267,14 +275,14 @@ class AppRoutes {
 
     if (!isAuthenticated) return isLogin ? null : login;
 
-    final areas = assignedAreas.isEmpty
-        ? [if (role != null && role.isNotEmpty) role]
-        : assignedAreas;
-    // The active area is the account's own choice, honoured only while the
-    // server still assigns it. One assigned area needs no choice at all.
-    final active = (role != null && areas.contains(role))
-        ? role
-        : (areas.length == 1 ? areas.single : null);
+    // Known areas only, each once: an unknown code is no area at all
+    // (decision 04), and the same area listed twice is still ONE area, so
+    // neither can turn a single-area account into a merged one.
+    final areas = <String>{
+      ...(assignedAreas.isEmpty
+          ? [if (role != null && role.isNotEmpty) role]
+          : assignedAreas),
+    }.where(AppAreas.contains).toList();
 
     if (areas.isEmpty) {
       // Decision 04: an unmapped or role-less account gets an explicit screen,
@@ -282,16 +290,29 @@ class AppRoutes {
       // null when already there is what stops this from looping.
       return isUnsupported ? null : unsupportedRole;
     }
-    if (active == null) {
-      // Several areas and none chosen yet: the picker is the only screen.
-      return isPicker ? null : areaPicker;
+    if (areas.length > 1) {
+      // Decision 24: several areas are worked as one, so nothing waits on a
+      // pick and the fences check the union instead of one active area.
+      return _redirectMerged(
+        areas: areas,
+        location: location,
+        isLogin: isLogin,
+        isUnsupported: isUnsupported,
+        isPicker: isPicker,
+      );
     }
+
+    // One area: unchanged Phase 4 rules, where that area IS the assignment.
+    final active = (role != null && areas.contains(role)) ? role : areas.single;
 
     final dashboard = dashboardForRole(active);
     if (dashboard == null) {
       return isUnsupported ? null : unsupportedRole;
     }
     if (isLogin || isUnsupported || isPicker) return dashboard;
+    // The merged landing belongs to accounts with several areas; a single-area
+    // account has its own dashboard and must never render the merged page.
+    if (location == combinedDashboard) return dashboard;
     if (location.startsWith('/admin/') && active != AppAreas.admin) {
       // Decision 16: the Store Manager (client role 'sales') is the month-end
       // actor, and IsManagerRole admits them server-side, so the fence opens for
@@ -326,6 +347,60 @@ class AppRoutes {
       return dashboard;
     }
     return null;
+  }
+
+  /// The merged-account decision (Phase 2 F3, decision 24).
+  ///
+  /// [areas] holds the distinct assigned areas, so every prefix in it opens and
+  /// one it does not hold goes to [combinedDashboard]. An `/admin` address the
+  /// account may use but does not hold as an area goes through [salesTwinOf]
+  /// first, so a Store Manager + Cashier types `/admin/reports` and lands on the
+  /// same screen in the sales shell. Holding Admin opens the admin originals.
+  static String? _redirectMerged({
+    required List<String> areas,
+    required String location,
+    required bool isLogin,
+    required bool isUnsupported,
+    required bool isPicker,
+  }) {
+    // The picker is skipped for these accounts, and login and the unsupported
+    // screen have nothing to ask them: all three hand over to the landing.
+    if (isLogin || isUnsupported || isPicker) return combinedDashboard;
+    // The landing is the end of the walk; redirecting it to itself would loop.
+    if (location == combinedDashboard) return null;
+
+    final prefixArea = _areaOfPrefix(location);
+    if (prefixArea == null) {
+      // An address outside the four areas is not an area question: the router's
+      // not-found handling answers it, exactly as it does for one area.
+      return null;
+    }
+    if (areas.contains(prefixArea)) return null;
+    if (prefixArea == AppAreas.admin && areas.contains(AppAreas.sales)) {
+      return salesTwinOf(location) ?? combinedDashboard;
+    }
+    return combinedDashboard;
+  }
+
+  /// The area a location's first path segment belongs to, or null for an
+  /// address no area owns.
+  static String? _areaOfPrefix(String location) {
+    if (location.startsWith('/admin/')) return AppAreas.admin;
+    if (location.startsWith('/inventory/')) return AppAreas.inventory;
+    if (location.startsWith('/sales/')) return AppAreas.sales;
+    if (location.startsWith('/pos/')) return AppAreas.pos;
+    return null;
+  }
+
+  /// Where an account belongs when an address opens nothing: its own area's
+  /// dashboard, or [combinedDashboard] for a merged account. Falls back to the
+  /// login form for an account that holds no area at all.
+  static String landingFor({
+    required String? role,
+    required List<String> assignedAreas,
+  }) {
+    if (assignedAreas.toSet().length > 1) return combinedDashboard;
+    return dashboardForRole(role) ?? login;
   }
 
   static String? dashboardForRole(String? role) {
@@ -365,8 +440,16 @@ class AppRoutes {
       refreshListenable: auth,
       // An address no route matches (e.g. a retired /admin/requisitions) goes to
       // the user's own dashboard instead of GoRouter's debug "Page Not Found".
-      onException: (context, state, router) =>
-          router.go(dashboardForRole(auth.roleName) ?? login),
+      onException: (context, state, router) {
+        final landing = landingFor(
+          role: auth.roleName,
+          assignedAreas: auth.assignedAreas,
+        );
+        // The combined landing has no page until F4 registers it, so going
+        // there from there would loop; the unmatched address stays put instead.
+        if (state.uri.path == landing) return;
+        router.go(landing);
+      },
       redirect: (context, state) => redirectFor(
         isAuthenticated: auth.isAuthenticated,
         role: auth.roleName,
@@ -414,6 +497,12 @@ class AppRoutes {
               child: const AdminDashboard(),
             ),
           ),
+        ),
+        GoRoute(
+          path: combinedDashboard,
+          name: 'combined_dashboard',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const CombinedDashboardPage()),
         ),
         GoRoute(
           path: adminUserManagement,

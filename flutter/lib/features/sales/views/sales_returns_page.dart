@@ -127,11 +127,15 @@ class _SalesReturnsPageState extends State<SalesReturnsPage> {
   /// with `UNLINKED_RETURN_FORBIDDEN`, so the button is not offered to them.
   /// Compared by role CODE, never label (Phase 4 lesson).
   bool _mayPostUnlinked(BuildContext context) {
-    final role = context.watch<AuthViewmodel>().roleName;
-    // 'admin' stays although [AppRoutes.redirectFor] keeps an admin out of
-    // /sales today: the server admits it (`IsManagerRole`), and a role rule
-    // change must not silently take the action away. Drop it with the route.
-    return role == 'sales' || role == 'admin';
+    // Phase 2 F3: the areas the account HOLDS decide, so a merged account keeps
+    // the action with no active area to read.
+    // 'admin' stays although [AppRoutes.redirectFor] keeps an admin-only account
+    // out of /sales today: the server admits it (`IsManagerRole`), and a role
+    // rule change must not silently take the action away. Drop it with the route.
+    return context.watch<AuthViewmodel>().hasAnyArea(const {
+      'sales',
+      'admin',
+    });
   }
 
   void _openUnlinkedDialog(

@@ -105,7 +105,8 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
           final viewmodel = context.watch<AdminUsersViewmodel>();
           // Role CODE comparison (Phase 4 lesson): the server sends codes
           // ('admin', 'sales', ...); display labels belong on screen only.
-          final isAdmin = context.read<AuthViewmodel>().roleName == 'admin';
+          // Holds Admin, not "is working in Admin" (Phase 2 F3).
+          final isAdmin = context.read<AuthViewmodel>().hasArea('admin');
           final content = _body(context, viewmodel, isAdmin: isAdmin);
           const subtitle = 'View and manage staff accounts.';
           if (widget.inSalesShell) {

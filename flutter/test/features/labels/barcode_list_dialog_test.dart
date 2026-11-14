@@ -175,16 +175,20 @@ Future<void> pumpDialog(
 
 void main() {
   group('role gating', () {
+    // Phase 2 F3 (decision 24): the gate asks the areas the account HOLDS, so a
+    // merged account keeps the action although it has no active area.
     test('Stock Manager, Store Manager and Admin may export', () {
-      expect(canExportBarcodeList('inventory'), isTrue);
-      expect(canExportBarcodeList('sales'), isTrue);
-      expect(canExportBarcodeList('admin'), isTrue);
+      expect(canExportBarcodeList(const ['inventory']), isTrue);
+      expect(canExportBarcodeList(const ['sales']), isTrue);
+      expect(canExportBarcodeList(const ['admin']), isTrue);
+      expect(canExportBarcodeList(const ['inventory', 'pos']), isTrue);
     });
 
-    test('a cashier, an unknown code and no role at all may not', () {
-      expect(canExportBarcodeList('pos'), isFalse);
-      expect(canExportBarcodeList('cashier'), isFalse);
-      expect(canExportBarcodeList(null), isFalse);
+    test('a cashier, an unknown code and no areas at all may not', () {
+      expect(canExportBarcodeList(const ['pos']), isFalse);
+      expect(canExportBarcodeList(const ['cashier']), isFalse);
+      expect(canExportBarcodeList(const []), isFalse);
+      expect(canExportBarcodeList(const ['pos', 'cashier']), isFalse);
     });
   });
 

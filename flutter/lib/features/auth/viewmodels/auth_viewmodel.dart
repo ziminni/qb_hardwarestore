@@ -33,10 +33,16 @@ class AuthViewmodel extends ChangeNotifier {
   /// Read from `roles[]` (every area, widest first); an account whose payload
   /// carries no `roles` keeps its single legacy `role`. Unknown codes are
   /// dropped here so no later check has to wonder about them.
-  List<String> get assignedAreas => [
-    for (final role in user?.assignedRoles ?? const <Role>[])
-      if (AppAreas.contains(role.code)) role.code,
-  ];
+  List<String> get assignedAreas {
+    // Each known code once, in the server's order: a duplicated role is still
+    // ONE area, so it can never make a single-area account look merged
+    // (Phase 2 F3, decision 24).
+    final codes = <String>{};
+    for (final role in user?.assignedRoles ?? const <Role>[]) {
+      if (AppAreas.contains(role.code)) codes.add(role.code);
+    }
+    return codes.toList();
+  }
 
   /// The assigned areas with their server labels, for the picker and the
   /// header switcher. One list, so both offer the same choices in the same
@@ -47,6 +53,18 @@ class AuthViewmodel extends ChangeNotifier {
   ];
 
   bool get canSwitchArea => assignedAreas.length > 1;
+
+  /// Whether the account holds area [code] at all (Phase 2 F3, decision 24).
+  ///
+  /// This is the union authority an ACTION asks about: the server admits an
+  /// account by any matching group, so a merged account keeps every action its
+  /// areas allow. [roleName] stays the single ACTIVE area for everything that
+  /// asks where the person is working right now — it is not widened by this.
+  bool hasArea(String code) => assignedAreas.contains(code);
+
+  /// Whether the account holds any of [codes], e.g. the areas the server admits
+  /// to a catalogue write.
+  bool hasAnyArea(Iterable<String> codes) => codes.any(hasArea);
 
   /// The active area: the remembered/selected one while it is still assigned,
   /// otherwise the only assigned area. Null when the account holds several
@@ -62,9 +80,14 @@ class AuthViewmodel extends ChangeNotifier {
     return areas.length == 1 ? areas.single : null;
   }
 
-  /// True when the account holds several areas and none is active yet, which
-  /// is exactly when the picker has to answer before any screen opens.
-  bool get needsAreaChoice => assignedAreas.length > 1 && activeArea == null;
+  /// Whether the area picker has to answer before any screen opens.
+  ///
+  /// Always false since Phase 2 F3 (decision 24): an account holding several
+  /// areas works from the combined sidebar and lands on
+  /// `AppRoutes.combinedDashboard`, so nothing waits on a pick, and an account
+  /// holding one area never needed one. The picker page and [selectArea] are
+  /// kept as they are; they are simply not on any account's path any more.
+  bool get needsAreaChoice => false;
 
   /// The server role name of the ACTIVE area, or null when there is none.
   ///
@@ -148,6 +171,10 @@ class AuthViewmodel extends ChangeNotifier {
     user = account;
     _activeArea = null;
     if (account == null) return;
+    // Decision 24: a merged account is not placed in one area, so its
+    // remembered pick is ignored — not erased, because a later single-area
+    // start still uses it the way it always did.
+    if (assignedAreas.length > 1) return;
     final stored = _areas.readArea(account.id);
     if (stored != null && assignedAreas.contains(stored)) {
       _activeArea = stored;

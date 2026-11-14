@@ -10,19 +10,26 @@
 
 import 'dart:io';
 
+import 'package:client/core/constants/app_areas.dart';
+import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/routes/routes.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 String _read(String path) => File(path).readAsStringSync();
 
-List<String> _indexRoutes(String nav) {
-  final pairs =
-      RegExp(r'(\d+) => AppRoutes\.(\w+),')
-          .allMatches(nav)
-          .map((match) => MapEntry(int.parse(match.group(1)!), match.group(2)!))
-          .toList()
-        ..sort((a, b) => a.key.compareTo(b.key));
-  return pairs.map((pair) => pair.value).toList();
+/// The route CONSTANT NAMES of [area]'s menu, in flat index order.
+///
+/// Phase 2 F1 moved the menu into `AppDestinations`, so the order is read from
+/// the registry the sidebar renders. Names are resolved from `routes.dart` so the
+/// expectations below keep naming routes the way they always have.
+List<String> _areaOrder(String area) {
+  final names = {
+    for (final match in RegExp(
+      r"static const String (\w+) = '([^']+)';",
+    ).allMatches(_read('lib/routes/routes.dart')))
+      match.group(2)!: match.group(1)!,
+  };
+  return [for (final path in AppDestinations.routesFor(area)) names[path]!];
 }
 
 void main() {
@@ -77,9 +84,7 @@ void main() {
     test(
       'the inventory sidebar keeps 13 Payables and gains Deliveries at 14',
       () {
-        final order = _indexRoutes(
-          _read('lib/features/inventory/widgets/inventory_navigation.dart'),
-        );
+        final order = _areaOrder(AppAreas.inventory);
         expect(order, hasLength(16));
         expect(order[8], 'inventoryReceiving');
         expect(order[13], 'inventoryPayables');
@@ -93,10 +98,7 @@ void main() {
     );
 
     test('the sales sidebar keeps 9 Payables and gains Deliveries at 10', () {
-      final order = RegExp(r'AppRoutes\.(\w+),')
-          .allMatches(_read('lib/features/sales/widgets/sales_navigation.dart'))
-          .map((match) => match.group(1)!)
-          .toList();
+      final order = _areaOrder(AppAreas.sales);
       expect(order, hasLength(12));
       expect(order[6], 'salesReports');
       expect(order[9], 'salesPayables');
@@ -119,10 +121,7 @@ void main() {
     });
 
     test('the admin menu appends Deliveries after Payables', () {
-      final layout = _read('lib/core/layout/admin_skeleton_layout.dart');
-      final items = RegExp(
-        r"\(\s*'(\w[^']*)',\s*Icons",
-      ).allMatches(layout).map((match) => match.group(1)!).toList();
+      final items = AppDestinations.labelsFor(AppAreas.admin);
       expect(items.indexOf('Payables'), 8);
       expect(items.indexOf('Deliveries'), 9);
     });

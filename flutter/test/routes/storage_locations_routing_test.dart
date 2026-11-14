@@ -10,7 +10,9 @@
 
 import 'dart:io';
 
+import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
+import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/routes/routes.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -39,10 +41,8 @@ void main() {
   group('the Admin sidebar is append-only', () {
     test('earlier indices keep their numbers and errands', () {
       final groups = AdminSkeletonLayout.groups;
-      final source = _read('lib/core/layout/admin_skeleton_layout.dart');
-      final items = RegExp(
-        r"\(\s*'([\w &]+)',\s*Icons[^)]*\),",
-      ).allMatches(source).map((match) => match.group(1)!).toList();
+      // Phase 2 F1: the admin menu is a slice of the registry production renders.
+      final items = AppDestinations.labelsFor(AppAreas.admin);
 
       expect(AdminSkeletonLayout.projectRequestsIndex, 7);
       // Phase 9 F3 APPENDED Transfers after Storage locations, so each earlier

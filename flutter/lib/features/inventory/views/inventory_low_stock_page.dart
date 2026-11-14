@@ -91,8 +91,13 @@ class _InventoryLowStockPageState extends State<InventoryLowStockPage> {
   /// `sales`, `admin`) — the same codes `AppRoutes.dashboardForRole` routes on.
   /// Comparing it to the display labels hid Resolve from every role live.
   bool _canResolve(BuildContext context) {
-    final role = context.read<AuthViewmodel>().roleName;
-    return const {'inventory', 'sales', 'admin'}.contains(role);
+    // Phase 2 F3: the areas the account HOLDS decide, so a merged account keeps
+    // the button with no active area to read.
+    return context.read<AuthViewmodel>().hasAnyArea(const {
+      'inventory',
+      'sales',
+      'admin',
+    });
   }
 
   Future<void> _reorder(Product product, ProductVariant variant) async {

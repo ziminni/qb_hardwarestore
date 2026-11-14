@@ -99,8 +99,10 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
   /// `read`, not `watch`: this runs from a tap, and a role does not change under
   /// a screen that is already open.
   bool _mayManage(BuildContext context) {
-    final role = context.read<AuthViewmodel?>()?.roleName;
-    return role == 'sales' || role == 'admin';
+    // Phase 2 F3: the areas the account HOLDS decide, so a merged account keeps
+    // the actions with no active area to read.
+    final auth = context.read<AuthViewmodel?>();
+    return auth?.hasAnyArea(const {'sales', 'admin'}) ?? false;
   }
 
   /// Decision 19 #4: editable only while nothing has been fulfilled. Past that,

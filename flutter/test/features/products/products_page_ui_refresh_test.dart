@@ -16,6 +16,8 @@
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
+import 'package:client/data/models/role.dart';
+import 'package:client/data/models/user.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
@@ -117,6 +119,7 @@ Future<FakeProductsRepository> pumpProductsPage(
   required Size size,
   List<Product>? products,
   List<InventoryBatch>? batches,
+  User? user,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -136,7 +139,8 @@ Future<FakeProductsRepository> pumpProductsPage(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(
-          create: (_) => AuthViewmodel(AuthRepository(AuthService())),
+          create: (_) =>
+              AuthViewmodel(AuthRepository(AuthService()))..user = user,
         ),
         ChangeNotifierProvider<InventoryViewmodel>.value(value: store),
       ],
@@ -155,6 +159,49 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Products'), findsWidgets);
+  });
+
+  // Phase 2 F3 (decision 24): a merged account has no active area, so the
+  // catalogue toolbar asks which areas it HOLDS. Stock Manager + Cashier keeps
+  // the barcode list and the Phase 3 Excel round trip; a single Cashier is
+  // unchanged and still offered none of them.
+  group('catalogue actions follow the held areas', () {
+    User account(List<String> roles) => User(
+      id: 9,
+      username: 'merged',
+      email: 'merged@qb.ph',
+      fullName: 'Ana Lopez',
+      role: Role(id: 1, name: roles.first, displayName: roles.first),
+      roles: [
+        for (final (index, code) in roles.indexed)
+          Role(id: index + 1, name: code, displayName: code),
+      ],
+    );
+
+    testWidgets('a merged Stock and Cashier account keeps them', (tester) async {
+      await pumpProductsPage(
+        tester,
+        size: const Size(2400, 1400),
+        user: account(const ['inventory', 'pos']),
+      );
+
+      expect(find.text('Barcode list'), findsOneWidget);
+      expect(find.text('Export to Excel'), findsOneWidget);
+      expect(find.text('Import from Excel'), findsOneWidget);
+    });
+
+    testWidgets('a single Cashier account is still offered none', (
+      tester,
+    ) async {
+      await pumpProductsPage(
+        tester,
+        size: const Size(2400, 1400),
+        user: account(const ['pos']),
+      );
+
+      expect(find.text('Barcode list'), findsNothing);
+      expect(find.text('Export to Excel'), findsNothing);
+    });
   });
 
   // Phase 1d Task 7: the page used to hand the details dialog an invented

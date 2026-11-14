@@ -13,19 +13,26 @@ import 'dart:io';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
+import 'package:client/core/constants/app_areas.dart';
+import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/routes/routes.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 String _read(String path) => File(path).readAsStringSync();
 
-List<String> _indexRoutes(String nav) {
-  final pairs =
-      RegExp(r'(\d+) => AppRoutes\.(\w+),')
-          .allMatches(nav)
-          .map((match) => MapEntry(int.parse(match.group(1)!), match.group(2)!))
-          .toList()
-        ..sort((a, b) => a.key.compareTo(b.key));
-  return pairs.map((pair) => pair.value).toList();
+/// The route CONSTANT NAMES of [area]'s menu, in flat index order.
+///
+/// Phase 2 F1 moved the menu into `AppDestinations`, so the order is read from
+/// the registry the sidebar renders. Names are resolved from `routes.dart` so the
+/// expectations below keep naming routes the way they always have.
+List<String> _areaOrder(String area) {
+  final names = {
+    for (final match in RegExp(
+      r"static const String (\w+) = '([^']+)';",
+    ).allMatches(_read('lib/routes/routes.dart')))
+      match.group(2)!: match.group(1)!,
+  };
+  return [for (final path in AppDestinations.routesFor(area)) names[path]!];
 }
 
 void main() {
@@ -87,9 +94,7 @@ void main() {
 
   group('every transfers entry is APPENDED', () {
     test('the inventory sidebar gains Transfers at 15, moving nothing', () {
-      final order = _indexRoutes(
-        _read('lib/features/inventory/widgets/inventory_navigation.dart'),
-      );
+      final order = _areaOrder(AppAreas.inventory);
       expect(order, hasLength(16));
       expect(order[8], 'inventoryReceiving');
       expect(order[13], 'inventoryPayables');
@@ -98,10 +103,7 @@ void main() {
     });
 
     test('the sales sidebar gains Transfers at 11, moving nothing', () {
-      final order = RegExp(r'AppRoutes\.(\w+),')
-          .allMatches(_read('lib/features/sales/widgets/sales_navigation.dart'))
-          .map((match) => match.group(1)!)
-          .toList();
+      final order = _areaOrder(AppAreas.sales);
       expect(order, hasLength(12));
       expect(order[6], 'salesReports');
       expect(order[9], 'salesPayables');
@@ -110,10 +112,7 @@ void main() {
     });
 
     test('the admin menu appends Transfers after Storage locations', () {
-      final layout = _read('lib/core/layout/admin_skeleton_layout.dart');
-      final items = RegExp(
-        r"\(\s*'(\w[^']*)',\s*Icons",
-      ).allMatches(layout).map((match) => match.group(1)!).toList();
+      final items = AppDestinations.labelsFor(AppAreas.admin);
       expect(items, hasLength(12));
       expect(items[7], 'Project requests');
       expect(items[8], 'Payables');
@@ -128,11 +127,7 @@ void main() {
     });
 
     test('the inventory and sales layouts render the entry they advertise', () {
-      final inventoryLabels = RegExp(
-        r"SharedSidebarDestination\(\s*label: '([^']+)'",
-      ).allMatches(
-        _read('lib/core/layout/inventory_skeleton_layout.dart'),
-      ).map((match) => match.group(1)!).toList();
+      final inventoryLabels = AppDestinations.labelsFor(AppAreas.inventory);
       expect(inventoryLabels, hasLength(16));
       expect(inventoryLabels[14], 'Deliveries');
       expect(inventoryLabels[15], 'Transfers');

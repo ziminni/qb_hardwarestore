@@ -6,27 +6,35 @@
 // each page belonged to. No test covered the property, and `flutter analyze` cannot see it: the
 // index is just an int, and 7 is as valid as 8.
 //
-// WHY THIS READS THE SOURCE RATHER THAN PUMPING THE PAGES: rendering each page needs its
-// viewmodel providers, and a widget test that failed to build a provider would fail for a reason
-// unrelated to the index. The property being pinned is genuinely a source-level one - "the number
-// this page declares means ITS OWN entry in ITS OWN sidebar" - so it is checked where it is
-// written.
+// Phase 2 F1 moved the four menus into ONE registry (`AppDestinations`) and the route adapters read
+// it too, so an index can no longer drift from a hand-kept parallel list. The property this file
+// pins is unchanged, and it is now pinned against the menu PRODUCTION RENDERS: the number a page
+// declares must be that page's own row in its own area's menu.
 //
-// WHAT IT DOES NOT PROVE: that the sidebar renders, or that tapping it navigates. It proves the
-// index each page declares resolves back to that page's own route, which is exactly the
-// regression that got through.
+// WHY THIS STILL READS SOURCE FOR THE PAGE INDEXES: rendering each page needs its viewmodel
+// providers, and a widget test that failed to build a provider would fail for a reason unrelated to
+// the index. `selectedNavigationIndex: 7` is genuinely a source-level fact, so it is checked where
+// it is written; the menu it is checked AGAINST now comes from the registry, not from a regex over
+// a literal list.
 //
-// The parse is guarded against passing VACUOUSLY: a regex that matched nothing would make every
+// WHAT IT DOES NOT PROVE: that the sidebar renders, or that tapping it navigates (that is
+// `inventory_returns_routing_test.dart` and `sales_reports_routing_test.dart`, which pump a real
+// router). It proves the index each page declares resolves back to that page's own route.
+//
+// The registry reads are guarded against passing VACUOUSLY: an empty list would make every
 // assertion below trivially true, which is the failure mode this project has hit four times.
 
 import 'dart:io';
 
+import 'package:client/core/constants/app_areas.dart';
+import 'package:client/core/navigation/app_destinations.dart';
+import 'package:client/routes/routes.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 String _read(String path) => File(path).readAsStringSync();
 
 /// `path: salesOrders` ... `_transitionPage(state, const SalesOrdersPage())` -> the route
-/// constant for each page class, read from the router itself rather than restated here.
+/// constant's PATH for each page class, read from the router itself rather than restated here.
 Map<String, String> _pageRoutes(String routes) {
   final pattern = RegExp(
     r'path:\s*(\w+),[\s\S]{0,220}?_transitionPage\(state,\s*const\s+(\w+)\(\)\)',
@@ -34,36 +42,24 @@ Map<String, String> _pageRoutes(String routes) {
   return {for (final m in pattern.allMatches(routes)) m.group(2)!: m.group(1)!};
 }
 
-/// The ordered route constants of a sidebar, from its own navigation file.
-List<String> _salesNavOrder(String nav) => RegExp(
-  r'AppRoutes\.(\w+),',
-).allMatches(nav).map((m) => m.group(1)!).toList();
-
-/// The `N => AppRoutes.x` map, as an index -> route list.
-List<String> _inventoryNavOrder(String nav) {
-  final pairs =
-      RegExp(r'(\d+) => AppRoutes\.(\w+),')
-          .allMatches(nav)
-          .map((m) => MapEntry(int.parse(m.group(1)!), m.group(2)!))
-          .toList()
-        ..sort((a, b) => a.key.compareTo(b.key));
-  return pairs.map((p) => p.value).toList();
+/// The route path of every `AppRoutes` constant, read from the router source: `salesOrder` ->
+/// `/sales/orders`. The registry stores paths, the old expectations named constants, so this keeps
+/// one spelling per route.
+Map<String, String> _routePaths(String routes) {
+  final pattern = RegExp(r"static const String (\w+) = '([^']+)';");
+  return {for (final m in pattern.allMatches(routes)) m.group(1)!: m.group(2)!};
 }
 
 void main() {
   final routes = _read('lib/routes/routes.dart');
   final pageRoutes = _pageRoutes(routes);
-  final salesOrder = _salesNavOrder(
-    _read('lib/features/sales/widgets/sales_navigation.dart'),
-  );
-  final inventoryOrder = _inventoryNavOrder(
-    _read('lib/features/inventory/widgets/inventory_navigation.dart'),
-  );
-  final posOrder = _inventoryNavOrder(
-    _read('lib/features/pos/widgets/pos_navigation.dart'),
-  );
+  final routePaths = _routePaths(routes);
+  final tillOrder = AppDestinations.routesFor(AppAreas.pos);
+  final salesOrder = AppDestinations.routesFor(AppAreas.sales);
+  final inventoryOrder = AppDestinations.routesFor(AppAreas.inventory);
+  final adminOrder = AppDestinations.labelsFor(AppAreas.admin);
 
-  test('the parser actually finds the pages and all three sidebars', () {
+  test('the parser actually finds the pages and all four menus', () {
     // Without this, a regex that matched nothing makes every other assertion vacuous - the same
     // shape as the tests that could not fail earlier in this project.
     expect(
@@ -91,68 +87,77 @@ void main() {
           'F3 APPENDED Transfers at 15',
     );
     expect(
-      posOrder.length,
+      tillOrder.length,
       7,
       reason:
           'the POS sidebar has 7 destinations — Returns (decision 05) was '
           'APPENDED at index 6, so tabs 0-5 keep their numbers',
     );
-    expect(salesOrder.first, 'salesDashboard');
+    expect(
+      adminOrder.length,
+      12,
+      reason:
+          'the admin sidebar has 12 destinations — Project requests (7), '
+          'Payables (8), Deliveries (9), Storage locations (10) and Transfers (11) '
+          'were all APPENDED, so 0-6 keep their numbers',
+    );
+
+    expect(salesOrder.first, AppRoutes.salesDashboard);
     expect(
       salesOrder[6],
-      'salesReports',
+      AppRoutes.salesReports,
       reason: 'index 6 is Reports — the tab that used to be a silent no-op',
     );
-    expect(salesOrder[7], 'salesStaff');
+    expect(salesOrder[7], AppRoutes.salesStaff);
     expect(
       salesOrder[9],
-      'salesPayables',
+      AppRoutes.salesPayables,
       reason:
           'Phase 5 F2 APPENDED Payables at 9 (decision 18): the Store Manager '
           'records supplier payments in the sales shell',
     );
     expect(
       salesOrder[10],
-      'salesDeliveries',
+      AppRoutes.salesDeliveries,
       reason:
           'Phase 5 F3 APPENDED Deliveries at 10 (decision 18): the manager runs '
           'the schedule from the sales shell, and no earlier tab moved',
     );
     expect(
       salesOrder[8],
-      'salesProjectRequests',
+      AppRoutes.salesProjectRequests,
       reason:
           'Phase 1b appended the store-review queue after Staff; renumbering an '
           'earlier tab would send a manager to the wrong screen',
     );
     // Receiving must sit at 8, not 9: the sidebar's index 9 is "Returns".
     // When this was the other way round the Returns tab opened Receiving.
-    expect(inventoryOrder[8], 'inventoryReceiving');
-    expect(inventoryOrder[9], 'inventorySales');
-    expect(inventoryOrder[10], 'inventoryReturns');
-    expect(inventoryOrder[11], 'inventoryReports');
-    expect(inventoryOrder[12], 'inventorySettings');
+    expect(inventoryOrder[8], AppRoutes.inventoryReceiving);
+    expect(inventoryOrder[9], AppRoutes.inventorySales);
+    expect(inventoryOrder[10], AppRoutes.inventoryReturns);
+    expect(inventoryOrder[11], AppRoutes.inventoryReports);
+    expect(inventoryOrder[12], AppRoutes.inventorySettings);
     expect(
       inventoryOrder[13],
-      'inventoryPayables',
+      AppRoutes.inventoryPayables,
       reason:
           'Phase 5 F2 APPENDED Payables at 13, so the Stock Manager reads what '
           'the shop owes without any earlier tab moving',
     );
     expect(
       inventoryOrder[14],
-      'inventoryDeliveries',
+      AppRoutes.inventoryDeliveries,
       reason:
           'Phase 5 F3 APPENDED Deliveries at 14 (decision 18): the Stock Manager '
           'runs the schedule, and every earlier tab keeps its number',
     );
-    expect(posOrder[0], 'posDashboard');
-    expect(posOrder[2], 'posRelease');
-    expect(posOrder[4], 'posHeld');
-    expect(posOrder[5], 'posShifts');
+    expect(tillOrder[0], AppRoutes.posDashboard);
+    expect(tillOrder[2], AppRoutes.posRelease);
+    expect(tillOrder[4], AppRoutes.posHeld);
+    expect(tillOrder[5], AppRoutes.posShifts);
     expect(
-      posOrder[6],
-      'posReturns',
+      tillOrder[6],
+      AppRoutes.posReturns,
       reason:
           'Returns is appended at 6 (decision 05). Renumbering an existing tab '
           'would send a cashier to the wrong screen — the regression this file '
@@ -186,7 +191,7 @@ void main() {
           ? salesOrder
           : isInventory
           ? inventoryOrder
-          : posOrder;
+          : tillOrder;
       final sidebar = isSales
           ? 'sales'
           : isInventory
@@ -194,7 +199,7 @@ void main() {
           : 'POS';
 
       test('$className points at itself in the $sidebar sidebar', () {
-        final route = pageRoutes[className];
+        final route = routePaths[pageRoutes[className]];
         if (route == null) {
           fail('$className has an index but no route in routes.dart');
         }
@@ -215,18 +220,17 @@ void main() {
     }
   });
 
-  // The admin sidebar is not covered by the loop above: its menu lives in a
-  // private list of tuples in the layout, and one page (user management)
-  // declares TWO indexes because it also renders in the sales shell. So the
-  // order is restated here on purpose, the same way `_salesPaths` restates the
-  // sales contract, and each page must declare the index its own entry sits at.
+  // The admin sidebar is covered by the loop above only where a page renders in the
+  // admin shell with a single index; one page (user management) declares TWO indexes
+  // because it also renders in the sales shell, and the admin segments are read from
+  // the registry, so the order is restated here on purpose. Each page must declare the
+  // index its own entry sits at.
   //
-  // Removing one destination silently renumbers the ones after it. The admin
-  // menu lost Requisitions (decision 01) and three pages kept their old
-  // numbers, which the regenerated a5-requisitions golden showed as the WRONG
-  // row highlighted.
+  // Removing one destination silently renumbers the ones after it. The admin menu lost
+  // Requisitions (decision 01) and three pages kept their old numbers, which the
+  // regenerated a5-requisitions golden showed as the WRONG row highlighted.
   group('the admin pages highlight their own entry', () {
-    const adminOrder = [
+    const restatedAdminOrder = [
       'Overview',
       'User management',
       'Inventory',
@@ -255,16 +259,10 @@ void main() {
       'transfers/views/transfers_page.dart': 'Transfers',
     };
 
-    test('the restated menu really is the layout\'s menu', () {
+    test('the restated menu really is the registry\'s menu', () {
       // Without this the map above could name a destination the sidebar does
       // not have, and every index check below would pass against nothing.
-      // A long label wraps onto its own line, so the tuple's brace and its
-      // label are allowed to sit apart.
-      final layout = _read('lib/core/layout/admin_skeleton_layout.dart');
-      final items = RegExp(
-        r"\(\s*\'(\w[^\']*)\',\s*Icons",
-      ).allMatches(layout).map((m) => m.group(1)!).toList();
-      expect(items, adminOrder);
+      expect(adminOrder, restatedAdminOrder);
     });
 
     for (final entry in expected.entries) {
@@ -276,10 +274,10 @@ void main() {
         expect(declared, isNotEmpty, reason: 'no index declared at all');
         expect(
           declared,
-          contains(adminOrder.indexOf(entry.value)),
+          contains(restatedAdminOrder.indexOf(entry.value)),
           reason:
               '${entry.key} declares $declared, but ${entry.value} sits at '
-              '${adminOrder.indexOf(entry.value)} in the admin sidebar',
+              '${restatedAdminOrder.indexOf(entry.value)} in the admin sidebar',
         );
       });
     }

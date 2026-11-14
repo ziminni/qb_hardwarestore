@@ -1,9 +1,12 @@
+import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/constants/app_breakpoints.dart';
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/constants/app_text_styles.dart';
 import 'package:client/core/format/format.dart';
+import 'package:client/core/navigation/app_destinations.dart';
+import 'package:client/core/navigation/merged_sidebar.dart';
 import 'package:client/core/time/app_clock.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/auth/widget/area_switcher_menu.dart';
@@ -12,6 +15,7 @@ import 'package:client/shared/widgets/blueprint.dart';
 import 'package:client/shared/widgets/measure_ruler.dart';
 import 'package:client/shared/widgets/system_brand.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -29,6 +33,8 @@ class AppShell extends StatefulWidget {
     required this.sections,
     required this.selectedIndex,
     required this.child,
+    this.originArea,
+    this.selectedId,
     this.onDestinationSelected,
     this.actions = const [],
     this.fallbackUserName = '[ USER NAME ]',
@@ -41,7 +47,23 @@ class AppShell extends StatefulWidget {
   final String title;
   final String subtitle;
   final List<SharedSidebarSection> sections;
+
+  /// The flat index of the open page in [originArea]'s own menu.
+  ///
+  /// An account that holds several areas sees ONE merged list, whose positions
+  /// have nothing to do with this number; the shell passes [originArea] so the
+  /// page can still be found by identity (its row id) and highlighted.
   final int selectedIndex;
+
+  /// The area whose menu [selectedIndex] indexes ([AppAreas] code). Only the
+  /// merged list reads it; a single-area account keeps its own menu untouched.
+  final String? originArea;
+
+  /// The page to highlight, by destination id, when the caller knows the
+  /// identity rather than a position - the combined landing page (F4) belongs to
+  /// no single area's menu, so it has no origin index to derive one from. Wins
+  /// over [originArea] + [selectedIndex] in the merged list.
+  final String? selectedId;
   final ValueChanged<int>? onDestinationSelected;
   final List<Widget> actions;
   final String fallbackUserName;
@@ -79,6 +101,16 @@ class _AppShellState extends State<AppShell> {
   /// producers or by [SharedSidebar].
   Map<int, int> get _markers => widget.markers ?? _loadedMarkers;
 
+  /// The areas this account holds, in [MergedSidebar.headingOrder]; more than
+  /// one means the sidebar is the single merged list.
+  List<String> _areas = const [];
+
+  /// The merged list's live counts, keyed by destination id. Filled by the one
+  /// read started in [didChangeDependencies].
+  Map<String, int> _mergedMarkers = const {};
+
+  bool _markersStarted = false;
+
   /// The user's choice from the collapse button. Only consulted on a window
   /// wide enough to show the full sidebar ([AppBreakpoints.expanded]); a
   /// narrow window and the drawer ignore it.
@@ -88,9 +120,25 @@ class _AppShellState extends State<AppShell> {
   void initState() {
     super.initState();
     _restoreCollapse();
-    // A caller that supplies its own counts owns them; a second read here would
-    // be a duplicate request whose answer the caller cannot see.
-    if (widget.markers == null) _loadMarkers();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _areas = MergedSidebar.heldAreas(
+      context.watch<AuthViewmodel>().assignedAreas,
+    );
+    if (_markersStarted) return;
+    _markersStarted = true;
+    if (_areas.length > 1) {
+      // The merged list shows every held area's badge, so it runs those areas'
+      // own queries once instead of the shell's single one.
+      _loadMergedMarkers(_areas);
+    } else if (widget.markers == null) {
+      // A caller that supplies its own counts owns them; a second read here
+      // would be a duplicate request whose answer the caller cannot see.
+      _loadMarkers();
+    }
   }
 
   Future<void> _restoreCollapse() async {
@@ -121,6 +169,55 @@ class _AppShellState extends State<AppShell> {
       if (entry.value > 0) entry.key: entry.value,
   };
 
+  /// Every held area's badge, read once. The area whose page supplies its own
+  /// live count is skipped: that page's number is authoritative and a second
+  /// query for it would be a duplicate request.
+  Future<void> _loadMergedMarkers(List<String> areas) async {
+    final origin = widget.originArea;
+    final pageOwnsItsCount = widget.markers != null && origin != null;
+    final counts = await MergedSidebar.loadMergedBadges([
+      for (final area in areas)
+        if (!pageOwnsItsCount || area != origin) area,
+    ]);
+    if (!mounted) return;
+    setState(() => _mergedMarkers = counts);
+  }
+
+  /// The page's own live counts, re-keyed from its area's flat indices to the
+  /// merged list's destination ids. Read on every build, so a count the page
+  /// resolved clears its row without leaving the screen.
+  Map<String, int> _pageMarkersById() {
+    final markers = widget.markers;
+    final area = widget.originArea;
+    if (markers == null || area == null) return const {};
+    final rows = AppDestinations.forArea(area);
+    return {
+      for (final entry in markers.entries)
+        if (entry.key >= 0 && entry.key < rows.length)
+          rows[entry.key].id: entry.value,
+    };
+  }
+
+  /// The id of the page the shell was built for, from its own area's row at
+  /// [AppShell.selectedIndex]. Null when the shell has no origin area (the
+  /// combined landing page, F4) or the index is outside that menu.
+  String? _selectedId() {
+    final area = widget.originArea;
+    if (area == null) return null;
+    final rows = AppDestinations.forArea(area);
+    final index = widget.selectedIndex;
+    if (index < 0 || index >= rows.length) return null;
+    return rows[index].id;
+  }
+
+  /// A merged row opens the route of the area that owns it - the widest one - so
+  /// Admin's Payables and the Store Manager's Payables never disagree about
+  /// where the single row goes.
+  void _openMerged(List<AppDestination> rows, int index) {
+    if (index < 0 || index >= rows.length) return;
+    context.go(rows[index].route);
+  }
+
   Future<void> _toggleCollapsed() async {
     setState(() => _collapsedByUser = !_collapsedByUser);
     await SidebarCollapsePreference.write(_collapsedByUser);
@@ -128,6 +225,27 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
+    // An account holding more than one area gets ONE list: the four menus
+    // merged, a shared page once under the widest area. Single-area accounts
+    // keep exactly the menu their shell built.
+    final merged = _areas.length > 1;
+    final mergedRows = merged
+        ? MergedSidebar.rows(_areas)
+        : const <AppDestination>[];
+    final sections = merged
+        ? MergedSidebar.sectionsFor(mergedRows)
+        : widget.sections;
+    final selectedId = merged ? widget.selectedId ?? _selectedId() : null;
+    final markersById = merged
+        ? {..._mergedMarkers, ..._pageMarkersById()}
+        : const <String, int>{};
+    // The flat-index counts cannot be reused in a list whose positions have
+    // changed: in merged mode only the id-keyed counts are drawn.
+    final markers = merged ? const <int, int>{} : _markers;
+    final onDestinationSelected = merged
+        ? (int index) => _openMerged(mergedRows, index)
+        : widget.onDestinationSelected;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final mode = shellModeFor(constraints.maxWidth);
@@ -146,6 +264,23 @@ class _AppShellState extends State<AppShell> {
               )
             : Padding(padding: EdgeInsets.all(padding), child: widget.child);
 
+        _SidebarPanel panel({required bool collapsed, required bool close}) =>
+            _SidebarPanel(
+              fallbackUserName: widget.fallbackUserName,
+              fallbackRoleLabel: widget.fallbackRoleLabel,
+              sections: sections,
+              selectedIndex: widget.selectedIndex,
+              selectedId: selectedId,
+              markers: markers,
+              markersById: markersById,
+              onDestinationSelected: onDestinationSelected,
+              collapsed: collapsed,
+              closeDrawerOnSelect: close,
+              onToggleCollapsed: !close && mode == ShellMode.expanded
+                  ? _toggleCollapsed
+                  : null,
+            );
+
         return Scaffold(
           backgroundColor: AppColors.background,
           drawer: compact
@@ -153,12 +288,7 @@ class _AppShellState extends State<AppShell> {
                   width: SharedSidebar.width,
                   backgroundColor: AppColors.chrome,
                   shape: const RoundedRectangleBorder(),
-                  child: _SidebarPanel(
-                    shell: widget,
-                    markers: _markers,
-                    collapsed: false,
-                    closeDrawerOnSelect: true,
-                  ),
+                  child: panel(collapsed: false, close: true),
                 )
               : null,
           body: Row(
@@ -174,20 +304,18 @@ class _AppShellState extends State<AppShell> {
                       right: BorderSide(color: AppColors.chromeBorder),
                     ),
                   ),
-                  child: _SidebarPanel(
-                    shell: widget,
-                    markers: _markers,
-                    collapsed: rail,
-                    closeDrawerOnSelect: false,
-                    onToggleCollapsed: mode == ShellMode.expanded
-                        ? _toggleCollapsed
-                        : null,
-                  ),
+                  child: panel(collapsed: rail, close: false),
                 ),
               Expanded(
                 child: Column(
                   children: [
-                    _Header(shell: widget, showMenuButton: compact),
+                    _Header(
+                      shell: widget,
+                      showMenuButton: compact,
+                      // The merged list replaces the switcher: one menu already
+                      // holds every area (decision 24, ruling 1).
+                      showAreaSwitcher: !merged,
+                    ),
                     Expanded(child: body),
                   ],
                 ),
@@ -233,15 +361,27 @@ class SidebarCollapsePreference {
 
 class _SidebarPanel extends StatelessWidget {
   const _SidebarPanel({
-    required this.shell,
+    required this.fallbackUserName,
+    required this.fallbackRoleLabel,
+    required this.sections,
+    required this.selectedIndex,
+    required this.selectedId,
     required this.markers,
+    required this.markersById,
+    required this.onDestinationSelected,
     required this.collapsed,
     required this.closeDrawerOnSelect,
     this.onToggleCollapsed,
   });
 
-  final AppShell shell;
+  final String fallbackUserName;
+  final String fallbackRoleLabel;
+  final List<SharedSidebarSection> sections;
+  final int selectedIndex;
+  final String? selectedId;
   final Map<int, int> markers;
+  final Map<String, int> markersById;
+  final ValueChanged<int>? onDestinationSelected;
   final bool collapsed;
   final bool closeDrawerOnSelect;
 
@@ -252,9 +392,9 @@ class _SidebarPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthViewmodel>();
-    final name = auth.user?.fullName ?? shell.fallbackUserName;
-    final role = auth.user?.roleLabel ?? shell.fallbackRoleLabel;
-    final onSelected = shell.onDestinationSelected;
+    final name = auth.user?.fullName ?? fallbackUserName;
+    final role = auth.user?.roleLabel ?? fallbackRoleLabel;
+    final onSelected = onDestinationSelected;
 
     return Material(
       color: AppColors.chrome,
@@ -313,10 +453,12 @@ class _SidebarPanel extends StatelessWidget {
               const Divider(height: 1, color: AppColors.chromeBorder),
               Expanded(
                 child: SharedSidebar(
-                  sections: shell.sections,
-                  selectedIndex: shell.selectedIndex,
+                  sections: sections,
+                  selectedIndex: selectedIndex,
+                  selectedId: selectedId,
                   collapsed: collapsed,
                   markers: markers,
+                  markersById: markersById,
                   onDestinationSelected: onSelected == null
                       ? null
                       : (index) {
@@ -442,10 +584,19 @@ class _SidebarPanel extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.shell, required this.showMenuButton});
+  const _Header({
+    required this.shell,
+    required this.showMenuButton,
+    required this.showAreaSwitcher,
+  });
 
   final AppShell shell;
   final bool showMenuButton;
+
+  /// False for a merged sidebar: the one list already holds every assigned
+  /// area, so switching areas would only re-render the same menu (decision 24,
+  /// ruling 1). Single-area accounts keep today's behaviour.
+  final bool showAreaSwitcher;
 
   @override
   Widget build(BuildContext context) {
@@ -511,8 +662,9 @@ class _Header extends StatelessWidget {
                     ],
                     // Multi-area staff switch areas from here (Phase 4 F3b).
                     // It draws nothing for a single-area account, so every role
-                    // shell keeps the header it had.
-                    const AreaSwitcherMenu(),
+                    // shell keeps the header it had. A merged account gets no
+                    // switcher at all: its sidebar is every area.
+                    if (showAreaSwitcher) const AreaSwitcherMenu(),
                     ...shell.actions,
                   ],
                 ),

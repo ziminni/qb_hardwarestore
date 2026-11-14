@@ -1,42 +1,21 @@
-import 'package:client/routes/routes.dart';
+import 'package:client/core/constants/app_areas.dart';
+import 'package:client/core/navigation/app_destinations.dart';
 import 'package:flutter/widgets.dart';
 import 'package:go_router/go_router.dart';
 
-/// Maps a stocker sidebar destination index to its route and navigates there.
+/// Maps a stocker sidebar destination index to its route and navigates there,
+/// from the registry (Phase 2 F1).
 ///
-/// The index is the destination's POSITION in
-/// `InventorySkeletonLayout._navigationSections` (SharedSidebar numbers
-/// destinations across sections, 0-based, ignoring section headers). The two
-/// lists are separate literals, so they can drift — they DID: Receiving sat on
-/// index 9, which the sidebar renders as "Returns", so the Returns tab opened
-/// the Receiving screen and Returns/Reports/Settings were unreachable.
+/// The index is the destination's POSITION in the stock manager's rows of
+/// [AppDestinations] (SharedSidebar numbers destinations across sections, 0-based,
+/// ignoring section headings). Sidebar and routes used to be two separate
+/// literals and they DID drift: Receiving sat on index 9, which the sidebar
+/// renders as "Returns", so the Returns tab opened the Receiving screen. Reading
+/// one row for both removes that class of bug.
 ///
-/// `test/features/inventory/inventory_returns_routing_test.dart` now asserts this
-/// order against the sidebar's own order, so the same drift fails a test.
+/// `test/features/inventory/inventory_returns_routing_test.dart` still walks every
+/// index through a real router, so a route that goes nowhere fails a test.
 void navigateInventory(BuildContext context, int index) {
-  final path = switch (index) {
-    0 => AppRoutes.inventoryDashboard,
-    1 => AppRoutes.inventoryProducts,
-    2 => AppRoutes.inventoryCategories,
-    3 => AppRoutes.inventoryStock,
-    4 => AppRoutes.inventoryStockMovements,
-    5 => AppRoutes.inventoryLowStock,
-    6 => AppRoutes.inventoryPurchases,
-    7 => AppRoutes.inventorySuppliers,
-    8 => AppRoutes.inventoryReceiving,
-    9 => AppRoutes.inventorySales,
-    10 => AppRoutes.inventoryReturns,
-    11 => AppRoutes.inventoryReports,
-    12 => AppRoutes.inventorySettings,
-    // Index 13 - Payables, APPENDED with its own sidebar section (Phase 5 F2).
-    13 => AppRoutes.inventoryPayables,
-    // Index 14 - Deliveries, APPENDED (Phase 5 F3). The Stock Manager runs the
-    // schedule, which is why the tab is in this shell.
-    14 => AppRoutes.inventoryDeliveries,
-    // Index 15 - Transfers, APPENDED (Phase 9 F3). The Stock Manager owns the
-    // shelves, so the numbered moves between them are written from here.
-    15 => AppRoutes.inventoryTransfers,
-    _ => null,
-  };
+  final path = AppDestinations.routeAt(AppAreas.inventory, index);
   if (path != null) context.go(path);
 }

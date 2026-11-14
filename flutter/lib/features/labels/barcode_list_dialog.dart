@@ -12,11 +12,18 @@ import 'package:printing/printing.dart';
 
 /// The role CODES the server admits to reading the catalogue's codes
 /// (Phase 4 Task F2, decision 18): Stock Manager (`inventory`), Store Manager
-/// (`sales`) and Admin. `roleName` is the code the server sends as `role.name`,
-/// never the display label — the same comparison the product details dialog and
-/// the Low stock screen make.
-bool canExportBarcodeList(String? roleCode) =>
-    const {'inventory', 'sales', 'admin'}.contains(roleCode);
+/// (`sales`) and Admin. These are codes the server sends as `role.name`, never
+/// display labels — the same comparison the product details dialog and the Low
+/// stock screen make.
+const Set<String> catalogueCodeAreas = {'inventory', 'sales', 'admin'};
+
+/// Whether an account HOLDING [heldAreas] may read the catalogue's codes.
+///
+/// Phase 2 F3 (decision 24): the gate asks the areas the account holds, because
+/// a merged account has no single active area — but is still one Cashier or
+/// one Stock Manager's worth of authority per area it holds.
+bool canExportBarcodeList(Iterable<String> heldAreas) =>
+    heldAreas.any(catalogueCodeAreas.contains);
 
 /// Hands the masterlist to the platform: a CSV file and a PDF.
 ///

@@ -33,9 +33,14 @@ from apps.users.permissions import (
 from apps.users.services import audit_request
 from common.exceptions import refuse_fractional_whole_unit
 
+from .catalogue_import import apply_catalogue_import, preview_catalogue_import
 from .exceptions import (
     BarcodeTaken,
     BaseUnitRequired,
+    CatalogueImportBusy,
+    CatalogueImportNotSaved,
+    CatalogueImportRowsRefused,
+    CataloguePreviewStale,
     InvalidPurchaseOrderState,
     InvalidStorageLocation,
     PurchaseOrderHasReceipts,
@@ -225,6 +230,25 @@ class _StockRecordBaseViewSet(_InventoryWritePermissions, viewsets.ModelViewSet)
     # A tuple, not the list DRF's default uses: nobody mutates a class attribute, and a
     # shared list would let one instance's edit change every viewset's verbs.
     http_method_names = ("get", "head", "options", "post")
+
+
+def selling_unit_changes(snapshot, instance) -> str:
+    """What a selling-unit edit changed, in the wording the trail reads.
+
+    ONE definition, read by `VariantUOMViewSet.audit_changes` (the per-row PATCH) and by
+    the catalogue import's apply, so a price reads `price 10.00 -> 12.50` and a code reads
+    `barcode 'OLD' -> 'NEW'` whichever way it was edited. Lives here rather than in the
+    import module because the per-row endpoint is the one whose wording is pinned by its
+    own tests.
+    """
+    changes = []
+    before = snapshot.get("default_selling_price")
+    if before is not None and before != instance.default_selling_price:
+        changes.append(f"price {before:.2f} -> {instance.default_selling_price:.2f}")
+    code_before = snapshot.get("barcode_qr", "")
+    if code_before != instance.barcode_qr:
+        changes.append(f"barcode '{code_before}' -> '{instance.barcode_qr}'")
+    return "; ".join(changes)
 
 
 class _AuditedCatalogViewSet(_CatalogBaseViewSet):
@@ -443,16 +467,7 @@ class VariantUOMViewSet(_AuditedCatalogViewSet):
         other. A code that ends up re-derived from a blank PATCH shows as a real change,
         which is what happened: the unit's code went from an EAN back to its own QB.
         """
-        changes = []
-        before = snapshot.get("default_selling_price")
-        if before is not None and before != instance.default_selling_price:
-            changes.append(
-                f"price {before:.2f} -> {instance.default_selling_price:.2f}"
-            )
-        code_before = snapshot.get("barcode_qr", "")
-        if code_before != instance.barcode_qr:
-            changes.append(f"barcode '{code_before}' -> '{instance.barcode_qr}'")
-        return "; ".join(changes)
+        return selling_unit_changes(snapshot, instance)
 
     def get_queryset(self):
         """`?barcode=` resolves a scan to the exact selling unit (decision 13).
@@ -1241,6 +1256,123 @@ def stock_on_hand_view(request):
             for row in grouped
         ]
     )
+
+
+@api_view(["POST"])
+@permission_classes([IsInventoryRole])
+def catalogue_import_preview_view(request):
+    """`POST /api/v1/catalogue-import/preview/` - what an import WOULD do, writing none.
+
+    Phase 3 B1 (decision 23). The Flutter app parses the edited `.xlsx` and posts
+    `{"rows": [...]}` with one entry per selling unit, using the keys in
+    `catalogue_import.COLUMNS`; the answer is
+
+        {
+          "creates": {"products": n, "variants": n, "units": n},
+          "changes": [{"row": n, "field": "Price", "before": "10.00", "after": "12.00"}],
+          "unchanged": n,
+          "errors": [{"row": n, "column": "Barcode", "code": "...", "message": "..."}],
+          "fingerprint": "<sha256 hex>"
+        }
+
+    Apply is allowed only when `errors` is empty, and it posts the same rows back with
+    this `fingerprint` so a catalogue that moved in between is refused rather than
+    written against. Everything the rows get wrong comes back as ROW errors, because the
+    clerk fixes cells in Excel; the only whole-request refusals are "that is not a list
+    of rows" and the 2,000-row cap (`CATALOGUE_IMPORT_TOO_LARGE`).
+
+    Inventory roles only, like every other catalogue write: a preview shows what would be
+    created and repriced, which is the same information `/products/` and `/variant-uoms/`
+    already give them and the till does not get.
+    """
+    body = request.data if isinstance(request.data, dict) else {}
+    return Response(preview_catalogue_import(body.get("rows")))
+
+
+@api_view(["POST"])
+@permission_classes([IsInventoryRole])
+def catalogue_import_apply_view(request):
+    """`POST /api/v1/catalogue-import/apply/` - write a previewed import, or nothing.
+
+    Phase 3 B2 (decision 23). The body is `{"rows": [...], "fingerprint": "<the preview's>"}`
+    and the answer is the counts it applied plus ONE summary sentence:
+
+        {
+          "creates": {"products": n, "variants": n, "units": n},
+          "updates": {"products": n, "variants": n, "units": n},
+          "unchanged": n,
+          "summary": "Catalogue import applied: 1 product created; 3 rows unchanged."
+        }
+
+    Everything happens in ONE transaction (`catalogue_import.apply_catalogue_import`):
+    the referenced rows are locked, the preview's validation runs again against them and
+    the fingerprint is recomputed. A sheet that still has row errors is refused with the
+    preview's own error list and **nothing written**; a fingerprint that no longer matches
+    is a **409** `CATALOGUE_PREVIEW_STALE` ("Run the preview again") - the catalogue moved
+    between the preview and this call.
+
+    **The barcode race is caught HERE, outside the transaction.** `VariantUOMSerializer`
+    reads then writes an unclaimed code, so two applies can both read "free"; only
+    `uniq_variantuom_barcode` refuses the second, and by then the savepoint must already
+    be rolled back or the failed insert would poison the connection. `_refuse_lost_barcode_race`
+    turns that one constraint into the API's 400 `BARCODE_TAKEN`, so the whole import is
+    refused and nothing is saved - the same placement `VariantUOMViewSet` uses. **Any
+    OTHER constraint** (a name another admin took while this apply ran, a concurrent
+    create) is answered as a retryable **409** `CATALOGUE_IMPORT_NOT_SAVED` instead of an
+    unhandled 500: the request was fine, the catalogue moved, and the clerk's next move is
+    to run the preview again.
+
+    **A busy catalogue is a 503, not a 500.** The apply caps its own lock waits
+    (`SET LOCAL lock_timeout`, see `catalogue_import._set_lock_timeout`), so a till never
+    parks behind an import for an unbounded time. When the cap is hit the whole apply is
+    rolled back and the answer is **503** `CATALOGUE_IMPORT_BUSY` with `Retry-After`, which
+    is true: nothing about the request was wrong, and the same request works a moment
+    later.
+
+    Inventory roles only, like the preview and every other catalogue write.
+    """
+    body = request.data if isinstance(request.data, dict) else {}
+    try:
+        applied = apply_catalogue_import(
+            rows=body.get("rows"),
+            fingerprint=body.get("fingerprint"),
+            request=request,
+        )
+    except CataloguePreviewStale as stale:
+        # 409, not the 400 the shared handler gives every CatalogWriteRefused: the request
+        # is well formed and allowed, the catalogue underneath it simply moved.
+        return Response(
+            {"code": stale.code, "detail": str(stale)},
+            status=status.HTTP_409_CONFLICT,
+        )
+    except CatalogueImportBusy as busy:
+        # 503: the catalogue was LOCKED by another writer past this apply's own cap, so
+        # nothing was written and retrying shortly is the right move. `Retry-After` is
+        # advisory seconds, matching the documented copy ("in a moment").
+        return Response(
+            {"code": busy.code, "detail": str(busy)},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            headers={"Retry-After": "5"},
+        )
+    except CatalogueImportRowsRefused as refused:
+        return Response(
+            {"code": refused.code, "detail": str(refused), "errors": refused.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    except IntegrityError as exc:
+        # The barcode race has its own 400: `_refuse_lost_barcode_race` raises
+        # `BarcodeTaken` for it and re-raises anything else. Every OTHER constraint
+        # failure is the catalogue having moved under this apply (a name another admin
+        # took, a concurrent create), so it is the same "run the preview again" refusal -
+        # answered here rather than left to become an unhandled 500.
+        if "uniq_variantuom_barcode" in str(exc):
+            _refuse_lost_barcode_race(exc)
+        not_saved = CatalogueImportNotSaved()
+        return Response(
+            {"code": not_saved.code, "detail": str(not_saved)},
+            status=status.HTTP_409_CONFLICT,
+        )
+    return Response(applied)
 
 
 class StockAdjustmentViewSet(_StockRecordBaseViewSet):

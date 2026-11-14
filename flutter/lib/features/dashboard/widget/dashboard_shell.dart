@@ -1,4 +1,6 @@
-import 'package:client/data/services/held_cart_service.dart';
+import 'package:client/core/constants/app_areas.dart';
+import 'package:client/core/navigation/app_destinations.dart';
+import 'package:client/core/navigation/merged_sidebar.dart';
 import 'package:client/shared/widgets/app_shell.dart';
 import 'package:client/shared/widgets/shared_sidebar.dart';
 import 'package:flutter/material.dart';
@@ -40,16 +42,14 @@ class DashboardShell extends StatelessWidget {
   /// [cashierMarkers] and pinned by `sidebar_pattern_test.dart`.
   static const heldTransactionsIndex = 4;
 
-  /// The cashier groups, by the index each item ALREADY has.
+  /// The cashier groups, by the index each item ALREADY has, derived from
+  /// [AppDestinations] (Phase 2 F1).
   ///
-  /// `posNavigationItems` is append-only and its indexes are pinned by
-  /// `sidebar_index_consistency_test.dart`, so a group is expressed as "where
-  /// it starts". Grouping therefore cannot renumber a single destination.
-  static const groups = [
-    ('Selling', 0),
-    ('Customers and projects', 2),
-    ('Till', 4),
-  ];
+  /// The Till menu is append-only and its indexes are pinned by
+  /// `sidebar_index_consistency_test.dart`, so a group is expressed as "where it
+  /// starts". Grouping therefore cannot renumber a single destination.
+  static List<(String, int)> get groups =>
+      AppDestinations.groupsFor(AppAreas.pos);
 
   @override
   Widget build(BuildContext context) {
@@ -58,6 +58,7 @@ class DashboardShell extends StatelessWidget {
       subtitle: subtitle,
       sections: _sectionsFor(navigationItems),
       selectedIndex: selectedNavigationIndex,
+      originArea: AppAreas.pos,
       onDestinationSelected: onNavigationSelected,
       scrollable: scrollable,
       actions: actions,
@@ -102,6 +103,6 @@ class DashboardNavigationItem {
 /// held transactions at index 4. Read once when the shell mounts; a failure
 /// shows no marker rather than a false 0.
 Future<Map<int, int>> cashierMarkers() async {
-  final carts = await HeldCartService().fetchAll();
-  return {DashboardShell.heldTransactionsIndex: carts.length};
+  final count = await heldCartsCount();
+  return {DashboardShell.heldTransactionsIndex: count};
 }

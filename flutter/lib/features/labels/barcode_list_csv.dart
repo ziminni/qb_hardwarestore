@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:client/core/format/spreadsheet_text.dart';
 import 'package:client/features/labels/barcode_list_document.dart';
 
 /// The barcode list as CSV (Phase 4 Task F2).
@@ -63,10 +64,8 @@ String _field(String value) {
 
 /// A user-supplied text field, safe to open in a spreadsheet.
 ///
-/// A name starting `=`, `+`, `-`, `@`, TAB or CR is a formula to Excel and
-/// LibreOffice and would run on open (OWASP CSV injection), so it gets a leading
-/// apostrophe — Excel shows the cell as text and hides the mark. The price is
-/// written plain instead, because totals and sorting need a number.
-String _textField(String value) => _field(
-  value.isNotEmpty && '=+-@\t\r'.contains(value[0]) ? "'$value" : value,
-);
+/// The formula escape is shared with the catalogue workbook (Phase 3 F1), because
+/// both hand the same user text to Excel and LibreOffice; this adds only the RFC
+/// 4180 quoting. The price is written plain instead, because totals and sorting
+/// need a number.
+String _textField(String value) => _field(spreadsheetSafeText(value));

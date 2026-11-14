@@ -192,6 +192,11 @@ class AuditLog(models.Model):
         # says "the goods walked to the other shelf". The description names the number, both
         # shelves and the lines, so the trail answers "who moved what, from where to where".
         STOCK_TRANSFER = "STOCK_TRANSFER", "Stock Transfer"
+        # Phase 3 task B2 (decision 23): ONE row for a whole Excel catalogue import, on top
+        # of the CREATE/UPDATE rows its records already write. The trail's question is
+        # "who uploaded which file, and what did it change", and the description carries
+        # the counts - one row per upload, never one per cell.
+        CATALOGUE_IMPORT = "CATALOGUE_IMPORT", "Catalogue Import"
 
     user = models.ForeignKey(
         User,

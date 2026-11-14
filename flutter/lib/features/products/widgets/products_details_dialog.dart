@@ -49,13 +49,13 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
     final product = widget.product;
     final inventory = context.watch<InventoryViewmodel>();
     // Code writes are `IsInventoryRole` on the server (decision 18), so the
-    // buttons only exist for those role CODES — `roleName` is the code, never
-    // the display label.
-    final canEdit = const {
+    // buttons only exist for those role CODES. Phase 2 F3: the gate asks the
+    // areas the account HOLDS, so a merged account keeps them.
+    final canEdit = context.read<AuthViewmodel>().hasAnyArea(const {
       'inventory',
       'sales',
       'admin',
-    }.contains(context.read<AuthViewmodel>().roleName);
+    });
 
     return AppDialog(
       icon: Icons.inventory_2_outlined,

@@ -4,10 +4,20 @@ import 'package:client/core/constants/app_spacing.dart';
 import 'package:flutter/material.dart';
 
 class SharedSidebarDestination {
-  const SharedSidebarDestination({required this.label, required this.icon});
+  const SharedSidebarDestination({
+    required this.label,
+    required this.icon,
+    this.id,
+  });
 
   final String label;
   final IconData icon;
+
+  /// Stable identity of the page across areas (Phase 2 F2). Merged rendering
+  /// highlights and counts by this instead of by position: the same page opened
+  /// from a narrower area lights the one row the widest area owns. Null on a
+  /// caller-built menu, which then keeps the flat-index behaviour.
+  final String? id;
 }
 
 class SharedSidebarSection {
@@ -23,19 +33,31 @@ class SharedSidebar extends StatefulWidget {
     super.key,
     required this.sections,
     required this.selectedIndex,
+    this.selectedId,
     this.onDestinationSelected,
     this.collapsed = false,
     this.markers = const {},
+    this.markersById = const {},
   });
 
   final List<SharedSidebarSection> sections;
   final int selectedIndex;
+
+  /// The page to highlight, by [SharedSidebarDestination.id]. When set it wins
+  /// over [selectedIndex]: a merged list has no per-area index to compare, and
+  /// an id survives the de-duplication that renumbers every row after it.
+  final String? selectedId;
+
   final ValueChanged<int>? onDestinationSelected;
 
   /// A live count per destination, keyed by the same flat index as
   /// [selectedIndex]. Missing, zero or negative draws nothing at all: a marker
   /// reading "0" is a claim about a queue, and a wrong one is worse than none.
   final Map<int, int> markers;
+
+  /// The same live counts keyed by [SharedSidebarDestination.id], for the merged
+  /// list. A [[markers]] entry still wins when both name the row.
+  final Map<String, int> markersById;
 
   /// Icon rail: icons only, each label moved into a tooltip (which also
   /// carries it for screen readers).
@@ -57,15 +79,22 @@ class _SharedSidebarState extends State<SharedSidebar> {
     final sections = widget.sections;
     final collapsed = widget.collapsed;
     final selectedIndex = widget.selectedIndex;
+    final selectedId = widget.selectedId;
     final onDestinationSelected = widget.onDestinationSelected;
     final markers = widget.markers;
+    final markersById = widget.markersById;
     var destinationIndex = 0;
 
     Widget buildDestination(
       SharedSidebarDestination destination,
       int currentIndex,
     ) {
-      final selected = currentIndex == selectedIndex;
+      // An id names the page whatever its position; without one (a
+      // caller-built menu) the flat index still does.
+      final id = destination.id;
+      final selected = selectedId != null && id != null
+          ? id == selectedId
+          : currentIndex == selectedIndex;
       final foreground = selected
           ? AppColors.brandGoldLight
           : _hoveredIndex == currentIndex
@@ -74,7 +103,8 @@ class _SharedSidebarState extends State<SharedSidebar> {
       final onTap = onDestinationSelected == null
           ? null
           : () => onDestinationSelected(currentIndex);
-      final count = markers[currentIndex] ?? 0;
+      final count =
+          (id == null ? null : markersById[id]) ?? markers[currentIndex] ?? 0;
 
       if (collapsed) {
         return Padding(

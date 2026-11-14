@@ -1,4 +1,6 @@
-import 'package:client/data/repositories/requisition_repository.dart';
+import 'package:client/core/constants/app_areas.dart';
+import 'package:client/core/navigation/app_destinations.dart';
+import 'package:client/core/navigation/merged_sidebar.dart';
 import 'package:client/shared/widgets/app_shell.dart';
 import 'package:client/shared/widgets/notifications_button.dart';
 import 'package:client/shared/widgets/shared_sidebar.dart';
@@ -42,123 +44,11 @@ class SalesSkeletonLayout extends StatelessWidget {
   /// badge appeared".
   static const int projectRequestsIndex = 8;
 
-  static const navigationSections = [
-    SharedSidebarSection(
-      label: 'Overview',
-      destinations: [
-        SharedSidebarDestination(
-          label: 'Dashboard',
-          icon: Icons.dashboard_outlined,
-        ),
-      ],
-    ),
-    SharedSidebarSection(
-      label: 'Selling',
-      destinations: [
-        SharedSidebarDestination(
-          label: 'Transactions',
-          icon: Icons.receipt_long_outlined,
-        ),
-        SharedSidebarDestination(
-          label: 'Quotations',
-          icon: Icons.request_quote_outlined,
-        ),
-        SharedSidebarDestination(
-          label: 'Sales orders',
-          icon: Icons.assignment_outlined,
-        ),
-      ],
-    ),
-    SharedSidebarSection(
-      label: 'Customers',
-      destinations: [
-        SharedSidebarDestination(
-          label: 'Receivables',
-          icon: Icons.account_balance_wallet_outlined,
-        ),
-      ],
-    ),
-    SharedSidebarSection(
-      label: 'After Sales',
-      destinations: [
-        SharedSidebarDestination(
-          label: 'Returns & refunds',
-          icon: Icons.assignment_return_outlined,
-        ),
-      ],
-    ),
-    SharedSidebarSection(
-      label: 'Insights',
-      destinations: [
-        SharedSidebarDestination(
-          label: 'Reports',
-          icon: Icons.bar_chart_outlined,
-        ),
-      ],
-    ),
-    // Appended last: the sidebar index is the position in this list, so a
-    // new group anywhere else would renumber every tab after it.
-    //
-    // Approvals used to sit at index 7 and is gone (decision 01): requests are
-    // approved in CPMS, so Staff moved up into the free slot.
-    SharedSidebarSection(
-      label: 'Management',
-      destinations: [
-        SharedSidebarDestination(
-          label: 'Staff',
-          icon: Icons.manage_accounts_outlined,
-        ),
-      ],
-    ),
-    // Phase 1b (decisions 09, 10 and 13): the store answers CPMS's material
-    // requests here. Appended in a section of its own for the same reason as
-    // Staff: the sidebar index IS the position in this list.
-    //
-    // The label is short because "Requests from projects" clipped to
-    // "Requests from p…" beside its count badge; the page title keeps the
-    // long form.
-    SharedSidebarSection(
-      label: 'Projects',
-      destinations: [
-        SharedSidebarDestination(
-          label: 'Project requests',
-          icon: Icons.fact_check_outlined,
-        ),
-      ],
-    ),
-    // Phase 5 F2: the shop's supplier debts, APPENDED (index 9). The manager
-    // records payments here; a Stock Manager reads the same body read-only.
-    SharedSidebarSection(
-      label: 'Payables',
-      destinations: [
-        SharedSidebarDestination(
-          label: 'Payables',
-          icon: Icons.account_balance_wallet_outlined,
-        ),
-      ],
-    ),
-    // Phase 5 F3: customer deliveries, APPENDED (index 10), so no earlier tab
-    // moves.
-    SharedSidebarSection(
-      label: 'Deliveries',
-      destinations: [
-        SharedSidebarDestination(
-          label: 'Deliveries',
-          icon: Icons.local_shipping_outlined,
-        ),
-      ],
-    ),
-    // Phase 9 F3: stock transfers, APPENDED (index 11), so no earlier tab moves.
-    SharedSidebarSection(
-      label: 'Transfers',
-      destinations: [
-        SharedSidebarDestination(
-          label: 'Transfers',
-          icon: Icons.swap_horiz_rounded,
-        ),
-      ],
-    ),
-  ];
+  /// The store manager's menu as the sidebar renders it, derived from
+  /// [AppDestinations] (Phase 2 F1). The flat index is the row's position, and a
+  /// row that starts a heading starts a section, so grouping renumbers nothing.
+  static List<SharedSidebarSection> get navigationSections =>
+      AppDestinations.sectionsFor(AppAreas.sales);
 
   @override
   Widget build(BuildContext context) {
@@ -167,6 +57,7 @@ class SalesSkeletonLayout extends StatelessWidget {
       subtitle: subtitle,
       sections: navigationSections,
       selectedIndex: selectedNavigationIndex,
+      originArea: AppAreas.sales,
       onDestinationSelected: onNavigationSelected,
       loadMarkers: loadMarkers,
       markers: markers,
@@ -186,6 +77,6 @@ class SalesSkeletonLayout extends StatelessWidget {
 /// reading 0 is a claim that the queue is empty, which a failed read has not
 /// established.
 Future<Map<int, int>> projectRequestsMarkers() async {
-  final count = await RequisitionRepository().waitingCount();
+  final count = await waitingProjectRequestsCount();
   return {SalesSkeletonLayout.projectRequestsIndex: count};
 }

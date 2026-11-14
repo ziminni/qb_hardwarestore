@@ -8,7 +8,9 @@
 // `admin_requisitions_routing_test.dart` already pins.
 import 'dart:io';
 
+import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
+import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/data/models/role.dart';
 import 'package:client/data/models/user.dart';
@@ -167,12 +169,11 @@ void main() {
     ));
     expect(AdminSkeletonLayout.groups.last, ('Transfers', 11));
     // The group slicing is what actually renders the rows; a restated label list
-    // that the layout does not produce would prove nothing.
-    final source = File(
-      'lib/core/layout/admin_skeleton_layout.dart',
-    ).readAsStringSync();
+    // the layout does not produce would prove nothing. Phase 2 F1: the rows are
+    // the registry's admin slice, which the layout renders.
+    final rendered = AppDestinations.labelsFor(AppAreas.admin);
     for (final label in labels) {
-      expect(source, contains(label), reason: 'admin menu is missing $label');
+      expect(rendered, contains(label), reason: 'admin menu is missing $label');
     }
     expect(
       AdminSkeletonLayout.groups.map((group) => group.$1),

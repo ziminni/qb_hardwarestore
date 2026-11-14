@@ -539,3 +539,116 @@ class TransferQuantityUnrepresentable(CatalogWriteRefused):
     """
 
     code = "TRANSFER_QUANTITY_UNREPRESENTABLE"
+
+
+# ---------------------------------------------------------------------------
+# Excel catalogue import (Phase 3 B1, decision 23)
+# ---------------------------------------------------------------------------
+
+
+class CatalogueImportRefused(CatalogWriteRefused):
+    """A catalogue import request the server cannot even read as a sheet.
+
+    Phase 3 B1 (decision 23): the file is parsed in the Flutter app and arrives here as
+    JSON rows, so the only whole-request answers are "that is not a list of rows" and
+    "that is too many rows" (`CatalogueImportTooLarge`). Everything a ROW gets wrong is a
+    row error in the preview body instead, because the clerk has to fix cells in Excel and
+    re-upload, not re-run the request.
+    """
+
+    code = "INVALID_CATALOGUE_IMPORT"
+
+
+class CatalogueImportTooLarge(CatalogueImportRefused):
+    """More rows than one import accepts (decision 23: 2,000 rows per file).
+
+    Refused for the WHOLE request rather than per row: a file past the cap is not a file
+    with a bad row, it is a file the shop has to split, and a preview that quietly ignored
+    the 2,001st row would apply a catalogue the clerk never saw.
+    """
+
+    code = "CATALOGUE_IMPORT_TOO_LARGE"
+
+
+class CatalogueImportRowsRefused(CatalogWriteRefused):
+    """A sheet whose rows still have errors when the apply runs (Phase 3 B2).
+
+    The preview already showed these, so the client should have kept Apply disabled; the
+    refusal exists because the SAME validation runs again under the apply's locks (a
+    catalogue that moved can turn a clean row into a refused one). The row error list
+    travels with the refusal in `errors`, so the dialog renders the same table it renders
+    for a preview instead of a bare sentence.
+    """
+
+    code = "CATALOGUE_IMPORT_ROW_ERRORS"
+
+    def __init__(self, errors):
+        self.errors = errors
+        count = len(errors)
+        super().__init__(
+            f"This sheet still has {count} row error{'s' if count != 1 else ''}: nothing "
+            "was written. Fix the cells the preview lists and run the preview again."
+        )
+
+
+class CataloguePreviewStale(CatalogWriteRefused):
+    """The catalogue moved between the preview and the apply (Phase 3 B2, decision 23).
+
+    A **409**, not a 400: the request is well formed, the rows were validated once and the
+    caller is allowed to write. What changed is the catalogue underneath - a price, a
+    barcode, a whole row - so the fingerprint the preview returned no longer matches the
+    one recomputed under the apply's row locks. Writing anyway would apply a file the
+    clerk never saw, so the answer is "run the preview again" and nothing is written.
+
+    The status is the CALLER's to apply: `apps.pos.exceptions.handler` answers every
+    `CatalogWriteRefused` with 400, so `catalogue_import_apply_view` catches this one and
+    answers 409 itself, leaving the shared handler untouched.
+    """
+
+    code = "CATALOGUE_PREVIEW_STALE"
+
+    def __init__(self):
+        super().__init__("Run the preview again")
+
+
+class CatalogueImportBusy(CatalogWriteRefused):
+    """Another writer held a referenced row past the apply's `lock_timeout`.
+
+    A **503**, not a 400: nothing about the request was wrong. A sale, a receipt, an
+    adjustment or a transfer was holding a selling unit (or the variant above it) for
+    longer than the apply was willing to wait, so the apply gave up instead of parking
+    behind it - the catalogue is BUSY, and the same request will very likely work a
+    moment later.
+
+    Retryable, and `Retry-After` is set by the caller. Nothing is written: the timeout is
+    raised inside the `atomic` block and caught outside it, so the whole apply rolls back.
+
+    The status is the CALLER's to apply: `apps.pos.exceptions.handler` answers every
+    `CatalogWriteRefused` with 400, so `catalogue_import_apply_view` catches this one and
+    answers 503 itself, leaving the shared handler untouched.
+    """
+
+    code = "CATALOGUE_IMPORT_BUSY"
+
+    def __init__(self):
+        super().__init__("The catalogue is busy. Try again in a moment.")
+
+
+class CatalogueImportNotSaved(CatalogWriteRefused):
+    """A non-barcode constraint failure while the apply was writing.
+
+    The barcode race has its own 400 (`BARCODE_TAKEN`). Anything else - a product or
+    variant name another admin took while this apply ran, a concurrent create - is the
+    same story as a stale fingerprint: the catalogue moved under the file, so the rows
+    the preview saw are no longer the rows on disk. Answered as a **409** rather than an
+    unhandled 500, because "run the preview again" IS the clerk's next move and the
+    transaction has already rolled back (nothing is saved).
+
+    The status is the CALLER's to apply: `apps.pos.exceptions.handler` answers every
+    `CatalogWriteRefused` with 400, so `catalogue_import_apply_view` answers 409 itself.
+    """
+
+    code = "CATALOGUE_IMPORT_NOT_SAVED"
+
+    def __init__(self):
+        super().__init__("The import could not be saved. Run the preview again.")

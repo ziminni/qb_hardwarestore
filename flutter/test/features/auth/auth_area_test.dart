@@ -1,9 +1,14 @@
-// Phase 4 F3b: which area a signed-in account works in.
+// Phase 4 F3b + Phase 2 F3: which area a signed-in account works in.
 //
 // The server owns the ASSIGNMENT (`roles[]`); the app owns only the CHOICE of
 // active area, remembered per account on this device. The choice is validated
 // against the assignment every time it is restored, so a revoked role, a stale
 // device preference or the previous user's pick can never open a screen.
+//
+// Phase 2 F3 (decision 24): an account holding SEVERAL areas is no longer
+// asked to pick one. It works from the combined sidebar, so it never needs a
+// picker, never has one active area, and ignores the remembered area; its
+// ACTIONS ask what it HOLDS (`hasArea`/`hasAnyArea`), not where it is.
 
 import 'package:client/data/models/role.dart';
 import 'package:client/data/models/user.dart';
@@ -53,35 +58,80 @@ void main() {
     expect(auth.canSwitchArea, isFalse);
   });
 
-  test('several areas must pick one before any screen opens', () async {
+  test('several areas need no pick: the union is the account', () async {
     final auth = viewmodelFor(_account(5, [_admin, _pos]));
 
     await auth.login('staff5', 'demo1234');
 
     expect(auth.assignedAreas, ['admin', 'pos']);
-    expect(auth.needsAreaChoice, isTrue);
-    expect(auth.activeArea, isNull);
-    expect(auth.roleName, isNull);
+    expect(
+      auth.needsAreaChoice,
+      isFalse,
+      reason: 'a merged account works from the combined sidebar, no picker',
+    );
+    expect(auth.activeArea, isNull, reason: 'no single area is active');
+    expect(auth.roleName, isNull, reason: 'roleName stays the ACTIVE area');
     expect(auth.canSwitchArea, isTrue);
   });
 
-  test(
-    'picking an area remembers it for this account on this device',
-    () async {
-      final auth = viewmodelFor(_account(5, [_admin, _pos]));
-      await auth.login('staff5', 'demo1234');
+  test('an action asks which areas the account holds', () async {
+    final merged = viewmodelFor(_account(5, [_admin, _pos]));
+    await merged.login('staff5', 'demo1234');
 
-      await auth.selectArea('pos');
+    expect(merged.hasArea('pos'), isTrue);
+    expect(merged.hasArea('admin'), isTrue);
+    expect(merged.hasArea('sales'), isFalse);
+    expect(merged.hasAnyArea(const {'inventory', 'sales'}), isFalse);
+    expect(merged.hasAnyArea(const {'inventory', 'admin'}), isTrue);
+
+    final cashier = viewmodelFor(_account(6, [_pos]));
+    await cashier.login('staff6', 'demo1234');
+
+    expect(cashier.hasArea('pos'), isTrue);
+    expect(
+      cashier.hasAnyArea(const {'inventory', 'sales', 'admin'}),
+      isFalse,
+      reason: 'a single Cashier is unchanged: no catalogue action',
+    );
+  });
+
+  test(
+    'a single area has nothing to pick and needs no choice',
+    () async {
+      final auth = viewmodelFor(_account(5, [_pos]));
+      await auth.login('staff5', 'demo1234');
 
       expect(auth.activeArea, 'pos');
       expect(auth.needsAreaChoice, isFalse);
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString(ActiveAreaStore.keyFor(5)), 'pos');
+      expect(auth.canSwitchArea, isFalse);
+    },
+  );
 
-      // A later start restores the remembered area, already validated.
+  test(
+    'a merged account ignores the remembered area, single-role keeps it',
+    () async {
+      final merged = viewmodelFor(_account(5, [_admin, _pos]));
+      await merged.login('staff5', 'demo1234');
+
+      // The API still answers in-session, but nothing routes on it.
+      await merged.selectArea('pos');
+      expect(merged.activeArea, 'pos');
+
+      // F3: the next start of a merged account does NOT restore that pick.
       final again = viewmodelFor(_account(5, [_admin, _pos]));
       await again.initialize();
-      expect(again.activeArea, 'pos');
+      expect(
+        again.activeArea,
+        isNull,
+        reason: 'a merged account lands on the combined dashboard every time',
+      );
+
+      // A single-area account still gets its remembered area back.
+      final single = viewmodelFor(_account(6, [_pos]));
+      await single.login('staff6', 'demo1234');
+      final singleAgain = viewmodelFor(_account(6, [_pos]));
+      await singleAgain.initialize();
+      expect(singleAgain.activeArea, 'pos');
     },
   );
 
@@ -97,7 +147,7 @@ void main() {
       isNull,
       reason: "one user's pick must not place the next user",
     );
-    expect(auth.needsAreaChoice, isTrue);
+    expect(auth.needsAreaChoice, isFalse);
   });
 
   test('a revoked area does not come back from the preference', () async {
@@ -111,7 +161,7 @@ void main() {
 
     expect(auth.assignedAreas, ['sales', 'pos']);
     expect(auth.activeArea, isNull, reason: 'admin was taken away');
-    expect(auth.needsAreaChoice, isTrue);
+    expect(auth.needsAreaChoice, isFalse);
   });
 
   test('picking an unassigned area is refused, not remembered', () async {
@@ -192,15 +242,31 @@ void main() {
     expect(auth.canSwitchArea, isFalse);
   });
 
-  test('a restored session validates the stored area too', () async {
+  test('a restored single-area session validates the stored area too', () async {
+    SharedPreferences.setMockInitialValues({ActiveAreaStore.keyFor(5): 'pos'});
+    await ActiveAreaStore.load();
+
+    final auth = viewmodelFor(_account(5, [_pos]));
+    await auth.initialize();
+
+    expect(auth.user?.id, 5);
+    expect(auth.activeArea, 'pos');
+  });
+
+  test('a stored pick beside a second area is kept, not used', () async {
     SharedPreferences.setMockInitialValues({ActiveAreaStore.keyFor(5): 'pos'});
     await ActiveAreaStore.load();
 
     final auth = viewmodelFor(_account(5, [_pos, _admin]));
     await auth.initialize();
 
-    expect(auth.user?.id, 5);
-    expect(auth.activeArea, 'pos');
+    expect(auth.activeArea, isNull);
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getString(ActiveAreaStore.keyFor(5)),
+      'pos',
+      reason: 'the store is left alone; a single-area start still uses it',
+    );
   });
 }
 

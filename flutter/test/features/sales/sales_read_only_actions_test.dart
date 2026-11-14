@@ -195,7 +195,7 @@ const _roleCodes = {
   'Stock Manager': 'inventory',
 };
 
-AuthViewmodel _auth({String? role}) {
+AuthViewmodel _auth({String? role, List<String> roles = const []}) {
   final auth = AuthViewmodel(AuthRepository(AuthService()));
   if (role != null) {
     auth.user = User(
@@ -207,6 +207,21 @@ AuthViewmodel _auth({String? role}) {
     );
     auth.selectArea(_roleCodes[role]!);
   }
+  if (roles.isNotEmpty) {
+    // Phase 2 F3: a merged account has no active area at all, so only the
+    // areas it holds can answer an action gate.
+    auth.user = User(
+      id: 2,
+      username: 'merged',
+      email: 'merged@qb.ph',
+      fullName: 'Ana Lopez',
+      role: Role(id: 1, name: roles.first, displayName: roles.first),
+      roles: [
+        for (final (index, code) in roles.indexed)
+          Role(id: index + 1, name: code, displayName: code),
+      ],
+    );
+  }
   return auth;
 }
 
@@ -214,9 +229,12 @@ Widget _app(
   Widget child, {
   InventoryViewmodel? inventory,
   String? role,
+  List<String> roles = const [],
 }) => MultiProvider(
   providers: [
-    ChangeNotifierProvider<AuthViewmodel>.value(value: _auth(role: role)),
+    ChangeNotifierProvider<AuthViewmodel>.value(
+      value: _auth(role: role, roles: roles),
+    ),
     if (inventory != null)
       ChangeNotifierProvider<InventoryViewmodel>.value(value: inventory),
   ],
@@ -333,6 +351,58 @@ void main() {
     // 'Cancelled' is not on this sheet, so 'Cancel' can only be the action.
     expect(_inSheet('Cancel'), findsNothing);
     expect(_inSheet('Delete'), findsNothing);
+  });
+
+  // Phase 2 F3 (decision 24): a merged account has no active area, so an
+  // action gate asks what the account HOLDS. Store Manager + Cashier keeps the
+  // manager actions; Stock Manager + Cashier still gets neither.
+  testWidgets('orders: a merged manager keeps edit and cancel', (tester) async {
+    _sizeUp(tester);
+    sales.orders = [_order()];
+    await tester.pumpWidget(
+      _app(
+        ChangeNotifierProvider<SalesModuleViewmodel>(
+          create: (_) => SalesModuleViewmodel(
+            service: sales,
+            customerService: _StubCustomerService(),
+          ),
+          child: const SalesOrdersPage(),
+        ),
+        roles: const ['sales', 'pos'],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('View'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SalesDocumentSheet), findsOneWidget);
+    expect(_inSheet('Edit'), findsOneWidget);
+    expect(_inSheet('Cancel'), findsOneWidget);
+  });
+
+  testWidgets('orders: a merged non-manager is offered neither action', (
+    tester,
+  ) async {
+    _sizeUp(tester);
+    sales.orders = [_order()];
+    await tester.pumpWidget(
+      _app(
+        ChangeNotifierProvider<SalesModuleViewmodel>(
+          create: (_) => SalesModuleViewmodel(
+            service: sales,
+            customerService: _StubCustomerService(),
+          ),
+          child: const SalesOrdersPage(),
+        ),
+        roles: const ['inventory', 'pos'],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('View'));
+    await tester.pumpAndSettle();
+    expect(_inSheet('Edit'), findsNothing);
+    expect(_inSheet('Cancel'), findsNothing);
   });
 
   testWidgets('returns: the dead "New customer return" button is gone', (

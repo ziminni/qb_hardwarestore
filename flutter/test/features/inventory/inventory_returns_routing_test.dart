@@ -16,21 +16,19 @@
 
 import 'dart:io';
 
+import 'package:client/core/constants/app_areas.dart';
+import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:client/routes/routes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
-const _sidebarFile = 'lib/core/layout/inventory_skeleton_layout.dart';
-const _navFile = 'lib/features/inventory/widgets/inventory_navigation.dart';
-
 /// Destination labels in the order the stocker sidebar renders them.
-List<String> _sidebarLabels() =>
-    RegExp(r"SharedSidebarDestination\(\s*label: '([^']+)'")
-        .allMatches(File(_sidebarFile).readAsStringSync())
-        .map((m) => m.group(1)!)
-        .toList();
+///
+/// Phase 2 F1: the stock menu is a slice of `AppDestinations`, the registry the
+/// layout and `navigateInventory` both read, so this reads that one source.
+List<String> _sidebarLabels() => AppDestinations.labelsFor(AppAreas.inventory);
 
 /// `Returns` -> `inventoryReturns`, `Stock adjustments` ->
 /// `inventoryStockMovements`.
@@ -54,15 +52,20 @@ String _routeForLabel(String label) {
   return 'inventory${camel[0].toUpperCase()}${camel.substring(1)}';
 }
 
-/// The `N => AppRoutes.x` map as an index-ordered list of route names.
+/// The stock menu's routes in flat index order, as route CONSTANT names.
+///
+/// Phase 2 F1 deleted the `N => AppRoutes.x` map (the adapter reads the registry
+/// now), so the order comes from the registry and the names from `routes.dart`.
 List<String> _navOrder() {
-  final pairs =
-      RegExp(r'(\d+) => AppRoutes\.(\w+),')
-          .allMatches(File(_navFile).readAsStringSync())
-          .map((m) => MapEntry(int.parse(m.group(1)!), m.group(2)!))
-          .toList()
-        ..sort((a, b) => a.key.compareTo(b.key));
-  return pairs.map((pair) => pair.value).toList();
+  final names = {
+    for (final m in RegExp(
+      r"static const String (\w+) = '([^']+)';",
+    ).allMatches(File('lib/routes/routes.dart').readAsStringSync()))
+      m.group(2)!: m.group(1)!,
+  };
+  return [
+    for (final path in AppDestinations.routesFor(AppAreas.inventory)) names[path]!,
+  ];
 }
 
 const _inventoryPaths = <String>[

@@ -16,6 +16,12 @@ import 'package:provider/provider.dart';
 ///
 /// No shell here on purpose. There is no area yet, so there is no sidebar to
 /// draw and no page to fence.
+///
+/// Phase 2 F3 (decision 24) takes this screen off every account's path: a
+/// multi-area account works from the merged sidebar and lands on
+/// `AppRoutes.combinedDashboard`, and a single-area account never needed a
+/// pick. The page and `selectArea` stay (the plan keeps the picker code); only
+/// the routing stopped sending anyone here.
 class AreaPickerPage extends StatelessWidget {
   const AreaPickerPage({super.key});
 
