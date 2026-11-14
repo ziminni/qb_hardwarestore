@@ -47,7 +47,11 @@ Future<Shift?> showShiftCloseDialog(
       builder: (resultContext) => AlertDialog(
         title: const Text('Shift closed'),
         content: SingleChildScrollView(
-          child: PosZReadingSummary(reading: reading),
+          child: PosZReadingSummary(
+            reading: reading,
+            // Both sides of the difference the cashier is about to read.
+            closingCount: closed.closingCount,
+          ),
         ),
         actions: [
           FilledButton(

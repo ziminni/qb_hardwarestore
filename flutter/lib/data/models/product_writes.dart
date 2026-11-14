@@ -1,3 +1,5 @@
+import 'package:client/data/models/product_image_upload.dart';
+
 /// The two write payloads the product form submits.
 ///
 /// They live in the data layer rather than in the dialog because they are the
@@ -20,6 +22,7 @@ class NewProductDraft {
     this.extraSellingUnits = const [],
     this.locationHint = '',
     this.storedAtId,
+    this.image,
   });
 
   final int categoryId;
@@ -54,6 +57,13 @@ class NewProductDraft {
   /// form had no verified choice", and the field is then left off the body so
   /// the server's own default answers — never a guessed id.
   final int? storedAtId;
+
+  /// The photo the clerk picked, or null when they picked none.
+  ///
+  /// Sent as `multipart/form-data` on the product POST — the ONE request that
+  /// creates the catalogue item, not a second upload after it (a post-create
+  /// request would leave a product with no photo whenever it failed).
+  final ProductImageUpload? image;
 
   /// There is deliberately no quantity, cost or opening-batch field.
   ///
@@ -141,6 +151,7 @@ class ProductEditDraft {
     this.isActive,
     this.locationHint = '',
     this.storedAtId,
+    this.image,
   });
 
   final int productId;
@@ -171,6 +182,12 @@ class ProductEditDraft {
   /// product's current (now inactive) location again would be answered
   /// `INVALID_STORAGE_LOCATION` and fail a save the clerk never asked to touch.
   final int? storedAtId;
+
+  /// A REPLACEMENT photo, or null to leave the stored one alone.
+  ///
+  /// Null is the normal case: an edit that only touches a price must not send an
+  /// image, because the server would replace the product's photo with nothing.
+  final ProductImageUpload? image;
 
   Map<String, dynamic> get productBody => {
     if (baseName != null) 'base_name': baseName,

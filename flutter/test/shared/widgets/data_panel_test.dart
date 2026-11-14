@@ -6,6 +6,7 @@ import 'package:client/shared/widgets/empty_state.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// DataPanel is the one place a list of records is rendered: a table when its
@@ -265,6 +266,74 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(card1), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a long card label wraps whole at a raised text scale', (
+    tester,
+  ) async {
+    // Live QA: "Cash difference" is a 15-character label, and the card's label
+    // column is a fixed 110 px. With maxLines: 1 it was cut to "Cash differe..."
+    // at 1.3x text, which is precisely the word the cashier needed to read.
+    tester.view.physicalSize = const Size(760, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 700,
+              child: panel(
+                cols: [
+                  DataPanelColumn<_StockRow>(
+                    label: 'Product',
+                    cell: (row) => Text(row.name),
+                  ),
+                  DataPanelColumn<_StockRow>(
+                    label: 'Cash counted',
+                    numeric: true,
+                    cell: (row) => Text(formatPeso(row.price)),
+                  ),
+                  DataPanelColumn<_StockRow>(
+                    label: 'Cash difference',
+                    numeric: true,
+                    cell: (row) => Text(formatPeso(row.qty)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: const TextScaler.linear(1.3)),
+          child: child!,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(cards), findsOneWidget);
+    final label = find.text('Cash difference');
+    expect(label, findsWidgets);
+    final paragraph = tester.renderObject<RenderParagraph>(
+      find.descendant(of: label.first, matching: find.byType(RichText)),
+    );
+    expect(
+      paragraph.didExceedMaxLines,
+      isFalse,
+      reason:
+          'a card label this long must wrap, not end in an ellipsis the reader '
+          'cannot open',
+    );
+    expect(
+      paragraph.maxLines,
+      isNull,
+      reason: 'the label wraps to as many lines as it needs',
+    );
     expect(tester.takeException(), isNull);
   });
 

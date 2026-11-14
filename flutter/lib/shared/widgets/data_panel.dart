@@ -487,8 +487,9 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
                   width: DataPanel._cardLabelWidth,
                   child: Text(
                     column.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    // Wraps rather than ellipsizes: a 110 px label column cuts
+                    // "Cash difference" to "Cash differe..." at 1.3x text, and
+                    // a label the reader cannot finish names nothing.
                     style: const TextStyle(
                       fontSize: 12,
                       color: AppColors.textSecondary,

@@ -212,6 +212,25 @@ def default_storage_location_pk():
     return storage_location(STORE_LOCATION_NAME).pk
 
 
+# ---------------------------------------------------------------------------
+# Product photos (POS usability, images lane)
+#
+# One photo per product, shared by its variants, stored by the server so the clerk's
+# pick becomes a picture every screen can load. These are PUBLIC catalogue media - a
+# product photograph of goods on a shelf - never a receipt or a proof of payment.
+# ---------------------------------------------------------------------------
+PRODUCT_IMAGE_DIR = "product-images"
+# 5 MiB: far above a phone photo of a shelf, far below what one request should cost.
+PRODUCT_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+# A pixel bound is not about file size: a few kilobytes of PNG can declare a canvas
+# that decodes to gigabytes. 24 MP is generous for a product photo and keeps the
+# decode inside a worker's memory.
+PRODUCT_IMAGE_MAX_PIXELS = 24_000_000
+# The accepted formats, mapped to the extension the STORED name uses. The extension
+# follows the DECODED format, never the name the client sent.
+PRODUCT_IMAGE_FORMATS = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp"}
+
+
 class Product(models.Model):
     category = models.ForeignKey(
         Category, on_delete=models.PROTECT, related_name="products"
@@ -220,6 +239,11 @@ class Product(models.Model):
     base_name = models.CharField(max_length=255, db_index=True)
     description = models.TextField(blank=True, default="")
     image_url = models.URLField(blank=True, default="")
+    # POS usability (images lane): the photo the shop OWNS. Deliberately optional and
+    # deliberately BESIDE `image_url` rather than replacing it - a product that only
+    # ever had a link keeps rendering, and `image_url` stays the one wire key. When
+    # both exist the owned file wins (see `ProductSerializer.to_representation`).
+    image = models.ImageField(upload_to=PRODUCT_IMAGE_DIR + "/", blank=True)
     # Phase 5 B4 (decision 18): the pick-up point the till, the receipt and the delivery
     # slip show. PROTECT, because a place goods are still assigned to must not vanish
     # from under the label; the exit is `StorageLocation.is_active`, and a location that

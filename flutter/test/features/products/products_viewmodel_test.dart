@@ -12,7 +12,11 @@
 // repository". The store is seeded from a fake catalogue instead of
 // `InventoryMockData`, which was deleted with the seed.
 
+import 'package:client/data/models/inventory_batch.dart';
+import 'package:client/data/models/product.dart';
 import 'package:client/data/models/product_writes.dart';
+import 'package:client/data/models/stock_on_hand.dart';
+import 'package:client/data/models/storage_location.dart';
 import 'package:client/data/repositories/products_repository.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/products/viewmodels/products_viewmodel.dart';
@@ -235,5 +239,281 @@ void main() {
         expect(vm.selectedProductIds, isEmpty);
       },
     );
+  });
+
+  // Task 19 (POS usability): narrow the catalogue to shelves that really hold
+  // stock. The rule is the `/stock-on-hand/` rows, NEVER the product's
+  // `stored_at` home: a product homed at Store whose units sit in the Bodega is
+  // a Bodega match, and the home shelf must not put it under Store.
+  group('Stock location filter (physical stock, Task 19)', () {
+    late InventoryViewmodel store;
+    late FakeProductsRepository storeRepo;
+    late ProductsViewmodel locationVm;
+
+    List<Product> locationProducts() => [
+      // Home shelf Store, every unit in the Bodega.
+      product(
+        id: 1,
+        name: 'Portland Cement',
+        categoryName: 'Cement',
+        brandName: 'Holcim',
+        storedAtId: 1,
+      ),
+      // Home shelf Bodega, every unit in the Store.
+      product(
+        id: 2,
+        name: 'PVC Pipe',
+        categoryName: 'Plumbing',
+        brandName: 'Neltex',
+        storedAtId: 2,
+      ),
+      // No stock-on-hand row at all.
+      product(
+        id: 3,
+        name: 'Old Hammer',
+        categoryName: 'Hand Tools',
+        brandName: 'Stanley',
+      ),
+      // Two variants: one row at zero, one holding seven in the Bodega.
+      product(
+        id: 4,
+        name: 'Cable Bundle',
+        categoryName: 'Electrical',
+        brandName: 'Omni',
+        variants: [
+          variant(id: 44, productId: 4),
+          variant(id: 45, productId: 4, name: '50 m roll'),
+        ],
+      ),
+      // Stock sits on a DEACTIVATED shelf the location list does not send.
+      product(
+        id: 5,
+        name: 'Shop Rags',
+        categoryName: 'Cement',
+        brandName: 'ABC',
+      ),
+    ];
+
+    List<StockOnHand> locationStock() => [
+      onHand(
+        variantId: 1,
+        locationId: 2,
+        locationName: 'Bodega',
+        isHome: false,
+        qty: 40,
+      ),
+      onHand(variantId: 2, locationId: 1, locationName: 'Store', qty: 25),
+      onHand(variantId: 44, locationId: 1, locationName: 'Store', qty: 0),
+      onHand(
+        variantId: 45,
+        locationId: 2,
+        locationName: 'Bodega',
+        isHome: false,
+        qty: 7,
+      ),
+      onHand(
+        variantId: 5,
+        locationId: 3,
+        locationName: 'Old Shed',
+        isHome: false,
+        locationActive: false,
+        qty: 5,
+      ),
+    ];
+
+    /// The metadata list the server sends: the deactivated "Old Shed" is not in
+    /// it, which is exactly the shelf the filter must still offer.
+    List<StorageLocation> locationCatalogue() => const [
+      StorageLocation(id: 1, name: 'Store'),
+      StorageLocation(id: 2, name: 'Bodega'),
+    ];
+
+    Future<void> seed({
+      List<StockOnHand>? stockOnHand,
+      List<StorageLocation>? locations,
+      List<InventoryBatch> batches = const [],
+    }) async {
+      storeRepo = FakeProductsRepository(
+        products: locationProducts(),
+        batches: batches,
+        stockOnHand: stockOnHand ?? locationStock(),
+      );
+      store = InventoryViewmodel(
+        products: storeRepo,
+        inventory: FakeInventoryRepository(),
+        catalogue: FakeCatalogueRepository(),
+        storageLocations: FakeStorageLocationRepository(
+          locations: locations ?? locationCatalogue(),
+        ),
+      );
+      await store.load();
+      locationVm = ProductsViewmodel(store);
+      addTearDown(() {
+        locationVm.dispose();
+        store.dispose();
+      });
+    }
+
+    List<int> ids() => locationVm.filteredProducts.map((p) => p.id).toList();
+
+    test('with no location chosen every active product stays listed', () async {
+      await seed();
+
+      expect(locationVm.selectedStockLocationId, isNull);
+      expect(ids(), [
+        1,
+        2,
+        3,
+        4,
+        5,
+      ], reason: '"All locations" must keep the no-stock rows visible');
+    });
+
+    test('the choices are the server ids and names, including a shelf only the '
+        'on-hand rows name', () async {
+      await seed();
+
+      expect(locationVm.stockLocationOptions.map((o) => (o.id, o.name)), [
+        (2, 'Bodega'),
+        (3, 'Old Shed'),
+        (1, 'Store'),
+      ]);
+    });
+
+    test(
+      'a product homed at Store but stocked in the Bodega matches Bodega, not '
+      'Store',
+      () async {
+        await seed();
+
+        locationVm.setStockLocation(1);
+        expect(ids(), [2]);
+
+        locationVm.setStockLocation(2);
+        expect(ids(), [1, 4]);
+      },
+    );
+
+    test(
+      'ANY variant holding stock at the location matches the product',
+      () async {
+        await seed();
+
+        locationVm.setStockLocation(2);
+
+        expect(
+          ids(),
+          contains(4),
+          reason: 'variant 45 holds 7 in the Bodega while variant 44 is empty',
+        );
+      },
+    );
+
+    test('a zero-quantity row is not stock there', () async {
+      await seed();
+
+      locationVm.setStockLocation(1);
+
+      expect(ids(), isNot(contains(4)));
+    });
+
+    test('a product with no on-hand row is visible only under All '
+        'locations', () async {
+      await seed();
+
+      expect(ids(), contains(3));
+
+      locationVm.setStockLocation(1);
+      expect(ids(), isNot(contains(3)));
+    });
+
+    test('a deactivated shelf keeps its real stock selectable', () async {
+      await seed();
+
+      locationVm.setStockLocation(3);
+
+      expect(ids(), [5]);
+    });
+
+    test('batches are never the quantity source', () async {
+      await seed(
+        // The old derivation would call this 500 on hand. The server's on-hand
+        // rows say the Store holds none, and they are the authority.
+        batches: [batch(id: 90, variantId: 2, qty: 500)],
+        stockOnHand: [
+          onHand(variantId: 2, locationId: 1, locationName: 'Store', qty: 0),
+        ],
+      );
+
+      locationVm.setStockLocation(1);
+
+      expect(locationVm.filteredProducts, isEmpty);
+    });
+
+    test('it combines with search, category and brand', () async {
+      await seed();
+
+      locationVm.setStockLocation(2);
+      locationVm.setCategory('Cement');
+      expect(ids(), [
+        1,
+      ], reason: 'Shop Rags is Cement but its stock is elsewhere');
+
+      locationVm.setCategory(null);
+      locationVm.setStockLocation(1);
+      locationVm.setBrand('Neltex');
+      expect(ids(), [2]);
+
+      locationVm.clearFilters();
+      locationVm.setSearchQuery('hammer');
+      locationVm.setStockLocation(2);
+      expect(ids(), isEmpty);
+
+      locationVm.clearFilters();
+      locationVm.setSearchQuery('cable');
+      locationVm.setStockLocation(2);
+      expect(ids(), [4]);
+    });
+
+    test('clearFilters returns to All locations', () async {
+      await seed();
+      locationVm.setStockLocation(2);
+
+      locationVm.clearFilters();
+
+      expect(locationVm.selectedStockLocationId, isNull);
+      expect(ids(), hasLength(5));
+    });
+
+    test('choosing a location resets paging and the selection', () async {
+      await seed();
+      locationVm.setRowsPerPage(1);
+      locationVm.goToPage(3);
+      locationVm.toggleSelection(1, true);
+
+      locationVm.setStockLocation(2);
+
+      expect(locationVm.currentPage, 1);
+      expect(locationVm.selectedProductIds, isEmpty);
+      expect(locationVm.visibleProducts.map((p) => p.id), [1]);
+    });
+
+    test('a reload re-reads the filter from the new on-hand rows', () async {
+      await seed();
+      locationVm.setStockLocation(1);
+      expect(ids(), [2]);
+
+      storeRepo.setSnapshot(
+        products: locationProducts(),
+        stockOnHand: [
+          onHand(variantId: 1, locationId: 1, locationName: 'Store', qty: 12),
+        ],
+      );
+      await store.load();
+
+      expect(ids(), [
+        1,
+      ], reason: 'the filter must read the store live, not a snapshot');
+    });
   });
 }

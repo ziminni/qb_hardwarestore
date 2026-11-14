@@ -117,6 +117,8 @@ class _PosShiftView extends StatelessWidget {
                 reading: previousReading,
                 title:
                     'Last closed shift (${formatDateTime(lastClosed.openedAt)})',
+                // Both sides of the difference, so it can be checked.
+                closingCount: lastClosed.closingCount,
               ),
             ],
             // Nothing loaded AND the read failed: the banner above is the whole
@@ -179,7 +181,8 @@ class _PosShiftView extends StatelessWidget {
       ),
     ),
     DataPanelColumn<Shift>(
-      label: 'Closing count',
+      // Same fact, same name as the close form's "Cash counted".
+      label: 'Cash counted',
       numeric: true,
       flex: 2,
       // An unset count is a FACT about the row ("nobody has counted this
@@ -193,7 +196,8 @@ class _PosShiftView extends StatelessWidget {
             ),
     ),
     DataPanelColumn<Shift>(
-      label: 'Variance',
+      // Plain name for money; the reading above spells out the subtraction.
+      label: 'Cash difference',
       numeric: true,
       flex: 2,
       cell: (shift) {

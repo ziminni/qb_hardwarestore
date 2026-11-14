@@ -354,44 +354,39 @@ class _ProductsPageState extends State<ProductsPage> {
                     onShowLowStock: () => navigateInventory(context, 5),
                   ),
                   const SizedBox(height: AppSpacing.xl),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: ProductsToolbar(
-                          searchQuery: viewModel.searchQuery,
-                          categories: viewModel.categories,
-                          brands: viewModel.brands,
-                          selectedCategory: viewModel.selectedCategory,
-                          selectedBrand: viewModel.selectedBrand,
-                          onSearchChanged: viewModel.setSearchQuery,
-                          onCategoryChanged: viewModel.setCategory,
-                          onBrandChanged: viewModel.setBrand,
-                          onClearFilters: viewModel.clearFilters,
-                          onAddProduct: () =>
-                              _showProductForm(context, viewModel),
-                        ),
-                      ),
-                      // Exporting the codes is a Stock Manager / Store Manager /
-                      // Admin action on the server, so the button only exists for
-                      // those role CODES. The catalogue workbook is the same
-                      // audience, so it shares the gate.
-                      if (canExportBarcodeList(
-                        context.watch<AuthViewmodel>().assignedAreas,
-                      )) ...[
-                        const SizedBox(width: AppSpacing.md),
+                  ProductsToolbar(
+                    searchQuery: viewModel.searchQuery,
+                    categories: viewModel.categories,
+                    brands: viewModel.brands,
+                    selectedCategory: viewModel.selectedCategory,
+                    selectedBrand: viewModel.selectedBrand,
+                    stockLocations: viewModel.stockLocationOptions,
+                    selectedStockLocationId: viewModel.selectedStockLocationId,
+                    onSearchChanged: viewModel.setSearchQuery,
+                    onCategoryChanged: viewModel.setCategory,
+                    onBrandChanged: viewModel.setBrand,
+                    onStockLocationChanged: viewModel.setStockLocation,
+                    onClearFilters: viewModel.clearFilters,
+                    onAddProduct: () => _showProductForm(context, viewModel),
+                  ),
+                  if (canExportBarcodeList(
+                    context.watch<AuthViewmodel>().assignedAreas,
+                  )) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.sm,
+                      children: [
                         OutlinedButton.icon(
                           onPressed: () => _showBarcodeList(context),
                           icon: const Icon(Icons.qr_code_2_rounded, size: 18),
                           label: const Text('Barcode list'),
                         ),
-                        const SizedBox(width: AppSpacing.sm),
                         OutlinedButton.icon(
                           onPressed: () => _showCatalogueIo(context),
                           icon: const Icon(Icons.table_view_outlined, size: 18),
                           label: const Text('Export to Excel'),
                         ),
-                        const SizedBox(width: AppSpacing.sm),
                         OutlinedButton.icon(
                           onPressed: () => _showCatalogueImport(context),
                           icon: const Icon(
@@ -401,8 +396,8 @@ class _ProductsPageState extends State<ProductsPage> {
                           label: const Text('Import from Excel'),
                         ),
                       ],
-                    ],
-                  ),
+                    ),
+                  ],
                   if (viewModel.selectedProductIds.isNotEmpty) ...[
                     const SizedBox(height: AppSpacing.lg),
                     ProductsBulkActions(

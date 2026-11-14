@@ -2,11 +2,13 @@ import 'dart:math';
 
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/product_writes.dart';
+import 'package:client/data/models/storage_location.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:flutter/foundation.dart';
 
-/// View state for the products screen: search, category and brand filters,
-/// sorting, paging and row selection. It owns **no product data**.
+/// View state for the products screen: search, category, brand and stock
+/// location filters, sorting, paging and row selection. It owns **no product
+/// data**.
 ///
 /// Decision 11. Before this, the class held a *copy* of the product list taken
 /// at construction
@@ -36,6 +38,7 @@ class ProductsViewmodel extends ChangeNotifier {
   String _searchQuery = '';
   String? _selectedCategory;
   String? _selectedBrand;
+  int? _selectedStockLocationId;
   int _currentPage = 1;
   int _rowsPerPage = 5;
 
@@ -46,6 +49,7 @@ class ProductsViewmodel extends ChangeNotifier {
   String get searchQuery => _searchQuery;
   String? get selectedCategory => _selectedCategory;
   String? get selectedBrand => _selectedBrand;
+  int? get selectedStockLocationId => _selectedStockLocationId;
   int get currentPage => _currentPage;
   int get rowsPerPage => _rowsPerPage;
   int get totalProducts => products.where((product) => product.isActive).length;
@@ -97,6 +101,7 @@ class ProductsViewmodel extends ChangeNotifier {
           return matchesSearch &&
               matchesCategory &&
               matchesBrand &&
+              _hasStockAt(product, _selectedStockLocationId) &&
               product.isActive;
         })
         .toList(growable: false);
@@ -132,10 +137,61 @@ class ProductsViewmodel extends ChangeNotifier {
     _resetPage();
   }
 
+  void setStockLocation(int? locationId) {
+    _selectedStockLocationId = locationId;
+    _resetPage();
+  }
+
+  /// The shelves the "Stock location" filter offers, by server id.
+  ///
+  /// The server's location list, plus every shelf an on-hand row names: a
+  /// deactivated shelf still sells the stock it holds (owner ruling), so it must
+  /// stay selectable even when the metadata read leaves it out, instead of
+  /// hiding real goods behind a filter that cannot reach them.
+  List<StorageLocation> get stockLocationOptions {
+    final byId = <int, StorageLocation>{
+      for (final location in _inventory.storageLocations) location.id: location,
+    };
+    for (final row in _inventory.stockOnHand) {
+      byId.putIfAbsent(
+        row.locationId,
+        () => StorageLocation(
+          id: row.locationId,
+          name: row.locationName,
+          isActive: row.locationActive,
+        ),
+      );
+    }
+    final options = byId.values.toList()
+      ..sort((a, b) {
+        final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        return byName != 0 ? byName : a.id.compareTo(b.id);
+      });
+    return List.unmodifiable(options);
+  }
+
+  /// True when ANY variant of [product] holds a positive quantity on the chosen
+  /// shelf, read from the server's `/stock-on-hand/` rows.
+  ///
+  /// `null` means "All locations" and matches everything, so a product with no
+  /// stock row at all stays visible there. The product's `stored_at` home is a
+  /// pick DEFAULT, never a location, so it is not consulted here — and the rows
+  /// are the quantity authority, never the batch sums: a variant without a row
+  /// holds nothing on that shelf.
+  bool _hasStockAt(Product product, int? locationId) {
+    if (locationId == null) return true;
+    return product.variants.any(
+      (variant) => _inventory
+          .stockByLocationFor(variant.id)
+          .any((row) => row.locationId == locationId && row.qty > 0),
+    );
+  }
+
   void clearFilters() {
     _searchQuery = '';
     _selectedCategory = null;
     _selectedBrand = null;
+    _selectedStockLocationId = null;
     _resetPage();
   }
 

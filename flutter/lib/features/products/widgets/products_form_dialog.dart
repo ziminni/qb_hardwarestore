@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
@@ -5,6 +7,7 @@ import 'package:client/core/format/format.dart';
 import 'package:client/data/models/catalogue_option.dart';
 import 'package:client/data/models/category.dart';
 import 'package:client/data/models/product.dart';
+import 'package:client/data/models/product_image_upload.dart';
 import 'package:client/data/models/product_writes.dart';
 import 'package:client/data/models/storage_location.dart';
 import 'package:client/data/models/variant_uom.dart';
@@ -54,6 +57,7 @@ class ProductsFormDialog extends StatefulWidget {
     this.locationHint = '',
     this.storageLocations = const [],
     this.storageLocationError,
+    this.imageFileService = const ImageFileService(),
   });
 
   final List<Category> categories;
@@ -76,6 +80,10 @@ class ProductsFormDialog extends StatefulWidget {
   /// seen a real list (see [_submit]).
   final String? storageLocationError;
 
+  /// The photo picker. Injectable so a test can hand over bytes instead of
+  /// opening the OS file dialog.
+  final ImageFileService imageFileService;
+
   @override
   State<ProductsFormDialog> createState() => _ProductsFormDialogState();
 }
@@ -93,7 +101,16 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   int? _categoryId;
   int? _brandId;
   int? _baseUomId;
-  late String _imagePath;
+
+  /// The product's STORED photo URL (the server's, or a legacy one). Never a path
+  /// this device invented.
+  late String _imageUrl;
+
+  /// The photo the clerk picked in THIS dialog, held as bytes until save.
+  ProductImageUpload? _imageUpload;
+
+  /// Why the last pick failed, or null.
+  String? _imageError;
 
   /// The SERVER pick-up point this product is stored at (Phase 5 B4).
   int? _storedAtId;
@@ -105,7 +122,6 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   bool _storedAtTouched = false;
 
   final List<SellingUnitDraft> _extraUnits = [];
-  final _imageFileService = const ImageFileService();
 
   bool get _editing => widget.product != null;
 
@@ -158,7 +174,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     _categoryId = product?.categoryId ?? widget.categories.firstOrNull?.id;
     _brandId = product?.brandId ?? widget.brands.firstOrNull?.id;
     _baseUomId = variant?.baseUomId ?? widget.units.firstOrNull?.id;
-    _imagePath = product?.imageUrl ?? '';
+    _imageUrl = product?.imageUrl ?? '';
     _storedAtId = product?.storedAtId ?? _defaultStoredAtId();
   }
 
@@ -233,10 +249,23 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     super.dispose();
   }
 
+  /// Picks a photo and keeps its BYTES.
+  ///
+  /// The picked file's path is deliberately never stored: it is what the old
+  /// form sent as `image_url`, and the server refuses it. A refusal here (too
+  /// big, unreadable) is shown in the form and leaves the previous choice alone.
   Future<void> _selectImage() async {
-    final path = await _imageFileService.selectImage();
-    if (!mounted || path == null) return;
-    setState(() => _imagePath = path);
+    try {
+      final picked = await widget.imageFileService.selectImage();
+      if (!mounted || picked == null) return;
+      setState(() {
+        _imageUpload = picked;
+        _imageError = null;
+      });
+    } on ImageFileException catch (error) {
+      if (!mounted) return;
+      setState(() => _imageError = error.message);
+    }
   }
 
   /// The selling unit that IS the base unit: the variant's own `base_uom` at
@@ -326,7 +355,8 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
             brandId: _brandId!,
             baseName: _nameController.text.trim(),
             description: _descriptionController.text.trim(),
-            imageUrl: _imagePath,
+            imageUrl: _imageUrl,
+            image: _imageUpload,
             variantName: _variantController.text.trim(),
             baseUomId: _baseUomId!,
             minStockThreshold: threshold,
@@ -378,6 +408,9 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
           // deactivated (INVALID_STORAGE_LOCATION), failing an edit that never
           // touched the place.
           storedAtId: _storedAtChanged ? _storedAtId : null,
+          // Only a photo picked in THIS dialog: null tells the server to keep the
+          // one the product already has.
+          image: _imageUpload,
         ),
       ),
     );
@@ -521,9 +554,19 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
       Text('Product image', style: Theme.of(context).textTheme.labelLarge),
       const SizedBox(height: AppSpacing.sm),
       _ImagePicker(
-        imagePath: _imagePath,
+        imageUrl: _imageUrl,
+        imageBytes: _imageUpload?.bytes,
+        filename: _imageUpload?.filename,
+        error: _imageError,
+        // Removing is picking nothing NEW (the server keeps the stored photo), so
+        // an edit has no Remove button: replacing is the only real action there.
         onPick: _selectImage,
-        onRemove: () => setState(() => _imagePath = ''),
+        onRemove: _editing
+            ? null
+            : () => setState(() {
+                _imageUrl = '';
+                _imageUpload = null;
+              }),
       ),
     ];
   }
@@ -728,14 +771,38 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
 /// The product image, its two buttons and the file name.
 class _ImagePicker extends StatelessWidget {
   const _ImagePicker({
-    required this.imagePath,
+    required this.imageUrl,
+    required this.imageBytes,
+    required this.filename,
     required this.onPick,
     required this.onRemove,
+    this.error,
   });
 
-  final String imagePath;
+  final String imageUrl;
+  final Uint8List? imageBytes;
+
+  /// The picked file's name, when there is a pick.
+  final String? filename;
+
+  /// A failed pick's explanation, or null.
+  final String? error;
+
   final VoidCallback onPick;
-  final VoidCallback onRemove;
+
+  /// Null hides Remove, which an edit never offers.
+  final VoidCallback? onRemove;
+
+  /// What the picker shows when nothing is picked.
+  bool get _empty => imageBytes == null && imageUrl.trim().isEmpty;
+
+  /// The name of what is shown: the picked file, or the stored photo's last path
+  /// segment.
+  String get _label {
+    if (filename case final name? when name.isNotEmpty) return name;
+    if (imageUrl.trim().isEmpty) return 'No image selected';
+    return imageUrl.split(RegExp(r'[/\\]')).last;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -750,20 +817,28 @@ class _ImagePicker extends StatelessWidget {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(AppRadii.small),
-            child: ProductsImage(imageUrl: imagePath, width: 88, height: 88),
+            child: ProductsImage(
+              imageUrl: imageUrl,
+              imageBytes: imageBytes,
+              width: 88,
+              height: 88,
+            ),
           ),
           const SizedBox(width: AppSpacing.lg),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  imagePath.isEmpty
-                      ? 'No image selected'
-                      : imagePath.split(RegExp(r'[/\\]')).last,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                Text(_label, maxLines: 2, overflow: TextOverflow.ellipsis),
+                if (error case final message?) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    message,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.sm),
                 Wrap(
                   spacing: AppSpacing.sm,
@@ -772,15 +847,14 @@ class _ImagePicker extends StatelessWidget {
                     OutlinedButton.icon(
                       onPressed: onPick,
                       icon: const Icon(Icons.attach_file),
-                      label: Text(
-                        imagePath.isEmpty ? 'Choose image' : 'Replace image',
-                      ),
+                      label: Text(_empty ? 'Choose image' : 'Replace image'),
                     ),
-                    if (imagePath.isNotEmpty)
-                      TextButton(
-                        onPressed: onRemove,
-                        child: const Text('Remove'),
-                      ),
+                    if (onRemove case final remove?)
+                      if (!_empty)
+                        TextButton(
+                          onPressed: remove,
+                          child: const Text('Remove'),
+                        ),
                   ],
                 ),
               ],

@@ -1,17 +1,24 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
 class ProductsImage extends StatelessWidget {
   const ProductsImage({
     super.key,
-    required this.imageUrl,
+    this.imageUrl = '',
+    this.imageBytes,
     this.width = 48,
     this.height = 48,
     this.fit = BoxFit.cover,
   });
 
+  /// The server's `image_url`, or a legacy device path.
   final String imageUrl;
+
+  /// A photo the clerk just picked, which has no URL yet. Takes precedence: it is
+  /// the newest thing they chose.
+  final Uint8List? imageBytes;
   final double width;
   final double height;
   final BoxFit fit;
@@ -28,13 +35,23 @@ class ProductsImage extends StatelessWidget {
       ),
     );
 
-    if (imageUrl.trim().isEmpty) return placeholder;
-
     Widget errorBuilder(
       BuildContext context,
       Object error,
       StackTrace? stackTrace,
     ) => placeholder;
+
+    if (imageBytes case final bytes?) {
+      return Image.memory(
+        bytes,
+        width: width,
+        height: height,
+        fit: fit,
+        errorBuilder: errorBuilder,
+      );
+    }
+
+    if (imageUrl.trim().isEmpty) return placeholder;
 
     if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
       return Image.network(

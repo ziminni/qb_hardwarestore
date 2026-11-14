@@ -141,9 +141,16 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            'Type or paste the token printed on the approved requisition, then '
-            'press Enter.',
+            'Scan or type the token from the requisition slip, then press '
+            'Enter.',
             style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          // The store accepts in POS Project requests, not in CPMS.
+          const Text(
+            'The store manager accepts or declines project requests in POS. '
+            'Cashiers use the token to release accepted goods.',
+            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
           ),
           const SizedBox(height: AppSpacing.md),
           Row(

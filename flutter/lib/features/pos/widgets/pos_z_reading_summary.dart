@@ -14,12 +14,11 @@ import 'package:flutter/material.dart';
 String posVarianceText(double variance) =>
     variance > 0 ? '+${formatPeso(variance)}' : formatPeso(variance);
 
-/// The word that carries the sign's meaning without relying on colour, for a
-/// cashier who cannot tell the red from the green.
+/// The sign's meaning in words, for a cashier who cannot tell red from green.
 String posVarianceWord(double variance) {
-  if (variance > 0) return 'Over';
-  if (variance < 0) return 'Short';
-  return 'Exact';
+  if (variance > 0) return 'Over expected cash';
+  if (variance < 0) return 'Short of expected cash';
+  return 'Matches expected cash';
 }
 
 /// Red for money missing, green for money over, plain for a drawer that counts.
@@ -34,23 +33,31 @@ Color posVarianceColor(double variance) {
 ///
 /// One widget for both places it appears (the Shifts tab and the confirmation
 /// after closing from the till), so the two can never disagree about what a
-/// Z-reading says. Variance is called out on its own line because it is the one
-/// number that means "count the drawer again".
+/// Z-reading says. The drawer difference is called out on its own line because
+/// it is the one number that means "count the drawer again".
 ///
 /// [title] says WHICH shift the figures belong to. The Shifts tab shows a live
 /// shift's running totals or the last closed shift's, and an unlabelled block of
 /// money was read as the live drawer.
+///
+/// [closingCount] is the cash the cashier counted, when the caller has it; it
+/// turns the difference into the subtraction that produced it. The wire key is
+/// untouched — this is the shift's own `closing_count`.
 class PosZReadingSummary extends StatelessWidget {
   const PosZReadingSummary({
     super.key,
     required this.reading,
     this.title = 'Z-READING',
+    this.closingCount,
   });
 
   final ZReading reading;
 
   /// The heading above the figures, e.g. `This shift so far`.
   final String title;
+
+  /// Cash counted at the close, or null while the shift is still open.
+  final double? closingCount;
 
   @override
   Widget build(BuildContext context) {
@@ -77,20 +84,27 @@ class PosZReadingSummary extends StatelessWidget {
               label: 'Gross sales',
               value: formatPeso(reading.grossSales),
             ),
-            MetricTile(label: 'Cash', value: formatPeso(reading.cashSales)),
+            MetricTile(
+              label: 'Cash sales',
+              value: formatPeso(reading.cashSales),
+            ),
           ]),
           const SizedBox(height: AppSpacing.md),
           _tileRow([
             MetricTile(label: 'Card', value: formatPeso(reading.cardSales)),
             MetricTile(label: 'GCash', value: formatPeso(reading.gcashSales)),
             MetricTile(
-              label: 'Expected drawer',
+              label: 'Expected cash',
               value: formatPeso(reading.expectedDrawer),
             ),
           ]),
           if (variance != null) ...[
             const SizedBox(height: AppSpacing.md),
-            _VarianceCallout(variance: variance),
+            _CashDifferenceCallout(
+              variance: variance,
+              closingCount: closingCount,
+              expectedDrawer: reading.expectedDrawer,
+            ),
           ],
           // Advisory (Phase 3 Task 3): parked carts are NOT part of the drawer
           // arithmetic and never block a close, so the line appears only when
@@ -142,13 +156,22 @@ class PosZReadingSummary extends StatelessWidget {
   }
 }
 
-/// The one line a cashier acts on: how far the counted cash is from the
-/// expected drawer, in words, in colour and with a sign, so the three possible
-/// answers (short, over, exact) cannot be mistaken for each other.
-class _VarianceCallout extends StatelessWidget {
-  const _VarianceCallout({required this.variance});
+/// The one line a cashier acts on: how far the cash counted is from the cash
+/// the shift should hold, in words, in colour and with a sign, so the three
+/// answers (short, over, matching) cannot be mistaken for each other.
+class _CashDifferenceCallout extends StatelessWidget {
+  const _CashDifferenceCallout({
+    required this.variance,
+    required this.closingCount,
+    required this.expectedDrawer,
+  });
 
   final double variance;
+
+  /// Cash counted at the close, when the caller has the shift that owns it.
+  final double? closingCount;
+
+  final double expectedDrawer;
 
   @override
   Widget build(BuildContext context) {
@@ -156,45 +179,64 @@ class _VarianceCallout extends StatelessWidget {
     final tint = variance == 0
         ? AppColors.background
         : (variance > 0 ? AppColors.successTint : AppColors.errorTint);
+    final counted = closingCount;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: tint,
         borderRadius: BorderRadius.circular(AppRadii.medium),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Variance',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
-                  ),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Cash difference',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    Text(
+                      posVarianceWord(variance),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: color,
+                      ),
+                    ),
+                  ],
                 ),
-                Text(
-                  posVarianceWord(variance),
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: color,
-                  ),
+              ),
+              Text(
+                posVarianceText(variance),
+                style: TextStyle(
+                  fontFamily: AppTextStyles.cinzelFont,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                  fontFeatures: const [FontFeature.tabularFigures()],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
+          const SizedBox(height: 4),
+          // The subtraction itself, so the sign can be checked against the drawer.
           Text(
-            posVarianceText(variance),
-            style: TextStyle(
-              fontFamily: AppTextStyles.cinzelFont,
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: color,
-              fontFeatures: const [FontFeature.tabularFigures()],
+            counted == null
+                ? 'Cash counted minus expected cash.'
+                : 'Cash counted ${formatPeso(counted)} minus expected '
+                      '${formatPeso(expectedDrawer)}.',
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
             ),
           ),
         ],
