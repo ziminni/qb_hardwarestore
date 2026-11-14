@@ -1,230 +1,229 @@
-# BuildPro — POS / Inventory & Construction System
+# BuildPro — POS / Inventory System
 
-Dual-business system for **Queen Builders**: a hardware-store **point of sale and inventory** backend
-plus the **construction requisition / material-release** flow that draws stock out of that store.
+Hardware-store point of sale and inventory for Queen Builders. The Flutter desktop client talks to a Django REST API backed by PostgreSQL. Construction project management (CPMS) lives in a separate repository; ordinary store operations do not require CPMS to be online.
 
-The Django REST API owns all business logic. A Flutter client (MVVM) talks to it over HTTP.
+This file owns **installation, startup, demo credentials and ports**. See [AGENTS.md](AGENTS.md) for the documentation map, [SYSTEM_ATLAS.md](docs/SYSTEM_ATLAS.md) for architecture, and [ENDPOINTS.md](ENDPOINTS.md) for the API.
 
-> **Documentation map.** This file is the **setup** home. Do not look for architecture or the endpoint
-> list here — see [AGENTS.md](AGENTS.md) for the routing table, then follow the pointer you need.
+> **Local development/demo setup only.** Compose uses Django's development server, `DEBUG=True`, permissive hosts/CORS and known demo credentials. Ports are published on all host interfaces by default. Do not expose this stack to the internet or use it as a production deployment. Keep it on a trusted machine/network with appropriate firewall rules.
 
-## Stack
+## Stack and prerequisites
 
-| Layer | Technology |
-| --- | --- |
-| Backend | Django 5.2 LTS, Django REST Framework 3.15, SimpleJWT |
-| Database | PostgreSQL 15 (Docker) |
-| Frontend | Flutter / Dart, `go_router`, Dio, MVVM |
-| Runtime | Docker Compose |
+| Component | Requirement |
+|---|---|
+| Backend | Python 3.12 + Django 5.2 LTS + Django REST Framework, installed inside Docker |
+| Database | PostgreSQL 15, installed inside Docker |
+| Containers | Docker Desktop running Linux containers; current Docker Compose v2 |
+| Client | Flutter SDK with Dart **3.11 or compatible 3.x newer** (`flutter/pubspec.yaml`) |
+| Windows build tools | Visual Studio 2022 with **Desktop development with C++**, including Windows SDK and CMake tools; VS Code alone is not enough |
+| Source control | Git |
+| Excel test | Microsoft Excel or another `.xlsx` editor; Windows Excel round-trip was user-verified |
 
-## Prerequisites
+Use **Windows PowerShell**, not WSL, to build and run the native Windows app. Docker Desktop may use WSL2 internally. Do not start a second copy of the same Compose stack from WSL; fixed container names and ports would clash.
 
-- Docker Engine + Docker Compose v2
-- Flutter SDK with Linux desktop support enabled (`flutter doctor`)
-- On Linux desktop: `clang`, `cmake`, `ninja-build`, `pkg-config`, `libgtk-3-dev`
+Check tools:
 
-## 1. Start the backend
+```powershell
+git --version
+docker version
+docker compose version
+flutter --version
+flutter doctor -v
+```
 
-> **Phase 1b closed with owner-accepted QA limits; contract v0.3 is provisionally accepted.** Dev (`buildpro_db`, API :8000) was reseeded on 2026-11-09; the [seed scenarios below](#2-load-demo-data) describe a fresh seed, not verified current dev data. Final evidence and accepted gaps: [plan Handoff](planning/pos-evolution/phase-1b-plan.md#handoff--known-limits). The entrypoint runs `migrate` on every start; dev writes, restarts, reseeds and resets need owner approval. Backend + client + breaking contract must roll out together; see [rollout/rollback safety](docs/integration/CPMS-CONTRACT.md#rollout-and-rollback-boundary).
+Resolve Windows desktop toolchain errors reported by `flutter doctor` before launching the client. No host Python or PostgreSQL installation is needed.
 
-> **Phase 4 (front counter) is done; its migrations were applied on dev by the last read-only check.** Its `pos` migrations 0011–0014 add store settings, discount approvals, cheque payments, per-sale `vat_rate` and `change_given`. 0012 marks existing payments `CLEARED`; 0013 leaves older sales with no VAT rate (returns of them use 0%, matching their receipts); 0014 fills `change_given` from what each old sale was paid, capped at the cash taken. Defaults after migrating: VAT-registered, 12%, discount cap 10% (Admin → Settings).
+## 1. Get the latest source
 
-> **Phase 5 (back office) ✅ Done — owner-closed 2026-11-12.** Order-line unit prices stay editable with catalogue defaults. BAG validation text is fixed, independently approved and widget-verified at 760 / 1.3 (RED→GREEN). Fresh controller gates: backend 1027 OK, check/drift clean, Flutter analyze clean, ordinary 1987 passed / 241 skipped, goldens 241 passed unchanged ([verification record](planning/pos-evolution/phase-5-plan.md)). Committed locally as `864a667`; owner pushes. This is not fresh browser QA or printing verification. Closure does not authorize dev startup/migration/reset or another phase; printing/scaling and other accepted limits remain unverified. It adds five migrations **applied on isolated QA but still pending on local dev**: `inventory` **0009** (a PO line names its `variant_uom`, plus `ordered_qty`/`unit_cost` in that unit), **0010** (`SupplierBill` + `SupplierPayment`), **0011** (`StorageLocation` + `Product.stored_at`), `pos` **0015** (`Delivery` + sale `delivery_fee`) and `users` **0005** (delivery audit actions). What to know before migrating a demo database:
-> - 0011 seeds **Store** and **Bodega** and backfills every product, so new products default to **Store** and `seed_demo` restores both places after a flush (one seeded demo product lives in the Bodega).
-> - One supplier bill is written per **processed receipt**, from the receipt's package quantity × package cost less that receipt's share of the PO discount; a receipt with zero gross value makes no bill, and receipts processed before 0010 get **no retroactive bill**.
-> - A PO is ordered by package (“10 BAG at ₱250/bag”) and stock enters in base units (`qty × factor`), with landed cost per base unit = unit cost ÷ factor.
-> - The **delivery fee is charged on top of the goods total and is never discounted** (VAT is split over the fee-inclusive total). The fee rules are **owner-confirmed (2026-11-12)**: a zero fee is allowed, the discount cap and the return's net refund exclude the fee, a fee is not refunded, and a sales-order fee lives only on its Delivery row.
->
-> **Dev containers are STOPPED after the host restart.** The assistant restored and migrated only the isolated QA stack (network `172.20.0.*`, API `:8001`, web `:8091`) with current source. **Do not restart dev as if it were safe:** its entrypoint runs `migrate` on every start and would apply the pending Phase 5 migrations to the demo database, which needs owner approval. Dev's last known state is the **Phase 4 schema**; its seed state is unverified.
+### First installation
 
-```bash
+```powershell
+git clone https://github.com/ziminni/qb_hardwarestore.git qb_pos_inventory_system
 cd qb_pos_inventory_system
-docker compose up -d --build
+git switch master
+git pull --ff-only origin master
+```
+
+### Existing checkout
+
+Close the running Flutter app, open PowerShell in your Windows repository, then:
+
+```powershell
+cd "C:\path\to\qb_pos_inventory_system"
+git status
+```
+
+If you have uncommitted work, stop and preserve it before switching branches or pulling. Otherwise, stop the backend before changing its bind-mounted source:
+
+```powershell
+docker compose stop backend
+git switch master
+git pull --ff-only origin master
+git log -3 --oneline
+```
+
+Stop on any command error. Updating source does not itself migrate the database; starting the backend does.
+
+## 2. Existing database: back up before starting updated backend
+
+**Do not delete the database volume or reset data to install an update.** The backend startup runs all pending migrations automatically, including changes newer than the previous installation. A previous Windows database may be behind even when the source is current.
+
+Start only PostgreSQL:
+
+```powershell
+docker compose up -d db
 docker compose ps
 ```
 
-Expect two healthy services:
+Wait until `db` is **healthy**. If this is a genuinely new installation with no data to preserve, continue to step 3. Otherwise, back up the existing database:
 
-```text
-buildpro_backend   Up   0.0.0.0:8000->8000/tcp
-buildpro_db        Up   0.0.0.0:5435->5432/tcp   (healthy)
+```powershell
+$backupDir = Join-Path $env:USERPROFILE "BuildProBackups"
+New-Item -ItemType Directory -Force $backupDir
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$backupFile = Join-Path $backupDir "pos-$stamp.dump"
+
+docker compose exec -T db pg_dump -U admin -d buildpro_pos -Fc -f /tmp/pre-update.dump
+if ($LASTEXITCODE -ne 0) { throw "Database backup failed. Do not start backend." }
+
+docker cp buildpro_db:/tmp/pre-update.dump $backupFile
+if ($LASTEXITCODE -ne 0) { throw "Backup copy failed. Do not start backend." }
+
+Get-Item $backupFile
 ```
 
-Confirm the API is serving:
+This copies a binary PostgreSQL archive without PowerShell output-redirection encoding problems. Backups live **outside the repository**; protect them because they contain store data. Keep the backup before proceeding. These commands match the database/user/container names in the supplied Compose file; adjust if your installation deliberately changed them.
 
-```bash
-curl -s http://127.0.0.1:8000/api/health/
-# {"status":"ok","service":"BuildPro API"}
+Never use `docker compose down -v` or `python manage.py flush` as an update step: they destroy stored data. If migration fails, retain the backup and capture the error; do not improvise a reset or rollback.
+
+## 3. Build and start the backend
+
+From the repository root:
+
+```powershell
+docker compose up -d --build backend
+docker compose ps
+docker compose logs --tail=80 backend
 ```
 
-Migrations are applied automatically by the container entrypoint. To run them by hand:
+Compose also starts PostgreSQL if needed and waits for its health check. The backend runs `migrate` before serving the API. Expect:
 
-```bash
-docker compose exec backend python manage.py migrate
+| Container | Purpose | Host port |
+|---|---|---|
+| `buildpro_backend` | Django API | `8000` |
+| `buildpro_db` | PostgreSQL | `5435` (container port `5432`) |
+
+Verify startup:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/health/
+docker compose exec backend python manage.py check
+docker compose exec backend python manage.py showmigrations --plan
 ```
 
-## 2. Load demo data
+Expected health: `status: ok`, `service: BuildPro API`. System check should report no issues; applied migrations show `[X]`. If health is unavailable, inspect backend logs rather than repeatedly reseeding.
 
-```bash
+## 4. Demo data and credentials
+
+For a **fresh disposable demo database only**:
+
+```powershell
 docker compose exec backend python manage.py seed_demo
 ```
 
-Run on a migrated database. The seed skips existing data sections: re-running is not a migration, reset or repair of existing scenarios. **No automatic flush;** a clean reseed needs `python manage.py flush --noinput` first, which wipes everything (dev requires owner approval). It creates the five accounts below, stocked products, customers, completed sales and unpaid *utang*.
+The seed creates users, catalogue/packaging units, Store/Bodega locations, stocked batches, transfers, sample sales, receivables and CPMS request examples. Existing sections are skipped; it is **not a reset, repair or password-reset command**. Do not expect old demo data to be rewritten into every newest scenario. No flush is required for normal updates.
 
-Post-migration fresh-seed requests (validated by Task 5 on the Django test database; dev reseeded to these states 2026-11-09):
+| Username | Role | Password on a fresh seed |
+|---|---|---|
+| `admin` | System Administrator | `demo1234` |
+| `manager` | Store Manager | `demo1234` |
+| `stocker` | Stock Manager | `demo1234` |
+| `cashier` | Cashier | `demo1234` |
+| `cpms_service` | Machine integration account; no POS dashboard | `demo1234` |
 
-| CPMS request id | Expected state | Probe |
-| --- | --- | --- |
-| `CPMS-R-1001` | `ACCEPTED` | Fully releasable; every eligible line shows FULL |
-| `CPMS-R-1002` | `RELEASED` | Completed release history, token spent |
-| `CPMS-R-1003` | `PARTIAL` | Short-shelf visit; same token resumes after restock |
-| `CPMS-R-1004` | `WAITING` | Store review required; scanning refused |
-| `CPMS-R-1005` | `DECLINED` | Reason visible; scanning refused with store-decline code |
+Emails use `<username>@demo.ph`. Existing accounts keep their existing passwords. Historical `admin123` instructions are incorrect for the seed. Django admin is at <http://127.0.0.1:8000/admin/>.
 
-Phase 1d packaging demo (test-DB verified): **Tile Adhesive / Standard** sold loose by `KG` at ₱12.00 or as a whole `BAG` of 25 kg at ₱275.00, with 250 kg received through a real purchase order and Receiving (no opening-stock shortcut). The seed also ensures the 12 standard units (`PC`, `BAG`, `BOX`, `PACK`, `ROLL`, `SHEET` whole; `KG`, `G`, `M`, `CM`, `L`, `ML` measured), including after a `flush`. Phase 5 seed additions: the two storage places **Store** and **Bodega** (one demo product kept in the Bodega, every other product in the Store). Fresh-seed totals: 7 products, 9 variants, 10 selling units, 7 transactions, 3 open utang ledgers, 5 requests.
+Seed output includes random material-release tokens; keep them private and do not commit logs containing them. Demo passwords must not be used for real store accounts.
 
-Scanner token UUIDs are random per seed: use the ones **printed in that seed's stdout**; never paste them (or contract example tokens) into docs. QA writes on dev need owner approval each time. QA flow checklist: [QA-PROFILE](docs/testing/QA-PROFILE.md).
+## 5. Run the native Windows client
 
-## 3. Run the Flutter client
+Leave Docker running. Open a second PowerShell terminal:
 
-Open a second terminal and leave the backend running:
-
-```bash
-cd qb_pos_inventory_system/flutter
+```powershell
+cd "C:\path\to\qb_pos_inventory_system\flutter"
+flutter config --enable-windows-desktop
 flutter pub get
-flutter run -d linux
+flutter devices
+flutter run -d windows --dart-define=API_BASE_URL=http://127.0.0.1:8000
 ```
 
-Run controls: `r` = hot reload · `R` = hot restart · `q` = quit.
+The API URL is the **host root**, without `/api/v1`: client services already add that path. Desktop defaults to `http://127.0.0.1:8000`; the explicit override makes the target clear.
 
-On desktop the client resolves the API to `http://127.0.0.1:8000` automatically — no configuration needed
-(see [Connecting the client](#connecting-the-client)).
+Login using an existing account or fresh-seed credentials above. Single-area accounts retain their own menus. Accounts assigned multiple POS areas land on **Needs you**, with one grouped sidebar and shared destinations shown once. Multiple roles must be assigned to the account; the seed does not automatically make every user multi-role.
 
-## Demo accounts
+Press `q` in the Flutter terminal to stop the app. For normal backend shutdown without deleting data:
 
-Password is the same for all five. `seed_demo` defines these accounts; this is the canonical credential home. All five logins returned 200 on dev on 2026-11-09.
+```powershell
+# Run from repository root.
+docker compose stop
+```
 
-| Username | Name | Role | Can do |
-| --- | --- | --- | --- |
-| `admin` | Ada Ministrator | System Administrator | Everything, plus Django admin (`/admin/`) |
-| `manager` | Mana Ger | Store Manager | Accept/decline project requests, reports, ledger, users |
-| `stocker` | Stock Er | Stock Manager | Inventory writes: products, POs, receipts, adjustments |
-| `cashier` | Cashi Er | Cashier | POS transactions, customers, token release, utang payments |
-| `cpms_service` | CPMS Service | CPMS Service (machine account, not a POS role) | Only the six integration endpoints; no POS dashboard |
+For a subsequent start with no source update, run `docker compose up -d` at the root, then the Flutter command above. Backend startup still checks/applies pending migrations; follow the backup path whenever installing an update.
 
-**Password for all: `demo1234`.** Emails follow `<username>@demo.ph`.
+## 6. Excel catalogue smoke test
 
-> ⚠️ Some historical docs in this repo claim `admin` / `admin123`. That is **wrong** and returns HTTP 400.
-> Use `demo1234`.
->
-> `foreman` is no longer seeded. CPMS requester/approver names are text, not POS logins. POS roles are unchanged; Store Manager and Admin review via sidebar **Project requests** (page title "Requests from projects"; `/sales/project-requests`, `/admin/project-requests`). CPMS approval does not replace POS acceptance. New imports wait for review; acceptance reserves no stock and books no debt. Cashier/stocker cannot open the review queue.
+Use disposable demo data. Catalogue import intentionally changes prices/names and is not a stock-adjustment feature.
 
-Django admin: <http://127.0.0.1:8000/admin/> with `admin` / `demo1234`.
+1. Login as `stocker`; open **Products**. Choose a product (for example, seeded **Faucet**) and note its current price and stock quantity.
+2. Select **Export to Excel → Save .xlsx**. Verify the native Save dialog and saved file.
+3. Open the workbook in Excel. Change one **Price** cell only; keep IDs, headers and the `.xlsx` format.
+4. Save and close Excel. Select **Import from Excel** and choose the workbook using the native Open dialog.
+5. Check preview shows only the intended change and no errors. Click **Apply import**.
+6. Confirm the new price appears and stock quantity is unchanged.
+7. Export again and re-import unchanged. Preview should report no changes; applying unchanged rows must not change stock.
 
-### Verify a login
+**Verified by the owner on Windows:** Faucet price changed from **225 to 1,000**, import succeeded, export/re-import succeeded again, and stock quantity stayed unchanged. This is a user-reported native Windows/Excel smoke test, not an independently observed full regression run. LibreOffice interoperability, physical printing/scanning and exhaustive Windows workflows are not implied. See [QA handoff](docs/sessions/pos-windows-installation-and-excel-acceptance.md).
+
+## Other client targets
+
+From `flutter/`:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/auth/login/ \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"cashier","password":"demo1234"}'
-# -> {"access": "...", "refresh": "...", "user": {...}}
+# Linux: needs clang, cmake, ninja-build, pkg-config and libgtk-3-dev.
+flutter config --enable-linux-desktop
+flutter pub get
+flutter run -d linux --dart-define=API_BASE_URL=http://127.0.0.1:8000
+
+# Browser smoke test; does not replace native Windows picker/save verification.
+flutter run -d chrome --dart-define=API_BASE_URL=http://127.0.0.1:8000
 ```
 
-## Ports
-
-| Service | Host | Container | Notes |
-| --- | --- | --- | --- |
-| Django API | `8000` | `8000` | Matches every frontend default and the API docs |
-| PostgreSQL | `5435` | `5432` | Host port is non-default to avoid clashing with a host-installed Postgres |
-
-The database host port is published on **5435** on purpose: a host running its own PostgreSQL commonly
-occupies `5432`/`5433`. Only the left-hand host port can conflict, so this mapping is portable. Nothing
-inside the compose network is affected — containers still reach the database at `db:5432`.
-
-## Connecting the client
-
-Base URL is resolved in `flutter/lib/core/config/api_config.dart`:
-
-| Target | Base URL |
-| --- | --- |
-| Flutter Web / Linux desktop / iOS Simulator | `http://127.0.0.1:8000` |
-| Android emulator | `http://10.0.2.2:8000` |
-| Physical device (Wi-Fi) | `http://<PC_LAN_IP>:8000` |
-
-Override without editing code (physical device, or a non-default port):
-
-```bash
-flutter run --dart-define=API_BASE_URL=http://192.168.1.5:8000
-```
-
-The PC and phone must share a network, and the host firewall must allow inbound TCP `8000`.
-
-Android builds already carry `android.permission.INTERNET` and `android:usesCleartextTraffic="true"`
-(dev only — plain `http://` will not pass a release review).
-
-Network layer: `flutter/lib/core/network/api_client.dart` — a Dio singleton that attaches
-`Authorization: Bearer <access_token>`, retries once via `POST /api/v1/auth/refresh/` on a 401, and
-logs the user out if the refresh fails. Tokens are held in `flutter_secure_storage`.
-
-## Verifying the stack
-
-```bash
-# API up
-curl -s http://127.0.0.1:8000/api/health/
-
-# Login works
-curl -s -X POST http://127.0.0.1:8000/api/v1/auth/login/ \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"demo1234"}' | head -c 120
-
-# Protected read with the access token from the previous call
-curl -s http://127.0.0.1:8000/api/v1/products/ -H 'Authorization: Bearer <access_token>'
-```
-
-Backend checks inside the container:
-
-```bash
-docker compose exec backend python manage.py check
-docker compose exec backend python manage.py test
-```
+Android emulator defaults to `http://10.0.2.2:8000`. A physical device needs the server's LAN IP, the same trusted network and suitable firewall rules. Do not forward these development ports to the internet. Windows stores tokens using the secure-storage platform backend; Linux uses local preferences per the existing demo-only token-store policy.
 
 ## Troubleshooting
 
-**Port already in use.** Only the host port can collide. Re-map it in `docker-compose.yml` and point the
-client at the new port with `--dart-define=API_BASE_URL=...`.
+- **Docker unavailable:** start Docker Desktop, select Linux containers, then retry `docker version`.
+- **Container name/port already used:** check `docker ps`. A WSL-started stack may share Docker Desktop's engine. Do not delete containers/volumes you have not identified. Default ports are API `8000`, database `5435`; changing the API host port also requires updating `API_BASE_URL`.
+- **Older Compose rejects optional `env_file`:** update Docker Desktop/Compose v2. The backend `.env` file is optional; stock settings contain the local defaults. Do not assume adding environment values changes settings that do not read them.
+- **Windows toolchain missing:** use Visual Studio Installer to add Desktop development with C++, Windows SDK and CMake tools. Re-run `flutter doctor -v`.
+- **Plugin symlink support error:** enable Windows Developer Mode, then retry `flutter pub get`.
+- **Stale CMake path after moving checkout:** from `flutter/`, run `flutter clean`, `flutter pub get`, then the Windows run command again.
+- **Dart SDK too old:** install a Flutter version whose bundled Dart satisfies `flutter/pubspec.yaml`; do not downgrade project dependencies to bypass the requirement.
+- **API 404s with doubled `/api/v1/api/v1/`:** set `API_BASE_URL` to the host root only.
+- **Login fails:** existing database passwords may differ from fresh-seed credentials. Do not flush the database to recover a password.
+- **Spreadsheet access denied:** close the workbook in Excel and choose a writable folder. Keep `.xlsx` extension; do not save as CSV.
 
-**Windows: stale `CMakeCache` path error after moving the project folder.** Run `flutter clean`, then
-`flutter run -d windows`.
+## Developer verification
 
-**`flutter` cannot find a device.** Enable the desktop target once:
-`flutter config --enable-linux-desktop`, then `flutter devices`.
+Run backend suites on a **disposable development/test stack**, never alongside another run using the same test database. Django creates/drops its test database; this is not a production health check.
 
-**Repeated "unlock keyring" prompt on Linux — FIXED in code (2026-10-20).** On Linux (not web) the client
-now stores its JWTs in `shared_preferences` instead of `flutter_secure_storage`, so there is no
-`libsecret`/gnome-keyring prompt. macOS (Keychain), Windows (DPAPI), mobile and web are unchanged. The
-selection lives in `flutter/lib/core/network/token_store.dart` (`tokenStoreForPlatform`), keyed on
-`defaultTargetPlatform`. Trade-off: on Linux the tokens sit in a plaintext prefs file — acceptable for a
-demo machine, not for production (production hardening is out of scope). See
-`planning/cashier-workflow/decisions/01-linux-token-storage.md`. If you prefer the keyring anyway, give it
-an **empty password** (`seahorse`, or delete `~/.local/share/keyrings/Default_keyring.keyring` and
-re-create it with both password fields blank).
+```bash
+docker compose exec backend python manage.py check
+docker compose exec backend python manage.py makemigrations --check --dry-run
+docker compose exec backend python manage.py test --noinput
 
-## Repository layout
-
-```text
-qb_pos_inventory_system/
-├── backend_django/          Django project
-│   ├── config/              settings, root urls, wsgi
-│   └── apps/                users · inventory · pos · collectibles · requisitions · reports
-├── flutter/                 Flutter client
-│   └── lib/
-│       ├── core/            config, network (api_client), layout
-│       ├── data/            models, services, repositories
-│       ├── features/        15 feature modules (views / viewmodels / widgets)
-│       └── routes/          go_router route table
-├── docs/                    SYSTEM_ATLAS.md + system-atlas.html
-├── planning/                unbuilt work and decisions (read MAP.md first)
-├── AGENTS.md                routing table — where every fact lives
-├── ENDPOINTS.md             API contract: every endpoint, auth and role matrix
-└── CONTRIBUTING.md          branch, commit and review conventions
+cd flutter
+flutter analyze
+flutter test --concurrency=2
 ```
+
+Golden masters are gitignored local artifacts; fresh clones do not receive them. See [AGENTS.md](AGENTS.md) and [QA-PROFILE.md](docs/testing/QA-PROFILE.md) for test details. CPMS-dependent payment-receipt approval (Phase 1c) remains on hold; see [POS roadmap](planning/pos-evolution/MAP.md).
