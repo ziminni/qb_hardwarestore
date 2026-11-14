@@ -19,6 +19,7 @@ from common.exceptions import refuse_fractional_whole_unit
 from . import payables
 from .exceptions import (
     InsufficientStock,
+    InvalidStorageLocation,
     InvalidSupplierReturn,
     NoBatchHistory,
     PurchaseOrderNotReceivable,
@@ -35,6 +36,7 @@ from .models import (
     ProductVariant,
     PurchaseOrder,
     StockAdjustment,
+    StorageLocation,
     SupplierBill,
     SupplierReturn,
     SupplierReturnDeduction,
@@ -163,28 +165,40 @@ def process_goods_receipt(*, receipt: GoodsReceipt, user=None) -> list[Inventory
 
         lines = list(
             receipt.lines.select_related(
-                "po_item__variant", "po_item__variant_uom__uom"
+                "po_item__variant__product", "po_item__variant_uom__uom", "location"
             )
         )
         # Validated in a first pass, batch by batch, ONLY then created: a refusal on the
         # third line must leave lines one and two unbatched, which is easier to trust
         # when nothing was written yet than when the rollback has to undo it.
-        # (po_item, base_qty, package_qty): stock is minted from the BASE quantity and
-        # the bill from the PACKAGE quantity, both from the same delivery.
+        # (po_item, base_qty, package_qty, location_id): stock is minted from the BASE
+        # quantity, the bill from the PACKAGE quantity, and the batch lands on the shelf
+        # the line names (Phase 9 B3, plan Design 7).
         plan = []
         if lines:
             for line in lines:
                 item = line.po_item
                 # `line.qty` is in the PO line's selling unit; stock is base units.
                 refuse_unrepresentable_stock(item=item, qty=line.qty)
-                plan.append((item, line.qty * line_factor(item), line.qty))
+                plan.append(
+                    (
+                        item,
+                        line.qty * line_factor(item),
+                        line.qty,
+                        line_destination(line),
+                    )
+                )
         else:
-            for item in po.items.select_related("variant", "variant_uom").filter(
-                received_qty__gt=0
-            ):
+            for item in po.items.select_related(
+                "variant__product", "variant_uom"
+            ).filter(received_qty__gt=0):
                 already_batched = InventoryBatch.objects.filter(
-                    receipt__po=po, variant=item.variant
+                    receipt__po=po, variant=item.variant, source_batch__isnull=True
                 ).aggregate(total=Sum("initial_qty")).get("total") or Decimal(0)
+                # `source_batch__isnull=True` (Phase 9 B1, decision 21 §2): a
+                # transfer-born batch COPIES its source's receipt, so counting it here
+                # would read moved goods as delivered goods and the next legacy receipt
+                # would stock less than it really brought in.
                 # Both sides in BASE units: `received_qty` is in the line's unit, so it
                 # is multiplied before the subtraction. Never subtract a package count
                 # from a base total - that is how 2 bags would restock as 2 kg.
@@ -193,10 +207,33 @@ def process_goods_receipt(*, receipt: GoodsReceipt, user=None) -> list[Inventory
                 if delta_base > 0:
                     # The bill is priced per PACKAGE, so the base delta is divided back
                     # by the factor - exactly, because it came from a package count.
-                    plan.append((item, delta_base, delta_base / line_factor(item)))
+                    plan.append(
+                        (
+                            item,
+                            delta_base,
+                            delta_base / line_factor(item),
+                            # A receipt with no lines carries no destination: it is the
+                            # pre-Phase-9 shape, and it went HOME (Design 7).
+                            item.variant.product.stored_at_id,
+                        )
+                    )
 
-        for item, base_qty, _package_qty in plan:
-            batches.append(_create_batch(receipt=receipt, item=item, base_qty=base_qty))
+        # Phase 9 B3 (plan Design 11/12): every destination is locked BEFORE the first
+        # write, in PK order, and re-checked - a shelf closed after the receipt was
+        # recorded must not end up holding stock, and the lock is what fences an Admin's
+        # deactivation racing this process. Raising here leaves the receipt unprocessed
+        # and stocks nothing (the atomic block rolls back).
+        destinations = _lock_receiving_locations(plan)
+
+        for item, base_qty, _package_qty, location_id in plan:
+            batches.append(
+                _create_batch(
+                    receipt=receipt,
+                    item=item,
+                    base_qty=base_qty,
+                    location=destinations[location_id],
+                )
+            )
 
         # Phase 5 B2 (decision 18): the SAME transaction that stocks the delivery writes
         # what the shop owes for it. A failure here (or in the audit row the view writes
@@ -210,7 +247,9 @@ def process_goods_receipt(*, receipt: GoodsReceipt, user=None) -> list[Inventory
         if plan:
             payables.create_bill_for_receipt(
                 receipt=receipt,
-                delivered=[(item, package_qty) for item, _base, package_qty in plan],
+                delivered=[
+                    (item, package_qty) for item, _base, package_qty, _location in plan
+                ],
             )
 
         # Update PO status only when something was actually received: an
@@ -278,8 +317,53 @@ def refuse_unrepresentable_stock(*, item: POItem, qty: Decimal) -> None:
     )
 
 
+def line_destination(line) -> int:
+    """Which shelf a delivered receipt line lands on (Phase 9 B3, plan Design 7).
+
+    The receiver's choice wins; a line with none - recorded before this phase, or by a
+    script that does not care - goes to the variant's HOME, which is where every
+    pre-Phase-9 delivery went.
+    """
+    return line.location_id or line.po_item.variant.product.stored_at_id
+
+
+def _lock_receiving_locations(plan) -> dict:
+    """Lock and verify the shelves a receipt is about to stock; `{id: StorageLocation}`.
+
+    Plan Design 12 puts the destination shelf FIRST in the lock order: holding it fences
+    an Admin's deactivation, which is the only way a location becomes unusable while a
+    receipt is processing. Sorted by PK so two receipts queue in ONE order.
+
+    An INACTIVE shelf refuses the delivery (`400 INVALID_STORAGE_LOCATION`): the shop has
+    closed that place, and stock must not arrive in it. The caller's atomic block then
+    rolls back, so the receipt stays unprocessed and nothing is written.
+    """
+    location_ids = sorted({entry[3] for entry in plan})
+    if not location_ids:
+        return {}
+    held = {
+        location.pk: location
+        for location in StorageLocation.objects.select_for_update()
+        .filter(pk__in=location_ids)
+        .order_by("pk")
+    }
+    for location_id in location_ids:
+        location = held.get(location_id)
+        if location is None:
+            raise InvalidStorageLocation(
+                f"Storage location #{location_id} no longer exists, so this receipt has "
+                "nowhere to land: reload the receiving screen."
+            )
+        if not location.is_active:
+            raise InvalidStorageLocation(
+                f"{location.name} is deactivated and cannot take deliveries: choose an "
+                "active location for the line, or have the location reactivated."
+            )
+    return held
+
+
 def _create_batch(
-    *, receipt: GoodsReceipt, item: POItem, base_qty: Decimal
+    *, receipt: GoodsReceipt, item: POItem, base_qty: Decimal, location=None
 ) -> InventoryBatch:
     """One batch for one delivered BASE quantity; also re-checks the low-stock threshold.
 
@@ -293,15 +377,24 @@ def _create_batch(
     `batch_selling_price` is set EQUAL to the landed cost, with `markup_percentage` 0:
     this path writes no markup, so there is no multiplication to apply here and a batch
     created from a receipt sells at cost until something changes its price.
+
+    `location` is the shelf the line was delivered to (Phase 9 B3). The caller passes the
+    row it already locked; an omitted one falls back to the product's home, which is what
+    every delivery meant before the receiver could choose.
     """
     factor = line_factor(item)
     base_qty = base_qty.quantize(CENT, rounding=ROUND_HALF_UP)
-    unit_cost_per_base = (item.unit_cost / factor).quantize(
+    unit_cost_per_base = (Decimal(item.unit_cost) / factor).quantize(
         CENT, rounding=ROUND_HALF_UP
     )
     batch = InventoryBatch.objects.create(
         variant=item.variant,
         receipt=receipt,
+        # Phase 9 B3 (decision 21, plan Design 7): where the receiver put it. IMMUTABLE
+        # afterwards - an adjustment at an empty shelf or a transfer writes a NEW batch
+        # rather than editing this column, which is what makes
+        # `SalesItemDeduction.batch.location` a stable "where it was taken".
+        location=location or item.variant.product.stored_at,
         initial_qty=base_qty,
         current_qty=base_qty,
         unit_cost_landed=unit_cost_per_base,
@@ -312,22 +405,64 @@ def _create_batch(
     return batch
 
 
-def allocate_fifo(*, variant_id: int, qty_needed: Decimal):
-    """FIFO stock allocator.
+def allocate_fifo(
+    *, variant_id: int, qty_needed: Decimal, location_id: int | None = None
+):
+    """FIFO stock allocator, shelf by shelf (decision 21 §2, plan Design 3).
 
-    Given a variant and desired quantity, iterate through batches
-    ordered by receipt date (oldest first). Returns a list of
-    (batch, qty_to_deduct) tuples and deducts current_qty.
+    Given a variant and desired quantity, iterate through batches in ONE locked query
+    and return [(batch, qty_to_deduct)] after deducting `current_qty`.
 
-    Raises ValueError if there isn't enough stock.
+    **The order is the owner's ruling.** Stock is taken from the product's HOME shelf
+    (`variant.product.stored_at`) first, then the other ACTIVE locations in location
+    order, and only then stock on a DEACTIVATED shelf - that last group stays sellable so
+    no stock is stranded when a place is closed, but a sale never reaches for it while a
+    live shelf still holds the same variant. Inside ONE shelf the oldest delivery still
+    goes first (`receipt__receive_date`, then `id`), so FIFO age survives the move.
+
+    `location_id=` narrows the whole allocation to one shelf (an adjustment's removal, a
+    transfer's source). Signature stays keyword-only and the return shape is unchanged,
+    so every existing caller keeps working without knowing about shelves.
+
+    Raises `InsufficientStock` (a `ValueError`) when the shelves cannot cover it.
     """
+    from django.db.models import Case, F, IntegerField, Value, When
+
     from .models import ProductVariant
 
     batches = (
-        InventoryBatch.objects.select_for_update()
+        # `of=("self",)`: the row locks stay on the batch table. The ordering below
+        # joins through to `variant.product` and `location`, and locking those catalog
+        # rows would serialise unrelated sales of the same product (plan Design 12 keeps
+        # the lock order batches -> variant).
+        InventoryBatch.objects.select_for_update(of=("self",))
+        # `location` comes along for the pick-up caption, which names the shelf each part
+        # was taken from. The join already exists for `active_rank`, and `of=("self",)`
+        # keeps the lock on the batch rows: this costs columns, not a query or a lock.
+        .select_related("location")
         .filter(variant_id=variant_id, current_qty__gt=0)
-        .order_by("receipt__receive_date")
+        .annotate(
+            shelf_rank=Case(
+                When(location_id=F("variant__product__stored_at_id"), then=Value(0)),
+                default=Value(1),
+                output_field=IntegerField(),
+            ),
+            active_rank=Case(
+                When(location__is_active=True, then=Value(0)),
+                default=Value(1),
+                output_field=IntegerField(),
+            ),
+        )
+        .order_by(
+            "shelf_rank",
+            "active_rank",
+            "location_id",
+            "receipt__receive_date",
+            "id",
+        )
     )
+    if location_id is not None:
+        batches = batches.filter(location_id=location_id)
 
     allocations = []
     remaining = qty_needed
@@ -352,6 +487,67 @@ def allocate_fifo(*, variant_id: int, qty_needed: Decimal):
     InventoryBatch.objects.bulk_update([b for b, _ in allocations], ["current_qty"])
 
     return allocations
+
+
+def pick_up_caption(
+    *,
+    parts,
+    fallback_location_id: int,
+    fallback_location_name: str,
+    qty: Decimal,
+    conversion_factor: Decimal,
+    selling_unit: str,
+    base_unit: str,
+) -> list:
+    """The `pick_up` list for ONE line: which shelf each part of it left (Design 4).
+
+    `parts` is `[(location_id, location_name, qty_in_base_units), ...]` in the order the
+    allocator took them (a sale's `SalesItemDeduction` rows, a release's allocations), so
+    the caption reads "3 at Store, 2 at Bodega" in pick order. Parts on ONE shelf are
+    added together: the picker walks to that shelf once.
+
+    The unit is the owner's delegated ruling. When EVERY part divides exactly into the
+    line's selling unit (two BOXES of 12 taken as 12+12), the parts are reported in BOXES
+    - "1 BOX at Store, 1 BOX at Bodega". When one part does not (7+5 out of a box of 12),
+    every part is reported in BASE units with the base code, because "0.58 BOX" is not
+    something anybody can count off a shelf.
+
+    With NO parts the line has no history to read: a sale rung before Phase 9, or an
+    order not fulfilled yet. It keeps the caption the receipt has always printed - one
+    entry naming the product's `stored_at` for the whole line, in its selling unit.
+    """
+    grouped = {}
+    for location_id, location_name, base_qty in parts:
+        # Absolute value: a linked customer return writes NEGATIVE deduction rows on the
+        # shelf it put the stock back on, and "-2 at Store" is not a pick-up point.
+        entry = grouped.get(location_id)
+        if entry is None:
+            grouped[location_id] = entry = [location_name, abs(base_qty)]
+        else:
+            entry[1] += abs(base_qty)
+
+    if not grouped:
+        return [
+            {
+                "location": fallback_location_id,
+                "location_name": fallback_location_name,
+                "qty": f"{qty:.2f}",
+                "unit": selling_unit,
+            }
+        ]
+
+    exact = all(total % conversion_factor == 0 for _, total in grouped.values())
+    divisor = conversion_factor if exact else Decimal(1)
+    unit = selling_unit if exact else base_unit
+    return [
+        {
+            "location": location_id,
+            "location_name": location_name,
+            "qty": f"{total / divisor:.2f}",
+            "unit": unit,
+        }
+        for location_id, (location_name, total) in grouped.items()
+    ]
 
 
 def allocate_from_receipt(*, receipt, variant, base_qty):
@@ -497,20 +693,12 @@ def record_supplier_return(*, receipt, reason, lines, user):
         # Pass 2 - the cap, the deduction and its provenance, one line at a time.
         variant_ids = []
         for receipt_line, item, qty, base_qty in plan:
-            already_base = (
-                SupplierReturnLine.objects.filter(receipt_line=receipt_line)
-                .aggregate(total=Sum("base_qty"))
-                .get("total")
-                or Decimal(0)
-            )
-            on_hand_base = (
-                InventoryBatch.objects.filter(
-                    receipt=receipt, variant=item.variant
-                )
-                .aggregate(total=Sum("current_qty"))
-                .get("total")
-                or Decimal(0)
-            )
+            already_base = SupplierReturnLine.objects.filter(
+                receipt_line=receipt_line
+            ).aggregate(total=Sum("base_qty")).get("total") or Decimal(0)
+            on_hand_base = InventoryBatch.objects.filter(
+                receipt=receipt, variant=item.variant
+            ).aggregate(total=Sum("current_qty")).get("total") or Decimal(0)
             delivered_base = receipt_line.qty * line_factor(item)
             cap = min(delivered_base - already_base, on_hand_base)
             if base_qty > cap:
@@ -564,7 +752,8 @@ def apply_stock_adjustment(*, adjustment: StockAdjustment) -> None:
     rather than as silently negative stock.
 
     Positive `qty_adjusted` = addition (count correction / return) onto the NEWEST batch
-    of that variant, whatever its `current_qty` is. Two defects lived here before:
+    of that variant ON THAT SHELF, whatever its `current_qty` is. Two defects lived here
+    before:
 
     1. The batch lookup filtered `current_qty__gt=0`, so a correction booked against an
        out-of-stock variant matched nothing, wrote a StockAdjustment row and moved no
@@ -578,6 +767,16 @@ def apply_stock_adjustment(*, adjustment: StockAdjustment) -> None:
        `StockAdjustmentViewSet` wraps create + apply in ONE atomic block, refusing it
        leaves no adjustment row behind.
 
+    Phase 9 B3 (decision 21, plan Design 8): the adjustment moves stock on ONE shelf.
+    A removal is `allocate_fifo(location_id=...)`, so a count correction at the Store
+    cannot eat the Bodega's goods and a shortage there is `InsufficientStock` even when
+    the shop's total would cover it. An addition reopens the newest batch AT that shelf;
+    when the shelf has never held the variant, a NEW batch is minted copying the
+    variant's newest batch (receipt, landed cost, selling price, markup, expiry) with
+    `source_batch` set - cost and age travel with it, and Design 2's receipt sums skip
+    the copy because they filter `source_batch__isnull=True`. `NoBatchHistory` stays for
+    a variant with no batch ANYWHERE: there is still nothing to copy.
+
     The old removal branch caught its own `ValueError` and called `allocate_fifo` a second
     time; the retry could only ever raise again (the stock needed to satisfy it does not
     appear between two calls), so it doubled the work and hid the real error class. It is
@@ -587,25 +786,52 @@ def apply_stock_adjustment(*, adjustment: StockAdjustment) -> None:
 
     variant = adjustment.variant
     qty = adjustment.qty_adjusted
+    location = adjustment.location
 
     if qty < 0:  # removal (shrinkage / damage)
         # The result is deliberately not bound: `allocate_fifo` both deducts and returns
         # the allocation, and this caller only needs the deduction.
-        allocate_fifo(variant_id=variant.pk, qty_needed=abs(qty))
+        allocate_fifo(
+            variant_id=variant.pk, qty_needed=abs(qty), location_id=location.pk
+        )
     elif qty > 0:  # addition (correction / return)
         # Newest batch FIRST, and `current_qty` is not filtered: an emptied batch is
         # exactly the one a correction is meant to reopen. Locked so two corrections
         # cannot read the same `current_qty` and lose one of the increments.
-        batch = (
+        on_this_shelf = (
             InventoryBatch.objects.select_for_update()
-            .filter(variant=variant)
+            .filter(variant=variant, location=location)
             .order_by("-receipt__receive_date", "-id")
             .first()
         )
-        if batch is None:
-            raise NoBatchHistory(variant)
-        batch.current_qty += qty
-        batch.save(update_fields=["current_qty"])
+        if on_this_shelf is not None:
+            on_this_shelf.current_qty += qty
+            on_this_shelf.save(update_fields=["current_qty"])
+        else:
+            # The shelf has never held this variant, so the correction COPIES the newest
+            # batch from anywhere: the receipt it came in on, its cost, its price and its
+            # expiry describe the goods being counted, and `source_batch` marks the copy
+            # as not-a-delivery. Copying is only possible when some batch exists.
+            template = (
+                InventoryBatch.objects.select_for_update()
+                .filter(variant=variant)
+                .order_by("-receipt__receive_date", "-id")
+                .first()
+            )
+            if template is None:
+                raise NoBatchHistory(variant)
+            InventoryBatch.objects.create(
+                variant=variant,
+                receipt=template.receipt,
+                location=location,
+                source_batch=template,
+                initial_qty=qty,
+                current_qty=qty,
+                unit_cost_landed=template.unit_cost_landed,
+                markup_percentage=template.markup_percentage,
+                batch_selling_price=template.batch_selling_price,
+                expiration_date=template.expiration_date,
+            )
 
     _check_low_stock(variant)
 

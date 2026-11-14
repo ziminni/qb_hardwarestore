@@ -148,6 +148,7 @@ Future<PosTransactionViewmodel> _pump(
     catalogueLists: FakeCatalogueRepository(),
     products: failCatalogue ? const [] : products,
     batches: failCatalogue ? const [] : batches,
+    stockOnHand: failCatalogue ? const [] : onHandFromBatches(batches),
     categories: failCatalogue
         ? const []
         : [

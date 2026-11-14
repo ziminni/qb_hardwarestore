@@ -78,7 +78,10 @@ InventoryBatch _batch({required int variantId, required double qty}) =>
 ProductsSnapshot _catalogue({double threshold = 20, double qty = 100}) =>
     ProductsSnapshot(
       products: [_product(variantId: 8, threshold: threshold)],
+      // The lots still arrive (cost is read from the newest one), but the
+      // QUANTITY is the server's on-hand answer (Phase 9 F1).
       batches: [_batch(variantId: 8, qty: qty)],
+      stockOnHand: [onHand(variantId: 8, qty: qty)],
     );
 
 StockAdjustment _adjustment({int id = 1, double qty = -3}) => StockAdjustment(
@@ -113,6 +116,7 @@ typedef _Recorded = ({
   StockAdjustmentType type,
   double quantity,
   String remarks,
+  int? locationId,
 });
 
 class _FakeInventoryRepository extends InventoryRepository {
@@ -147,6 +151,7 @@ class _FakeInventoryRepository extends InventoryRepository {
     required StockAdjustmentType type,
     required double quantity,
     String remarks = '',
+    int? locationId,
   }) async {
     final failure = error;
     if (failure != null) throw failure;
@@ -155,6 +160,7 @@ class _FakeInventoryRepository extends InventoryRepository {
       type: type,
       quantity: quantity,
       remarks: remarks,
+      locationId: locationId,
     ));
     return StockAdjustment(
       id: 99,

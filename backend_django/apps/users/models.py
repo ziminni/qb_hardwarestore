@@ -187,6 +187,11 @@ class AuditLog(models.Model):
         # the same money and stock. The description names the return, the receipt, the
         # supplier and the reason.
         SUPPLIER_RETURN = "SUPPLIER_RETURN", "Supplier Return"
+        # Phase 9 task B4 (decision 21 §3): stock moved from one shelf to another. Its own
+        # type, not STOCK_ADJUST: a count correction says "the books were wrong", a transfer
+        # says "the goods walked to the other shelf". The description names the number, both
+        # shelves and the lines, so the trail answers "who moved what, from where to where".
+        STOCK_TRANSFER = "STOCK_TRANSFER", "Stock Transfer"
 
     user = models.ForeignKey(
         User,

@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/delivery.dart';
+import 'package:client/data/models/pick_up.dart';
 import 'package:client/features/labels/label_document.dart'
     show labelBoldFontAsset, labelFontAsset;
 import 'package:flutter/services.dart' show rootBundle;
@@ -19,6 +20,7 @@ class DeliverySlipLine {
     required this.quantity,
     required this.unit,
     this.pickUpAt,
+    this.pickUp = const [],
   });
 
   final String name;
@@ -28,15 +30,18 @@ class DeliverySlipLine {
   /// B4's "Stored at" (`Bodega`), or null when the server did not send one.
   final String? pickUpAt;
 
+  /// Which shelves this line was picked from, in pick order (Phase 9, decision
+  /// 21 §2). Empty on a slip whose sale predates Phase 9.
+  final List<PickUpPart> pickUp;
+
   /// `2 BAG` — the selling quantity and its unit, as the driver counts it.
   String get quantityLine => '$quantity $unit'.trim();
 
   /// The line under the item, or null when there is nowhere in particular to
-  /// pick it up. Absent `stored_at_name` means NO line: a blank "Pick up at"
-  /// would send the driver looking for a place that was never named.
-  String? get pickUpLine => (pickUpAt == null || pickUpAt!.isEmpty)
-      ? null
-      : 'Pick up at ${pickUpAt!}';
+  /// pick it up. A split names both shelves; without one the Phase 5 caption
+  /// stands; with neither there is NO line, rather than an invented place.
+  String? get pickUpLine =>
+      pickUpCaption(pickUp: pickUp, storedAtName: pickUpAt ?? '');
 }
 
 /// What the paper says, before any PDF layout.
@@ -61,6 +66,7 @@ class DeliverySlipContent {
             quantity: formatQuantity(item.qty),
             unit: item.unit,
             pickUpAt: item.storedAtName,
+            pickUp: item.pickUp,
           ),
       ],
       // A zero fee is not printed: the customer was charged for goods only, and

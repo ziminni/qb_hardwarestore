@@ -74,20 +74,21 @@ void main() {
     );
     expect(
       salesOrder.length,
-      11,
+      12,
       reason:
-          'the sales sidebar has 11 destinations — Reports (index 6) was added by '
+          'the sales sidebar has 12 destinations — Reports (index 6) was added by '
           'decision D-01 so the manager can reach live reports inside their own shell; '
           'Staff (7), Project requests (8) and Payables (9) were APPENDED the same '
-          'way, and Deliveries (10) by Phase 5 F3 (decision 18). '
-          'Approvals is gone (decision 01: CPMS approves)',
+          'way, Deliveries (10) by Phase 5 F3 (decision 18) and Transfers (11) by '
+          'Phase 9 F3. Approvals is gone (decision 01: CPMS approves)',
     );
     expect(
       inventoryOrder.length,
-      15,
+      16,
       reason:
-          'the inventory sidebar has 15 destinations — Phase 5 F2 APPENDED '
-          'Payables at 13 and F3 APPENDED Deliveries at 14 (decision 18)',
+          'the inventory sidebar has 16 destinations — Phase 5 F2 APPENDED '
+          'Payables at 13, F3 APPENDED Deliveries at 14 (decision 18) and Phase 9 '
+          'F3 APPENDED Transfers at 15',
     );
     expect(
       posOrder.length,
@@ -237,6 +238,7 @@ void main() {
       'Payables',
       'Deliveries',
       'Storage locations',
+      'Transfers',
     ];
 
     const expected = {
@@ -250,6 +252,7 @@ void main() {
       'payables/views/payables_page.dart': 'Payables',
       'deliveries/views/deliveries_page.dart': 'Deliveries',
       'admin/views/storage_locations_page.dart': 'Storage locations',
+      'transfers/views/transfers_page.dart': 'Transfers',
     };
 
     test('the restated menu really is the layout\'s menu', () {

@@ -79,6 +79,7 @@ class InventoryService {
     required StockAdjustmentType type,
     required double quantity,
     String remarks = '',
+    int? locationId,
   }) async {
     try {
       final response = await _client.post<Map<String, dynamic>>(
@@ -88,6 +89,11 @@ class InventoryService {
           'adjustment_type': type.apiValue,
           'qty_adjusted': quantity,
           'remarks': remarks,
+          // Phase 9 F2 (decision 21 §8): the shelf the count belongs to. Omitted
+          // means the variant's home shelf, which is what the server applied to
+          // every adjustment before this phase — so the client stays silent about
+          // a default it did not choose.
+          'location': ?locationId,
         },
       );
       final data = response.data;

@@ -512,12 +512,17 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
             # must join the line's location (and its unit code, which the serializer also
             # reads) in the SAME prefetch. Without both, a page costs a few queries per
             # line; `payments` and `receipt` stay plain prefetches as before.
+            # Phase 9 B2: `deductions__batch__location` rides the same prefetch, because
+            # the line's `pick_up` caption reads which shelves it left - and a page of
+            # sales must still not query once per line. `variant__base_uom` is joined for
+            # the same reason: the caption names the BASE unit when a selling unit splits.
             Prefetch(
                 "items",
                 queryset=SalesItem.objects.select_related(
                     "variant_uom__uom",
+                    "variant_uom__variant__base_uom",
                     "variant_uom__variant__product__stored_at",
-                ),
+                ).prefetch_related("deductions__batch__location"),
             ),
             "payments",
             "receipt",
@@ -1475,6 +1480,11 @@ class DeliveryViewSet(OwnSalesScopeMixin, viewsets.ReadOnlyModelViewSet):
         .prefetch_related(
             "sale__items__variant_uom__variant",
             "sale__items__variant_uom__uom",
+            # Phase 9 B2 (Design 4): the slip says WHERE each part is picked up, so the
+            # driver's page reads the same deduction rows and base units the receipt does
+            # - prefetched, because a slip can carry many lines.
+            "sale__items__deductions__batch__location",
+            "sale__items__variant_uom__variant__base_uom",
             "sales_order__items__variant_uom__variant",
             "sales_order__items__variant_uom__uom",
         )

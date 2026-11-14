@@ -340,6 +340,22 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
                 ],
                 const SizedBox(height: AppSpacing.md),
                 Text('Sale ${result.transactionNo}'),
+                // Phase 9 F2 (decision 21 §2): WHERE each released line came
+                // from. This is new information — step 2 is the plan, before
+                // anything moved — so it belongs on the receipt. A release from
+                // before Phase 9 carries no parts and prints nothing.
+                for (final line in result.items)
+                  if (line.pickUpLine case final pickUp?)
+                    Padding(
+                      padding: const EdgeInsets.only(top: AppSpacing.xs),
+                      child: Text(
+                        pickUp,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
                 // What left stock is NOT repeated here: step 2 shows the same
                 // lines one panel above, and printing them twice pushed the
                 // balance due off a 900 px window. The money is the part the

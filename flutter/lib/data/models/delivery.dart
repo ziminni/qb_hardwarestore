@@ -1,4 +1,5 @@
 import 'package:client/data/models/json_field.dart';
+import 'package:client/data/models/pick_up.dart';
 
 /// Where a customer delivery stands (Phase 5 B3, decision 18).
 ///
@@ -90,6 +91,7 @@ class DeliveryItem {
     required this.unit,
     required this.qty,
     this.storedAtName,
+    this.pickUp = const [],
   });
 
   final String name;
@@ -100,6 +102,11 @@ class DeliveryItem {
   /// send one.
   final String? storedAtName;
 
+  /// Which shelves this line was picked from, in pick order (Phase 9, decision
+  /// 21 §2): the driver is told the split, not just one place. Empty on a slip
+  /// whose sale predates Phase 9, and the line then falls back to [storedAtName].
+  final List<PickUpPart> pickUp;
+
   factory DeliveryItem.fromJson(Map<String, dynamic> json) {
     final storedAt = json['stored_at_name'];
     return DeliveryItem(
@@ -109,6 +116,7 @@ class DeliveryItem {
       storedAtName: storedAt is String && storedAt.trim().isNotEmpty
           ? storedAt.trim()
           : null,
+      pickUp: nestedList(json, 'pick_up', PickUpPart.fromJson),
     );
   }
 }

@@ -1,4 +1,5 @@
 import 'package:client/data/models/json_field.dart';
+import 'package:client/data/models/pick_up.dart';
 
 /// Where a requisition stands in its lifecycle.
 ///
@@ -401,6 +402,7 @@ class ReleasedLine {
     required this.outstanding,
     this.available,
     this.declineReason = '',
+    this.pickUp = const [],
   });
 
   /// The material's barcode/QR code — the server's handle for a line, not its name.
@@ -413,6 +415,16 @@ class ReleasedLine {
 
   /// Why the store will not serve the line. Empty when [available] is not false.
   final String declineReason;
+
+  /// Which shelves this visit's quantity actually left, in pick order (Phase 9
+  /// B2/decision 21 §2). Empty on a release recorded before Phase 9 — the
+  /// receipt then omits the caption rather than inventing a shelf.
+  final List<PickUpPart> pickUp;
+
+  /// The pick-up caption for this line, or null when nothing moved or the
+  /// release recorded no shelf — never an invented place.
+  String? get pickUpLine =>
+      releasedNow <= 0 ? null : pickUpCaption(pickUp: pickUp, storedAtName: '');
 
   /// True when a later scan still has to hand this line over.
   ///
@@ -427,6 +439,7 @@ class ReleasedLine {
     outstanding: decimalField(json, 'outstanding'),
     available: _nullableBool(json, 'available'),
     declineReason: _optionalString(json, 'decline_reason'),
+    pickUp: nestedList(json, 'pick_up', PickUpPart.fromJson),
   );
 }
 

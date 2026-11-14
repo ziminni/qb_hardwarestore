@@ -83,6 +83,8 @@ const _inventoryPaths = <String>[
   // and 14), so 0-12 keep their numbers.
   AppRoutes.inventoryPayables,
   AppRoutes.inventoryDeliveries,
+  // Phase 9 F3 APPENDED stock transfers at 15.
+  AppRoutes.inventoryTransfers,
 ];
 
 Widget _probeApp() {
@@ -117,17 +119,17 @@ Widget _probeApp() {
 void main() {
   test('the parsers find the sidebar and the navigation map', () {
     // Guard against vacuous passes: an empty parse makes every comparison
-    // below trivially true. 15 = the 13 pre-Phase-5 destinations plus the
-    // APPENDED Payables (13) and Deliveries (14).
-    expect(_sidebarLabels().length, 15);
-    expect(_navOrder().length, 15);
+    // below trivially true. 16 = the 13 pre-Phase-5 destinations plus the
+    // APPENDED Payables (13), Deliveries (14) and Transfers (15).
+    expect(_sidebarLabels().length, 16);
+    expect(_navOrder().length, 16);
     expect(_sidebarLabels().first, 'Dashboard');
     // Settings still ends the original block; the two Phase 5 sections follow it.
     expect(
       _sidebarLabels()[_sidebarLabels().indexOf('Settings') + 1],
       'Payables',
     );
-    expect(_sidebarLabels().last, 'Deliveries');
+    expect(_sidebarLabels().last, 'Transfers');
     expect(_inventoryPaths.length, _sidebarLabels().length);
   });
 

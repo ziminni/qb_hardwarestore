@@ -11,6 +11,7 @@
 import 'package:client/data/models/catalogue_option.dart';
 import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/product_writes.dart';
+import 'package:client/data/models/stock_on_hand.dart';
 import 'package:client/data/services/products_service.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -174,6 +175,106 @@ void main() {
   // The three lookups the readers need. Each has exactly one home: barcode on the
   // selling unit, price on the selling unit (decision 08), cost on the newest
   // batch.
+  group('InventoryViewmodel — quantity comes from /stock-on-hand/', () {
+    // Phase 9 F1 (decision 21 §5): the server answers how much sits where. The
+    // batches still ride along for COST, so a store can hold both lists — and the
+    // quantity must be the server's rows, never the batch sum, or the two
+    // authorities would disagree the moment a transfer moves stock.
+    InventoryViewmodel split() => InventoryViewmodel.seeded(
+      products: [
+        product(
+          id: 1,
+          name: 'Portland Cement',
+          variants: [variant(id: 1, productId: 1, name: '40 kg Bag')],
+        ),
+      ],
+      // A decoy: the lots say 100, the on-hand read says 5.
+      batches: [batch(id: 1, variantId: 1, qty: 100)],
+      stockOnHand: const [
+        StockOnHand(
+          variantId: 1,
+          locationId: 1,
+          locationName: 'Store',
+          locationActive: true,
+          isHome: true,
+          qty: 3,
+        ),
+        StockOnHand(
+          variantId: 1,
+          locationId: 2,
+          locationName: 'Bodega',
+          locationActive: true,
+          isHome: false,
+          qty: 2,
+        ),
+      ],
+    );
+
+    test('stockOnHandFor is the server total, not the batch sum', () {
+      expect(split().stockOnHandFor(1), 5.0);
+    });
+
+    test('stockByLocationFor splits it per shelf, home first', () {
+      final rows = split().stockByLocationFor(1);
+
+      expect(rows.map((row) => row.locationName).toList(), ['Store', 'Bodega']);
+      expect(rows.map((row) => row.qty).toList(), [3.0, 2.0]);
+      expect(rows.first.isHome, isTrue);
+    });
+
+    test('a variant the on-hand read does not list has nothing on hand', () {
+      // No rows means no live stock AT ANY LOCATION — the honest answer before a
+      // load has happened, and after stock is exhausted (the server sends no
+      // `0.00` row). Summing batches here is what Phase 9 removed.
+      final vm = InventoryViewmodel.seeded(
+        products: [
+          product(
+            id: 1,
+            name: 'Portland Cement',
+            variants: [variant(id: 1, productId: 1, name: '40 kg Bag')],
+          ),
+        ],
+        batches: [batch(id: 1, variantId: 1, qty: 100)],
+        stockOnHand: const [],
+      );
+
+      expect(vm.stockOnHandFor(1), 0.0);
+      expect(vm.stockByLocationFor(1), isEmpty);
+    });
+
+    test('load() takes stock from the snapshot the repository answered', () async {
+      final vm = InventoryViewmodel(
+        products: FakeProductsRepository(
+          products: [
+            product(
+              id: 1,
+              name: 'Portland Cement',
+              variants: [variant(id: 1, productId: 1, name: '40 kg Bag')],
+            ),
+          ],
+          batches: [batch(id: 1, variantId: 1, qty: 100)],
+          stockOnHand: const [
+            StockOnHand(
+              variantId: 1,
+              locationId: 2,
+              locationName: 'Bodega',
+              locationActive: true,
+              isHome: false,
+              qty: 7,
+            ),
+          ],
+        ),
+        inventory: FakeInventoryRepository(),
+        catalogue: FakeCatalogueRepository(),
+      );
+
+      await vm.load();
+
+      expect(vm.stockOnHandFor(1), 7.0);
+      expect(vm.stockByLocationFor(1).single.locationName, 'Bodega');
+    });
+  });
+
   group('InventoryViewmodel — field lookups', () {
     test('barcodeFor reads the selling uom, not a SKU', () async {
       final vm = seeded();

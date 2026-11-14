@@ -140,6 +140,17 @@ class InventorySkeletonLayout extends StatelessWidget {
         ),
       ],
     ),
+    // Phase 9 F3: stock transfers between shelves, APPENDED (index 15), so no
+    // earlier destination moves — the index IS the position in this list.
+    SharedSidebarSection(
+      label: 'Transfers',
+      destinations: [
+        SharedSidebarDestination(
+          label: 'Transfers',
+          icon: Icons.swap_horiz_rounded,
+        ),
+      ],
+    ),
   ];
 
   @override

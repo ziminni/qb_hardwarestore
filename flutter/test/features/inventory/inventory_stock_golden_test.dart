@@ -287,16 +287,19 @@ InventoryViewmodel _loadedStore() {
     'stock_location_hints': jsonEncode({'1': 'Shelf G-02', '3': 'Yard E-02'}),
   });
 
+  final batches = [
+    batch(id: 1, variantId: 1, qty: 130),
+    batch(id: 2, variantId: 2, qty: 64),
+    // Seven digits, so the numeric column has to group thousands.
+    batch(id: 3, variantId: 3, qty: 1234567),
+    batch(id: 4, variantId: 4, qty: 18),
+    // No batch for variant 5: nothing on hand.
+  ];
+
   return InventoryViewmodel.seeded(
     products: products,
-    batches: [
-      batch(id: 1, variantId: 1, qty: 130),
-      batch(id: 2, variantId: 2, qty: 64),
-      // Seven digits, so the numeric column has to group thousands.
-      batch(id: 3, variantId: 3, qty: 1234567),
-      batch(id: 4, variantId: 4, qty: 18),
-      // No batch for variant 5: nothing on hand.
-    ],
+    batches: batches,
+    stockOnHand: onHandFromBatches(batches),
     categories: [
       category(id: 1, name: 'Cement'),
       category(id: 2, name: 'Steel bars'),

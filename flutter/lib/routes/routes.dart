@@ -39,6 +39,7 @@ import 'package:client/features/inventory/views/inventory_returns_page.dart';
 import 'package:client/features/inventory/views/inventory_settings_page.dart';
 import 'package:client/features/deliveries/views/deliveries_page.dart';
 import 'package:client/features/payables/views/payables_page.dart';
+import 'package:client/features/transfers/views/transfers_page.dart';
 import 'package:client/features/products/views/products_page.dart';
 import 'package:client/features/suppliers/views/purchases_page.dart';
 import 'package:client/features/suppliers/views/suppliers_page.dart';
@@ -103,6 +104,14 @@ class AppRoutes {
   /// list with `IsAdminRole`, so another account typing the address lands on its
   /// own dashboard rather than a screen whose every button would 403.
   static const String adminStorageLocations = '/admin/storage-locations';
+
+  /// Stock transfers (Phase 9 F3, decision 21 §3), one route per shell.
+  ///
+  /// APPENDED to every sidebar it appears in, so no earlier index moved. A
+  /// Cashier has none at all: moving stock between shelves is the stock team's
+  /// job and the server answers 403 to both the list and the write, so a
+  /// read-only screen would be an error page.
+  static const String adminTransfers = '/admin/transfers';
   static const String inventoryDashboard = '/inventory/dashboard';
   static const String inventoryProducts = '/inventory/products';
   static const String inventoryCategories = '/inventory/categories';
@@ -117,6 +126,9 @@ class AppRoutes {
   static const String inventoryReports = '/inventory/reports';
   static const String inventoryPayables = '/inventory/payables';
   static const String inventoryDeliveries = '/inventory/deliveries';
+
+  /// The Stock Manager's transfers screen (inventory sidebar index 15).
+  static const String inventoryTransfers = '/inventory/transfers';
   static const String inventorySettings = '/inventory/settings';
   static const String posDashboard = '/pos/dashboard';
   static const String posHistory = '/pos/history';
@@ -166,6 +178,10 @@ class AppRoutes {
   /// body as [adminDeliveries], in the manager's own shell.
   static const String salesDeliveries = '/sales/deliveries';
 
+  /// The Store Manager's transfers screen (sales sidebar index 11): the same
+  /// body as [adminTransfers], in the manager's own shell.
+  static const String salesTransfers = '/sales/transfers';
+
   /// The sales-shell twin of an admin screen the Store Manager may use, or null
   /// when [location] has no twin.
   ///
@@ -177,6 +193,7 @@ class AppRoutes {
     adminProjectRequests => salesProjectRequests,
     adminPayables => salesPayables,
     adminDeliveries => salesDeliveries,
+    adminTransfers => salesTransfers,
     _ => null,
   };
 
@@ -453,6 +470,12 @@ class AppRoutes {
               _transitionPage(state, const StorageLocationsPage()),
         ),
         GoRoute(
+          path: adminTransfers,
+          name: 'admin_transfers',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const AdminTransfersPage()),
+        ),
+        GoRoute(
           path: adminSettings,
           name: 'admin_settings',
           pageBuilder: (context, state) =>
@@ -541,6 +564,12 @@ class AppRoutes {
           name: 'inventory_deliveries',
           pageBuilder: (context, state) =>
               _transitionPage(state, const InventoryDeliveriesPage()),
+        ),
+        GoRoute(
+          path: inventoryTransfers,
+          name: 'inventory_transfers',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const InventoryTransfersPage()),
         ),
         GoRoute(
           path: inventorySettings,
@@ -653,6 +682,12 @@ class AppRoutes {
           name: 'sales_deliveries',
           pageBuilder: (context, state) =>
               _transitionPage(state, const SalesDeliveriesPage()),
+        ),
+        GoRoute(
+          path: salesTransfers,
+          name: 'sales_transfers',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const SalesTransfersPage()),
         ),
         GoRoute(
           path: salesStaff,

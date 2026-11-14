@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:client/core/format/format.dart';
 import 'package:client/data/models/catalogue_option.dart';
 import 'package:client/data/models/catalogue_item.dart';
 import 'package:client/data/models/category.dart';
@@ -7,6 +8,7 @@ import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/product_writes.dart';
+import 'package:client/data/models/stock_on_hand.dart';
 import 'package:client/data/models/storage_location.dart';
 import 'package:client/data/models/system_alert.dart';
 import 'package:client/data/models/variant_uom.dart';
@@ -53,6 +55,7 @@ class InventoryViewmodel extends ChangeNotifier {
   InventoryViewmodel.seeded({
     List<Product> products = const [],
     List<InventoryBatch> batches = const [],
+    List<StockOnHand> stockOnHand = const [],
     List<SystemAlert> alerts = const [],
     List<Category> categories = const [],
     List<Brand> brands = const [],
@@ -68,6 +71,7 @@ class InventoryViewmodel extends ChangeNotifier {
        _storageLocationRepo = storageLocations ?? StorageLocationRepository() {
     _products.addAll(products);
     _batches.addAll(batches);
+    _stockOnHand.addAll(stockOnHand);
     _alerts.addAll(alerts);
     _categories.addAll(categories);
     _brands.addAll(brands);
@@ -121,6 +125,11 @@ class InventoryViewmodel extends ChangeNotifier {
   /// answered from here, never from a field on the variant.
   final List<InventoryBatch> _batches = [];
 
+  /// Quantity per (variant, location), as the server answered it (decision 21 §5).
+  /// The ONLY source of "how many do we have"; [_batches] answers cost, not
+  /// quantity, and summing it here is what Phase 9 replaced.
+  final List<StockOnHand> _stockOnHand = [];
+
   final LocationHintStore _locationHintStore = LocationHintStore();
   Map<int, String> _locationHints = const {};
 
@@ -139,6 +148,9 @@ class InventoryViewmodel extends ChangeNotifier {
 
   /// The location read's failure, or null. See [_storageLocationError].
   String? get storageLocationError => _storageLocationError;
+
+  /// The stock-on-hand rows the server answered, one per (variant, location).
+  List<StockOnHand> get stockOnHand => List.unmodifiable(_stockOnHand);
 
   /// Every live batch. The dashboard values inventory from these
   /// (on-hand x landed cost), the same lots FIFO deducts from.
@@ -240,6 +252,9 @@ class InventoryViewmodel extends ChangeNotifier {
       _batches
         ..clear()
         ..addAll(snapshot.batches);
+      _stockOnHand
+        ..clear()
+        ..addAll(snapshot.stockOnHand);
       _alerts
         ..clear()
         ..addAll(alerts);
@@ -489,9 +504,54 @@ class InventoryViewmodel extends ChangeNotifier {
     return null;
   }
 
-  /// Stock on hand for a variant — the sum of its batches.
+  /// Stock on hand for a variant: the total across its shelves, from the
+  /// server's `/stock-on-hand/` rows (decision 21 §5).
+  ///
+  /// This is the number the till may sell, the low-stock threshold is measured
+  /// against and the dashboards count — a sale draws from every shelf, so the
+  /// total is the answer even though the split is shown beside it. It used to be
+  /// the sum of the variant's batches, which cannot say WHERE the stock is and is
+  /// no longer the quantity authority.
   double stockOnHandFor(int variantId) =>
-      batchesFor(variantId).fold(0, (sum, batch) => sum + batch.currentQty);
+      stockByLocationFor(variantId).fold(0, (sum, row) => sum + row.qty);
+
+  /// The product's HOME shelf id (its `stored_at`), or null when the catalogue
+  /// has not loaded the variant.
+  ///
+  /// This is what the SERVER applies to a delivery line whose `location` is
+  /// omitted, so a picker can SHOW that default without claiming a choice nobody
+  /// made (Phase 9 F2, decision 21 §7).
+  int? homeLocationIdFor(int variantId) {
+    for (final product in _products) {
+      for (final variant in product.variants) {
+        if (variant.id == variantId) return product.storedAtId;
+      }
+    }
+    return null;
+  }
+
+  /// Where a variant's stock sits, one row per shelf: the HOME shelf first, then
+  /// the others by location id (the order the server's allocator takes shelves
+  /// in, so the split reads the way a pick walks).
+  List<StockOnHand> stockByLocationFor(int variantId) {
+    final rows =
+        _stockOnHand.where((row) => row.variantId == variantId).toList()
+          ..sort((a, b) {
+            if (a.isHome != b.isHome) return a.isHome ? -1 : 1;
+            return a.locationId.compareTo(b.locationId);
+          });
+    return List.unmodifiable(rows);
+  }
+
+  /// Where a variant's stock sits, as one line: "Store 3 · Bodega 2".
+  ///
+  /// Empty when the on-hand read lists no shelf for it, so a caller can omit the
+  /// line instead of printing a blank one. The names are the SERVER's; this only
+  /// joins them, which keeps the stock and low-stock tables from wording the same
+  /// fact two different ways.
+  String stockSplitLabelFor(int variantId) => stockByLocationFor(variantId)
+      .map((row) => '${row.locationName} ${formatCount(row.qty.round())}')
+      .join(' · ');
 
   /// The newest batch: what an upward correction lands on, and where the
   /// displayed cost comes from (decision 08 — no weighted average, no charging).
@@ -504,7 +564,7 @@ class InventoryViewmodel extends ChangeNotifier {
   /// Price comes from the selling unit and stock from the batches, so no screen
   /// has to re-do that join.
   List<CatalogueItem> get catalogue =>
-      assembleCatalogue(products: _products, batches: _batches);
+      assembleCatalogue(products: _products, stockOnHand: _stockOnHand);
 
   /// The variant behind an id, searched across every product.
   ProductVariant? variantFor(int variantId) {
@@ -615,8 +675,14 @@ class InventoryViewmodel extends ChangeNotifier {
     required double newQuantity,
     required String reason,
     required String notes,
+    int? locationId,
   }) async {
-    final previous = stockOnHandFor(variantId);
+    // Phase 9 F2 (decision 21 §8): an adjustment applies to ONE shelf, so the
+    // delta is counted from THAT shelf's stock, not the shop total. Null means
+    // the product's home shelf — the server's own default.
+    final previous = locationId == null
+        ? stockOnHandFor(variantId)
+        : _stockAt(variantId, locationId);
     // A caller can hand us a negative "new quantity" even though the dialog
     // validates >= 0. Clamp it: otherwise the adjustment asks the server to
     // remove more than exists.
@@ -630,6 +696,7 @@ class InventoryViewmodel extends ChangeNotifier {
         variantId: variantId,
         type: _serverTypeFor(reason),
         quantity: delta,
+        locationId: locationId,
         // A colon, not a dash (D18): the server stores this string verbatim and
         // the dashboard and Stock adjustments page print it back to the user.
         // Nothing parses it, so the separator is free to change.
@@ -642,6 +709,17 @@ class InventoryViewmodel extends ChangeNotifier {
     }
     await load();
     return true;
+  }
+
+  /// How much of [variantId] sits on ONE shelf. Zero when the server lists no
+  /// stock there — an empty shelf, not a failed read.
+  double _stockAt(int variantId, int locationId) {
+    for (final row in _stockOnHand) {
+      if (row.variantId == variantId && row.locationId == locationId) {
+        return row.qty;
+      }
+    }
+    return 0;
   }
 
   /// The reasons the adjust dialog offers, in the order a counter reads them.

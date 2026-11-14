@@ -41,6 +41,9 @@ from .models import (
     ProductVariant,
     PurchaseOrder,
     StockAdjustment,
+    StockTransfer,
+    StockTransferLine,
+    StockTransferMove,
     StorageLocation,
     Supplier,
     SupplierBill,
@@ -933,12 +936,20 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
 
 
 class InventoryBatchSerializer(serializers.ModelSerializer):
+    # Phase 9 B1 (decision 21 §5): the shelf the batch sits on, its label, and - when the
+    # batch was COPIED off another by a move - which batch that was. Cost/valuation
+    # dashboards keep reading this list; quantity now comes from `/stock-on-hand/`.
+    location_name = serializers.CharField(source="location.name", read_only=True)
+
     class Meta:
         model = InventoryBatch
         fields = [
             "id",
             "variant",
             "receipt",
+            "location",
+            "location_name",
+            "source_batch",
             "initial_qty",
             "current_qty",
             "unit_cost_landed",
@@ -962,10 +973,24 @@ class GoodsReceiptItemSerializer(serializers.ModelSerializer):
     variant_name = serializers.CharField(
         source="po_item.variant.variant_name", read_only=True
     )
+    # Phase 9 B3 (plan Design 7): the shelf the receiver chose for this line, and its
+    # label so a receiving screen prints "Bodega" without a second lookup. NULL on a
+    # line recorded before Phase 9, which is read as the variant's home.
+    location_name = serializers.CharField(
+        source="location.name", read_only=True, allow_null=True
+    )
 
     class Meta:
         model = GoodsReceiptItem
-        fields = ["id", "po_item", "variant", "variant_name", "qty"]
+        fields = [
+            "id",
+            "po_item",
+            "variant",
+            "variant_name",
+            "qty",
+            "location",
+            "location_name",
+        ]
         read_only_fields = fields
 
 
@@ -1008,12 +1033,22 @@ class GoodsReceiptSerializer(serializers.ModelSerializer):
 
 
 class StockAdjustmentSerializer(serializers.ModelSerializer):
+    # Phase 9 B3 (plan Design 8): the shelf the count belongs to is the client's to choose
+    # and optional - an omitted one means the variant's home, which is what every
+    # adjustment meant before this phase. `required=False` on a non-null FK does NOT let
+    # NULL through: the view stamps the home before saving.
+    location = serializers.PrimaryKeyRelatedField(
+        queryset=StorageLocation.objects.all(), required=False, allow_null=True
+    )
+
     class Meta:
         model = StockAdjustment
         fields = [
             "id",
             "variant",
             "user",
+            # The shelf the count belongs to, defaulting to the variant's home.
+            "location",
             "adjustment_type",
             "qty_adjusted",
             "remarks",
@@ -1027,7 +1062,7 @@ class StockAdjustmentSerializer(serializers.ModelSerializer):
         # attributed an adjustment to somebody else. Found by POSTing this
         # endpoint's real body to the running server: HTTP 400
         # {"user":["This field is required."]}.
-        read_only_fields = ["id", "timestamp", "user"]
+        read_only_fields = ["id", "timestamp", "user"]  # noqa: RUF012 - Django-canonical, never mutated
 
     def validate_qty_adjusted(self, value):
         # A zero adjustment is not a correction, it is a no-op with a receipt: a
@@ -1452,3 +1487,104 @@ class SupplierReturnCreateSerializer(serializers.Serializer):
     receipt = serializers.PrimaryKeyRelatedField(queryset=GoodsReceipt.objects.all())
     reason = serializers.CharField(allow_blank=True, required=False, default="")
     lines = SupplierReturnLineInputSerializer(many=True, allow_empty=False)
+
+
+class StockTransferMoveSerializer(serializers.ModelSerializer):
+    """One batch pair a transfer line moved: source → destination, and how much."""
+
+    class Meta:
+        model = StockTransferMove
+        fields = ["id", "source_batch", "dest_batch", "qty"]  # noqa: RUF012
+        read_only_fields = fields
+
+
+class StockTransferLineSerializer(serializers.ModelSerializer):
+    """One line of the slip: what the clerk entered and the stock that actually moved."""
+
+    variant = serializers.IntegerField(source="variant_uom.variant_id", read_only=True)
+    variant_name = serializers.CharField(
+        source="variant_uom.variant.variant_name", read_only=True
+    )
+    product_name = serializers.CharField(
+        source="variant_uom.variant.product.base_name", read_only=True
+    )
+    unit = serializers.CharField(source="variant_uom.uom.code", read_only=True)
+    moves = StockTransferMoveSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = StockTransferLine
+        fields = [  # noqa: RUF012 - declarative DRF Meta option, not mutable state
+            "id",
+            "variant_uom",
+            "variant",
+            "variant_name",
+            "product_name",
+            "unit",
+            "qty",
+            "base_qty",
+            "moves",
+        ]
+        read_only_fields = fields
+
+
+class StockTransferSerializer(serializers.ModelSerializer):
+    """A recorded transfer on its numbered slip, read-only, with its lines.
+
+    Nothing here is writable: the slip is written by `transfers.record_stock_transfer`
+    inside the transaction that moves the stock, so an edit would describe a shelf that
+    does not agree with it. Both figures are shown per line because the slip speaks the
+    clerk's selling unit while stock is counted in base units.
+    """
+
+    from_location_name = serializers.CharField(
+        source="from_location.name", read_only=True
+    )
+    to_location_name = serializers.CharField(source="to_location.name", read_only=True)
+    user_name = serializers.CharField(source="user.full_name", read_only=True)
+    lines = StockTransferLineSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = StockTransfer
+        fields = [  # noqa: RUF012 - declarative DRF Meta option, not mutable state
+            "id",
+            "number",
+            "from_location",
+            "from_location_name",
+            "to_location",
+            "to_location_name",
+            "user",
+            "user_name",
+            "remarks",
+            "created_at",
+            "lines",
+        ]
+        read_only_fields = fields
+
+
+class StockTransferLineInputSerializer(serializers.Serializer):
+    """`{variant_uom, qty}` — the quantity in that selling unit, converted by the service."""
+
+    variant_uom = serializers.PrimaryKeyRelatedField(queryset=VariantUOM.objects.all())
+    qty = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal("0.01")
+    )
+
+
+class StockTransferCreateSerializer(serializers.Serializer):
+    """`{from_location, to_location, remarks?, lines:[{variant_uom, qty}]}` — shape only.
+
+    Every business rule (same shelf, deactivated destination, archived variant, whole
+    unit, whole hundredth, short stock at the source, empty lines) lives in
+    `transfers.record_stock_transfer`, which is the only writer, so the ORM path cannot
+    skip one and a client branches on ONE refusal code per rule. `allow_empty=False` here
+    is the one shape rule worth catching at the door: a line list is the document.
+    """
+
+    from_location = serializers.PrimaryKeyRelatedField(
+        queryset=StorageLocation.objects.all()
+    )
+    to_location = serializers.PrimaryKeyRelatedField(
+        queryset=StorageLocation.objects.all()
+    )
+    remarks = serializers.CharField(allow_blank=True, required=False, default="")
+    lines = StockTransferLineInputSerializer(many=True, allow_empty=False)

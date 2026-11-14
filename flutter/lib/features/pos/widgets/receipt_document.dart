@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:client/core/format/format.dart';
+import 'package:client/data/models/pick_up.dart';
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/data/models/tender_method.dart';
 import 'package:client/features/labels/label_document.dart'
@@ -60,13 +61,13 @@ class ReceiptContent {
                 '${formatQuantity(line.quantity)} ${line.unit} × '
                 '${formatPesoForPrint(line.unitPrice)}',
             total: formatPesoForPrint(line.total),
-            // Phase 5 B4 (decision 18): where the customer picks this line up.
-            // Null when the server (or the sale) did not name a place: a blank
-            // "Pick up at" would send someone looking for a place nobody named,
-            // and a made-up "Store" would be a claim about goods already sold.
-            pickUp: line.storedAtName.trim().isEmpty
-                ? null
-                : 'Pick up at ${line.storedAtName.trim()}',
+            // Phase 9 F2 (decision 21 §2/§4): WHERE this line was picked from.
+            // A split sale names each shelf; a pre-Phase-9 sale keeps Phase 5's
+            // single place; neither prints nothing rather than inventing one.
+            pickUp: pickUpCaption(
+              pickUp: line.pickUp,
+              storedAtName: line.storedAtName,
+            ),
           ),
       ],
       amounts = [

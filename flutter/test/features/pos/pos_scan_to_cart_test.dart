@@ -198,7 +198,7 @@ class _ScanProductsRepository extends ProductsRepository {
     List<Product> products = const [],
     List<InventoryBatch> batches = const [],
   }) : rows = const [],
-       snapshot = ProductsSnapshot(products: products, batches: batches),
+       snapshot = snapshotOf(products: products, batches: batches),
        super(ProductsService());
 
   ProductsSnapshot snapshot;
@@ -250,6 +250,9 @@ InventoryViewmodel _seededCatalogue(
   catalogueLists: FakeCatalogueRepository(),
   products: repository.snapshot.products,
   batches: repository.snapshot.batches,
+  // The till's availability is the server's on-hand read (Phase 9 F1), so the
+  // seeded store takes the same rows the fake catalogue answered with.
+  stockOnHand: repository.snapshot.stockOnHand,
 );
 
 /// The till's scan field — the one field the USB wedge types into.
@@ -440,7 +443,7 @@ void main() {
           variantName: 'New',
         );
         repository.rows = [fresh];
-        repository.snapshot = ProductsSnapshot(
+        repository.snapshot = snapshotOf(
           products: [
             wireProduct(),
             product(
@@ -492,7 +495,7 @@ void main() {
           variantName: 'QA Standard',
         );
         repository.rows = [soldOut];
-        repository.snapshot = ProductsSnapshot(
+        repository.snapshot = snapshotOf(
           products: [
             product(
               id: 53,
@@ -700,7 +703,7 @@ void main() {
         variantName: 'New',
       );
       repository.rows = [fresh];
-      repository.snapshot = ProductsSnapshot(
+      repository.snapshot = snapshotOf(
         products: [
           wireProduct(),
           measuredProduct(),
@@ -799,7 +802,7 @@ void main() {
         variantName: 'QA Standard',
       );
       repository.rows = [soldOut];
-      repository.snapshot = ProductsSnapshot(
+      repository.snapshot = snapshotOf(
         products: [
           wireProduct(),
           measuredProduct(),

@@ -116,12 +116,25 @@ class PurchaseOrderRecord {
 
 /// One received quantity line the client sends when recording a receipt.
 class ReceiptLine {
-  const ReceiptLine({required this.poItemId, required this.qty});
+  const ReceiptLine({
+    required this.poItemId,
+    required this.qty,
+    this.locationId,
+  });
 
   final int poItemId;
   final double qty;
 
-  Map<String, dynamic> toJson() => {'po_item': poItemId, 'qty': qty};
+  /// The shelf this line lands on (Phase 9 F2, decision 21 §7). Null means the
+  /// product's HOME, which is what the server assumes when the field is absent
+  /// — so the client stays silent about a default it did not choose.
+  final int? locationId;
+
+  Map<String, dynamic> toJson() => {
+    'po_item': poItemId,
+    'qty': qty,
+    if (locationId != null) 'location': locationId,
+  };
 }
 
 /// One delivered quantity as the server reports it back (`GoodsReceiptItem`).

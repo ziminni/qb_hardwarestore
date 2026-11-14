@@ -30,10 +30,12 @@ class InventoryRepository {
     required StockAdjustmentType type,
     required double quantity,
     String remarks = '',
+    int? locationId,
   }) => service.createAdjustment(
     variantId: variantId,
     type: type,
     quantity: quantity,
     remarks: remarks,
+    locationId: locationId,
   );
 }

@@ -3,6 +3,8 @@ import 'dart:math';
 import 'package:client/core/network/api_client.dart';
 import 'package:client/data/models/customer.dart';
 import 'package:client/data/models/delivery.dart';
+import 'package:client/data/models/json_field.dart' show nestedList;
+import 'package:client/data/models/pick_up.dart';
 import 'package:client/data/models/pos_transaction.dart' show PosReceiptPayment;
 import 'package:client/data/models/sale_discount.dart';
 import 'package:dio/dio.dart';
@@ -160,7 +162,7 @@ class PosCheckoutResult {
     if (items is! List) return const [];
     final lines = <PosCheckoutLine>[];
     for (final item in items) {
-      if (item is! Map) continue;
+      if (item is! Map<String, dynamic>) continue;
       final variantUomId = item['variant_uom'];
       if (variantUomId is! int) continue;
       lines.add(
@@ -175,6 +177,10 @@ class PosCheckoutResult {
           storedAtName: item['stored_at_name'] is String
               ? item['stored_at_name'] as String
               : '',
+          // Phase 9 F2 (decision 21 §2): the shelves this line LEFT, in pick
+          // order. A pre-Phase-9 body sends none, and the receipt then falls
+          // back to the single `stored_at_name` above.
+          pickUp: nestedList(item, 'pick_up', PickUpPart.fromJson),
         ),
       );
     }
@@ -227,6 +233,7 @@ class PosCheckoutLine {
     required this.unitPrice,
     required this.subtotal,
     this.storedAtName = '',
+    this.pickUp = const [],
   });
 
   final int variantUomId;
@@ -237,6 +244,10 @@ class PosCheckoutLine {
   /// The product's pick-up point as the SALE recorded it (Phase 5 B4). Empty on
   /// a body written before B4.
   final String storedAtName;
+
+  /// The shelves this line actually left, in pick order (Phase 9, decision 21
+  /// §2). Empty when the body predates Phase 9.
+  final List<PickUpPart> pickUp;
 }
 
 /// One line of a sales order as the TILL needs it (Phase 7 F2, decision 19).

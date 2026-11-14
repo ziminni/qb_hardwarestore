@@ -1,5 +1,6 @@
 import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/json_field.dart';
+import 'package:client/data/models/pick_up.dart';
 
 /// Server rows behind the sales screens that render transactions.
 ///
@@ -14,6 +15,7 @@ class TransactionLineItem {
     required this.unitPrice,
     required this.subtotal,
     this.storedAtName = '',
+    this.pickUp = const [],
   });
 
   final int variantUomId;
@@ -26,6 +28,11 @@ class TransactionLineItem {
   /// Empty on a row written before B4.
   final String storedAtName;
 
+  /// Which shelves this line actually LEFT, in pick order (Phase 9, decision 21
+  /// §2). Empty on a sale rung before Phase 9 or on an order not fulfilled yet,
+  /// and the line then falls back to [storedAtName] — see `pickUpCaption`.
+  final List<PickUpPart> pickUp;
+
   factory TransactionLineItem.fromJson(Map<String, dynamic> json) =>
       TransactionLineItem(
         variantUomId: intField(json, 'variant_uom'),
@@ -36,6 +43,7 @@ class TransactionLineItem {
         storedAtName: json['stored_at_name'] is String
             ? json['stored_at_name'] as String
             : '',
+        pickUp: nestedList(json, 'pick_up', PickUpPart.fromJson),
       );
 }
 

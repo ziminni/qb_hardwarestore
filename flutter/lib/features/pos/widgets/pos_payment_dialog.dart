@@ -701,18 +701,17 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                     // The fee's longest refusal wraps in this half-width column.
                     errorMaxLines: 4,
                   ),
-                  validator: (value) =>
-                      switch (moneyInputProblem(value)) {
-                        // The rule is shared with the order form (item 10); the
-                        // till keeps its own sentence, and its own field label.
-                        MoneyInputProblem.notAnAmount =>
-                          'The delivery fee must be a number, 0 or more.',
-                        MoneyInputProblem.moreThanTwoDecimals =>
-                          // 10.005 is refused by the server, not rounded: money the
-                          // customer was charged is written to the cent.
-                          'The delivery fee needs at most two decimals.',
-                        null => null,
-                      },
+                  validator: (value) => switch (moneyInputProblem(value)) {
+                    // The rule is shared with the order form (item 10); the
+                    // till keeps its own sentence, and its own field label.
+                    MoneyInputProblem.notAnAmount =>
+                      'The delivery fee must be a number, 0 or more.',
+                    MoneyInputProblem.moreThanTwoDecimals =>
+                      // 10.005 is refused by the server, not rounded: money the
+                      // customer was charged is written to the cent.
+                      'The delivery fee needs at most two decimals.',
+                    null => null,
+                  },
                 ),
               ),
             ],

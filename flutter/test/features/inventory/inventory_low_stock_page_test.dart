@@ -181,6 +181,35 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('a low variant shows where its stock sits', (tester) async {
+    // Phase 9 F1 (decision 21 §4): the threshold stays on the TOTAL, and the row
+    // says which shelf holds what — "Store 3 · Bodega 2" — so a reorder decision
+    // can see that the shortfall is not evenly spread.
+    final store = InventoryViewmodel(
+      products: FakeProductsRepository(
+        products: [_product()],
+        batches: [batch(id: 8, variantId: 8, qty: 5)],
+        stockOnHand: [
+          onHand(variantId: 8, qty: 3),
+          onHand(
+            variantId: 8,
+            qty: 2,
+            locationId: 2,
+            locationName: 'Bodega',
+            isHome: false,
+          ),
+        ],
+      ),
+      inventory: FakeInventoryRepository(alerts: [_alert()]),
+      catalogue: FakeCatalogueRepository(),
+    );
+    await store.load();
+
+    await pumpPage(tester, store);
+
+    expect(find.text('Store 3 · Bodega 2'), findsWidgets);
+  });
+
   testWidgets('lists the variant the SERVER alerted', (tester) async {
     final inventory = _FakeInventoryRepository()..alerts = [_alert()];
     final store = InventoryViewmodel(

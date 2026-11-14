@@ -29,12 +29,14 @@ from apps.inventory.services import (
     allocate_fifo,
     check_low_stock_after_stock_out,
     lock_selling_unit_lines,
+    pick_up_caption,
 )
 from apps.pos.exceptions import NoOpenShift
 from apps.pos.models import (
     Customer,
     OfficialReceipt,
     SalesItem,
+    SalesItemDeduction,
     SalesTransaction,
     Shift,
 )
@@ -193,7 +195,7 @@ def _release_plan(requisition) -> list:
     """
     items = list(
         RequisitionItem.objects.select_related(
-            "variant_uom__variant__product", "variant_uom__uom"
+            "variant_uom__variant__product__stored_at", "variant_uom__uom"
         )
         .filter(requisition=requisition)
         .order_by("pk")
@@ -407,6 +409,9 @@ def release_materials(*, token_value: str, cashier) -> dict:
 
         grand_total = Decimal(0)
         affected_variant_ids = set()
+        # Phase 9 B2 (Design 4): the shelves each line actually left, in the order the
+        # allocator took them, so the till can print "3 at Store, 2 at Bodega".
+        pick_up_by_item = {}
 
         for line in releasing:
             item = line["item"]
@@ -414,18 +419,32 @@ def release_materials(*, token_value: str, cashier) -> dict:
             vuom = item.variant_uom
             unit_price = vuom.default_selling_price
 
-            allocate_fifo(
+            # Phase 9 B2 (decision 21 §2): the release is a SALE, so it records the
+            # batches it drew from exactly like `process_sale` does. Without these rows
+            # the release left no record of WHERE the goods came from, and the pick-up
+            # caption had nothing to read.
+            allocations = allocate_fifo(
                 variant_id=vuom.variant_id, qty_needed=qty * vuom.conversion_factor
             )
             affected_variant_ids.add(vuom.variant_id)
+            pick_up_by_item[item.pk] = [
+                (batch.location_id, batch.location.name, take)
+                for batch, take in allocations
+            ]
 
             subtotal = qty * unit_price
-            SalesItem.objects.create(
+            sales_item = SalesItem.objects.create(
                 transaction=txn,
                 variant_uom=vuom,
                 qty=qty,
                 unit_price=unit_price,
                 subtotal=subtotal,
+            )
+            SalesItemDeduction.objects.bulk_create(
+                [
+                    SalesItemDeduction(sales_item=sales_item, batch=batch, qty=take)
+                    for batch, take in allocations
+                ]
             )
             grand_total += subtotal
             item.released_qty += qty
@@ -525,6 +544,22 @@ def release_materials(*, token_value: str, cashier) -> dict:
                 # request reads "Declined: Not stocked" instead of a transient shortage.
                 "available": line["item"].available,
                 "decline_reason": line["item"].decline_reason,
+                # Phase 9 B2 (Design 4): WHERE this visit's quantity came from. A line
+                # that moved nothing has no shelf to name, so it keeps the plain caption
+                # from the product's `stored_at`.
+                "pick_up": pick_up_caption(
+                    parts=pick_up_by_item.get(line["item"].pk, []),
+                    fallback_location_id=line[
+                        "item"
+                    ].variant_uom.variant.product.stored_at_id,
+                    fallback_location_name=line[
+                        "item"
+                    ].variant_uom.variant.product.stored_at.name,
+                    qty=line["releasable"],
+                    conversion_factor=line["item"].variant_uom.conversion_factor,
+                    selling_unit=line["item"].variant_uom.uom.code,
+                    base_unit=line["item"].variant_uom.variant.base_uom.code,
+                ),
             }
             for line in plan
         ],

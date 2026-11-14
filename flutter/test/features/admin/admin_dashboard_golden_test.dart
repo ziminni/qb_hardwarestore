@@ -437,7 +437,11 @@ class _GoldenProductsRepository extends ProductsRepository {
   _GoldenProductsRepository({
     List<Product> products = const [],
     List<InventoryBatch> batches = const [],
-  }) : _snapshot = ProductsSnapshot(products: products, batches: batches),
+  }) : _snapshot = ProductsSnapshot(
+         products: products,
+         batches: batches,
+         stockOnHand: onHandFromBatches(batches),
+       ),
        super(ProductsService());
 
   final ProductsSnapshot _snapshot;

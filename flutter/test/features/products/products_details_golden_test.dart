@@ -72,15 +72,17 @@ void main() {
       addTearDown(tester.view.reset);
 
       final product = _packedProduct();
+      final batches = [batch(id: 1, variantId: 210, qty: 130)];
       final inventory = InventoryViewmodel.seeded(
         catalogue: FakeProductsRepository(
           products: [product],
-          batches: [batch(id: 1, variantId: 210, qty: 130)],
+          batches: batches,
         ),
         inventory: FakeInventoryRepository(),
         catalogueLists: FakeCatalogueRepository(units: _units),
         products: [product],
-        batches: [batch(id: 1, variantId: 210, qty: 130)],
+        batches: batches,
+        stockOnHand: onHandFromBatches(batches),
         units: _units,
       );
       SharedPreferences.setMockInitialValues({

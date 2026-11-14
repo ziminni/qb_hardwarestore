@@ -1,4 +1,5 @@
 import 'package:client/core/format/format.dart';
+import 'package:client/data/models/pick_up.dart';
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/data/models/tender_method.dart';
 import 'package:client/features/pos/widgets/receipt_document.dart';
@@ -89,14 +90,18 @@ class _PosReceiptDialogState extends State<PosReceiptDialog> {
                           Text(formatPeso(line.total)),
                         ],
                       ),
-                      // Phase 5 B4: where THIS line is picked up. Hidden when the
-                      // sale recorded no place: an invented "Store" would tell the
-                      // customer to collect goods from somewhere nobody chose.
-                      if (line.storedAtName.trim().isNotEmpty)
+                      // Phase 9 F2 (decision 21 §2): where THIS line came from.
+                      // A split sale names both shelves; a pre-Phase-9 sale keeps
+                      // Phase 5's single place; neither shows nothing.
+                      if (pickUpCaption(
+                            pickUp: line.pickUp,
+                            storedAtName: line.storedAtName,
+                          )
+                          case final pickUp?)
                         Padding(
                           padding: const EdgeInsets.only(top: 2),
                           child: Text(
-                            'Pick up at ${line.storedAtName.trim()}',
+                            pickUp,
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ),

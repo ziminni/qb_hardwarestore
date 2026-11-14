@@ -1163,6 +1163,10 @@ class PosTransactionViewmodel extends ChangeNotifier {
           storedAtName: line.storedAtName.isNotEmpty
               ? line.storedAtName
               : (_soldLine(line.variantUomId, sold)?.storedAtName ?? ''),
+          // Phase 9 F2 (decision 21 §2): which shelves the sale actually LEFT.
+          // The server groups its deduction rows, so the receipt prints the split
+          // as fact; an older body sends none and the fallback above still reads.
+          pickUp: line.pickUp,
         ),
     ];
   }

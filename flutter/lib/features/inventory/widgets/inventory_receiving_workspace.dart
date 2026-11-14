@@ -5,6 +5,7 @@ import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/receiving.dart';
+import 'package:client/data/models/storage_location.dart';
 import 'package:client/data/models/supplier.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/receiving_viewmodel.dart';
@@ -391,6 +392,24 @@ class _ReceiptStepsState extends State<_ReceiptSteps> {
         order?.items.fold<double>(0, (sum, item) => sum + item.receivedQty) ??
         0;
     final batches = viewmodel.lastBatches.length;
+    // Phase 9 F2 (decision 21 §7): only an ACTIVE shelf may take a delivery —
+    // the server refuses a deactivated one — so the picker offers the active
+    // ones only, and no receipt can be recorded when there are none.
+    final inventory = context.watch<InventoryViewmodel?>();
+    final activeLocations =
+        (inventory?.storageLocations ?? const <StorageLocation>[])
+            .where((location) => location.isActive)
+            .toList(growable: false);
+    // Only a KNOWN unusable home with nothing active to replace it refuses: a
+    // line with no `location` lands on the product's home shelf, so that is the
+    // case where the receipt has nowhere to go. Unknown catalogue data keeps the
+    // screen as it was and the server the judge.
+    final noActiveLocation =
+        activeLocations.isEmpty &&
+        (order?.items.any(
+              (item) => inventory?.homeLocationIdFor(item.variantId) != null,
+            ) ??
+            false);
 
     return AppPanel(
       child: Column(
@@ -461,6 +480,11 @@ class _ReceiptStepsState extends State<_ReceiptSteps> {
                 child: _ReceiptLineRow(
                   item: item,
                   controller: _controllerFor(item.id),
+                  locations: activeLocations,
+                  homeLocationId: inventory?.homeLocationIdFor(item.variantId),
+                  destinationId: viewmodel.destinationFor(item.id),
+                  onDestination: (locationId) =>
+                      viewmodel.setDestination(item.id, locationId),
                   onChanged: (text) {
                     final parsed = double.tryParse(text.trim());
                     if (parsed == null) {
@@ -487,7 +511,10 @@ class _ReceiptStepsState extends State<_ReceiptSteps> {
             Align(
               alignment: Alignment.centerLeft,
               child: FilledButton(
-                onPressed: viewmodel.isActing || !viewmodel.hasQuantities
+                onPressed:
+                    viewmodel.isActing ||
+                        !viewmodel.hasQuantities ||
+                        noActiveLocation
                     ? null
                     : () => viewmodel.recordReceipt(
                         deliveryReceiptNo: _deliveryController.text.trim(),
@@ -496,10 +523,22 @@ class _ReceiptStepsState extends State<_ReceiptSteps> {
               ),
             ),
             const SizedBox(height: AppSpacing.xs),
-            const Text(
-              'Count at least one line to record the receipt.',
-              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-            ),
+            // A line whose `location` is omitted lands on the product's home
+            // shelf, and a deactivated home is refused: with no active shelf at
+            // all there is nowhere to send the delivery, so the screen says so
+            // instead of letting the clerk retry into the same 400.
+            if (noActiveLocation)
+              const Text(
+                'No active storage location can take this delivery. Reactivate '
+                'a shelf before recording the receipt.',
+                key: Key('receiving-no-active-location'),
+                style: TextStyle(fontSize: 12, color: AppColors.error),
+              )
+            else
+              const Text(
+                'Count at least one line to record the receipt.',
+                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+              ),
           ] else
             Text(
               'Receipt #$receiptId recorded. Now process it into stock so the '
@@ -563,12 +602,47 @@ class _ReceiptLineRow extends StatelessWidget {
     required this.controller,
     required this.onChanged,
     required this.onStep,
+    required this.locations,
+    required this.homeLocationId,
+    required this.destinationId,
+    required this.onDestination,
   });
 
   final PurchaseOrderItem item;
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
   final ValueChanged<double> onStep;
+
+  /// The ACTIVE shelves a delivery may land on: the server refuses a deactivated
+  /// destination, so one is never offered (decision 21 §11).
+  final List<StorageLocation> locations;
+
+  /// The product's home shelf, or null when the catalogue does not say. Only
+  /// SHOWN — the wire carries no location for the default.
+  final int? homeLocationId;
+
+  /// The shelf the receiver explicitly picked, or null for the default.
+  final int? destinationId;
+  final ValueChanged<int?> onDestination;
+
+  /// The shelf the dropdown shows: the receiver's pick, else the product's home
+  /// — and null when neither is active here, so the field asks for a shelf
+  /// rather than naming one this delivery cannot take.
+  int? get _shownLocation {
+    final shown = destinationId ?? homeLocationId;
+    for (final location in locations) {
+      if (location.id == shown) return shown;
+    }
+    return null;
+  }
+
+  /// True when the product's home shelf is one this delivery may land on.
+  ///
+  /// False means the default a line gets with no `location` on the wire is not
+  /// a destination the server accepts, so the receiver has to pick one.
+  bool get _homeIsActive =>
+      homeLocationId != null &&
+      locations.any((location) => location.id == homeLocationId);
 
   @override
   Widget build(BuildContext context) {
@@ -642,6 +716,36 @@ class _ReceiptLineRow extends StatelessWidget {
               ),
             ],
           ),
+          // Phase 9 F2 (decision 21 §7): WHERE this line lands. The default is
+          // the product's home shelf — shown, never sent, because an omitted
+          // `location` is the server's own default. No picker for a shop with a
+          // single shelf, where there is nothing to choose.
+          //
+          // EXCEPT when the home itself is deactivated: the default is then a
+          // shelf the server refuses, so the picker is the only way out even
+          // though a single active shelf is all that is left.
+          if (locations.length > 1 ||
+              (locations.isNotEmpty && !_homeIsActive)) ...[
+            const SizedBox(height: AppSpacing.sm),
+            DropdownButtonFormField<int>(
+              key: Key('receiving-destination-${item.id}'),
+              isExpanded: true,
+              initialValue: _shownLocation,
+              decoration: const InputDecoration(
+                labelText: 'Destination',
+                isDense: true,
+              ),
+              hint: Text(_homeIsActive ? 'Home shelf' : 'Choose a shelf'),
+              items: [
+                for (final location in locations)
+                  DropdownMenuItem(
+                    value: location.id,
+                    child: Text(location.name),
+                  ),
+              ],
+              onChanged: onDestination,
+            ),
+          ],
         ],
       ),
     );

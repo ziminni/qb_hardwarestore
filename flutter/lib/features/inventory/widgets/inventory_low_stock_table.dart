@@ -178,6 +178,22 @@ class InventoryLowStockTable extends StatelessWidget {
             ),
           ),
         ),
+        // Phase 9 F1 (decision 21 §4): the threshold is the shop-wide total, and
+        // this line says which shelf holds what — "Store 3 · Bodega 2" — so a
+        // reorder can see that the shortfall sits in one place.
+        if (inventory.stockSplitLabelFor(row.variant.id).isNotEmpty)
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              inventory.stockSplitLabelFor(row.variant.id),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 11,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
         const SizedBox(height: AppSpacing.xs + 2),
         // The bar takes whatever width the cell has: a table cell at 1100 px
         // and a card at 760 px both get a readable bar out of the same code.

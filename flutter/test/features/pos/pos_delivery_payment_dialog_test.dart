@@ -111,14 +111,12 @@ void _expectFullErrors(WidgetTester tester, List<String> messages) {
   expect(clipped, isEmpty, reason: 'these errors are clipped: $clipped');
 }
 
-void _expectDeliveryErrorsFull(WidgetTester tester) => _expectFullErrors(
-  tester,
-  const [
-    'A delivery needs an address.',
-    'A delivery needs a contact name.',
-    'A delivery needs a contact phone number.',
-  ],
-);
+void _expectDeliveryErrorsFull(WidgetTester tester) =>
+    _expectFullErrors(tester, const [
+      'A delivery needs an address.',
+      'A delivery needs a contact name.',
+      'A delivery needs a contact phone number.',
+    ]);
 
 void main() {
   testWidgets('Deliver reveals the four fields, pre-dated for tomorrow', (

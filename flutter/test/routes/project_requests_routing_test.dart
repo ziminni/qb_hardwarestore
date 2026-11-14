@@ -111,9 +111,14 @@ void main() {
     // Phase 5 F2 appended Payables at 9 and F3 appended Deliveries at 10, so
     // the queue is no longer last and the list is one longer each time.
     // Neither earlier index moved.
-    expect(labels, hasLength(11));
+    expect(labels, hasLength(12));
     expect(labels[9], 'Payables');
     expect(labels[10], 'Deliveries');
+    expect(
+      labels[11],
+      'Transfers',
+      reason: 'Phase 9 F3 appends Transfers last; no earlier index may move',
+    );
     expect(
       SalesSkeletonLayout.navigationSections
           .map((section) => section.label)
@@ -138,24 +143,29 @@ void main() {
       'Payables',
       'Deliveries',
       'Storage locations',
+      'Transfers',
     ];
     expect(AdminSkeletonLayout.projectRequestsIndex, 7);
-    // Phase 5 F2/F3/F4 appended Payables, Deliveries and Storage locations, each
-    // in a group of its own, so Projects is now fourth from the end; its index is
-    // untouched.
-    expect(AdminSkeletonLayout.groups[AdminSkeletonLayout.groups.length - 4], (
+    // Phase 5 F2/F3/F4 and Phase 9 F3 appended Payables, Deliveries, Storage
+    // locations and Transfers, each in a group of its own, so Projects is now
+    // FIFTH from the end; its index is untouched.
+    expect(AdminSkeletonLayout.groups[AdminSkeletonLayout.groups.length - 5], (
       'Projects',
       7,
     ));
-    expect(AdminSkeletonLayout.groups[AdminSkeletonLayout.groups.length - 3], (
+    expect(AdminSkeletonLayout.groups[AdminSkeletonLayout.groups.length - 4], (
       'Payables',
       8,
     ));
-    expect(AdminSkeletonLayout.groups[AdminSkeletonLayout.groups.length - 2], (
+    expect(AdminSkeletonLayout.groups[AdminSkeletonLayout.groups.length - 3], (
       'Deliveries',
       9,
     ));
-    expect(AdminSkeletonLayout.groups.last, ('Locations', 10));
+    expect(AdminSkeletonLayout.groups[AdminSkeletonLayout.groups.length - 2], (
+      'Locations',
+      10,
+    ));
+    expect(AdminSkeletonLayout.groups.last, ('Transfers', 11));
     // The group slicing is what actually renders the rows; a restated label list
     // that the layout does not produce would prove nothing.
     final source = File(

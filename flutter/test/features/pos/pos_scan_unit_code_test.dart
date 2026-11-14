@@ -57,6 +57,7 @@ void main() {
         ),
       ],
       batches: [batch(id: 1, variantId: 12, qty: 500, cost: 10)],
+      stockOnHand: [onHand(variantId: 12, qty: 500)],
     );
     // The box's factor is 100 on its OWN selling unit (decision 01/06): the till
     // catalogue reads it there, so "the box's factor" is a number this test can

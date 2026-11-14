@@ -21,6 +21,8 @@ from .views import (
     SupplierPaymentViewSet,
     SupplierReturnViewSet,
     SystemAlertViewSet,
+    StockTransferViewSet,
+    stock_on_hand_view,
 )
 
 router = DefaultRouter()
@@ -51,7 +53,13 @@ router.register(
 # Phase 8 B2 (decision 20): goods going back to a supplier come off the receipt they
 # arrived on, so this route set is POST + read only, never an edit of history.
 router.register(r'supplier-returns', SupplierReturnViewSet, basename='supplierreturn')
+# Phase 9 B4 (decision 21 §3): one-step numbered transfers between shelves. POST + read
+# only - the stock already moved, so the slip is never edited or deleted.
+router.register(r'stock-transfers', StockTransferViewSet, basename='stocktransfer')
 
 urlpatterns = [
+    # Phase 9 B1 (decision 21 §5): the per-location on-hand read. A plain view, not a
+    # viewset: it answers one grouped query and has no detail route.
+    path('stock-on-hand/', stock_on_hand_view, name='stock-on-hand'),
     path('', include(router.urls)),
 ]

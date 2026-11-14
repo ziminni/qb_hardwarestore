@@ -80,10 +80,15 @@ void main() {
         final order = _indexRoutes(
           _read('lib/features/inventory/widgets/inventory_navigation.dart'),
         );
-        expect(order, hasLength(15));
+        expect(order, hasLength(16));
         expect(order[8], 'inventoryReceiving');
         expect(order[13], 'inventoryPayables');
         expect(order[14], 'inventoryDeliveries');
+        expect(
+          order[15],
+          'inventoryTransfers',
+          reason: 'Phase 9 F3 APPENDED Transfers at 15; nothing moved',
+        );
       },
     );
 
@@ -92,10 +97,15 @@ void main() {
           .allMatches(_read('lib/features/sales/widgets/sales_navigation.dart'))
           .map((match) => match.group(1)!)
           .toList();
-      expect(order, hasLength(11));
+      expect(order, hasLength(12));
       expect(order[6], 'salesReports');
       expect(order[9], 'salesPayables');
       expect(order[10], 'salesDeliveries');
+      expect(
+        order[11],
+        'salesTransfers',
+        reason: 'Phase 9 F3 APPENDED Transfers at 11; nothing moved',
+      );
     });
 
     test('every page declares its own shell index', () {

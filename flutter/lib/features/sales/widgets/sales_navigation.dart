@@ -27,6 +27,9 @@ void navigateSales(BuildContext context, int index) {
     // Index 10 - Deliveries, APPENDED (Phase 5 F3): the manager runs the
     // schedule from their own shell, so no earlier tab moves.
     AppRoutes.salesDeliveries,
+    // Index 11 - Transfers, APPENDED (Phase 9 F3): the manager moves stock
+    // between shelves in their own shell.
+    AppRoutes.salesTransfers,
   ];
   if (index >= 0 && index < paths.length) context.go(paths[index]);
 }

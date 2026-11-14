@@ -54,6 +54,12 @@ class _StockAfterSale extends ProductsRepository {
         ),
         batch(id: 2, variantId: 2, qty: 40, cost: 70, receiptId: 2),
       ],
+      // The till's stock figure is the on-hand read, so the refresh has to move
+      // it too (Phase 9 F1).
+      stockOnHand: [
+        onHand(variantId: 1, qty: sold ? 99 : 100),
+        onHand(variantId: 2, qty: 40),
+      ],
     );
   }
 }

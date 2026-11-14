@@ -1,3 +1,5 @@
+import 'package:client/data/models/pick_up.dart';
+
 class PosCatalogItem {
   const PosCatalogItem({
     required this.variantUomId,
@@ -69,6 +71,7 @@ class PosCartLine {
     required this.unitPrice,
     required this.availableQuantity,
     this.storedAtName = '',
+    this.pickUp = const [],
   });
   final int variantUomId;
   final String productName;
@@ -84,6 +87,11 @@ class PosCartLine {
   /// catalogue row is gone. The receipt then omits the caption rather than
   /// guessing a place the customer was never told.
   final String storedAtName;
+
+  /// Which shelves this line actually LEFT, in pick order (Phase 9, decision 21
+  /// §2). Empty on a sale rung before Phase 9, and the receipt then falls back
+  /// to [storedAtName] — see `pickUpCaption`.
+  final List<PickUpPart> pickUp;
   double get total => quantity * unitPrice;
   PosCartLine copyWith({double? quantity}) => PosCartLine(
     variantUomId: variantUomId,
@@ -94,6 +102,7 @@ class PosCartLine {
     unitPrice: unitPrice,
     availableQuantity: availableQuantity,
     storedAtName: storedAtName,
+    pickUp: pickUp,
   );
   Map<String, dynamic> toCheckoutJson() => {
     'variant_id': variantUomId,

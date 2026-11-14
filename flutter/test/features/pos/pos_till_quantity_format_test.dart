@@ -56,6 +56,9 @@ PosTransactionViewmodel _till({double stock = 38.5}) {
       catalogueLists: FakeCatalogueRepository(),
       products: products,
       batches: batches,
+      // Quantity is the server's on-hand read (Phase 9 F1); these lots are on the
+      // home shelf, which is what a single-shelf server answers.
+      stockOnHand: onHandFromBatches(batches),
     ),
   );
 }

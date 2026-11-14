@@ -65,6 +65,8 @@ ProductsSnapshot _apiSnapshot() => ProductsSnapshot(
       ],
     ),
   ],
+  // Quantity is the server's on-hand read (Phase 9 F1); the lot stays for cost.
+  stockOnHand: [onHand(variantId: 8, qty: 100)],
   batches: [
     InventoryBatch(
       id: 6,

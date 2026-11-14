@@ -7,7 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 
-from apps.inventory.services import lock_selling_unit_lines
+from apps.inventory.services import lock_selling_unit_lines, pick_up_caption
 from common.exceptions import refuse_fractional_whole_unit, refuse_inactive_selling_unit
 
 from .models import (
@@ -134,17 +134,21 @@ class ChequeSerializer(serializers.ModelSerializer):
 
 
 class SalesItemSerializer(serializers.ModelSerializer):
-    """One sale line, with where its product is kept (Phase 5 B4, decision 18).
+    """One sale line, with where it was PICKED UP (Phase 5 B4, decision 18; Phase 9 B2).
 
     `stored_at` / `stored_at_name` are the product's label, read-only: a sale line does
-    not choose a shelf, it reports the one the product has, so the receipt can print
-    "Pick up at Bodega" without a second request per line.
+    not choose a shelf, it reports the one the product has. They STAY for old clients.
+
+    Phase 9 B2 (decision 21 §2) adds `pick_up`: the shelves this line actually left, in
+    the order the allocator took them ("3 at Store, 2 at Bodega"). It is read from the
+    line's `SalesItemDeduction` rows, so the caption reports a FACT rather than the
+    product's label; a line with no rows (a pre-Phase-9 sale, an unfulfilled order) falls
+    back to one entry naming `stored_at`, which is the caption the receipt printed before.
 
     `stored_at_name` prefers an annotation the VIEW attached (`getattr(obj, ...)`, the
     same pattern as `VariantUOMSerializer.get_in_use`) and otherwise walks the relation.
     The walk costs a query per line when a list serializer has not joined
-    `variant_uom__variant__product__stored_at`; that join lives in `apps/pos/views.py`,
-    which this task may not edit, so the annotation path is the one a view should use.
+    `variant_uom__variant__product__stored_at`; that join lives in `apps/pos/views.py`.
     """
 
     variant_uom_code = serializers.CharField(
@@ -154,6 +158,7 @@ class SalesItemSerializer(serializers.ModelSerializer):
         source="variant_uom.variant.product.stored_at_id", read_only=True
     )
     stored_at_name = serializers.SerializerMethodField()
+    pick_up = serializers.SerializerMethodField()
 
     class Meta:
         model = SalesItem
@@ -167,6 +172,7 @@ class SalesItemSerializer(serializers.ModelSerializer):
             "subtotal",
             "stored_at",
             "stored_at_name",
+            "pick_up",
         ]
         read_only_fields = ["id", "subtotal"]
 
@@ -175,6 +181,25 @@ class SalesItemSerializer(serializers.ModelSerializer):
         if annotated is not None:
             return annotated
         return obj.variant_uom.variant.product.stored_at.name
+
+    def get_pick_up(self, obj):
+        from apps.inventory.services import pick_up_caption
+
+        uom = obj.variant_uom
+        # `deductions` is prefetched by the transaction viewsets, so a page of sales costs
+        # ONE query for the whole page rather than one per line.
+        return pick_up_caption(
+            parts=[
+                (row.batch.location_id, row.batch.location.name, row.qty)
+                for row in obj.deductions.all()
+            ],
+            fallback_location_id=uom.variant.product.stored_at_id,
+            fallback_location_name=self.get_stored_at_name(obj),
+            qty=obj.qty,
+            conversion_factor=uom.conversion_factor,
+            selling_unit=uom.uom.code,
+            base_unit=uom.variant.base_uom.code,
+        )
 
 
 class OfficialReceiptSerializer(serializers.ModelSerializer):
@@ -833,9 +858,7 @@ class DeliverySerializer(serializers.ModelSerializer):
         else:
             return []
         # Phase 5 B4 (decision 18): each line names WHERE it is picked up. ONE query for
-        # the whole slip - not one per line - because the rows' products are not joined
-        # by the viewset's prefetch (that string lives in `apps/pos/views.py`, which this
-        # task does not own) and a slip can carry many lines.
+        # the whole slip - not one per line - for the rows' products and locations.
         stored_at = self._stored_at(rows)
         return [
             {
@@ -844,8 +867,39 @@ class DeliverySerializer(serializers.ModelSerializer):
                 "qty": f"{row.qty:.2f}",
                 "stored_at": stored_at.get(row.variant_uom_id, (None, None))[0],
                 "stored_at_name": stored_at.get(row.variant_uom_id, (None, None))[1],
+                # Phase 9 B2 (decision 21 §2): the driver is told the SPLIT - "3 at
+                # Store, 2 at Bodega" - from the sale's deduction rows, read through
+                # the viewset's prefetch so a slip of many lines still costs one query.
+                "pick_up": pick_up_caption(
+                    parts=self._parts(row),
+                    fallback_location_id=stored_at.get(
+                        row.variant_uom_id, (None, None)
+                    )[0],
+                    fallback_location_name=stored_at.get(
+                        row.variant_uom_id, (None, None)
+                    )[1],
+                    qty=row.qty,
+                    conversion_factor=row.variant_uom.conversion_factor,
+                    selling_unit=row.variant_uom.uom.code,
+                    base_unit=row.variant_uom.variant.base_uom.code,
+                ),
             }
             for row in rows
+        ]
+
+    @staticmethod
+    def _parts(row):
+        """`[(location_id, location_name, base_qty)]` for a SALE line, in pick order.
+
+        An ORDER line has no deductions - nothing has left the shelf yet - so it returns
+        none and the caption falls back to the product's `stored_at`.
+        """
+        deductions = getattr(row, "deductions", None)
+        if deductions is None:
+            return []
+        return [
+            (row.batch.location_id, row.batch.location.name, row.qty)
+            for row in deductions.all()
         ]
 
     @staticmethod

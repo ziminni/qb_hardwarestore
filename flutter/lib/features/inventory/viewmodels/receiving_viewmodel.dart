@@ -33,6 +33,11 @@ class ReceivingViewmodel extends ChangeNotifier {
 
   PurchaseOrderRecord? _selected;
   final Map<int, double> _quantities = {};
+
+  /// The shelf the receiver chose per PO line, keyed by PO item id. ABSENT means
+  /// the product's home shelf, which the server applies when the field is
+  /// omitted (Phase 9 F2, decision 21 §7).
+  final Map<int, int> _destinations = {};
   String? _actionError;
   bool _isActing = false;
   int? _lastReceiptId;
@@ -68,6 +73,10 @@ class ReceivingViewmodel extends ChangeNotifier {
 
   /// Entered received quantity for a PO line; unset means nothing entered yet.
   double? qtyFor(int poItemId) => _quantities[poItemId];
+
+  /// The destination the receiver PICKED for a PO line, or null when the line
+  /// goes to the product's home shelf (the server's default).
+  int? destinationFor(int poItemId) => _destinations[poItemId];
 
   String? get actionError => _actionError;
   bool get isActing => _isActing;
@@ -163,6 +172,7 @@ class ReceivingViewmodel extends ChangeNotifier {
   void select(PurchaseOrderRecord order) {
     _selected = order;
     _quantities.clear();
+    _destinations.clear();
     _actionError = null;
     _lastReceiptId = null;
     _lastBatches = const [];
@@ -180,6 +190,18 @@ class ReceivingViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Records where a line goes. A null RESTORES the default (home), which is a
+  /// different act from picking home explicitly: the wire carries no location,
+  /// so the server's `stored_at` decides.
+  void setDestination(int poItemId, int? locationId) {
+    if (locationId == null) {
+      _destinations.remove(poItemId);
+    } else {
+      _destinations[poItemId] = locationId;
+    }
+    notifyListeners();
+  }
+
   /// Records the receipt with one line per order item that has a quantity.
   Future<bool> recordReceipt({String deliveryReceiptNo = ''}) async {
     final order = _selected;
@@ -191,7 +213,14 @@ class ReceivingViewmodel extends ChangeNotifier {
     final lines = [
       for (final item in order.items)
         if (_quantities.containsKey(item.id))
-          ReceiptLine(poItemId: item.id, qty: _quantities[item.id]!),
+          ReceiptLine(
+            poItemId: item.id,
+            qty: _quantities[item.id]!,
+            // Only a shelf the receiver CHOSE travels: an omitted `location` is
+            // the server's home default, and sending it would pretend the clerk
+            // picked a shelf they never looked at.
+            locationId: _destinations[item.id],
+          ),
     ];
     if (lines.isEmpty) {
       _actionError = 'Enter a received quantity for at least one line.';

@@ -1,6 +1,7 @@
 import 'package:client/core/network/api_client.dart';
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
+import 'package:client/data/models/stock_on_hand.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:dio/dio.dart';
 
@@ -17,13 +18,24 @@ class ProductsServiceException implements Exception {
 /// One load of the products catalogue: the catalogue itself, plus the stock that
 /// gives each row its quantity.
 ///
-/// Stock is a separate list rather than a field on the product because a batch
-/// is "a lot at a cost" (decision 02) and lives on its own endpoint.
+/// Stock is separate lists rather than a field on the product because a batch is
+/// "a lot at a cost" (decision 02) and lives on its own endpoint.
 class ProductsSnapshot {
-  const ProductsSnapshot({required this.products, required this.batches});
+  const ProductsSnapshot({
+    required this.products,
+    required this.batches,
+    this.stockOnHand = const [],
+  });
 
   final List<Product> products;
+
+  /// The FIFO lots. COST only (the newest batch's landed cost, decision 08) and
+  /// the valuation dashboards — never summed for quantity since Phase 9 F1.
   final List<InventoryBatch> batches;
+
+  /// `GET /api/v1/stock-on-hand/` — quantity per (variant, location). This is
+  /// what every "how many do we have" question reads (decision 21 §5).
+  final List<StockOnHand> stockOnHand;
 }
 
 /// Loads the products catalogue from the two list endpoints it needs.
@@ -43,6 +55,7 @@ class ProductsService {
 
   static const productsPath = '/api/v1/products/';
   static const batchesPath = '/api/v1/batches/';
+  static const stockOnHandPath = '/api/v1/stock-on-hand/';
 
   /// Loads the catalogue and its stock together.
   ///
@@ -79,8 +92,43 @@ class ProductsService {
       batchesPath,
       InventoryBatch.fromJson,
     );
-    return ProductsSnapshot(products: products, batches: batches);
+    final stockOnHand = await fetchStockOnHand();
+    return ProductsSnapshot(
+      products: products,
+      batches: batches,
+      stockOnHand: stockOnHand,
+    );
   });
+
+  /// How much of each variant sits at each location (Phase 9 F1, decision 21 §5).
+  ///
+  /// Deliberately NOT `getAll`: this route answers a BARE JSON array
+  /// (`[{variant, location, location_name, location_active, is_home, qty}]`,
+  /// ENDPOINTS.md §3.3), not the `{count, next, previous, results}` envelope, so
+  /// `parsePaged` would read a contract the server never agreed to. The rows are
+  /// already grouped per (variant, location) by the server, so there is no page
+  /// to walk — the list is as long as the shop has shelves in use, not as long as
+  /// its stock.
+  ///
+  /// [variantId] narrows the read to one variant's shelves (`?variant=`), which
+  /// is what a transfer dialog asks. Catalogues and stock pages read the lot.
+  Future<List<StockOnHand>> fetchStockOnHand({int? variantId}) =>
+      _read(() async {
+        final response = await _client.get<dynamic>(
+          stockOnHandPath,
+          queryParameters: variantId == null ? null : {'variant': variantId},
+        );
+        final data = response.data;
+        if (data is! List) {
+          throw FormatException(
+            'Expected a list of on-hand rows but got ${data.runtimeType}.',
+          );
+        }
+        return [
+          for (final row in data)
+            StockOnHand.fromJson(row as Map<String, dynamic>),
+        ];
+      });
 
   /// Resolves a scanned code to the selling unit that owns it (decision 13).
   ///

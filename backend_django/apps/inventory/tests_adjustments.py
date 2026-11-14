@@ -34,6 +34,9 @@ class StockAdjustmentServiceTests(InventoryTestBase):
             user=self.user,
             adjustment_type=adjustment_type,
             qty_adjusted=Decimal(qty),
+            # Phase 9 B1: the shelf the count belongs to (the API stamps the variant's
+            # home; this helper writes rows directly, so it says so itself).
+            location=self.variant.product.stored_at,
         )
 
     def _receive_and_zero(self, qty="10"):
@@ -184,6 +187,7 @@ class StockAdjustmentApiTests(InventoryTestBase):
             user=self.user,
             adjustment_type=StockAdjustment.AdjustmentType.RETURN,
             qty_adjusted=Decimal(-1),
+            location=self.variant.product.stored_at,
         )
 
         response = self.client.get("/api/v1/adjustments/")

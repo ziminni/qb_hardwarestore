@@ -29,6 +29,7 @@ from apps.inventory.models import (
     ProductVariant,
     PurchaseOrder,
     StockAdjustment,
+    StockTransfer,
     Supplier,
     UnitOfMeasure,
     storage_location,
@@ -38,6 +39,7 @@ from apps.inventory.services import (
     apply_stock_adjustment,
     process_goods_receipt,
 )
+from apps.inventory.transfers import record_stock_transfer
 from apps.pos.models import Customer
 from apps.pos.services import process_sale
 from apps.requisitions.models import Requisition
@@ -77,6 +79,14 @@ USERS = [
 # badge, the receipt line and the delivery slip all have a real "Bodega" to show
 # (Phase 5 B4, decision 18).
 BODEGA_DEMO_PRODUCT = "GI Sheet Plain"
+
+# Phase 9 B5 (decision 21 §3): ONE demo transfer slip, so the transfers screen starts on a
+# real `TR-…` document instead of an empty list. The Stocker moves these from the Store
+# shelf to the Bodega shelf through `record_stock_transfer` - the same service the screen
+# calls - which is also what gives a Store-home product a Bodega on-hand row.
+DEMO_TRANSFER_PRODUCT = "Faucet"
+DEMO_TRANSFER_VARIANT = "Standard"
+DEMO_TRANSFER_QTY = Decimal(10)
 
 # category, brand, product, [(variant_name, unit_cost, selling_price), ...]
 CATALOG = [
@@ -162,6 +172,7 @@ class Command(BaseCommand):
         self._seed_locations()
         variants = self._seed_catalog()
         self._seed_stock(users["stocker"], variants)
+        self._seed_transfer(users["stocker"])
         self._seed_adjustments(users["stocker"], variants)
         self._seed_customers()
         customers = {c.name: c for c in Customer.objects.all()}
@@ -273,12 +284,18 @@ class Command(BaseCommand):
                     "cost": cost,
                 }
             # Phase 5 B4 (decision 18): ONE seeded product lives in the Bodega; every
-            # other product keeps the model default, Store. `update()` writes only this
-            # column and the value is constant, so a re-run changes nothing.
+            # other product keeps the model default, Store. Only this column is written
+            # and the value is constant, so a re-run changes nothing.
+            #
+            # Saved through the INSTANCE, not `filter().update()` (Phase 9 B5): the
+            # queryset update left the in-memory `product` pointing at the Store, and
+            # `_seed_adjustments` reads `variant.product.stored_at` off this very object.
+            # The Bodega product's count correction therefore landed on a NEW Store
+            # batch (a copy of its Bodega delivery) while its deliveries sat in the
+            # Bodega - the demo showed the same product on two shelves for no reason.
             if prod_name == BODEGA_DEMO_PRODUCT:
-                Product.objects.filter(pk=product.pk).update(
-                    stored_at=storage_location(BODEGA_LOCATION_NAME)
-                )
+                product.stored_at = storage_location(BODEGA_LOCATION_NAME)
+                product.save(update_fields=["stored_at"])
         self.stdout.write(
             self.style.SUCCESS(f"Catalog seeded ({len(variants)} variants)")
         )
@@ -307,7 +324,7 @@ class Command(BaseCommand):
                 status=PurchaseOrder.Status.ORDERED,
                 expected_delivery=timezone.localdate() + timedelta(days=7),
             )
-            POItem.objects.create(
+            item = POItem.objects.create(
                 po=po,
                 variant=info["variant"],
                 # Phase 5 B1: the line names its selling unit. The demo buys in the
@@ -321,6 +338,20 @@ class Command(BaseCommand):
                 received_qty=Decimal(100),
             )
             receipt = GoodsReceipt.objects.create(po=po, received_by=stocker)
+            if info["variant"].product.base_name == BODEGA_DEMO_PRODUCT:
+                # Phase 9 B5 (decision 21 §7, plan Design 7): the Bodega product's
+                # delivery NAMES its destination shelf, the way the receiving screen
+                # does. That takes the per-line path `process_goods_receipt` already
+                # follows for every real delivery, so the Bodega stock in the demo is
+                # received stock rather than a batch written by hand. The line's qty is
+                # the same 100 base units the legacy no-lines path would have minted,
+                # so no seeded number moves.
+                GoodsReceiptItem.objects.create(
+                    receipt=receipt,
+                    po_item=item,
+                    qty=Decimal(100),
+                    location=storage_location(BODEGA_LOCATION_NAME),
+                )
             process_goods_receipt(receipt=receipt, user=stocker)
             if i == 0:
                 low_stock_variant = info["variant"]
@@ -414,10 +445,56 @@ class Command(BaseCommand):
                     adjustment_type=adjustment_type,
                     qty_adjusted=qty,
                     remarks=remarks,
+                    # Phase 9 B1 (decision 21 §1): a seeded count is booked against the
+                    # variant's home shelf, the same rule the adjustment API stamps.
+                    location=variant.product.stored_at,
                 )
                 apply_stock_adjustment(adjustment=adjustment)
                 made += 1
         self.stdout.write(self.style.SUCCESS(f"{made} stock adjustments seeded"))
+
+    def _seed_transfer(self, stocker):
+        """ONE demo transfer slip: Store -> Bodega through the real service (Phase 9 B5).
+
+        Decision 21 §3 makes a transfer the only way stock changes shelf, so the demo
+        needs a real one or the transfers screen starts empty and there is no `TR-…`
+        number to show. It goes through `record_stock_transfer` - the same writer the
+        screen calls - so the slip, its lines and the batch-to-batch moves are the ones
+        a stocker would have produced; a batch written by hand would skip the numbered
+        contract and the low-stock re-check.
+
+        Its own guard, like every other half of this command: with a transfer already
+        stored, a re-run changes nothing.
+        """
+        if StockTransfer.objects.exists():
+            self.stdout.write(self.style.WARNING("Transfer already seeded - skipping"))
+            return
+        variant = ProductVariant.objects.get(
+            product__base_name=DEMO_TRANSFER_PRODUCT,
+            variant_name=DEMO_TRANSFER_VARIANT,
+        )
+        unit = self._base_unit(variant)
+        if unit is None:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"No base selling unit for {variant} - transfer not seeded"
+                )
+            )
+            return
+        transfer = record_stock_transfer(
+            from_location=storage_location(STORE_LOCATION_NAME),
+            to_location=storage_location(BODEGA_LOCATION_NAME),
+            lines=[(unit, DEMO_TRANSFER_QTY)],
+            user=stocker,
+            remarks="Demo slip: the stocker moved these to the Bodega shelf.",
+        )
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Transfer seeded: {transfer.number} "
+                f"{DEMO_TRANSFER_QTY} {unit.uom.code} of {variant} "
+                f"{transfer.from_location.name} -> {transfer.to_location.name}"
+            )
+        )
 
     def _seed_customers(self):
         Customer.objects.get_or_create(name="Walk-in Customer")

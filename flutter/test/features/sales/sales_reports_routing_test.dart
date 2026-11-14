@@ -49,6 +49,8 @@ const _salesPaths = [
   // shell, so the earlier indices still point where they did.
   '/sales/payables',
   '/sales/deliveries',
+  // Phase 9 F3 appends stock transfers at 11, in the same shell.
+  '/sales/transfers',
 ];
 
 Widget _app(Widget child) => ChangeNotifierProvider<AuthViewmodel>.value(
@@ -147,17 +149,17 @@ void main() {
     expect(AppRoutes.salesReports, '/sales/reports');
   });
 
-  test('the sales sidebar has eleven destinations', () {
+  test('the sales sidebar has twelve destinations', () {
     expect(
       SalesSkeletonLayout.navigationSections
           .expand((section) => section.destinations)
           .length,
-      11,
+      12,
       reason:
           'index 6 (Reports) is only reachable if the sidebar renders it; '
           '7 is Staff and 8 is Project requests (Phase 1b); 9 Payables (Phase 5 '
-          'F2) and 10 Deliveries (F3) were appended, so 0-8 keep their numbers. '
-          'Approvals was removed by decision 01',
+          'F2), 10 Deliveries (F3) and 11 Transfers (Phase 9 F3) were appended, '
+          'so 0-8 keep their numbers. Approvals was removed by decision 01',
     );
   });
 

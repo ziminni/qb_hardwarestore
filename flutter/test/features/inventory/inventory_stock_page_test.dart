@@ -75,6 +75,31 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('a variant stocked on two shelves shows the split', (
+    tester,
+  ) async {
+    // Phase 9 F1 (decision 21 §5): the On hand column keeps the TOTAL — a sale
+    // may draw from both shelves — and the split sits under it, home shelf first,
+    // so a stock manager knows where to walk.
+    final store = InventoryViewmodel.seeded(
+      products: seededProducts(),
+      batches: [batch(id: 1, variantId: 1, qty: 130, cost: 235)],
+      stockOnHand: [
+        onHand(variantId: 1, qty: 3),
+        onHand(
+          variantId: 1,
+          qty: 2,
+          locationId: 2,
+          locationName: 'Bodega',
+          isHome: false,
+        ),
+      ],
+    );
+    await pumpStock(tester, store);
+
+    expect(find.text('Store 3 · Bodega 2'), findsWidgets);
+  });
+
   testWidgets('Adjust is visible and opens the dialog at 1100 px', (
     tester,
   ) async {

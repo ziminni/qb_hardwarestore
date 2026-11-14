@@ -90,12 +90,16 @@ void main() {
     // position in the sidebar, so both are new entries, not renumberings.
     expect(labels.indexOf('Payables'), 9);
     expect(labels.indexOf('Deliveries'), 10);
+    // Phase 9 F3 appended Transfers after Deliveries: another new entry, not a
+    // renumbering.
+    expect(labels.indexOf('Transfers'), 11);
     expect(
       labels,
-      hasLength(11),
+      hasLength(12),
       reason:
-          '11 destinations since Phase 5: 0-8 unchanged, Payables (F2) at 9 and '
-          'Deliveries (F3) at 10. `navigateSales` maps the same 11.',
+          '12 destinations since Phase 9: 0-8 unchanged, Payables (F2) at 9, '
+          'Deliveries (F3) at 10 and Transfers (9 F3) at 11. `navigateSales` '
+          'maps the same 12.',
     );
   });
 

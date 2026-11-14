@@ -32,6 +32,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.management import call_command
 from django.test import TestCase
+from rest_framework.test import APIClient
 
 from apps.collectibles.models import CollectibleLedger
 from apps.inventory.models import (
@@ -42,6 +43,8 @@ from apps.inventory.models import (
     Product,
     ProductVariant,
     PurchaseOrder,
+    StockTransfer,
+    StorageLocation,
     UnitOfMeasure,
     VariantUOM,
 )
@@ -52,7 +55,13 @@ from apps.pos.models import (
     SalesTransaction,
     Shift,
 )
-from apps.users.management.commands.seed_demo import Command
+from apps.users.management.commands.seed_demo import (
+    BODEGA_DEMO_PRODUCT,
+    DEMO_TRANSFER_PRODUCT,
+    DEMO_TRANSFER_QTY,
+    DEMO_TRANSFER_VARIANT,
+    Command,
+)
 
 from .exceptions import RequisitionNotReleasable
 from .models import MaterialToken, Requisition
@@ -127,6 +136,10 @@ class SeedDemoTests(TestCase):
             ),
             "batches": tuple(
                 InventoryBatch.objects.order_by("pk").values_list("id", "current_qty")
+            ),
+            # Phase 9 B5: a second run must not move stock again.
+            "transfers": tuple(
+                StockTransfer.objects.order_by("pk").values_list("id", "number")
             ),
         }
 
@@ -604,6 +617,83 @@ class SeedDemoTests(TestCase):
         self.assertIn(
             "dead", declined_line, "the operator must know the declined token is spent"
         )
+
+
+ON_HAND_URL = "/api/v1/stock-on-hand/"
+
+
+class BodegaStockSeedTests(TestCase):
+    """Phase 9 B5 (decision 21 §1/§3) — the demo really stocks the Bodega shelf.
+
+    Decision 18 left the Bodega as a label: one product named the Bodega as its pick-up
+    point, and no row anywhere said how much sat there. Decision 21 gives every batch a
+    shelf, so the demo has to carry what a real shop would have:
+
+    * the Bodega product's delivery NAMED the Bodega on its receipt line (the per-line
+      destination B3 added) instead of being written as a batch by hand; and
+    * one numbered `TR-…` slip moved stock from the Store to the Bodega through
+      `record_stock_transfer`, the same service the transfers screen calls.
+
+    `/stock-on-hand/` is then the read a client uses: a Store-home variant must answer a
+    Bodega row after the move, which is exactly what it could not do before this phase.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        call_command("seed_demo", verbosity=0, stdout=StringIO())
+
+    def _variant(self, product_name, variant_name):
+        return ProductVariant.objects.get(
+            product__base_name=product_name, variant_name=variant_name
+        )
+
+    def _on_hand(self, variant):
+        client = APIClient()
+        client.force_authenticate(User.objects.get(username="stocker"))
+        response = client.get(ON_HAND_URL, {"variant": variant.pk})
+        self.assertEqual(response.status_code, 200)
+        return {row["location_name"]: Decimal(row["qty"]) for row in response.data}
+
+    def test_the_bodega_product_was_delivered_to_a_bodega_receipt_line(self):
+        variant = self._variant(BODEGA_DEMO_PRODUCT, "0.9mm x 1.8m")
+
+        receipt = variant.batches.get(source_batch__isnull=True).receipt
+        line = receipt.lines.get()
+        self.assertEqual(
+            line.location,
+            StorageLocation.objects.get(name="Bodega"),
+            "the delivery names the shelf it landed on (plan Design 7)",
+        )
+        self.assertEqual(line.qty, Decimal("100.00"))
+
+        self.assertEqual(
+            set(variant.batches.values_list("location__name", flat=True)), {"Bodega"}
+        )
+
+    def test_stock_on_hand_answers_a_bodega_row_for_the_demo_transfer(self):
+        variant = self._variant(DEMO_TRANSFER_PRODUCT, DEMO_TRANSFER_VARIANT)
+
+        by_location = self._on_hand(variant)
+        self.assertEqual(by_location.get("Bodega"), DEMO_TRANSFER_QTY)
+        self.assertGreater(by_location.get("Store", Decimal(0)), 0)
+
+    def test_the_demo_transfer_is_a_numbered_store_to_bodega_slip(self):
+        transfer = StockTransfer.objects.get()
+
+        self.assertEqual(transfer.number.split("-")[0], "TR")
+        self.assertEqual(transfer.number.split("-")[2], "0001")
+        self.assertEqual(transfer.from_location.name, "Store")
+        self.assertEqual(transfer.to_location.name, "Bodega")
+        self.assertEqual(transfer.user.username, "stocker")
+        line = transfer.lines.get()
+        self.assertEqual(line.qty, DEMO_TRANSFER_QTY)
+        self.assertEqual(line.base_qty, DEMO_TRANSFER_QTY, "PC converts at factor 1")
+        moves = list(line.moves.all())
+        self.assertEqual(sum((move.qty for move in moves), Decimal(0)), line.base_qty)
+        for move in moves:
+            self.assertEqual(move.source_batch.location.name, "Store")
+            self.assertEqual(move.dest_batch.location.name, "Bodega")
+            self.assertEqual(move.dest_batch.source_batch_id, move.source_batch_id)
 
 
 class PackagingRepairTests(TestCase):

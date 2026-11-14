@@ -93,6 +93,7 @@ void main() {
       products.snapshot = ProductsSnapshot(
         products: seededProducts(),
         batches: [batch(id: 1, variantId: 1, qty: 130)],
+        stockOnHand: [onHand(variantId: 1, qty: 130)],
       );
       final store = _store(products);
       await store.load();

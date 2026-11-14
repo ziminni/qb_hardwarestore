@@ -80,13 +80,18 @@ void main() {
       final order = _indexRoutes(
         _read('lib/features/inventory/widgets/inventory_navigation.dart'),
       );
-      expect(order, hasLength(15));
+      expect(order, hasLength(16));
       expect(order[12], 'inventorySettings');
       expect(order[13], 'inventoryPayables');
       expect(
         order[14],
         'inventoryDeliveries',
         reason: 'F3 appends Deliveries BELOW Payables; neither index moves',
+      );
+      expect(
+        order[15],
+        'inventoryTransfers',
+        reason: 'Phase 9 F3 appends Transfers last; no earlier index moves',
       );
     });
 
@@ -95,7 +100,7 @@ void main() {
       final order = RegExp(
         r'AppRoutes\.(\w+),',
       ).allMatches(nav).map((match) => match.group(1)!).toList();
-      expect(order, hasLength(11));
+      expect(order, hasLength(12));
       expect(order[8], 'salesProjectRequests');
       expect(order[9], 'salesPayables');
       expect(
@@ -103,6 +108,7 @@ void main() {
         'salesDeliveries',
         reason: 'F3 appends Deliveries BELOW Payables; neither index moves',
       );
+      expect(order[11], 'salesTransfers');
     });
 
     test('the admin menu keeps 8 and gains Payables at 8', () {
@@ -125,10 +131,11 @@ void main() {
       final labels = RegExp(
         r"SharedSidebarDestination\(\s*label: '([^']+)'",
       ).allMatches(layout).map((match) => match.group(1)!).toList();
-      expect(labels, hasLength(15));
+      expect(labels, hasLength(16));
       expect(labels[12], 'Settings');
       expect(labels[13], 'Payables');
       expect(labels[14], 'Deliveries');
+      expect(labels[15], 'Transfers');
       expect(source, contains('selectedNavigationIndex: 13'));
     });
 

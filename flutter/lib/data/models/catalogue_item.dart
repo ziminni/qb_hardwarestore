@@ -12,7 +12,7 @@ import 'package:client/data/models/variant_uom.dart';
 /// | `variant` | nested `variants[]`, or `GET /api/v1/variants/` |
 /// | `uom` | nested `selling_uoms[]`, or `GET /api/v1/variant-uoms/` |
 /// | `price` | `uom.defaultSellingPrice` — the **charged** price (decision 08) |
-/// | `stockOnHand` | sum of `InventoryBatch.currentQty` for the variant |
+/// | `stockOnHand` | sum of `GET /api/v1/stock-on-hand/` qty rows (Phase 9 F1) |
 ///
 /// Decision: `planning/api-integration/decisions/02-product-variant-client-model.md`.
 class CatalogueItem {
@@ -34,7 +34,8 @@ class CatalogueItem {
   /// What the customer is charged. Never `InventoryBatch.batchSellingPrice`.
   final double price;
 
-  /// Quantity available, summed across the variant's batches.
+  /// Quantity available: the TOTAL across the variant's shelves, from the
+  /// server's `/stock-on-hand/` rows. Not a batch sum (Phase 9 F1).
   final double stockOnHand;
 
   /// True when stock has fallen to or below the variant's configured threshold.

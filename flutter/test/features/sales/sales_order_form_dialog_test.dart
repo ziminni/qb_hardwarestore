@@ -83,7 +83,8 @@ List<CatalogueItem> _catalogue() => assembleCatalogue(
       ],
     ),
   ],
-  batches: [batch(id: 1, variantId: 5, qty: 100)],
+  // Quantity comes from the server's on-hand read (Phase 9 F1), not the lots.
+  stockOnHand: [onHand(variantId: 5, qty: 100)],
 );
 
 void _sizeUp(WidgetTester tester, {Size size = const Size(1400, 1100)}) {
@@ -266,7 +267,7 @@ void main() {
           ),
           ..._catalogue().map((item) => item.product).toSet(),
         ],
-        batches: const [],
+        stockOnHand: const [],
       ),
     );
     expect(find.text('Circuit Breaker 20A'), findsOneWidget);
@@ -318,7 +319,7 @@ void main() {
           ),
           ..._catalogue().map((item) => item.product).toSet(),
         ],
-        batches: const [],
+        stockOnHand: const [],
       ),
     );
 

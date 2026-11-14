@@ -63,6 +63,10 @@ class _InventoryStockPageState extends State<InventoryStockPage> {
         product: product,
         variant: variant,
         currentStock: inventory.stockOnHandFor(variant.id),
+        // Phase 9 F2 (decision 21 §8): the count is per SHELF. The server's
+        // locations name the choices; its on-hand rows say how much sits there.
+        locations: inventory.storageLocations,
+        stockByLocation: inventory.stockByLocationFor(variant.id),
       ),
     );
     if (result == null || !mounted) return;
@@ -75,6 +79,7 @@ class _InventoryStockPageState extends State<InventoryStockPage> {
       newQuantity: result.quantity,
       reason: result.reason,
       notes: result.notes,
+      locationId: result.locationId,
     );
     if (!mounted) return;
     messenger.showSnackBar(

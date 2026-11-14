@@ -62,6 +62,9 @@ class AdminSkeletonLayout extends StatelessWidget {
     // Phase 5 F4: the shop's pick-up points. Appended LAST, in a group of its
     // own, so no earlier index moves.
     ('Storage locations', Icons.warehouse_outlined, '/admin/storage-locations'),
+    // Phase 9 F3: stock transfers. Appended AFTER Storage locations, in its own
+    // group, so every index above keeps its number.
+    ('Transfers', Icons.swap_horiz_rounded, '/admin/transfers'),
   ];
 
   /// The admin groups, by the index each item ALREADY has: today's flat order
@@ -79,6 +82,8 @@ class AdminSkeletonLayout extends StatelessWidget {
     ('Deliveries', 9),
     // Phase 5 F4: appended last, so every index above keeps its number.
     ('Locations', 10),
+    // Phase 9 F3: appended after Locations for the same reason.
+    ('Transfers', 11),
   ];
 
   @override

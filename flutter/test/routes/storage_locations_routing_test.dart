@@ -45,14 +45,19 @@ void main() {
       ).allMatches(source).map((match) => match.group(1)!).toList();
 
       expect(AdminSkeletonLayout.projectRequestsIndex, 7);
-      expect(groups[groups.length - 4], ('Projects', 7));
-      expect(groups[groups.length - 3], ('Payables', 8));
-      expect(groups[groups.length - 2], (
+      // Phase 9 F3 APPENDED Transfers after Storage locations, so each earlier
+      // group is one place further from the end. No index moved.
+      expect(groups[groups.length - 5], ('Projects', 7));
+      expect(groups[groups.length - 4], ('Payables', 8));
+      expect(groups[groups.length - 3], (
         'Deliveries',
         9,
       ), reason: 'F4 is appended BELOW the deliveries entry it must not move');
-      expect(groups.last.$2, 10);
-      expect(groups.last.$1, 'Locations');
+      expect(groups[groups.length - 2], (
+        'Locations',
+        10,
+      ), reason: 'Phase 9 appends BELOW Storage locations');
+      expect(groups.last, ('Transfers', 11));
       expect(items[10], 'Storage locations');
     });
   });

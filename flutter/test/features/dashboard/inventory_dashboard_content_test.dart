@@ -247,6 +247,11 @@ void main() {
             for (final id in quantities.keys)
               _stockBatch(id: id, qty: quantities[id]!),
           ],
+          // Quantity is the server's on-hand read (Phase 9 F1).
+          stockOnHand: [
+            for (final id in quantities.keys)
+              onHand(variantId: id, qty: quantities[id]!),
+          ],
         ),
       ),
       inventory: _StubInventoryRepository(),
@@ -277,7 +282,11 @@ void main() {
   ) async {
     final inventory = InventoryViewmodel(
       products: _StubProductsRepository(
-        ProductsSnapshot(products: [_product()], batches: [_batch()]),
+        ProductsSnapshot(
+          products: [_product()],
+          batches: [_batch()],
+          stockOnHand: [onHand(variantId: 1, qty: 95)],
+        ),
       ),
       catalogue: FakeCatalogueRepository(),
       inventory: _StubInventoryRepository(

@@ -33,6 +33,9 @@ void navigateInventory(BuildContext context, int index) {
     // Index 14 - Deliveries, APPENDED (Phase 5 F3). The Stock Manager runs the
     // schedule, which is why the tab is in this shell.
     14 => AppRoutes.inventoryDeliveries,
+    // Index 15 - Transfers, APPENDED (Phase 9 F3). The Stock Manager owns the
+    // shelves, so the numbered moves between them are written from here.
+    15 => AppRoutes.inventoryTransfers,
     _ => null,
   };
   if (path != null) context.go(path);

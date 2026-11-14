@@ -148,6 +148,16 @@ class SalesSkeletonLayout extends StatelessWidget {
         ),
       ],
     ),
+    // Phase 9 F3: stock transfers, APPENDED (index 11), so no earlier tab moves.
+    SharedSidebarSection(
+      label: 'Transfers',
+      destinations: [
+        SharedSidebarDestination(
+          label: 'Transfers',
+          icon: Icons.swap_horiz_rounded,
+        ),
+      ],
+    ),
   ];
 
   @override

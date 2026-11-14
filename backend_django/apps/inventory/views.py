@@ -13,12 +13,12 @@
 from typing import cast
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count, F, Prefetch
+from django.db.models import Count, F, Prefetch, Sum
 from django.db.models.deletion import ProtectedError
 from django.http import Http404
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -54,6 +54,7 @@ from .models import (
     ProductVariant,
     PurchaseOrder,
     StockAdjustment,
+    StockTransfer,
     StorageLocation,
     Supplier,
     SupplierBill,
@@ -82,6 +83,8 @@ from .serializers import (
     ProductVariantSerializer,
     PurchaseOrderSerializer,
     StockAdjustmentSerializer,
+    StockTransferCreateSerializer,
+    StockTransferSerializer,
     StorageLocationSerializer,
     SupplierBillSerializer,
     SupplierCreditNoteSerializer,
@@ -102,6 +105,7 @@ from .services import (
     record_supplier_return,
     refuse_unrepresentable_stock,
 )
+from .transfers import record_stock_transfer
 
 
 class _InventoryWritePermissions:
@@ -849,7 +853,7 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
             "po",
             "received_by",
         )
-        .prefetch_related("batches", "lines__po_item__variant")
+        .prefetch_related("batches", "lines__po_item__variant", "lines__location")
         .all()
     )
     serializer_class = GoodsReceiptSerializer
@@ -909,16 +913,20 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
         po_id = po.pk
         # Shape checks first, outside the transaction: they need no lock, and answering
         # them before the atomic block keeps the block to the part that must be atomic.
-        parsed = []  # (po_item_id, qty) — one entry per delivered line, in payload order
+        # (po_item_id, qty, location_id) — one entry per delivered line, in payload order
+        parsed = []
         for entry in raw_items:
             if not isinstance(entry, dict):
                 return Response(
-                    {"detail": "each item must be {po_item, qty}."},
+                    {"detail": "each item must be {po_item, qty, location?}."},
                     status=drf_status.HTTP_400_BAD_REQUEST,
                 )
             try:
                 po_item = POItem.objects.select_related(
-                    "po", "variant__base_uom", "variant_uom__uom"
+                    "po",
+                    "variant__base_uom",
+                    "variant__product__stored_at",
+                    "variant_uom__uom",
                 ).get(pk=entry.get("po_item"))
             except (POItem.DoesNotExist, ValueError, TypeError):
                 return Response(
@@ -965,10 +973,64 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
             # (nothing written yet, `process/` would round it away). A legit factor-0.01
             # unit receiving 0.01 was stocked as 0.00 and 0.50 x 0.03 as 0.02.
             refuse_unrepresentable_stock(item=po_item, qty=qty)
-            parsed.append((po_item.pk, qty))
+
+            # Phase 9 B3 (decision 21, plan Design 7): the receiver may send the line
+            # SOMEWHERE. Omitted = the variant's home, which is where every delivery went
+            # before this phase. An inactive location is refused outside the atomic block,
+            # so the refusal leaves no receipt row and no `received_qty` change.
+            location_id = entry.get("location")
+            if location_id is None:
+                location_id = po_item.variant.product.stored_at_id
+            else:
+                try:
+                    chosen = StorageLocation.objects.get(pk=location_id)
+                except (StorageLocation.DoesNotExist, ValueError, TypeError):
+                    return Response(
+                        {
+                            "code": "INVALID_STORAGE_LOCATION",
+                            "detail": (
+                                f"location for po_item {po_item.pk} is not a storage "
+                                f"location: {location_id!r}."
+                            ),
+                        },
+                        status=drf_status.HTTP_400_BAD_REQUEST,
+                    )
+                if not chosen.is_active:
+                    return Response(
+                        {
+                            "code": "INVALID_STORAGE_LOCATION",
+                            "detail": (
+                                f"{chosen.name} is deactivated and cannot take "
+                                "deliveries: choose an active location for the line, or "
+                                "have the location reactivated."
+                            ),
+                        },
+                        status=drf_status.HTTP_400_BAD_REQUEST,
+                    )
+                location_id = chosen.pk
+            parsed.append((po_item.pk, qty, location_id))
 
         try:
             with transaction.atomic():
+                # Phase 9 B3 (plan Design 11/12): the destination shelves are locked
+                # FIRST, in PK order, and the active check is repeated under that lock -
+                # otherwise an Admin deactivating the Bodega between the check above and
+                # the receipt row below would receive into a closed place. A deactivated
+                # destination is a 400 with nothing written, like the unlocked check.
+                wanted = sorted({entry[2] for entry in parsed})
+                destinations = {
+                    location.pk: location
+                    for location in StorageLocation.objects.select_for_update()
+                    .filter(pk__in=wanted)
+                    .order_by("pk")
+                }
+                for location_id in wanted:
+                    if not destinations[location_id].is_active:
+                        raise InvalidStorageLocation(
+                            f"{destinations[location_id].name} is deactivated and "
+                            "cannot take deliveries: choose an active location for the "
+                            "line, or have the location reactivated."
+                        )
                 # Locked BEFORE the status is decided, so this receipt and `cancel/`
                 # serialize: the cancel either sees this receipt (and refuses with
                 # PO_HAS_RECEIPTS) or waits here until the receipt is committed.
@@ -983,7 +1045,7 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
                         f"PO {po.pk} is {po.status} and cannot receive more."
                     )
                 receipt = ser.save(received_by=request.user)
-                for po_item_pk, qty in parsed:
+                for po_item_pk, qty, location_id in parsed:
                     # LOCKED before accumulating: two deliveries recorded at the same
                     # moment would otherwise both read the same `received_qty` and the
                     # loser's quantity would vanish (or the over-order cap would be
@@ -1003,7 +1065,10 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
                     locked.save(update_fields=["received_qty"])
                     if qty > 0:
                         GoodsReceiptItem.objects.create(
-                            receipt=receipt, po_item=locked, qty=qty
+                            receipt=receipt,
+                            po_item=locked,
+                            qty=qty,
+                            location_id=location_id,
                         )
         except _ReceiptRefused as exc:
             # Raised inside the atomic block, so the receipt row and every accumulated
@@ -1110,9 +1175,72 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
 
 
 class InventoryBatchViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = InventoryBatch.objects.select_related("variant", "receipt").all()
+    queryset = InventoryBatch.objects.select_related(
+        "variant", "receipt", "location"
+    ).all()
     serializer_class = InventoryBatchSerializer
     permission_classes = [IsAuthenticated]
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def stock_on_hand_view(request):
+    """`GET /api/v1/stock-on-hand/` — how much of each variant sits at each location.
+
+    Phase 9 B1 (decision 21 §5). Clients used to sum `/batches/` themselves to answer "how
+    many do we have"; with stock per shelf that sum is the whole shop's problem, so the
+    server answers it in ONE grouped query:
+
+        [{variant, location, location_name, location_active, is_home, qty}, ...]
+
+    `is_home` is `location == variant.product.stored_at` (decision 21 §1: `Stored at` is
+    the home shelf), which is what the till needs to take home stock first. `?variant=`
+    narrows the read to one variant's shelves. Exhausted batches add no 0.00 row: only
+    live stock is counted (`current_qty > 0`), the same filter the valuation uses.
+
+    Readable by ANY authenticated user, the rule `/batches/` follows: the till, the
+    low-stock page and the dashboards all need it, and none of them may write.
+    """
+    rows = InventoryBatch.objects.filter(current_qty__gt=0)
+    variant = request.query_params.get("variant")
+    if variant:
+        try:
+            rows = rows.filter(variant_id=int(variant))
+        except ValueError:
+            return Response(
+                {
+                    "code": "INVALID_VARIANT",
+                    "detail": f"?variant= must be a variant id, got {variant!r}.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+    grouped = (
+        rows.values(
+            "variant",
+            "location",
+            "location__name",
+            "location__is_active",
+            home=F("variant__product__stored_at_id"),
+        )
+        .annotate(qty=Sum("current_qty"))
+        .order_by("variant", "location")
+    )
+    return Response(
+        [
+            {
+                "variant": row["variant"],
+                "location": row["location"],
+                "location_name": row["location__name"],
+                "location_active": row["location__is_active"],
+                "is_home": row["location"] == row["home"],
+                # Text like every other quantity this API emits (DRF serializes a
+                # DecimalField to a string); a raw Decimal would reach the client as a
+                # float.
+                "qty": f"{row['qty']:.2f}",
+            }
+            for row in grouped
+        ]
+    )
 
 
 class StockAdjustmentViewSet(_StockRecordBaseViewSet):
@@ -1134,7 +1262,9 @@ class StockAdjustmentViewSet(_StockRecordBaseViewSet):
        it inside `apply_stock_adjustment` alone -- that would still commit the row first.
     """
 
-    queryset = StockAdjustment.objects.select_related("variant", "user").all()
+    queryset = StockAdjustment.objects.select_related(
+        "variant", "user", "location"
+    ).all()
     serializer_class = StockAdjustmentSerializer
 
     def perform_create(self, serializer):
@@ -1143,7 +1273,27 @@ class StockAdjustmentViewSet(_StockRecordBaseViewSet):
         # sites is flagged identically. Ignored at the LINE, so the rule still guards every
         # other line in this file.
         with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
-            adj = serializer.save(user=self.request.user)
+            # Phase 9 B3 (decision 21, plan Design 8/12): the count names a SHELF - the
+            # client's optional `location`, else the variant's home, which is what every
+            # adjustment meant before this phase. The row is locked FIRST (Design 12 a),
+            # so an Admin deactivation racing this write cannot slip between the check and
+            # the stock move.
+            variant = serializer.validated_data["variant"]
+            qty = serializer.validated_data["qty_adjusted"]
+            chosen = serializer.validated_data.get("location") or (
+                variant.product.stored_at
+            )
+            location = StorageLocation.objects.select_for_update().get(pk=chosen.pk)
+            # An INACTIVE shelf refuses ADDITIONS: nothing may be put into a place the
+            # shop has closed. Removals stay allowed - stock that is already there must
+            # remain manageable OUT (plan Design 11). Refused before the row is saved, so
+            # a refused adjustment leaves no adjustment row and no audit row.
+            if qty > 0 and not location.is_active:
+                raise InvalidStorageLocation(
+                    f"{location.name} is deactivated and cannot take stock: choose an "
+                    "active location for this correction."
+                )
+            adj = serializer.save(user=self.request.user, location=location)
             apply_stock_adjustment(adjustment=adj)
             # Same block, so a refused adjustment (no batch history, negative beyond
             # stock) writes no audit row (decision 07).
@@ -1603,4 +1753,82 @@ class SupplierReturnViewSet(
         return Response(
             self.get_serializer(supplier_return).data,
             status=status.HTTP_201_CREATED,
+        )
+
+
+# =========================================================================
+# Stock transfers  (Phase 9 B4, decision 21 §3)
+# =========================================================================
+
+
+class StockTransferViewSet(
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """`/stock-transfers/` — move stock between shelves, read the numbered slips.
+
+    **Stock Manager / Store Manager / Admin record and read alike** (decision 21), the same
+    fence as an adjustment: moving goods between shelves is the stocker's act, and a
+    Cashier has no business rewriting where stock sits.
+
+    **No edit and no delete for any role** (405): the stock already moved, so the slip is
+    the evidence of it. A mistake is corrected by a transfer in the other direction, never
+    by editing this one.
+
+    Filters: `?from_location=<id>`, `?to_location=<id>`.
+    """
+
+    queryset = StockTransfer.objects.select_related(
+        "from_location", "to_location", "user"
+    ).prefetch_related("lines__moves", "lines__variant_uom__uom")
+    serializer_class = StockTransferSerializer
+    permission_classes = [IsInventoryRole]  # noqa: RUF012 - declarative, never mutated
+    http_method_names = ("get", "head", "options", "post")
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        params = self.request.query_params
+        source = params.get("from_location")
+        if source:
+            queryset = queryset.filter(from_location_id=source)
+        destination = params.get("to_location")
+        if destination:
+            queryset = queryset.filter(to_location_id=destination)
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        """`POST /stock-transfers/` `{from_location, to_location, remarks?, lines:[…]}`.
+
+        The body is validated for SHAPE here; every business rule lives in
+        `record_stock_transfer`, the only writer, so the ORM path cannot skip one. The
+        service owns the `atomic` block (the destination lock and the batch locks need
+        one); this keeps the audit row in the SAME block, so a failed audit rolls the
+        moved stock back with it (decision 07).
+        """
+        serializer = StockTransferCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        # Typing-only cast: `StockTransferCreateSerializer` is a plain Serializer, so
+        # pyright reads `validated_data` as DRF's untyped `empty`. Runtime is the dict
+        # ValidateMixin builds.
+        data = cast(dict, serializer.validated_data)
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            transfer = record_stock_transfer(
+                from_location=data["from_location"],
+                to_location=data["to_location"],
+                lines=[(line["variant_uom"], line["qty"]) for line in data["lines"]],
+                user=request.user,
+                remarks=data.get("remarks", ""),
+            )
+            audit_request(
+                request,
+                AuditLog.ActionType.STOCK_TRANSFER,
+                f"Stock transfer {transfer.number}: "
+                f"{len(data['lines'])} line(s) moved from "
+                f"{transfer.from_location.name} to {transfer.to_location.name}"
+                + (f" ({transfer.remarks})." if transfer.remarks else "."),
+            )
+        return Response(
+            self.get_serializer(transfer).data, status=status.HTTP_201_CREATED
         )

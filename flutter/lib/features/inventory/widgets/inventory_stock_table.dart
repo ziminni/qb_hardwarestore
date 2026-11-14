@@ -102,25 +102,45 @@ class InventoryStockTable extends StatelessWidget {
           // The unit rides along as a smaller, quieter run of the same line:
           // spelled at the number's size, a seven digit quantity plus "CU.M"
           // pushed the column past its width and cut the digits themselves.
-          cell: (row) => Text.rich(
-            TextSpan(
-              children: [
+          //
+          // Phase 9 F1 (decision 21 §4): the number stays the TOTAL across
+          // shelves — a sale may draw from all of them — and the split sits under
+          // it ("Store 3 · Bodega 2") so the row says where to walk.
+          cell: (row) => Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text.rich(
                 TextSpan(
-                  text: formatCount(
-                    inventory.stockOnHandFor(row.variant.id).round(),
-                  ),
+                  children: [
+                    TextSpan(
+                      text: formatCount(
+                        inventory.stockOnHandFor(row.variant.id).round(),
+                      ),
+                    ),
+                    TextSpan(
+                      text: ' ${row.variant.baseUomCode}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
                 ),
-                TextSpan(
-                  text: ' ${row.variant.baseUomCode}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (inventory.stockSplitLabelFor(row.variant.id).isNotEmpty)
+                Text(
+                  inventory.stockSplitLabelFor(row.variant.id),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 11,
                     color: AppColors.textSecondary,
                   ),
                 ),
-              ],
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+            ],
           ),
         ),
         DataPanelColumn<InventoryStockRow>(

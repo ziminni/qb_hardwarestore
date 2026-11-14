@@ -508,3 +508,34 @@ class InvalidStorageLocation(CatalogWriteRefused):
     """
 
     code = "INVALID_STORAGE_LOCATION"
+
+
+# ---------------------------------------------------------------------------
+# Stock transfers (Phase 9 B4, decision 21 §3)
+# ---------------------------------------------------------------------------
+
+
+class InvalidStockTransfer(CatalogWriteRefused):
+    """A transfer with nothing to move (Phase 9 B4, plan Design 6).
+
+    Raised by `transfers.record_stock_transfer` for an empty line list, so the ORM path is
+    refused exactly like the API: a numbered slip that moves no stock is a slip the shop
+    would later reconcile against a shelf that never changed.
+    """
+
+    code = "INVALID_STOCK_TRANSFER"
+
+
+class TransferQuantityUnrepresentable(CatalogWriteRefused):
+    """A transfer quantity that is not a whole hundredth of the base unit (Phase 9 B4).
+
+    The batch columns hold two decimal places, so `qty × conversion_factor` has to LAND on
+    one of them. The same rule a goods receipt applies to a delivery
+    (`ReceiptQuantityUnrepresentable`), for the same reason: rounding 0.015 base units
+    means one shelf silently loses a fraction and the other gains it, and the two shelves
+    then disagree with the shop's total - on a document whose whole job is moving an exact
+    quantity. Its own code, because the answer differs: this is a transfer, not a
+    delivery. Raised before the first write, so a refusal moves nothing.
+    """
+
+    code = "TRANSFER_QUANTITY_UNREPRESENTABLE"

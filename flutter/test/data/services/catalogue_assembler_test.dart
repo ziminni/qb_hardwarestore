@@ -4,12 +4,13 @@
 // Why this exists: neither GET /api/v1/products/ nor GET /api/v1/variants/
 // exposes a price or a stock quantity (verified against the running API), so
 // the client must join:
-//   price        = VariantUom.defaultSellingPrice   (decision 08 — the charged price)
-//   stockOnHand  = sum(InventoryBatch.currentQty)   for the matching variant
-// InventoryBatch.batchSellingPrice is deliberately NOT the price.
+//   price        = VariantUom.defaultSellingPrice       (decision 08 — the charged price)
+//   stockOnHand  = sum of `/stock-on-hand/` qty rows     (Phase 9 F1, decision 21 §5)
+// InventoryBatch.batchSellingPrice is deliberately NOT the price, and a batch is
+// no longer a quantity authority: the server answers the per-location split.
 
-import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
+import 'package:client/data/models/stock_on_hand.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/services/catalogue_assembler.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -66,23 +67,21 @@ Product _product({
   );
 }
 
-InventoryBatch _batch({
-  int id = 6,
+/// One `/stock-on-hand/` row: a variant's quantity on ONE shelf.
+StockOnHand _onHand({
   int variantId = 6,
-  double currentQty = 100,
-  double batchSellingPrice = 180,
+  double qty = 100,
+  int locationId = 1,
+  String locationName = 'Store',
+  bool isHome = true,
 }) {
-  return InventoryBatch(
-    id: id,
+  return StockOnHand(
     variantId: variantId,
-    receiptId: 6,
-    initialQty: currentQty,
-    currentQty: currentQty,
-    unitCostLanded: 180,
-    markupPercentage: 0,
-    batchSellingPrice: batchSellingPrice,
-    expirationDate: null,
-    createdAt: null,
+    locationId: locationId,
+    locationName: locationName,
+    locationActive: true,
+    isHome: isHome,
+    qty: qty,
   );
 }
 
@@ -97,7 +96,7 @@ void main() {
             ],
           ),
         ],
-        batches: [_batch(variantId: 8, batchSellingPrice: 180)],
+        stockOnHand: [_onHand(variantId: 8)],
       );
 
       expect(items, hasLength(1));
@@ -105,7 +104,7 @@ void main() {
       expect(items.single.price, 315);
     });
 
-    test('sums stock across every batch of the variant', () {
+    test('sums the quantity across the shelves the server lists', () {
       final items = assembleCatalogue(
         products: [
           _product(
@@ -114,16 +113,22 @@ void main() {
             ],
           ),
         ],
-        batches: [
-          _batch(id: 1, variantId: 8, currentQty: 100),
-          _batch(id: 2, variantId: 8, currentQty: 40),
+        stockOnHand: [
+          _onHand(variantId: 8, qty: 100),
+          _onHand(
+            variantId: 8,
+            qty: 40,
+            locationId: 2,
+            locationName: 'Bodega',
+            isHome: false,
+          ),
         ],
       );
 
       expect(items.single.stockOnHand, 140);
     });
 
-    test('ignores batches belonging to other variants', () {
+    test('ignores rows belonging to other variants', () {
       final items = assembleCatalogue(
         products: [
           _product(
@@ -132,16 +137,16 @@ void main() {
             ],
           ),
         ],
-        batches: [
-          _batch(id: 1, variantId: 8, currentQty: 10),
-          _batch(id: 2, variantId: 999, currentQty: 500),
+        stockOnHand: [
+          _onHand(variantId: 8, qty: 10),
+          _onHand(variantId: 999, qty: 500),
         ],
       );
 
       expect(items.single.stockOnHand, 10);
     });
 
-    test('reports zero stock when a variant has no batches', () {
+    test('reports zero stock when the on-hand read lists no shelf', () {
       final items = assembleCatalogue(
         products: [
           _product(
@@ -150,7 +155,7 @@ void main() {
             ],
           ),
         ],
-        batches: const [],
+        stockOnHand: const [],
       );
 
       expect(items.single.stockOnHand, 0);
@@ -163,7 +168,7 @@ void main() {
         products: [
           _product(variants: [_variant(sellingUoms: const [])]),
         ],
-        batches: const [],
+        stockOnHand: const [],
       );
 
       expect(items, isEmpty);
@@ -183,7 +188,7 @@ void main() {
             ],
           ),
         ],
-        batches: [_batch(variantId: 8, currentQty: 100)],
+        stockOnHand: [_onHand(variantId: 8)],
       );
 
       expect(items, hasLength(2));
@@ -200,7 +205,7 @@ void main() {
         products: [
           _product(variants: [variant]),
         ],
-        batches: const [],
+        stockOnHand: const [],
       );
 
       expect(items.single.product.baseName, 'Circuit Breaker');
@@ -238,7 +243,7 @@ void main() {
             ],
           ),
         ],
-        batches: [_batch(id: 1, variantId: 11, currentQty: 7)],
+        stockOnHand: [_onHand(variantId: 11, qty: 7)],
       );
 
       expect(items, hasLength(3));

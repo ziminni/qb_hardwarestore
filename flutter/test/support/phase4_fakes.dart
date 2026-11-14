@@ -16,6 +16,7 @@ import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/product_writes.dart';
+import 'package:client/data/models/stock_on_hand.dart';
 import 'package:client/data/models/receiving.dart';
 import 'package:client/data/models/storage_location.dart';
 import 'package:client/data/models/system_alert.dart';
@@ -108,6 +109,7 @@ Product product({
   int brandId = 1,
   List<ProductVariant>? variants,
   bool isActive = true,
+  int? storedAtId,
 }) => Product(
   id: id,
   categoryId: categoryId,
@@ -118,6 +120,7 @@ Product product({
   description: '',
   imageUrl: '',
   isActive: isActive,
+  storedAtId: storedAtId,
   variants: variants ?? [variant(id: id, productId: id)],
 );
 
@@ -138,6 +141,58 @@ InventoryBatch batch({
   batchSellingPrice: cost,
   expirationDate: null,
   createdAt: null,
+);
+
+/// One `GET /api/v1/stock-on-hand/` row, as the server answers it: quantity per
+/// (variant, location), home shelf first in the order the allocator takes them.
+StockOnHand onHand({
+  required int variantId,
+  double qty = 100,
+  int locationId = 1,
+  String locationName = 'Store',
+  bool isHome = true,
+  bool locationActive = true,
+}) => StockOnHand(
+  variantId: variantId,
+  locationId: locationId,
+  locationName: locationName,
+  locationActive: locationActive,
+  isHome: isHome,
+  qty: qty,
+);
+
+/// The on-hand rows a server would answer for these lots: every batch sits at the
+/// HOME shelf (id 1, "Store"), one row per variant, until a transfer moves stock.
+///
+/// Test-only. A test that cares about a SPLIT passes explicit rows instead — the
+/// point of Phase 9 F1 is that the client reads the server's split and never
+/// derives it from batches, so a derivation here is the fake standing in for a
+/// single-shelf server, not the production rule.
+List<StockOnHand> onHandFromBatches(List<InventoryBatch> batches) {
+  final totals = <int, double>{};
+  for (final batch in batches) {
+    totals.update(
+      batch.variantId,
+      (running) => running + batch.currentQty,
+      ifAbsent: () => batch.currentQty,
+    );
+  }
+  return [
+    for (final entry in totals.entries)
+      onHand(variantId: entry.key, qty: entry.value),
+  ];
+}
+
+/// A catalogue snapshot for a fake server: the rows, plus the on-hand read that
+/// answers for them when the test does not spell one out.
+ProductsSnapshot snapshotOf({
+  List<Product> products = const [],
+  List<InventoryBatch> batches = const [],
+  List<StockOnHand>? stockOnHand,
+}) => ProductsSnapshot(
+  products: products,
+  batches: batches,
+  stockOnHand: stockOnHand ?? onHandFromBatches(batches),
 );
 
 SystemAlert alert({
@@ -170,7 +225,12 @@ class FakeProductsRepository extends ProductsRepository {
   FakeProductsRepository({
     List<Product> products = const [],
     List<InventoryBatch> batches = const [],
-  }) : _snapshot = ProductsSnapshot(products: products, batches: batches),
+    List<StockOnHand>? stockOnHand,
+  }) : _snapshot = snapshotOf(
+         products: products,
+         batches: batches,
+         stockOnHand: stockOnHand,
+       ),
        super(ProductsService());
 
   ProductsSnapshot _snapshot;
@@ -208,7 +268,12 @@ class FakeProductsRepository extends ProductsRepository {
   void setSnapshot({
     List<Product> products = const [],
     List<InventoryBatch> batches = const [],
-  }) => _snapshot = ProductsSnapshot(products: products, batches: batches);
+    List<StockOnHand>? stockOnHand,
+  }) => _snapshot = snapshotOf(
+    products: products,
+    batches: batches,
+    stockOnHand: stockOnHand,
+  );
 
   @override
   Future<ProductsSnapshot> loadCatalogue() async {
@@ -288,6 +353,7 @@ class FakeProductsRepository extends ProductsRepository {
           ),
       ],
       batches: _snapshot.batches,
+      stockOnHand: _snapshot.stockOnHand,
     );
   }
 
@@ -317,6 +383,7 @@ class FakeProductsRepository extends ProductsRepository {
           ),
       ],
       batches: _snapshot.batches,
+      stockOnHand: _snapshot.stockOnHand,
     );
   }
 
@@ -539,6 +606,12 @@ InventoryViewmodel seededInventory() {
       batch(id: 1, variantId: 1, qty: 130, cost: 235, receiptId: 1),
       batch(id: 2, variantId: 2, qty: 40, cost: 70, receiptId: 2),
     ],
+    // The quantity the store reads is the SERVER's on-hand answer (Phase 9 F1),
+    // so a seeded store spells it out; both lots sit on the home shelf here.
+    stockOnHand: onHandFromBatches([
+      batch(id: 1, variantId: 1, qty: 130, cost: 235, receiptId: 1),
+      batch(id: 2, variantId: 2, qty: 40, cost: 70, receiptId: 2),
+    ]),
     categories: [
       category(id: 1, name: 'Cement'),
       category(id: 2, name: 'Plumbing'),

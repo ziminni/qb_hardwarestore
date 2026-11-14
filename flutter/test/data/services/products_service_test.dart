@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 const _productsPath = '/api/v1/products/';
 const _batchesPath = '/api/v1/batches/';
+const _stockOnHandPath = '/api/v1/stock-on-hand/';
 
 Map<String, dynamic> _variant({int id = 8, String price = '315.00'}) => {
   'id': id,
@@ -157,7 +158,10 @@ class _PagedFakeAdapter implements HttpClientAdapter {
   _PagedFakeAdapter(this.pages);
 
   /// path -> page bodies, in order (index 0 is page 1).
-  final Map<String, List<Map<String, dynamic>>> pages;
+  ///
+  /// `Object?` because one path (`/stock-on-hand/`) answers a BARE list rather
+  /// than an envelope, and a fake has to be able to say so.
+  final Map<String, List<Object?>> pages;
   final List<String> requested = [];
 
   @override
@@ -226,6 +230,9 @@ void main() {
       useBodies({
         _productsPath: _envelope([_product()]),
         _batchesPath: _envelope([_batch()]),
+        // The on-hand read is a separate authority (Phase 9 F1); this test is
+        // about the two catalogue endpoints, so it answers an empty split.
+        _stockOnHandPath: const [],
       });
 
       final snapshot = await service().fetchCatalogue();
@@ -337,6 +344,46 @@ void main() {
       },
     );
 
+    test('reads the per-location split from /stock-on-hand/', () async {
+      // Phase 9 F1 (decision 21 §5): how much sits where is the SERVER's answer.
+      // The client used to sum /batches/ itself, which cannot say which shelf a
+      // quantity is on.
+      useBodies({
+        _productsPath: _envelope([_product()]),
+        _batchesPath: _envelope([_batch()]),
+        _stockOnHandPath: [
+          {
+            'variant': 8,
+            'location': 1,
+            'location_name': 'Store',
+            'location_active': true,
+            'is_home': true,
+            'qty': '97.00',
+          },
+          {
+            'variant': 8,
+            'location': 2,
+            'location_name': 'Bodega',
+            'location_active': true,
+            'is_home': false,
+            'qty': '3.00',
+          },
+        ],
+      });
+
+      final snapshot = await service().fetchCatalogue();
+
+      expect(adapter.requested, contains(_stockOnHandPath));
+      // The rows are what the screens count: one per (variant, location).
+      expect(snapshot.stockOnHand, hasLength(2));
+      expect(snapshot.stockOnHand.first.variantId, 8);
+      expect(snapshot.stockOnHand.first.locationName, 'Store');
+      expect(snapshot.stockOnHand.first.isHome, isTrue);
+      expect(snapshot.stockOnHand.first.qty, 97);
+      expect(snapshot.stockOnHand.last.qty, 3);
+      expect(snapshot.stockOnHand.last.isHome, isFalse);
+    });
+
     test('reports a failed request as ProductsServiceException', () async {
       useBodies({}, statusCode: 500);
 
@@ -366,6 +413,8 @@ void main() {
           _page(pageOneBatches, count: 51, hasNext: true),
           _page([_batch(variantId: 51)], count: 51, hasNext: false),
         ],
+        // Not paginated on the server (a bare list): one page, empty here.
+        _stockOnHandPath: [const <Object?>[]],
       });
       client.dio.httpClientAdapter = adapter;
 
@@ -377,6 +426,48 @@ void main() {
       expect(snapshot.batches.last.variantId, 51);
       expect(adapter.requested, contains('$_productsPath?page=2'));
       expect(adapter.requested, contains('$_batchesPath?page=2'));
+    });
+  });
+
+  group('ProductsService.fetchStockOnHand', () {
+    test('narrows the read to one variant with ?variant=', () async {
+      useBodies({
+        _stockOnHandPath: [
+          {
+            'variant': 8,
+            'location': 1,
+            'location_name': 'Store',
+            'location_active': true,
+            'is_home': true,
+            'qty': '3.00',
+          },
+        ],
+      });
+
+      final rows = await service().fetchStockOnHand(variantId: 8);
+
+      expect(rows.single.qty, 3);
+      expect(adapter.requestedQueries.last, {'variant': 8});
+    });
+
+    test('a paged envelope where the bare list belongs is a contract break', () async {
+      // `/stock-on-hand/` answers a BARE array (ENDPOINTS.md §3.3). Reading it
+      // through `parsePaged` would invent an envelope the server never agreed to,
+      // so the check is explicit and loud instead of silently empty.
+      useBodies({
+        _stockOnHandPath: _envelope(const []),
+      });
+
+      await expectLater(
+        service().fetchStockOnHand(),
+        throwsA(
+          isA<ProductsServiceException>().having(
+            (error) => error.message,
+            'message',
+            contains('could not be loaded'),
+          ),
+        ),
+      );
     });
   });
 

@@ -23,7 +23,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.collectibles.models import CollectibleLedger
-from apps.inventory.models import SupplierCreditNote
+from apps.inventory.models import StockTransfer, SupplierCreditNote
 from apps.inventory.services import (
     allocate_fifo,
     check_low_stock_after_stock_out,
@@ -157,6 +157,10 @@ COUNTER_SOURCES = {
     # lazily (see `payables.create_credit_note_for_return`), so this name is already
     # resolved by the time a return asks for a number.
     "CN": ("number", SupplierCreditNote),
+    # Phase 9 B4 (decision 21 §3): the numbered transfer slip. `inventory.transfers`
+    # reserves it LAST inside the transfer's own atomic block (plan Design 12 d), so a
+    # refused transfer never consumes a number.
+    "TR": ("number", StockTransfer),
 }
 
 
@@ -1639,17 +1643,38 @@ def _restock_returned(*, variant_id, qty_needed, original_id, return_item):
     already gave back and the "more-than-drew" guard fires across calls, across
     partials, and across the lines of one call (same-transaction writes are visible
     to the later lines). Pre-linkage sales left no deduction rows, so those fall
-    back to the newest-active branch — the only honest answer when history was
-    never recorded. Unlinked: the newest active batch. No active batch at all
-    (variant fully depleted): the newest batch overall is reopened.
+    back to the home-first branch — the only honest answer when history was
+    never recorded. Unlinked (Phase 9 B2, decision 21 §9): the newest batch at the
+    product's HOME shelf first, then the newest batch with stock elsewhere, and only
+    when nothing has stock at all the newest batch overall is reopened. That is the
+    allocator's order read backwards: it keeps stocked the shelf the next sale reaches
+    for first, instead of topping up a Bodega shelf nobody will walk to.
     Reads are row-locked, matching allocate_fifo's discipline on the way out.
     """
-    from django.db.models import Sum
+    from django.db.models import F, Sum
 
     from apps.inventory.models import InventoryBatch
 
     from .exceptions import ReturnError
     from .models import SalesItemDeduction
+
+    def _newest(*, with_stock: bool, at_home: bool):
+        """The newest batch on the shelf this step asks for, or None.
+
+        `-id` breaks a receive-date tie so "the newest" means the latest DELIVERY even
+        when two arrived on one day — without it the answer was whatever order the
+        database felt like, which is a test that passes today and fails tomorrow.
+        """
+        batches = InventoryBatch.objects.select_for_update().filter(
+            variant_id=variant_id
+        )
+        if with_stock:
+            batches = batches.filter(current_qty__gt=0)
+        if at_home:
+            # F() rather than a second query: the home shelf is a COLUMN on the product,
+            # not a fact this function was handed.
+            batches = batches.filter(location_id=F("variant__product__stored_at_id"))
+        return batches.order_by("-receipt__receive_date", "-id").first()
 
     remaining = qty_needed
     if original_id is not None:
@@ -1693,18 +1718,10 @@ def _restock_returned(*, variant_id, qty_needed, original_id, return_item):
                 raise ReturnError("Cannot return more than the original sale drew.")
             return
     newest = (
-        InventoryBatch.objects.select_for_update()
-        .filter(variant_id=variant_id, current_qty__gt=0)
-        .order_by("-receipt__receive_date")
-        .first()
+        _newest(with_stock=True, at_home=True)
+        or _newest(with_stock=True, at_home=False)
+        or _newest(with_stock=False, at_home=False)
     )
-    if newest is None:
-        newest = (
-            InventoryBatch.objects.select_for_update()
-            .filter(variant_id=variant_id)
-            .order_by("-receipt__receive_date")
-            .first()
-        )
     if newest is None:
         raise ReturnError("No batches exist for this variant.")
     newest.current_qty += remaining

@@ -1,10 +1,12 @@
-# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportIncompatibleMethodOverride=false, reportMissingImports=false
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportIncompatibleMethodOverride=false, reportMissingImports=false, reportOperatorIssue=false
 #
 # Same directive and reason as apps/pos/models.py: the checker resolves its config from
 # its WORKING DIRECTORY and does not run inside this repo here, so pyrightconfig.json is
 # not found and this travels with the file. Without django-stubs every
-# `Model.objects`, FK-attribute read (`self.po_item.variant`) and
-# `BooleanField(default=True)` is a false positive on valid Django, and so is an
+# `Model.objects`, FK-attribute read (`self.po_item.variant`),
+# `BooleanField(default=True)` and arithmetic on a `DecimalField`
+# (`self.total_amount - self.balance_amount`, a property the ORM reads as `Decimal` at
+# runtime) is a false positive on valid Django, and so is an
 # `__str__` whose return type pyright reads off a `CharField`. Django's own
 # `manage.py check` and the test run remain the authority.
 """Inventory Module — Product Catalog, Purchasing & Stock (Phase 2).
@@ -140,22 +142,27 @@ BODEGA_LOCATION_NAME = "Bodega"
 
 
 class StorageLocation(models.Model):
-    """Where a product is kept: a short Admin-managed list, one label per product.
+    """Where stock sits: a short Admin-managed list, and since Phase 9 a real shelf.
 
     Decision 18 ruled the server side of "Bodega lite": the till shows "Bodega" on the
     line, the receipt says "Pick up at Bodega", so the pick-up point is a SERVER fact
     rather than a phrase typed into one device (`LocationHintStore` stays a device-only
     shelf hint and is untouched by this).
 
-    **This is a label, not a second stock ledger.** Nothing counts stock per location,
-    nothing transfers stock between them, and a batch's quantity does not care which
-    location its product names. The full version - per-location counts and transfers -
-    is explicitly out of scope for this phase.
+    **Decision 18's "a label, not a second stock ledger" is SUPERSEDED by decision 21.**
+    Stock is counted per shelf now: every `InventoryBatch` carries the `location` it was
+    delivered to, `Product.stored_at` is the product's HOME shelf (the one the allocator
+    takes from first, and the default destination for a receipt line that names none),
+    and a `StockTransfer` moves a quantity from one shelf to another at once. What
+    survives from the label era is exactly that `stored_at` default - a product's goods
+    still live at home unless somebody says otherwise.
 
     The NAME is unique case-insensitively (`Upper(name)`), because "Bodega" and
     "bodega" are one place with two spellings, and a till choosing between them would
     show two pick-up points. Deactivating is the supported exit (see `Product.stored_at`)
     and no location can be DELETEd: this is a `_CatalogBaseViewSet`, so the verb is 405.
+    A deactivated shelf takes no deliveries, no adjustments IN and no transfers IN;
+    stock already on it stays sellable and transferable out.
     """
 
     name = models.CharField(max_length=100, db_index=True)
@@ -570,6 +577,17 @@ class GoodsReceiptItem(models.Model):
     qty = models.DecimalField(
         max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
     )
+    # Phase 9 B3 (decision 21, plan Design 7): the shelf THIS line was delivered to, so
+    # the batch `process_goods_receipt` mints from it lands there instead of at home.
+    # NULL = a line recorded before Phase 9 (or by a script that does not care), read as
+    # the variant's home - exactly what every pre-Phase-9 receipt did.
+    location = models.ForeignKey(
+        StorageLocation,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="receipt_lines",
+    )
 
     class Meta:
         db_table = "inventory_goods_receipt_item"
@@ -585,6 +603,28 @@ class InventoryBatch(models.Model):
     )
     receipt = models.ForeignKey(
         GoodsReceipt, on_delete=models.PROTECT, related_name="batches"
+    )
+    # Phase 9 B1 (decision 21 §1): which shelf this quantity sits on. Every existing row
+    # is backfilled to its product's `stored_at` (the product's HOME location) by migration
+    # 0015, and new deliveries land at home until B3 lets the receiver pick per line.
+    #
+    # IMMUTABLE after creation: a transfer does not edit this column, it writes NEW batches
+    # at the destination (copying receipt/cost/expiry). That is what makes
+    # `SalesItemDeduction.batch.location` a stable "where it was taken" with no new column
+    # on the deduction.
+    location = models.ForeignKey(
+        StorageLocation, on_delete=models.PROTECT, related_name="batches"
+    )
+    # Phase 9 B1 (decision 21 §2): the batch a MOVE (or an adjustment at an empty shelf)
+    # copied this one off. NULL means a delivery minted it, which is exactly the filter
+    # every "what did this receipt bring in" sum needs - a transfer copies `receipt` onto
+    # the destination batch, so summing by receipt alone would count the same goods twice.
+    source_batch = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="derived_batches",
     )
     initial_qty = models.DecimalField(
         max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal(0))]
@@ -625,6 +665,12 @@ class StockAdjustment(models.Model):
 
     variant = models.ForeignKey(
         ProductVariant, on_delete=models.PROTECT, related_name="adjustments"
+    )
+    # Phase 9 B1 (decision 21 §1): WHERE the count was corrected. Backfilled from the
+    # product's home by migration 0015; this task has no payload choice yet, so the view
+    # stamps the variant's home and B3 adds the optional `location` input.
+    location = models.ForeignKey(
+        StorageLocation, on_delete=models.PROTECT, related_name="adjustments"
     )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
@@ -1308,3 +1354,112 @@ class SupplierCreditNote(models.Model):
             f"Credit note {self.number} cannot be deleted: it records credit the supplier "
             "owes the shop for goods that already went back."
         )
+
+
+# =========================================================================
+# Stock transfers  (Phase 9 B4, decision 21 §3)
+# =========================================================================
+
+
+class StockTransfer(models.Model):
+    """One recorded MOVE of stock from one shelf to another, at once.
+
+    Decision 21 §3: a transfer is ONE step - the stock team writes "move N BAG from Store
+    to Bodega", the quantity moves immediately, and the numbered slip plus the audit row
+    are the record. There is no in-transit state.
+
+    **`number` is the document's own.** `TR-YYYYMMDD-NNNN`, reserved through the locked
+    `DocumentCounter` LAST in the write (plan Design 12 d), so a refused transfer never
+    eats a number for stock it did not move. It is unique at the database level: two
+    concurrent transfers queue on the counter row rather than sharing a slip.
+
+    **Append-only.** Every column is a snapshot of the act - which shelves, who, why - and
+    none of it may be edited or deleted afterwards: the stock already moved and the
+    batches now say so. The API answers **405** to `PUT`/`PATCH`/`DELETE` for every role;
+    a mistake is corrected by a new transfer in the other direction.
+
+    `from_location` may be DEACTIVATED: plan Design 11 keeps stock that is already on a
+    closed shelf transferable OUT. `to_location` may not, and the service refuses it.
+    """
+
+    number = models.CharField(max_length=20, unique=True)
+    from_location = models.ForeignKey(
+        StorageLocation, on_delete=models.PROTECT, related_name="transfers_out"
+    )
+    to_location = models.ForeignKey(
+        StorageLocation, on_delete=models.PROTECT, related_name="transfers_in"
+    )
+    # The actor comes from `request.user`; it is never a client input.
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    remarks = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "inventory_stock_transfer"
+        ordering = ["-created_at", "-pk"]  # noqa: RUF012 - declarative, never mutated
+
+    def __str__(self):
+        return f"{self.number}: {self.from_location} → {self.to_location}"
+
+
+class StockTransferLine(models.Model):
+    """One quantity on a transfer slip, in the selling unit the clerk typed.
+
+    `qty` is what was entered; `base_qty` is the stock that actually moved
+    (`qty × conversion_factor`). Both are stored because stock is counted in base units
+    while the clerk and the slip speak packages, and a stored pair keeps the row readable
+    without a join (same ruling as `SupplierReturnLine`).
+    """
+
+    transfer = models.ForeignKey(
+        StockTransfer, on_delete=models.CASCADE, related_name="lines"
+    )
+    variant_uom = models.ForeignKey(
+        VariantUOM, on_delete=models.PROTECT, related_name="transfer_lines"
+    )
+    qty = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    )
+    base_qty = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    )
+
+    class Meta:
+        db_table = "inventory_stock_transfer_line"
+        ordering = ["pk"]  # noqa: RUF012 - declarative, never mutated
+
+    def __str__(self):
+        return f"{self.transfer_id}: {self.qty} × {self.variant_uom}"
+
+
+class StockTransferMove(models.Model):
+    """Which source batch fed which destination batch, and how much - the provenance.
+
+    One row per batch touched, so a line drawn from two deliveries writes two rows whose
+    sum is exactly the line's `base_qty`. `source_batch` is on the source shelf and
+    `dest_batch` is the NEW batch minted on the destination shelf, which copies the
+    source's receipt, landed cost and expiry: the move is readable from either end, and
+    the cost/age that travelled is evidenced rather than implied.
+    """
+
+    line = models.ForeignKey(
+        StockTransferLine, on_delete=models.CASCADE, related_name="moves"
+    )
+    source_batch = models.ForeignKey(
+        InventoryBatch, on_delete=models.PROTECT, related_name="transfer_moves_out"
+    )
+    dest_batch = models.ForeignKey(
+        InventoryBatch, on_delete=models.PROTECT, related_name="transfer_moves_in"
+    )
+    qty = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    )
+
+    class Meta:
+        db_table = "inventory_stock_transfer_move"
+        ordering = ["pk"]  # noqa: RUF012 - declarative, never mutated
+
+    def __str__(self):
+        return f"move #{self.pk}: {self.qty} (batch {self.source_batch_id} → {self.dest_batch_id})"
