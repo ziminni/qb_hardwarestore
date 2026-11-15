@@ -126,7 +126,7 @@ Expected health: `status: ok`, `service: BuildPro API`. System check should repo
 
 ## 4. Demo data and credentials
 
-When starting the stack with `docker compose up -d`, the backend automatically runs `python manage.py migrate --noinput && python manage.py seed_demo` before starting the server. You can also run it manually on a fresh database:
+On every `docker compose up -d` the backend runs `migrate`, then `seed_demo --if-empty`, which seeds demo data **only when the database has no users yet**. An existing store database is never touched by the seed. To seed a fresh disposable database manually:
 
 ```powershell
 docker compose exec backend python manage.py seed_demo
@@ -166,7 +166,7 @@ Login using an existing account or fresh-seed credentials above. Single-area acc
 
 - **Shift & Mid-Shift Cash Drawer Log (`Cash in / out`):** Open a shift with an opening float. If the owner or cashier removes cash mid-shift (safe drop, petty cash) or adds change coins, click **Cash in / out** on the **Shift** screen to record `CASH_OUT` or `CASH_IN` with a reason. Expected drawer cash (`Opening float + Cash sales - Cash refunds + Cash in - Cash out`) updates automatically on the Shift screen, closing dialog, Z-reading, and audit log (`SHIFT_CASH`).
 - **CPMS Material Requests & Counter Release:** Approved own-store requisitions pushed from CPMS appear in **Requests** (Store Manager approval/rejection) and on the cashier's **Release** search (`R-####` or release code). Releasing items deducts FIFO inventory batches and posts the charge to the contractor's receivable ledger tagged with the CPMS project.
-- **CPMS Online Payment Receipts (Phase 1c):** When CPMS submits a bank transfer / GCash / cheque payment receipt against project payables, **Sales → Receivables** displays a **Review CPMS payment receipts** button so the manager or cashier can approve (full or partial amount, applied oldest-first across open project ledgers) or decline with a reason.
+- **CPMS Online Payment Receipts (Phase 1c):** When CPMS submits a bank transfer / GCash / cheque payment receipt against project payables, **Sales → Receivables** displays a **Review CPMS payment receipts** button so the **Store Manager** (not the cashier) can approve (full or partial amount, applied oldest-first across open project ledgers) or decline with a reason.
 - **Inventory & Batch Expiry Alerts:** Low stock, out-of-stock, near-expiry (within 30 days) and expired batch alerts are generated automatically onto the **Alerts** feed.
 
 Press `q` in the Flutter terminal to stop the app. For normal backend shutdown without deleting data:

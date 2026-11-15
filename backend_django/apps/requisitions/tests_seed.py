@@ -808,3 +808,18 @@ class StandardUnitSeedTests(TestCase):
         call_command("seed_demo", verbosity=0, stdout=StringIO())
         self.assertTrue(UnitOfMeasure.objects.get(code="RL").is_whole)
         self.assertFalse(UnitOfMeasure.objects.filter(code="ROLL").exists())
+
+
+class SeedIfEmptyTests(TestCase):
+    """`docker compose up` runs `seed_demo --if-empty` on every start: it must never touch a
+    database that already has users (a real store), and must seed a fresh one."""
+
+    def test_a_database_with_users_is_left_alone(self):
+        get_user_model().objects.create_user(username="owner", email="owner@store.ph", password="x")
+        call_command("seed_demo", "--if-empty", verbosity=0, stdout=StringIO())
+        self.assertEqual(get_user_model().objects.count(), 1)
+        self.assertFalse(Group.objects.exists())
+
+    def test_a_fresh_database_is_seeded(self):
+        call_command("seed_demo", "--if-empty", verbosity=0, stdout=StringIO())
+        self.assertTrue(get_user_model().objects.filter(username="admin").exists())

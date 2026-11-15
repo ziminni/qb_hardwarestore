@@ -10,7 +10,8 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('collectibles', '0003_alter_collectiblepayment_payment_method'),
-        ('requisitions', '0003_store_review'),
+        # Only needs requisitions.Project; pinning 0003 broke the store-review migration test.
+        ('requisitions', '0002_selling_unit_and_cpms_ids'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

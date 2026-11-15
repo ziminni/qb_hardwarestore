@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -184,5 +185,31 @@ class ProjectPaymentReceiptTests(TestCase):
             declined.data['decline_reason'],
             'Reference number not found in GCash statement',
         )
+        self.ledger1.refresh_from_db()
+        self.assertEqual(self.ledger1.balance_due, Decimal('1000.00'))
+
+    def test_cashier_can_read_but_not_decide_a_receipt(self):
+        """Approving moves debt, so it is a manager decision like clearing a cheque."""
+        self.client.force_authenticate(user=self.cpms_user)
+        res = self.client.post(
+            '/api/v1/integration/cpms/projects/PRJ-101/payment-receipts/',
+            {'cpms_payment_id': 'PAY-0009', 'amount': '100.00',
+             'payment_method': 'GCASH', 'reference_no': 'GC-1'},
+            format='json',
+        )
+        receipt_id = res.data['id']
+        cashier = User.objects.create_user(
+            username='cashier_test', email='cashier@test.local', password='pw',
+            full_name='Cashier',
+        )
+        cashier.groups.add(Group.objects.get_or_create(name='Cashier')[0])
+        self.client.force_authenticate(user=cashier)
+
+        for verb, body in (('approve', {}), ('decline', {'reason': 'no'})):
+            res = self.client.post(
+                f'/api/v1/payment-receipts/{receipt_id}/{verb}/', body, format='json')
+            self.assertEqual(res.status_code, 403, (verb, res.data))
+        receipt = ProjectPaymentReceipt.objects.get(pk=receipt_id)
+        self.assertEqual(receipt.status, 'WAITING')
         self.ledger1.refresh_from_db()
         self.assertEqual(self.ledger1.balance_due, Decimal('1000.00'))

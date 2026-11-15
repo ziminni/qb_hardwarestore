@@ -16,7 +16,11 @@ from rest_framework.response import Response
 
 from apps.pos.models import Payment
 from apps.users.models import AuditLog
-from apps.users.permissions import IsReceivablesReader, ReceivablesReadPOSWrite
+from apps.users.permissions import (
+    IsManagerRole,
+    IsReceivablesReader,
+    ReceivablesReadPOSWrite,
+)
 from apps.users.services import audit_request
 
 from .models import CollectibleLedger, CollectiblePayment, ProjectPaymentReceipt
@@ -213,6 +217,12 @@ class ProjectPaymentReceiptViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ProjectPaymentReceiptSerializer
     permission_classes = [ReceivablesReadPOSWrite]
 
+    def get_permissions(self):
+        # Approving moves project debt: a manager decision, like clearing a cheque.
+        if self.action in ('approve', 'decline'):
+            return [IsManagerRole()]
+        return super().get_permissions()
+
     def get_queryset(self):
         qs = super().get_queryset()
         status_filter = self.request.query_params.get('status')
@@ -221,7 +231,7 @@ class ProjectPaymentReceiptViewSet(viewsets.ReadOnlyModelViewSet):
         return qs
 
     @action(detail=True, methods=['post'], url_path='approve')
-    def approve(self, request, pk=None):
+    def approve(self, request, pk: str):
         """Approve a WAITING CPMS payment receipt (full or partial) and post ledger payments."""
         raw_amount = request.data.get('approved_amount')
         approved_amount = None
@@ -265,7 +275,7 @@ class ProjectPaymentReceiptViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(ProjectPaymentReceiptSerializer(receipt).data)
 
     @action(detail=True, methods=['post'], url_path='decline')
-    def decline(self, request, pk=None):
+    def decline(self, request, pk: str):
         """Decline a WAITING CPMS payment receipt with a required reason."""
         reason = request.data.get('reason', '')
         try:

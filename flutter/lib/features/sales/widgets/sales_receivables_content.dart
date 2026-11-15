@@ -33,7 +33,8 @@ import 'package:provider/provider.dart';
 /// The page must give it a bounded slot (`scrollable: false` on the role shell):
 /// the panel then scrolls its own rows and builds only the visible ones.
 ///
-/// [showCheques] adds the Store Manager's Cheques tab (F5). It is off by default
+/// [showCheques] adds the Store Manager's Cheques tab (F5) and CPMS payment-receipt
+/// review (Phase 1c). It is off by default
 /// because the cashier's Record payment shell shows this same body and must not
 /// reach the decision queue: a cashier TAKES a cheque, a manager decides it.
 class SalesReceivablesContent extends StatefulWidget {
@@ -183,7 +184,9 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
             ),
           ],
         ),
-        if (viewmodel.waitingPaymentReceipts.isNotEmpty) ...[
+        // Approving a CPMS receipt moves debt: the manager's decision, like a cheque.
+        if (widget.showCheques &&
+            viewmodel.waitingPaymentReceipts.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.md),
           Align(
             alignment: Alignment.centerLeft,
@@ -701,7 +704,8 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
       }
       setState(() {
         _posting = false;
-        _error = widget.viewmodel.payError ?? 'The cheque could not be recorded.';
+        _error =
+            widget.viewmodel.payError ?? 'The cheque could not be recorded.';
       });
       return;
     }

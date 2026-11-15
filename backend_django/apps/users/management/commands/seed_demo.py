@@ -166,7 +166,17 @@ PACKAGING = {
 class Command(BaseCommand):
     help = "Seed realistic demo data (idempotent)."
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--if-empty",
+            action="store_true",
+            help="Do nothing when any user exists (safe on every container start).",
+        )
+
     def handle(self, *args, **options):
+        if options["if_empty"] and User.objects.exists():
+            self.stdout.write("Users already exist - demo seed skipped")
+            return
         self._seed_groups()
         users = self._seed_users()
         self._seed_locations()
