@@ -23,26 +23,46 @@ class CpmsCustomerSerializer(serializers.ModelSerializer):
 
 
 class CpmsMaterialSerializer(serializers.ModelSerializer):
-    """`{code, product, unit}` (decision 04) — what CPMS may order, nothing more.
+    """`{code, product, unit, price, stock_status}` - what CPMS may order and at what price.
 
     `code` is the selling unit's own barcode (`VariantUOM.barcode_qr`), the same string a
-    scan produces, and `product` is the human label CPMS shows its picker. There is
-    deliberately no stock, price, cost or id: CPMS orders materials, it does not trade.
+    scan produces, and `product` is the human label CPMS shows its picker.
 
-    `fields` is the whole allowlist, so no price or stock figure can sneak in later.
+    **Price and stock status were added on 2026-11-15** (owner decision, reversing the
+    original decision 04 "no price, no stock"): the project manager matches a site
+    engineer's request against the store's catalogue, and the store's selling price is the
+    real price of what is released, so he must see it. `price` is the unit's own default
+    selling price. `stock_status` is deliberately coarse - `in_stock`, `low` or `out` -
+    because CPMS needs to know whether an order is sensible, not the store's exact count.
+
+    Still no cost, no quantity and no id: `fields` is the whole allowlist, so nothing else
+    can sneak in later. `on_hand_base` is annotated by the view in ONE grouped query.
     """
 
     code = serializers.CharField(source='barcode_qr', read_only=True)
     product = serializers.SerializerMethodField()
     unit = serializers.CharField(source='uom.code', read_only=True)
+    price = serializers.DecimalField(
+        source='default_selling_price', max_digits=12, decimal_places=2, read_only=True)
+    stock_status = serializers.SerializerMethodField()
 
     class Meta:
         model = VariantUOM
-        fields = ('code', 'product', 'unit')
+        fields = ('code', 'product', 'unit', 'price', 'stock_status')
         read_only_fields = fields
 
     def get_product(self, obj):
         return f'{obj.variant.product.base_name} {obj.variant.variant_name}'
+
+    def get_stock_status(self, obj):
+        on_hand = obj.on_hand_base
+        # Less than one whole selling unit (a box of 12 needs 12 base units) cannot be
+        # sold, so it is out for this unit even though some base stock remains.
+        if on_hand < obj.conversion_factor:
+            return 'out'
+        if on_hand <= obj.variant.min_stock_threshold:
+            return 'low'
+        return 'in_stock'
 
 
 class CpmsProjectPayloadSerializer(serializers.Serializer):

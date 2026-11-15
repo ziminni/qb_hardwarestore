@@ -10,7 +10,11 @@ Every view here is gated by `IsCpmsService`; the blanket refusal everywhere else
 fence in `apps.users.authentication`, not this file.
 """
 
+from decimal import Decimal
+
 from django.db import transaction
+from django.db.models import DecimalField, Q, Sum, Value
+from django.db.models.functions import Coalesce
 from rest_framework import status
 from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
@@ -69,7 +73,8 @@ class CpmsMaterialListView(ListAPIView):
     of an ACTIVE product — which is also exactly what the import accepts, so a code from
     this list never gets an UNKNOWN_MATERIAL back.
 
-    No stock, price, cost or id, by construction (see `CpmsMaterialSerializer`). Ordered
+    A price and a coarse stock status, but no cost, quantity or id, by construction (see
+    `CpmsMaterialSerializer`; the price/status were added 2026-11-15). Ordered
     by product then variant then unit so the list is stable across pages.
     """
 
@@ -79,6 +84,16 @@ class CpmsMaterialListView(ListAPIView):
         VariantUOM.objects
         .filter(variant__is_active=True, variant__product__is_active=True)
         .select_related('variant__product', 'uom')
+        # Live stock in BASE units across every shelf (an emptied batch is history, the
+        # allocator's own filter), summed in the same query as the rows.
+        .annotate(on_hand_base=Coalesce(
+            Sum(
+                'variant__batches__current_qty',
+                filter=Q(variant__batches__current_qty__gt=0),
+            ),
+            Value(Decimal('0.00')),
+            output_field=DecimalField(max_digits=14, decimal_places=2),
+        ))
         .order_by(
             'variant__product__base_name', 'variant__variant_name', 'uom__code', 'pk')
     )

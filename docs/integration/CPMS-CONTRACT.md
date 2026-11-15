@@ -161,15 +161,15 @@ curl -s "$POS/customers/" -H "Authorization: Bearer $TOKEN"
 
 ### 4.2 `GET materials/` — what may be ordered
 
-Every selling unit CPMS can order: an **active variant of an active product**. A row is the code to send, the label to show, and the unit of measure.
+Every selling unit CPMS can order: an **active variant of an active product**. A row is the code to send, the label to show, the unit of measure, the store's selling price and a coarse stock status (price and status added 2026-11-15, see decision 04's amendment).
 
 **200**
 
 ```json
 {"count": 8, "next": null, "previous": null,
  "results": [
-   {"code": "QB000008-6", "product": "Circuit Breaker 20A 1-pole", "unit": "PC"},
-   {"code": "QB000001-7", "product": "Portland Cement 40kg", "unit": "PC"}
+   {"code": "QB000008-6", "product": "Circuit Breaker 20A 1-pole", "unit": "PC", "price": "185.00", "stock_status": "in_stock"},
+   {"code": "QB000001-7", "product": "Portland Cement 40kg", "unit": "PC", "price": "275.00", "stock_status": "low"}
  ]}
 ```
 
@@ -178,10 +178,12 @@ Every selling unit CPMS can order: an **active variant of an active product**. A
 | `code` | The **selling unit's** scan code (`VariantUOM.barcode_qr`) — the same string the till scans. This is what `items[].code` must carry. |
 | `product` | Human label: product name plus variant name. For display only; never send it back. |
 | `unit` | UOM code (`PC`, `KG`, …). The unit the quantity is counted in. |
+| `price` | The unit's selling price as a 2dp string: what a release of this unit is charged at. The store's price is the real price; CPMS's own planning price is only an estimate. |
+| `stock_status` | `in_stock`, `low` (at or under the variant's low-stock threshold) or `out` (less than one whole selling unit on the shelves, all locations together). Coarse on purpose: it says whether an order is sensible, not how many the store has. |
 
 Ordered by product, then variant, then unit. **This list is exactly the import's accept list**: a code taken from here never answers `UNKNOWN_MATERIAL`. A code from an earlier page may disappear later (product archived, or since v0.3 a selling unit that was never sold, held or requested was removed) — re-read the list before a push if a code has been sitting around. A code already used on a stored request cannot be removed.
 
-**Never in this body:** stock on hand, price, cost, or the numeric ids. CPMS orders materials; it does not trade them (decision 04).
+**Never in this body:** the exact quantity on hand, cost, or the numeric ids. CPMS may see the price and a coarse status so a project manager can match a request to the catalogue; it still does not trade (decision 04, amended 2026-11-15).
 
 **Errors:** `401`, `403`.
 

@@ -33,3 +33,8 @@ Each pushed line must end as a POS item the till can release. What does CPMS sen
 - New read-only endpoint for the CPMS service account only; staff accounts keep their existing catalogue endpoints.
 - `RequisitionItem` keys on the selling unit (`VariantUOM`) and converts with its `conversion_factor`, the same rule as the till (audit-remediation UOM decision), instead of a bare variant.
 - CPMS learns the store's item names; accepted by the product owner.
+
+
+## Amendment 2026-11-15 (owner)
+
+The material list now also carries each unit's **selling price** and a **coarse stock status** (`in_stock`, `low`, `out`). The project manager matches a site engineer's request against the store's catalogue and the store's price is the price of what is released, so he needs both. Exact quantities, costs and ids stay out of the list. The earlier "no stock, no prices" wording above is superseded by this amendment; it is kept as history.
