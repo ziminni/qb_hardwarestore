@@ -10,6 +10,7 @@
 # removed. `reportGeneralTypeIssues` is deliberately left ON.
 """Inventory app — ViewSets for catalog, purchasing & stock."""
 
+import contextlib
 from typing import cast
 
 from django.db import IntegrityError, transaction
@@ -177,6 +178,46 @@ def _nothing_changed(serializer) -> bool:
         if getattr(serializer.instance, field, None) != value:
             return False
     return True
+
+
+def _current_image(product):
+    """`(storage name or "", the image field's storage)` for one product row."""
+    storage = product._meta.get_field("image").storage
+    name = product.image.name if product.image else ""
+    return name, storage
+
+
+def _delete_named_image(name, storage) -> None:
+    """Delete one stored product photo. Never raises.
+
+    Called from the two places that MUST NOT fail the request: the post-commit cleanup
+    of a REPLACED photo and the rollback cleanup of a photo a refused write already put
+    on disk. A storage hiccup leaves an orphaned file; it never turns a save into an
+    error and never touches the row's own photo.
+    """
+    if not name:
+        return
+    with contextlib.suppress(OSError):
+        # An orphaned file is a cleanup miss; it is never a failed write.
+        storage.delete(name)
+
+
+def _discard_written_image(serializer) -> None:
+    """Remove the photo a REFUSED product write already stored.
+
+    `FileField` writes the bytes to the storage during `save()` - outside the
+    database - so when the row or its audit row rolls back, the file does not. Nothing
+    would ever point at it again, so it is deleted here instead of accumulating in the
+    media directory.
+
+    shortcut: a CREATE whose `Model.objects.create()` itself raises leaves
+    `serializer.instance` unset, so that file is not reachable from here. Products have
+    no unique constraint to lose, so the only way in is a database outage; upgrade to a
+    storage-level sweep if orphaned files are ever observed.
+    """
+    if serializer.instance is None:
+        return
+    _delete_named_image(*_current_image(serializer.instance))
 
 
 class _CatalogBaseViewSet(
@@ -413,6 +454,35 @@ class ProductViewSet(_AuditedCatalogViewSet):
 
     def audit_detail(self, instance):
         return f"{instance.base_name} (active={instance.is_active})"
+
+    # -- Product photo lifecycle (POS usability, images lane) ------------------
+    # The row and its audit row are transactional; the FILE is not. A `FileField`
+    # stores its bytes during `save()`, so a rollback undoes the row and leaves the
+    # bytes on disk, while a replacement leaves the previous photo behind even after
+    # a successful commit. Both are handled around the existing atomic write, so the
+    # audit behaviour itself is untouched.
+
+    def perform_create(self, serializer):
+        try:
+            super().perform_create(serializer)
+        except Exception:
+            _discard_written_image(serializer)
+            raise
+
+    def perform_update(self, serializer):
+        previous_name, storage = _current_image(serializer.instance)
+        try:
+            super().perform_update(serializer)
+        except Exception:
+            # Only a file THIS request wrote; the row still points at `previous_name`.
+            if _current_image(serializer.instance)[0] != previous_name:
+                _discard_written_image(serializer)
+            raise
+        current_name, _storage = _current_image(serializer.instance)
+        if previous_name and previous_name != current_name:
+            # AFTER the commit, never during: a rollback discards queued callbacks, so
+            # the photo the row still points at is never deleted from under it.
+            transaction.on_commit(lambda: _delete_named_image(previous_name, storage))
 
 
 class ProductVariantViewSet(_AuditedCatalogViewSet):

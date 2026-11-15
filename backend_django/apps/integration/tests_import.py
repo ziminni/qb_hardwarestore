@@ -26,8 +26,13 @@ from django.db import IntegrityError
 from apps.inventory.models import (
     Brand,
     Category,
+    GoodsReceipt,
+    InventoryBatch,
     Product,
     ProductVariant,
+    PurchaseOrder,
+    StorageLocation,
+    Supplier,
     UnitOfMeasure,
     VariantUOM,
 )
@@ -90,11 +95,31 @@ class CpmsMaterialListTests(MaterialFixtureMixin, CpmsTestCase):
         self.assertEqual(res.status_code, 200, res.content)
         return res.json()['results']
 
-    def test_lists_the_active_selling_units(self):
+    def stock(self, base_qty):
+        """Put `base_qty` base units of the fixture variant on the shelf."""
+        user = (
+            User.objects.filter(username='stocker_mat').first()
+            or make_user('stocker_mat', 'Stock Manager'))
+        po = PurchaseOrder.objects.create(
+            supplier=Supplier.objects.create(company_name='Supplier'), created_by=user)
+        receipt = GoodsReceipt.objects.create(po=po, received_by=user)
+        InventoryBatch.objects.create(
+            variant=self.vuom.variant, receipt=receipt,
+            location=StorageLocation.objects.first(),
+            initial_qty=Decimal(base_qty), current_qty=Decimal(base_qty),
+            unit_cost_landed=Decimal(200), batch_selling_price=Decimal(280))
+
+    def status_of_the_material(self):
+        [row] = self.get_rows()
+        return row['stock_status']
+
+    def test_lists_the_active_selling_units_with_the_stores_price(self):
         self.assertEqual(self.get_rows(), [{
             'code': 'QB000001-0',
             'product': 'Portland Cement 40kg',
             'unit': 'BAG',
+            'price': '280.00',
+            'stock_status': 'out',
         }])
 
     def test_an_archived_product_is_hidden(self):
@@ -105,9 +130,40 @@ class CpmsMaterialListTests(MaterialFixtureMixin, CpmsTestCase):
         codes = [row['code'] for row in self.get_rows()]
         self.assertNotIn('QB000003-6', codes)
 
-    def test_a_row_leaks_no_stock_price_cost_or_id(self):
+    def test_a_row_shows_price_and_a_coarse_status_but_no_quantity_cost_or_id(self):
+        self.stock(40)
         for row in self.get_rows():
-            self.assertEqual(set(row), {'code', 'product', 'unit'})
+            self.assertEqual(
+                set(row), {'code', 'product', 'unit', 'price', 'stock_status'})
+
+    def test_stock_status_is_out_low_or_in_stock(self):
+        self.vuom.variant.min_stock_threshold = Decimal(10)
+        self.vuom.variant.save(update_fields=['min_stock_threshold'])
+
+        self.assertEqual(self.status_of_the_material(), 'out')
+        self.stock(8)       # on the shelf but at or under the low-stock line
+        self.assertEqual(self.status_of_the_material(), 'low')
+        self.stock(40)      # 48 in total, well over it
+        self.assertEqual(self.status_of_the_material(), 'in_stock')
+
+    def test_less_than_one_whole_selling_unit_is_out(self):
+        box = VariantUOM.objects.create(
+            variant=self.vuom.variant, uom=UnitOfMeasure.objects.get_or_create(
+                code='BOX', defaults={'name': 'Box'})[0],
+            barcode_qr='QB000009-1', conversion_factor=Decimal(12),
+            default_selling_price=Decimal(3000))
+        self.stock(11)      # 11 base units cannot fill one box of 12
+
+        rows = {row['code']: row['stock_status'] for row in self.get_rows()}
+
+        self.assertEqual(rows[box.barcode_qr], 'out')
+        self.assertNotEqual(rows[self.code], 'out')
+
+    def test_an_emptied_batch_is_history_not_stock(self):
+        self.stock(5)
+        InventoryBatch.objects.update(current_qty=Decimal(0))
+
+        self.assertEqual(self.status_of_the_material(), 'out')
 
     def test_the_list_is_paginated_like_the_customer_list(self):
         res = self.client.get(MATERIALS_URL, HTTP_AUTHORIZATION=self.cpms_auth())

@@ -17,6 +17,8 @@ import 'package:client/core/format/format.dart';
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/role.dart';
+import 'package:client/data/models/stock_on_hand.dart';
+import 'package:client/data/models/storage_location.dart';
 import 'package:client/data/models/user.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/services/auth_service.dart';
@@ -119,8 +121,12 @@ Future<FakeProductsRepository> pumpProductsPage(
   required Size size,
   List<Product>? products,
   List<InventoryBatch>? batches,
+  List<StockOnHand>? stockOnHand,
+  List<StorageLocation>? locations,
   User? user,
 }) async {
+  // Each width gets a fresh page so initState loads its new inventory store.
+  await tester.pumpWidget(const SizedBox.shrink());
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -128,11 +134,15 @@ Future<FakeProductsRepository> pumpProductsPage(
   final repository = FakeProductsRepository(
     products: products ?? catalogue(),
     batches: batches ?? stockBatches(),
+    stockOnHand: stockOnHand,
   );
   final store = InventoryViewmodel(
     products: repository,
     inventory: FakeInventoryRepository(),
     catalogue: FakeCatalogueRepository(),
+    storageLocations: FakeStorageLocationRepository(
+      locations: locations ?? const [],
+    ),
   );
 
   await tester.pumpWidget(
@@ -178,7 +188,9 @@ void main() {
       ],
     );
 
-    testWidgets('a merged Stock and Cashier account keeps them', (tester) async {
+    testWidgets('a merged Stock and Cashier account keeps them', (
+      tester,
+    ) async {
       await pumpProductsPage(
         tester,
         size: const Size(2400, 1400),
@@ -457,5 +469,127 @@ void main() {
 
     expect(repository.activePatches.single.isActive, isFalse);
     expect(find.textContaining('moved to archive'), findsOneWidget);
+  });
+
+  // Task 19 (POS usability): the catalogue can be narrowed to a shelf that
+  // really holds stock, read from the server's on-hand rows. Pickup home
+  // (`stored_at`) is not a location, so it must not decide this.
+  group('stock location filter (Task 19)', () {
+    // Portland Cement (variant 11) sits in the Store, Deformed Steel Bar
+    // (variant 22) in the Bodega, Marine Plywood (variant 33) has no row at all.
+    List<StockOnHand> splitStock() => [
+      onHand(variantId: 11, locationId: 1, locationName: 'Store', qty: 120),
+      onHand(
+        variantId: 22,
+        locationId: 2,
+        locationName: 'Bodega',
+        isHome: false,
+        qty: 3,
+      ),
+    ];
+
+    const locations = [
+      StorageLocation(id: 1, name: 'Store'),
+      StorageLocation(id: 2, name: 'Bodega'),
+    ];
+
+    Future<void> pickLocation(WidgetTester tester, String name) async {
+      await tester.tap(find.text('All locations'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(name).last);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the filter is on the toolbar at 1440, 1100 and 760 and the '
+        'page still fits', (tester) async {
+      for (final width in [1440.0, 1100.0, 760.0]) {
+        await pumpProductsPage(
+          tester,
+          size: Size(width, 900),
+          stockOnHand: splitStock(),
+          locations: locations,
+        );
+
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: 'overflow at ${width}px',
+        );
+        expect(find.text('Stock location'), findsOneWidget);
+        expect(find.text('All locations'), findsOneWidget);
+      }
+    });
+
+    testWidgets('the toolbar and Excel actions fit at 1440, 1100 and 760', (
+      tester,
+    ) async {
+      final stockManager = User(
+        id: 7,
+        username: 'stock',
+        email: 'stock@qb.ph',
+        fullName: 'Nena Cruz',
+        role: const Role(id: 2, name: 'inventory', displayName: 'inventory'),
+      );
+
+      for (final width in [1440.0, 1100.0, 760.0]) {
+        await pumpProductsPage(
+          tester,
+          size: Size(width, 1000),
+          stockOnHand: splitStock(),
+          locations: locations,
+          user: stockManager,
+        );
+
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: 'overflow at ${width}px',
+        );
+        expect(find.text('Export to Excel'), findsOneWidget);
+        expect(find.text('Stock location'), findsOneWidget);
+      }
+    });
+
+    testWidgets(
+      'choosing a location shows only the products with stock there',
+      (tester) async {
+        await pumpProductsPage(
+          tester,
+          size: const Size(1440, 900),
+          stockOnHand: splitStock(),
+          locations: locations,
+        );
+
+        await pickLocation(tester, 'Bodega');
+
+        expect(find.textContaining('Deformed Steel Bar'), findsWidgets);
+        expect(
+          find.textContaining('Marine Plywood'),
+          findsNothing,
+          reason: 'no on-hand row means no stock on that shelf',
+        );
+        expect(find.textContaining('Portland Cement'), findsNothing);
+      },
+    );
+
+    testWidgets('Clear filters goes back to All locations and the full '
+        'catalogue', (tester) async {
+      await pumpProductsPage(
+        tester,
+        size: const Size(1440, 900),
+        stockOnHand: splitStock(),
+        locations: locations,
+      );
+
+      await pickLocation(tester, 'Bodega');
+      expect(find.textContaining('Portland Cement'), findsNothing);
+
+      await tester.tap(find.widgetWithText(TextButton, 'Clear filters'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('All locations'), findsOneWidget);
+      expect(find.textContaining('Portland Cement'), findsWidgets);
+      expect(find.textContaining('Marine Plywood'), findsWidgets);
+    });
   });
 }

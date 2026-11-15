@@ -1,6 +1,7 @@
 import 'package:client/core/network/api_client.dart';
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
+import 'package:client/data/models/product_image_upload.dart';
 import 'package:client/data/models/stock_on_hand.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:dio/dio.dart';
@@ -175,9 +176,20 @@ class ProductsService {
   static const variantUomsPath = '/api/v1/variant-uoms/';
 
   /// POSTs one product row and returns the server id.
-  Future<int> createProduct(Map<String, dynamic> body) async {
+  ///
+  /// [image] is the photo the clerk just picked. It goes on THIS request as
+  /// `multipart/form-data` field `image` — the same POST that creates the row, so
+  /// a product never exists with a photo that failed to arrive afterwards. With
+  /// no image the body is the plain JSON map every other caller already sends.
+  Future<int> createProduct(
+    Map<String, dynamic> body, {
+    ProductImageUpload? image,
+  }) async {
     final response = await _write(
-      () => _client.post<Map<String, dynamic>>(productsPath, data: body),
+      () => _client.post<Map<String, dynamic>>(
+        productsPath,
+        data: _payload(body, image),
+      ),
     );
     return _idOf(response.data);
   }
@@ -198,12 +210,43 @@ class ProductsService {
     return _idOf(response.data);
   }
 
-  Future<void> patchProduct(int id, Map<String, dynamic> body) async {
-    if (body.isEmpty) return;
+  /// PATCHes one product row.
+  ///
+  /// [image] replaces the stored photo; null leaves it alone, which is what every
+  /// edit that did not touch the photo sends.
+  Future<void> patchProduct(
+    int id,
+    Map<String, dynamic> body, {
+    ProductImageUpload? image,
+  }) async {
+    if (body.isEmpty && image == null) return;
     await _write(
-      () =>
-          _client.patch<Map<String, dynamic>>('$productsPath$id/', data: body),
+      () => _client.patch<Map<String, dynamic>>(
+        '$productsPath$id/',
+        data: _payload(body, image),
+      ),
     );
+  }
+
+  /// The request body: the untouched JSON map, or multipart when a photo rides
+  /// along.
+  ///
+  /// Every form field becomes a string because that is what `multipart/form-data`
+  /// carries — DRF parses `category=4`, `stored_at=9` and `is_active=true` back
+  /// into the same values JSON would have sent.
+  ///
+  /// shortcut: only map fields, not a nested body — every product form field is a
+  /// scalar, so add a per-field encode here if one ever nests.
+  Object _payload(Map<String, dynamic> body, ProductImageUpload? image) {
+    if (image == null) return body;
+    return FormData.fromMap({
+      for (final entry in body.entries)
+        if (entry.value != null) entry.key: '${entry.value}',
+      'image': MultipartFile.fromBytes(
+        image.bytes,
+        filename: image.filename,
+      ),
+    });
   }
 
   Future<void> patchVariant(int id, Map<String, dynamic> body) async {

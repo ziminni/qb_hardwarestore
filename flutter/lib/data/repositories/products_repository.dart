@@ -91,7 +91,7 @@ class ProductsRepository {
   Future<CreatedProduct> createProductChain(NewProductDraft draft) async {
     final productId = await _step(
       ProductWriteStep.product,
-      () => service.createProduct(draft.productBody()),
+      () => service.createProduct(draft.productBody(), image: draft.image),
     );
     final variantId = await _step(
       ProductWriteStep.variant,
@@ -134,7 +134,11 @@ class ProductsRepository {
   Future<void> editProductChain(ProductEditDraft draft) async {
     await _step(
       ProductWriteStep.product,
-      () => service.patchProduct(draft.productId, draft.productBody),
+      () => service.patchProduct(
+        draft.productId,
+        draft.productBody,
+        image: draft.image,
+      ),
     );
     await _step(
       ProductWriteStep.variant,

@@ -1,15 +1,19 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/data/models/storage_location.dart';
 import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 
-/// Search plus the category and brand filters, at the head of the catalogue.
+/// Search plus the category, brand and stock location filters, at the head of
+/// the catalogue.
 ///
-/// The search field is the shared [FilterBar] and the two dropdowns sit in a
-/// row that becomes a stack when the toolbar itself gets narrow, so no filter is
-/// ever given a fixed 210 px slot in a `Row` that can overflow (the live report
-/// this replaces: "A RenderFlex overflowed by 13 pixels on the right").
+/// The search field is the shared [FilterBar]; the dropdowns share a row while
+/// they fit and wrap under each other when they do not, so no filter is ever
+/// given a fixed slot in a `Row` that can overflow (the live report this
+/// replaces: "A RenderFlex overflowed by 13 pixels on the right").
 class ProductsToolbar extends StatefulWidget {
   const ProductsToolbar({
     super.key,
@@ -18,33 +22,35 @@ class ProductsToolbar extends StatefulWidget {
     required this.brands,
     required this.selectedCategory,
     required this.selectedBrand,
+    required this.stockLocations,
+    required this.selectedStockLocationId,
     required this.onSearchChanged,
     required this.onCategoryChanged,
     required this.onBrandChanged,
+    required this.onStockLocationChanged,
     required this.onClearFilters,
     required this.onAddProduct,
   });
 
   /// Width of the toolbar's own content below which the filters drop under the
-  /// search field. Above it, search and both dropdowns share one row: the search
-  /// takes what is left, so the row can never overflow.
-  static const double sideBySideAbove = 820;
+  /// search field. Above it, search and all three dropdowns share one row: the
+  /// search takes what is left, so the row can never overflow.
+  static const double sideBySideAbove = 1120;
 
   /// Enough for "All categories" plus a chevron and a long server-side name.
   static const double filterWidth = 240;
-
-  /// Below [sideBySideAbove] the search keeps a line of its own; these two
-  /// filters still fit on one line until the toolbar's content is this narrow.
-  static const double twoFiltersAbove = 520;
 
   final String searchQuery;
   final List<String> categories;
   final List<String> brands;
   final String? selectedCategory;
   final String? selectedBrand;
+  final List<StorageLocation> stockLocations;
+  final int? selectedStockLocationId;
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<String?> onCategoryChanged;
   final ValueChanged<String?> onBrandChanged;
+  final ValueChanged<int?> onStockLocationChanged;
   final VoidCallback onClearFilters;
   final VoidCallback onAddProduct;
 
@@ -116,6 +122,34 @@ class _ProductsToolbarState extends State<ProductsToolbar> {
     );
   }
 
+  /// The stock location filter (Task 19), by the SERVER's location id.
+  ///
+  /// The key is the chosen id so a programmatic reset (Clear filters) redraws the
+  /// field: `DropdownButtonFormField` only reads `initialValue` once per state.
+  Widget _stockLocationField() {
+    return DropdownButtonFormField<int?>(
+      key: ValueKey<int?>(widget.selectedStockLocationId),
+      isExpanded: true,
+      initialValue: widget.selectedStockLocationId,
+      decoration: const InputDecoration(labelText: 'Stock location'),
+      items: [
+        const DropdownMenuItem(value: null, child: Text('All locations')),
+        ...widget.stockLocations.map(
+          (location) => DropdownMenuItem(
+            value: location.id,
+            // A deactivated shelf still holds sellable stock, so it is offered
+            // and its state is said out loud rather than hidden.
+            child: Text(
+              location.isActive ? location.name : '${location.name} (inactive)',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+      ],
+      onChanged: widget.onStockLocationChanged,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -162,49 +196,58 @@ class _ProductsToolbarState extends State<ProductsToolbar> {
                 searchHint: 'Search name, description, brand, or variant',
                 onSearchChanged: widget.onSearchChanged,
               );
+              final filters = [
+                _categoryField(),
+                _brandField(),
+                _stockLocationField(),
+              ];
               if (constraints.maxWidth >= ProductsToolbar.sideBySideAbove) {
                 return Row(
                   children: [
                     Expanded(child: search),
-                    const SizedBox(width: AppSpacing.md),
-                    SizedBox(
-                      width: ProductsToolbar.filterWidth,
-                      child: _categoryField(),
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    SizedBox(
-                      width: ProductsToolbar.filterWidth,
-                      child: _brandField(),
-                    ),
+                    for (final filter in filters) ...[
+                      const SizedBox(width: AppSpacing.md),
+                      SizedBox(
+                        width: ProductsToolbar.filterWidth,
+                        child: filter,
+                      ),
+                    ],
                   ],
                 );
               }
-              // Narrow: the search keeps a full line of its own, then the two
-              // filters share one line while they still fit side by side and
-              // stack under each other when they do not.
+              // Narrow: the search keeps a full line of its own, then the
+              // filters take as many lines as they need — never a fixed-width
+              // slot in a Row that can overflow.
+              final filterWidth = min(
+                ProductsToolbar.filterWidth,
+                constraints.maxWidth,
+              );
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   search,
                   const SizedBox(height: AppSpacing.md),
-                  if (constraints.maxWidth >= ProductsToolbar.twoFiltersAbove)
-                    Row(
-                      children: [
-                        Expanded(child: _categoryField()),
-                        const SizedBox(width: AppSpacing.md),
-                        Expanded(child: _brandField()),
-                      ],
-                    )
-                  else ...[
-                    _categoryField(),
-                    const SizedBox(height: AppSpacing.md),
-                    _brandField(),
-                  ],
+                  Wrap(
+                    spacing: AppSpacing.md,
+                    runSpacing: AppSpacing.sm,
+                    children: [
+                      for (final filter in filters)
+                        SizedBox(width: filterWidth, child: filter),
+                    ],
+                  ),
                 ],
               );
             },
           ),
           const SizedBox(height: AppSpacing.sm),
+          // Say what the filter means: it narrows by WHERE stock is, and the
+          // quantities on screen stay totals, so nobody reads them as this
+          // shelf's count.
+          const Text(
+            'Shows products with stock available at the chosen location. '
+            'Quantities shown are still totals across every location.',
+            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          ),
           Align(
             alignment: Alignment.centerRight,
             child: TextButton.icon(

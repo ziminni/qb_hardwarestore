@@ -12,6 +12,7 @@ import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
@@ -547,7 +548,7 @@ void main() {
         findsNothing,
         reason: 'an exact drawer has no direction to point in',
       );
-      expect(find.text('Exact'), findsOneWidget);
+      expect(find.text('Matches expected cash'), findsOneWidget);
     });
 
     testWidgets('the reading is a metric row and the opened date is a date', (
@@ -615,6 +616,264 @@ void main() {
         findsNothing,
         reason: 'the failed read says nothing about whether a drawer is open',
       );
+    });
+
+    // The cashier at the drawer does not know the word "variance". The one
+    // number that means "count the drawer again" is written as the difference
+    // between the cash in hand and the cash the shift should hold, with the two
+    // amounts it came from, so it can be checked without asking anybody.
+    group('the drawer difference is written in plain words', () {
+      testWidgets('the history names the counted cash and its difference', (
+        tester,
+      ) async {
+        final service = _StubShifts()
+          ..history = [
+            _shift(
+              id: 2,
+              status: Shift.closedStatus,
+              closingCount: 9350,
+              zReading: _short,
+            ),
+          ];
+        await _pump(tester, ShiftViewmodel(service: service));
+
+        expect(
+          find.text('Variance'),
+          findsNothing,
+          reason: '"variance" is accounting jargon, not counter language',
+        );
+        expect(
+          find.descendant(
+            of: find.byType(DataPanel<Shift>),
+            matching: find.text('Cash difference'),
+          ),
+          findsOneWidget,
+          reason: 'the column that holds the difference must say what it is',
+        );
+        expect(
+          find.text('Closing count'),
+          findsNothing,
+          reason: 'the same fact the close dialog asks for is "cash counted"',
+        );
+        expect(
+          find.descendant(
+            of: find.byType(DataPanel<Shift>),
+            matching: find.text('Cash counted'),
+          ),
+          findsOneWidget,
+        );
+      });
+
+      testWidgets('a short drawer names the two amounts it compares', (
+        tester,
+      ) async {
+        final service = _StubShifts()
+          ..history = [
+            _shift(
+              id: 2,
+              status: Shift.closedStatus,
+              closingCount: 9350,
+              zReading: _short,
+            ),
+          ];
+        await _pump(tester, ShiftViewmodel(service: service));
+
+        final reading = find.byType(PosZReadingSummary);
+        expect(
+          find.descendant(of: reading, matching: find.text('Cash difference')),
+          findsOneWidget,
+          reason: 'the callout label must be the plain name, not "Variance"',
+        );
+        expect(
+          find.descendant(
+            of: reading,
+            matching: find.text('Short of expected cash'),
+          ),
+          findsOneWidget,
+          reason: 'the direction is a word, never the colour alone',
+        );
+        expect(
+          find.descendant(
+            of: reading,
+            matching: find.text(
+              'Cash counted ${formatPeso(9350)} minus expected '
+              '${formatPeso(9400)}.',
+            ),
+          ),
+          findsOneWidget,
+          reason: 'the difference has to be checkable without asking anyone',
+        );
+        expect(find.text('Expected cash'), findsOneWidget);
+      });
+
+      testWidgets('an over drawer says "over expected cash"', (tester) async {
+        final service = _StubShifts()
+          ..history = [
+            _shift(
+              id: 2,
+              status: Shift.closedStatus,
+              closingCount: 9425.5,
+              zReading: _over,
+            ),
+          ];
+        await _pump(tester, ShiftViewmodel(service: service));
+
+        expect(find.text('Over expected cash'), findsOneWidget);
+        expect(
+          find.textContaining('minus expected'),
+          findsOneWidget,
+          reason: 'the two amounts are always named, in every direction',
+        );
+      });
+
+      testWidgets('an exact drawer says it matches, not just "Exact"', (
+        tester,
+      ) async {
+        final service = _StubShifts()
+          ..history = [
+            _shift(
+              id: 2,
+              status: Shift.closedStatus,
+              closingCount: 9400,
+              zReading: _exact,
+            ),
+          ];
+        await _pump(tester, ShiftViewmodel(service: service));
+
+        expect(
+          find.descendant(
+            of: find.byType(PosZReadingSummary),
+            matching: find.text('Matches expected cash'),
+          ),
+          findsOneWidget,
+        );
+      });
+
+      // The sweep's window and root font (D-03): the drawer line is the one
+      // sentence a cashier reads under stress, so it must survive a raised text
+      // scale instead of overflowing the panel that holds it.
+      testWidgets('the difference reads whole at 1.3x text', (tester) async {
+        tester.view.physicalSize = const Size(1100, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+
+        final service = _StubShifts()
+          ..history = [
+            _shift(
+              id: 2,
+              status: Shift.closedStatus,
+              closingCount: 9350,
+              zReading: _short,
+            ),
+          ];
+        await tester.pumpWidget(
+          ChangeNotifierProvider<AuthViewmodel>.value(
+            value: AuthViewmodel(AuthRepository(AuthService())),
+            child: MaterialApp(
+              home: PosShiftPage(viewmodel: ShiftViewmodel(service: service)),
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: const TextScaler.linear(1.3)),
+                child: child!,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Short of expected cash'), findsOneWidget);
+        expect(find.textContaining('minus expected'), findsOneWidget);
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: 'the difference must not overflow at a raised text scale',
+        );
+      });
+
+      // End to end at the counter's own narrow window: the card layout's fixed
+      // 110 px label column is what cut "Cash difference" at 1.3x text.
+      testWidgets('the difference label reads whole in a card at 760 px', (
+        tester,
+      ) async {
+        tester.view.physicalSize = const Size(760, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+
+        final service = _StubShifts()
+          ..history = [
+            _shift(
+              id: 2,
+              status: Shift.closedStatus,
+              closingCount: 9350,
+              zReading: _short,
+            ),
+          ];
+        await tester.pumpWidget(
+          ChangeNotifierProvider<AuthViewmodel>.value(
+            value: AuthViewmodel(AuthRepository(AuthService())),
+            child: MaterialApp(
+              home: PosShiftPage(viewmodel: ShiftViewmodel(service: service)),
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: const TextScaler.linear(1.3)),
+                child: child!,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The card's own label line, not the callout and not a header label.
+        final cardLabel = find.descendant(
+          of: find.byKey(const ValueKey('DataPanel.cards')),
+          matching: find.text('Cash difference'),
+        );
+        expect(cardLabel, findsOneWidget);
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.descendant(of: cardLabel, matching: find.byType(RichText)),
+        );
+        expect(
+          paragraph.didExceedMaxLines,
+          isFalse,
+          reason: 'the label must wrap whole, never "Cash differe..."',
+        );
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('an open shift invents no difference at all', (tester) async {
+        // The running reading carries every total and NO variance: there is no
+        // closing count yet, so there is nothing to compare and nothing to
+        // claim. The one honest sentence is that nobody has counted.
+        final service = _StubShifts()
+          ..current = _shift(id: 3, openingFloat: 185, zReading: _running)
+          ..history = [_shift(id: 3, openingFloat: 185)];
+        await _pump(tester, ShiftViewmodel(service: service));
+
+        final reading = find.byType(PosZReadingSummary);
+        expect(reading, findsOneWidget);
+        expect(
+          find.descendant(of: reading, matching: find.text('Cash difference')),
+          findsNothing,
+          reason: 'an uncounted drawer has no difference to show',
+        );
+        expect(find.text('Short of expected cash'), findsNothing);
+        expect(find.text('Over expected cash'), findsNothing);
+        expect(find.text('Matches expected cash'), findsNothing);
+        expect(
+          find.textContaining('minus expected'),
+          findsNothing,
+          reason: 'a missing count must not read as a zero difference',
+        );
+        expect(
+          find.text('Not counted yet'),
+          findsNWidgets(2),
+          reason:
+              'the open row still says in words that nobody counted, once for '
+              'the cash and once for the difference',
+        );
+      });
     });
 
     testWidgets('revisiting the tab re-reads the current shift and history', (

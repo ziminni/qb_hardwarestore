@@ -511,6 +511,32 @@ class InvalidStorageLocation(CatalogWriteRefused):
 
 
 # ---------------------------------------------------------------------------
+# Product photos (POS usability, images lane)
+# ---------------------------------------------------------------------------
+
+
+class InvalidProductImage(CatalogWriteRefused):
+    """A product photo the shop cannot store (POS usability, images lane).
+
+    Same family - and therefore the same `{code, detail}` **400** - as every other
+    catalog refusal, raised in the serializer's `validate_image` BEFORE the row is
+    written, so a refused photo leaves no product, no file and no audit row behind.
+    """
+
+    code = "INVALID_PRODUCT_IMAGE"
+
+
+class ProductImageTooLarge(InvalidProductImage):
+    """A photo past the 5 MiB limit.
+
+    Its own code because the clerk's next move differs from "that is not a real
+    image": shrink or re-take the picture, then save again.
+    """
+
+    code = "PRODUCT_IMAGE_TOO_LARGE"
+
+
+# ---------------------------------------------------------------------------
 # Stock transfers (Phase 9 B4, decision 21 §3)
 # ---------------------------------------------------------------------------
 

@@ -1,4 +1,5 @@
 import 'package:client/data/models/requisition.dart';
+import 'package:client/data/models/pos_transaction.dart' show PosReceipt;
 import 'package:client/data/services/requisition_service.dart';
 
 /// Pass-through over [RequisitionService], with no policy of its own.
@@ -24,6 +25,13 @@ class RequisitionRepository {
 
   Future<Requisition> decline(int id, String reason) =>
       _service.decline(id, reason);
+
+  Future<List<Requisition>> fetchReleaseQueue() => _service.fetchReleaseQueue();
+
+  Future<TokenVerification> verifyRequest(int id) => _service.verifyRequest(id);
+
+  Future<PosReceipt> fetchReleaseReceipt(int transactionId) =>
+      _service.fetchReleaseReceipt(transactionId);
 
   Future<TokenVerification> verifyToken(String token) =>
       _service.verifyToken(token);

@@ -8,8 +8,10 @@
 """Inventory app — serializers for product catalog (Sprint 1)."""
 
 from decimal import Decimal
+from uuid import uuid4
 
 from django.db import transaction
+from PIL import Image, UnidentifiedImageError
 from rest_framework import serializers
 
 from common.exceptions import refuse_fractional_whole_unit
@@ -19,17 +21,22 @@ from .exceptions import (
     BarcodeReservedPrefix,
     BarcodeTaken,
     DuplicateBaseUnit,
+    InvalidProductImage,
     InvalidPurchaseOrder,
     InvalidSellingUnit,
     InvalidStorageLocation,
     InvalidSupplierPayment,
     InvalidSupplierTerms,
     InvalidVariant,
+    ProductImageTooLarge,
     ReturnAdjustmentRetired,
     SellingUnitInUse,
     SupplierInactive,
 )
 from .models import (
+    PRODUCT_IMAGE_FORMATS,
+    PRODUCT_IMAGE_MAX_BYTES,
+    PRODUCT_IMAGE_MAX_PIXELS,
     STORE_LOCATION_NAME,
     Brand,
     Category,
@@ -516,6 +523,79 @@ class ProductSerializer(serializers.ModelSerializer):
     # there is no second copy of the fact to keep in step.
     stored_at_name = serializers.CharField(source="stored_at.name", read_only=True)
     variants = ProductVariantSerializer(many=True, read_only=True)
+    # POS usability (images lane): the picked photo, arriving as
+    # `multipart/form-data` on the EXISTING product POST/PATCH. `FileField`, not
+    # DRF's `ImageField`: that one answers a field-error dict, and this lane owes the
+    # client the project's stable `{code, detail}` 400 like every other refusal.
+    # Write-only, because what a READ gets is `image_url` - the one wire key every
+    # existing screen already reads.
+    image = serializers.FileField(write_only=True, required=False)
+
+    def validate_image(self, value):
+        """Accept a real JPEG/PNG/WebP and give it a name the client did not choose.
+
+        The checks are on the BYTES: the format comes from decoding the file, never
+        from its extension, so a `.png` holding JPEG is stored as `.jpg` and a `.png`
+        holding text is refused. The pixel bound is read from the header BEFORE the
+        pixels are decoded, so a few kilobytes declaring a 400 MP canvas cost nothing.
+        The stored name is generated, so a client filename (`../../../evil.png`)
+        never becomes a storage key, and the extension always matches the real format.
+        """
+        if value.size > PRODUCT_IMAGE_MAX_BYTES:
+            raise ProductImageTooLarge(
+                "That image is larger than 5 MB. Pick a smaller photo."
+            )
+        try:
+            with Image.open(value) as probe:
+                detected = probe.format
+                width, height = probe.size
+                # Raised INSIDE the try on purpose: these are project refusals, not
+                # Pillow errors, so the `except` below (which lists only Pillow's)
+                # lets them through unchanged.
+                if detected not in PRODUCT_IMAGE_FORMATS:
+                    raise InvalidProductImage(
+                        "That file is not a JPEG, PNG or WebP image."
+                    )
+                if width < 1 or height < 1:
+                    raise InvalidProductImage("That image has no visible pixels.")
+                if width * height > PRODUCT_IMAGE_MAX_PIXELS:
+                    raise InvalidProductImage(
+                        "That image is too large in pixels: use one under "
+                        f"{PRODUCT_IMAGE_MAX_PIXELS:,} pixels."
+                    )
+                # Decode every pixel: a truncated or corrupt body passes every header
+                # check and would only fail later, in some browser, for the clerk.
+                probe.load()
+        except (
+            UnidentifiedImageError,
+            Image.DecompressionBombError,
+            OSError,
+            SyntaxError,
+        ):
+            raise InvalidProductImage(
+                "That file could not be read as an image. It may be damaged or "
+                "not a photo at all."
+            ) from None
+        value.seek(0)
+        value.name = f"{uuid4().hex}.{PRODUCT_IMAGE_FORMATS[detected]}"
+        return value
+
+    def to_representation(self, instance):
+        """`image_url` answers the OWNED photo's HTTP URL when the shop owns one.
+
+        The wire key is unchanged and so is the fallback: a product with no owned
+        photo still answers `image_url` verbatim, which is what the JSON create/edit
+        path and every URL-backed product already rely on. The URL is built from the
+        REQUEST so the till, a phone and a browser on another machine all get an
+        address they can actually load - a relative path would resolve against the
+        HTML page, and a storage key would leak the server's layout.
+        """
+        data = super().to_representation(instance)
+        if instance.image:
+            request = self.context.get("request")
+            url = instance.image.url
+            data["image_url"] = request.build_absolute_uri(url) if request else url
+        return data
 
     class Meta:
         model = Product
@@ -528,6 +608,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "base_name",
             "description",
             "image_url",
+            "image",
             "stored_at",
             "stored_at_name",
             "is_active",

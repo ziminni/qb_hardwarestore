@@ -121,6 +121,85 @@ void main() {
   RequisitionService service() => RequisitionService(client: client);
 
   test(
+    'cashier release queue follows pages without reading manager queue',
+    () async {
+      final pages = <int>[];
+      serve((options) {
+        expect(options.path, '/api/v1/requisitions/release-queue/');
+        final page = int.parse('${options.queryParameters['page'] ?? 1}');
+        pages.add(page);
+        return _json({
+          'count': 2,
+          'next': page == 1
+              ? 'http://localhost/api/v1/requisitions/release-queue/?page=2'
+              : null,
+          'results': [_requisition(id: page, status: 'ACCEPTED')],
+        });
+      });
+      expect((await service().fetchReleaseQueue()).map((r) => r.id), [1, 2]);
+      expect(pages, [1, 2]);
+    },
+  );
+
+  test('request selection uses verification only, never release', () async {
+    serve((options) {
+      expect(options.path, '/api/v1/requisitions/2/verify-release/');
+      expect(options.method, 'POST');
+      return _json({
+        'token': 'selected-token',
+        'requisition': {
+          'id': 2,
+          'req_number': 'REQ-2',
+          'project': 'House',
+          'customer': 'Builder',
+        },
+        'items': [],
+      });
+    });
+    expect((await service().verifyRequest(2)).token, 'selected-token');
+  });
+
+  test('release receipt reads saved quantities, names, OR and VAT', () async {
+    serve((options) {
+      expect(options.path, '/api/v1/transactions/42/');
+      expect(options.method, 'GET');
+      return _json({
+        'id': 42,
+        'transaction_no': 'TXN-42',
+        'trans_date': '2026-11-15T10:00:00Z',
+        'grand_total': '100.00',
+        'receipt': {'or_number': 'OR-42'},
+        'vat_registered': true,
+        'vat_rate': '12.00',
+        'vatable_sales': '89.29',
+        'vat_amount': '10.71',
+        'payments': [],
+        'items': [
+          {
+            'variant_uom': 7,
+            'product_name': 'Cement',
+            'variant_name': '40kg',
+            'variant_uom_code': 'BAG',
+            'qty': '4.00',
+            'unit_price': '25.00',
+            'subtotal': '100.00',
+            'pick_up': [],
+          },
+        ],
+      });
+    });
+    final receipt = await service().fetchReleaseReceipt(42);
+    expect(receipt.officialReceiptNumber, 'OR-42');
+    expect(receipt.lines.single.productName, 'Cement');
+    expect(receipt.lines.single.quantity, 4);
+    expect(receipt.lines.single.unit, 'BAG');
+    expect(receipt.balanceDue, 100);
+    expect(receipt.paidNow, 0);
+    expect(receipt.vatAmount, 10.71);
+    expect(receipt.vatRate, 12);
+  });
+
+  test(
     'reads a requisition with its items, and a NULL token on a not-yet-approved row',
     () async {
       serve(
@@ -298,7 +377,8 @@ void main() {
       expect(
         verified.items.last.outstanding,
         0,
-        reason: 'a refused line is never owed, so it never holds the token open',
+        reason:
+            'a refused line is never owed, so it never holds the token open',
       );
     },
   );

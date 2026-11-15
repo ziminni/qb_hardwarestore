@@ -220,6 +220,59 @@ void main() {
       );
     });
 
+    testWidgets(
+      'the counter says who accepts the request and what the cashier does',
+      (tester) async {
+        final vm = MaterialReleaseViewmodel(repository: _StubRequisitions());
+
+        // 760 px is the narrow window the counter actually runs at, so the
+        // guidance has to fit there without pushing the token field off screen.
+        await _pump(tester, vm, size: const Size(760, 900));
+
+        expect(
+          find.textContaining(
+            'store manager accepts or declines project requests in POS',
+          ),
+          findsOneWidget,
+          reason:
+              'a clerk looking for an approval queue has to be told who '
+              'approves, in the same glance as the token field',
+        );
+        expect(
+          find.textContaining(
+            'Cashiers use the token to release accepted goods',
+          ),
+          findsOneWidget,
+          reason: 'the release is the cashier\'s job once the store accepted',
+        );
+        expect(
+          find.textContaining('CPMS'),
+          findsNothing,
+          reason:
+              'CPMS raises the request; the STORE manager accepts or declines '
+              'it in POS Project requests, and pointing the clerk at CPMS is '
+              'an instruction they cannot follow',
+        );
+        expect(
+          find.textContaining('accepted'),
+          findsWidgets,
+          reason: 'the goods leave only for a request the manager accepted',
+        );
+
+        // A cashier cannot raise a request or approve one here, so the screen
+        // must not offer either action — guidance only.
+        expect(find.textContaining('New request'), findsNothing);
+        expect(find.textContaining('Approve'), findsNothing);
+        expect(find.textContaining('Decline'), findsNothing);
+
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: 'the added guidance must not overflow a 760 px window',
+        );
+      },
+    );
+
     testWidgets('the three steps are shown in order, narrow first', (
       tester,
     ) async {

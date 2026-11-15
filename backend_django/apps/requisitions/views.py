@@ -58,12 +58,11 @@ def _refusal(error):
     `status_code` too — a request that is no longer WAITING is a `409`, not a `400`,
     because the payload was fine and the decision was already made.
     """
-    status_code = getattr(error, 'status_code', status.HTTP_400_BAD_REQUEST)
-    code = getattr(error, 'code', None)
+    status_code = getattr(error, "status_code", status.HTTP_400_BAD_REQUEST)
+    code = getattr(error, "code", None)
     if code:
-        return Response(
-            {'code': code, 'detail': str(error)}, status=status_code)
-    return Response({'detail': str(error)}, status=status_code)
+        return Response({"code": code, "detail": str(error)}, status=status_code)
+    return Response({"detail": str(error)}, status=status_code)
 
 
 def _accepted_description(requisition):
@@ -75,22 +74,27 @@ def _accepted_description(requisition):
     outside the app that showed them.
     """
     excluded = [
-        f'{line.variant_uom.variant} ({line.decline_reason})'
-        for line in requisition.items
-        .select_related('variant_uom__variant__product')
-        .order_by('pk')
+        f"{line.variant_uom.variant} ({line.decline_reason})"
+        for line in requisition.items.select_related(
+            "variant_uom__variant__product"
+        ).order_by("pk")
         if line.available is False
     ]
     if not excluded:
-        return (f'Requisition {requisition.req_number} accepted by store; '
-                'every line available.')
-    return (f'Requisition {requisition.req_number} accepted by store; '
-            'not available: ' + ', '.join(excluded) + '.')
+        return (
+            f"Requisition {requisition.req_number} accepted by store; "
+            "every line available."
+        )
+    return (
+        f"Requisition {requisition.req_number} accepted by store; "
+        "not available: " + ", ".join(excluded) + "."
+    )
 
 
 # ---------------------------------------------------------------------------
 # Project ViewSet
 # ---------------------------------------------------------------------------
+
 
 class ProjectViewSet(viewsets.ReadOnlyModelViewSet):
     """Projects, read-only: they arrive with a CPMS push (decision 03).
@@ -99,7 +103,7 @@ class ProjectViewSet(viewsets.ReadOnlyModelViewSet):
     (the CPMS service account is fenced out in `apps.users.authentication`).
     """
 
-    queryset = Project.objects.select_related('customer').all()
+    queryset = Project.objects.select_related("customer").all()
     serializer_class = ProjectSerializer
     permission_classes = [IsAuthenticated]
 
@@ -107,6 +111,7 @@ class ProjectViewSet(viewsets.ReadOnlyModelViewSet):
 # ---------------------------------------------------------------------------
 # Requisition ViewSet
 # ---------------------------------------------------------------------------
+
 
 class RequisitionViewSet(viewsets.ReadOnlyModelViewSet):
     """The POS copy of what CPMS approved (decisions 01 and 08).
@@ -127,14 +132,15 @@ class RequisitionViewSet(viewsets.ReadOnlyModelViewSet):
         # stopping at project makes that a per-row query.
         # token is a REVERSE OneToOne (MaterialToken -> Requisition), so the serializer's
         # token field costs one query per row unless it is joined too.
-        .select_related('project__customer', 'token')
+        .select_related("project__customer", "token")
         # The line labels added in Phase 1b (`product_name`, `unit`) live one relation
         # further out; prefetching them keeps a queue page at a fixed query count.
         .prefetch_related(
-            'items__variant_uom__variant__product', 'items__variant_uom__uom')
+            "items__variant_uom__variant__product", "items__variant_uom__uom"
+        )
         # Decision 13: the review queue reads OLDEST FIRST, and `pk` breaks a timestamp
         # tie so paging cannot repeat or skip a row.
-        .order_by('created_at', 'pk')
+        .order_by("created_at", "pk")
     )
     serializer_class = RequisitionSerializer
     permission_classes = [IsManagerRole]
@@ -149,16 +155,58 @@ class RequisitionViewSet(viewsets.ReadOnlyModelViewSet):
         queryset = super().get_queryset()
         # A direct `RequisitionViewSet().get_queryset()` (a serializer test) has no
         # request at all, so there is nothing to filter by.
-        request = getattr(self, 'request', None)
-        status_param = request.query_params.get('status') if request else None
+        request = getattr(self, "request", None)
+        status_param = request.query_params.get("status") if request else None
         if status_param is None:
             return queryset
         if status_param not in Requisition.Status.values:
-            raise ValidationError({
-                'status': [f'"{status_param}" is not a request status.']})
+            raise ValidationError(
+                {"status": [f'"{status_param}" is not a request status.']}
+            )
         return queryset.filter(status=status_param)
 
-    @action(detail=True, methods=['post'])
+    @action(
+        detail=False,
+        methods=["get"],
+        permission_classes=[IsPOSRole],
+        url_path="release-queue",
+    )
+    def release_queue(self, request):
+        """Cashiers may find accepted/open requests, never the manager review queue."""
+        queryset = self.get_queryset().filter(
+            status__in=[Requisition.Status.ACCEPTED, Requisition.Status.PARTIAL]
+        )
+        page = self.paginate_queryset(queryset)
+        rows = self.get_serializer(
+            page if page is not None else queryset, many=True
+        ).data
+        # Lookup lists are not a token directory, even for managers.
+        for row in rows:
+            row["token"] = None
+        return self.get_paginated_response(rows) if page is not None else Response(rows)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        permission_classes=[IsPOSRole],
+        url_path="verify-release",
+    )
+    def verify_release(self, request, pk=None):
+        """Selecting a request runs the same checks as typing its token; moves nothing."""
+        requisition = self.get_object()
+        token = MaterialToken.objects.filter(requisition=requisition).first()
+        if token is None:
+            return Response(
+                {"detail": "This request has no release token."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            info = verify_token(token_value=str(token.token))
+        except ValueError as error:
+            return _refusal(error)
+        return Response(info)
+
+    @action(detail=True, methods=["post"])
     def accept(self, request, pk=None):
         """Decision 09/10: serve this request, declining single lines with a reason.
 
@@ -174,16 +222,18 @@ class RequisitionViewSet(viewsets.ReadOnlyModelViewSet):
         try:
             with transaction.atomic():
                 requisition = accept_requisition(
-                    requisition_id=requisition.pk,
-                    items=payload.validated_data['items'])
+                    requisition_id=requisition.pk, items=payload.validated_data["items"]
+                )
                 audit_request(
-                    request, AuditLog.ActionType.REQ_APPROVE,
-                    _accepted_description(requisition))
+                    request,
+                    AuditLog.ActionType.REQ_APPROVE,
+                    _accepted_description(requisition),
+                )
         except ValueError as error:
             return _refusal(error)
         return Response(self.get_serializer(requisition).data)
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=["post"])
     def decline(self, request, pk=None):
         """Decision 09/13: the store can serve none of it, and says why.
 
@@ -198,11 +248,14 @@ class RequisitionViewSet(viewsets.ReadOnlyModelViewSet):
             with transaction.atomic():
                 requisition = decline_requisition(
                     requisition_id=requisition.pk,
-                    decline_reason=payload.validated_data['decline_reason'])
+                    decline_reason=payload.validated_data["decline_reason"],
+                )
                 audit_request(
-                    request, AuditLog.ActionType.REQ_REJECT,
-                    f'Requisition {requisition.req_number} declined by store: '
-                    f'{requisition.decline_reason}.')
+                    request,
+                    AuditLog.ActionType.REQ_REJECT,
+                    f"Requisition {requisition.req_number} declined by store: "
+                    f"{requisition.decline_reason}.",
+                )
         except ValueError as error:
             return _refusal(error)
         return Response(self.get_serializer(requisition).data)
@@ -212,7 +265,8 @@ class RequisitionViewSet(viewsets.ReadOnlyModelViewSet):
 # Token / Material Release endpoints
 # ---------------------------------------------------------------------------
 
-@api_view(['POST'])
+
+@api_view(["POST"])
 @permission_classes([IsPOSRole])
 def token_verify_view(request):
     """Verify a material token (UC-20: Scan/Verify Digital Material Token).
@@ -222,7 +276,7 @@ def token_verify_view(request):
     """
     serializer = TokenVerifySerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
-    token_value = str(serializer.validated_data['token'])
+    token_value = str(serializer.validated_data["token"])
     try:
         info = verify_token(token_value=token_value)
     except ValueError as e:
@@ -230,7 +284,7 @@ def token_verify_view(request):
     return Response(info)
 
 
-@api_view(['POST'])
+@api_view(["POST"])
 @permission_classes([IsPOSRole])
 def material_release_view(request):
     """Release materials at POS (UC-21 + UC-22).
@@ -240,7 +294,7 @@ def material_release_view(request):
     """
     serializer = TokenVerifySerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
-    token_value = str(serializer.validated_data['token'])
+    token_value = str(serializer.validated_data["token"])
     try:
         # The release and its audit row are one transaction (decision 07). The
         # description names the requisition and the resulting sale by DOCUMENT NUMBER;
@@ -254,16 +308,16 @@ def material_release_view(request):
             # Decision 05: the row tells a partial release from a finished one, so the
             # trail shows a request was deliberately left open.
             label = (
-                'partially released'
-                if result['status'] == Requisition.Status.PARTIAL
-                else 'fully released'
+                "partially released"
+                if result["status"] == Requisition.Status.PARTIAL
+                else "fully released"
             )
             audit_request(
                 request,
                 AuditLog.ActionType.RELEASE,
-                f'Materials {label} for requisition {result["req_number"]} '
-                f'on transaction {result["transaction_no"]} '
-                f'(total {result["grand_total"]}).',
+                f"Materials {label} for requisition {result['req_number']} "
+                f"on transaction {result['transaction_no']} "
+                f"(total {result['grand_total']}).",
             )
     except NoOpenShift as e:
         # Decision 03: mirrors `POST /transactions/`, which the POS exception handler
@@ -282,10 +336,11 @@ def material_release_view(request):
 # MaterialToken ViewSet (read-only)
 # ---------------------------------------------------------------------------
 
+
 class MaterialTokenViewSet(viewsets.ReadOnlyModelViewSet):
     """Material tokens — a bearer credential, so only managers/admins may list them."""
 
-    queryset = MaterialToken.objects.select_related('requisition').all()
+    queryset = MaterialToken.objects.select_related("requisition").all()
     serializer_class = MaterialTokenSerializer
     permission_classes = [IsManagerRole]
 
@@ -293,6 +348,7 @@ class MaterialTokenViewSet(viewsets.ReadOnlyModelViewSet):
 # ---------------------------------------------------------------------------
 # RequisitionItem ViewSet
 # ---------------------------------------------------------------------------
+
 
 class RequisitionItemViewSet(viewsets.ReadOnlyModelViewSet):
     """Requisition lines, read-only with the same audience as their requisition.
@@ -304,6 +360,7 @@ class RequisitionItemViewSet(viewsets.ReadOnlyModelViewSet):
     # `order_by` matters: the model has no Meta.ordering, and DRF's paginator warns (and
     # can repeat a row across pages) on an unordered queryset.
     queryset = RequisitionItem.objects.select_related(
-        'requisition', 'variant_uom__variant').order_by('pk')
+        "requisition", "variant_uom__variant"
+    ).order_by("pk")
     serializer_class = RequisitionItemSerializer
     permission_classes = [IsManagerRole]

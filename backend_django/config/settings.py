@@ -151,6 +151,11 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# Product photos (POS usability). Public catalogue media under the bind-mounted
+# backend directory; the dev server serves it, production must serve MEDIA_ROOT itself.
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
