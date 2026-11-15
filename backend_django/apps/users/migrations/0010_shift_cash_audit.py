@@ -1,0 +1,49 @@
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ("apps_users", "0009_alter_auditlog_action_type"),
+    ]
+
+    operations = [
+        migrations.AlterField(
+            model_name="auditlog",
+            name="action_type",
+            field=models.CharField(
+                choices=[
+                    ("LOGIN", "Login"),
+                    ("LOGIN_FAILED", "Failed Login"),
+                    ("LOGOUT", "Logout"),
+                    ("CREATE", "Create"),
+                    ("UPDATE", "Update"),
+                    ("DELETE", "Delete"),
+                    ("SALE", "Sale"),
+                    ("RETURN", "Return"),
+                    ("RELEASE", "Material Release"),
+                    ("STOCK_ADJUST", "Stock Adjustment"),
+                    ("RECEIPT", "Goods Receipt"),
+                    ("PAYMENT", "Payment"),
+                    ("REQ_APPROVE", "Requisition Approved"),
+                    ("REQ_REJECT", "Requisition Rejected"),
+                    ("ALERT_RESOLVE", "Alert Resolved"),
+                    ("SHIFT_OPEN", "Shift Opened"),
+                    ("SHIFT_CLOSE", "Shift Closed"),
+                    ("CART_VOID", "Held Cart Voided"),
+                    ("SETTINGS_UPDATE", "Store Settings Updated"),
+                    ("DISCOUNT_APPROVAL", "Discount Approval Granted"),
+                    ("CHEQUE_DECISION", "Cheque Cleared or Bounced"),
+                    ("DELIVERY", "Delivery"),
+                    ("SALES_ORDER", "Sales Order"),
+                    ("ROLE_CHANGE", "Role Changed"),
+                    ("USER_DEACTIVATE", "User Deactivated"),
+                    ("SUPPLIER_RETURN", "Supplier Return"),
+                    ("STOCK_TRANSFER", "Stock Transfer"),
+                    ("CATALOGUE_IMPORT", "Catalogue Import"),
+                    ("SHIFT_CASH", "Shift Cash Movement"),
+                ],
+                max_length=20,
+            ),
+        ),
+    ]

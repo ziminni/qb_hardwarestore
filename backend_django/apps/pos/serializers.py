@@ -24,6 +24,7 @@ from .models import (
     SalesOrderItem,
     SalesTransaction,
     Shift,
+    ShiftCashMovement,
 )
 
 
@@ -290,6 +291,26 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
         ]
 
 
+class ShiftCashMovementSerializer(serializers.ModelSerializer):
+    recorded_by_name = serializers.CharField(
+        source="recorded_by.full_name", read_only=True
+    )
+
+    class Meta:
+        model = ShiftCashMovement
+        fields = [
+            "id",
+            "shift",
+            "kind",
+            "amount",
+            "reason",
+            "recorded_by",
+            "recorded_by_name",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
 class ShiftSerializer(serializers.ModelSerializer):
     """Phase 4 (decision 06).
 
@@ -311,6 +332,7 @@ class ShiftSerializer(serializers.ModelSerializer):
     cashier_name = serializers.CharField(source="cashier.full_name", read_only=True)
     z_reading = serializers.SerializerMethodField()
     held_cart_count = serializers.SerializerMethodField()
+    cash_movements = ShiftCashMovementSerializer(many=True, read_only=True)
 
     class Meta:
         model = Shift
@@ -326,6 +348,7 @@ class ShiftSerializer(serializers.ModelSerializer):
             "notes",
             "z_reading",
             "held_cart_count",
+            "cash_movements",
         ]
         read_only_fields = [
             "id",
@@ -334,6 +357,7 @@ class ShiftSerializer(serializers.ModelSerializer):
             "opened_at",
             "closed_at",
             "held_cart_count",
+            "cash_movements",
         ]
 
     def get_z_reading(self, obj):

@@ -197,6 +197,7 @@ class AuditLog(models.Model):
         # "who uploaded which file, and what did it change", and the description carries
         # the counts - one row per upload, never one per cell.
         CATALOGUE_IMPORT = "CATALOGUE_IMPORT", "Catalogue Import"
+        SHIFT_CASH = "SHIFT_CASH", "Shift Cash Movement"
 
     user = models.ForeignKey(
         User,

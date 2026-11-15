@@ -107,3 +107,21 @@ class CpmsRequestImportSerializer(serializers.Serializer):
     approver_name = serializers.CharField(max_length=255)
     notes = serializers.CharField(required=False, allow_blank=True, default='')
     items = CpmsRequestItemSerializer(many=True, allow_empty=False)
+
+
+class CpmsPaymentReceiptSubmitSerializer(serializers.Serializer):
+    """`POST projects/{cpms_project_id}/payment-receipts/` — online payment proof (Phase 1c)."""
+
+    cpms_payment_id = serializers.CharField(max_length=100)
+    amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal('0.01')
+    )
+    payment_method = serializers.ChoiceField(
+        choices=('BANK_TRANSFER', 'GCASH', 'CARD', 'CASH', 'CHEQUE'),
+        default='BANK_TRANSFER',
+    )
+    reference_no = serializers.CharField(max_length=100)
+    notes = serializers.CharField(required=False, allow_blank=True, default='')
+    submitted_by_name = serializers.CharField(
+        max_length=150, required=False, allow_blank=True, default=''
+    )

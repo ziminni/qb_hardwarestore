@@ -920,3 +920,88 @@ def _check_low_stock(variant):
             variant=locked,
             message=message,
         )
+
+
+EXPIRY_WARNING_DAYS = 30
+
+
+def _check_expiring_batches(variant, warning_days=EXPIRY_WARNING_DAYS):
+    """Raise an EXPIRING alert if `variant` has a stocked batch expiring within `warning_days`.
+
+    Deduplicated per variant like `_check_low_stock`: an open `EXPIRING` alert on the
+    same variant suppresses duplicates until a stocker/manager resolves it.
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    today = timezone.localdate()
+    cutoff = today + timedelta(days=warning_days)
+
+    with transaction.atomic():
+        locked = ProductVariant.objects.select_for_update().get(pk=variant.pk)
+        earliest = (
+            InventoryBatch.objects.filter(
+                variant=locked,
+                current_qty__gt=0,
+                expiration_date__isnull=False,
+                expiration_date__lte=cutoff,
+            )
+            .order_by("expiration_date", "id")
+            .first()
+        )
+        if earliest is None:
+            return None
+
+        already_open = SystemAlert.objects.filter(
+            variant=locked,
+            alert_type=SystemAlert.AlertType.EXPIRING,
+            is_resolved=False,
+        ).exists()
+        if already_open:
+            return None
+
+        if earliest.expiration_date < today:
+            message = (
+                f"{locked} has expired batch #{earliest.pk} "
+                f"(expired {earliest.expiration_date.isoformat()}, "
+                f"{earliest.current_qty} remaining)."
+            )
+        else:
+            message = (
+                f"{locked} has batch #{earliest.pk} expiring on "
+                f"{earliest.expiration_date.isoformat()} "
+                f"({earliest.current_qty} remaining)."
+            )
+
+        return SystemAlert.objects.create(
+            alert_type=SystemAlert.AlertType.EXPIRING,
+            variant=locked,
+            message=message,
+        )
+
+
+def check_expiring_batches(variant_ids=None, warning_days=EXPIRY_WARNING_DAYS):
+    """Scan stocked batches with an `expiration_date` within `warning_days` and raise alerts."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    cutoff = timezone.localdate() + timedelta(days=warning_days)
+    batch_qs = InventoryBatch.objects.filter(
+        current_qty__gt=0,
+        expiration_date__isnull=False,
+        expiration_date__lte=cutoff,
+    )
+    if variant_ids is not None:
+        batch_qs = batch_qs.filter(variant_id__in=set(variant_ids))
+    candidate_ids = sorted(set(batch_qs.values_list("variant_id", flat=True)))
+    if not candidate_ids:
+        return []
+    alerts = []
+    for variant in ProductVariant.objects.filter(pk__in=candidate_ids).order_by("pk"):
+        alert = _check_expiring_batches(variant, warning_days=warning_days)
+        if alert is not None:
+            alerts.append(alert)
+    return alerts
+

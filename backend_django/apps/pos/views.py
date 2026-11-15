@@ -54,6 +54,7 @@ from .models import (
     SalesOrder,
     SalesTransaction,
     Shift,
+    ShiftCashMovement,
     StoreSettings,
 )
 from .serializers import (
@@ -736,7 +737,11 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
     collection and detail routes simply do not exist for it.
     """
 
-    queryset = Shift.objects.select_related("cashier").all()
+    queryset = (
+        Shift.objects.select_related("cashier")
+        .prefetch_related("cash_movements__recorded_by")
+        .all()
+    )
     serializer_class = ShiftSerializer
     permission_classes = [IsPOSOrReadOnly]
     http_method_names = ["get", "head", "options", "post"]
@@ -878,6 +883,89 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
                 f"(float {shift.opening_float}).",
             )
         return Response(self.get_serializer(shift).data)
+
+    @action(detail=True, methods=["post"], url_path="cash-movements")
+    def record_cash_movement(self, request, pk=None):
+        """POST /shifts/{id}/cash-movements/ {kind, amount, reason} -> 201 updated shift.
+
+        Records a mid-shift cash withdrawal (`CASH_OUT`, e.g. owner drop / petty cash) or
+        cash top-up (`CASH_IN`, e.g. change float added) on an open shift, adjusts the
+        expected drawer calculation, and writes an immutable AuditLog entry.
+        """
+        shift = self.get_object()
+        if shift.status == Shift.Status.CLOSED:
+            return Response(
+                {
+                    "code": "SHIFT_ALREADY_CLOSED",
+                    "detail": "Cannot record a cash movement on a closed shift.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        kind = str(request.data.get("kind") or "").strip().upper()
+        if kind not in (
+            ShiftCashMovement.Kind.CASH_OUT,
+            ShiftCashMovement.Kind.CASH_IN,
+        ):
+            return Response(
+                {
+                    "code": "INVALID_CASH_MOVEMENT_KIND",
+                    "detail": "kind must be CASH_OUT or CASH_IN.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        raw_amount = request.data.get("amount")
+        try:
+            amount = Decimal(str(raw_amount))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response(
+                {
+                    "code": "INVALID_CASH_MOVEMENT_AMOUNT",
+                    "detail": "amount must be a positive number.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not amount.is_finite() or amount <= 0:
+            return Response(
+                {
+                    "code": "INVALID_CASH_MOVEMENT_AMOUNT",
+                    "detail": "amount must be greater than zero.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        amount = amount.quantize(Decimal("0.01"))
+
+        reason = str(request.data.get("reason") or "").strip()
+        if not reason:
+            return Response(
+                {
+                    "code": "REASON_REQUIRED",
+                    "detail": "A reason is required when taking cash out of or adding cash to the drawer.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(reason) > 255:
+            reason = reason[:255]
+
+        action_word = (
+            "cash out" if kind == ShiftCashMovement.Kind.CASH_OUT else "cash in"
+        )
+        with db_transaction.atomic():
+            ShiftCashMovement.objects.create(
+                shift=shift,
+                kind=kind,
+                amount=amount,
+                reason=reason,
+                recorded_by=request.user,
+            )
+            audit_request(
+                request,
+                AuditLog.ActionType.SHIFT_CASH,
+                f"Shift #{shift.pk} {action_word} {amount}: {reason}.",
+            )
+        shift = self.get_queryset().get(pk=shift.pk)
+        return Response(self.get_serializer(shift).data, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=["get"])
     def current(self, request):

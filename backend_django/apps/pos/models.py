@@ -587,6 +587,40 @@ class Shift(models.Model):
         return f"Shift {self.id} — {self.cashier} ({self.status})"
 
 
+class ShiftCashMovement(models.Model):
+    """Mid-shift cash withdrawal (drop/expense) or top-up (cash in) on an open shift.
+
+    Adjusts the shift's expected drawer (`opening_float + cash_sales - cash_refunds +
+    cash_in - cash_out`) so legitimate mid-shift cash removals (owner drop, petty cash,
+    delivery change) are accounted for instead of appearing as unexplained shortage.
+    """
+
+    class Kind(models.TextChoices):
+        CASH_OUT = "CASH_OUT", "Cash Out"
+        CASH_IN = "CASH_IN", "Cash In"
+
+    shift = models.ForeignKey(
+        Shift, on_delete=models.CASCADE, related_name="cash_movements"
+    )
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    reason = models.CharField(max_length=255)
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="shift_cash_movements",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "pos_shift_cash_movement"
+        ordering = ["created_at", "id"]
+
+    def __str__(self):
+        return f"ShiftCashMovement {self.id} — {self.kind} {self.amount} ({self.shift_id})"
+
+
+
 class DocumentCounter(models.Model):
     """The sequence behind `TRX-YYYYMMDD-NNNN` and `OR-YYYYMMDD-NNNN`, one row per day.
 

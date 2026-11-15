@@ -14,6 +14,50 @@ int _heldCartCount(Map<String, dynamic> json) {
   return intField(json, 'held_cart_count');
 }
 
+double _optionalDecimalField(Map<String, dynamic> json, String key) {
+  if (!json.containsKey(key) || json[key] == null) {
+    return 0;
+  }
+  return decimalField(json, key);
+}
+
+/// A mid-shift cash withdrawal (`CASH_OUT`) or addition (`CASH_IN`) recorded on
+/// an open shift so expected drawer cash accounts for safe drops / petty cash.
+class ShiftCashMovement {
+  const ShiftCashMovement({
+    required this.id,
+    required this.kind,
+    required this.amount,
+    required this.reason,
+    required this.recordedByName,
+    required this.createdAt,
+  });
+
+  factory ShiftCashMovement.fromJson(Map<String, dynamic> json) {
+    return ShiftCashMovement(
+      id: intField(json, 'id'),
+      kind: stringField(json, 'kind'),
+      amount: decimalField(json, 'amount'),
+      reason: stringField(json, 'reason'),
+      recordedByName:
+          json['recorded_by_name'] is String ? json['recorded_by_name'] as String : '',
+      createdAt: DateTime.parse(stringField(json, 'created_at')),
+    );
+  }
+
+  static const cashOutKind = 'CASH_OUT';
+  static const cashInKind = 'CASH_IN';
+
+  final int id;
+  final String kind;
+  final double amount;
+  final String reason;
+  final String recordedByName;
+  final DateTime createdAt;
+
+  bool get isCashOut => kind == cashOutKind;
+}
+
 /// The end-of-shift summary (Z-reading) returned with a closed shift.
 ///
 /// Derived on the server from the shift's own transactions — never stored — so
@@ -27,6 +71,8 @@ class ZReading {
     required this.gcashSales,
     required this.expectedDrawer,
     required this.variance,
+    this.cashIn = 0,
+    this.cashOut = 0,
     this.heldCartCount = 0,
   });
 
@@ -43,6 +89,8 @@ class ZReading {
       variance: json['variance'] == null
           ? null
           : decimalField(json, 'variance'),
+      cashIn: _optionalDecimalField(json, 'cash_in'),
+      cashOut: _optionalDecimalField(json, 'cash_out'),
       // ADVISORY (Phase 3 Task 3): the count of carts still parked by this
       // cashier. Absent is read as 0 rather than failing — a fixture written
       // before the field existed must still parse — but a PRESENT value is read
@@ -57,6 +105,8 @@ class ZReading {
   final double cardSales;
   final double gcashSales;
   final double expectedDrawer;
+  final double cashIn;
+  final double cashOut;
 
   /// Counted minus expected. Null until the shift is closed; non-zero is
   /// recorded and warned about, never blocked (decision 06, ruling 3).
@@ -88,10 +138,12 @@ class Shift {
     required this.notes,
     required this.zReading,
     this.heldCartCount = 0,
+    this.cashMovements = const [],
   });
 
   factory Shift.fromJson(Map<String, dynamic> json) {
     final zReading = json['z_reading'];
+    final rawMovements = json['cash_movements'];
     return Shift(
       id: intField(json, 'id'),
       cashierName: stringField(json, 'cashier_name'),
@@ -107,6 +159,13 @@ class Shift {
           ? ZReading.fromJson(zReading)
           : null,
       heldCartCount: _heldCartCount(json),
+      cashMovements: rawMovements is List
+          ? [
+              for (final item in rawMovements)
+                if (item is Map<String, dynamic>)
+                  ShiftCashMovement.fromJson(item),
+            ]
+          : const [],
     );
   }
 
@@ -132,6 +191,9 @@ class Shift {
   /// stay resumable. Read-only on the wire — a client that could write it could
   /// silence the advisory.
   final int heldCartCount;
+
+  /// Mid-shift cash withdrawals and additions recorded on this shift.
+  final List<ShiftCashMovement> cashMovements;
 
   bool get isOpen => status == openStatus;
 }

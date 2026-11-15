@@ -2,7 +2,7 @@
 
 from rest_framework import serializers
 
-from .models import CollectibleLedger, CollectiblePayment
+from .models import CollectibleLedger, CollectiblePayment, ProjectPaymentReceipt
 
 
 class CollectiblePaymentSerializer(serializers.ModelSerializer):
@@ -149,3 +149,40 @@ class CollectibleLedgerSerializer(serializers.ModelSerializer):
         to answer `null` here, not nothing.
         """
         return obj.project.name if obj.project_id else None
+
+
+class ProjectPaymentReceiptSerializer(serializers.ModelSerializer):
+    """CPMS online payment receipt for staff review and verification (Phase 1c)."""
+
+    cpms_project_id = serializers.ReadOnlyField(source='project.cpms_project_id')
+    project_name = serializers.ReadOnlyField(source='project.name')
+    customer_name = serializers.ReadOnlyField(source='project.customer.name')
+    decided_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProjectPaymentReceipt
+        fields = [
+            'id',
+            'project',
+            'cpms_project_id',
+            'project_name',
+            'customer_name',
+            'cpms_payment_id',
+            'amount',
+            'approved_amount',
+            'payment_method',
+            'reference_no',
+            'notes',
+            'submitted_by_name',
+            'status',
+            'decline_reason',
+            'decided_by',
+            'decided_by_name',
+            'decided_at',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = fields
+
+    def get_decided_by_name(self, obj):
+        return obj.decided_by.full_name if obj.decided_by_id else None

@@ -29,6 +29,8 @@ class LedgerService {
 
   static const String ledgerPaymentsPath = '/api/v1/ledger-payments/';
 
+  static const String paymentReceiptsPath = '/api/v1/payment-receipts/';
+
   /// Page size the server is configured with; the bound below is expressed in those units.
   static const int _maxPages = 40;
 
@@ -70,6 +72,55 @@ class LedgerService {
         'payment_method': method.code,
         'official_receipt_no': ?officialReceiptNo,
       });
+    } on DioException catch (error) {
+      throw LedgerServiceException(_messageForPost(error));
+    }
+  }
+
+  /// Fetches CPMS online payment receipts for verification (Phase 1c).
+  Future<List<PaymentReceipt>> fetchPaymentReceipts({String? status}) async {
+    try {
+      final paged = await _client.getList<PaymentReceipt>(
+        paymentReceiptsPath,
+        PaymentReceipt.fromJson,
+        queryParameters: {'status': ?status},
+      );
+      return paged.items;
+    } on DioException catch (error) {
+      throw LedgerServiceException(_messageFor(error));
+    }
+  }
+
+  /// Approves a WAITING CPMS payment receipt (full or partial).
+  Future<PaymentReceipt> approvePaymentReceipt(
+    int id, {
+    double? approvedAmount,
+  }) async {
+    try {
+      final response = await _client.post<Map<String, dynamic>>(
+        '$paymentReceiptsPath$id/approve/',
+        data: {
+          if (approvedAmount != null)
+            'approved_amount': approvedAmount.toStringAsFixed(2),
+        },
+      );
+      return PaymentReceipt.fromJson(response.data!);
+    } on DioException catch (error) {
+      throw LedgerServiceException(_messageForPost(error));
+    }
+  }
+
+  /// Declines a WAITING CPMS payment receipt with a required reason.
+  Future<PaymentReceipt> declinePaymentReceipt(
+    int id, {
+    required String reason,
+  }) async {
+    try {
+      final response = await _client.post<Map<String, dynamic>>(
+        '$paymentReceiptsPath$id/decline/',
+        data: {'reason': reason.trim()},
+      );
+      return PaymentReceipt.fromJson(response.data!);
     } on DioException catch (error) {
       throw LedgerServiceException(_messageForPost(error));
     }

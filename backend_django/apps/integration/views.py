@@ -20,6 +20,10 @@ from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.collectibles.services import (
+    list_cpms_payment_receipts,
+    submit_cpms_payment_receipt,
+)
 from apps.inventory.models import VariantUOM
 from apps.pos.models import Customer
 from apps.requisitions.exceptions import CpmsRefusal, RequestImportRefused
@@ -36,6 +40,7 @@ from apps.users.services import audit_request
 from .serializers import (
     CpmsCustomerSerializer,
     CpmsMaterialSerializer,
+    CpmsPaymentReceiptSubmitSerializer,
     CpmsRequestImportSerializer,
 )
 
@@ -226,3 +231,53 @@ class CpmsProjectPayablesView(APIView):
                 {'code': error.code, 'detail': str(error)},
                 status=error.status_code,
             )
+
+
+class CpmsProjectPaymentReceiptView(APIView):
+    """`GET/POST projects/{cpms_project_id}/payment-receipts/` — Phase 1c online payment receipts."""
+
+    permission_classes = (IsCpmsService,)
+
+    def get(self, request, cpms_project_id):
+        try:
+            return Response(
+                {'results': list_cpms_payment_receipts(cpms_project_id=cpms_project_id)}
+            )
+        except CpmsRefusal as error:
+            return Response(
+                {'code': error.code, 'detail': str(error)},
+                status=error.status_code,
+            )
+
+    def post(self, request, cpms_project_id):
+        serializer = CpmsPaymentReceiptSubmitSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        try:
+            with transaction.atomic():
+                result = submit_cpms_payment_receipt(
+                    cpms_project_id=cpms_project_id,
+                    cpms_payment_id=payload['cpms_payment_id'],
+                    amount=payload['amount'],
+                    payment_method=payload['payment_method'],
+                    reference_no=payload['reference_no'],
+                    notes=str(payload.get('notes') or ''),
+                    submitted_by_name=str(payload.get('submitted_by_name') or ''),
+                )
+                if result['created']:
+                    audit_request(
+                        request,
+                        AuditLog.ActionType.PAYMENT,
+                        f'CPMS payment receipt {payload["reference_no"]} '
+                        f'({payload["amount"]:.2f}) submitted for project '
+                        f'{cpms_project_id}.',
+                    )
+        except CpmsRefusal as error:
+            return Response(
+                {'code': error.code, 'detail': str(error)},
+                status=error.status_code,
+            )
+        return Response(
+            result['receipt'],
+            status=status.HTTP_201_CREATED if result['created'] else status.HTTP_200_OK,
+        )

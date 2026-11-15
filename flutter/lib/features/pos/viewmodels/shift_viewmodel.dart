@@ -134,4 +134,36 @@ class ShiftViewmodel extends ChangeNotifier {
       return null;
     }
   }
+
+  /// Records a mid-shift cash withdrawal (`CASH_OUT`) or addition (`CASH_IN`)
+  /// on the open shift and updates [currentShift] + [history].
+  Future<Shift?> recordCashMovement({
+    required String kind,
+    required double amount,
+    required String reason,
+  }) async {
+    final shift = _currentShift;
+    if (shift == null) return null;
+
+    actionError = null;
+    try {
+      final updated = await _service.recordCashMovement(
+        shift.id,
+        kind: kind,
+        amount: amount,
+        reason: reason,
+      );
+      _currentShift = updated;
+      _history = [
+        updated,
+        ..._history.where((other) => other.id != updated.id),
+      ];
+      notifyListeners();
+      return updated;
+    } on ShiftServiceException catch (failure) {
+      actionError = failure.message;
+      notifyListeners();
+      return null;
+    }
+  }
 }

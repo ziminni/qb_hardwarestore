@@ -103,3 +103,57 @@ class LedgerEntry {
     );
   }
 }
+
+/// One row of `GET /api/v1/payment-receipts/` — a CPMS online payment receipt (Phase 1c).
+class PaymentReceipt {
+  const PaymentReceipt({
+    required this.id,
+    required this.cpmsPaymentId,
+    required this.cpmsProjectId,
+    required this.projectName,
+    required this.customerName,
+    required this.amount,
+    this.approvedAmount,
+    required this.paymentMethod,
+    required this.referenceNo,
+    required this.notes,
+    required this.submittedByName,
+    required this.status,
+    required this.declineReason,
+    required this.createdAt,
+  });
+
+  final int id;
+  final String cpmsPaymentId;
+  final String cpmsProjectId;
+  final String projectName;
+  final String customerName;
+  final double amount;
+  final double? approvedAmount;
+  final String paymentMethod;
+  final String referenceNo;
+  final String notes;
+  final String submittedByName;
+  final String status;
+  final String declineReason;
+  final DateTime createdAt;
+
+  static PaymentReceipt fromJson(Map<String, dynamic> json) => PaymentReceipt(
+    id: intField(json, 'id'),
+    cpmsPaymentId: stringField(json, 'cpms_payment_id'),
+    cpmsProjectId: stringField(json, 'cpms_project_id'),
+    projectName: stringField(json, 'project_name'),
+    customerName: stringField(json, 'customer_name'),
+    amount: decimalField(json, 'amount'),
+    approvedAmount: json['approved_amount'] == null
+        ? null
+        : decimalField(json, 'approved_amount'),
+    paymentMethod: stringField(json, 'payment_method'),
+    referenceNo: stringField(json, 'reference_no'),
+    notes: (json['notes'] as String?) ?? '',
+    submittedByName: (json['submitted_by_name'] as String?) ?? '',
+    status: stringField(json, 'status'),
+    declineReason: (json['decline_reason'] as String?) ?? '',
+    createdAt: DateTime.parse(stringField(json, 'created_at')),
+  );
+}
