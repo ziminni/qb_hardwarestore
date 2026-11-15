@@ -51,6 +51,7 @@ Future<Shift?> showShiftCloseDialog(
             reading: reading,
             // Both sides of the difference the cashier is about to read.
             closingCount: closed.closingCount,
+            cashMovements: closed.cashMovements,
           ),
         ),
         actions: [

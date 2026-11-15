@@ -16,12 +16,26 @@ from rest_framework.response import Response
 
 from apps.pos.models import Payment
 from apps.users.models import AuditLog
-from apps.users.permissions import IsReceivablesReader, ReceivablesReadPOSWrite
+from apps.users.permissions import (
+    IsManagerRole,
+    IsReceivablesReader,
+    ReceivablesReadPOSWrite,
+)
 from apps.users.services import audit_request
 
-from .models import CollectibleLedger, CollectiblePayment
-from .serializers import CollectibleLedgerSerializer, CollectiblePaymentSerializer
-from .services import apply_payment_to_ledger
+from .models import CollectibleLedger, CollectiblePayment, ProjectPaymentReceipt
+from .serializers import (
+    CollectibleLedgerSerializer,
+    CollectiblePaymentSerializer,
+    ProjectPaymentReceiptSerializer,
+)
+from .services import (
+    Overpayment,
+    ReceiptDecisionError,
+    apply_payment_to_ledger,
+    approve_payment_receipt,
+    decline_payment_receipt,
+)
 
 
 class CollectibleLedgerViewSet(viewsets.ReadOnlyModelViewSet):
@@ -192,3 +206,94 @@ class CollectiblePaymentViewSet(viewsets.ModelViewSet):
             )
 
         return super().create(request, *args, **kwargs)
+
+
+class ProjectPaymentReceiptViewSet(viewsets.ReadOnlyModelViewSet):
+    """Staff review queue for CPMS online payment receipts (Phase 1c)."""
+
+    queryset = ProjectPaymentReceipt.objects.select_related(
+        'project__customer', 'decided_by'
+    ).order_by('-created_at', '-id')
+    serializer_class = ProjectPaymentReceiptSerializer
+    permission_classes = [ReceivablesReadPOSWrite]
+
+    def get_permissions(self):
+        # Approving moves project debt: a manager decision, like clearing a cheque.
+        if self.action in ('approve', 'decline'):
+            return [IsManagerRole()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter.upper())
+        return qs
+
+    @action(detail=True, methods=['post'], url_path='approve')
+    def approve(self, request, pk: str):
+        """Approve a WAITING CPMS payment receipt (full or partial) and post ledger payments."""
+        raw_amount = request.data.get('approved_amount')
+        approved_amount = None
+        if raw_amount not in (None, ''):
+            from decimal import Decimal, InvalidOperation
+
+            try:
+                approved_amount = Decimal(str(raw_amount))
+            except (InvalidOperation, TypeError, ValueError):
+                return Response(
+                    {
+                        'code': 'INVALID_APPROVED_AMOUNT',
+                        'detail': 'Enter a valid approved amount.',
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        try:
+            with transaction.atomic():
+                receipt = approve_payment_receipt(
+                    receipt_id=int(pk),
+                    actor=request.user,
+                    approved_amount=approved_amount,
+                )
+                audit_request(
+                    request,
+                    AuditLog.ActionType.PAYMENT,
+                    f'Approved CPMS payment receipt {receipt.reference_no} '
+                    f'({receipt.approved_amount:.2f}) for project '
+                    f'{receipt.project.cpms_project_id}.',
+                )
+        except ReceiptDecisionError as error:
+            return Response(
+                {'code': error.code, 'detail': str(error)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Overpayment as error:
+            return Response(
+                {'code': error.code, 'detail': str(error)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(ProjectPaymentReceiptSerializer(receipt).data)
+
+    @action(detail=True, methods=['post'], url_path='decline')
+    def decline(self, request, pk: str):
+        """Decline a WAITING CPMS payment receipt with a required reason."""
+        reason = request.data.get('reason', '')
+        try:
+            with transaction.atomic():
+                receipt = decline_payment_receipt(
+                    receipt_id=int(pk),
+                    actor=request.user,
+                    reason=str(reason or ''),
+                )
+                audit_request(
+                    request,
+                    AuditLog.ActionType.PAYMENT,
+                    f'Declined CPMS payment receipt {receipt.reference_no} for project '
+                    f'{receipt.project.cpms_project_id}: {receipt.decline_reason}',
+                )
+        except ReceiptDecisionError as error:
+            return Response(
+                {'code': error.code, 'detail': str(error)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(ProjectPaymentReceiptSerializer(receipt).data)

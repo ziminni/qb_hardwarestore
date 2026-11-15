@@ -25,4 +25,17 @@ class LedgerRepository {
     method: method,
     officialReceiptNo: officialReceiptNo,
   );
+
+  Future<List<PaymentReceipt>> fetchPaymentReceipts({String? status}) =>
+      _service.fetchPaymentReceipts(status: status);
+
+  Future<PaymentReceipt> approvePaymentReceipt(
+    int id, {
+    double? approvedAmount,
+  }) => _service.approvePaymentReceipt(id, approvedAmount: approvedAmount);
+
+  Future<PaymentReceipt> declinePaymentReceipt(
+    int id, {
+    required String reason,
+  }) => _service.declinePaymentReceipt(id, reason: reason);
 }

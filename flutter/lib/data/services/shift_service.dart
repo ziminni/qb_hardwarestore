@@ -113,6 +113,40 @@ class ShiftService {
     }
   }
 
+  /// Records a mid-shift cash withdrawal (`CASH_OUT`) or addition (`CASH_IN`)
+  /// on an open shift. Returns the updated shift with its recalculated
+  /// expected drawer and movement list.
+  Future<Shift> recordCashMovement(
+    int shiftId, {
+    required String kind,
+    required double amount,
+    required String reason,
+  }) async {
+    try {
+      final response = await _client.post<Map<String, dynamic>>(
+        '$shiftsPath$shiftId/cash-movements/',
+        data: {
+          'kind': kind,
+          'amount': amount.toStringAsFixed(2),
+          'reason': reason.trim(),
+        },
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const ShiftServiceException(
+          'The server did not return the updated shift.',
+        );
+      }
+      return Shift.fromJson(data);
+    } on DioException catch (error) {
+      throw ShiftServiceException(_message(error));
+    } on FormatException {
+      throw const ShiftServiceException(
+        'The server returned a shift this app cannot read.',
+      );
+    }
+  }
+
   /// The caller's shifts, newest first (the model's ordering). A cashier sees
   /// their own; a manager sees everyone's — the server decides which.
   Future<List<Shift>> fetchAll() async {

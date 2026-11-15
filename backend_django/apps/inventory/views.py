@@ -1536,6 +1536,12 @@ class SystemAlertViewSet(viewsets.ReadOnlyModelViewSet):
             return [IsInventoryRole()]
         return [IsAuthenticated()]
 
+    def list(self, request, *args, **kwargs):
+        from .services import check_expiring_batches
+
+        check_expiring_batches()
+        return super().list(request, *args, **kwargs)
+
     @action(detail=True, methods=["post"])
     def resolve(self, request, pk=None):
         """Mark one alert resolved, recording WHO and WHEN.

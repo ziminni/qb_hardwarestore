@@ -6,6 +6,7 @@ import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
 import 'package:client/features/pos/widgets/pos_open_shift_dialog.dart';
+import 'package:client/features/pos/widgets/pos_shift_cash_movement_dialog.dart';
 import 'package:client/features/pos/widgets/pos_shift_close_dialog.dart';
 import 'package:client/features/pos/widgets/pos_z_reading_summary.dart';
 import 'package:client/shared/widgets/app_panel.dart';
@@ -103,13 +104,16 @@ class _PosShiftView extends StatelessWidget {
               current: current,
               shiftUnknown: shiftUnknown,
               onOpen: () => showOpenShiftDialog(context, viewmodel),
+              onRecordCashMovement: () =>
+                  showShiftCashMovementDialog(context, viewmodel),
               onClose: () => showShiftCloseDialog(context, viewmodel),
             ),
-            if (runningReading != null) ...[
+            if (runningReading != null && current != null) ...[
               const SizedBox(height: AppSpacing.lg),
               PosZReadingSummary(
                 reading: runningReading,
                 title: 'This shift so far',
+                cashMovements: current.cashMovements,
               ),
             ] else if (previousReading != null && lastClosed != null) ...[
               const SizedBox(height: AppSpacing.lg),
@@ -119,6 +123,7 @@ class _PosShiftView extends StatelessWidget {
                     'Last closed shift (${formatDateTime(lastClosed.openedAt)})',
                 // Both sides of the difference, so it can be checked.
                 closingCount: lastClosed.closingCount,
+                cashMovements: lastClosed.cashMovements,
               ),
             ],
             // Nothing loaded AND the read failed: the banner above is the whole
@@ -250,6 +255,7 @@ class _ShiftStatusPanel extends StatelessWidget {
     required this.current,
     required this.shiftUnknown,
     required this.onOpen,
+    required this.onRecordCashMovement,
     required this.onClose,
   });
 
@@ -259,6 +265,7 @@ class _ShiftStatusPanel extends StatelessWidget {
   final bool shiftUnknown;
 
   final VoidCallback onOpen;
+  final VoidCallback onRecordCashMovement;
   final VoidCallback onClose;
 
   @override
@@ -309,13 +316,27 @@ class _ShiftStatusPanel extends StatelessWidget {
             Align(
               alignment: Alignment.centerRight,
               child: shift != null
-                  ? FilledButton.icon(
-                      onPressed: onClose,
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size(0, 48),
-                      ),
-                      icon: const Icon(Icons.lock_outline),
-                      label: const Text('Close shift'),
+                  ? Wrap(
+                      spacing: AppSpacing.md,
+                      runSpacing: AppSpacing.sm,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: onRecordCashMovement,
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 48),
+                          ),
+                          icon: const Icon(Icons.payments_outlined),
+                          label: const Text('Cash in / out'),
+                        ),
+                        FilledButton.icon(
+                          onPressed: onClose,
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size(0, 48),
+                          ),
+                          icon: const Icon(Icons.lock_outline),
+                          label: const Text('Close shift'),
+                        ),
+                      ],
                     )
                   // The SAME flow the till gate uses - one shared form, so the
                   // float rule and the server's refusal messages cannot drift.

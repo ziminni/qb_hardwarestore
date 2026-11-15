@@ -126,7 +126,7 @@ Expected health: `status: ok`, `service: BuildPro API`. System check should repo
 
 ## 4. Demo data and credentials
 
-For a **fresh disposable demo database only**:
+On every `docker compose up -d` the backend runs `migrate`, then `seed_demo --if-empty`, which seeds demo data **only when the database has no users yet**. An existing store database is never touched by the seed. To seed a fresh disposable database manually:
 
 ```powershell
 docker compose exec backend python manage.py seed_demo
@@ -155,12 +155,19 @@ cd "C:\path\to\qb_pos_inventory_system\flutter"
 flutter config --enable-windows-desktop
 flutter pub get
 flutter devices
-flutter run -d windows --dart-define=API_BASE_URL=http://127.0.0.1:8000
+flutter run -d windows
 ```
 
-The API URL is the **host root**, without `/api/v1`: client services already add that path. Desktop defaults to `http://127.0.0.1:8000`; the explicit override makes the target clear.
+Desktop defaults to `http://127.0.0.1:8000` (pass `--dart-define=API_BASE_URL=http://127.0.0.1:8000` to override explicitly; use the **host root** without `/api/v1`).
 
 Login using an existing account or fresh-seed credentials above. Single-area accounts retain their own menus. Accounts assigned multiple POS areas land on **Needs you**, with one grouped sidebar and shared destinations shown once. Multiple roles must be assigned to the account; the seed does not automatically make every user multi-role.
+
+### Key Cashier, Manager & CPMS Integration Workflows
+
+- **Shift & Mid-Shift Cash Drawer Log (`Cash in / out`):** Open a shift with an opening float. If the owner or cashier removes cash mid-shift (safe drop, petty cash) or adds change coins, click **Cash in / out** on the **Shift** screen to record `CASH_OUT` or `CASH_IN` with a reason. Expected drawer cash (`Opening float + Cash sales - Cash refunds + Cash in - Cash out`) updates automatically on the Shift screen, closing dialog, Z-reading, and audit log (`SHIFT_CASH`). A cashier cannot take out more than the expected cash in the drawer; if that really happens (for example the owner takes more than the count shows), a **Store Manager** records it, and the audit log marks it as more than expected.
+- **CPMS Material Requests & Counter Release:** Approved own-store requisitions pushed from CPMS appear in **Requests** (Store Manager approval/rejection) and on the cashier's **Release** search (`R-####` or release code). Releasing items deducts FIFO inventory batches and posts the charge to the contractor's receivable ledger tagged with the CPMS project.
+- **CPMS Online Payment Receipts (Phase 1c):** When CPMS submits a bank transfer / GCash / cheque payment receipt against project payables, **Sales → Receivables** displays a **Review CPMS payment receipts** button so the **Store Manager** (not the cashier) can approve (full or partial amount, applied oldest-first across open project ledgers) or decline with a reason.
+- **Inventory & Batch Expiry Alerts:** Low stock, out-of-stock, near-expiry (within 30 days) and expired batch alerts are generated automatically onto the **Alerts** feed.
 
 Press `q` in the Flutter terminal to stop the app. For normal backend shutdown without deleting data:
 
@@ -171,7 +178,49 @@ docker compose stop
 
 For a subsequent start with no source update, run `docker compose up -d` at the root, then the Flutter command above. Backend startup still checks/applies pending migrations; follow the backup path whenever installing an update.
 
-## 6. Excel catalogue smoke test
+## 6. Connecting POS with BuildPro CPMS (Material Requests & Payables)
+
+CPMS signs in to POS as the seeded `cpms_service` account (password `demo1234`) and uses only the `/api/v1/integration/cpms/` routes. It sends material requests, reads the catalogue, prices and stock status, reads what each project owes, and submits online payment receipts.
+
+### Option A: Same PC (no setup)
+
+1. Start POS first: `docker compose up -d --build` in `qb_pos_inventory_system`.
+2. Start CPMS second: `docker compose up -d --build` in `qb_project_management_system`.
+
+CPMS reaches POS at `http://host.docker.internal:8000` and links its own-store supplier to the POS contractor customer on first start (**Dela Cruz Construction** in the demo seed). No `.env` edits and no tunnel are needed. If CPMS started before POS was up, the link is made automatically on the first material request that is pushed.
+
+### Option B: POS and CPMS on different computers (Cloudflare tunnel)
+
+The tunnel gives the store PC a free public `https://<random-name>.trycloudflare.com` address. Nothing needs installing besides Docker. Only a small **gateway** is exposed, never the POS itself. The gateway lets through only the CPMS sign-in and `/api/v1/integration/cpms/` routes, and only with a secret key. Admin, staff accounts, reports and every other POS route answer `404` through the tunnel.
+
+**On the store PC (POS):**
+
+```powershell
+cd C:\path\to\qb_pos_inventory_system
+docker compose up -d
+.\scripts\start-tunnel.ps1        # Linux/macOS: ./scripts/start-tunnel.sh
+```
+
+The first run creates `tunnel/gateway.env`, which holds the secret key (it is gitignored, so never commit or share it). The script then prints four lines like these:
+
+```text
+POS_API_BASE_URL=https://<random-name>.trycloudflare.com
+POS_API_ALLOW_INSECURE_LOCAL=False
+POS_API_GATEWAY_HEADER_NAME=X-QB-Gateway-Key
+POS_API_GATEWAY_HEADER_VALUE=<48-character key>
+```
+
+**On the office PC (CPMS):** paste those four lines into `qb_project_management_system\django-backend\.env` (create the file if needed; values there override the demo defaults), then run `docker compose up -d` in `qb_project_management_system`.
+
+Check it from the CPMS PC: opening `https://<random-name>.trycloudflare.com/api/health/` in a browser shows `{"status":"ok"}`.
+
+Good to know:
+
+- **The URL changes every time the tunnel restarts** (Quick Tunnels are free but temporary). Run the script again and update `POS_API_BASE_URL` in CPMS. The key stays the same unless you delete `tunnel/gateway.env`.
+- Stop the tunnel: `docker compose --profile tunnel stop gateway cloudflared`. A normal `docker compose up -d` never starts it.
+- The POS PC must stay on and connected. CPMS keeps unsent requests in its outbox and retries them when the store comes back.
+
+## 7. Excel catalogue smoke test
 
 Use disposable demo data. Catalogue import intentionally changes prices/names and is not a stock-adjustment feature.
 
@@ -228,4 +277,4 @@ flutter analyze
 flutter test --concurrency=2
 ```
 
-Golden masters are gitignored local artifacts; fresh clones do not receive them. See [AGENTS.md](AGENTS.md) and [QA-PROFILE.md](docs/testing/QA-PROFILE.md) for test details. CPMS-dependent payment-receipt approval (Phase 1c) remains on hold; see [POS roadmap](planning/pos-evolution/MAP.md).
+Golden masters are gitignored local artifacts; fresh clones do not receive them. See [AGENTS.md](AGENTS.md) and [QA-PROFILE.md](docs/testing/QA-PROFILE.md) for test details. All POS evolution phases (including Phase 1c CPMS online payment receipt verification, mid-shift cash drawer movements, and batch expiry alerts) are implemented and tested; see [POS roadmap](planning/pos-evolution/MAP.md).

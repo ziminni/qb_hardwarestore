@@ -49,6 +49,7 @@ class PosZReadingSummary extends StatelessWidget {
     required this.reading,
     this.title = 'Z-READING',
     this.closingCount,
+    this.cashMovements = const [],
   });
 
   final ZReading reading;
@@ -58,6 +59,9 @@ class PosZReadingSummary extends StatelessWidget {
 
   /// Cash counted at the close, or null while the shift is still open.
   final double? closingCount;
+
+  /// Mid-shift cash withdrawals and additions recorded on the shift.
+  final List<ShiftCashMovement> cashMovements;
 
   @override
   Widget build(BuildContext context) {
@@ -98,6 +102,23 @@ class PosZReadingSummary extends StatelessWidget {
               value: formatPeso(reading.expectedDrawer),
             ),
           ]),
+          if (reading.cashOut > 0 || reading.cashIn > 0) ...[
+            const SizedBox(height: AppSpacing.md),
+            _tileRow([
+              MetricTile(
+                label: 'Cash taken out',
+                value: formatPeso(reading.cashOut),
+              ),
+              MetricTile(
+                label: 'Cash added',
+                value: formatPeso(reading.cashIn),
+              ),
+            ]),
+          ],
+          if (cashMovements.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            _CashMovementsList(movements: cashMovements),
+          ],
           if (variance != null) ...[
             const SizedBox(height: AppSpacing.md),
             _CashDifferenceCallout(
@@ -150,6 +171,64 @@ class PosZReadingSummary extends StatelessWidget {
             if (index > 0) const SizedBox(width: AppSpacing.md),
             Expanded(child: tiles[index]),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CashMovementsList extends StatelessWidget {
+  const _CashMovementsList({required this.movements});
+
+  final List<ShiftCashMovement> movements;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(AppRadii.medium),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Drawer cash movements',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          for (final movement in movements)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${movement.isCashOut ? "Cash out" : "Cash in"} · ${movement.reason}',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Text(
+                    '${movement.isCashOut ? "-" : "+"}${formatPeso(movement.amount)}',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: movement.isCashOut
+                          ? AppColors.errorText
+                          : AppColors.successText,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );

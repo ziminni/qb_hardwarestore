@@ -63,6 +63,59 @@ class _StubShifts extends ShiftService {
     current = opened;
     return opened;
   }
+
+  @override
+  Future<Shift> recordCashMovement(
+    int shiftId, {
+    required String kind,
+    required double amount,
+    required String reason,
+  }) async {
+    final existing = current ?? _shift(id: shiftId);
+    final movement = ShiftCashMovement(
+      id: existing.cashMovements.length + 1,
+      kind: kind,
+      amount: amount,
+      reason: reason,
+      recordedByName: 'Ana Cruz',
+      createdAt: DateTime(2026, 10, 21, 11),
+    );
+    final movements = [...existing.cashMovements, movement];
+    final cashOut = movements
+        .where((m) => m.isCashOut)
+        .fold<double>(0, (sum, m) => sum + m.amount);
+    final cashIn = movements
+        .where((m) => !m.isCashOut)
+        .fold<double>(0, (sum, m) => sum + m.amount);
+    final updated = Shift(
+      id: existing.id,
+      cashierName: existing.cashierName,
+      status: existing.status,
+      openingFloat: existing.openingFloat,
+      closingCount: existing.closingCount,
+      openedAt: existing.openedAt,
+      closedAt: existing.closedAt,
+      notes: existing.notes,
+      zReading: ZReading(
+        transactionCount: existing.zReading?.transactionCount ?? 1,
+        grossSales: existing.zReading?.grossSales ?? 315,
+        cashSales: existing.zReading?.cashSales ?? 315,
+        cardSales: existing.zReading?.cardSales ?? 0,
+        gcashSales: existing.zReading?.gcashSales ?? 0,
+        expectedDrawer: existing.openingFloat +
+            (existing.zReading?.cashSales ?? 315) +
+            cashIn -
+            cashOut,
+        variance: null,
+        cashIn: cashIn,
+        cashOut: cashOut,
+      ),
+      cashMovements: movements,
+    );
+    current = updated;
+    history = [updated, ...history.where((s) => s.id != updated.id)];
+    return updated;
+  }
 }
 
 const _z = ZReading(
@@ -909,5 +962,42 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets(
+      'records mid-shift cash withdrawal with reason and updates expected cash',
+      (tester) async {
+        final service = _StubShifts()
+          ..current = _shift(id: 5, openingFloat: 5000, zReading: _running)
+          ..history = [_shift(id: 5, openingFloat: 5000, zReading: _running)];
+        await _pump(tester, ShiftViewmodel(service: service));
+
+        expect(find.text('Cash in / out'), findsOneWidget);
+        await tester.tap(find.text('Cash in / out'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Record drawer cash in / out'), findsOneWidget);
+        await tester.enterText(
+          find.widgetWithText(TextField, 'Amount'),
+          '1200',
+        );
+        await tester.enterText(
+          find.widgetWithText(TextField, 'Reason (required)'),
+          'Owner safe drop for bank deposit',
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Save movement'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Cash taken out'), findsOneWidget);
+        expect(
+          find.text('Cash out · Owner safe drop for bank deposit'),
+          findsOneWidget,
+        );
+        expect(find.text('-₱1,200.00'), findsOneWidget);
+        // 5000 float + 315 cash sales - 1200 cash out = 4115 expected cash.
+        expect(find.text('₱4,115.00'), findsOneWidget);
+      },
+    );
   });
 }

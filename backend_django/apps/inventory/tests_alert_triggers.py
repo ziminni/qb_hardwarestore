@@ -230,3 +230,53 @@ class ReleaseTriggersTheCheckTests(AlertTriggerTestBase):
 
         self.assertEqual(self._on_hand(), Decimal('0'))
         self.assertEqual(self._alerts(SystemAlert.AlertType.OUT_OF_STOCK).count(), 1)
+
+
+class BatchExpiryAlertTests(AlertTriggerTestBase):
+    def test_expiring_and_expired_stocked_batches_raise_one_deduplicated_alert(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+        from rest_framework.test import APIClient
+
+        today = timezone.localdate()
+        batch = self.variant.batches.first()
+        batch.expiration_date = today + timedelta(days=7)
+        batch.save(update_fields=['expiration_date'])
+
+        api = APIClient()
+        login = api.post(
+            '/api/v1/auth/login/',
+            {'username': self.manager.username, 'password': self.password},
+            format='json',
+        )
+        bearer = f'Bearer {login.data["access"]}'
+
+        resp = api.get('/api/v1/alerts/', HTTP_AUTHORIZATION=bearer)
+        self.assertEqual(resp.status_code, 200)
+        expiring = self._alerts(SystemAlert.AlertType.EXPIRING)
+        self.assertEqual(expiring.count(), 1)
+        self.assertIn('expiring on', expiring.get().message)
+
+        # Second poll deduplicates while the first alert is unresolved.
+        api.get('/api/v1/alerts/', HTTP_AUTHORIZATION=bearer)
+        self.assertEqual(self._alerts(SystemAlert.AlertType.EXPIRING).count(), 1)
+
+    def test_depleted_or_far_future_batches_do_not_raise_expiring_alerts(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from .services import check_expiring_batches
+
+        today = timezone.localdate()
+        batch = self.variant.batches.first()
+        batch.expiration_date = today + timedelta(days=90)
+        batch.save(update_fields=['expiration_date'])
+        self.assertEqual(len(check_expiring_batches()), 0)
+
+        batch.expiration_date = today - timedelta(days=2)
+        batch.current_qty = Decimal('0')
+        batch.save(update_fields=['expiration_date', 'current_qty'])
+        self.assertEqual(len(check_expiring_batches()), 0)
+

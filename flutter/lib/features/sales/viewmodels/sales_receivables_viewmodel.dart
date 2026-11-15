@@ -23,12 +23,18 @@ class SalesReceivablesViewmodel extends ChangeNotifier {
   final ChequeService _cheques;
 
   List<LedgerEntry> _entries = const [];
+  List<PaymentReceipt> _paymentReceipts = const [];
   bool _isLoading = false;
   String? _loadError;
   final Set<int> _payingIds = {};
   String? _payError;
 
   List<LedgerEntry> get entries => List.unmodifiable(_entries);
+  List<PaymentReceipt> get paymentReceipts =>
+      List.unmodifiable(_paymentReceipts);
+  List<PaymentReceipt> get waitingPaymentReceipts => List.unmodifiable(
+    _paymentReceipts.where((r) => r.status == 'WAITING'),
+  );
   bool get isLoading => _isLoading;
   String? get loadError => _loadError;
 
@@ -191,6 +197,11 @@ class SalesReceivablesViewmodel extends ChangeNotifier {
 
     try {
       _entries = await _repository.fetchLedgers();
+      try {
+        _paymentReceipts = await _repository.fetchPaymentReceipts();
+      } on Object {
+        _paymentReceipts = const [];
+      }
       _loadError = null;
     } on LedgerServiceException catch (error) {
       _loadError = error.message;
@@ -201,6 +212,41 @@ class SalesReceivablesViewmodel extends ChangeNotifier {
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  Future<bool> approvePaymentReceipt(
+    int id, {
+    double? approvedAmount,
+  }) async {
+    _payError = null;
+    try {
+      await _repository.approvePaymentReceipt(
+        id,
+        approvedAmount: approvedAmount,
+      );
+      await load();
+      return true;
+    } on LedgerServiceException catch (error) {
+      _payError = error.message;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> declinePaymentReceipt(
+    int id, {
+    required String reason,
+  }) async {
+    _payError = null;
+    try {
+      await _repository.declinePaymentReceipt(id, reason: reason);
+      await load();
+      return true;
+    } on LedgerServiceException catch (error) {
+      _payError = error.message;
+      notifyListeners();
+      return false;
     }
   }
 }

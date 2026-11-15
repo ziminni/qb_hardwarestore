@@ -138,3 +138,72 @@ class CollectiblePayment(models.Model):
             f'Payment #{self.pk} — Ledger #{self.collectible_id} '
             f'({self.amount_paid})'
         )
+
+
+class ProjectPaymentReceipt(models.Model):
+    """Online payment proof submitted by CPMS for a project's store debt (Phase 1c).
+
+    Waiting receipts do not move `CollectibleLedger.balance_due`. Only when POS staff
+    approves the receipt does `approve_payment_receipt` post `CollectiblePayment` rows
+    oldest-first against the project's open ledgers inside one atomic transaction.
+    """
+
+    class Status(models.TextChoices):
+        WAITING = 'WAITING', 'Waiting for Verification'
+        APPROVED = 'APPROVED', 'Approved'
+        DECLINED = 'DECLINED', 'Declined'
+
+    project = models.ForeignKey(
+        'requisitions.Project',
+        on_delete=models.PROTECT,
+        related_name='payment_receipts',
+    )
+    cpms_payment_id = models.CharField(max_length=100, unique=True)
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))],
+    )
+    payment_method = models.CharField(
+        max_length=50,
+        choices=Payment.Method.choices,
+        default=Payment.Method.BANK_TRANSFER,
+    )
+    reference_no = models.CharField(max_length=100)
+    notes = models.TextField(blank=True, default='')
+    submitted_by_name = models.CharField(max_length=150, blank=True, default='')
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.WAITING,
+        db_index=True,
+    )
+    approved_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    decline_reason = models.TextField(blank=True, default='')
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'collectibles_project_payment_receipt'
+        verbose_name = 'project payment receipt'
+        verbose_name_plural = 'project payment receipts'
+        ordering = ['-created_at', '-id']
+
+    def __str__(self):
+        return (
+            f'Receipt {self.reference_no} ({self.project.cpms_project_id}) — '
+            f'{self.amount} [{self.status}]'
+        )

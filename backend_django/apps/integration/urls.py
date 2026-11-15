@@ -6,6 +6,7 @@ from .views import (
     CpmsCustomerListView,
     CpmsMaterialListView,
     CpmsProjectPayablesView,
+    CpmsProjectPaymentReceiptView,
     CpmsRequestCloseView,
     CpmsRequestImportView,
     CpmsRequestReadBackView,
@@ -33,5 +34,10 @@ urlpatterns = [
         'projects/<str:cpms_project_id>/payables/',
         CpmsProjectPayablesView.as_view(),
         name='cpms-project-payables',
+    ),
+    path(
+        'projects/<str:cpms_project_id>/payment-receipts/',
+        CpmsProjectPaymentReceiptView.as_view(),
+        name='cpms-project-payment-receipts',
     ),
 ]

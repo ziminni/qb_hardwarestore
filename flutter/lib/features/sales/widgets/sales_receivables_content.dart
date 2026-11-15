@@ -33,7 +33,8 @@ import 'package:provider/provider.dart';
 /// The page must give it a bounded slot (`scrollable: false` on the role shell):
 /// the panel then scrolls its own rows and builds only the visible ones.
 ///
-/// [showCheques] adds the Store Manager's Cheques tab (F5). It is off by default
+/// [showCheques] adds the Store Manager's Cheques tab (F5) and CPMS payment-receipt
+/// review (Phase 1c). It is off by default
 /// because the cashier's Record payment shell shows this same body and must not
 /// reach the decision queue: a cashier TAKES a cheque, a manager decides it.
 class SalesReceivablesContent extends StatefulWidget {
@@ -183,6 +184,21 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
             ),
           ],
         ),
+        // Approving a CPMS receipt moves debt: the manager's decision, like a cheque.
+        if (widget.showCheques &&
+            viewmodel.waitingPaymentReceipts.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.md),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: () => _showCpmsReceiptsDialog(context, viewmodel),
+              icon: const Icon(Icons.fact_check_outlined, size: 18),
+              label: Text(
+                'Review CPMS payment receipts (${viewmodel.waitingPaymentReceipts.length})',
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: AppSpacing.lg),
         FilterBar(
           searchHint: 'Customer, invoice or project',
@@ -378,6 +394,227 @@ Future<void> _openPaymentDialog(
   );
 }
 
+Future<void> _showCpmsReceiptsDialog(
+  BuildContext context,
+  SalesReceivablesViewmodel viewmodel,
+) {
+  return showDialog<void>(
+    context: context,
+    builder: (_) => _CpmsReceiptsDialog(viewmodel: viewmodel),
+  );
+}
+
+class _CpmsReceiptsDialog extends StatefulWidget {
+  const _CpmsReceiptsDialog({required this.viewmodel});
+
+  final SalesReceivablesViewmodel viewmodel;
+
+  @override
+  State<_CpmsReceiptsDialog> createState() => _CpmsReceiptsDialogState();
+}
+
+class _CpmsReceiptsDialogState extends State<_CpmsReceiptsDialog> {
+  String? _error;
+  bool _busy = false;
+
+  Future<void> _approve(PaymentReceipt receipt) async {
+    final amountController = TextEditingController(
+      text: receipt.amount.toStringAsFixed(2),
+    );
+    final approvedAmount = await showDialog<double>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Approve receipt · ${receipt.referenceNo}'),
+        content: TextField(
+          controller: amountController,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Approved amount (₱)',
+            isDense: true,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final val = double.tryParse(amountController.text.trim());
+              if (val != null && val > 0) {
+                Navigator.of(dialogContext).pop(val);
+              }
+            },
+            child: const Text('Approve'),
+          ),
+        ],
+      ),
+    );
+    amountController.dispose();
+    if (approvedAmount == null || !mounted) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final ok = await widget.viewmodel.approvePaymentReceipt(
+      receipt.id,
+      approvedAmount: approvedAmount,
+    );
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      if (!ok) {
+        _error = widget.viewmodel.payError ?? 'Could not approve receipt.';
+      }
+    });
+  }
+
+  Future<void> _decline(PaymentReceipt receipt) async {
+    final reasonController = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Decline receipt · ${receipt.referenceNo}'),
+        content: TextField(
+          controller: reasonController,
+          decoration: const InputDecoration(
+            labelText: 'Reason for declining',
+            isDense: true,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final text = reasonController.text.trim();
+              if (text.isNotEmpty) {
+                Navigator.of(dialogContext).pop(text);
+              }
+            },
+            child: const Text('Decline'),
+          ),
+        ],
+      ),
+    );
+    reasonController.dispose();
+    if (reason == null || !mounted) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final ok = await widget.viewmodel.declinePaymentReceipt(
+      receipt.id,
+      reason: reason,
+    );
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      if (!ok) {
+        _error = widget.viewmodel.payError ?? 'Could not decline receipt.';
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: widget.viewmodel,
+      builder: (context, _) {
+        final waiting = widget.viewmodel.waitingPaymentReceipts;
+        return AlertDialog(
+          title: const Text('CPMS payment receipts'),
+          content: SizedBox(
+            width: 520,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (_error != null) ...[
+                  Text(
+                    _error!,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppColors.errorText,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
+                if (waiting.isEmpty)
+                  const Text('No waiting CPMS payment receipts.')
+                else
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 360),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: waiting.length,
+                      separatorBuilder: (_, _) => const Divider(height: 16),
+                      itemBuilder: (context, index) {
+                        final item = waiting[index];
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${item.projectName.isEmpty ? item.cpmsProjectId : item.projectName} · ${formatPeso(item.amount)}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${item.paymentMethod} · Ref ${item.referenceNo}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
+                                  if (item.notes.isNotEmpty)
+                                    Text(
+                                      item.notes,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            TextButton(
+                              onPressed: _busy ? null : () => _decline(item),
+                              child: const Text('Decline'),
+                            ),
+                            const SizedBox(width: 4),
+                            FilledButton(
+                              onPressed: _busy ? null : () => _approve(item),
+                              child: const Text('Approve'),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: _busy ? null : () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
 /// Amount entry for one receivable: prefilled with the whole balance, which the
 /// cashier may lower for a partial payment. The viewmodel refuses zero, negative
 /// and over-balance amounts before anything posts, and the dialog stays open on
@@ -467,7 +704,8 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
       }
       setState(() {
         _posting = false;
-        _error = widget.viewmodel.payError ?? 'The cheque could not be recorded.';
+        _error =
+            widget.viewmodel.payError ?? 'The cheque could not be recorded.';
       });
       return;
     }

@@ -1816,7 +1816,21 @@ def compute_z_reading(shift):
     change_total = sales.aggregate(total=Sum("change_given"))["total"] or Decimal(0)
 
     cash_sales = by_method.get(Payment.Method.CASH, Decimal(0)) - change_total
-    expected_drawer = shift.opening_float + cash_sales - abs(cash_refunds)
+    cash_in = (
+        shift.cash_movements.filter(kind="CASH_IN").aggregate(total=Sum("amount"))[
+            "total"
+        ]
+        or Decimal(0)
+    )
+    cash_out = (
+        shift.cash_movements.filter(kind="CASH_OUT").aggregate(total=Sum("amount"))[
+            "total"
+        ]
+        or Decimal(0)
+    )
+    expected_drawer = (
+        shift.opening_float + cash_sales - abs(cash_refunds) + cash_in - cash_out
+    )
     variance = (
         None if shift.closing_count is None else shift.closing_count - expected_drawer
     )
@@ -1839,6 +1853,8 @@ def compute_z_reading(shift):
         "gcash_sales": _money(by_method.get(Payment.Method.GCASH)),
         "bank_sales": _money(by_method.get(Payment.Method.BANK_TRANSFER)),
         "cash_refunds": _money(abs(cash_refunds)),
+        "cash_in": _money(cash_in),
+        "cash_out": _money(cash_out),
         "expected_drawer": _money(expected_drawer),
         "variance": None if variance is None else _money(variance),
         # Advisory, not a blocker: `close_shift` records the count and closes anyway.

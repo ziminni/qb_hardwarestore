@@ -264,4 +264,63 @@ void main() {
       expect(due('2026-12-01').statusAt(now), LedgerStatus.current);
     });
   });
+
+  group('CPMS payment receipts (Phase 1c)', () {
+    test('fetches and approves a CPMS online payment receipt', () async {
+      serve((options) {
+        if (options.path.endsWith('/approve/')) {
+          return _json({
+            'id': 7,
+            'cpms_payment_id': 'PAY-0007',
+            'cpms_project_id': 'PRJ-101',
+            'project_name': 'Tower A',
+            'customer_name': 'Reyes Construction',
+            'amount': '1800.00',
+            'approved_amount': '1600.00',
+            'payment_method': 'BANK_TRANSFER',
+            'reference_no': 'BDO-998877',
+            'notes': 'Online transfer',
+            'submitted_by_name': 'Liza',
+            'status': 'APPROVED',
+            'decline_reason': '',
+            'created_at': '2026-11-15T10:00:00Z',
+          });
+        }
+        return _json({
+          'count': 1,
+          'next': null,
+          'results': [
+            {
+              'id': 7,
+              'cpms_payment_id': 'PAY-0007',
+              'cpms_project_id': 'PRJ-101',
+              'project_name': 'Tower A',
+              'customer_name': 'Reyes Construction',
+              'amount': '1800.00',
+              'approved_amount': null,
+              'payment_method': 'BANK_TRANSFER',
+              'reference_no': 'BDO-998877',
+              'notes': 'Online transfer',
+              'submitted_by_name': 'Liza',
+              'status': 'WAITING',
+              'decline_reason': '',
+              'created_at': '2026-11-15T10:00:00Z',
+            },
+          ],
+        });
+      });
+
+      final service = LedgerService(client: client);
+      final waiting = await service.fetchPaymentReceipts(status: 'WAITING');
+      expect(waiting.single.status, 'WAITING');
+      expect(waiting.single.referenceNo, 'BDO-998877');
+
+      final approved = await service.approvePaymentReceipt(
+        7,
+        approvedAmount: 1600,
+      );
+      expect(approved.status, 'APPROVED');
+      expect(approved.approvedAmount, 1600);
+    });
+  });
 }
