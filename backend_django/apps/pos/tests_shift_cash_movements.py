@@ -148,3 +148,41 @@ class ShiftCashMovementTests(POSTestBase):
             0,
         )
         self.assertEqual(Decimal(self.shift.opening_float), Decimal("5000"))
+
+    # A cashier cannot take out more cash than the drawer is expected to hold; the
+    # rare real case (owner takes more than the count says) is a manager's call.
+
+    def _cash_out(self, client, amount, **auth):
+        return client.post(
+            f"{SHIFTS_URL}{self.shift.id}/cash-movements/",
+            {"kind": "CASH_OUT", "amount": amount, "reason": "Owner withdrawal"},
+            format="json",
+            **auth,
+        )
+
+    def test_cashier_cannot_take_out_more_than_expected_cash(self):
+        res = self._cash_out(self.client, "5000.01", HTTP_AUTHORIZATION=self.bearer)
+        self.assertEqual(res.status_code, 400, res.data)
+        self.assertEqual(res.data["code"], "CASH_OUT_EXCEEDS_DRAWER")
+        self.assertEqual(res.data["expected_drawer"], "5000.00")
+        self.assertFalse(ShiftCashMovement.objects.exists())
+        self.assertFalse(
+            AuditLog.objects.filter(action_type=AuditLog.ActionType.SHIFT_CASH).exists()
+        )
+
+    def test_cashier_can_empty_the_drawer_exactly(self):
+        res = self._cash_out(self.client, "5000.00", HTTP_AUTHORIZATION=self.bearer)
+        self.assertEqual(res.status_code, 201, res.data)
+
+    def test_manager_can_record_it_and_the_audit_says_so(self):
+        manager = User.objects.create_user(
+            username="mgr_cash", email="mgr_cash@test.local", password="pw",
+            full_name="Store Manager",
+        )
+        manager.groups.add(Group.objects.get_or_create(name="Store Manager")[0])
+        client = APIClient()
+        client.force_authenticate(user=manager)
+        res = self._cash_out(client, "6000.00")
+        self.assertEqual(res.status_code, 201, res.data)
+        row = AuditLog.objects.get(action_type=AuditLog.ActionType.SHIFT_CASH)
+        self.assertIn("more than the 5000.00 expected", row.description)

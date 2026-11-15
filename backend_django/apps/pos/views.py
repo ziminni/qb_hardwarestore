@@ -72,6 +72,7 @@ from .serializers import (
 from .services import (
     MAX_SALES_ORDER_REASON_LENGTH,
     cancel_sales_order,
+    compute_z_reading,
     decide_cheque,
     issue_discount_approval,
     parse_idempotency_key,
@@ -952,6 +953,28 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
             "cash out" if kind == ShiftCashMovement.Kind.CASH_OUT else "cash in"
         )
         with db_transaction.atomic():
+            # Lock the shift so two cash-outs cannot both pass the drawer check.
+            shift = Shift.objects.select_for_update().get(pk=shift.pk)
+            note = ""
+            if kind == ShiftCashMovement.Kind.CASH_OUT:
+                expected = Decimal(compute_z_reading(shift)["expected_drawer"])
+                if amount > expected:
+                    # Rare but real (the count was off, the owner takes more): a
+                    # manager may record it; a cashier cannot.
+                    if not has_role(request.user, IsManagerRole.required_roles):
+                        return Response(
+                            {
+                                "code": "CASH_OUT_EXCEEDS_DRAWER",
+                                "detail": (
+                                    f"Only {expected:.2f} cash is expected in the "
+                                    "drawer. Ask a store manager to record a larger "
+                                    "cash out."
+                                ),
+                                "expected_drawer": f"{expected:.2f}",
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    note = f" (more than the {expected:.2f} expected in the drawer)"
             ShiftCashMovement.objects.create(
                 shift=shift,
                 kind=kind,
@@ -962,7 +985,7 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
             audit_request(
                 request,
                 AuditLog.ActionType.SHIFT_CASH,
-                f"Shift #{shift.pk} {action_word} {amount}: {reason}.",
+                f"Shift #{shift.pk} {action_word} {amount}{note}: {reason}.",
             )
         shift = self.get_queryset().get(pk=shift.pk)
         return Response(self.get_serializer(shift).data, status=status.HTTP_201_CREATED)
