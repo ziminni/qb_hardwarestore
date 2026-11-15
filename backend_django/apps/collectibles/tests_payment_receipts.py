@@ -213,3 +213,57 @@ class ProjectPaymentReceiptTests(TestCase):
         self.assertEqual(receipt.status, 'WAITING')
         self.ledger1.refresh_from_db()
         self.assertEqual(self.ledger1.balance_due, Decimal('1000.00'))
+
+        # Cashier can read payment history and receipts log, read-only.
+        self.assertEqual(
+            self.client.get('/api/v1/payment-receipts/').status_code, 200
+        )
+        self.assertEqual(
+            self.client.get('/api/v1/ledger-payments/').status_code, 200
+        )
+
+    def test_approved_cpms_receipt_links_payments_and_sets_paid_at(self):
+        self.client.force_authenticate(user=self.cpms_user)
+        submit_res = self.client.post(
+            '/api/v1/integration/cpms/projects/PRJ-101/payment-receipts/',
+            {
+                'cpms_payment_id': 'PAY-0010',
+                'amount': '1600.00',
+                'payment_method': 'BANK_TRANSFER',
+                'reference_no': 'BDO-CPMS-10',
+            },
+            format='json',
+        )
+        self.assertEqual(submit_res.status_code, 201, submit_res.data)
+        receipt_id = submit_res.data['id']
+
+        self.client.force_authenticate(user=self.manager)
+        approve_res = self.client.post(
+            f'/api/v1/payment-receipts/{receipt_id}/approve/',
+            {},
+            format='json',
+        )
+        self.assertEqual(approve_res.status_code, 200, approve_res.data)
+        self.assertEqual(approve_res.data['decided_by_name'], 'Store Manager')
+        self.assertIsNotNone(approve_res.data['decided_at'])
+
+        payments_res = self.client.get('/api/v1/ledger-payments/')
+        self.assertEqual(payments_res.status_code, 200, payments_res.data)
+        rows = payments_res.data['results']
+        self.assertEqual(len(rows), 2)
+        # Newest first (-payment_date, -id): ledger2 payment was created second
+        self.assertEqual(rows[0]['transaction_no'], 'TXN-PRJ-002')
+        self.assertEqual(rows[1]['transaction_no'], 'TXN-PRJ-001')
+        for row in rows:
+            self.assertEqual(row['customer_name'], 'Reyes Construction')
+            self.assertEqual(row['project_name'], 'Tower A')
+            self.assertEqual(row['processed_by_name'], 'Store Manager')
+            self.assertEqual(row['payment_receipt'], receipt_id)
+            self.assertEqual(row['cpms_receipt_ref'], 'BDO-CPMS-10')
+            self.assertEqual(row['official_receipt_no'], 'BDO-CPMS-10')
+
+        ledgers_res = self.client.get('/api/v1/ledgers/')
+        self.assertEqual(ledgers_res.status_code, 200)
+        by_id = {row['id']: row for row in ledgers_res.data['results']}
+        self.assertIsNotNone(by_id[self.ledger1.id]['paid_at'])
+        self.assertIsNone(by_id[self.ledger2.id]['paid_at'])

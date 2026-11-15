@@ -55,7 +55,13 @@ class CollectibleLedgerViewSet(viewsets.ReadOnlyModelViewSet):
 
     queryset = CollectibleLedger.objects.select_related(
         'customer', 'transaction', 'project',
-    ).prefetch_related('payments').order_by('-due_date')
+    ).prefetch_related(
+        'payments__processed_by',
+        'payments__payment_receipt',
+        'payments__collectible__customer',
+        'payments__collectible__transaction',
+        'payments__collectible__project',
+    ).order_by('-due_date')
     serializer_class = CollectibleLedgerSerializer
     permission_classes = [IsReceivablesReader]
 
@@ -129,11 +135,31 @@ class CollectiblePaymentViewSet(viewsets.ModelViewSet):
     """
 
     queryset = CollectiblePayment.objects.select_related(
-        'collectible', 'processed_by',
-    ).order_by('-payment_date')
+        'collectible__customer',
+        'collectible__transaction',
+        'collectible__project',
+        'processed_by',
+        'payment_receipt',
+    ).order_by('-payment_date', '-id')
     serializer_class = CollectiblePaymentSerializer
     permission_classes = [ReceivablesReadPOSWrite]
     http_method_names = ['get', 'head', 'options', 'post']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        collectible_id = self.request.query_params.get('collectible')
+        search = (self.request.query_params.get('search') or '').strip()
+        if collectible_id:
+            qs = qs.filter(collectible_id=collectible_id)
+        if search:
+            qs = qs.filter(
+                Q(collectible__customer__name__icontains=search)
+                | Q(collectible__project__name__icontains=search)
+                | Q(collectible__transaction__transaction_no__icontains=search)
+                | Q(official_receipt_no__icontains=search)
+                | Q(payment_receipt__reference_no__icontains=search),
+            )
+        return qs
 
     def perform_create(self, serializer):
         """Record the payment and move the ledger, as ONE transaction.

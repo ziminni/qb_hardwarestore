@@ -14,6 +14,9 @@ class LedgerRepository {
 
   Future<List<LedgerEntry>> fetchLedgers() => _service.fetchLedgers();
 
+  Future<List<LedgerPayment>> fetchPayments({String? search}) =>
+      _service.fetchPayments(search: search);
+
   Future<void> recordPayment({
     required int collectibleId,
     required double amountPaid,

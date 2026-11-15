@@ -2,6 +2,7 @@ import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/ledger_entry.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:client/features/sales/viewmodels/cheque_queue_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/sales_receivables_viewmodel.dart';
 import 'package:client/features/sales/widgets/cheque_queue_content.dart';
@@ -49,6 +50,8 @@ class SalesReceivablesContent extends StatefulWidget {
       _SalesReceivablesContentState();
 }
 
+enum _ReceivablesTab { ledger, payments, receipts, cheques }
+
 class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
   /// The chip that filters nothing.
   static const String _anyStatus = 'All';
@@ -60,16 +63,31 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
     for (final status in LedgerStatus.values) status.label,
   ];
 
+  static const List<(String label, String? code)> _receiptFilterOptions = [
+    ('All', null),
+    ('Waiting', 'WAITING'),
+    ('Approved', 'APPROVED'),
+    ('Declined', 'DECLINED'),
+  ];
+
+  static final List<String> _receiptChips = [
+    for (final option in _receiptFilterOptions) option.$1,
+  ];
+
   /// What the tiles say when the load failed: a peso amount beside an error
   /// banner would claim "this store is owed nothing", which is exactly the
   /// claim a failed load cannot make.
   static const String _notLoaded = 'Not loaded';
 
   String _query = '';
+  String _paymentsQuery = '';
+  String _receiptsQuery = '';
+  String? _receiptActionError;
+  bool _receiptActionBusy = false;
 
-  /// Which tab the manager is reading. The ledger is the default: the debts are
-  /// what the screen is opened for, cheques are what is waiting on the bank.
-  bool _showCheques = false;
+  /// Active segment. Defaults to the receivables ledger; manager also sees
+  /// CPMS receipts and Cheques, while cashier sees Receivables and Payment history.
+  _ReceivablesTab _tab = _ReceivablesTab.ledger;
 
   /// Rows the status chip left visible, then narrowed by the search text. The
   /// chip goes through the viewmodel so the tiles and the list stay one dataset.
@@ -105,45 +123,73 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
 
   @override
   Widget build(BuildContext context) {
-    // The Cheques tab is the manager's: its viewmodel is only provided by the
-    // manager's page, and only read when the tab exists.
+    // The Cheques and CPMS receipts tabs are the manager's: ChequeQueueViewmodel
+    // is only provided by the manager's page, and never by the cashier's page.
     final chequeViewmodel = widget.showCheques
         ? context.watch<ChequeQueueViewmodel>()
         : null;
+    final viewmodel = context.watch<SalesReceivablesViewmodel>();
+    final isManager = chequeViewmodel != null;
+    final activeTab = switch (_tab) {
+      _ReceivablesTab.receipts || _ReceivablesTab.cheques when !isManager =>
+        _ReceivablesTab.ledger,
+      final other => other,
+    };
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (chequeViewmodel != null) ...[
-          Align(
-            alignment: Alignment.centerLeft,
-            child: SegmentedButton<bool>(
+        Align(
+          alignment: Alignment.centerLeft,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SegmentedButton<_ReceivablesTab>(
               segments: [
-                const ButtonSegment(
-                  value: false,
-                  label: Text('Utang'),
-                  icon: Icon(Icons.receipt_long_outlined),
-                ),
                 ButtonSegment(
-                  value: true,
-                  // The pending count ON the tab (F5): the one marker needed to
-                  // see that money is waiting on the bank without opening it.
-                  label: Text('Cheques (${chequeViewmodel.pendingCount})'),
-                  icon: const Icon(Icons.account_balance_outlined),
+                  value: _ReceivablesTab.ledger,
+                  label: Text(isManager ? 'Utang' : 'Receivables'),
+                  icon: const Icon(Icons.receipt_long_outlined),
                 ),
+                const ButtonSegment(
+                  value: _ReceivablesTab.payments,
+                  label: Text('Payment history'),
+                  icon: Icon(Icons.history_outlined),
+                ),
+                if (isManager) ...[
+                  const ButtonSegment(
+                    value: _ReceivablesTab.receipts,
+                    label: Text('CPMS receipts'),
+                    icon: Icon(Icons.fact_check_outlined),
+                  ),
+                  ButtonSegment(
+                    value: _ReceivablesTab.cheques,
+                    // The pending count ON the tab (F5): the one marker needed to
+                    // see that money is waiting on the bank without opening it.
+                    label: Text('Cheques (${chequeViewmodel.pendingCount})'),
+                    icon: const Icon(Icons.account_balance_outlined),
+                  ),
+                ],
               ],
-              selected: {_showCheques},
-              onSelectionChanged: (values) =>
-                  setState(() => _showCheques = values.first),
+              selected: {activeTab},
+              onSelectionChanged: (values) => setState(() {
+                _tab = values.first;
+                _receiptActionError = null;
+              }),
             ),
           ),
-          const SizedBox(height: AppSpacing.lg),
-        ],
-        if (_showCheques && chequeViewmodel != null)
-          const Expanded(child: ChequeQueueContent())
-        else
-          // The ledger body owns an Expanded panel, so it needs the bounded
-          // height this Column would otherwise not give it.
-          Expanded(child: _ledgerSection(context)),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        Expanded(
+          child: switch (activeTab) {
+            _ReceivablesTab.ledger => _ledgerSection(context),
+            _ReceivablesTab.payments => _paymentHistorySection(viewmodel),
+            _ReceivablesTab.receipts => _cpmsReceiptsSection(
+              context,
+              viewmodel,
+            ),
+            _ReceivablesTab.cheques => const ChequeQueueContent(),
+          },
+        ),
       ],
     );
   }
@@ -175,7 +221,7 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
                   : formatPeso(viewmodel.outstanding),
               caption: totalsUnknown
                   ? null
-                  : '${formatCount(viewmodel.entries.length)} open invoices',
+                  : '${formatCount(viewmodel.entries.where((e) => !e.isPaid).length)} open invoices',
             ),
             MetricTile(
               label: 'Overdue',
@@ -329,6 +375,13 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
   }
 
   Widget _actionButton(SalesReceivablesViewmodel viewmodel, LedgerEntry entry) {
+    if (entry.isPaid) {
+      return _caption(
+        entry.paidAt == null
+            ? 'Paid'
+            : 'Paid ${formatDate(entry.paidAt!.toLocal())}',
+      );
+    }
     final paying = viewmodel.isPaying(entry.id);
     return Align(
       alignment: Alignment.centerLeft,
@@ -358,7 +411,418 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
     LedgerStatus.current => StatusTone.success,
     LedgerStatus.dueSoon => StatusTone.warning,
     LedgerStatus.overdue => StatusTone.error,
+    LedgerStatus.paid => StatusTone.neutral,
   };
+
+  List<LedgerPayment> _visiblePayments(SalesReceivablesViewmodel viewmodel) {
+    final rows = viewmodel.payments;
+    final query = _paymentsQuery.trim().toLowerCase();
+    if (query.isEmpty) return rows;
+    return [
+      for (final payment in rows)
+        if ('${payment.customerName} ${payment.projectName ?? ''} '
+                '${payment.transactionNo} ${payment.officialReceiptNo} '
+                '${payment.cpmsReceiptRef ?? ''} '
+                '${TenderMethod.labelFor(payment.paymentMethod)} '
+                '${payment.processedByName}'
+            .toLowerCase()
+            .contains(query))
+          payment,
+    ];
+  }
+
+  String _paymentEmptyMessage() {
+    if (_paymentsQuery.trim().isNotEmpty) {
+      return 'No payments match this search.';
+    }
+    return 'No payments recorded yet.';
+  }
+
+  Widget _paymentHistorySection(SalesReceivablesViewmodel viewmodel) {
+    final failure = viewmodel.paymentsError;
+    final firstLoadFailed = failure != null && viewmodel.payments.isEmpty;
+    final rows = _visiblePayments(viewmodel);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        FilterBar(
+          searchHint: 'Customer, project, sale or reference',
+          onSearchChanged: (value) => setState(() => _paymentsQuery = value),
+        ),
+        if (failure != null) ...[
+          const SizedBox(height: AppSpacing.md),
+          ErrorBanner(message: failure, onRetry: viewmodel.load),
+        ],
+        const SizedBox(height: AppSpacing.lg),
+        Expanded(
+          child: firstLoadFailed
+              ? const SizedBox.shrink()
+              : DataPanel<LedgerPayment>(
+                  columns: _paymentColumns(),
+                  rows: rows,
+                  emptyMessage: _paymentEmptyMessage(),
+                  isLoading: viewmodel.isLoading && viewmodel.payments.isEmpty,
+                  rowKey: (payment) => ValueKey('payment-${payment.id}'),
+                ),
+        ),
+      ],
+    );
+  }
+
+  List<DataPanelColumn<LedgerPayment>> _paymentColumns() {
+    return [
+      DataPanelColumn<LedgerPayment>(
+        label: 'Date & time',
+        flex: 2,
+        cell: (payment) => _text(
+          formatDateTime(payment.paymentDate.toLocal()),
+          maxLines: 2,
+        ),
+      ),
+      DataPanelColumn<LedgerPayment>(
+        label: 'Customer',
+        flex: 3,
+        cell: (payment) => Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _text(payment.customerName, maxLines: 2),
+            if (payment.projectName case final project?) ...[
+              const SizedBox(height: 2),
+              _caption(project),
+            ],
+            const SizedBox(height: 2),
+            _caption(payment.transactionNo),
+          ],
+        ),
+      ),
+      DataPanelColumn<LedgerPayment>(
+        label: 'Amount',
+        numeric: true,
+        flex: 2,
+        cell: (payment) => _text(
+          formatPeso(payment.amountPaid),
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textPrimary,
+          ),
+        ),
+      ),
+      DataPanelColumn<LedgerPayment>(
+        label: 'Method & Ref',
+        flex: 3,
+        cell: (payment) {
+          final cpmsRef = payment.cpmsReceiptRef;
+          final orRef = payment.officialReceiptNo;
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _text(TenderMethod.labelFor(payment.paymentMethod)),
+              if (payment.isFromCpmsReceipt) ...[
+                const SizedBox(height: 2),
+                _caption(
+                  'CPMS receipt ${cpmsRef ?? (orRef.isNotEmpty ? orRef : '#${payment.paymentReceiptId}')}',
+                ),
+                if (orRef.isNotEmpty && cpmsRef != null && orRef != cpmsRef) ...[
+                  const SizedBox(height: 2),
+                  _caption('OR/Ref: $orRef'),
+                ],
+              ] else if (orRef.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                _caption('OR/Ref: $orRef'),
+              ],
+            ],
+          );
+        },
+      ),
+      DataPanelColumn<LedgerPayment>(
+        label: 'Recorded by',
+        flex: 2,
+        cell: (payment) => _text(
+          payment.processedByName.isEmpty ? 'Staff' : payment.processedByName,
+          maxLines: 2,
+        ),
+      ),
+    ];
+  }
+
+  String _selectedReceiptChip(SalesReceivablesViewmodel viewmodel) {
+    final code = viewmodel.receiptStatusFilter;
+    for (final option in _receiptFilterOptions) {
+      if (option.$2 == code) return option.$1;
+    }
+    return _anyStatus;
+  }
+
+  String? _receiptCodeForChip(String chip) {
+    for (final option in _receiptFilterOptions) {
+      if (option.$1 == chip) return option.$2;
+    }
+    return null;
+  }
+
+  List<PaymentReceipt> _visibleReceipts(SalesReceivablesViewmodel viewmodel) {
+    final rows = viewmodel.filteredPaymentReceipts;
+    final query = _receiptsQuery.trim().toLowerCase();
+    if (query.isEmpty) return rows;
+    return [
+      for (final receipt in rows)
+        if ('${receipt.projectName} ${receipt.cpmsProjectId} '
+                '${receipt.customerName} ${receipt.referenceNo} '
+                '${receipt.cpmsPaymentId} ${receipt.submittedByName} '
+                '${receipt.decidedByName ?? ''} ${receipt.declineReason}'
+            .toLowerCase()
+            .contains(query))
+          receipt,
+    ];
+  }
+
+  String _receiptEmptyMessage(SalesReceivablesViewmodel viewmodel) {
+    if (_receiptsQuery.trim().isNotEmpty ||
+        viewmodel.receiptStatusFilter != null) {
+      return 'No CPMS payment receipts match these filters.';
+    }
+    return 'No CPMS payment receipts yet.';
+  }
+
+  Future<void> _handleReceiptDecision(
+    SalesReceivablesViewmodel viewmodel,
+    Future<bool?> Function(VoidCallback onSubmitting) run,
+    String fallbackError,
+  ) async {
+    setState(() => _receiptActionError = null);
+    final outcome = await run(() {
+      if (!mounted) return;
+      setState(() => _receiptActionBusy = true);
+    });
+    if (!mounted) return;
+    setState(() {
+      _receiptActionBusy = false;
+      if (outcome == false) {
+        _receiptActionError = viewmodel.payError ?? fallbackError;
+      }
+    });
+  }
+
+  Widget _cpmsReceiptsSection(
+    BuildContext context,
+    SalesReceivablesViewmodel viewmodel,
+  ) {
+    final loadFailure = viewmodel.receiptsError;
+    final firstLoadFailed =
+        loadFailure != null && viewmodel.paymentReceipts.isEmpty;
+    final rows = _visibleReceipts(viewmodel);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        FilterBar(
+          searchHint: 'Project, customer or reference',
+          onSearchChanged: (value) => setState(() => _receiptsQuery = value),
+          options: _receiptChips,
+          selected: _selectedReceiptChip(viewmodel),
+          onSelected: (chip) =>
+              viewmodel.setReceiptStatusFilter(_receiptCodeForChip(chip)),
+        ),
+        if (loadFailure != null) ...[
+          const SizedBox(height: AppSpacing.md),
+          ErrorBanner(message: loadFailure, onRetry: viewmodel.load),
+        ],
+        if (_receiptActionError != null) ...[
+          const SizedBox(height: AppSpacing.md),
+          ErrorBanner(message: _receiptActionError!),
+        ],
+        const SizedBox(height: AppSpacing.lg),
+        Expanded(
+          child: firstLoadFailed
+              ? const SizedBox.shrink()
+              : DataPanel<PaymentReceipt>(
+                  columns: _receiptColumns(context, viewmodel),
+                  rows: rows,
+                  emptyMessage: _receiptEmptyMessage(viewmodel),
+                  isLoading:
+                      viewmodel.isLoading && viewmodel.paymentReceipts.isEmpty,
+                  rowKey: (receipt) => ValueKey('receipt-${receipt.id}'),
+                ),
+        ),
+      ],
+    );
+  }
+
+  List<DataPanelColumn<PaymentReceipt>> _receiptColumns(
+    BuildContext context,
+    SalesReceivablesViewmodel viewmodel,
+  ) {
+    return [
+      DataPanelColumn<PaymentReceipt>(
+        label: 'Project',
+        flex: 3,
+        cell: (receipt) => Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _text(
+              receipt.projectName.isEmpty
+                  ? receipt.cpmsProjectId
+                  : receipt.projectName,
+              maxLines: 2,
+            ),
+            if (receipt.customerName.isNotEmpty) ...[
+              const SizedBox(height: 2),
+              _caption(receipt.customerName),
+            ],
+            const SizedBox(height: 2),
+            _caption(
+              'Submitted ${formatDateTime(receipt.createdAt.toLocal())}',
+            ),
+          ],
+        ),
+      ),
+      DataPanelColumn<PaymentReceipt>(
+        label: 'Method & Ref',
+        flex: 2,
+        cell: (receipt) => Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _text(TenderMethod.labelFor(receipt.paymentMethod)),
+            const SizedBox(height: 2),
+            _caption('Ref ${receipt.referenceNo}'),
+            if (receipt.notes.trim().isNotEmpty) ...[
+              const SizedBox(height: 2),
+              _caption(receipt.notes.trim()),
+            ],
+          ],
+        ),
+      ),
+      DataPanelColumn<PaymentReceipt>(
+        label: 'Amount',
+        numeric: true,
+        flex: 2,
+        cell: (receipt) => Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            _text(
+              formatPeso(receipt.amount),
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            if (receipt.approvedAmount case final approved?) ...[
+              const SizedBox(height: 2),
+              _caption('Approved ${formatPeso(approved)}'),
+            ],
+          ],
+        ),
+      ),
+      DataPanelColumn<PaymentReceipt>(
+        label: 'Status',
+        flex: 2,
+        cell: (receipt) {
+          final (label, tone) = _receiptStatusPresentation(receipt.status);
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              StatusBadge(label: label, tone: tone),
+              if (receipt.status != 'WAITING') ...[
+                const SizedBox(height: AppSpacing.xs),
+                if (receipt.declineReason.trim().isNotEmpty)
+                  _caption(receipt.declineReason.trim()),
+                if (receipt.decidedByName case final name?) _caption(name),
+                if (receipt.decidedAt case final decidedAt?)
+                  _caption(formatDateTime(decidedAt.toLocal())),
+              ],
+            ],
+          );
+        },
+      ),
+      DataPanelColumn<PaymentReceipt>(
+        label: 'Action',
+        flex: 2,
+        cell: (receipt) => _receiptActions(context, viewmodel, receipt),
+      ),
+    ];
+  }
+
+  Widget _receiptActions(
+    BuildContext context,
+    SalesReceivablesViewmodel viewmodel,
+    PaymentReceipt receipt,
+  ) {
+    if (receipt.status != 'WAITING') {
+      return _caption(
+        receipt.decidedAt == null
+            ? 'Decided'
+            : 'Decided ${formatDate(receipt.decidedAt!.toLocal())}',
+      );
+    }
+    if (_receiptActionBusy) {
+      return const Align(
+        alignment: Alignment.centerLeft,
+        child: SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+    return Wrap(
+      spacing: AppSpacing.sm,
+      children: [
+        TextButton(
+          onPressed: () => _handleReceiptDecision(
+            viewmodel,
+            (onSubmitting) => _promptAndApproveCpmsReceipt(
+              context,
+              viewmodel,
+              receipt,
+              onSubmitting: onSubmitting,
+            ),
+            'Could not approve receipt.',
+          ),
+          style: TextButton.styleFrom(
+            padding: EdgeInsets.zero,
+            minimumSize: const Size(44, 44),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          child: const Text('Approve'),
+        ),
+        TextButton(
+          onPressed: () => _handleReceiptDecision(
+            viewmodel,
+            (onSubmitting) => _promptAndDeclineCpmsReceipt(
+              context,
+              viewmodel,
+              receipt,
+              onSubmitting: onSubmitting,
+            ),
+            'Could not decline receipt.',
+          ),
+          style: TextButton.styleFrom(
+            padding: EdgeInsets.zero,
+            minimumSize: const Size(44, 44),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          child: const Text('Decline'),
+        ),
+      ],
+    );
+  }
+
+  (String, StatusTone) _receiptStatusPresentation(String status) =>
+      switch (status) {
+        'WAITING' => ('Waiting', StatusTone.warning),
+        'APPROVED' => ('Approved', StatusTone.success),
+        'DECLINED' => ('Declined', StatusTone.error),
+        _ => (status, StatusTone.neutral),
+      };
 
   Widget _text(String value, {int maxLines = 1, TextStyle? style}) {
     return Text(
@@ -404,6 +868,125 @@ Future<void> _showCpmsReceiptsDialog(
   );
 }
 
+/// Shared CPMS receipt approval prompt used by both the shortcut review dialog
+/// and the CPMS receipts log segment. Returns `null` if cancelled, `true` if
+/// approved, or `false` if the server refused.
+Future<bool?> _promptAndApproveCpmsReceipt(
+  BuildContext context,
+  SalesReceivablesViewmodel viewmodel,
+  PaymentReceipt receipt, {
+  VoidCallback? onSubmitting,
+}) async {
+  final raw = await showDialog<String>(
+    context: context,
+    builder: (_) => _SingleFieldDialog(
+      title: 'Approve receipt \u00b7 ${receipt.referenceNo}',
+      labelText: 'Approved amount (\u20b1)',
+      confirmLabel: 'Approve',
+      initialText: receipt.amount.toStringAsFixed(2),
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      isValid: (text) {
+        final val = double.tryParse(text);
+        return val != null && val > 0;
+      },
+    ),
+  );
+  if (raw == null) return null;
+  final approvedAmount = double.tryParse(raw);
+  if (approvedAmount == null || approvedAmount <= 0) return null;
+  onSubmitting?.call();
+  return viewmodel.approvePaymentReceipt(
+    receipt.id,
+    approvedAmount: approvedAmount,
+  );
+}
+
+/// Shared CPMS receipt decline prompt used by both the shortcut review dialog
+/// and the CPMS receipts log segment. Returns `null` if cancelled, `true` if
+/// declined, or `false` if the server refused.
+Future<bool?> _promptAndDeclineCpmsReceipt(
+  BuildContext context,
+  SalesReceivablesViewmodel viewmodel,
+  PaymentReceipt receipt, {
+  VoidCallback? onSubmitting,
+}) async {
+  final reason = await showDialog<String>(
+    context: context,
+    builder: (_) => _SingleFieldDialog(
+      title: 'Decline receipt \u00b7 ${receipt.referenceNo}',
+      labelText: 'Reason for declining',
+      confirmLabel: 'Decline',
+      isValid: (text) => text.isNotEmpty,
+    ),
+  );
+  if (reason == null) return null;
+  onSubmitting?.call();
+  return viewmodel.declinePaymentReceipt(receipt.id, reason: reason);
+}
+
+class _SingleFieldDialog extends StatefulWidget {
+  const _SingleFieldDialog({
+    required this.title,
+    required this.labelText,
+    required this.confirmLabel,
+    this.initialText = '',
+    this.keyboardType,
+    required this.isValid,
+  });
+
+  final String title;
+  final String labelText;
+  final String confirmLabel;
+  final String initialText;
+  final TextInputType? keyboardType;
+  final bool Function(String) isValid;
+
+  @override
+  State<_SingleFieldDialog> createState() => _SingleFieldDialogState();
+}
+
+class _SingleFieldDialogState extends State<_SingleFieldDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initialText,
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _controller,
+        keyboardType: widget.keyboardType,
+        decoration: InputDecoration(
+          labelText: widget.labelText,
+          isDense: true,
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final text = _controller.text.trim();
+            if (widget.isValid(text)) {
+              Navigator.of(context).pop(text);
+            }
+          },
+          child: Text(widget.confirmLabel),
+        ),
+      ],
+    );
+  }
+}
+
 class _CpmsReceiptsDialog extends StatefulWidget {
   const _CpmsReceiptsDialog({required this.viewmodel});
 
@@ -418,101 +1001,38 @@ class _CpmsReceiptsDialogState extends State<_CpmsReceiptsDialog> {
   bool _busy = false;
 
   Future<void> _approve(PaymentReceipt receipt) async {
-    final amountController = TextEditingController(
-      text: receipt.amount.toStringAsFixed(2),
-    );
-    final approvedAmount = await showDialog<double>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Approve receipt · ${receipt.referenceNo}'),
-        content: TextField(
-          controller: amountController,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(
-            labelText: 'Approved amount (₱)',
-            isDense: true,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final val = double.tryParse(amountController.text.trim());
-              if (val != null && val > 0) {
-                Navigator.of(dialogContext).pop(val);
-              }
-            },
-            child: const Text('Approve'),
-          ),
-        ],
-      ),
-    );
-    amountController.dispose();
-    if (approvedAmount == null || !mounted) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    final ok = await widget.viewmodel.approvePaymentReceipt(
-      receipt.id,
-      approvedAmount: approvedAmount,
+    setState(() => _error = null);
+    final ok = await _promptAndApproveCpmsReceipt(
+      context,
+      widget.viewmodel,
+      receipt,
+      onSubmitting: () {
+        if (mounted) setState(() => _busy = true);
+      },
     );
     if (!mounted) return;
     setState(() {
       _busy = false;
-      if (!ok) {
+      if (ok == false) {
         _error = widget.viewmodel.payError ?? 'Could not approve receipt.';
       }
     });
   }
 
   Future<void> _decline(PaymentReceipt receipt) async {
-    final reasonController = TextEditingController();
-    final reason = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Decline receipt · ${receipt.referenceNo}'),
-        content: TextField(
-          controller: reasonController,
-          decoration: const InputDecoration(
-            labelText: 'Reason for declining',
-            isDense: true,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final text = reasonController.text.trim();
-              if (text.isNotEmpty) {
-                Navigator.of(dialogContext).pop(text);
-              }
-            },
-            child: const Text('Decline'),
-          ),
-        ],
-      ),
-    );
-    reasonController.dispose();
-    if (reason == null || !mounted) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    final ok = await widget.viewmodel.declinePaymentReceipt(
-      receipt.id,
-      reason: reason,
+    setState(() => _error = null);
+    final ok = await _promptAndDeclineCpmsReceipt(
+      context,
+      widget.viewmodel,
+      receipt,
+      onSubmitting: () {
+        if (mounted) setState(() => _busy = true);
+      },
     );
     if (!mounted) return;
     setState(() {
       _busy = false;
-      if (!ok) {
+      if (ok == false) {
         _error = widget.viewmodel.payError ?? 'Could not decline receipt.';
       }
     });

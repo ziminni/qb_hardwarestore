@@ -232,13 +232,17 @@ void main() {
   group('statusAt', () {
     final now = DateTime.parse('2026-10-17T09:00:00');
 
-    LedgerEntry due(String date, {bool isOverdue = false}) => LedgerEntry(
+    LedgerEntry due(
+      String date, {
+      bool isOverdue = false,
+      double balanceDue = 100,
+    }) => LedgerEntry(
       id: 1,
       customerId: 1,
       customerName: 'C',
       transactionNo: 'T',
       originalAmount: 100,
-      balanceDue: 100,
+      balanceDue: balanceDue,
       dueDate: DateTime.parse(date),
       isOverdue: isOverdue,
     );
@@ -263,6 +267,124 @@ void main() {
       expect(due('2026-10-20').statusAt(now), LedgerStatus.dueSoon);
       expect(due('2026-12-01').statusAt(now), LedgerStatus.current);
     });
+
+    test('zero balance is always paid, even with a past due date', () {
+      expect(
+        due('2026-10-01', isOverdue: true, balanceDue: 0).statusAt(now),
+        LedgerStatus.paid,
+      );
+    });
+  });
+
+  test('parses paid_at on settled ledgers and falls back to recent_payments', () async {
+    serve(
+      (_) => _json({
+        'count': 2,
+        'next': null,
+        'results': [
+          _row(
+            id: 10,
+            balance: '0.00',
+          )..['paid_at'] = '2026-11-15T14:30:00Z',
+          {
+            ..._row(id: 11, balance: '0.00'),
+            'recent_payments': [
+              {
+                'id': 1,
+                'amount_paid': '100.00',
+                'payment_method': 'CASH',
+                'payment_date': '2026-11-14T08:00:00Z',
+              },
+              {
+                'id': 2,
+                'amount_paid': '400.00',
+                'payment_method': 'GCASH',
+                'payment_date': '2026-11-15T09:15:00Z',
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    final entries = await LedgerService(client: client).fetchLedgers();
+    expect(entries[0].isPaid, isTrue);
+    expect(entries[0].paidAt, DateTime.parse('2026-11-15T14:30:00Z'));
+    expect(entries[1].isPaid, isTrue);
+    expect(entries[1].paidAt, DateTime.parse('2026-11-15T09:15:00Z'));
+  });
+
+  group('payment history pagination and parsing', () {
+    Map<String, dynamic> paymentRow({
+      required int id,
+      required String paymentDate,
+      String customerName = 'Reyes Construction',
+      String? projectName = 'Tower A',
+      String transactionNo = 'TRX-001',
+      String amountPaid = '500.00',
+      String paymentMethod = 'BANK_TRANSFER',
+      String officialReceiptNo = 'BDO-998877',
+      String processedByName = 'Store Manager',
+      int? paymentReceipt,
+      String? cpmsReceiptRef,
+    }) => {
+      'id': id,
+      'collectible': 4,
+      'customer_name': customerName,
+      'project_name': projectName,
+      'transaction_no': transactionNo,
+      'processed_by': 2,
+      'processed_by_name': processedByName,
+      'payment_receipt': paymentReceipt,
+      'cpms_receipt_ref': cpmsReceiptRef,
+      'amount_paid': amountPaid,
+      'payment_method': paymentMethod,
+      'payment_date': paymentDate,
+      'official_receipt_no': officialReceiptNo,
+    };
+
+    test('walks pages, sorts newest first, and identifies CPMS payments', () async {
+      serve((options) {
+        requestedPages.add('${options.queryParameters['page']}');
+        if (options.queryParameters['page'] == 1) {
+          return _json({
+            'count': 2,
+            'next': 'http://x/api/v1/ledger-payments/?page=2',
+            'results': [
+              paymentRow(
+                id: 1,
+                paymentDate: '2026-11-14T10:00:00Z',
+                projectName: null,
+                paymentMethod: 'CASH',
+                officialReceiptNo: 'OR-123',
+              ),
+            ],
+          });
+        }
+        return _json({
+          'count': 2,
+          'next': null,
+          'results': [
+            paymentRow(
+              id: 2,
+              paymentDate: '2026-11-15T16:30:00Z',
+              paymentReceipt: 7,
+              cpmsReceiptRef: 'BDO-998877',
+            ),
+          ],
+        });
+      });
+
+      final payments = await LedgerService(client: client).fetchPayments();
+      expect(requestedPages, ['1', '2']);
+      expect(payments.map((p) => p.id), [2, 1]);
+      expect(payments[0].isFromCpmsReceipt, isTrue);
+      expect(payments[0].cpmsReceiptRef, 'BDO-998877');
+      expect(payments[0].projectName, 'Tower A');
+      expect(payments[1].isFromCpmsReceipt, isFalse);
+      expect(payments[1].projectName, isNull);
+      expect(payments[1].officialReceiptNo, 'OR-123');
+    });
   });
 
   group('CPMS payment receipts (Phase 1c)', () {
@@ -283,6 +405,8 @@ void main() {
             'submitted_by_name': 'Liza',
             'status': 'APPROVED',
             'decline_reason': '',
+            'decided_by_name': 'Store Manager',
+            'decided_at': '2026-11-15T12:00:00Z',
             'created_at': '2026-11-15T10:00:00Z',
           });
         }
@@ -321,6 +445,8 @@ void main() {
       );
       expect(approved.status, 'APPROVED');
       expect(approved.approvedAmount, 1600);
+      expect(approved.decidedByName, 'Store Manager');
+      expect(approved.decidedAt, DateTime.parse('2026-11-15T12:00:00Z'));
     });
   });
 }
