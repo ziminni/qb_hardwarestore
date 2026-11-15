@@ -63,6 +63,8 @@ git log -3 --oneline
 
 Stop on any command error. Updating source does not itself migrate the database; starting the backend does.
 
+**Product photos (added after the first Windows install):** the backend now needs the Pillow library, so rebuild the backend image once when you pull this change: `docker compose build backend`. Uploaded photos are stored as files in `backend_django\media\product-images`, **not in the database**, so the database backup below does not contain them. Copy that folder too if you want photos in your backup.
+
 ## 2. Existing database: back up before starting updated backend
 
 **Do not delete the database volume or reset data to install an update.** The backend startup runs all pending migrations automatically, including changes newer than the previous installation. A previous Windows database may be behind even when the source is current.
