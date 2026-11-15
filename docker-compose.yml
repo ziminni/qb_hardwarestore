@@ -47,9 +47,19 @@ services:
     env_file:
       - path: ./tunnel/gateway.env
         required: false
+    # Refuse to start without a real key: a missing one would leave the literal
+    # "${QB_GATEWAY_KEY}" in the config as a guessable key.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ "$${#QB_GATEWAY_KEY}" -lt 24 ]; then
+          echo "QB_GATEWAY_KEY is missing or shorter than 24 characters; run scripts/start-tunnel first." >&2
+          exit 1
+        fi
+        exec /docker-entrypoint.sh nginx -g "daemon off;"
     volumes:
       - ./tunnel/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
-      - ./tunnel/10-require-key.sh:/docker-entrypoint.d/10-require-key.sh:ro
     depends_on:
       - backend
 
