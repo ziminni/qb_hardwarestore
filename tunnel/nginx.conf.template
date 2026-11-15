@@ -1,0 +1,79 @@
+# POS tunnel gateway: the ONLY thing the Cloudflare tunnel reaches.
+# CPMS needs sign-in plus the /api/v1/integration/cpms/ routes; everything else
+# (admin, staff logins' screens, reports) answers 404 without touching Django.
+# Rendered by the nginx entrypoint (envsubst) from QB_GATEWAY_KEY.
+
+limit_req_zone $binary_remote_addr zone=qb_login:10m rate=6r/m;
+limit_req_zone $binary_remote_addr zone=qb_api:10m rate=60r/m;
+limit_req_status 429;
+
+# The key is 48 hex characters, longer than the default map bucket allows.
+map_hash_bucket_size 128;
+
+# Every proxied request must carry X-QB-Gateway-Key; CPMS sends it via
+# POS_API_GATEWAY_HEADER_NAME / POS_API_GATEWAY_HEADER_VALUE.
+map $http_x_qb_gateway_key $qb_key_ok {
+    default 0;
+    "${QB_GATEWAY_KEY}" 1;
+}
+
+# Log method + path only: no query strings, headers, bodies or keys.
+log_format qb_safe '$remote_addr "$request_method $uri" $status $request_time';
+access_log /dev/stdout qb_safe;
+
+server {
+    listen 8080;
+    server_tokens off;
+    absolute_redirect off;
+    default_type application/json;
+    client_max_body_size 256k;
+
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header X-QB-Gateway-Key "";
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_hide_header Location;
+    proxy_read_timeout 30s;
+
+    # Django runs with DEBUG=True in the demo: never let a traceback or its 404 page
+    # (which lists every URL) out. CPMS reads 404 by status only, so the body is generic.
+    proxy_intercept_errors on;
+    error_page 404 = @not_found;
+    error_page 500 502 503 504 = @upstream_error;
+
+    location = /api/health/ {
+        return 200 '{"status":"ok"}';
+    }
+
+    location ~ ^/api/v1/auth/(login|refresh)/$ {
+        if ($qb_key_ok = 0) { return 403 '{"error":"forbidden"}'; }
+        if ($request_method != POST) { return 405 '{"error":"method_not_allowed"}'; }
+        limit_req zone=qb_login burst=5 nodelay;
+        proxy_pass http://backend:8000;
+    }
+
+    # The service account is fenced to this prefix by POS itself (CPMS_SCOPE);
+    # the gateway adds the key check and a rate limit in front of it.
+    location ^~ /api/v1/integration/cpms/ {
+        if ($qb_key_ok = 0) { return 403 '{"error":"forbidden"}'; }
+        if ($request_method !~ ^(GET|HEAD|POST)$) { return 405 '{"error":"method_not_allowed"}'; }
+        limit_req zone=qb_api burst=20 nodelay;
+        proxy_pass http://backend:8000;
+    }
+
+    location / {
+        return 404 '{"error":"not_found"}';
+    }
+
+    location @not_found {
+        internal;
+        return 404 '{"code":"NOT_FOUND","detail":"Not found."}';
+    }
+
+    location @upstream_error {
+        internal;
+        return 502 '{"error":"upstream_error"}';
+    }
+}

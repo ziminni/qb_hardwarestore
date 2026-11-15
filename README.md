@@ -180,23 +180,45 @@ For a subsequent start with no source update, run `docker compose up -d` at the 
 
 ## 6. Connecting POS with BuildPro CPMS (Material Requests & Payables)
 
-### Option A: Same PC (Zero Configuration)
+CPMS signs in to POS as the seeded `cpms_service` account (password `demo1234`) and uses only the `/api/v1/integration/cpms/` routes. It sends material requests, reads the catalogue, prices and stock status, reads what each project owes, and submits online payment receipts.
 
-When both `qb_pos_inventory_system` (port `8000`) and `qb_project_management_system` (port `8001`) run in Docker on the same machine:
+### Option A: Same PC (no setup)
 
 1. Start POS first: `docker compose up -d --build` in `qb_pos_inventory_system`.
 2. Start CPMS second: `docker compose up -d --build` in `qb_project_management_system`.
-3. CPMS `docker-compose.yml` is pre-configured to reach POS at `http://host.docker.internal:8000` with `cpms_service` / `demo1234` and automatically discovers the seeded contractor payer ID (`Queen Builders Construction`). No `.env` edits or tunnel setup are needed on a single PC.
 
-### Option B: Two Different PCs via Cloudflare Quick Tunnel
+CPMS reaches POS at `http://host.docker.internal:8000` and links its own-store supplier to the POS contractor customer on first start (**Dela Cruz Construction** in the demo seed). No `.env` edits and no tunnel are needed. If CPMS started before POS was up, the link is made automatically on the first material request that is pushed.
 
-When POS runs on Store PC A and CPMS runs on Office PC B:
+### Option B: POS and CPMS on different computers (Cloudflare tunnel)
 
-1. On **Store PC A (POS)**, start the POS backend (`docker compose up -d`) and expose port `8000` using the included tunnel helper:
-   - **Windows PowerShell:** `.\scripts\start-tunnel.ps1`
-   - **Linux / macOS:** `./scripts/start-tunnel.sh`
-2. Copy the generated `https://<random-name>.trycloudflare.com` URL printed by `cloudflared`.
-3. On **Office PC B (CPMS)**, set `POS_API_BASE_URL=https://<random-name>.trycloudflare.com` in `qb_project_management_system/django-backend/.env`, then restart CPMS (`docker compose up -d`).
+The tunnel gives the store PC a free public `https://<random-name>.trycloudflare.com` address. Nothing needs installing besides Docker. Only a small **gateway** is exposed, never the POS itself. The gateway lets through only the CPMS sign-in and `/api/v1/integration/cpms/` routes, and only with a secret key. Admin, staff accounts, reports and every other POS route answer `404` through the tunnel.
+
+**On the store PC (POS):**
+
+```powershell
+cd C:\path\to\qb_pos_inventory_system
+docker compose up -d
+.\scripts\start-tunnel.ps1        # Linux/macOS: ./scripts/start-tunnel.sh
+```
+
+The first run creates `tunnel/gateway.env`, which holds the secret key (it is gitignored, so never commit or share it). The script then prints four lines like these:
+
+```text
+POS_API_BASE_URL=https://<random-name>.trycloudflare.com
+POS_API_ALLOW_INSECURE_LOCAL=False
+POS_API_GATEWAY_HEADER_NAME=X-QB-Gateway-Key
+POS_API_GATEWAY_HEADER_VALUE=<48-character key>
+```
+
+**On the office PC (CPMS):** paste those four lines into `qb_project_management_system\django-backend\.env` (create the file if needed; values there override the demo defaults), then run `docker compose up -d` in `qb_project_management_system`.
+
+Check it from the CPMS PC: opening `https://<random-name>.trycloudflare.com/api/health/` in a browser shows `{"status":"ok"}`.
+
+Good to know:
+
+- **The URL changes every time the tunnel restarts** (Quick Tunnels are free but temporary). Run the script again and update `POS_API_BASE_URL` in CPMS. The key stays the same unless you delete `tunnel/gateway.env`.
+- Stop the tunnel: `docker compose --profile tunnel stop gateway cloudflared`. A normal `docker compose up -d` never starts it.
+- The POS PC must stay on and connected. CPMS keeps unsent requests in its outbox and retries them when the store comes back.
 
 ## 7. Excel catalogue smoke test
 

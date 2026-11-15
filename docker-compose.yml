@@ -36,5 +36,32 @@ services:
       db:
         condition: service_healthy
 
+  # ---- Optional: share the POS with a CPMS on ANOTHER computer ----
+  # Off by default. scripts/start-tunnel.(sh|ps1) starts these two with
+  # `--profile tunnel`. Only the gateway is exposed, and it lets through just the
+  # CPMS sign-in and /api/v1/integration/cpms/ routes, with a secret key.
+  gateway:
+    image: nginx:1.27-alpine
+    container_name: buildpro_tunnel_gateway
+    profiles: ["tunnel"]
+    env_file:
+      - path: ./tunnel/gateway.env
+        required: false
+    volumes:
+      - ./tunnel/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./tunnel/10-require-key.sh:/docker-entrypoint.d/10-require-key.sh:ro
+    depends_on:
+      - backend
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: buildpro_tunnel
+    profiles: ["tunnel"]
+    # Free Quick Tunnel: prints a random https://<name>.trycloudflare.com URL.
+    # IPv4 + http2 avoid networks that block QUIC/IPv6.
+    command: tunnel --no-autoupdate --edge-ip-version 4 --protocol http2 --url http://gateway:8080
+    depends_on:
+      - gateway
+
 volumes:
   postgres_data:
