@@ -169,7 +169,7 @@ Every selling unit CPMS can order: an **active variant of an active product**. A
 {"count": 8, "next": null, "previous": null,
  "results": [
    {"code": "QB000008-6", "product": "Circuit Breaker 20A 1-pole", "unit": "PC", "price": "185.00", "stock_status": "in_stock"},
-   {"code": "QB000001-7", "product": "Portland Cement 40kg", "unit": "PC", "price": "275.00", "stock_status": "low"}
+   {"code": "QB000001-7", "product": "Portland Cement 40kg", "unit": "BAG", "price": "275.00", "stock_status": "low"}
  ]}
 ```
 

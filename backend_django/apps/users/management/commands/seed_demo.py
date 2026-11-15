@@ -142,6 +142,14 @@ CATALOG = [
     ),
 ]
 
+# The unit the trade sells each product by (cement by the bag, GI by the sheet, wire by
+# the roll); anything not listed is sold by the piece.
+BASE_UNIT = {
+    "Portland Cement": "BAG",
+    "GI Sheet Plain": "SHEET",
+    "Electrical Wire": "ROLL",
+}
+
 # Phase 1d Task 4 (decisions 15/16): ONE demo product sold by a base unit and a real
 # package, so the screens can show "1 Bag = 25 kg" without inventing data. Numbers are
 # chosen to be readable, not to match a supplier: 25 kg at 11.00/kg inside the bag is
@@ -274,7 +282,7 @@ class Command(BaseCommand):
                     product=product,
                     variant_name=v_name,
                     defaults={
-                        "base_uom": uoms["PC"],
+                        "base_uom": uoms[BASE_UNIT.get(prod_name, "PC")],
                         "min_stock_threshold": Decimal(20),
                     },
                 )
