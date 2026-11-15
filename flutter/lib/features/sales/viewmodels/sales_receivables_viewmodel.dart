@@ -23,13 +23,17 @@ class SalesReceivablesViewmodel extends ChangeNotifier {
   final ChequeService _cheques;
 
   List<LedgerEntry> _entries = const [];
+  List<LedgerPayment> _payments = const [];
   List<PaymentReceipt> _paymentReceipts = const [];
   bool _isLoading = false;
   String? _loadError;
+  String? _paymentsError;
+  String? _receiptsError;
   final Set<int> _payingIds = {};
   String? _payError;
 
   List<LedgerEntry> get entries => List.unmodifiable(_entries);
+  List<LedgerPayment> get payments => List.unmodifiable(_payments);
   List<PaymentReceipt> get paymentReceipts =>
       List.unmodifiable(_paymentReceipts);
   List<PaymentReceipt> get waitingPaymentReceipts => List.unmodifiable(
@@ -37,6 +41,25 @@ class SalesReceivablesViewmodel extends ChangeNotifier {
   );
   bool get isLoading => _isLoading;
   String? get loadError => _loadError;
+  String? get paymentsError => _paymentsError;
+  String? get receiptsError => _receiptsError;
+
+  /// Null shows every receipt. Set, narrows receipts to `'WAITING'`, `'APPROVED'`, or `'DECLINED'`.
+  String? _receiptStatusFilter;
+  String? get receiptStatusFilter => _receiptStatusFilter;
+
+  List<PaymentReceipt> get filteredPaymentReceipts {
+    final filter = _receiptStatusFilter;
+    if (filter == null) return List.unmodifiable(_paymentReceipts);
+    return List.unmodifiable(
+      _paymentReceipts.where((receipt) => receipt.status == filter),
+    );
+  }
+
+  void setReceiptStatusFilter(String? status) {
+    _receiptStatusFilter = status;
+    notifyListeners();
+  }
 
   /// Null shows every row. Set, rows narrow to that status via `statusAt` —
   /// the same source the tiles use, so the Overdue tile and an Overdue chip
@@ -198,9 +221,27 @@ class SalesReceivablesViewmodel extends ChangeNotifier {
     try {
       _entries = await _repository.fetchLedgers();
       try {
+        _payments = await _repository.fetchPayments();
+        _paymentsError = null;
+      } on LedgerServiceException catch (error) {
+        _paymentsError = error.message;
+      } on FormatException {
+        _paymentsError = 'The payment history could not be read. Try again.';
+      } on Object {
+        _payments = const [];
+        _paymentsError = null;
+      }
+      try {
         _paymentReceipts = await _repository.fetchPaymentReceipts();
+        _receiptsError = null;
+      } on LedgerServiceException catch (error) {
+        _receiptsError = error.message;
+      } on FormatException {
+        _receiptsError =
+            'The CPMS payment receipts could not be read. Try again.';
       } on Object {
         _paymentReceipts = const [];
+        _receiptsError = null;
       }
       _loadError = null;
     } on LedgerServiceException catch (error) {

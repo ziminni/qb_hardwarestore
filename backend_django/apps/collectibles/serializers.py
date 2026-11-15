@@ -18,6 +18,14 @@ class CollectiblePaymentSerializer(serializers.ModelSerializer):
     processed_by_name = serializers.ReadOnlyField(
         source='processed_by.full_name',
     )
+    customer_name = serializers.ReadOnlyField(
+        source='collectible.customer.name',
+    )
+    project_name = serializers.SerializerMethodField()
+    transaction_no = serializers.ReadOnlyField(
+        source='collectible.transaction.transaction_no',
+    )
+    cpms_receipt_ref = serializers.SerializerMethodField()
     payment_method = serializers.CharField(max_length=50)
     cheque_number = serializers.CharField(
         required=False, allow_blank=True, write_only=True)
@@ -31,8 +39,13 @@ class CollectiblePaymentSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'collectible',
+            'customer_name',
+            'project_name',
+            'transaction_no',
             'processed_by',
             'processed_by_name',
+            'payment_receipt',
+            'cpms_receipt_ref',
             'amount_paid',
             'payment_method',
             'cheque_number',
@@ -44,12 +57,23 @@ class CollectiblePaymentSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id',
             'payment_date',
+            'payment_receipt',
             # `processed_by` is required from the client and then OVERWRITTEN by
             # perform_create with the logged-in user. Demanding a value that is
             # discarded makes the client supply a lie and fails a request for
             # omitting it - the same class as the checkout's `cashier` field.
             'processed_by',
         ]
+
+    def get_project_name(self, obj):
+        """Return the ledger's project name, or None for a counter sale."""
+        if obj.collectible_id and obj.collectible.project_id:
+            return obj.collectible.project.name
+        return None
+
+    def get_cpms_receipt_ref(self, obj):
+        """Return the CPMS receipt reference when this payment came from one."""
+        return obj.payment_receipt.reference_no if obj.payment_receipt_id else None
 
     def validate_payment_method(self, value):
         """Accept the four tender CODES, nothing else (C2, 2026-10-24).
@@ -105,6 +129,7 @@ class CollectibleLedgerSerializer(serializers.ModelSerializer):
     transaction_no = serializers.ReadOnlyField(source='transaction.transaction_no')
     is_overdue = serializers.ReadOnlyField()
     project_name = serializers.SerializerMethodField()
+    paid_at = serializers.SerializerMethodField()
     recent_payments = CollectiblePaymentSerializer(
         source='payments',
         many=True,
@@ -125,6 +150,7 @@ class CollectibleLedgerSerializer(serializers.ModelSerializer):
             'due_date',
             'status',
             'is_overdue',
+            'paid_at',
             'created_at',
             'updated_at',
             'recent_payments',
@@ -137,8 +163,22 @@ class CollectibleLedgerSerializer(serializers.ModelSerializer):
 
     def get_recent_payments(self, obj):
         """Return the 10 most recent payments for this ledger."""
-        payments = obj.payments.order_by('-payment_date')[:10]
+        payments = sorted(
+            obj.payments.all(),
+            key=lambda p: (p.payment_date, p.id),
+            reverse=True,
+        )[:10]
         return CollectiblePaymentSerializer(payments, many=True).data
+
+    def get_paid_at(self, obj):
+        """Return the settlement timestamp when balance_due is zero, else None."""
+        if obj.balance_due > 0:
+            return None
+        payments = list(obj.payments.all())
+        if payments:
+            latest = max(payments, key=lambda p: (p.payment_date, p.id))
+            return latest.payment_date.isoformat()
+        return obj.updated_at.isoformat() if obj.updated_at else None
 
     def get_project_name(self, obj):
         """The project this utang belongs to, or None for a counter sale (decision 03).

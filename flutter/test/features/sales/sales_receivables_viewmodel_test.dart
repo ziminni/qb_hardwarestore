@@ -19,7 +19,11 @@ class _StubLedgerRepository extends LedgerRepository {
   _StubLedgerRepository() : super();
 
   List<LedgerEntry> rows = const [];
+  List<LedgerPayment> paymentRows = const [];
+  List<PaymentReceipt> receiptRows = const [];
   String? failureMessage;
+  String? paymentsFailureMessage;
+  String? receiptsFailureMessage;
   int calls = 0;
 
   /// Gates a load in flight, so `isLoading` is observable rather than inferred.
@@ -33,6 +37,20 @@ class _StubLedgerRepository extends LedgerRepository {
     final failure = failureMessage;
     if (failure != null) throw LedgerServiceException(failure);
     return rows;
+  }
+
+  @override
+  Future<List<LedgerPayment>> fetchPayments({String? search}) async {
+    final failure = paymentsFailureMessage;
+    if (failure != null) throw LedgerServiceException(failure);
+    return paymentRows;
+  }
+
+  @override
+  Future<List<PaymentReceipt>> fetchPaymentReceipts({String? status}) async {
+    final failure = receiptsFailureMessage;
+    if (failure != null) throw LedgerServiceException(failure);
+    return receiptRows;
   }
 }
 
@@ -185,6 +203,77 @@ void main() {
       expect(vm.loadError, isNot(contains('FormatException')));
     },
   );
+
+  test('loads payments and filters receipts while preserving stale rows on error', () async {
+    repository.rows = [_entry(id: 1, balance: 0)];
+    repository.paymentRows = [
+      LedgerPayment(
+        id: 10,
+        collectibleId: 1,
+        customerName: 'Dela Cruz Construction',
+        transactionNo: 'TRX-001',
+        amountPaid: 500,
+        paymentMethod: 'CASH',
+        paymentDate: DateTime(2026, 11, 15, 10, 0),
+        officialReceiptNo: 'OR-1',
+        processedByName: 'Cashier',
+      ),
+    ];
+    repository.receiptRows = [
+      PaymentReceipt(
+        id: 1,
+        cpmsPaymentId: 'PAY-1',
+        cpmsProjectId: 'PRJ-1',
+        projectName: 'Tower A',
+        customerName: 'Dela Cruz Construction',
+        amount: 500,
+        paymentMethod: 'GCASH',
+        referenceNo: 'GC-1',
+        notes: '',
+        submittedByName: 'Liza',
+        status: 'WAITING',
+        declineReason: '',
+        createdAt: DateTime(2026, 11, 15, 9, 0),
+      ),
+      PaymentReceipt(
+        id: 2,
+        cpmsPaymentId: 'PAY-2',
+        cpmsProjectId: 'PRJ-1',
+        projectName: 'Tower A',
+        customerName: 'Dela Cruz Construction',
+        amount: 700,
+        approvedAmount: 700,
+        paymentMethod: 'BANK_TRANSFER',
+        referenceNo: 'BDO-2',
+        notes: '',
+        submittedByName: 'Liza',
+        status: 'APPROVED',
+        declineReason: '',
+        createdAt: DateTime(2026, 11, 14, 9, 0),
+      ),
+    ];
+
+    await viewmodel.load();
+
+    expect(viewmodel.payments, hasLength(1));
+    expect(viewmodel.paymentsError, isNull);
+    expect(viewmodel.filteredPaymentReceipts, hasLength(2));
+
+    viewmodel.setReceiptStatusFilter('APPROVED');
+    expect(viewmodel.filteredPaymentReceipts.map((r) => r.id), [2]);
+
+    viewmodel.setStatusFilter(LedgerStatus.paid);
+    expect(viewmodel.filteredEntries.map((e) => e.id), [1]);
+
+    repository.paymentsFailureMessage = 'Payment history failed.';
+    repository.receiptsFailureMessage = 'Receipts failed.';
+    await viewmodel.load();
+
+    expect(viewmodel.paymentsError, 'Payment history failed.');
+    expect(viewmodel.receiptsError, 'Receipts failed.');
+    expect(viewmodel.payments, hasLength(1));
+    expect(viewmodel.paymentReceipts, hasLength(2));
+  });
 }
 
 class _ThrowingRepository extends LedgerRepository {

@@ -102,6 +102,13 @@ class CollectiblePayment(models.Model):
         on_delete=models.PROTECT,
         related_name='+',
     )
+    payment_receipt = models.ForeignKey(
+        'ProjectPaymentReceipt',
+        on_delete=models.PROTECT,
+        related_name='ledger_payments',
+        null=True,
+        blank=True,
+    )
     amount_paid = models.DecimalField(
         max_digits=12,
         decimal_places=2,

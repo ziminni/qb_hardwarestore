@@ -274,6 +274,81 @@ class LedgerPaymentApiTests(TestCase):
         row = next(r for r in response.json()['results']
                    if r['id'] == self.ledger.pk)
         self.assertEqual(row['balance_due'], '300.00')
+        self.assertIsNone(row['paid_at'])
+
+    def test_payment_list_exposes_history_fields_and_search(self):
+        # Counter payment (no project, no CPMS receipt)
+        counter_res = self.client.post(
+            PAYMENTS_URL,
+            {
+                'collectible': self.ledger.pk,
+                'amount_paid': '500.00',
+                'payment_method': 'CASH',
+                'official_receipt_no': 'OR-1001',
+            },
+            content_type='application/json',
+            **self.auth,
+        )
+        self.assertEqual(counter_res.status_code, 201, counter_res.content)
+
+        # Ledger is now paid in full and reports paid_at
+        ledger_res = self.client.get(LEDGERS_URL, **self.auth)
+        self.assertEqual(ledger_res.status_code, 200)
+        ledger_row = next(
+            r for r in ledger_res.json()['results'] if r['id'] == self.ledger.pk
+        )
+        self.assertEqual(ledger_row['status'], 'PAID')
+        self.assertIsNotNone(ledger_row['paid_at'])
+
+        # Second payment on a different customer for ordering & search assertions
+        other_customer = Customer.objects.create(name='Alpha Builders')
+        other_txn = SalesTransaction.objects.create(
+            customer=other_customer, cashier=self.user,
+            transaction_no='TRX-TEST-0099',
+            vatable_sales=Decimal('300'), grand_total=Decimal('300'))
+        other_ledger = CollectibleLedger.objects.create(
+            customer=other_customer, transaction=other_txn,
+            original_amount=Decimal('300'), balance_due=Decimal('300'),
+            due_date=date.today(), status=CollectibleLedger.Status.OPEN)
+        second_res = self.client.post(
+            PAYMENTS_URL,
+            {
+                'collectible': other_ledger.pk,
+                'amount_paid': '100.00',
+                'payment_method': 'GCASH',
+                'official_receipt_no': 'GC-7788',
+            },
+            content_type='application/json',
+            **self.auth,
+        )
+        self.assertEqual(second_res.status_code, 201, second_res.content)
+
+        list_res = self.client.get(PAYMENTS_URL, **self.auth)
+        self.assertEqual(list_res.status_code, 200, list_res.content)
+        rows = list_res.json()['results']
+        self.assertEqual(len(rows), 2)
+        # Newest first
+        self.assertEqual(rows[0]['customer_name'], 'Alpha Builders')
+        self.assertEqual(rows[1]['customer_name'], 'Utang Corp')
+        self.assertIsNone(rows[1]['project_name'])
+        self.assertEqual(rows[1]['transaction_no'], 'TRX-TEST-0003')
+        self.assertEqual(rows[1]['official_receipt_no'], 'OR-1001')
+        self.assertIsNone(rows[1]['payment_receipt'])
+        self.assertIsNone(rows[1]['cpms_receipt_ref'])
+
+        # Search narrows by customer, transaction number, and OR/reference
+        for query, expected_customer in (
+            ('Alpha', 'Alpha Builders'),
+            ('TRX-TEST-0003', 'Utang Corp'),
+            ('GC-7788', 'Alpha Builders'),
+        ):
+            filtered = self.client.get(
+                f'{PAYMENTS_URL}?search={query}', **self.auth,
+            )
+            self.assertEqual(filtered.status_code, 200)
+            results = filtered.json()['results']
+            self.assertEqual(len(results), 1, (query, results))
+            self.assertEqual(results[0]['customer_name'], expected_customer)
 
 
 class ReceivablesAccessTestBase(TestCase):
@@ -334,6 +409,8 @@ class LedgerReadRoleTests(ReceivablesAccessTestBase):
                     self.client.get(LEDGERS_URL, **self._auth(user)).status_code, 200)
                 self.assertEqual(
                     self.client.get(AGING_URL, **self._auth(user)).status_code, 200)
+                self.assertEqual(
+                    self.client.get(PAYMENTS_URL, **self._auth(user)).status_code, 200)
 
     def test_stocker_groupless_and_desk_staff_are_refused(self):
         for user in (self.stocker, self.nobody, self.desk_staff):
@@ -342,6 +419,8 @@ class LedgerReadRoleTests(ReceivablesAccessTestBase):
                     self.client.get(LEDGERS_URL, **self._auth(user)).status_code, 403)
                 self.assertEqual(
                     self.client.get(AGING_URL, **self._auth(user)).status_code, 403)
+                self.assertEqual(
+                    self.client.get(PAYMENTS_URL, **self._auth(user)).status_code, 403)
 
 
 class LedgerImmutabilityTests(ReceivablesAccessTestBase):

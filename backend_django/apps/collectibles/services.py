@@ -221,6 +221,7 @@ def approve_payment_receipt(
             CollectiblePayment.objects.create(
                 collectible=ledger,
                 processed_by=actor,
+                payment_receipt=receipt,
                 amount_paid=chunk,
                 payment_method=receipt.payment_method,
                 official_receipt_no=receipt.reference_no,

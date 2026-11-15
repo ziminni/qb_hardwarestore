@@ -77,17 +77,49 @@ class LedgerService {
     }
   }
 
-  /// Fetches CPMS online payment receipts for verification (Phase 1c).
+  /// Every payment posted against receivables, newest first, following pagination.
+  Future<List<LedgerPayment>> fetchPayments({String? search}) async {
+    try {
+      final trimmed = search?.trim();
+      final payments = await _client.getAll<LedgerPayment>(
+        ledgerPaymentsPath,
+        LedgerPayment.fromJson,
+        queryParameters: {
+          if (trimmed != null && trimmed.isNotEmpty) 'search': trimmed,
+        },
+        maxPages: _maxPages,
+      );
+      final sorted = List<LedgerPayment>.of(payments)
+        ..sort((a, b) {
+          final byDate = b.paymentDate.compareTo(a.paymentDate);
+          if (byDate != 0) return byDate;
+          return b.id.compareTo(a.id);
+        });
+      return sorted;
+    } on DioException catch (error) {
+      throw LedgerServiceException(_messageFor(error));
+    } on FormatException {
+      throw const LedgerServiceException(
+        'The payment history could not be read. Try again.',
+      );
+    }
+  }
+
+  /// Fetches CPMS online payment receipts for verification (Phase 1c), walking all pages.
   Future<List<PaymentReceipt>> fetchPaymentReceipts({String? status}) async {
     try {
-      final paged = await _client.getList<PaymentReceipt>(
+      return await _client.getAll<PaymentReceipt>(
         paymentReceiptsPath,
         PaymentReceipt.fromJson,
         queryParameters: {'status': ?status},
+        maxPages: _maxPages,
       );
-      return paged.items;
     } on DioException catch (error) {
       throw LedgerServiceException(_messageFor(error));
+    } on FormatException {
+      throw const LedgerServiceException(
+        'The CPMS payment receipts could not be read. Try again.',
+      );
     }
   }
 
