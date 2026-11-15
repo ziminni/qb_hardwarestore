@@ -151,6 +151,12 @@ class SalesItemSerializer(serializers.ModelSerializer):
     `variant_uom__variant__product__stored_at`; that join lives in `apps/pos/views.py`.
     """
 
+    product_name = serializers.CharField(
+        source="variant_uom.variant.product.base_name", read_only=True
+    )
+    variant_name = serializers.CharField(
+        source="variant_uom.variant.variant_name", read_only=True
+    )
     variant_uom_code = serializers.CharField(
         source="variant_uom.uom.code", read_only=True
     )
@@ -167,6 +173,8 @@ class SalesItemSerializer(serializers.ModelSerializer):
             "transaction",
             "variant_uom",
             "variant_uom_code",
+            "product_name",
+            "variant_name",
             "qty",
             "unit_price",
             "subtotal",

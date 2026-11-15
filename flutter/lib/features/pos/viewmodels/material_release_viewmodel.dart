@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../data/models/requisition.dart';
+import '../../../data/models/pos_transaction.dart' show PosReceipt;
 import '../../../data/repositories/requisition_repository.dart';
 import '../../../data/services/requisition_service.dart';
 
@@ -94,7 +95,20 @@ class MaterialReleaseViewmodel extends ChangeNotifier {
   /// happened to mention a shift must not put a pointless detour on screen.
   bool needsOpenShift = false;
 
-  Future<void> verify(String token) async {
+  Future<List<Requisition>> fetchReleaseQueue() =>
+      _repository.fetchReleaseQueue();
+
+  Future<PosReceipt> fetchReceipt() =>
+      _repository.fetchReleaseReceipt(result!.transactionId);
+
+  Future<void> verify(String token) =>
+      _verify(() => _repository.verifyToken(token));
+
+  Future<void> verifyRequest(int id) =>
+      _verify(() => _repository.verifyRequest(id));
+
+  Future<void> _verify(Future<TokenVerification> Function() lookup) async {
+    if (isBusy) return;
     isBusy = true;
     error = null;
     needsOpenShift = false;
@@ -102,7 +116,7 @@ class MaterialReleaseViewmodel extends ChangeNotifier {
     result = null;
     notifyListeners();
     try {
-      verification = await _repository.verifyToken(token);
+      verification = await lookup();
     } on RequisitionServiceException catch (failure) {
       error = failure.message;
     } finally {
@@ -114,7 +128,7 @@ class MaterialReleaseViewmodel extends ChangeNotifier {
   /// Returns true only if the server accepted the release.
   Future<bool> release() async {
     final token = verification?.token;
-    if (token == null || result != null) return false;
+    if (isBusy || token == null || result != null) return false;
     // Decision 05: nothing releasable writes nothing at all on the server, so the press
     // is refused HERE, where the clerk can still be told why.
     if (!hasReleasable) return false;

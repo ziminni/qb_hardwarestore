@@ -8,6 +8,8 @@ import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/viewmodels/material_release_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
 import 'package:client/features/pos/widgets/pos_release_step_panel.dart';
+import 'package:client/features/pos/widgets/material_request_lookup_dialog.dart';
+import 'package:client/features/pos/widgets/pos_receipt_dialog.dart';
 import 'package:client/routes/routes.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/status_badge.dart';
@@ -29,9 +31,10 @@ import 'package:go_router/go_router.dart';
 /// stands for, then the receipt the release leaves behind. [viewmodel] is injectable so a test can
 /// observe what the screen sends; production passes nothing.
 class MaterialReleasePage extends StatefulWidget {
-  const MaterialReleasePage({super.key, this.viewmodel});
+  const MaterialReleasePage({super.key, this.viewmodel, this.printer});
 
   final MaterialReleaseViewmodel? viewmodel;
+  final ReceiptPrinter? printer;
 
   @override
   State<MaterialReleasePage> createState() => _MaterialReleasePageState();
@@ -42,6 +45,8 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
       widget.viewmodel ?? MaterialReleaseViewmodel();
   late final bool _ownsViewmodel = widget.viewmodel == null;
   final _token = TextEditingController();
+  bool _printing = false;
+  String? _printError;
 
   @override
   void dispose() {
@@ -53,21 +58,57 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
   /// Both the button and Enter land here, so the two can never disagree.
   void _verify() {
     final token = _token.text.trim();
-    if (token.isEmpty || _viewmodel.isBusy) return;
+    if (token.isEmpty || _viewmodel.isBusy || _printing) return;
+    setState(() => _printError = null);
     _viewmodel.verify(token);
   }
 
   /// The next customer: clear the field and everything the last token proved.
   void _startOver() {
+    if (_printing || _viewmodel.isBusy) return;
     _token.clear();
+    setState(() => _printError = null);
     _viewmodel.reset();
+  }
+
+  Future<void> _findRequest() async {
+    final id = await showDialog<int>(
+      context: context,
+      builder: (_) => MaterialRequestLookupDialog(viewmodel: _viewmodel),
+    );
+    if (id == null || !mounted) return;
+    _token.clear();
+    setState(() => _printError = null);
+    await _viewmodel.verifyRequest(id);
+  }
+
+  Future<void> _printReceipt() async {
+    if (_printing || _viewmodel.result == null) return;
+    setState(() {
+      _printing = true;
+      _printError = null;
+    });
+    try {
+      final receipt = await _viewmodel.fetchReceipt();
+      await (widget.printer ?? const PdfReceiptPrinter()).print(receipt);
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _printError =
+              'Release already recorded. Could not print receipt: $error',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _printing = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return DashboardShell(
       title: 'Release materials',
-      subtitle: 'Verify a material token and release the stock it covers',
+      subtitle:
+          'Find an accepted request or verify its token, then confirm handover',
       selectedNavigationIndex: 2,
       navigationItems: posNavigationItems,
       onNavigationSelected: (i) => navigatePos(context, i),
@@ -153,6 +194,19 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
             style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
           ),
           const SizedBox(height: AppSpacing.md),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _viewmodel.isBusy || _printing ? null : _findRequest,
+              icon: const Icon(Icons.search),
+              label: const Text('Find accepted request'),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          const Text(
+            'Or use the request token below. No need to scan each product.',
+          ),
+          const SizedBox(height: AppSpacing.sm),
           Row(
             children: [
               Expanded(
@@ -169,7 +223,10 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
                 builder: (context, _) => SizedBox(
                   height: _TokenField.height,
                   child: FilledButton(
-                    onPressed: _viewmodel.isBusy || _token.text.trim().isEmpty
+                    onPressed:
+                        _viewmodel.isBusy ||
+                            _printing ||
+                            _token.text.trim().isEmpty
                         ? null
                         : _verify,
                     style: FilledButton.styleFrom(
@@ -378,8 +435,18 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
                   emphasis: true,
                 ),
                 const SizedBox(height: AppSpacing.lg),
+                OutlinedButton.icon(
+                  onPressed: _printing ? null : _printReceipt,
+                  icon: const Icon(Icons.print_outlined),
+                  label: Text(_printing ? 'Printing…' : 'Print receipt'),
+                ),
+                if (_printError case final message?) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  ErrorBanner(message: message),
+                ],
+                const SizedBox(height: AppSpacing.sm),
                 OutlinedButton(
-                  onPressed: _viewmodel.isBusy ? null : _startOver,
+                  onPressed: _viewmodel.isBusy || _printing ? null : _startOver,
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size(0, 48),
                   ),

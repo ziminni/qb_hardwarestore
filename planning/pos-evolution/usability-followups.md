@@ -8,6 +8,7 @@ Status: In Progress on `feat/pos-usability-followups`, from merged master `6d47d
 2. **Products show real images.** Existing URL display works but selected local file paths are incorrectly sent to server URLField. Fix durable upload/display, not device-only previews.
 3. **Shifts explain variance.** Server formula stays `closing_count - expected_drawer`, where expected cash includes opening float and net cash receipts/refunds. Use Cash difference with clear counted-minus-expected explanation and shortage/extra/exact text; do not change accounting or wire keys.
 4. **Location filter uses actual positive stock at selected location**, not product Stored at/home. Confirmed explicitly. Reuse complete server-owned stock-on-hand rows; no new backend query necessary. All locations retains products even if out of stock. Aggregate existing totals must not be mistaken for selected-location totals.
+5. **Searchable accepted-request lookup and release receipt printing.** Owner confirmed cashiers may search/select accepted (`ACCEPTED`/`PARTIAL`) requests by request number or project without typing the UUID token, while keeping scanned/typed tokens as an alternative and preserving all server approval, stock, open-shift and single-release guards. Release screen also prints the official receipt for the resulting `REQUISITION` sale (`GET /api/v1/transactions/{id}/`, with `product_name` and `variant_name` on `SalesItemSerializer`) via existing `ReceiptDialog` / `ReceiptPrinter` without re-releasing on print retry.
 
 ## Lanes and file ownership
 

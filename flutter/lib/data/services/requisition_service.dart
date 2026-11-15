@@ -1,5 +1,10 @@
 import 'package:client/core/network/api_client.dart';
 import 'package:client/data/models/requisition.dart';
+import 'package:client/data/models/json_field.dart';
+import 'package:client/data/models/pick_up.dart';
+import 'package:client/data/models/pos_transaction.dart'
+    show PosReceipt, PosCartLine;
+import 'package:client/data/services/pos_service.dart' show PosCheckoutResult;
 import 'package:dio/dio.dart';
 
 /// Raised for anything the release screens must show to a human.
@@ -90,6 +95,87 @@ class RequisitionService {
     } on FormatException {
       throw const RequisitionServiceException(
         'The requisition list did not finish loading. Try again.',
+      );
+    }
+  }
+
+  /// Cashier lookup is separate from the manager-only review list.
+  Future<List<Requisition>> fetchReleaseQueue() async {
+    try {
+      return await _client.getAll<Requisition>(
+        '${requisitionsPath}release-queue/',
+        Requisition.fromJson,
+        maxPages: _maxPages,
+      );
+    } on DioException catch (error) {
+      throw RequisitionServiceException(
+        _messageFor(error),
+        code: _serverCode(error),
+      );
+    } on FormatException {
+      throw const RequisitionServiceException(
+        'Accepted requests could not be read. Try again.',
+      );
+    }
+  }
+
+  Future<TokenVerification> verifyRequest(int id) async {
+    final body = await _post('$requisitionsPath$id/verify-release/');
+    return _decode(TokenVerification.fromJson, body);
+  }
+
+  /// Read the saved sale, never rebuild a receipt from the pre-release stock plan.
+  Future<PosReceipt> fetchReleaseReceipt(int transactionId) async {
+    try {
+      final response = await _client.get<Map<String, dynamic>>(
+        '/api/v1/transactions/$transactionId/',
+      );
+      final body = response.data;
+      if (body == null) throw const FormatException('Missing saved sale.');
+      final sale = PosCheckoutResult.fromJson(body);
+      final items = body['items'] as List;
+      return PosReceipt(
+        reference: sale.transactionNo,
+        officialReceiptNumber: sale.orNumber,
+        createdAt: sale.transDate,
+        lines: items
+            .map((item) {
+              final row = item as Map<String, dynamic>;
+              final quantity = decimalField(row, 'qty');
+              return PosCartLine(
+                variantUomId: intField(row, 'variant_uom'),
+                productName: stringField(row, 'product_name'),
+                variantName: stringField(row, 'variant_name'),
+                quantity: quantity,
+                unit: stringField(row, 'variant_uom_code'),
+                unitPrice: decimalField(row, 'unit_price'),
+                availableQuantity: quantity,
+                storedAtName: row['stored_at_name'] as String? ?? '',
+                pickUp: nestedList(row, 'pick_up', PickUpPart.fromJson),
+              );
+            })
+            .toList(growable: false),
+        paymentMethod: 'CREDIT',
+        amountPaid: 0,
+        total: sale.grandTotal,
+        payments: sale.payments,
+        discountAmount: sale.discountAmount,
+        discountReason: sale.discountReason,
+        vatableSales: sale.vatableSales,
+        vatAmount: sale.vatAmount,
+        vatRegistered: sale.vatRegistered,
+        vatRate: decimalField(body, 'vat_rate'),
+        changeGiven: sale.changeGiven,
+        deliveryFee: sale.deliveryFee,
+      );
+    } on DioException catch (error) {
+      throw RequisitionServiceException(
+        _messageFor(error),
+        code: _serverCode(error),
+      );
+    } on FormatException {
+      throw const RequisitionServiceException(
+        'The saved receipt could not be read. Try printing again; do not release again.',
       );
     }
   }
