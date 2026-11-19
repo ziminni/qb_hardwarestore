@@ -1,7 +1,7 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
-import 'package:client/core/layout/admin_skeleton_layout.dart';
+import 'package:client/core/printing/roll_printer.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/data/models/delivery.dart';
@@ -15,7 +15,6 @@ import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:printing/printing.dart';
 
 /// Hands a delivery slip to the platform.
 ///
@@ -25,18 +24,16 @@ abstract class DeliverySlipPrinter {
   Future<void> print(Delivery delivery);
 }
 
-/// The real one: the OS print dialog, on the 80 mm roll the receipt uses.
-class PdfDeliverySlipPrinter implements DeliverySlipPrinter {
-  const PdfDeliverySlipPrinter();
+/// The real one: ESC/POS straight to the receipt printer chosen in Settings,
+/// the same one and the same way as the sales receipt (`RollReceiptPrinter`).
+class RollDeliverySlipPrinter implements DeliverySlipPrinter {
+  const RollDeliverySlipPrinter();
 
   @override
-  Future<void> print(Delivery delivery) {
-    return Printing.layoutPdf(
-      name: delivery.documentNo,
-      format: deliverySlipPageFormat,
-      onLayout: (_) => buildDeliverySlipPdfWithOpenSans(delivery),
-    );
-  }
+  Future<void> print(Delivery delivery) => RollPrinter().print(
+    buildDeliverySlipEscPos(delivery),
+    job: delivery.documentNo,
+  );
 }
 
 /// Which role shell the same screen body is drawn in.
@@ -46,7 +43,7 @@ class PdfDeliverySlipPrinter implements DeliverySlipPrinter {
 /// page: the server scopes a cashier to their OWN slips but refuses a move with
 /// 403, so a view that could only be read is not offered (decision 18 leaves it
 /// to the brief, and the sidebar stays as it was).
-enum DeliveriesShell { inventory, sales, admin }
+enum DeliveriesShell { inventory, sales }
 
 /// The delivery schedule in the Stock Manager's shell (inventory sidebar index
 /// 14, APPENDED so no earlier tab moves).
@@ -79,20 +76,6 @@ class SalesDeliveriesPage extends StatelessWidget {
   );
 }
 
-/// The delivery schedule in the Admin shell (admin sidebar index 9, APPENDED).
-class AdminDeliveriesPage extends StatelessWidget {
-  const AdminDeliveriesPage({super.key, this.viewmodel, this.printer});
-
-  final DeliveriesViewmodel? viewmodel;
-  final DeliverySlipPrinter? printer;
-
-  @override
-  Widget build(BuildContext context) => ChangeNotifierProvider(
-    create: (_) => (viewmodel ?? DeliveriesViewmodel())..load(),
-    child: _DeliveriesBody(shell: DeliveriesShell.admin, printer: printer),
-  );
-}
-
 /// The one screen body, shared by the three shells so the rules and the numbers
 /// cannot drift between roles.
 class _DeliveriesBody extends StatefulWidget {
@@ -118,7 +101,7 @@ class _DeliveriesBodyState extends State<_DeliveriesBody> {
   bool _printing = false;
 
   DeliverySlipPrinter get _printer =>
-      widget.printer ?? const PdfDeliverySlipPrinter();
+      widget.printer ?? const RollDeliverySlipPrinter();
 
   Future<void> _start(Delivery delivery) async {
     final state = context.read<DeliveriesViewmodel>();
@@ -229,15 +212,6 @@ class _DeliveriesBodyState extends State<_DeliveriesBody> {
         selectedNavigationIndex: 10,
         scrollable: false,
         onNavigationSelected: (index) => navigateSales(context, index),
-        child: content,
-      ),
-      DeliveriesShell.admin => AdminSkeletonLayout(
-        title: 'Deliveries',
-        subtitle: 'The delivery schedule: what goes out, when, and by whom.',
-        selectedNavigationIndex: 9,
-        scrollable: false,
-        // The admin shell navigates from its own tuple list, so it needs no
-        // callback here.
         child: content,
       ),
     };

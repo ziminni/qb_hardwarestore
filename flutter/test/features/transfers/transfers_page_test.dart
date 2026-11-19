@@ -336,7 +336,7 @@ void main() {
   ) async {
     await _pump(
       tester,
-      AdminTransfersPage(
+      SalesTransfersPage(
         viewmodel: _state(),
         products: _FakeProductsRepository([_cement()]),
       ),

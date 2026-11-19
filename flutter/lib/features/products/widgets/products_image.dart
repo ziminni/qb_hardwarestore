@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:client/core/config/api_config.dart';
 import 'package:flutter/material.dart';
 
 class ProductsImage extends StatelessWidget {
@@ -11,6 +12,7 @@ class ProductsImage extends StatelessWidget {
     this.width = 48,
     this.height = 48,
     this.fit = BoxFit.cover,
+    this.placeholder,
   });
 
   /// The server's `image_url`, or a legacy device path.
@@ -23,23 +25,28 @@ class ProductsImage extends StatelessWidget {
   final double height;
   final BoxFit fit;
 
+  /// Optional custom placeholder rendered when no image is set or loading fails.
+  final Widget? placeholder;
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final placeholder = ColoredBox(
-      color: colors.surfaceContainerHighest,
-      child: SizedBox(
-        width: width,
-        height: height,
-        child: Icon(Icons.image_outlined, color: colors.onSurfaceVariant),
-      ),
-    );
+    final fallback =
+        placeholder ??
+        ColoredBox(
+          color: colors.surfaceContainerHighest,
+          child: SizedBox(
+            width: width,
+            height: height,
+            child: Icon(Icons.image_outlined, color: colors.onSurfaceVariant),
+          ),
+        );
 
     Widget errorBuilder(
       BuildContext context,
       Object error,
       StackTrace? stackTrace,
-    ) => placeholder;
+    ) => fallback;
 
     if (imageBytes case final bytes?) {
       return Image.memory(
@@ -51,11 +58,27 @@ class ProductsImage extends StatelessWidget {
       );
     }
 
-    if (imageUrl.trim().isEmpty) return placeholder;
+    final trimmed = imageUrl.trim();
+    if (trimmed.isEmpty) return fallback;
 
-    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
       return Image.network(
-        imageUrl,
+        trimmed,
+        width: width,
+        height: height,
+        fit: fit,
+        errorBuilder: errorBuilder,
+      );
+    }
+
+    // Relative server media URLs (e.g. `/media/product-images/...`) resolve
+    // against the configured API host rather than the local filesystem.
+    if (trimmed.startsWith('/media/')) {
+      final root = ApiConfig.baseUrl.endsWith('/')
+          ? ApiConfig.baseUrl.substring(0, ApiConfig.baseUrl.length - 1)
+          : ApiConfig.baseUrl;
+      return Image.network(
+        '$root$trimmed',
         width: width,
         height: height,
         fit: fit,
@@ -64,7 +87,7 @@ class ProductsImage extends StatelessWidget {
     }
 
     return Image.file(
-      File(imageUrl),
+      File(trimmed),
       width: width,
       height: height,
       fit: fit,

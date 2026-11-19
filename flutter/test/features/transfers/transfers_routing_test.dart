@@ -10,7 +10,6 @@
 
 import 'dart:io';
 
-import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/core/constants/app_areas.dart';
@@ -95,7 +94,7 @@ void main() {
   group('every transfers entry is APPENDED', () {
     test('the inventory sidebar gains Transfers at 15, moving nothing', () {
       final order = _areaOrder(AppAreas.inventory);
-      expect(order, hasLength(16));
+      expect(order, hasLength(17));
       expect(order[8], 'inventoryReceiving');
       expect(order[13], 'inventoryPayables');
       expect(order[14], 'inventoryDeliveries');
@@ -104,31 +103,29 @@ void main() {
 
     test('the sales sidebar gains Transfers at 11, moving nothing', () {
       final order = _areaOrder(AppAreas.sales);
-      expect(order, hasLength(12));
+      expect(order, hasLength(13));
       expect(order[6], 'salesReports');
       expect(order[9], 'salesPayables');
       expect(order[10], 'salesDeliveries');
       expect(order[11], 'salesTransfers');
+      expect(order[12], 'salesSettings');
     });
 
-    test('the admin menu appends Transfers after Storage locations', () {
-      final items = AppDestinations.labelsFor(AppAreas.admin);
-      expect(items, hasLength(12));
-      expect(items[7], 'Project requests');
-      expect(items[8], 'Payables');
-      expect(items[9], 'Deliveries');
+    test('the Admin menu has no Transfers and no admin route', () {
+      // Owner 2026-11-18: the Admin sees everything and acts on nothing.
       expect(
-        items[10],
-        'Storage locations',
-        reason: 'the tab that was last keeps its index',
+        AppDestinations.labelsFor(AppAreas.admin),
+        isNot(contains('Transfers')),
       );
-      expect(items[11], 'Transfers');
-      expect(AdminSkeletonLayout.groups.last, ('Transfers', 11));
+      expect(
+        _read('lib/routes/routes.dart'),
+        isNot(contains('path: adminTransfers')),
+      );
     });
 
     test('the inventory and sales layouts render the entry they advertise', () {
       final inventoryLabels = AppDestinations.labelsFor(AppAreas.inventory);
-      expect(inventoryLabels, hasLength(16));
+      expect(inventoryLabels, hasLength(17));
       expect(inventoryLabels[14], 'Deliveries');
       expect(inventoryLabels[15], 'Transfers');
 
@@ -136,9 +133,10 @@ void main() {
           .expand((section) => section.destinations)
           .map((destination) => destination.label)
           .toList();
-      expect(salesLabels, hasLength(12));
+      expect(salesLabels, hasLength(13));
       expect(salesLabels[10], 'Deliveries');
       expect(salesLabels[11], 'Transfers');
+      expect(salesLabels[12], 'Settings');
 
       expect(
         InventorySkeletonLayout.lowStockIndex,
@@ -154,7 +152,8 @@ void main() {
         r'selectedNavigationIndex:\s*(\d+)',
       ).allMatches(source).map((match) => int.parse(match.group(1)!)).toList();
       expect(declared, containsAll(<int>[15, 11]));
-      expect(declared, hasLength(3), reason: 'one per shell');
+      expect(declared, hasLength(2), reason: 'inventory and sales literal');
+      expect(source, isNot(contains('AdminSkeletonLayout')));
     });
   });
 }

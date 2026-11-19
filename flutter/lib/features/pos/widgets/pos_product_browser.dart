@@ -1,6 +1,9 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/format/format.dart';
+import 'package:client/core/theme/app_palette.dart';
 import 'package:client/data/models/pos_transaction.dart';
+import 'package:client/features/products/widgets/products_image.dart';
+import 'package:client/shared/widgets/blueprint.dart';
 import 'package:flutter/material.dart';
 
 /// The till's left panel: the scan field, the category chips and the
@@ -40,11 +43,12 @@ class PosProductBrowser extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     final showChips = onCategorySelected != null && categories.length > 1;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: AppColors.cardBackground,
-        border: Border.all(color: AppColors.border),
+        color: p.cardBackground,
+        border: Border.all(color: p.border),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Padding(
@@ -86,31 +90,33 @@ class PosProductBrowser extends StatelessWidget {
                   ? Center(child: Text(emptyMessage))
                   : LayoutBuilder(
                       builder: (context, constraints) {
-                        // The same column count the delegate below will pick,
-                        // so the card height can follow the card width: a
-                        // narrow card stacks its price over Add and needs
-                        // more room than a wide one.
                         const maxExtent = 240.0;
                         const gap = 12.0;
                         final columns =
-                            (constraints.maxWidth / (maxExtent + gap))
+                            ((constraints.maxWidth + gap) / (maxExtent + gap))
                                 .ceil()
                                 .clamp(1, 99);
                         final cardWidth =
                             (constraints.maxWidth - gap * (columns - 1)) /
                             columns;
-                        final stacked =
-                            cardWidth - 28 < _ProductCard.sideBySidePriceWidth;
                         final textScale = MediaQuery.textScalerOf(
                           context,
-                        ).scale(1);
+                        ).scale(1).clamp(1.0, 1.6);
+                        // Top photo is a 1:1 square inside the 1px card border.
+                        // Scale only the text block by textScale so the square
+                        // photo, padding, and Add button stay crisp without
+                        // opening dead vertical space.
+                        final imageSize = (cardWidth - 2).clamp(
+                          0.0,
+                          double.infinity,
+                        );
+                        final fixedHeight = imageSize + 100.0;
+                        final textHeight = 116.0 * textScale;
                         return GridView.builder(
                           gridDelegate:
-                              SliverGridDelegateWithMaxCrossAxisExtent(
-                                maxCrossAxisExtent: maxExtent,
-                                mainAxisExtent:
-                                    (stacked ? 252.0 : 212.0) *
-                                    textScale.clamp(1.0, 1.6),
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: columns,
+                                mainAxisExtent: fixedHeight + textHeight,
                                 crossAxisSpacing: gap,
                                 mainAxisSpacing: gap,
                               ),
@@ -130,7 +136,7 @@ class PosProductBrowser extends StatelessWidget {
   }
 }
 
-/// The field the USB scanner types into. Gold-bordered so it reads as the
+/// The field the USB scanner types into. Accent-bordered so it reads as the
 /// till's main input; the hint is the one the scan tests look for.
 class _ScanField extends StatelessWidget {
   const _ScanField({
@@ -147,9 +153,10 @@ class _ScanField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     final border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
-      borderSide: const BorderSide(color: AppColors.brandGold, width: 2),
+      borderSide: BorderSide(color: p.accent, width: 2),
     );
     return TextField(
       controller: controller,
@@ -157,18 +164,21 @@ class _ScanField extends StatelessWidget {
       autofocus: true,
       onChanged: onChanged,
       onSubmitted: onSubmitted,
-      style: const TextStyle(fontSize: 15),
+      style: TextStyle(fontSize: 15, color: p.textPrimary),
       decoration: InputDecoration(
         hintText: 'Search or scan a Queen Builders barcode',
         filled: true,
-        fillColor: const Color(0xFFFFFDF7),
+        fillColor: p.isDark ? p.surfaceSunken : const Color(0xFFFFFDF7),
         contentPadding: const EdgeInsets.symmetric(vertical: 16),
         border: border,
         enabledBorder: border,
         focusedBorder: border.copyWith(
-          borderSide: const BorderSide(color: AppColors.brandBlack, width: 2),
+          borderSide: BorderSide(
+            color: p.isDark ? p.accentLight : AppColors.brandBlack,
+            width: 2,
+          ),
         ),
-        prefixIcon: const Icon(Icons.barcode_reader, color: _goldInk),
+        prefixIcon: Icon(Icons.barcode_reader, color: p.accentInk),
         suffixIcon: Padding(
           padding: const EdgeInsets.only(right: 10),
           child: Tooltip(
@@ -176,13 +186,13 @@ class _ScanField extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: AppColors.cardBackground,
-                border: Border.all(color: AppColors.border),
+                color: p.cardBackground,
+                border: Border.all(color: p.border),
                 borderRadius: BorderRadius.circular(6),
               ),
-              child: const Text(
+              child: Text(
                 'Scanner ready',
-                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                style: TextStyle(fontSize: 12, color: p.textSecondary),
               ),
             ),
           ),
@@ -192,9 +202,6 @@ class _ScanField extends StatelessWidget {
     );
   }
 }
-
-/// Gold that reads as text on white (the brand gold is too light for that).
-const Color _goldInk = Color(0xFF6E5A22);
 
 class _CategoryChip extends StatelessWidget {
   const _CategoryChip({
@@ -209,17 +216,18 @@ class _CategoryChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    final selectedBg = p.isDark ? p.accent : AppColors.brandBlack;
+    final selectedFg = p.isDark ? p.onAccent : AppColors.brandWhite;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: Semantics(
         selected: selected,
         button: true,
         child: Material(
-          color: selected ? AppColors.brandBlack : AppColors.cardBackground,
+          color: selected ? selectedBg : p.cardBackground,
           shape: StadiumBorder(
-            side: BorderSide(
-              color: selected ? AppColors.brandBlack : AppColors.border,
-            ),
+            side: BorderSide(color: selected ? selectedBg : p.border),
           ),
           child: InkWell(
             customBorder: const StadiumBorder(),
@@ -233,9 +241,7 @@ class _CategoryChip extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: selected
-                        ? AppColors.brandWhite
-                        : const Color(0xFF3A362F),
+                    color: selected ? selectedFg : p.textPrimary,
                   ),
                 ),
               ),
@@ -250,143 +256,236 @@ class _CategoryChip extends StatelessWidget {
 class _ProductCard extends StatelessWidget {
   const _ProductCard({required this.product, required this.onAdd});
 
-  /// Card content width below which the price and Add button stack.
-  ///
-  /// 210 rather than 180 because the price is a full `₱1,480.50 / sheet` on one
-  /// line: at 198 the money fit beside the button but the unit ran out of room
-  /// and the card read `₱1,480.50 / she…` (seen in the C1 goldens at 760).
-  static const double sideBySidePriceWidth = 210;
-
   final PosCatalogItem product;
   final VoidCallback onAdd;
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     final caption = [
       product.categoryName,
       product.brandName,
     ].where((part) => part.isNotEmpty).join(' · ').toUpperCase();
     final outOfStock = product.availableSaleQuantity <= 0;
+    final addBg = p.isDark ? p.accent : AppColors.brandBlack;
+    final addFg = p.isDark ? p.onAccent : AppColors.brandWhite;
+
     return Material(
-      color: outOfStock ? const Color(0xFFFAF9F6) : AppColors.cardBackground,
+      color: outOfStock ? p.surfaceSunken : p.cardBackground,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: AppColors.border),
+        side: BorderSide(color: p.border),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: outOfStock ? null : onAdd,
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (caption.isNotEmpty) ...[
-                Text(
-                  caption,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.8,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 6),
-              ],
-              Text(
-                product.productName,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  height: 1.3,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                product.variantName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 10),
-              _StockBadge(
-                quantity: product.availableSaleQuantity,
-                unit: product.unit,
-                isLowStock: product.isLowStock,
-              ),
-              const Spacer(),
-              // A narrow card cannot fit the price beside Add without cutting
-              // the price off, so the two stack.
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final price = Text.rich(
-                    TextSpan(
-                      children: [
-                        TextSpan(
-                          text: formatPeso(product.unitPrice),
-                          style: const TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
-                            fontFeatures: [FontFeature.tabularFigures()],
-                          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _CardImageHeader(
+              imageUrl: product.imageUrl,
+              outOfStock: outOfStock,
+            ),
+            Divider(height: 1, thickness: 1, color: p.border),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (caption.isNotEmpty) ...[
+                      Text(
+                        caption,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8,
+                          color: p.textSecondary,
                         ),
-                        TextSpan(
-                          text: ' / ${product.unit.toLowerCase()}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  );
-                  final add = FilledButton(
-                    onPressed: outOfStock ? null : onAdd,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.brandBlack,
-                      foregroundColor: AppColors.brandWhite,
-                      minimumSize: const Size(64, 40),
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      const SizedBox(height: 3),
+                    ],
+                    Text(
+                      product.productName,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        height: 1.25,
+                        color: p.textPrimary,
                       ),
                     ),
-                    child: Text(
-                      'Add',
-                      semanticsLabel:
-                          'Add ${product.productName} ${product.variantName}',
+                    const SizedBox(height: 2),
+                    Text(
+                      product.variantName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 13, color: p.textSecondary),
                     ),
-                  );
-                  if (constraints.maxWidth >= sideBySidePriceWidth) {
-                    return Row(
-                      children: [
-                        Expanded(child: price),
-                        const SizedBox(width: 8),
-                        add,
-                      ],
-                    );
-                  }
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [price, const SizedBox(height: 6), add],
-                  );
-                },
+                    const SizedBox(height: 8),
+                    _StockBadge(
+                      quantity: product.availableSaleQuantity,
+                      unit: product.unit,
+                      isLowStock: product.isLowStock,
+                    ),
+                    const SizedBox(height: 8),
+                    Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: formatPeso(product.unitPrice),
+                            style: TextStyle(
+                              fontSize: 16.5,
+                              fontWeight: FontWeight.w700,
+                              color: p.textPrimary,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                          TextSpan(
+                            text: ' / ${product.unit.toLowerCase()}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: p.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const Spacer(),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: outOfStock ? null : onAdd,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: addBg,
+                          foregroundColor: addFg,
+                          minimumSize: const Size(64, 38),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: Text(
+                          'Add',
+                          semanticsLabel:
+                              'Add ${product.productName} ${product.variantName}',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
+}
+
+/// Square (1:1) top photo frame for each POS material card: shows the
+/// stocker-uploaded product image when available, or a themed placeholder.
+class _CardImageHeader extends StatelessWidget {
+  const _CardImageHeader({required this.imageUrl, required this.outOfStock});
+
+  final String imageUrl;
+  final bool outOfStock;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    final placeholder = _CardImagePlaceholder(palette: p);
+
+    final image = AspectRatio(
+      aspectRatio: 1,
+      child: ColoredBox(
+        color: p.surfaceSunken,
+        child: ProductsImage(
+          imageUrl: imageUrl,
+          width: double.infinity,
+          height: double.infinity,
+          fit: BoxFit.cover,
+          placeholder: placeholder,
+        ),
+      ),
+    );
+
+    if (!outOfStock) return image;
+    return Opacity(opacity: 0.55, child: image);
+  }
+}
+
+class _CardImagePlaceholder extends StatelessWidget {
+  const _CardImagePlaceholder({required this.palette});
+
+  final AppPalette palette;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ColoredBox(color: palette.surfaceSunken),
+        IgnorePointer(
+          child: CustomPaint(painter: _PlaceholderGridPainter(palette.accent)),
+        ),
+        Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: palette.cardBackground,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: palette.border),
+                ),
+                child: Icon(
+                  Icons.image_outlined,
+                  size: 22,
+                  color: palette.accentInk,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'No photo',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.4,
+                  color: palette.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PlaceholderGridPainter extends CustomPainter {
+  const _PlaceholderGridPainter(this.accent);
+
+  final Color accent;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    Blueprint.paintGrid(canvas, size, opacity: 0.45, color: accent);
+  }
+
+  @override
+  bool shouldRepaint(covariant _PlaceholderGridPainter oldDelegate) =>
+      oldDelegate.accent != accent;
 }
 
 /// Stock on hand, in words AND color: the color alone would not reach a
@@ -423,8 +522,8 @@ class _StockBadge extends StatelessWidget {
             '$amount $unitLabel in stock',
           );
     return Container(
-      height: 24,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      constraints: const BoxConstraints(minHeight: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
         color: tint,
         borderRadius: BorderRadius.circular(999),

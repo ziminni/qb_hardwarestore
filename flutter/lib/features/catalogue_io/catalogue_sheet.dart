@@ -62,9 +62,10 @@ class CatalogueSheetRow {
     required this.active,
   });
 
-  final int productId;
-  final int variantId;
-  final int unitId;
+  /// Null on an import-TEMPLATE row: a blank ID tells the import to create.
+  final int? productId;
+  final int? variantId;
+  final int? unitId;
   final String category;
   final String brand;
   final String productName;
@@ -174,6 +175,131 @@ class CatalogueSheetLists {
   static List<String> _sorted(Iterable<String> values) =>
       values.where((value) => value.isNotEmpty).toSet().toList()..sort();
 }
+
+/// Example rows for the import TEMPLATE (owner 2026-11-18): blank IDs, so an
+/// import CREATES them, built only from names this shop's [lists] already hold
+/// (an unknown category, brand, unit or location is a row error on import).
+///
+/// Shows the three shapes a storekeeper needs: a measured Bodega product (one base
+/// row), a counted product sold by the piece AND by a pack (two rows, one with
+/// Units per base 1), and a Store product.
+List<CatalogueSheetRow> catalogueTemplateRows(CatalogueSheetLists lists) {
+  String pick(List<String> values, List<String> preferred) {
+    for (final want in preferred) {
+      for (final value in values) {
+        if (value.toLowerCase() == want.toLowerCase()) return value;
+      }
+    }
+    return values.isEmpty ? '' : values.first;
+  }
+
+  final bodega = pick(lists.locations, const ['Bodega']);
+  final store = pick(lists.locations, const ['Store']);
+  final brand = pick(lists.brands, const ['Local Supply']);
+  final measured = pick(lists.unitCodes, const ['CU.M', 'KG', 'M', 'L']);
+  final piece = pick(lists.unitCodes, const ['PC']);
+  final pack = pick(
+    [
+      for (final code in lists.unitCodes)
+        if (code != piece) code,
+    ],
+    const ['BUNDLE', 'PACK', 'BOX', 'BAG'],
+  );
+  final bag = pick(lists.unitCodes, const ['BAG', 'PC']);
+
+  CatalogueSheetRow row({
+    required String category,
+    required String name,
+    required String variant,
+    required String unit,
+    required double perBase,
+    required double price,
+    required double threshold,
+    required String storedAt,
+  }) => CatalogueSheetRow(
+    productId: null,
+    variantId: null,
+    unitId: null,
+    category: category,
+    brand: brand,
+    productName: name,
+    variantName: variant,
+    unitCode: unit,
+    unitsPerBase: perBase,
+    price: price,
+    barcode: '',
+    lowStockThreshold: threshold,
+    storedAt: storedAt,
+    active: true,
+  );
+
+  return [
+    row(
+      category: pick(lists.categories, const ['Aggregates', 'Sand', 'Gravel']),
+      name: 'Gravel',
+      variant: '3/4 inch',
+      unit: measured,
+      perBase: 1,
+      price: 1350,
+      threshold: 8,
+      storedAt: bodega,
+    ),
+    row(
+      category: pick(lists.categories, const [
+        'Masonry',
+        'Blocks',
+        'Aggregates',
+      ]),
+      name: 'Hollow Blocks',
+      variant: '4 inch',
+      unit: piece,
+      perBase: 1,
+      price: 16,
+      threshold: 300,
+      storedAt: bodega,
+    ),
+    if (pack.isNotEmpty)
+      row(
+        category: pick(lists.categories, const [
+          'Masonry',
+          'Blocks',
+          'Aggregates',
+        ]),
+        name: 'Hollow Blocks',
+        variant: '4 inch',
+        unit: pack,
+        perBase: 100,
+        price: 1500,
+        threshold: 300,
+        storedAt: bodega,
+      ),
+    row(
+      category: pick(lists.categories, const ['Cement']),
+      name: 'Portland Cement (example)',
+      variant: '40kg',
+      unit: bag,
+      perBase: 1,
+      price: 260,
+      threshold: 20,
+      storedAt: store,
+    ),
+  ];
+}
+
+/// The "How to fill" sheet of the import template, one line per row.
+const catalogueTemplateInstructions = <String>[
+  'HOW TO FILL THIS TEMPLATE',
+  'One row per selling unit. Replace the example rows with your products before importing.',
+  'Product ID, Variant ID, Unit ID: leave BLANK for new products. Rows with IDs update existing items (use an export for that).',
+  'Category, Brand, Unit code, Stored at: copy the exact names from the Lists sheet. They must already exist.',
+  'Product name and Variant: required. Several rows with the same product and variant are one product sold in several units.',
+  'Units per base: type 1 on exactly ONE row per variant (the unit stock is counted in). Other rows: how many base units they hold, e.g. 100 for a bundle of 100.',
+  'Price: the selling price of THAT unit.',
+  'Barcode: optional. Leave blank and the system makes one.',
+  'Low-stock threshold, Stored at, Active: the same on every row of one product. Active is Yes or No.',
+  'Import never adds stock. Add stock with a purchase order and Receiving; Bodega deliveries go to the checker first.',
+  'Import shows a preview of every change and every error, and saves only when there are no errors.',
+];
 
 /// Everything the exporter writes: the rows and the lists sheet.
 class CatalogueSheetData {

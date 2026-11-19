@@ -29,6 +29,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import '../../support/phase4_fakes.dart';
+import '../../support/payment_steps.dart';
 
 /// The server's catalogue, in two states: 100 on hand while the cashier is
 /// selling, 99 once the sale is written. Nothing else changes, which is what
@@ -183,12 +184,14 @@ void main() {
     // Pay the exact total: the payment dialog prefills nothing, and a short
     // amount would open the underpayment path instead of the sale.
     // F4: the discount fields come first now, so the amount is found by its key.
+    // The till's dialog opens on Items; the amount is on the Payment step.
+    await goToPaymentStep(tester);
     await tester.enterText(
       find.byKey(const ValueKey('pos-tender-amount-0')),
       _cart.total.toStringAsFixed(2),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Complete sale'));
+    await completePayment(tester);
     await tester.pumpAndSettle();
 
     await tester.pumpAndSettle();

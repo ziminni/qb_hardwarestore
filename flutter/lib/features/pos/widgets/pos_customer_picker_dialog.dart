@@ -1,5 +1,7 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/data/models/customer.dart';
+import 'package:client/data/services/customer_profile_store.dart';
+import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
 
 /// The picker's answer.
@@ -32,7 +34,9 @@ class PosCustomerPickerDialog extends StatefulWidget {
     super.key,
     required this.customers,
     required this.loadError,
-    required this.onCreate,
+    this.onCreate,
+    this.includeSavedProfiles = false,
+    this.onManageCustomers,
   });
 
   /// The live customer list, already loaded by the caller.
@@ -41,9 +45,17 @@ class PosCustomerPickerDialog extends StatefulWidget {
   /// Set when the list could not be loaded, so the dialog can say so rather than look empty.
   final String? loadError;
 
-  /// Records a customer and returns it, or returns an error message on failure.
-  final Future<(Customer?, String?)> Function(String name, CustomerType type)
+  /// Optional legacy create callback (customer creation now lives on the
+  /// dedicated Cashier Customers page).
+  final Future<(Customer?, String?)> Function(String name, CustomerType type)?
   onCreate;
+
+  /// When true, merges [customers] with locally stored regular customer
+  /// profiles from [CustomerProfileStore] (such as Mang Kanor and Manang Rosa).
+  final bool includeSavedProfiles;
+
+  /// Optional callback to open the full Cashier Customers page (`/pos/customers`).
+  final VoidCallback? onManageCustomers;
 
   @override
   State<PosCustomerPickerDialog> createState() =>
@@ -52,48 +64,33 @@ class PosCustomerPickerDialog extends StatefulWidget {
 
 class _PosCustomerPickerDialogState extends State<PosCustomerPickerDialog> {
   String _query = '';
-  bool _creating = false;
 
-  final _nameController = TextEditingController();
-  CustomerType _type = CustomerType.regular;
-  String? _createError;
-  bool _saving = false;
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    super.dispose();
+  List<Customer> get _allNamed {
+    if (!widget.includeSavedProfiles) {
+      return widget.customers.where((c) => !c.isWalkIn).toList();
+    }
+    return [
+      for (final entry in CustomerProfileStore.instance.mergeCustomers(
+        widget.customers,
+      ))
+        entry.customer,
+    ];
   }
 
   List<Customer> get _visible {
     final query = _query.trim().toLowerCase();
     // The Walk-in placeholder is offered as the explicit Anonymous row instead, so it does
     // not appear twice and a cashier cannot pick it as if it were a real account.
-    final named = widget.customers.where((c) => !c.isWalkIn);
-    if (query.isEmpty) return named.toList();
-    return named.where((c) => c.name.toLowerCase().contains(query)).toList();
-  }
-
-  Future<void> _save() async {
-    final name = _nameController.text.trim();
-    if (name.isEmpty) {
-      setState(() => _createError = 'Enter the customer\'s name.');
-      return;
-    }
-    setState(() {
-      _saving = true;
-      _createError = null;
-    });
-    final (created, error) = await widget.onCreate(name, _type);
-    if (!mounted) return;
-    if (created == null) {
-      setState(() {
-        _saving = false;
-        _createError = error ?? 'The customer could not be recorded.';
-      });
-      return;
-    }
-    Navigator.pop(context, PosCustomerSelection.of(created));
+    final named = _allNamed;
+    if (query.isEmpty) return named;
+    return named.where((c) {
+      if (c.name.toLowerCase().contains(query)) return true;
+      final profile = CustomerProfileStore.instance.resolveFor(c);
+      if (profile == null) return false;
+      return profile.phone.toLowerCase().contains(query) ||
+          profile.address.toLowerCase().contains(query) ||
+          (profile.discountBadgeLabel?.toLowerCase().contains(query) ?? false);
+    }).toList();
   }
 
   @override
@@ -102,43 +99,32 @@ class _PosCustomerPickerDialogState extends State<PosCustomerPickerDialog> {
       title: const Text('Who is this sale for?'),
       content: SizedBox(
         width: 420,
-        child: _creating ? _buildCreateForm(context) : _buildPicker(context),
+        child: _buildPicker(context),
       ),
-      actions: _creating
-          ? [
-              TextButton(
-                onPressed: _saving
-                    ? null
-                    : () => setState(() {
-                        _creating = false;
-                        _createError = null;
-                      }),
-                child: const Text('Back'),
-              ),
-              FilledButton(
-                onPressed: _saving ? null : _save,
-                child: Text(_saving ? 'Recording…' : 'Save and use'),
-              ),
-            ]
-          : [
-              TextButton(
-                onPressed: () => Navigator.pop(
-                  context,
-                  const PosCustomerSelection.anonymous(),
-                ),
-                child: const Text('Walk-in (anonymous)'),
-              ),
-              TextButton(
-                onPressed: () => setState(() => _creating = true),
-                child: const Text('New customer'),
-              ),
-            ],
+      actions: [
+        if (widget.onManageCustomers != null)
+          TextButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              widget.onManageCustomers!();
+            },
+            icon: const Icon(Icons.people_outline_rounded, size: 18),
+            label: const Text('Customers page'),
+          ),
+        TextButton(
+          onPressed: () => Navigator.pop(
+            context,
+            const PosCustomerSelection.anonymous(),
+          ),
+          child: const Text('Walk-in (anonymous)'),
+        ),
+      ],
     );
   }
 
   Widget _buildPicker(BuildContext context) {
     final error = widget.loadError;
-    if (error != null) {
+    if (error != null && !widget.includeSavedProfiles) {
       return Text(error, style: const TextStyle(color: AppColors.error));
     }
     final visible = _visible;
@@ -159,7 +145,7 @@ class _PosCustomerPickerDialogState extends State<PosCustomerPickerDialog> {
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 18),
             child: Text(
-              'No customer matches. Record one with "New customer".',
+              'No customer matches. Add regular customers on the Customers page.',
               style: TextStyle(color: AppColors.textSecondary),
             ),
           )
@@ -170,55 +156,33 @@ class _PosCustomerPickerDialogState extends State<PosCustomerPickerDialog> {
               itemCount: visible.length,
               itemBuilder: (context, index) {
                 final customer = visible[index];
+                final profile = CustomerProfileStore.instance.resolveFor(
+                  customer,
+                );
+                final contactText = profile?.wireContactDetails ?? '';
+                final subtitleText = contactText.isNotEmpty
+                    ? '${customer.type.label} · $contactText'
+                    : customer.type.label;
                 return ListTile(
                   dense: true,
                   title: Text(customer.name),
-                  subtitle: Text(customer.type.label),
+                  subtitle: Text(
+                    subtitleText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: profile?.discountBadgeLabel != null
+                      ? StatusBadge(
+                          label: profile!.discountBadgeLabel!,
+                          tone: StatusTone.success,
+                        )
+                      : null,
                   onTap: () =>
                       Navigator.pop(context, PosCustomerSelection.of(customer)),
                 );
               },
             ),
           ),
-      ],
-    );
-  }
-
-  Widget _buildCreateForm(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        TextField(
-          controller: _nameController,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Name'),
-        ),
-        const SizedBox(height: 14),
-        const Text('Type', style: TextStyle(fontWeight: FontWeight.w600)),
-        // All FOUR types, including Construction Firm: the model and the migration carry it,
-        // and this project has two business entities.
-        Wrap(
-          spacing: 8,
-          children: [
-            // WALK_IN is NOT offered. The explicit "Walk-in (anonymous)" action already
-            // covers anonymity, and a NAMED record typed WALK_IN is refused by the server
-            // (WALK_IN_CANNOT_OWE) while `_visible` hides it from this very picker - so
-            // creating one produced a customer the cashier could never find again and a sale
-            // that 400s, which is the dead end task 6 exists to remove.
-            for (final type in CustomerType.values)
-              if (type != CustomerType.unknown && type != CustomerType.walkIn)
-                ChoiceChip(
-                  label: Text(type.label),
-                  selected: _type == type,
-                  onSelected: (_) => setState(() => _type = type),
-                ),
-          ],
-        ),
-        if (_createError != null) ...[
-          const SizedBox(height: 12),
-          Text(_createError!, style: const TextStyle(color: AppColors.error)),
-        ],
       ],
     );
   }

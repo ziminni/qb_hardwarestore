@@ -93,13 +93,14 @@ void main() {
     // Phase 9 F3 appended Transfers after Deliveries: another new entry, not a
     // renumbering.
     expect(labels.indexOf('Transfers'), 11);
+    expect(labels.indexOf('Settings'), 12);
     expect(
       labels,
-      hasLength(12),
+      hasLength(13),
       reason:
-          '12 destinations since Phase 9: 0-8 unchanged, Payables (F2) at 9, '
-          'Deliveries (F3) at 10 and Transfers (9 F3) at 11. `navigateSales` '
-          'maps the same 12.',
+          '13 destinations: 0-8 unchanged, Payables (F2) at 9, Deliveries (F3) '
+          'at 10, Transfers (9 F3) at 11, and Settings at 12. `navigateSales` '
+          'maps the same 13.',
     );
   });
 

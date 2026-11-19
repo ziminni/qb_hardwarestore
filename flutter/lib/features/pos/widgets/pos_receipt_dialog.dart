@@ -1,10 +1,9 @@
 import 'package:client/core/format/format.dart';
-import 'package:client/data/models/pick_up.dart';
+import 'package:client/core/printing/roll_printer.dart';
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/data/models/tender_method.dart';
 import 'package:client/features/pos/widgets/receipt_document.dart';
 import 'package:flutter/material.dart';
-import 'package:printing/printing.dart';
 
 /// Hands a receipt PDF to the platform.
 ///
@@ -14,26 +13,26 @@ abstract class ReceiptPrinter {
   Future<void> print(PosReceipt receipt);
 }
 
-/// The real one: the OS print dialog, so any printer the OS knows (a USB or
-/// Bluetooth thermal printer included) takes the 80 mm roll.
-class PdfReceiptPrinter implements ReceiptPrinter {
-  const PdfReceiptPrinter();
+/// The real one: ESC/POS straight to the receipt printer chosen in Settings,
+/// with no print dialog and no driver in between.
+///
+/// Not the OS print dialog: a PDF sent through a generic driver reached a
+/// thermal printer as PostScript, which it printed as text down most of a roll.
+class RollReceiptPrinter implements ReceiptPrinter {
+  const RollReceiptPrinter();
 
   @override
-  Future<void> print(PosReceipt receipt) {
-    return Printing.layoutPdf(
-      name: receipt.officialReceiptNumber,
-      format: receiptPageFormat,
-      onLayout: (_) => buildReceiptPdfWithOpenSans(receipt),
-    );
-  }
+  Future<void> print(PosReceipt receipt) => RollPrinter().print(
+    buildReceiptEscPos(receipt),
+    job: receipt.officialReceiptNumber,
+  );
 }
 
 class PosReceiptDialog extends StatefulWidget {
   const PosReceiptDialog({super.key, required this.receipt, this.printer});
   final PosReceipt receipt;
 
-  /// Injected by tests; the app uses [PdfReceiptPrinter].
+  /// Injected by tests; the app uses [RollReceiptPrinter].
   final ReceiptPrinter? printer;
 
   @override
@@ -47,6 +46,29 @@ class _PosReceiptDialogState extends State<PosReceiptDialog> {
   String? _error;
 
   PosReceipt get receipt => widget.receipt;
+
+  @override
+  void initState() {
+    super.initState();
+    // Owner 2026-11-19: the receipt prints by itself once the sale is in,
+    // unless the cashier turned that off in Settings. Only the app's own
+    // printer does this (a test injects its printer and prints by hand), and
+    // only once a receipt printer is chosen, so a till without one is never
+    // greeted by an error on every sale.
+    if (widget.printer == null) _autoPrint();
+  }
+
+  Future<void> _autoPrint() async {
+    try {
+      if (!await RollPrinter.autoPrint()) return;
+      if (await RollPrinter.saved() == null) return;
+    } catch (_) {
+      // The setting could not be read: print nothing by itself, and let the
+      // cashier press Print receipt as before.
+      return;
+    }
+    if (mounted) await _print();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -90,21 +112,8 @@ class _PosReceiptDialogState extends State<PosReceiptDialog> {
                           Text(formatPeso(line.total)),
                         ],
                       ),
-                      // Phase 9 F2 (decision 21 §2): where THIS line came from.
-                      // A split sale names both shelves; a pre-Phase-9 sale keeps
-                      // Phase 5's single place; neither shows nothing.
-                      if (pickUpCaption(
-                            pickUp: line.pickUp,
-                            storedAtName: line.storedAtName,
-                          )
-                          case final pickUp?)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text(
-                            pickUp,
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ),
+                      // Owner 2026-11-19: no "Pick up at" line; the staff know
+                      // where their goods are kept.
                     ],
                   ),
                 ),
@@ -201,15 +210,44 @@ class _PosReceiptDialogState extends State<PosReceiptDialog> {
       _printing = true;
       _error = null;
     });
+    // Owner 2026-11-19: a "Printing receipt…" window while the job goes out,
+    // removed by its own route once the print is done or refused.
+    final navigator = Navigator.of(context);
+    final printerName = (await _savedPrinterName()) ?? '';
+    if (!mounted) return;
+    final printingRoute = DialogRoute<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _PrintingReceiptDialog(printerName: printerName),
+    );
+    navigator.push(printingRoute);
     try {
-      await (widget.printer ?? const PdfReceiptPrinter()).print(receipt);
+      await Future.wait([
+        (widget.printer ?? const RollReceiptPrinter()).print(receipt),
+        // Long enough to read on the real printer, which answers in a blink;
+        // a test's injected printer gets no timer.
+        if (widget.printer == null)
+          Future<void>.delayed(const Duration(milliseconds: 1200)),
+      ]);
     } catch (error) {
       // A refused print keeps the dialog: the cashier retries or moves on.
       if (mounted) {
         setState(() => _error = 'Could not print the receipt: $error');
       }
     } finally {
+      if (printingRoute.isActive) navigator.removeRoute(printingRoute);
       if (mounted) setState(() => _printing = false);
+    }
+  }
+
+  /// The receipt printer's name for the printing window; null in a test or
+  /// when the setting cannot be read.
+  Future<String?> _savedPrinterName() async {
+    if (widget.printer != null) return null;
+    try {
+      return (await RollPrinter.saved())?.name;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -225,4 +263,48 @@ class _PosReceiptDialogState extends State<PosReceiptDialog> {
       ],
     ),
   );
+}
+
+/// The "Printing receipt…" window: a spinner, the words, and which printer.
+class _PrintingReceiptDialog extends StatelessWidget {
+  const _PrintingReceiptDialog({required this.printerName});
+  final String printerName;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      child: Dialog(
+        key: const ValueKey('pos-printing-receipt'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.print_outlined, size: 40),
+              const SizedBox(height: 16),
+              const SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(strokeWidth: 3),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Printing receipt…',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+              if (printerName.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'On $printerName',
+                  style: TextStyle(color: Theme.of(context).hintColor),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

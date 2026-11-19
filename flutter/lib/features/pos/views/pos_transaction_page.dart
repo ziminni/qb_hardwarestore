@@ -26,11 +26,15 @@ import 'package:client/features/pos/widgets/pos_underpayment_dialog.dart';
 import 'package:client/features/pos/widgets/pos_product_browser.dart';
 import 'package:client/features/pos/widgets/pos_receipt_dialog.dart';
 import 'package:client/features/pos/widgets/pos_sale_quantity_dialog.dart';
+import 'package:client/data/services/customer_profile_store.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/pos/widgets/pos_cart_bar.dart';
 import 'package:client/features/pos/widgets/pos_transaction_cart.dart';
 import 'package:client/features/sales/widgets/live_load_error_banner.dart';
+import 'package:client/routes/routes.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 class PosTransactionPage extends StatefulWidget {
@@ -64,26 +68,39 @@ class PosTransactionPage extends StatefulWidget {
 }
 
 class _PosTransactionPageState extends State<PosTransactionPage> {
-  final _scanController = TextEditingController();
   final _scanFocusNode = FocusNode(debugLabel: 'POS barcode scanner');
   late final ShiftViewmodel _shiftViewmodel =
       widget.shiftViewmodel ?? ShiftViewmodel();
 
-  /// The cart, owned here rather than created inside the provider tree.
-  ///
-  /// It lives on the State because TWO things drive it before the first frame's
-  /// providers exist: [initState]'s pending-resume hand-off, which fills the cart
-  /// from a parked basket. Reading it from the page's own context would look ABOVE
-  /// the MultiProvider this widget builds and throw `ProviderNotFoundException`
-  /// (reproduced by the resume test).
-  late final PosTransactionViewmodel _transaction =
-      widget.viewmodel ??
-      PosTransactionViewmodel(context.read<InventoryViewmodel>());
+  /// The active till cart, resolved from: injected (tests), else the
+  /// app-scoped instance provided in [main.dart] (so switching tabs preserves
+  /// added materials until removed, cleared, held, or paid), else a page-owned
+  /// fallback so isolated widget tests still render.
+  late final PosTransactionViewmodel _transaction = _resolveTransaction();
+
+  /// Only set when this page had to create its own transaction cart.
+  PosTransactionViewmodel? _ownedTransaction;
+
+  late final TextEditingController _scanController = TextEditingController(
+    text: _transaction.query,
+  );
 
   late final HeldCartViewmodel _heldCarts = _resolveHeldCarts();
 
   /// Only set when this page had to create its own held-cart queue.
   HeldCartViewmodel? _ownedHeldCarts;
+
+  PosTransactionViewmodel _resolveTransaction() {
+    final injected = widget.viewmodel;
+    if (injected != null) return injected;
+    try {
+      return context.read<PosTransactionViewmodel>();
+    } on ProviderNotFoundException {
+      return _ownedTransaction = PosTransactionViewmodel(
+        context.read<InventoryViewmodel>(),
+      );
+    }
+  }
 
   /// Injected, else the app-level instance, else one of our own.
   ///
@@ -163,10 +180,10 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
   void dispose() {
     _scanController.dispose();
     _scanFocusNode.dispose();
-    // Only dispose the ones we own; an injected or provided viewmodel belongs to
-    // the caller / the shell.
+    // Only dispose the ones we own; an injected or app-provided viewmodel
+    // belongs to the caller / the shell.
     if (widget.shiftViewmodel == null) _shiftViewmodel.dispose();
-    if (widget.viewmodel == null) _transaction.dispose();
+    _ownedTransaction?.dispose();
     _ownedHeldCarts?.dispose();
     super.dispose();
   }
@@ -320,7 +337,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
                 width: cartWidth,
                 child: PosTransactionCart(
                   onPayment: () => _pay(context),
-                  onClear: transaction.clear,
+                  onClear: () => _confirmClear(context),
                   onHold: () => _hold(context),
                   onChangeCustomer: () => _changeCustomer(context),
                 ),
@@ -372,7 +389,10 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
               ),
               child: PosTransactionCart(
                 onPayment: () => closeThen(() => _pay(context)),
-                onClear: transaction.clear,
+                onClear: () => _confirmClear(
+                  sheetContext,
+                  onConfirmed: () => Navigator.of(sheetContext).pop(),
+                ),
                 onHold: () => closeThen(() => _hold(context)),
                 onChangeCustomer: () => _changeCustomer(context),
               ),
@@ -381,6 +401,47 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
         );
       },
     );
+  }
+
+  /// Prompts the cashier before wiping the active cart so an accidental tap on
+  /// Clear transaction does not discard materials already added.
+  Future<void> _confirmClear(
+    BuildContext dialogContext, {
+    VoidCallback? onConfirmed,
+  }) async {
+    final count = _transaction.itemCount;
+    if (count == 0) return;
+
+    final confirmed = await showDialog<bool>(
+      context: dialogContext,
+      builder: (ctx) => AppDialog(
+        icon: Icons.delete_sweep_outlined,
+        title: 'Clear transaction?',
+        subtitle: '$count ${count == 1 ? 'item' : 'items'} in the cart',
+        width: 440,
+        content: const Text(
+          'Are you sure you want to clear this transaction? All materials '
+          'added to the cart will be removed.',
+        ),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: AppColors.brandWhite,
+            ),
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    _transaction.clear();
+    onConfirmed?.call();
   }
 
   /// The way into a sales order's remainder (Phase 7 F2, decision 19 #3/#4).
@@ -392,8 +453,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     final transaction = context.watch<PosTransactionViewmodel>();
     // On a narrower window the header already carries the shift chip and Close
     // shift; the label moves into the tooltip so the row never overflows.
-    final compact =
-        MediaQuery.sizeOf(context).width < AppBreakpoints.expanded;
+    final compact = MediaQuery.sizeOf(context).width < AppBreakpoints.expanded;
     return Padding(
       padding: const EdgeInsets.only(right: AppSpacing.md),
       child: Tooltip(
@@ -445,8 +505,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
         customerName: (customerId) =>
             transaction.customerNameFor(customerId) ?? 'Customer #$customerId',
         productName: (variantUomId) =>
-            transaction.productNameFor(variantUomId) ??
-            'Item $variantUomId',
+            transaction.productNameFor(variantUomId) ?? 'Item $variantUomId',
         loadError: transaction.ordersError,
         onRetry: () => _openOrder(context),
       ),
@@ -626,6 +685,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
   /// which must submit NOTHING when the caller is the utang path.
   Future<bool> _pickCustomer(BuildContext context) async {
     final transaction = context.read<PosTransactionViewmodel>();
+    await CustomerProfileStore.instance.ensureLoaded();
     await transaction.loadCustomers();
     if (!context.mounted) return false;
 
@@ -634,6 +694,14 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
       builder: (_) => PosCustomerPickerDialog(
         customers: transaction.customers,
         loadError: transaction.customersError,
+        includeSavedProfiles: true,
+        onManageCustomers: () {
+          try {
+            context.go(AppRoutes.posCustomers);
+          } catch (_) {
+            // Ignored in isolated widget tests without GoRouter.
+          }
+        },
         onCreate: (name, type) async {
           final error = await transaction.createAndSelectCustomer(
             name: name,
@@ -750,6 +818,10 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
             ? transaction.orderDeliveryFee
             : null,
         allowDiscount: !transaction.isFulfillingOrder,
+        // The Review step lists what is being bought (owner 2026-11-19).
+        lines: transaction.lines,
+        // The Items step edits this cart in place (owner 2026-11-19).
+        cart: transaction,
       ),
     );
     if (payment == null || !context.mounted) {
@@ -778,7 +850,23 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     // explicitly say so.
     // A pending cheque is not money (decision 18): only what the drawer took can
     // pay the sale, so the utang check reads `paidNow`, never the tendered total.
-    if (payment.paidNow < due) {
+    // An utang the cashier CHOSE (the Utang method) names its own customer, so
+    // the "this will be unpaid" confirmation below is not asked again.
+    if (payment.utang case final utang?) {
+      final failed = await transaction.useUtangCustomer(
+        name: utang.name,
+        contact: utang.contact,
+        address: utang.address,
+      );
+      if (!context.mounted) return;
+      if (failed != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not record who owes it: $failed')),
+        );
+        _restoreScannerFocus();
+        return;
+      }
+    } else if (payment.paidNow < due) {
       final choice = await showDialog<PosUnderpaymentChoice>(
         context: context,
         builder: (_) => PosUnderpaymentDialog(

@@ -34,6 +34,7 @@ import '../../support/phase4_fakes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import '../../support/payment_steps.dart';
 
 class _StubPosRepository extends PosRepository {
   _StubPosRepository() : super(PosService());
@@ -172,7 +173,7 @@ void main() {
 
     await tester.tap(find.text('Proceed to payment'));
     await tester.pumpAndSettle();
-    expect(find.text('Payment'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pos-amount-due')), findsOneWidget);
 
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
@@ -197,6 +198,8 @@ void main() {
 
     await tester.tap(find.text('Proceed to payment'));
     await tester.pumpAndSettle();
+    // The till's dialog opens on Items; the amount is on the Payment step.
+    await goToPaymentStep(tester);
     // F4: the amount field is no longer the dialog's first TextField (the discount
     // value and reason come before it), so it is found by its key.
     await tester.enterText(
@@ -210,7 +213,7 @@ void main() {
     expect(find.textContaining('will be left unpaid'), findsOneWidget);
     expect(find.text('Amount is below the total'), findsNothing);
 
-    await tester.tap(find.text('Complete sale'));
+    await completePayment(tester);
     await tester.pumpAndSettle();
 
     // The seam: the short amount got through, so section 4 opened instead of the sale posting.

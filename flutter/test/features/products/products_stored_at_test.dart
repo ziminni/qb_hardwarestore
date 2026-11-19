@@ -138,7 +138,8 @@ Future<void> fillNewProduct(WidgetTester tester) async {
   );
   await tester.enterText(find.byKey(const ValueKey('base-price')), '270');
   await tester.enterText(find.byKey(const ValueKey('reorder-field')), '5');
-  await tester.enterText(find.byKey(const ValueKey('max-field')), '100');
+  // Owner 2026-11-18 (teammate form): no maximum level; the SKU is required.
+  await tester.enterText(find.byKey(const ValueKey('sku-field')), 'CEM-40');
   await tester.pumpAndSettle();
 }
 
@@ -338,9 +339,8 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.byKey(const ValueKey('stored-at-picker')), findsOneWidget);
-    // The device-only shelf note is a different field with different words.
-    expect(find.text('Shelf note (this device only)'), findsOneWidget);
-    expect(find.text('Not shared with other tills'), findsOneWidget);
+    // Owner 2026-11-18: the form no longer carries the device-only shelf note.
+    expect(find.text('Shelf note (this device only)'), findsNothing);
   });
 
   group('product details', () {

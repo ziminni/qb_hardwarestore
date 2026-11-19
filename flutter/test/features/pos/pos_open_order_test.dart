@@ -34,6 +34,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import '../../support/phase4_fakes.dart';
+import '../../support/payment_steps.dart';
 
 /// A CONFIRMED order: cement 10 bags at 250 (catalogue says 270), PVC 5 pc at
 /// 90 (catalogue says 95). Only 4 bags are on the shelf, so line 1 is short.
@@ -355,15 +356,18 @@ void main() {
       await tester.tap(find.text('Pay'));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Delivery charge'), findsOneWidget);
-      expect(find.textContaining('120.00'), findsWidgets);
       // The trip was agreed with the order: it is not re-booked at the till.
+      await goToPaymentStep(tester);
       expect(find.text('Deliver to the customer'), findsNothing);
       expect(find.byKey(const ValueKey('pos-deliver-toggle')), findsNothing);
-      // No new discount either - the approval was spent when the order was saved.
+      // No new discount either - the approval was spent when the order was
+      // saved; the flow goes straight on to Review, which shows the fee.
+      await goToReviewStep(tester);
       expect(find.text('Apply a discount'), findsNothing);
+      expect(find.textContaining('Delivery charge'), findsOneWidget);
+      expect(find.textContaining('120.00'), findsWidgets);
 
-      await tester.tap(find.text('Complete sale'));
+      await completePayment(tester);
       await tester.pumpAndSettle();
 
       expect(service.fulfilCalls, 1);
@@ -434,7 +438,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Pay'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Complete sale'));
+    await completePayment(tester);
     await tester.pumpAndSettle();
 
     expect(cart.submitError, contains('not enough stock'));

@@ -255,7 +255,7 @@ void main() {
       );
     await _pump(
       tester,
-      AdminDeliveriesPage(viewmodel: DeliveriesViewmodel(service: service)),
+      SalesDeliveriesPage(viewmodel: DeliveriesViewmodel(service: service)),
     );
 
     await tester.tap(find.byKey(const ValueKey('delivery-start-1')));

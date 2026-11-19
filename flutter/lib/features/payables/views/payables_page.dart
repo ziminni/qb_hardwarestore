@@ -1,7 +1,6 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
-import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/data/models/supplier_payables.dart';
@@ -26,7 +25,7 @@ import 'package:provider/provider.dart';
 /// whose active area is `sales` or `admin`. A Stock Manager reads this screen in
 /// the inventory shell and is never offered a Pay control, which matches the
 /// server's 403 rather than discovering it.
-enum PayablesShell { inventory, sales, admin }
+enum PayablesShell { inventory, sales }
 
 /// Supplier payables in the Stock Manager's shell (inventory sidebar index 13,
 /// APPENDED so no earlier tab moves). Read-only here.
@@ -54,19 +53,6 @@ class SalesPayablesPage extends StatelessWidget {
   Widget build(BuildContext context) => ChangeNotifierProvider(
     create: (_) => (viewmodel ?? PayablesViewmodel())..load(),
     child: const _PayablesBody(shell: PayablesShell.sales),
-  );
-}
-
-/// Supplier payables in the Admin shell (admin sidebar index 8, APPENDED).
-class AdminPayablesPage extends StatelessWidget {
-  const AdminPayablesPage({super.key, this.viewmodel});
-
-  final PayablesViewmodel? viewmodel;
-
-  @override
-  Widget build(BuildContext context) => ChangeNotifierProvider(
-    create: (_) => (viewmodel ?? PayablesViewmodel())..load(),
-    child: const _PayablesBody(shell: PayablesShell.admin),
   );
 }
 
@@ -220,15 +206,6 @@ class _PayablesBodyState extends State<_PayablesBody> {
         selectedNavigationIndex: 9,
         scrollable: false,
         onNavigationSelected: (index) => navigateSales(context, index),
-        child: content,
-      ),
-      PayablesShell.admin => AdminSkeletonLayout(
-        title: 'Payables',
-        subtitle: 'What the shop owes each supplier, and when it is due.',
-        selectedNavigationIndex: 8,
-        scrollable: false,
-        // The admin shell navigates from its own tuple list, so it needs no
-        // callback here.
         child: content,
       ),
     };

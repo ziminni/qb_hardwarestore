@@ -85,9 +85,9 @@ Future<void> _pumpAndRelease(
 }
 
 void main() {
-  testWidgets('the release receipt names every shelf the line left', (
-    tester,
-  ) async {
+  // Owner 2026-11-19: the release receipt no longer prints where goods were
+  // picked up; staff know where goods are kept.
+  testWidgets('the release receipt prints no pick-up line', (tester) async {
     await _pumpAndRelease(tester, const [
       ReleasedLine(
         code: 'CEM-40KG',
@@ -100,11 +100,8 @@ void main() {
       ),
     ]);
 
-    expect(
-      find.text('Pick up: 3 PC at Store, 2 PC at Bodega'),
-      findsOneWidget,
-      reason: 'the clerk must know which shelves this release emptied',
-    );
+    expect(find.text('Released'), findsWidgets, reason: 'the receipt rendered');
+    expect(find.textContaining('Pick up'), findsNothing);
   });
 
   testWidgets('a line that moved nothing prints no pick-up caption', (

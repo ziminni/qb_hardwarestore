@@ -1,23 +1,23 @@
 import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/constants/app_durations.dart';
+import 'package:client/features/admin/views/admin_backup_restore_page.dart';
+import 'package:client/features/admin/views/admin_security_page.dart';
 import 'package:client/features/admin/views/admin_user_management_page.dart';
 import 'package:client/features/admin/views/audit_logs_page.dart';
-import 'package:client/features/admin/views/inventory_monitoring_page.dart';
-import 'package:client/features/admin/views/reports_page.dart';
-import 'package:client/features/admin/views/sales_monitoring_page.dart';
 import 'package:client/features/admin/views/settings_page.dart';
-import 'package:client/features/admin/views/storage_locations_page.dart';
 import 'package:client/features/categories/views/categories_page.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/auth/views/area_picker_page.dart';
 import 'package:client/features/auth/views/login_page.dart';
 import 'package:client/features/auth/views/unsupported_role_page.dart';
-import 'package:client/features/dashboard/viewmodels/admin_overview_viewmodel.dart';
-import 'package:client/features/dashboard/views/admin_dashboard.dart';
+import 'package:client/features/admin/views/admin_dashboard_page.dart';
 import 'package:client/features/dashboard/views/combined_dashboard_page.dart';
 import 'package:client/features/dashboard/views/inventory_dashboard.dart';
+import 'package:client/features/bodega/views/bodega_pages.dart';
+import 'package:client/features/pos/views/pos_customers_page.dart';
 import 'package:client/features/pos/views/pos_receivables_page.dart';
 import 'package:client/features/pos/views/pos_returns_page.dart';
+import 'package:client/features/pos/views/pos_settings_page.dart';
 import 'package:client/features/pos/views/pos_shift_page.dart';
 import 'package:client/features/pos/views/pos_held_transactions_page.dart';
 import 'package:client/features/pos/views/pos_transaction_history_page.dart';
@@ -30,6 +30,7 @@ import 'package:client/features/sales/views/sales_quotations_page.dart';
 import 'package:client/features/sales/views/sales_receivables_page.dart';
 import 'package:client/features/sales/views/sales_reports_page.dart';
 import 'package:client/features/sales/views/sales_returns_page.dart';
+import 'package:client/features/sales/views/sales_settings_page.dart';
 import 'package:client/features/sales/views/sales_transactions_page.dart';
 import 'package:client/features/inventory/views/inventory_stock_movements_page.dart';
 import 'package:client/features/inventory/views/inventory_low_stock_page.dart';
@@ -37,6 +38,7 @@ import 'package:client/features/inventory/views/inventory_stock_page.dart';
 import 'package:client/features/inventory/views/inventory_receiving_page.dart';
 import 'package:client/features/inventory/views/inventory_reports_page.dart';
 import 'package:client/features/inventory/views/inventory_returns_page.dart';
+import 'package:client/features/inventory/views/inventory_import_export_page.dart';
 import 'package:client/features/inventory/views/inventory_settings_page.dart';
 import 'package:client/features/deliveries/views/deliveries_page.dart';
 import 'package:client/features/payables/views/payables_page.dart';
@@ -49,7 +51,6 @@ import 'package:client/features/sales/views/sales_staff_page.dart';
 import 'package:client/features/splash/views/splash_page.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:provider/provider.dart';
 
 class AppRoutes {
   AppRoutes._();
@@ -81,12 +82,13 @@ class AppRoutes {
   static const String adminSales = '/admin/sales';
   static const String adminReports = '/admin/reports';
   static const String adminAuditLogs = '/admin/audit-logs';
+  static const String adminBackupRestore = '/admin/backup-restore';
+  static const String adminSecurity = '/admin/security';
   static const String adminSettings = '/admin/settings';
 
-  /// The "Requests from projects" queue in the Admin shell (Phase 1b,
-  /// decisions 09, 10 and 13). Appended under the admin area like every other
-  /// admin screen; the Store Manager reaches the same body at
-  /// [salesProjectRequests] through [salesTwinOf].
+  /// Kept only so an old bookmark still redirects (owner 2026-11-18 removed
+  /// Reports and Project requests from the Admin menu): a Store Manager is sent
+  /// to the sales twin by [salesTwinOf]; an Admin to the dashboard.
   static const String adminProjectRequests = '/admin/project-requests';
 
   /// Supplier payables (Phase 5 B2/F2, decision 18), one route per shell.
@@ -137,6 +139,17 @@ class AppRoutes {
   /// The Stock Manager's transfers screen (inventory sidebar index 15).
   static const String inventoryTransfers = '/inventory/transfers';
   static const String inventorySettings = '/inventory/settings';
+
+  /// Every import and export the stocker has (owner 2026-11-18), APPENDED to the
+  /// Stock menu.
+  static const String inventoryImportExport = '/inventory/import-export';
+
+  /// The Bodega Checker's area (decision 25). `/bodega/` is fenced like every
+  /// other area prefix: only an account holding `bodega` opens it.
+  static const String bodegaPickups = '/bodega/pickups';
+  static const String bodegaDeliveries = '/bodega/deliveries';
+  static const String bodegaStock = '/bodega/stock';
+  static const String bodegaHistory = '/bodega/history';
   static const String posDashboard = '/pos/dashboard';
   static const String posHistory = '/pos/history';
   static const String posRelease = '/pos/release';
@@ -149,6 +162,13 @@ class AppRoutes {
   /// Appended, never inserted: the POS sidebar is append-only, so tabs 0-5 keep
   /// the numbers their own pages declare.
   static const String posReturns = '/pos/returns';
+
+  /// The till's Settings tab (the receipt printer), appended after Returns.
+  static const String posSettings = '/pos/settings';
+
+  /// The till's Customers tab (index 8): regular customers with standing
+  /// discount, utang, and delivery presets for "Who is this sale for?".
+  static const String posCustomers = '/pos/customers';
   static const String salesDashboard = '/sales/dashboard';
   static const String salesTransactions = '/sales/transactions';
   static const String salesQuotations = '/sales/quotations';
@@ -188,6 +208,10 @@ class AppRoutes {
   /// The Store Manager's transfers screen (sales sidebar index 11): the same
   /// body as [adminTransfers], in the manager's own shell.
   static const String salesTransfers = '/sales/transfers';
+
+  /// The Store Manager's settings screen (sales sidebar index 12): store
+  /// details and local-device theme settings.
+  static const String salesSettings = '/sales/settings';
 
   /// The sales-shell twin of an admin screen the Store Manager may use, or null
   /// when [location] has no twin.
@@ -336,12 +360,16 @@ class AppRoutes {
     if (location.startsWith('/pos/') && active != AppAreas.pos) {
       return dashboard;
     }
+    if (location.startsWith('/bodega/') && active != AppAreas.bodega) {
+      return dashboard;
+    }
 
     const protectedDashboards = {
       adminDashboard,
       inventoryDashboard,
       posDashboard,
       salesDashboard,
+      bodegaPickups,
     };
     if (protectedDashboards.contains(location) && location != dashboard) {
       return dashboard;
@@ -389,6 +417,7 @@ class AppRoutes {
     if (location.startsWith('/inventory/')) return AppAreas.inventory;
     if (location.startsWith('/sales/')) return AppAreas.sales;
     if (location.startsWith('/pos/')) return AppAreas.pos;
+    if (location.startsWith('/bodega/')) return AppAreas.bodega;
     return null;
   }
 
@@ -409,6 +438,7 @@ class AppRoutes {
       AppAreas.inventory => inventoryDashboard,
       AppAreas.pos => posDashboard,
       AppAreas.sales => salesDashboard,
+      AppAreas.bodega => bodegaPickups,
       _ => null,
     };
   }
@@ -483,20 +513,17 @@ class AppRoutes {
           pageBuilder: (context, state) =>
               _transitionPage(state, const AreaPickerPage()),
         ),
+        // Owner 2026-11-18: the Admin sees everything and acts on nothing. The
+        // operational admin pages (inventory and sales monitoring, payables,
+        // deliveries, transfers) are gone; their typed addresses land on the
+        // dashboard (onException) and the constants stay for salesTwinOf.
         GoRoute(
           path: adminDashboard,
           name: 'admin_dashboard',
-          // Route-scoped viewmodel, matching AdminUserManagementPage: the
-          // dashboard loads fresh data on every open, and nothing else reads
-          // an overview. Without this provider the page threw
-          // ProviderNotFoundException before rendering a single metric.
-          pageBuilder: (context, state) => _transitionPage(
-            state,
-            ChangeNotifierProvider(
-              create: (_) => AdminOverviewViewmodel(),
-              child: const AdminDashboard(),
-            ),
-          ),
+          // Owner 2026-11-18: the Admin's own tabbed dashboard (System, Sales,
+          // Inventory, Bodega, Finance), fed by /reports/admin-dashboard/.
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const AdminDashboardPage()),
         ),
         GoRoute(
           path: combinedDashboard,
@@ -511,58 +538,32 @@ class AppRoutes {
               _transitionPage(state, const AdminUserManagementPage()),
         ),
         GoRoute(
-          path: adminInventory,
-          name: 'admin_inventory',
-          pageBuilder: (context, state) =>
-              _transitionPage(state, const InventoryMonitoringPage()),
-        ),
-        GoRoute(
-          path: adminSales,
-          name: 'admin_sales',
-          pageBuilder: (context, state) =>
-              _transitionPage(state, const SalesMonitoringPage()),
-        ),
-        GoRoute(
-          path: adminReports,
-          name: 'admin_reports',
-          pageBuilder: (context, state) =>
-              _transitionPage(state, const ReportsPage()),
-        ),
-        GoRoute(
           path: adminAuditLogs,
           name: 'admin_audit_logs',
           pageBuilder: (context, state) =>
               _transitionPage(state, const AuditLogsPage()),
         ),
         GoRoute(
-          path: adminProjectRequests,
-          name: 'admin_project_requests',
+          path: adminBackupRestore,
+          name: 'admin_backup_restore',
           pageBuilder: (context, state) =>
-              _transitionPage(state, const AdminProjectRequestsPage()),
+              _transitionPage(state, const AdminBackupRestorePage()),
         ),
         GoRoute(
-          path: adminPayables,
-          name: 'admin_payables',
+          path: adminSecurity,
+          name: 'admin_security',
           pageBuilder: (context, state) =>
-              _transitionPage(state, const AdminPayablesPage()),
-        ),
-        GoRoute(
-          path: adminDeliveries,
-          name: 'admin_deliveries',
-          pageBuilder: (context, state) =>
-              _transitionPage(state, const AdminDeliveriesPage()),
+              _transitionPage(state, const AdminSecurityPage()),
         ),
         GoRoute(
           path: adminStorageLocations,
           name: 'admin_storage_locations',
-          pageBuilder: (context, state) =>
-              _transitionPage(state, const StorageLocationsPage()),
-        ),
-        GoRoute(
-          path: adminTransfers,
-          name: 'admin_transfers',
-          pageBuilder: (context, state) =>
-              _transitionPage(state, const AdminTransfersPage()),
+          // Owner 2026-11-18: Storage locations lives in Settings; the old
+          // address opens Settings on that side tab.
+          pageBuilder: (context, state) => _transitionPage(
+            state,
+            const SettingsPage(initialSection: SettingsSection.locations),
+          ),
         ),
         GoRoute(
           path: adminSettings,
@@ -660,6 +661,37 @@ class AppRoutes {
           pageBuilder: (context, state) =>
               _transitionPage(state, const InventoryTransfersPage()),
         ),
+        // ---- Bodega (decision 25) ----------------------------------------
+        GoRoute(
+          path: bodegaPickups,
+          name: 'bodega_pickups',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const BodegaPickupsPage()),
+        ),
+        GoRoute(
+          path: bodegaDeliveries,
+          name: 'bodega_deliveries',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const BodegaDeliveriesPage()),
+        ),
+        GoRoute(
+          path: bodegaStock,
+          name: 'bodega_stock',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const BodegaStockPage()),
+        ),
+        GoRoute(
+          path: bodegaHistory,
+          name: 'bodega_history',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const BodegaHistoryPage()),
+        ),
+        GoRoute(
+          path: inventoryImportExport,
+          name: 'inventory_import_export',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const InventoryImportExportPage()),
+        ),
         GoRoute(
           path: inventorySettings,
           name: 'inventory_settings',
@@ -711,6 +743,18 @@ class AppRoutes {
           name: 'pos_returns',
           pageBuilder: (context, state) =>
               _transitionPage(state, const PosReturnsPage()),
+        ),
+        GoRoute(
+          path: posSettings,
+          name: 'pos_settings',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const PosSettingsPage()),
+        ),
+        GoRoute(
+          path: posCustomers,
+          name: 'pos_customers',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const PosCustomersPage()),
         ),
         GoRoute(
           path: salesDashboard,
@@ -783,6 +827,12 @@ class AppRoutes {
           name: 'sales_staff',
           pageBuilder: (context, state) =>
               _transitionPage(state, const SalesStaffPage()),
+        ),
+        GoRoute(
+          path: salesSettings,
+          name: 'sales_settings',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const SalesSettingsPage()),
         ),
       ],
     );

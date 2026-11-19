@@ -151,7 +151,6 @@ void main() {
     });
   });
 
-
   // Phase 1, Task 9 (decision 05): a short shelf no longer refuses the whole release, so
   // the viewmodel has to know, BEFORE the irreversible press, whether anything can leave
   // the store at all, and what will stay open on the token afterwards.
@@ -186,34 +185,41 @@ void main() {
           items: items,
         );
 
-    test('a verified token says whether anything can leave the store', () async {
-      final repo = _StubRequisitions()
-        ..verification = verified([
-          line(),
-          line(id: 2, availability: LineAvailability.short, releasable: 4),
-          line(id: 3, availability: LineAvailability.unavailable, releasable: 0),
-          line(
-            id: 4,
-            quantity: 24,
-            remaining: 0,
-            availability: LineAvailability.done,
-            releasable: 0,
-          ),
-        ]);
-      final vm = MaterialReleaseViewmodel(repository: repo);
+    test(
+      'a verified token says whether anything can leave the store',
+      () async {
+        final repo = _StubRequisitions()
+          ..verification = verified([
+            line(),
+            line(id: 2, availability: LineAvailability.short, releasable: 4),
+            line(
+              id: 3,
+              availability: LineAvailability.unavailable,
+              releasable: 0,
+            ),
+            line(
+              id: 4,
+              quantity: 24,
+              remaining: 0,
+              availability: LineAvailability.done,
+              releasable: 0,
+            ),
+          ]);
+        final vm = MaterialReleaseViewmodel(repository: repo);
 
-      await vm.verify('a-token');
+        await vm.verify('a-token');
 
-      expect(vm.hasReleasable, isTrue);
-      expect(vm.confirmBlockedReason, isNull);
-      expect(
-        vm.leavesLinesOpen,
-        isTrue,
-        reason: 'the short and the out of stock line stay open on this token',
-      );
-      expect(vm.releasableLineCount, 2);
-      expect(vm.totalLineCount, 4);
-    });
+        expect(vm.hasReleasable, isTrue);
+        expect(vm.confirmBlockedReason, isNull);
+        expect(
+          vm.leavesLinesOpen,
+          isTrue,
+          reason: 'the short and the out of stock line stay open on this token',
+        );
+        expect(vm.releasableLineCount, 2);
+        expect(vm.totalLineCount, 4);
+      },
+    );
 
     test('nothing releasable blocks the press and says why', () async {
       final repo = _StubRequisitions()
@@ -234,29 +240,32 @@ void main() {
       );
     });
 
-    test('every line already released names that, not an empty shelf', () async {
-      final repo = _StubRequisitions()
-        ..verification = verified([
-          line(
-            remaining: 0,
-            availability: LineAvailability.done,
-            releasable: 0,
-          ),
-        ]);
-      final vm = MaterialReleaseViewmodel(repository: repo);
+    test(
+      'every line already released names that, not an empty shelf',
+      () async {
+        final repo = _StubRequisitions()
+          ..verification = verified([
+            line(
+              remaining: 0,
+              availability: LineAvailability.done,
+              releasable: 0,
+            ),
+          ]);
+        final vm = MaterialReleaseViewmodel(repository: repo);
 
-      await vm.verify('a-token');
+        await vm.verify('a-token');
 
-      expect(vm.hasReleasable, isFalse);
-      expect(vm.leavesLinesOpen, isFalse);
-      expect(
-        vm.confirmBlockedReason,
-        contains('already released'),
-        reason:
-            'a clerk told the shelf is empty telephones the supplier; the '
-            'truth is that this token is finished',
-      );
-    });
+        expect(vm.hasReleasable, isFalse);
+        expect(vm.leavesLinesOpen, isFalse);
+        expect(
+          vm.confirmBlockedReason,
+          contains('already released'),
+          reason:
+              'a clerk told the shelf is empty telephones the supplier; the '
+              'truth is that this token is finished',
+        );
+      },
+    );
 
     // Decision 13: a line the store marked Not available is owed by nobody. It must not
     // count against the lines this scan promises, and it must not keep the token open.
@@ -338,93 +347,102 @@ void main() {
       expect(vm.confirmBlockedReason, contains('in stock right now'));
     });
 
-    test('a release whose only outstanding line was refused is finished', () async {
-      final repo = _StubRequisitions()
-        ..verification = verified([line()])
-        ..releaseResult = const ReleaseResult(
-          transactionId: 42,
-          transactionNo: 'TXN-20261017-0042',
-          status: ReleaseStatus.released,
-          items: [
-            ReleasedLine(
-              code: 'CEM-40',
-              releasedNow: 10,
-              outstanding: 0,
-              available: true,
-            ),
-            ReleasedLine(
-              code: 'STL-10',
-              releasedNow: 0,
-              outstanding: 6,
-              available: false,
-              declineReason: 'We do not carry 16 mm rebar',
-            ),
-          ],
-          grandTotal: 2700,
-          ledgerId: 9,
-          balanceDue: 2700,
+    test(
+      'a release whose only outstanding line was refused is finished',
+      () async {
+        final repo = _StubRequisitions()
+          ..verification = verified([line()])
+          ..releaseResult = const ReleaseResult(
+            transactionId: 42,
+            transactionNo: 'TXN-20261017-0042',
+            status: ReleaseStatus.released,
+            items: [
+              ReleasedLine(
+                code: 'CEM-40',
+                releasedNow: 10,
+                outstanding: 0,
+                available: true,
+              ),
+              ReleasedLine(
+                code: 'STL-10',
+                releasedNow: 0,
+                outstanding: 6,
+                available: false,
+                declineReason: 'We do not carry 16 mm rebar',
+              ),
+            ],
+            grandTotal: 2700,
+            ledgerId: 9,
+            balanceDue: 2700,
+          );
+        final vm = MaterialReleaseViewmodel(repository: repo);
+        await vm.verify('a-token');
+
+        expect(await vm.release(), isTrue);
+
+        expect(vm.result?.isPartial, isFalse);
+        expect(vm.openLineCount, 0);
+      },
+    );
+
+    test(
+      'a partial release reports the lines still open on the token',
+      () async {
+        final repo = _StubRequisitions()
+          ..verification = verified([
+            line(),
+            line(id: 2, availability: LineAvailability.short, releasable: 4),
+          ])
+          ..releaseResult = const ReleaseResult(
+            transactionId: 42,
+            transactionNo: 'TXN-20261017-0042',
+            status: ReleaseStatus.partial,
+            items: [
+              ReleasedLine(code: 'CEM-40', releasedNow: 10, outstanding: 0),
+              ReleasedLine(code: 'STL-10', releasedNow: 4, outstanding: 6),
+            ],
+            grandTotal: 2700,
+            ledgerId: 9,
+            balanceDue: 2700,
+          );
+        final vm = MaterialReleaseViewmodel(repository: repo);
+        await vm.verify('a-token');
+
+        expect(await vm.release(), isTrue);
+
+        expect(vm.result?.isPartial, isTrue);
+        expect(vm.openLineCount, 1);
+      },
+    );
+
+    test(
+      'a second scan of the same token starts from the server again',
+      () async {
+        // The first scan released part of the request; the second must not reuse the first
+        // scan's lines, its result, or its blocked reason.
+        final repo = _StubRequisitions()..verification = verified([line()]);
+        final vm = MaterialReleaseViewmodel(repository: repo);
+        await vm.verify('a-token');
+        await vm.release();
+
+        repo.verification = verified([
+          line(
+            remaining: 0,
+            availability: LineAvailability.done,
+            releasable: 0,
+          ),
+        ]);
+        await vm.verify('a-token');
+
+        expect(
+          vm.result,
+          isNull,
+          reason: 'the last release receipt must not sit over the new scan',
         );
-      final vm = MaterialReleaseViewmodel(repository: repo);
-      await vm.verify('a-token');
-
-      expect(await vm.release(), isTrue);
-
-      expect(vm.result?.isPartial, isFalse);
-      expect(vm.openLineCount, 0);
-    });
-
-    test('a partial release reports the lines still open on the token', () async {
-      final repo = _StubRequisitions()
-        ..verification = verified([
-          line(),
-          line(id: 2, availability: LineAvailability.short, releasable: 4),
-        ])
-        ..releaseResult = const ReleaseResult(
-          transactionId: 42,
-          transactionNo: 'TXN-20261017-0042',
-          status: ReleaseStatus.partial,
-          items: [
-            ReleasedLine(code: 'CEM-40', releasedNow: 10, outstanding: 0),
-            ReleasedLine(code: 'STL-10', releasedNow: 4, outstanding: 6),
-          ],
-          grandTotal: 2700,
-          ledgerId: 9,
-          balanceDue: 2700,
-        );
-      final vm = MaterialReleaseViewmodel(repository: repo);
-      await vm.verify('a-token');
-
-      expect(await vm.release(), isTrue);
-
-      expect(vm.result?.isPartial, isTrue);
-      expect(vm.openLineCount, 1);
-    });
-
-    test('a second scan of the same token starts from the server again', () async {
-      // The first scan released part of the request; the second must not reuse the first
-      // scan's lines, its result, or its blocked reason.
-      final repo = _StubRequisitions()..verification = verified([line()]);
-      final vm = MaterialReleaseViewmodel(repository: repo);
-      await vm.verify('a-token');
-      await vm.release();
-
-      repo.verification = verified([
-        line(
-          remaining: 0,
-          availability: LineAvailability.done,
-          releasable: 0,
-        ),
-      ]);
-      await vm.verify('a-token');
-
-      expect(
-        vm.result,
-        isNull,
-        reason: 'the last release receipt must not sit over the new scan',
-      );
-      expect(vm.hasReleasable, isFalse);
-      expect(vm.confirmBlockedReason, contains('already released'));
-      expect(repo.verifyCalls, 2);
-    });
+        expect(vm.hasReleasable, isFalse);
+        expect(vm.confirmBlockedReason, contains('already released'));
+        expect(repo.verifyCalls, 2);
+      },
+    );
   });
 }

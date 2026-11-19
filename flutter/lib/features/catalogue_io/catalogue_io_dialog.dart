@@ -108,10 +108,7 @@ class _CatalogueIoDialogState extends State<CatalogueIoDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final rows = catalogueSheetRows(
-      widget.products,
-      unitsOf: widget.unitsOf,
-    );
+    final rows = catalogueSheetRows(widget.products, unitsOf: widget.unitsOf);
     final products = widget.products
         .where((product) => rows.any((row) => row.productId == product.id))
         .length;

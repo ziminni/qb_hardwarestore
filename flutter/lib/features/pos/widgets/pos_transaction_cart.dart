@@ -1,5 +1,6 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/format/format.dart';
+import 'package:client/data/models/sale_discount.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_utang_panel.dart';
 import 'package:client/shared/widgets/status_badge.dart';
@@ -113,7 +114,7 @@ class PosTransactionCart extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Text(
-                '${state.itemCount} line item(s)',
+                '${state.itemCount} item${state.itemCount == 1 ? '' : 's'}',
                 style: const TextStyle(
                   fontSize: 13,
                   color: AppColors.textSecondary,
@@ -167,6 +168,33 @@ class PosTransactionCart extends StatelessWidget {
                                   : null,
                             ),
                           ),
+                          if (state.selectedCustomerProfile
+                              case final profile?) ...[
+                            if (profile.discountBadgeLabel != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: StatusBadge(
+                                  key: const ValueKey(
+                                    'pos-cart-customer-discount-badge',
+                                  ),
+                                  label: profile.discountBadgeLabel!,
+                                  tone: StatusTone.success,
+                                ),
+                              ),
+                            if (profile.hasContactInfo)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 3),
+                                child: Text(
+                                  profile.wireContactDetails,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ),
+                          ],
                         ],
                       ),
                     ),
@@ -199,7 +227,9 @@ class PosTransactionCart extends StatelessWidget {
 
   Widget _footer(BuildContext context, PosTransactionViewmodel state) {
     const tabular = [FontFeature.tabularFigures()];
-    final total = formatPeso(state.total);
+    final presetDiscount = state.selectedCustomerPresetDiscount;
+    final amounts = PosDiscountAmounts.forDiscount(state.total, presetDiscount);
+    final total = formatPeso(amounts.net);
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
       decoration: const BoxDecoration(
@@ -226,6 +256,35 @@ class PosTransactionCart extends StatelessWidget {
               ),
             ],
           ),
+          if (presetDiscount != null) ...[
+            const SizedBox(height: 6),
+            Row(
+              key: const ValueKey('pos-cart-discount-section'),
+              children: [
+                Expanded(
+                  child: Text(
+                    'Discount · ${presetDiscount.reason}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.successText,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '-${formatPeso(amounts.discountAmount)}',
+                  style: const TextStyle(
+                    color: AppColors.successText,
+                    fontWeight: FontWeight.w700,
+                    fontFeatures: tabular,
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 6),
           Row(
             crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -353,10 +412,12 @@ class PosTransactionCart extends StatelessWidget {
           }
         }
 
+        // Owner 2026-11-19: one item, two plain lines. What it is and what it
+        // costs, then its size and price with the quantity controls.
         return Container(
           key: ValueKey('pos-cart-line-$index'),
           color: isShort ? scheme.errorContainer : null,
-          padding: _edge.add(const EdgeInsets.symmetric(vertical: 12)),
+          padding: _edge.add(const EdgeInsets.symmetric(vertical: 10)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -364,45 +425,26 @@ class PosTransactionCart extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Text(
                           line.productName,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                        // Phase 5 B4: where the shop keeps it, on every line, so the
-                        // cashier can tell the customer at the counter. It is a
-                        // PLACE, never a stock claim: quantities live in the stock
-                        // screens, and "Bodega" says nothing about how many are left.
+                        // Phase 5 B4, kept by the owner (2026-11-19): where the
+                        // shop keeps it, so the cashier can tell the customer.
+                        // A PLACE, never a stock claim.
                         if (line.storedAtName.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 2, bottom: 2),
-                            child: StatusBadge(
-                              key: ValueKey('pos-cart-location-$index'),
-                              label: line.storedAtName,
-                              tone: StatusTone.info,
-                            ),
-                          ),
-                        Text(
-                          '${line.variantName} · '
-                          '${formatPeso(line.unitPrice)} per '
-                          '${line.unit.toLowerCase()}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: isShort
-                                ? scheme.onErrorContainer
-                                : AppColors.textSecondary,
-                          ),
-                        ),
-                        if (isShort)
-                          Text(
-                            'Not enough stock. Reduce this line.',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: scheme.onErrorContainer,
-                            ),
+                          StatusBadge(
+                            key: ValueKey('pos-cart-location-$index'),
+                            label: line.storedAtName,
+                            tone: StatusTone.info,
                           ),
                       ],
                     ),
@@ -411,15 +453,33 @@ class PosTransactionCart extends StatelessWidget {
                   Text(
                     formatPeso(line.total),
                     style: const TextStyle(
+                      fontSize: 15,
                       fontWeight: FontWeight.w700,
                       fontFeatures: [FontFeature.tabularFigures()],
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               Row(
                 children: [
+                  Expanded(
+                    child: Text(
+                      [
+                        if (line.variantName.isNotEmpty) line.variantName,
+                        '${formatPeso(line.unitPrice)} / '
+                            '${line.unit.toLowerCase()}',
+                      ].join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: isShort
+                            ? scheme.onErrorContainer
+                            : AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
                   _Stepper(
                     quantity: quantity,
                     unit: line.unit.toLowerCase(),
@@ -427,20 +487,33 @@ class PosTransactionCart extends StatelessWidget {
                     onMinus: () => step(-1),
                     onPlus: () => step(1),
                   ),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: () => state.removeLine(index),
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppColors.errorText,
-                      minimumSize: const Size(0, 40),
-                    ),
-                    child: Text(
-                      'Remove',
-                      semanticsLabel: 'Remove ${line.productName}',
+                  SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: IconButton(
+                      key: ValueKey('pos-cart-remove-$index'),
+                      tooltip: 'Remove ${line.productName}',
+                      padding: EdgeInsets.zero,
+                      iconSize: 18,
+                      color: AppColors.errorText,
+                      onPressed: () => state.removeLine(index),
+                      icon: const Icon(Icons.close),
                     ),
                   ),
                 ],
               ),
+              if (isShort)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Not enough stock. Reduce this line.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onErrorContainer,
+                    ),
+                  ),
+                ),
             ],
           ),
         );

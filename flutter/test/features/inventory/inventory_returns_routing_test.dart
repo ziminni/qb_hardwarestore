@@ -39,6 +39,8 @@ List<String> _sidebarLabels() => AppDestinations.labelsFor(AppAreas.inventory);
 /// listed here instead of being derived from its words.
 const _renamedRoutes = <String, String>{
   'Stock adjustments': 'inventoryStockMovements',
+  // The label carries an ampersand, which no route constant can.
+  'Import & export': 'inventoryImportExport',
 };
 
 String _routeForLabel(String label) {
@@ -88,6 +90,8 @@ const _inventoryPaths = <String>[
   AppRoutes.inventoryDeliveries,
   // Phase 9 F3 APPENDED stock transfers at 15.
   AppRoutes.inventoryTransfers,
+  // Owner 2026-11-18 APPENDED Import & export at 16.
+  AppRoutes.inventoryImportExport,
 ];
 
 Widget _probeApp() {
@@ -122,17 +126,18 @@ Widget _probeApp() {
 void main() {
   test('the parsers find the sidebar and the navigation map', () {
     // Guard against vacuous passes: an empty parse makes every comparison
-    // below trivially true. 16 = the 13 pre-Phase-5 destinations plus the
-    // APPENDED Payables (13), Deliveries (14) and Transfers (15).
-    expect(_sidebarLabels().length, 16);
-    expect(_navOrder().length, 16);
+    // below trivially true. 17 = the 13 pre-Phase-5 destinations plus the
+    // APPENDED Payables (13), Deliveries (14), Transfers (15) and Import &
+    // export (16).
+    expect(_sidebarLabels().length, 17);
+    expect(_navOrder().length, 17);
     expect(_sidebarLabels().first, 'Dashboard');
     // Settings still ends the original block; the two Phase 5 sections follow it.
     expect(
       _sidebarLabels()[_sidebarLabels().indexOf('Settings') + 1],
       'Payables',
     );
-    expect(_sidebarLabels().last, 'Transfers');
+    expect(_sidebarLabels().last, 'Import & export');
     expect(_inventoryPaths.length, _sidebarLabels().length);
   });
 

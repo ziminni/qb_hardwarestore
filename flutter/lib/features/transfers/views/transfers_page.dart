@@ -1,7 +1,6 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
-import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/data/models/product.dart';
@@ -25,7 +24,7 @@ import 'package:provider/provider.dart';
 /// Manager, Admin (`IsInventoryRole`). A Cashier has no transfers screen at all:
 /// the server answers 403 to the list and to the write, so a read-only page
 /// would be nothing but failures.
-enum TransfersShell { inventory, sales, admin }
+enum TransfersShell { inventory, sales }
 
 /// Transfers in the Stock Manager's shell (inventory sidebar index 15,
 /// APPENDED so no earlier tab moves).
@@ -56,21 +55,6 @@ class SalesTransfersPage extends StatelessWidget {
   Widget build(BuildContext context) => ChangeNotifierProvider(
     create: (_) => (viewmodel ?? TransfersViewmodel())..load(),
     child: _TransfersBody(shell: TransfersShell.sales, products: products),
-  );
-}
-
-/// Transfers in the Admin shell (admin sidebar index 11, after Storage
-/// locations).
-class AdminTransfersPage extends StatelessWidget {
-  const AdminTransfersPage({super.key, this.viewmodel, this.products});
-
-  final TransfersViewmodel? viewmodel;
-  final ProductsRepository? products;
-
-  @override
-  Widget build(BuildContext context) => ChangeNotifierProvider(
-    create: (_) => (viewmodel ?? TransfersViewmodel())..load(),
-    child: _TransfersBody(shell: TransfersShell.admin, products: products),
   );
 }
 
@@ -200,15 +184,6 @@ class _TransfersBodyState extends State<_TransfersBody> {
         selectedNavigationIndex: 11,
         scrollable: false,
         onNavigationSelected: (index) => navigateSales(context, index),
-        child: content,
-      ),
-      TransfersShell.admin => AdminSkeletonLayout(
-        title: title,
-        subtitle: subtitle,
-        selectedNavigationIndex: 11,
-        scrollable: false,
-        // The admin shell navigates from its own tuple list, so it needs no
-        // callback here.
         child: content,
       ),
     };

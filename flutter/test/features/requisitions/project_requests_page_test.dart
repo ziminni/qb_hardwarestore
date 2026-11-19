@@ -13,7 +13,6 @@
 //   * nothing clips at 1440/1100/760 or at text scale 1.3.
 import 'dart:io';
 
-import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/core/theme/app_theme.dart';
 import 'package:client/data/models/requisition.dart';
 import 'package:client/data/models/role.dart';
@@ -162,7 +161,6 @@ Future<ProjectRequestsViewmodel> _pump(
   required _StubRepository repository,
   Size size = const Size(1600, 1400),
   double textScale = 1,
-  bool adminShell = false,
   bool appTheme = false,
 }) async {
   tester.view.physicalSize = size;
@@ -171,7 +169,7 @@ Future<ProjectRequestsViewmodel> _pump(
   final viewmodel = ProjectRequestsViewmodel(repository: repository);
   await tester.pumpWidget(
     ChangeNotifierProvider<AuthViewmodel>.value(
-      value: _auth(role: adminShell ? 'admin' : 'sales'),
+      value: _auth(role: 'sales'),
       child: MaterialApp(
         theme: appTheme ? AppTheme.lightTheme : null,
         builder: (context, child) => MediaQuery(
@@ -180,9 +178,7 @@ Future<ProjectRequestsViewmodel> _pump(
           ).copyWith(textScaler: TextScaler.linear(textScale)),
           child: child!,
         ),
-        home: adminShell
-            ? AdminProjectRequestsPage(viewmodel: viewmodel)
-            : ProjectRequestsPage(viewmodel: viewmodel),
+        home: ProjectRequestsPage(viewmodel: viewmodel),
       ),
     ),
   );
@@ -274,19 +270,6 @@ void main() {
         findsOneWidget,
         reason: 'a failed reload must not empty the queue',
       );
-    });
-
-    testWidgets('the admin shell renders the same queue', (tester) async {
-      final repository = _StubRepository()..rows = [_request()];
-      await _pump(tester, repository: repository, adminShell: true);
-
-      expect(find.byType(AdminSkeletonLayout), findsOneWidget);
-      expect(find.text('REQ-20261107-0007'), findsOneWidget);
-      final layout = tester.widget<AdminSkeletonLayout>(
-        find.byType(AdminSkeletonLayout),
-      );
-      expect(layout.selectedNavigationIndex, 7);
-      expect(layout.title, 'Requests from projects');
     });
   });
 
@@ -694,7 +677,6 @@ void main() {
         tester,
         repository: repository,
         size: const Size(1100, 900),
-        adminShell: true,
         appTheme: true,
       );
 

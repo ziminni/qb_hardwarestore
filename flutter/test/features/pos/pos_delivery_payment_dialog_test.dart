@@ -11,6 +11,7 @@ import 'package:client/features/pos/widgets/pos_payment_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../../support/payment_steps.dart';
 
 Future<PosPaymentDetails?> _open(
   WidgetTester tester, {
@@ -54,6 +55,9 @@ Future<PosPaymentDetails?> _open(
 }
 
 Future<void> _toggleDeliver(WidgetTester tester) async {
+  // Below the Payment section on step 1: scroll to it like the cashier would.
+  await tester.ensureVisible(find.byKey(const ValueKey('pos-deliver-toggle')));
+  await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('pos-deliver-toggle')));
   await tester.pumpAndSettle();
 }
@@ -79,9 +83,21 @@ Future<void> _enterDelivery(
   await tester.pumpAndSettle();
 }
 
+/// Owner 2026-11-19: the discount is behind an off-by-default switch, like
+/// Deliver; its fields appear once it is on.
+Future<void> _discountOn(WidgetTester tester) async {
+  await goToDiscountStep(tester);
+  final toggle = find.byKey(const ValueKey('pos-discount-toggle'));
+  await tester.ensureVisible(toggle);
+  await tester.pumpAndSettle();
+  await tester.tap(toggle);
+  await tester.pumpAndSettle();
+}
+
 Future<void> _discountPercent(WidgetTester tester, String percent) async {
   // The Deliver section grows the dialog, so the discount controls can sit below
   // the fold of a test window: scroll to them the way the cashier would.
+  await _discountOn(tester);
   await tester.ensureVisible(find.text('% Percent'));
   await tester.pumpAndSettle();
   await tester.tap(find.text('% Percent'));
@@ -149,7 +165,7 @@ void main() {
     await _open(tester);
     await _toggleDeliver(tester);
 
-    await tester.tap(find.text('Complete sale'));
+    await completePayment(tester);
     await tester.pumpAndSettle();
 
     expect(find.text('A delivery needs an address.'), findsOneWidget);
@@ -164,18 +180,30 @@ void main() {
     tester,
   ) async {
     await _open(tester);
+    // Step 1 holds the delivery; Next refuses to leave it half filled in, so
+    // the details go in before moving on to the discount (step 2).
     await _toggleDeliver(tester);
-    await _discountPercent(tester, '10');
     await _enterDelivery(tester, fee: '50');
+    await _discountPercent(tester, '10');
 
     // 1000 gross less 100 (10%) is 900 goods + 50 delivery: the fee was not
     // reduced to 45, and it was not discounted away.
-    expect(find.text('Amount due: ${formatPeso(950)}'), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('pos-amount-due'))).data,
+      formatPeso(950),
+    );
+    // The Review step itemises the charge on its own row.
+    await goToReviewStep(tester);
     expect(find.text('Delivery charge'), findsOneWidget);
     expect(find.text(formatPeso(50)), findsWidgets);
 
-    // The cashier tenders the full 1000 in cash: the change is measured on the
-    // goods net PLUS the charge, so it is 50, not 100.
+    // The cashier tenders the full 1000 in cash (back on the Payment step,
+    // two back): the change is measured on the goods net PLUS the charge, so
+    // it is 50, not 100.
+    for (var back = 0; back < 2; back++) {
+      await tester.tap(find.text('Back'));
+      await tester.pumpAndSettle();
+    }
     await tester.enterText(
       find.byKey(const ValueKey('pos-tender-amount-0')),
       '1000',
@@ -196,7 +224,7 @@ void main() {
     await _toggleDeliver(tester);
     await _enterDelivery(tester, fee: '10.005');
 
-    await tester.tap(find.text('Complete sale'));
+    await completePayment(tester);
     await tester.pumpAndSettle();
 
     expect(
@@ -215,7 +243,7 @@ void main() {
     await _toggleDeliver(tester);
     await _enterDelivery(tester, fee: 'ten');
 
-    await tester.tap(find.text('Complete sale'));
+    await completePayment(tester);
     await tester.pumpAndSettle();
 
     final error = find.text('The delivery fee must be a number, 0 or more.');
@@ -236,7 +264,7 @@ void main() {
     await _open(tester, size: const Size(760, 1000));
     await _toggleDeliver(tester);
 
-    await tester.tap(find.text('Complete sale'));
+    await completePayment(tester);
     await tester.pumpAndSettle();
 
     _expectDeliveryErrorsFull(tester);
@@ -248,7 +276,7 @@ void main() {
       await _open(tester, size: const Size(760, 1000), scale: 1.3);
       await _toggleDeliver(tester);
 
-      await tester.tap(find.text('Complete sale'));
+      await completePayment(tester);
       await tester.pumpAndSettle();
 
       _expectDeliveryErrorsFull(tester);
@@ -283,7 +311,7 @@ void main() {
       await _toggleDeliver(tester);
       await _enterDelivery(tester);
 
-      await tester.tap(find.text('Complete sale'));
+      await completePayment(tester);
       await tester.pumpAndSettle();
 
       final draft = details!.delivery;
@@ -324,7 +352,7 @@ void main() {
     );
     await tester.tap(find.text('Pay'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Complete sale'));
+    await completePayment(tester);
     await tester.pumpAndSettle();
 
     expect(details!.delivery, isNull);

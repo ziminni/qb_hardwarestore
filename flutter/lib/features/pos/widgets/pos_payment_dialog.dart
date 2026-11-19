@@ -1,10 +1,15 @@
+import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/format/money_input.dart';
+import 'package:client/data/models/customer.dart';
 import 'package:client/data/models/delivery.dart';
+import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/data/models/sale_discount.dart';
 import 'package:client/data/models/store_settings.dart';
 import 'package:client/data/models/tender_method.dart';
+import 'package:client/data/services/customer_profile_store.dart';
 import 'package:client/data/services/discount_approval_service.dart';
+import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_discount_approval_dialog.dart';
 import 'package:flutter/material.dart';
 
@@ -60,13 +65,35 @@ class PosTender {
 /// What the payment dialog hands back: the tenders it took, the discount it
 /// applied, the manager's approval token when the discount needed one, and the
 /// delivery details when the sale goes out.
+/// The part of a sale the customer owes instead of paying (owner 2026-11-19):
+/// chosen as the "Utang" method, owed by the person named here. It is never a
+/// payment on the wire: the server records whatever the payments leave unpaid
+/// as utang, against the named customer the till selects from these details.
+class PosUtang {
+  const PosUtang({
+    required this.name,
+    required this.contact,
+    required this.amount,
+    this.address = '',
+  });
+
+  final String name;
+  final String contact;
+  final String address;
+  final double amount;
+}
+
 class PosPaymentDetails {
   const PosPaymentDetails({
     required this.tenders,
     this.discount,
     this.discountApprovalToken,
     this.delivery,
+    this.utang,
   });
+
+  /// What is owed as utang, and by whom; null when the sale is paid.
+  final PosUtang? utang;
 
   /// Every tender against this sale, in the order the cashier entered them. The
   /// page posts them all: collapsing a split sale into one method would tell the
@@ -87,7 +114,9 @@ class PosPaymentDetails {
   PosTender get primary => tenders.first;
 
   /// The first tender's method, for a one-tender sale.
-  TenderMethod get method => primary.method;
+  // A sale owed in full as utang carries no tender at all.
+  TenderMethod get method =>
+      tenders.isEmpty ? TenderMethod.cash : primary.method;
 
   /// What the drawer received: every tender EXCEPT a pending cheque.
   ///
@@ -116,6 +145,9 @@ class PosPaymentDialog extends StatefulWidget {
     this.customerIsNamed = true,
     this.lockedDeliveryFee,
     this.allowDiscount = true,
+    this.lines = const [],
+    this.cart,
+    this.customer,
   });
 
   /// The cart's gross: what the sale is worth before any discount.
@@ -147,6 +179,30 @@ class PosPaymentDialog extends StatefulWidget {
   /// till would take less money than the sale asks for.
   final bool allowDiscount;
 
+  /// The cart, for the Review step (owner 2026-11-19). Empty in a caller that
+  /// has no cart to show; the step then shows only the totals.
+  final List<PosCartLine> lines;
+
+  /// The till's live cart (owner 2026-11-19): the Items step edits it, and the
+  /// totals follow it. Null in a caller with no cart; there is no Items step
+  /// then, and [total] and [lines] are used as given.
+  final PosTransactionViewmodel? cart;
+
+  /// Optional explicit buyer; defaults to [cart.selectedCustomer].
+  ///
+  /// When a named customer is present, their saved profile automatically
+  /// pre-populates the Discount, Utang, and Delivery sections while keeping
+  /// every input field editable.
+  final Customer? customer;
+
+  Customer? get currentCustomer => customer ?? cart?.selectedCustomer;
+
+  /// What is being bought, live from [cart] when there is one.
+  List<PosCartLine> get currentLines => cart?.lines ?? lines;
+
+  /// The goods' gross, live from [cart] when there is one.
+  double get currentTotal => cart?.total ?? total;
+
   @override
   State<PosPaymentDialog> createState() => _PosPaymentDialogState();
 }
@@ -167,8 +223,14 @@ class _TenderRow {
   /// still owed, so a discount does not leave the row at a stale total.
   bool followsRemaining = true;
 
+  /// The Utang choice: this amount is owed, not paid. [method] is ignored then.
+  bool isUtang = false;
+
   double get amount => double.tryParse(amountController.text.trim()) ?? 0;
-  bool get isCheque => method.isCheque;
+  bool get isCheque => !isUtang && method.isCheque;
+
+  /// Money in hand: neither a pending cheque nor an utang.
+  bool get isMoney => !isUtang && !method.isCheque;
 
   void dispose() {
     amountController.dispose();
@@ -186,10 +248,73 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
   final _deliveryContact = TextEditingController();
   final _deliveryPhone = TextEditingController();
   final _deliveryFee = TextEditingController(text: '0.00');
+  final _utangName = TextEditingController();
+  final _utangContact = TextEditingController();
+  final _utangAddress = TextEditingController();
   final List<_TenderRow> _rows = [_TenderRow(method: TenderMethod.cash)];
 
   /// True once the cashier says the goods go out (decision 18).
   bool _deliver = false;
+
+  /// Where the cashier is in the three steps (owner 2026-11-19).
+  int _stepIndex = 0;
+
+  /// Payment, Discount (only when the sale may take one), Review.
+  List<_PayStep> get _steps => [
+    if (widget.cart != null) _PayStep.items,
+    _PayStep.payment,
+    if (widget.allowDiscount) _PayStep.discount,
+    _PayStep.review,
+  ];
+
+  _PayStep get _current => _steps[_stepIndex];
+
+  bool get _isLastStep => _stepIndex == _steps.length - 1;
+
+  /// Next: the step's own fields are checked first, so a mistake is fixed on
+  /// the step that made it rather than found at the end.
+  void _next() {
+    setState(() => _tenderError = null);
+    if (!_formKey.currentState!.validate()) return;
+    if (_current == _PayStep.payment) {
+      if (_duplicateMethod case final duplicate?) {
+        setState(() => _tenderError = duplicate);
+        return;
+      }
+      final chequeRefusal = _chequeRefusal;
+      if (chequeRefusal != null) {
+        setState(() => _tenderError = chequeRefusal);
+        return;
+      }
+    }
+    setState(() => _stepIndex++);
+  }
+
+  void _back() => setState(() {
+    _tenderError = null;
+    if (_stepIndex > 0) _stepIndex--;
+  });
+
+  /// The fields of steps no longer on screen, checked again at the end: a
+  /// hidden field cannot validate itself. Answers the step to return to.
+  _PayStep? _hiddenStepProblem() {
+    if (_hasUtang &&
+        (_utangName.text.trim().isEmpty || _utangContact.text.trim().isEmpty)) {
+      _tenderError =
+          'An utang needs the name and contact number of who owes it.';
+      return _PayStep.payment;
+    }
+    if (_discountValue.text.trim().isNotEmpty &&
+        _discountReason.text.trim().isEmpty) {
+      _tenderError = 'A discount needs a reason.';
+      return _PayStep.discount;
+    }
+    return null;
+  }
+
+  /// The Discount switch (owner 2026-11-19): off, the discount fields stay
+  /// hidden and no discount is applied.
+  bool _discountOn = false;
 
   /// The day the goods go out. Defaults to tomorrow: a delivery is arranged
   /// ahead of the sale that paid for it, and today's date would claim the truck
@@ -212,13 +337,125 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
   @override
   void initState() {
     super.initState();
+    _applyCustomerPrefill();
     // What the sale ASKS FOR, which is not always the goods total: an order's
     // fulfilment carries the delivery fee agreed on its slip.
     _rows.first.amountController.text = _due.toStringAsFixed(2);
+    widget.cart?.addListener(_onCartChanged);
+  }
+
+  CustomerProfile? get _activeProfile =>
+      CustomerProfileStore.instance.resolveFor(widget.currentCustomer);
+
+  /// Pre-populates Discount, Utang, and Delivery fields from the selected
+  /// customer's saved profile while leaving every field editable.
+  void _applyCustomerPrefill() {
+    final buyer = widget.currentCustomer;
+    if (buyer == null || buyer.isWalkIn) return;
+    final profile = _activeProfile;
+
+    _prefillUtangFields(buyer, profile);
+    _prefillDeliveryFields(buyer, profile);
+
+    if (widget.allowDiscount) {
+      final preset = profile?.toPosDiscount;
+      if (preset != null) {
+        _discountOn = true;
+        _kind = preset.kind;
+        _discountValue.text = formatQuantity(preset.value);
+        _discountReason.text = preset.reason;
+      }
+    }
+  }
+
+  void _prefillUtangFields(Customer? buyer, CustomerProfile? profile) {
+    if (buyer == null || buyer.isWalkIn) return;
+    if (_utangName.text.trim().isEmpty) {
+      _utangName.text = buyer.name;
+    }
+    final phone = profile?.phone.trim() ?? '';
+    if (_utangContact.text.trim().isEmpty && phone.isNotEmpty) {
+      _utangContact.text = phone;
+    }
+    final address = profile?.address.trim() ?? '';
+    if (_utangAddress.text.trim().isEmpty && address.isNotEmpty) {
+      _utangAddress.text = address;
+    }
+  }
+
+  void _prefillDeliveryFields(Customer? buyer, CustomerProfile? profile) {
+    if (buyer == null || buyer.isWalkIn) return;
+    if (_deliveryContact.text.trim().isEmpty) {
+      _deliveryContact.text = buyer.name;
+    }
+    final phone = profile?.phone.trim() ?? '';
+    if (_deliveryPhone.text.trim().isEmpty && phone.isNotEmpty) {
+      _deliveryPhone.text = phone;
+    }
+    final address = profile?.address.trim() ?? '';
+    if (_deliveryAddress.text.trim().isEmpty && address.isNotEmpty) {
+      _deliveryAddress.text = address;
+    }
+  }
+
+  /// The cart changed on the Items step: the payment rows that follow the
+  /// amount due follow it, and an emptied cart has nothing left to pay.
+  void _onCartChanged() {
+    if (!mounted) return;
+    // Only while this dialog is the screen on top. After Complete it has
+    // already popped itself, and the sale then clears the cart and reloads
+    // stock: popping again would close whatever sits above the till (the
+    // receipt) or throw on an empty navigator.
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    if (widget.currentLines.isEmpty) {
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(_syncFollowingRows);
+  }
+
+  /// Applies an Items-step change; a refusal (not enough stock) is shown.
+  void _editLine(String? Function() change) {
+    final refusal = change();
+    setState(() => _tenderError = refusal);
+  }
+
+  Future<void> _typeQuantity(int index, PosCartLine line) async {
+    final controller = TextEditingController(
+      text: formatQuantity(line.quantity),
+    );
+    final typed = await showDialog<double>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Quantity of ${line.productName}'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(suffixText: line.unit),
+          onSubmitted: (value) =>
+              Navigator.pop(context, double.tryParse(value.trim())),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(context, double.tryParse(controller.text.trim())),
+            child: const Text('Set'),
+          ),
+        ],
+      ),
+    );
+    if (typed == null || !mounted) return;
+    _editLine(() => widget.cart!.setLineQuantity(index, typed));
   }
 
   @override
   void dispose() {
+    widget.cart?.removeListener(_onCartChanged);
     for (final row in [..._rows, ..._removedRows]) {
       row.dispose();
     }
@@ -228,6 +465,9 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
     _deliveryContact.dispose();
     _deliveryPhone.dispose();
     _deliveryFee.dispose();
+    _utangName.dispose();
+    _utangContact.dispose();
+    _utangAddress.dispose();
     super.dispose();
   }
 
@@ -242,7 +482,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
   }
 
   PosDiscountAmounts get _amounts =>
-      PosDiscountAmounts.forDiscount(widget.total, _discount);
+      PosDiscountAmounts.forDiscount(widget.currentTotal, _discount);
 
   /// The delivery charge as typed, or 0 while the sale is not a delivery.
   double get _fee =>
@@ -264,7 +504,8 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
   String? get _chequeRefusal {
     final cheques = _rows.where((row) => row.isCheque).toList();
     if (cheques.isEmpty) return null;
-    if (!widget.customerIsNamed) {
+    // An utang names the customer, so a cheque beside it has someone to owe.
+    if (!widget.customerIsNamed && !_hasUtang) {
       return chequeRefusalSentence('CHEQUE_NEEDS_CUSTOMER');
     }
     final missing = <String>[];
@@ -293,7 +534,13 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
 
   /// What the drawer has taken so far, EXCLUDING pending cheques.
   double get _paidNow => _rows
-      .where((row) => !row.isCheque)
+      .where((row) => row.isMoney)
+      .fold(0.0, (sum, row) => sum + row.amount);
+
+  bool get _hasUtang => _rows.any((row) => row.isUtang);
+
+  double get _utangTotal => _rows
+      .where((row) => row.isUtang)
       .fold(0.0, (sum, row) => sum + row.amount);
 
   double get _pendingChequeTotal => _rows
@@ -301,7 +548,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
       .fold(0.0, (sum, row) => sum + row.amount);
 
   double get _cashTotal => _rows
-      .where((row) => !row.isCheque && row.method == TenderMethod.cash)
+      .where((row) => row.isMoney && row.method == TenderMethod.cash)
       .fold(0.0, (sum, row) => sum + row.amount);
 
   /// What the sale still asks the drawer for, before any cheque is taken.
@@ -312,7 +559,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
   /// cheque the shop has not cashed.
   double get _change {
     final nonCashPaid = _rows
-        .where((row) => !row.isCheque && row.method != TenderMethod.cash)
+        .where((row) => row.isMoney && row.method != TenderMethod.cash)
         .fold(0.0, (sum, row) => sum + row.amount);
     return (_cashTotal - (_due - nonCashPaid)).clamp(0, double.infinity);
   }
@@ -326,7 +573,17 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
     if (_change <= _cashTotal + 0.005) return null;
     return 'Change of ${formatPeso(_change)} is due but only '
         '${formatPeso(_cashTotal)} was taken in cash. Change is paid from the '
-        'drawer: lower the card or GCash amount and take the rest in cash.';
+        'drawer: lower the GCash amount and take the rest in cash.';
+  }
+
+  /// Turning the discount off clears it, so a hidden value is never applied.
+  void _setDiscountOn(bool value) {
+    setState(() => _discountOn = value);
+    if (!value) {
+      _discountValue.clear();
+      _discountReason.clear();
+      _onDiscountChanged();
+    }
   }
 
   void _onDiscountChanged() {
@@ -359,6 +616,9 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
   void _setDeliver(bool value) {
     setState(() {
       _deliver = value;
+      if (value) {
+        _prefillDeliveryFields(widget.currentCustomer, _activeProfile);
+      }
       if (value && _deliveryDate == null) {
         final now = DateTime.now();
         _deliveryDate = DateTime(now.year, now.month, now.day + 1);
@@ -383,11 +643,72 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
     setState(() => _deliveryDate = picked);
   }
 
+  /// Every method the till offers, Utang last, as dropdown choices.
+  static final List<String> _allChoices = [
+    for (final method in TenderMethod.tillTenders) method.code,
+    _utangChoice,
+  ];
+
+  String _choiceOf(_TenderRow row) =>
+      row.isUtang ? _utangChoice : row.method.code;
+
+  String _labelOf(String choice) => choice == _utangChoice
+      ? 'Utang'
+      : TenderMethod.fromWire(choice)?.label ?? choice;
+
+  /// The methods rows OTHER than [row] already use: each method once per
+  /// sale (owner 2026-11-19), so a split is Cash + GCash, never Cash + Cash.
+  Set<String> _usedByOthers(_TenderRow? row) => {
+    for (final other in _rows)
+      if (!identical(other, row)) _choiceOf(other),
+  };
+
+  /// The methods no row uses yet, in the dropdown's order.
+  List<String> get _unusedChoices {
+    final used = _usedByOthers(null);
+    return [
+      for (final choice in _allChoices)
+        if (!used.contains(choice)) choice,
+    ];
+  }
+
+  /// The warning for two rows on the same method, or null.
+  String? get _duplicateMethod {
+    final seen = <String>{};
+    for (final row in _rows) {
+      final choice = _choiceOf(row);
+      if (!seen.add(choice)) {
+        return '${_labelOf(choice)} is chosen twice. Each tender needs a '
+            'different method: change or remove one.';
+      }
+    }
+    return null;
+  }
+
+  /// Selects the whole of a money field on tap (owner 2026-11-19), so the
+  /// cashier types the new amount straight over the old one.
+  void _selectAll(TextEditingController controller) {
+    controller.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: controller.text.length,
+    );
+  }
+
   void _addRow() {
+    final free = _unusedChoices;
+    if (free.isEmpty) return;
     final row = _TenderRow(
       method: TenderMethod.cash,
       amount: _remainingBeforeCheques.toStringAsFixed(2),
     );
+    // The new row starts on the first method no other row uses.
+    final choice = free.first;
+    if (choice == _utangChoice) {
+      row.isUtang = true;
+      _prefillUtangFields(widget.currentCustomer, _activeProfile);
+    } else {
+      row.method = TenderMethod.fromWire(choice) ?? TenderMethod.cash;
+    }
     setState(() {
       _rows.add(row);
       _tenderError = null;
@@ -404,6 +725,36 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
     });
   }
 
+  static const _utangChoice = 'UTANG';
+
+  void _setChoice(_TenderRow row, String? choice) {
+    if (choice == null) return;
+    if (_usedByOthers(row).contains(choice)) {
+      setState(
+        () => _tenderError =
+            '${_labelOf(choice)} is already used by another tender. '
+            'Choose a different method.',
+      );
+      return;
+    }
+    if (choice == _utangChoice) {
+      setState(() {
+        row.isUtang = true;
+        _prefillUtangFields(widget.currentCustomer, _activeProfile);
+        _tenderError = null;
+      });
+      return;
+    }
+    row.isUtang = false;
+    _setMethod(
+      row,
+      TenderMethod.tillTenders.firstWhere(
+        (method) => method.code == choice,
+        orElse: () => TenderMethod.cash,
+      ),
+    );
+  }
+
   void _setMethod(_TenderRow row, TenderMethod method) {
     setState(() {
       row.method = method;
@@ -418,214 +769,799 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
   Widget build(BuildContext context) {
     final amounts = _amounts;
     final needsApproval = amounts.needsApproval(widget.discountCapPercent);
-    return AlertDialog(
-      title: const Text('Payment'),
-      content: SizedBox(
-        width: 560,
-        child: SingleChildScrollView(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _summaryRow('Gross', formatPeso(amounts.gross)),
-                _summaryRow(
-                  'Discount',
-                  amounts.discountAmount > 0
-                      ? formatPeso(-amounts.discountAmount)
-                      : 'None',
-                ),
-                // After the discount and before the total: the fee is added
-                // AFTER the discount and never discounted (decision 18).
-                if (widget.lockedDeliveryFee != null
-                    ? _deliveryCharge > 0
-                    : _deliver)
-                  _summaryRow('Delivery charge', formatPeso(_deliveryCharge)),
-                Text(
-                  'Amount due: ${formatPeso(_due)}',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 8),
-                // A fulfilment's trip is already agreed on the order.
-                if (widget.lockedDeliveryFee == null) _deliverySection(),
-                if (widget.allowDiscount) ...[
-                  const SizedBox(height: 16),
-                  const Text('Apply a discount'),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      for (final kind in DiscountKind.values) ...[
-                        ChoiceChip(
-                          label: Text(
-                            kind == DiscountKind.amount
-                                ? '₱ Amount'
-                                : '% Percent',
-                          ),
-                          selected: _kind == kind,
-                          onSelected: (_) {
-                            if (_kind == kind) return;
-                            setState(() => _kind = kind);
-                            _onDiscountChanged();
-                          },
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          key: const ValueKey('pos-discount-value'),
-                          controller: _discountValue,
-                          onChanged: (_) => _onDiscountChanged(),
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(
-                            labelText: _kind == DiscountKind.amount
-                                ? 'Discount amount'
-                                : 'Discount percent',
-                          ),
-                          validator: (value) {
-                            final text = (value ?? '').trim();
-                            if (text.isEmpty) return null;
-                            final parsed = double.tryParse(text);
-                            if (parsed == null) return 'Enter a valid number';
-                            if (parsed < 0) {
-                              return 'A discount cannot be negative';
-                            }
-                            if (_kind == DiscountKind.percent && parsed > 100) {
-                              return 'A discount cannot be more than 100 percent';
-                            }
-                            return null;
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        flex: 2,
-                        child: TextFormField(
-                          key: const ValueKey('pos-discount-reason'),
-                          controller: _discountReason,
-                          onChanged: (_) => _onDiscountChanged(),
-                          decoration: const InputDecoration(
-                            labelText: 'Reason for the discount',
-                          ),
-                          validator: (value) {
-                            if ((_discountValue.text.trim().isNotEmpty) &&
-                                (value ?? '').trim().isEmpty) {
-                              return 'A discount needs a reason';
-                            }
-                            return null;
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (needsApproval) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      'Needs manager approval: ${amounts.percentOfGross.toStringAsFixed(2)}% '
-                      'is above the ${widget.discountCapPercent.toStringAsFixed(2)}% cap.',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ],
-                const SizedBox(height: 16),
-                Row(
+    final unpaid = _remainingBeforeCheques;
+    final media = MediaQuery.sizeOf(context);
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      // One fixed, tall size on every step (owner 2026-11-19): the window does
+      // not jump as the cashier moves between Items, Payment and Review.
+      child: SizedBox(
+        width: 520,
+        height: (media.height - 48).clamp(0, 760).toDouble(),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ---- Title bar --------------------------------------------
+              Container(
+                color: AppColors.brandBlack,
+                padding: const EdgeInsets.fromLTRB(24, 14, 12, 14),
+                child: Row(
                   children: [
-                    const Expanded(child: Text('Tenders')),
-                    TextButton.icon(
-                      key: const ValueKey('pos-add-tender'),
-                      onPressed: _addRow,
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('Add tender'),
+                    const Icon(Icons.point_of_sale, color: AppColors.brandGold),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'Payment',
+                        style: TextStyle(
+                          color: AppColors.brandWhite,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Cancel',
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(
+                        Icons.close,
+                        color: AppColors.brandWhite,
+                      ),
                     ),
                   ],
                 ),
-                for (final row in _rows) _tenderRow(row),
-                const SizedBox(height: 8),
-                // Paid now and the pending cheque are two different facts: money in
-                // the drawer, and paper the bank has not honoured yet.
-                _summaryRow('Paid now', formatPeso(_paidNow), bold: false),
-                if (_pendingChequeTotal > 0)
-                  _textSummaryRow(
-                    'Cheque pending (not counted as paid)',
-                    formatPeso(_pendingChequeTotal),
+              ),
+              // ---- Body ---------------------------------------------------
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _stepBar(),
+                      const SizedBox(height: 24),
+                      // Step 1: the cart itself, editable before paying.
+                      if (_current == _PayStep.items) _itemsSection(),
+                      // Step 2: how it is paid, then whether it is delivered.
+                      if (_current == _PayStep.payment) ...[
+                        _section(
+                          icon: Icons.payments_outlined,
+                          title: 'Payment',
+                          trailing: TextButton.icon(
+                            key: const ValueKey('pos-add-tender'),
+                            // Off once every method has a row.
+                            onPressed: _unusedChoices.isEmpty ? null : _addRow,
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text('Add tender'),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              for (final row in _rows) _tenderRow(row),
+                              if (_hasUtang) _utangFields(),
+                            ],
+                          ),
+                        ),
+                      ],
+                      if (widget.lockedDeliveryFee == null &&
+                          _current == _PayStep.payment)
+                        _section(
+                          icon: Icons.local_shipping_outlined,
+                          title: 'Delivery',
+                          // The switch sits on the heading's right (owner
+                          // 2026-11-19); the fields appear only when it is on.
+                          trailing: Switch(
+                            key: const ValueKey('pos-deliver-toggle'),
+                            value: _deliver,
+                            onChanged: _setDeliver,
+                          ),
+                          collapsed: !_deliver,
+                          child: _deliverySection(),
+                        ),
+                      // Step 3: any discount (owner 2026-11-19). Off: only two
+                      // centred squares, Apply discount and Continue.
+                      if (widget.allowDiscount &&
+                          _current == _PayStep.discount &&
+                          !_discountOn)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 40),
+                          child: Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 400),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: _squareButton(
+                                      key: const ValueKey(
+                                        'pos-discount-toggle',
+                                      ),
+                                      icon: Icons.sell_outlined,
+                                      label: 'Apply discount',
+                                      onTap: () => _setDiscountOn(true),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: _squareButton(
+                                      key: const ValueKey('pos-payment-next'),
+                                      icon: Icons.arrow_forward,
+                                      label: 'Continue',
+                                      dark: true,
+                                      onTap: _next,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      // On: the section as first designed; its switch turns
+                      // the discount back off and returns to the squares.
+                      if (widget.allowDiscount &&
+                          _current == _PayStep.discount &&
+                          _discountOn)
+                        _section(
+                          icon: Icons.sell_outlined,
+                          title: 'Discount',
+                          trailing: Switch(
+                            key: const ValueKey('pos-discount-toggle'),
+                            value: _discountOn,
+                            onChanged: _setDiscountOn,
+                          ),
+                          note: needsApproval
+                              ? 'Needs manager approval: '
+                                    '${amounts.percentOfGross.toStringAsFixed(2)}% '
+                                    'is above the '
+                                    '${widget.discountCapPercent.toStringAsFixed(2)}% cap.'
+                              : null,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                children: [
+                                  for (final kind in DiscountKind.values) ...[
+                                    ChoiceChip(
+                                      label: Text(
+                                        kind == DiscountKind.amount
+                                            ? '₱ Amount'
+                                            : '% Percent',
+                                      ),
+                                      selected: _kind == kind,
+                                      onSelected: (_) {
+                                        if (_kind == kind) return;
+                                        setState(() => _kind = kind);
+                                        _onDiscountChanged();
+                                      },
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ],
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: TextFormField(
+                                      key: const ValueKey('pos-discount-value'),
+                                      controller: _discountValue,
+                                      onChanged: (_) => _onDiscountChanged(),
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                            decimal: true,
+                                          ),
+                                      decoration: InputDecoration(
+                                        labelText: _kind == DiscountKind.amount
+                                            ? 'Discount amount'
+                                            : 'Discount percent',
+                                      ),
+                                      validator: (value) {
+                                        final text = (value ?? '').trim();
+                                        if (text.isEmpty) return null;
+                                        final parsed = double.tryParse(text);
+                                        if (parsed == null) {
+                                          return 'Enter a valid number';
+                                        }
+                                        if (parsed < 0) {
+                                          return 'A discount cannot be negative';
+                                        }
+                                        if (_kind == DiscountKind.percent &&
+                                            parsed > 100) {
+                                          return 'A discount cannot be more than 100 percent';
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    flex: 2,
+                                    child: TextFormField(
+                                      key: const ValueKey(
+                                        'pos-discount-reason',
+                                      ),
+                                      controller: _discountReason,
+                                      onChanged: (_) => _onDiscountChanged(),
+                                      decoration: const InputDecoration(
+                                        labelText: 'Reason for the discount',
+                                      ),
+                                      validator: (value) {
+                                        if ((_discountValue.text
+                                                .trim()
+                                                .isNotEmpty) &&
+                                            (value ?? '').trim().isEmpty) {
+                                          return 'A discount needs a reason';
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              // The over-cap sentence is the section's note.
+                            ],
+                          ),
+                        ),
+                      // Step 4: what is being bought, before it is final.
+                      if (_current == _PayStep.review) _reviewSection(),
+                    ],
                   ),
-                _textSummaryRow(
-                  'Change (cash only)',
-                  formatPeso(_change),
-                  bold: false,
                 ),
-                // What the drawer has NOT covered stays owed even when a cheque is
-                // sitting on it: a pending cheque is not money, so the amount it
-                // covers is utang until a manager clears it. This is why the test
-                // is the money owed, not what is left after counting the cheque.
-                if (_remainingBeforeCheques > 0)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      _pendingChequeTotal > 0
-                          ? '${formatPeso(_remainingBeforeCheques)} will be left '
-                                'unpaid. The cheque holds it open as utang until a '
-                                'manager clears it.'
-                          : '${formatPeso(_remainingBeforeCheques)} will be left '
-                                'unpaid. This records an utang.',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                        fontWeight: FontWeight.bold,
+              ),
+              // ---- Footer: the totals and the decision, always in view ----
+              // (On the Discount step only a Back button: the step's own
+              // Continue moves on, owner 2026-11-19.)
+              Container(
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 18),
+                decoration: const BoxDecoration(
+                  color: AppColors.surfaceSunken,
+                  border: Border(top: BorderSide(color: AppColors.border)),
+                ),
+                child: _current == _PayStep.discount && !_discountOn
+                    ? _discountFooter()
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              const Expanded(
+                                child: Text(
+                                  'Amount due',
+                                  style: TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                              Text(
+                                formatPeso(_due),
+                                key: const ValueKey('pos-amount-due'),
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _total('Paid now', formatPeso(_paidNow)),
+                              ),
+                              Expanded(
+                                child: _total(
+                                  'Change (cash only)',
+                                  formatPeso(_change),
+                                ),
+                              ),
+                              Expanded(
+                                child: _total(
+                                  _hasUtang ? 'Utang' : 'Unpaid',
+                                  formatPeso(unpaid),
+                                  warn: unpaid > 0,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (_pendingChequeTotal > 0)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: _textSummaryRow(
+                                'Cheque pending (not counted as paid)',
+                                formatPeso(_pendingChequeTotal),
+                              ),
+                            ),
+                          // What the drawer has NOT covered stays owed even when a
+                          // cheque sits on it: a pending cheque is not money.
+                          if (unpaid > 0)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                _pendingChequeTotal > 0
+                                    ? '${formatPeso(unpaid)} will be left unpaid. The '
+                                          'cheque holds it open as utang until a manager '
+                                          'clears it.'
+                                    : '${formatPeso(unpaid)} will be left unpaid. This '
+                                          'records an utang.',
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.error,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          if (_tenderError case final message?)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                message,
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                              ),
+                            ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton(
+                                  style: OutlinedButton.styleFrom(
+                                    minimumSize: const Size.fromHeight(48),
+                                  ),
+                                  onPressed: _stepIndex == 0
+                                      ? () => Navigator.pop(context)
+                                      : _back,
+                                  child: Text(
+                                    _stepIndex == 0 ? 'Cancel' : 'Back',
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                flex: 2,
+                                child: FilledButton.icon(
+                                  style: FilledButton.styleFrom(
+                                    minimumSize: const Size.fromHeight(48),
+                                    backgroundColor: AppColors.brandBlack,
+                                    foregroundColor: AppColors.brandWhite,
+                                  ),
+                                  key: const ValueKey('pos-payment-next'),
+                                  onPressed: _isLastStep ? _complete : _next,
+                                  icon: Icon(
+                                    _isLastStep
+                                        ? Icons.check_circle_outline
+                                        : Icons.arrow_forward,
+                                  ),
+                                  label: Text(
+                                    _isLastStep
+                                        ? 'Complete transaction'
+                                        : 'Next',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                    ),
-                  ),
-                if (_tenderError case final message?) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    message,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 10),
-                const Text(
-                  'Simulation only. No real payment will be processed.',
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(onPressed: _complete, child: const Text('Complete sale')),
+    );
+  }
+
+  /// The three steps across the top: done ones ticked, the current one gold.
+  Widget _stepBar() {
+    final steps = _steps;
+    return Row(
+      key: const ValueKey('pos-payment-steps'),
+      children: [
+        for (final (index, step) in steps.indexed) ...[
+          if (index > 0)
+            Expanded(
+              child: Container(
+                height: 2,
+                margin: const EdgeInsets.symmetric(horizontal: 6),
+                color: index <= _stepIndex
+                    ? AppColors.brandGold
+                    : AppColors.border,
+              ),
+            ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 14,
+                backgroundColor: index < _stepIndex
+                    ? AppColors.brandBlack
+                    : index == _stepIndex
+                    ? AppColors.brandGold
+                    : AppColors.surfaceMuted,
+                child: index < _stepIndex
+                    ? const Icon(
+                        Icons.check,
+                        size: 16,
+                        color: AppColors.brandGold,
+                      )
+                    : Text(
+                        '${index + 1}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: index == _stepIndex
+                              ? AppColors.brandBlack
+                              : AppColors.textSecondary,
+                        ),
+                      ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                step.label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: index == _stepIndex
+                      ? FontWeight.w700
+                      : FontWeight.w500,
+                  color: index == _stepIndex
+                      ? AppColors.textPrimary
+                      : AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
 
-  /// The Deliver section: off by default, and every field is required once it
-  /// is on (the server refuses a partial delivery with `INVALID_DELIVERY`).
+  /// Items: every cart line with - / quantity / + and remove, so the order is
+  /// corrected here instead of going back to the till (owner 2026-11-19).
+  Widget _itemsSection() {
+    final lines = widget.currentLines;
+    // Plain rows under a heading, not a card (owner 2026-11-19).
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 4),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.shopping_cart_outlined,
+                size: 20,
+                color: AppColors.brandGoldText,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Items (${lines.length})',
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 20),
+        for (final (index, line) in lines.indexed) ...[
+          Row(
+            key: ValueKey('pos-item-${line.variantUomId}'),
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      line.variantName.isEmpty
+                          ? line.productName
+                          : '${line.productName} · ${line.variantName}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    Text(
+                      '${formatPeso(line.unitPrice)} / ${line.unit}  ·  '
+                      '${formatPeso(line.total)}',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'One less',
+                visualDensity: VisualDensity.compact,
+                onPressed: () =>
+                    _editLine(() => widget.cart!.stepLine(index, -1)),
+                icon: const Icon(Icons.remove_circle_outline),
+              ),
+              InkWell(
+                key: ValueKey('pos-item-qty-${line.variantUomId}'),
+                borderRadius: BorderRadius.circular(8),
+                onTap: () => _typeQuantity(index, line),
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 52),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: AppColors.border),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '${formatQuantity(line.quantity)} ${line.unit}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'One more',
+                visualDensity: VisualDensity.compact,
+                onPressed: () =>
+                    _editLine(() => widget.cart!.stepLine(index, 1)),
+                icon: const Icon(Icons.add_circle_outline),
+              ),
+              IconButton(
+                tooltip: 'Remove',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => _editLine(() {
+                  widget.cart!.removeLine(index);
+                  return null;
+                }),
+                icon: const Icon(Icons.delete_outline, color: AppColors.error),
+              ),
+            ],
+          ),
+          const Divider(height: 20),
+        ],
+      ],
+    );
+  }
+
+  /// Review: every cart line, then how the sale is being paid, before the
+  /// cashier completes it.
+  Widget _reviewSection() {
+    final amounts = _amounts;
+    return _section(
+      icon: Icons.receipt_long_outlined,
+      title: 'Review',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (widget.currentLines.isNotEmpty) ...[
+            for (final line in widget.currentLines)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            line.variantName.isEmpty
+                                ? line.productName
+                                : '${line.productName} · ${line.variantName}',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          Text(
+                            '${formatQuantity(line.quantity)} ${line.unit} × '
+                            '${formatPeso(line.unitPrice)}',
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Text(
+                      formatPeso(line.total),
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+            const Divider(height: 16),
+          ],
+          _textSummaryRow('Gross', formatPeso(amounts.gross), bold: false),
+          if (amounts.discountAmount > 0)
+            _textSummaryRow(
+              'Discount',
+              formatPeso(-amounts.discountAmount),
+              bold: false,
+            ),
+          if (_deliveryCharge > 0)
+            _textSummaryRow(
+              'Delivery charge',
+              formatPeso(_deliveryCharge),
+              bold: false,
+            ),
+          _textSummaryRow('Amount due', formatPeso(_due)),
+          const Divider(height: 16),
+          for (final row in _rows)
+            _textSummaryRow(
+              row.isUtang
+                  ? 'Utang · ${_utangName.text.trim()}'
+                  : row.isCheque
+                  ? '${row.method.label} (pending)'
+                  : row.method.label,
+              formatPeso(row.amount),
+              bold: false,
+            ),
+          if (_deliver && widget.lockedDeliveryFee == null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Deliver to ${_deliveryAddress.text.trim()} on '
+                '${formatDate(_deliveryDate ?? _tomorrow())}',
+                style: const TextStyle(color: AppColors.textSecondary),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// One section of the payment: an icon and title, then its fields, on a
+  /// white card so Discount, Delivery and Payment read as separate steps.
+  Widget _section({
+    required IconData icon,
+    required String title,
+    required Widget child,
+    Widget? trailing,
+    String? note,
+    bool collapsed = false,
+  }) {
+    // Plain, not a card (owner 2026-11-19: too many boxes): a heading, a rule,
+    // then the fields, straight on the window. Still on a Material, so the
+    // Deliver and Discount switches have one to paint on.
+    return Padding(
+      padding: const EdgeInsets.only(top: 28),
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 20, color: AppColors.brandGoldText),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                ?trailing,
+              ],
+            ),
+            // The heading's line always shows; a switched-off section hides
+            // only its fields (owner 2026-11-19).
+            const Divider(height: 20),
+            if (!collapsed) child,
+            if (note != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                note,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// A big square choice on the Discount step: an icon over a label. Gold
+  /// when [selected]; black for the step's forward choice.
+  Widget _squareButton({
+    required Key key,
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    bool selected = false,
+    bool dark = false,
+  }) {
+    final background = dark
+        ? AppColors.brandBlack
+        : selected
+        ? AppColors.brandGoldLight
+        : AppColors.cardBackground;
+    final foreground = dark ? AppColors.brandWhite : AppColors.brandBlack;
+    return AspectRatio(
+      aspectRatio: 1.25,
+      child: Material(
+        key: key,
+        color: background,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+            color: selected || dark ? AppColors.brandGold : AppColors.border,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                selected ? Icons.check_circle : icon,
+                size: 34,
+                color: dark ? AppColors.brandGold : foreground,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: foreground,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The Discount step's footer: any error, and Back.
+  Widget _discountFooter() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      if (_tenderError case final message?)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Text(
+            message,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ),
+      OutlinedButton.icon(
+        key: const ValueKey('pos-payment-back'),
+        style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+        onPressed: _back,
+        icon: const Icon(Icons.arrow_back),
+        label: const Text('Back'),
+      ),
+    ],
+  );
+
+  /// One of the footer's three totals.
+  Widget _total(String label, String value, {bool warn = false}) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        label,
+        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+      ),
+      Text(
+        value,
+        style: TextStyle(
+          fontSize: 17,
+          fontWeight: FontWeight.w800,
+          color: warn ? Theme.of(context).colorScheme.error : null,
+        ),
+      ),
+    ],
+  );
+
   Widget _deliverySection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SwitchListTile(
-          key: const ValueKey('pos-deliver-toggle'),
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Deliver to the customer'),
-          subtitle: const Text('Adds a delivery charge after the discount.'),
-          value: _deliver,
-          onChanged: _setDeliver,
-        ),
         if (_deliver) ...[
           TextFormField(
             key: const ValueKey('pos-delivery-address'),
@@ -676,14 +1612,21 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: OutlinedButton.icon(
+                // Drawn like the fee beside it (owner 2026-11-19): a labelled
+                // box with the date inside, the calendar at its end.
+                child: InkWell(
                   key: const ValueKey('pos-delivery-date'),
-                  onPressed: _pickDeliveryDate,
-                  icon: const Icon(Icons.event, size: 18),
-                  label: Text(
-                    _deliveryDate == null
-                        ? 'Delivery date'
-                        : formatDate(_deliveryDate!),
+                  onTap: _pickDeliveryDate,
+                  borderRadius: BorderRadius.circular(12),
+                  child: InputDecorator(
+                    isEmpty: _deliveryDate == null,
+                    decoration: const InputDecoration(
+                      labelText: 'Delivery date',
+                      suffixIcon: Icon(Icons.event, size: 20),
+                    ),
+                    child: Text(
+                      _deliveryDate == null ? '' : formatDate(_deliveryDate!),
+                    ),
                   ),
                 ),
               ),
@@ -692,6 +1635,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                 child: TextFormField(
                   key: const ValueKey('pos-delivery-fee'),
                   controller: _deliveryFee,
+                  onTap: () => _selectAll(_deliveryFee),
                   onChanged: (_) => setState(_syncFollowingRows),
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
@@ -721,10 +1665,51 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
     );
   }
 
+  /// Who owes the utang: a name and a number to reach them, and where they
+  /// live if the cashier has it. The till names the sale's customer from these.
+  // Plain fields under a bold line, no tinted box (owner 2026-11-19).
+  Widget _utangFields() => Padding(
+    key: const ValueKey('pos-utang-details'),
+    padding: const EdgeInsets.only(top: 4, bottom: 12),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Utang of ${formatPeso(_utangTotal)}: who owes it?',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          key: const ValueKey('pos-utang-name'),
+          controller: _utangName,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(labelText: 'Name'),
+          validator: (value) => (value ?? '').trim().isEmpty
+              ? 'Enter the name of who owes it'
+              : null,
+        ),
+        TextFormField(
+          key: const ValueKey('pos-utang-contact'),
+          controller: _utangContact,
+          keyboardType: TextInputType.phone,
+          decoration: const InputDecoration(labelText: 'Contact number'),
+          validator: (value) =>
+              (value ?? '').trim().isEmpty ? 'Enter a contact number' : null,
+        ),
+        TextFormField(
+          key: const ValueKey('pos-utang-address'),
+          controller: _utangAddress,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(labelText: 'Address (optional)'),
+        ),
+      ],
+    ),
+  );
+
   Widget _tenderRow(_TenderRow row) {
     return Padding(
       key: ValueKey(row),
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -733,19 +1718,23 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
             children: [
               Expanded(
                 flex: 3,
-                child: DropdownButtonFormField<TenderMethod>(
+                child: DropdownButtonFormField<String>(
                   key: ValueKey('pos-tender-method-${_rows.indexOf(row)}'),
                   isExpanded: true,
-                  initialValue: row.method,
+                  initialValue: row.isUtang ? _utangChoice : row.method.code,
                   decoration: const InputDecoration(labelText: 'Method'),
+                  // Owner 2026-11-19: Card left the till and Utang took its
+                  // place; a method another row already uses is not offered.
                   items: [
-                    for (final method in TenderMethod.tillTenders)
-                      DropdownMenuItem(
-                        value: method,
-                        child: Text(method.label),
-                      ),
+                    for (final choice in _allChoices)
+                      if (choice == _choiceOf(row) ||
+                          !_usedByOthers(row).contains(choice))
+                        DropdownMenuItem(
+                          value: choice,
+                          child: Text(_labelOf(choice)),
+                        ),
                   ],
-                  onChanged: (value) => _setMethod(row, value ?? row.method),
+                  onChanged: (value) => _setChoice(row, value),
                 ),
               ),
               const SizedBox(width: 8),
@@ -754,6 +1743,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                 child: TextFormField(
                   key: ValueKey('pos-tender-amount-${_rows.indexOf(row)}'),
                   controller: row.amountController,
+                  onTap: () => _selectAll(row.amountController),
                   onChanged: (_) => setState(() {
                     row.followsRemaining = false;
                     _tenderError = null;
@@ -780,7 +1770,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
               ),
             ],
           ),
-          if (!row.isCheque)
+          if (row.isMoney)
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: TextFormField(
@@ -855,9 +1845,6 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
     setState(() => row.chequeDate = picked);
   }
 
-  Widget _summaryRow(String label, String value, {bool bold = true}) =>
-      _textSummaryRow(label, value, bold: bold);
-
   Widget _textSummaryRow(String label, String value, {bool bold = true}) =>
       Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
@@ -879,6 +1866,20 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
   Future<void> _complete() async {
     setState(() => _tenderError = null);
     if (!_formKey.currentState!.validate()) return;
+
+    // A field on an earlier step is no longer built, so it cannot validate
+    // itself: check it here and send the cashier back to it.
+    if (_duplicateMethod case final duplicate?) {
+      setState(() {
+        _tenderError = duplicate;
+        _stepIndex = _steps.indexOf(_PayStep.payment);
+      });
+      return;
+    }
+    if (_hiddenStepProblem() case final step?) {
+      setState(() => _stepIndex = _steps.indexOf(step));
+      return;
+    }
 
     // A cheque the server would refuse is caught here, where the cashier can still
     // fix it, with the same sentences the server's codes map to.
@@ -930,8 +1931,9 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
     Navigator.pop(
       context,
       PosPaymentDetails(
+        // An utang row is owed, not paid: it never goes on the wire.
         tenders: [
-          for (final row in _rows)
+          for (final row in _rows.where((row) => !row.isUtang))
             PosTender(
               method: row.method,
               amount: row.amount,
@@ -944,6 +1946,14 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
         discount: discount,
         discountApprovalToken: token,
         delivery: delivery,
+        utang: _hasUtang
+            ? PosUtang(
+                name: _utangName.text.trim(),
+                contact: _utangContact.text.trim(),
+                address: _utangAddress.text.trim(),
+                amount: _utangTotal,
+              )
+            : null,
       ),
     );
   }
@@ -964,4 +1974,15 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
       ),
     );
   }
+}
+
+/// The payment window's steps, in order (owner 2026-11-19).
+enum _PayStep {
+  items('Items'),
+  payment('Payment'),
+  discount('Discount'),
+  review('Review');
+
+  const _PayStep(this.label);
+  final String label;
 }

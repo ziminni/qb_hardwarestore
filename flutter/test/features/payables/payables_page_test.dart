@@ -233,7 +233,7 @@ void main() {
     final repository = _StubRepository(summary: const [_summaryRow]);
     await _pump(
       tester,
-      AdminPayablesPage(viewmodel: PayablesViewmodel(repository: repository)),
+      SalesPayablesPage(viewmodel: PayablesViewmodel(repository: repository)),
     );
 
     repository.bills = [_bill(balance: 0, status: SupplierBillStatus.paid)];

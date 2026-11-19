@@ -147,16 +147,29 @@ Future<void> pick(WidgetTester tester, Key field, String item) async {
   await tester.pumpAndSettle();
 }
 
-/// Adds one extra selling unit row and fills it in.
-Future<void> addBagRow(
+/// Fills what step 1 requires on a NEW product (owner 2026-11-18: SKU is
+/// required, as in the teammate form).
+Future<void> fillBasics(WidgetTester tester) async {
+  await tester.enterText(
+    find.widgetWithText(TextFormField, 'Product name'),
+    'Portland Cement',
+  );
+  await tester.enterText(find.byKey(const ValueKey('sku-field')), 'CEM-40');
+  await tester.pumpAndSettle();
+}
+
+/// By Weight (KG) sold in bags of [size] kg.
+Future<void> choosePackagedBag(
   WidgetTester tester, {
-  String factor = '40',
-  String price = '270',
+  String size = '40',
 }) async {
-  await tapKey(tester, const ValueKey('add-unit-row'));
-  await pick(tester, const ValueKey('row-unit-0'), 'Bag (BAG)');
-  await tester.enterText(find.byKey(const ValueKey('row-factor-0')), factor);
-  await tester.enterText(find.byKey(const ValueKey('row-price-0')), price);
+  await tapKey(tester, const ValueKey('tracking-weight'));
+  final packaged = find.text('Packaged');
+  await tester.ensureVisible(packaged);
+  await tester.pumpAndSettle();
+  await tester.tap(packaged);
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byKey(const ValueKey('package-size')), size);
   await tester.pumpAndSettle();
 }
 
@@ -263,194 +276,143 @@ Product multiUnitCementWithoutBaseRow() => product(
 void main() {
   setUpAll(_loadAppFonts);
 
-  group('the three steps', () {
-    testWidgets('are numbered and titled in order', (tester) async {
-      await openForm(tester);
-
-      expect(find.text('Basic information'), findsOneWidget);
-      expect(find.text('How is this product sold?'), findsOneWidget);
-      expect(find.text('Stock levels'), findsOneWidget);
-      expect(find.text('1'), findsOneWidget);
-      expect(find.text('2'), findsOneWidget);
-      expect(find.text('3'), findsOneWidget);
-    });
-  });
-
-  group('step 2: how is this product sold?', () {
-    testWidgets('an extra unit row shows the live helper in words', (
+  group('the teammate form (owner 2026-11-18)', () {
+    testWidgets('a new product has the three numbered steps in order', (
       tester,
     ) async {
       await openForm(tester);
-      await addBagRow(tester);
+      expect(find.text('Basic Information'), findsOneWidget);
+      expect(find.text('Inventory Tracking'), findsOneWidget);
+      expect(find.text('Pricing & Initial Stock'), findsOneWidget);
+      expect(find.text('First variant'), findsOneWidget);
+      expect(find.byKey(const ValueKey('stock-preview')), findsOneWidget);
+    });
 
-      // The plan's own example. Money through formatPeso, quantity through
-      // formatQuantity, and a middle dot rather than an em dash.
+    testWidgets('the SKU is required on a new product', (tester) async {
+      await openForm(tester);
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Product name'),
+        'Portland Cement',
+      );
+      await save(tester);
+      expect(find.text('Enter an SKU.'), findsOneWidget);
+      expect(lastResult, isNull);
+    });
+
+    testWidgets('a blank barcode is allowed: the server generates one', (
+      tester,
+    ) async {
+      await openForm(tester);
+      await fillBasics(tester);
+      await save(tester);
+      expect(lastResult!.draft!.barcodeQr, '');
+      expect(lastResult!.draft!.sku, 'CEM-40');
+    });
+
+    testWidgets('packaged adds ONE real selling unit at price x size', (
+      tester,
+    ) async {
+      await openForm(tester);
+      await fillBasics(tester);
+      await choosePackagedBag(tester);
+      await tester.enterText(find.byKey(const ValueKey('base-price')), '6.75');
+      await save(tester);
+
+      final draft = lastResult!.draft!;
+      expect(draft.baseUomId, 1, reason: 'KG');
+      expect(draft.sellingPrice, 6.75);
+      expect(draft.extraSellingUnits, hasLength(1));
+      final bag = draft.extraSellingUnits.single;
       expect(
-        find.text('1 BAG = 40 KG · ${formatPeso(270 / 40)} per KG'),
-        findsOneWidget,
+        (bag.uomCode, bag.conversionFactor, bag.sellingPrice),
+        ('BAG', 40.0, 270.0),
       );
     });
 
-    testWidgets('a row can be removed again', (tester) async {
-      await openForm(tester);
-      await addBagRow(tester);
-      expect(find.text('Bag (BAG)'), findsWidgets);
-
-      await tapKey(tester, const ValueKey('remove-row-0'));
-
-      expect(find.byKey(const ValueKey('row-factor-0')), findsNothing);
-      expect(find.byKey(const ValueKey('add-unit-row')), findsOneWidget);
-    });
-
-    testWidgets('a factor of exactly 1 is refused: that is the base unit', (
+    testWidgets('initial packages become base opening stock at the cost', (
       tester,
     ) async {
       await openForm(tester);
-      await addBagRow(tester, factor: '1');
+      await fillBasics(tester);
+      await choosePackagedBag(tester);
+      await tester.enterText(find.byKey(const ValueKey('cost-field')), '5.50');
+      await tester.enterText(find.byKey(const ValueKey('initial-field')), '20');
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Total available: ${formatQuantity(800)} KG'),
+        findsOneWidget,
+      );
       await save(tester);
 
-      expect(find.textContaining('base unit'), findsWidgets);
-      expect(lastResult, isNull, reason: 'a refused row must not pop the form');
+      final draft = lastResult!.draft!;
+      expect(draft.openingQty, 800);
+      expect(draft.openingUnitCost, 5.5);
     });
 
-    testWidgets('a factor under 0.01 is refused', (tester) async {
+    testWidgets('a part of a package is refused before saving', (tester) async {
       await openForm(tester);
-      await addBagRow(tester, factor: '0.001');
+      await fillBasics(tester);
+      await choosePackagedBag(tester);
+      await tester.enterText(
+        find.byKey(const ValueKey('initial-field')),
+        '2.5',
+      );
       await save(tester);
-
-      expect(find.textContaining('at least 0.01'), findsOneWidget);
+      expect(find.text('Count whole packages.'), findsOneWidget);
       expect(lastResult, isNull);
     });
 
-    testWidgets('a factor with three decimals is refused', (tester) async {
+    testWidgets('no initial stock means no opening stock', (tester) async {
       await openForm(tester);
-      await addBagRow(tester, factor: '1.005');
+      await fillBasics(tester);
       await save(tester);
-
-      expect(find.textContaining('at most 2 decimals'), findsOneWidget);
-      expect(lastResult, isNull);
-    });
-
-    testWidgets('the same unit twice is refused, including the base unit', (
-      tester,
-    ) async {
-      await openForm(tester);
-      // KG is the base unit; the server would answer INVALID_SELLING_UNIT.
-      await tapKey(tester, const ValueKey('add-unit-row'));
-      await pick(tester, const ValueKey('row-unit-0'), 'Kilogram (KG)');
-      await tester.enterText(find.byKey(const ValueKey('row-factor-0')), '40');
-      await tester.enterText(find.byKey(const ValueKey('row-price-0')), '270');
-      await save(tester);
-
-      expect(find.textContaining('already used'), findsOneWidget);
-      expect(lastResult, isNull);
+      expect(lastResult!.draft!.openingQty, 0);
+      expect(lastResult!.draft!.extraSellingUnits, isEmpty);
     });
 
     testWidgets('a negative price is refused', (tester) async {
       await openForm(tester);
-      await addBagRow(tester, price: '-5');
+      await fillBasics(tester);
+      await tester.enterText(find.byKey(const ValueKey('base-price')), '-1');
       await save(tester);
-
-      expect(find.textContaining('cannot be negative'), findsOneWidget);
+      expect(find.text('The price cannot be negative.'), findsOneWidget);
       expect(lastResult, isNull);
     });
 
-    testWidgets('the base unit and every extra unit reach the draft', (
+    testWidgets('the shelf note on this device is kept, not shown', (
       tester,
     ) async {
-      await openForm(tester);
-      await tester.enterText(
-        find.widgetWithText(TextFormField, 'Product name'),
-        'Portland Cement',
-      );
-      await addBagRow(tester);
+      await openForm(tester, locationHint: 'Rack A-01');
+      await fillBasics(tester);
       await save(tester);
-
-      final draft = lastResult!.draft!;
-      expect(draft.baseUomId, 1, reason: 'kg is the base unit');
-      expect(draft.extraSellingUnits, hasLength(1));
-      final bag = draft.extraSellingUnits.single;
-      expect(bag.uomId, 2);
-      expect(bag.uomCode, 'BAG', reason: 'the partial-failure copy names it');
-      expect(bag.conversionFactor, 40);
-      expect(bag.sellingPrice, 270);
-    });
-  });
-
-  group('step 3: stock levels', () {
-    testWidgets('the info banner says how stock really arrives', (
-      tester,
-    ) async {
-      await openForm(tester);
-
-      expect(
-        find.text('Stock arrives through a purchase order, then Receiving.'),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('the shelf note says it stays on this device', (tester) async {
-      await openForm(tester);
-
-      expect(find.text('Not shared with other tills'), findsOneWidget);
-      expect(find.text('Shelf note (this device only)'), findsOneWidget);
-      // The SERVER's field is a different fact, shown above it.
-      expect(find.text('Stored at'), findsOneWidget);
-    });
-
-    testWidgets('a typed location travels in the draft', (tester) async {
-      await openForm(tester);
-      await tester.enterText(
-        find.widgetWithText(TextFormField, 'Product name'),
-        'Portland Cement',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey('location-field')),
-        'Rack A-01',
-      );
-      await save(tester);
-
+      expect(find.byKey(const ValueKey('location-field')), findsNothing);
       expect(lastResult!.draft!.locationHint, 'Rack A-01');
     });
   });
 
   group('editing an existing product', () {
-    testWidgets('keeps the base unit frozen, and says why', (tester) async {
+    testWidgets('shows basics and pricing, never the unit or stock', (
+      tester,
+    ) async {
       await openForm(tester, product: portlandCement());
 
-      expect(find.text('Bag (BAG)'), findsOneWidget);
-      expect(
-        find.textContaining('keeps this unit for its whole history'),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey('base-unit-picker')),
-        findsNothing,
-        reason: 'the server refuses a base-unit change (INVALID_VARIANT)',
-      );
+      expect(find.text('Pricing & Stock Levels'), findsOneWidget);
+      expect(find.byKey(const ValueKey('base-unit-picker')), findsNothing);
+      expect(find.byKey(const ValueKey('initial-field')), findsNothing);
+      expect(find.byKey(const ValueKey('cost-field')), findsNothing);
+      expect(find.byKey(const ValueKey('stored-at-picker')), findsOneWidget);
     });
 
-    testWidgets('carries the location the device already knows', (
+    testWidgets('keeps the shelf note the device already knows', (
       tester,
     ) async {
       await openForm(
         tester,
-        product: portlandCement(),
+        product: multiUnitCement(),
         locationHint: 'Rack A-01',
       );
-
-      final field = tester.widget<TextFormField>(
-        find.byKey(const ValueKey('location-field')),
-      );
-      expect(field.controller?.text, 'Rack A-01');
-    });
-
-    testWidgets('has no extra-unit rows: those are added after creation', (
-      tester,
-    ) async {
-      await openForm(tester, product: portlandCement());
-
-      expect(find.byKey(const ValueKey('add-unit-row')), findsNothing);
+      await save(tester, label: 'Save changes');
+      expect(lastResult!.edit!.locationHint, 'Rack A-01');
     });
 
     // Regression: the base unit is the variant's `base_uom` at factor 1, not
@@ -461,7 +423,7 @@ void main() {
     ) async {
       await openForm(tester, product: multiUnitCement());
 
-      expect(find.text('Price per KG'), findsOneWidget);
+      expect(find.text('Selling price per KG'), findsOneWidget);
       final price = tester.widget<TextFormField>(
         find.byKey(const ValueKey('base-price')),
       );
@@ -509,7 +471,10 @@ void main() {
           .findAncestorWidgetOfExactType<DropdownButtonFormField<int>>();
       if (dropdown != null) return 'field:${dropdown.decoration.labelText}';
       final text = context.findAncestorWidgetOfExactType<TextButton>();
-      if (text != null) return 'button:${(text.child! as Text).data}';
+      if (text != null) {
+        final child = text.child;
+        return child is Text ? 'button:${child.data}' : 'button:other';
+      }
       final filled = context.findAncestorWidgetOfExactType<FilledButton>();
       if (filled != null) return 'button:${(filled.child! as Text).data}';
       if (context.findAncestorWidgetOfExactType<IconButton>() != null) {
@@ -524,8 +489,7 @@ void main() {
       // A window tall enough to show the whole form: this test is about the
       // ORDER of the stops, and the 1.3x tests below cover what happens when the
       // form has to scroll.
-      await openForm(tester, size: const Size(1440, 2000));
-      await addBagRow(tester);
+      await openForm(tester, size: const Size(1440, 2400));
 
       // Start the walk at the top of the dialog rather than wherever the last
       // tapped form field left the focus.
@@ -533,7 +497,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final stops = <String>[];
-      for (var i = 0; i < 24; i++) {
+      for (var i = 0; i < 40; i++) {
         await tester.sendKeyEvent(LogicalKeyboardKey.tab);
         await tester.pumpAndSettle();
         final name = focusedName();
@@ -554,12 +518,12 @@ void main() {
         );
       }
 
-      expectBefore('field:Product name', 'field:Base unit');
-      expectBefore('field:Base unit', 'field:Price per KG');
-      expectBefore('field:Price per KG', 'field:Selling unit');
-      expectBefore('field:Selling unit', 'field:Stored at');
-      expectBefore('field:Stored at', 'field:Shelf note (this device only)');
-      expectBefore('field:Shelf note (this device only)', 'button:Cancel');
+      expectBefore('field:Product name', 'field:SKU');
+      expectBefore('field:SKU', 'field:Base measurement / unit');
+      expectBefore('field:Base measurement / unit', 'field:Cost per KG');
+      expectBefore('field:Cost per KG', 'field:Selling price per KG');
+      expectBefore('field:Selling price per KG', 'field:Stored at');
+      expectBefore('field:Stored at', 'button:Cancel');
       expectBefore('button:Cancel', 'button:Add product');
     });
 
@@ -578,21 +542,21 @@ void main() {
         'nothing overflows at 1.3x text in a ${size.width.toInt()} px window',
         (tester) async {
           await openForm(tester, size: size, textScale: 1.3);
-          await addBagRow(tester);
+          await choosePackagedBag(tester);
 
           expect(tester.takeException(), isNull);
 
           // Scrolling to the last field is where a form that only fits at 1.0x
           // gives itself away.
           await tester.ensureVisible(
-            find.byKey(const ValueKey('location-field')),
+            find.byKey(const ValueKey('stock-preview')),
           );
           await tester.pumpAndSettle();
           await tester.ensureVisible(find.text('Add product').last);
           await tester.pumpAndSettle();
 
           expect(tester.takeException(), isNull);
-          expect(find.text('How is this product sold?'), findsOneWidget);
+          expect(find.text('Inventory Tracking'), findsOneWidget);
         },
       );
     }

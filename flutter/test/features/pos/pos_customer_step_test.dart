@@ -118,6 +118,7 @@ class _StubCustomerRepository extends CustomerRepository {
   Future<Customer> createCustomer({
     required String name,
     required CustomerType type,
+    String contactDetails = '',
   }) async {
     created = (name: name, type: type);
     final failure = failureMessage;

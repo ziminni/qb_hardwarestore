@@ -11,6 +11,7 @@ import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/pos/widgets/pos_payment_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../../support/payment_steps.dart';
 
 Future<void> _openChequeDialog(
   WidgetTester tester, {
@@ -156,19 +157,19 @@ void main() {
         find.byKey(const ValueKey('pos-cheque-bank-1')),
         'BDO',
       );
-      await tester.tap(find.text('Complete sale'));
+      await completePayment(tester);
       await tester.pumpAndSettle();
 
       expect(find.textContaining('cheque date'), findsWidgets);
       // Still open: nothing was handed back.
-      expect(find.text('Payment'), findsOneWidget);
+      expect(find.byKey(const ValueKey('pos-amount-due')), findsOneWidget);
     });
 
     testWidgets('a cheque against the walk-in record is refused', (
       tester,
     ) async {
       await _openChequeDialog(tester, customerIsNamed: false);
-      await tester.tap(find.text('Complete sale'));
+      await completePayment(tester);
       await tester.pumpAndSettle();
 
       expect(find.textContaining('named customer'), findsOneWidget);
@@ -187,7 +188,7 @@ void main() {
         find.byKey(const ValueKey('pos-cheque-bank-1')),
         'BDO',
       );
-      await tester.tap(find.text('Complete sale'));
+      await completePayment(tester);
       await tester.pumpAndSettle();
 
       expect(find.textContaining('cash only'), findsOneWidget);

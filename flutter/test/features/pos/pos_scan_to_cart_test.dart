@@ -694,7 +694,7 @@ void main() {
         variantId: 33,
         uomId: 1,
         uomCode: 'PC',
-          uomIsWhole: true,
+        uomIsWhole: true,
         uomName: 'Piece',
         barcodeQr: _unknownCode,
         conversionFactor: 1,

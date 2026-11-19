@@ -88,14 +88,13 @@ void main() {
     await _expectLater(tester, goldenDir, 'p1-review-dialog-760.png');
   }, skip: !enabled);
 
-  testWidgets('a read-only accepted request in the admin shell at 1100 px', (
-    tester,
-  ) async {
+  // Owner 2026-11-18: the Admin shell copy is gone; the read-only view is
+  // captured in the Store Manager's shell.
+  testWidgets('a read-only accepted request at 1100 px', (tester) async {
     await _pump(
       tester,
       const Size(1100, 900),
       _queueRepository(),
-      adminShell: true,
       status: RequisitionStatus.accepted,
     );
     await tester.tap(find.text('View').first);
@@ -284,9 +283,7 @@ Future<void> _pump(
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
           theme: _theme(),
-          home: adminShell
-              ? AdminProjectRequestsPage(viewmodel: viewmodel)
-              : ProjectRequestsPage(viewmodel: viewmodel),
+          home: ProjectRequestsPage(viewmodel: viewmodel),
         ),
       ),
     ),

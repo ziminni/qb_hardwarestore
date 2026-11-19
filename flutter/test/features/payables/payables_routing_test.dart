@@ -10,7 +10,6 @@
 
 import 'dart:io';
 
-import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/navigation/app_destinations.dart';
@@ -85,7 +84,7 @@ void main() {
   group('every payables entry is APPENDED', () {
     test('the inventory sidebar keeps 13 and gains Payables at 13', () {
       final order = _areaOrder(AppAreas.inventory);
-      expect(order, hasLength(16));
+      expect(order, hasLength(17));
       expect(order[12], 'inventorySettings');
       expect(order[13], 'inventoryPayables');
       expect(
@@ -102,7 +101,7 @@ void main() {
 
     test('the sales sidebar keeps 9 and gains Payables at 9', () {
       final order = _areaOrder(AppAreas.sales);
-      expect(order, hasLength(12));
+      expect(order, hasLength(13));
       expect(order[8], 'salesProjectRequests');
       expect(order[9], 'salesPayables');
       expect(
@@ -111,12 +110,16 @@ void main() {
         reason: 'F3 appends Deliveries BELOW Payables; neither index moves',
       );
       expect(order[11], 'salesTransfers');
+      expect(order[12], 'salesSettings');
     });
 
-    test('the admin menu keeps 8 and gains Payables at 8', () {
-      final items = AppDestinations.labelsFor(AppAreas.admin);
-      expect(items[7], 'Project requests');
-      expect(items[8], 'Payables');
+    test('the Admin menu has no Payables', () {
+      // Owner 2026-11-18: the Admin sees everything and acts on nothing; bills
+      // show on the Dashboard's Finance tab.
+      expect(
+        AppDestinations.labelsFor(AppAreas.admin),
+        isNot(contains('Payables')),
+      );
     });
   });
 
@@ -126,7 +129,7 @@ void main() {
     test('the inventory shell declares 13', () {
       // Phase 2 F1: the stock menu is a slice of the registry production renders.
       final labels = AppDestinations.labelsFor(AppAreas.inventory);
-      expect(labels, hasLength(16));
+      expect(labels, hasLength(17));
       expect(labels[12], 'Settings');
       expect(labels[13], 'Payables');
       expect(labels[14], 'Deliveries');
@@ -143,12 +146,12 @@ void main() {
       expect(source, contains('selectedNavigationIndex: 9'));
     });
 
-    test('the admin shell declares 8', () {
-      final admin = AdminSkeletonLayout.groups;
-      final payables = admin.indexWhere((group) => group.$1 == 'Payables');
-      expect(payables, isNot(-1), reason: 'the Payables group disappeared');
-      expect(admin[payables].$2, 8);
-      expect(source, contains('selectedNavigationIndex: 8'));
+    test('there is no admin shell and no admin route any more', () {
+      expect(source, isNot(contains('AdminSkeletonLayout')));
+      expect(
+        _read('lib/routes/routes.dart'),
+        isNot(contains('path: adminPayables')),
+      );
     });
   });
 }

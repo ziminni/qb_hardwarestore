@@ -172,7 +172,7 @@ void main() {
     // submits nothing (the decision 06 invariant holds on this path too).
     await tester.tap(find.text('Proceed to payment'));
     await tester.pumpAndSettle();
-    expect(find.text('Payment'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pos-amount-due')), findsOneWidget);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     expect(_pos.calls, 0);
@@ -185,7 +185,7 @@ void main() {
 
     await tester.tap(find.widgetWithText(FilledButton, 'Pay'));
     await tester.pumpAndSettle();
-    expect(find.text('Payment'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pos-amount-due')), findsOneWidget);
   });
 
   testWidgets('no window size overflows the till', (tester) async {

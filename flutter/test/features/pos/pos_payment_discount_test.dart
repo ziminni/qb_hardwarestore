@@ -14,6 +14,7 @@ import 'package:client/features/pos/widgets/pos_discount_approval_dialog.dart';
 import 'package:client/features/pos/widgets/pos_payment_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../../support/payment_steps.dart';
 
 class _FakeApprovalService extends DiscountApprovalService {
   _FakeApprovalService({this.token = 'TOKEN-1', this.failure});
@@ -77,11 +78,23 @@ Future<PosPaymentDetails?> _open(
   return result;
 }
 
+/// Owner 2026-11-19: the discount is behind an off-by-default switch, like
+/// Deliver; its fields appear once it is on.
+Future<void> _discountOn(WidgetTester tester) async {
+  await goToDiscountStep(tester);
+  final toggle = find.byKey(const ValueKey('pos-discount-toggle'));
+  await tester.ensureVisible(toggle);
+  await tester.pumpAndSettle();
+  await tester.tap(toggle);
+  await tester.pumpAndSettle();
+}
+
 Future<void> _enterDiscount(
   WidgetTester tester, {
   required String value,
   String reason = 'bulk order',
 }) async {
+  await _discountOn(tester);
   await tester.enterText(
     find.widgetWithText(TextFormField, 'Discount amount'),
     value,
@@ -100,10 +113,19 @@ void main() {
     await _open(tester);
     await _enterDiscount(tester, value: '100');
 
-    expect(find.text('Discount'), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('pos-amount-due'))).data,
+      '₱900.00',
+    );
+    // The Review step itemises it: Gross, then the discount off it.
+    await goToReviewStep(tester);
     expect(find.text('-₱100.00'), findsOneWidget);
-    expect(find.text('Amount due: ₱900.00'), findsOneWidget);
-    // The received field follows the net while the cashier has not typed in it.
+    // The received field (Payment step, two back) follows the net while the
+    // cashier has not typed in it.
+    for (var back = 0; back < 2; back++) {
+      await tester.tap(find.text('Back'));
+      await tester.pumpAndSettle();
+    }
     final amountField = tester.widget<TextFormField>(
       find.widgetWithText(TextFormField, 'Amount'),
     );
@@ -112,6 +134,9 @@ void main() {
 
   testWidgets('a percent discount computes off the gross', (tester) async {
     await _open(tester, total: 250.50);
+    await _discountOn(tester);
+    await tester.ensureVisible(find.text('% Percent'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('% Percent'));
     await tester.pump();
     await tester.enterText(
@@ -124,25 +149,29 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Amount due: ₱225.45'), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('pos-amount-due'))).data,
+      '₱225.45',
+    );
   });
 
   testWidgets('a discount with no reason is refused before submitting', (
     tester,
   ) async {
     await _open(tester);
+    await _discountOn(tester);
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Discount amount'),
       '100',
     );
     await tester.pump();
 
-    await tester.tap(find.text('Complete sale'));
+    await completePayment(tester);
     await tester.pumpAndSettle();
 
     expect(find.text('A discount needs a reason'), findsOneWidget);
     // The dialog is still open: nothing was handed back to the page.
-    expect(find.text('Payment'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pos-amount-due')), findsOneWidget);
   });
 
   testWidgets('a discount below the cap submits without approval', (
@@ -152,7 +181,7 @@ void main() {
     await _open(tester, cap: 10, approval: approval);
     await _enterDiscount(tester, value: '50');
 
-    await tester.tap(find.text('Complete sale'));
+    await completePayment(tester);
     await tester.pumpAndSettle();
 
     expect(approval.calls, 0);
@@ -169,7 +198,7 @@ void main() {
 
     expect(find.textContaining('Needs manager approval'), findsOneWidget);
 
-    await tester.tap(find.text('Complete sale'));
+    await completePayment(tester);
     await tester.pumpAndSettle();
 
     expect(find.text('Manager approval needed'), findsOneWidget);
@@ -232,7 +261,7 @@ void main() {
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
     await _enterDiscount(tester, value: '150');
-    await tester.tap(find.text('Complete sale'));
+    await completePayment(tester);
     await tester.pumpAndSettle();
 
     await tester.enterText(
@@ -291,7 +320,7 @@ void main() {
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
     await _enterDiscount(tester, value: '150');
-    await tester.tap(find.text('Complete sale'));
+    await completePayment(tester);
     await tester.pumpAndSettle();
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Approver username'),
@@ -313,6 +342,9 @@ void main() {
     (tester) async {
       await _open(tester, total: 1000);
       await _enterDiscount(tester, value: '100');
+      // The amount received is on the Payment step, one back.
+      await tester.tap(find.text('Back'));
+      await tester.pumpAndSettle();
       await tester.enterText(
         find.widgetWithText(TextFormField, 'Amount'),
         '500',

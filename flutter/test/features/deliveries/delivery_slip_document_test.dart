@@ -6,9 +6,12 @@
 // delivery charge. The bundled font has no peso glyph, so paper spells the
 // currency `PHP`.
 
+import 'package:client/core/printing/escpos.dart';
 import 'package:client/data/models/delivery.dart';
 import 'package:client/features/deliveries/widgets/delivery_slip_document.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../../support/escpos_reader.dart';
 
 Delivery _delivery({
   double fee = 50,
@@ -150,4 +153,26 @@ void main() {
     final pdf = await buildDeliverySlipPdf(_delivery());
     expect(pdf, isNotEmpty);
   });
+
+  // 2026-11-18: the slip printed through the same PDF path as the receipt; it
+  // is now ESC/POS for the same 58 mm printer, with the same fixed end feed.
+  test(
+    'the printed slip is ESC/POS for the 58 mm roll, a fixed feed after it',
+    () {
+      final bytes = buildDeliverySlipEscPos(
+        _delivery(status: DeliveryStatus.failed, failureReason: 'Gate locked'),
+      );
+      final lines = escPosLines(bytes);
+
+      expect(bytes.take(2), [0x1B, 0x40]);
+      expect(lines, contains('Delivery slip: DLV-20261111-0001'));
+      expect(lines, contains('Portland cement'));
+      expect(lines, contains('Failed: Gate locked'));
+      expect(lines, contains('Delivery charge${' ' * 8}PHP 50.00'));
+      for (final line in lines) {
+        expect(line.length, lessThanOrEqualTo(roll58Columns), reason: line);
+      }
+      expect(escPosFinalFeed(bytes), tearOffFeedLines);
+    },
+  );
 }

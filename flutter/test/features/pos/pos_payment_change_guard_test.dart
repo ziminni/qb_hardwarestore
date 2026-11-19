@@ -8,6 +8,7 @@
 import 'package:client/features/pos/widgets/pos_payment_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../../support/payment_steps.dart';
 
 Future<PosPaymentDetails?> _open(
   WidgetTester tester, {
@@ -64,16 +65,16 @@ void main() {
     await _setMethod(tester, 0, 'GCash');
     await _setAmount(tester, 0, '240');
 
-    await tester.tap(find.text('Complete sale'));
+    await completePayment(tester);
     await tester.pumpAndSettle();
 
     expect(
-      find.textContaining('lower the card or GCash amount'),
+      find.textContaining('lower the GCash amount'),
       findsOneWidget,
       reason: 'the drawer cannot pay back money that went to a wallet',
     );
     expect(
-      find.text('Complete sale'),
+      paymentNext,
       findsOneWidget,
       reason: 'the dialog stays open so the cashier can fix the amount',
     );
@@ -89,11 +90,11 @@ void main() {
     await _setMethod(tester, 1, 'GCash');
     await _setAmount(tester, 1, '10');
 
-    await tester.tap(find.text('Complete sale'));
+    await completePayment(tester);
     await tester.pumpAndSettle();
 
     expect(
-      find.text('Complete sale'),
+      paymentNext,
       findsNothing,
       reason: 'a valid split sale closes the dialog and hands the tenders back',
     );

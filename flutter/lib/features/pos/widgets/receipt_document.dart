@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:client/core/format/format.dart';
+import 'package:client/core/printing/escpos.dart';
 import 'package:client/data/models/pick_up.dart';
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/data/models/tender_method.dart';
@@ -183,10 +184,6 @@ Future<Uint8List> buildReceiptPdf(
                       children: [
                         pw.Text(line.name, style: body),
                         pw.Text(line.detail, style: body),
-                        // The pick-up point under its own line, hidden when the
-                        // sale recorded none.
-                        if (line.pickUp != null)
-                          pw.Text(line.pickUp!, style: body),
                       ],
                     ),
                   ),
@@ -203,6 +200,23 @@ Future<Uint8List> buildReceiptPdf(
               ],
             ),
           pw.SizedBox(height: 10),
+          // Decision 25: the OR number as a QR code, so the Bodega Checker can scan
+          // the receipt with a phone to release the goods it paid for.
+          if (receipt.officialReceiptNumber.isNotEmpty) ...[
+            pw.Center(
+              child: pw.BarcodeWidget(
+                barcode: pw.Barcode.qrCode(),
+                data: receipt.officialReceiptNumber,
+                width: 72,
+                height: 72,
+              ),
+            ),
+            pw.SizedBox(height: 2),
+            pw.Center(
+              child: pw.Text(receipt.officialReceiptNumber, style: body),
+            ),
+            pw.SizedBox(height: 6),
+          ],
           pw.Center(child: pw.Text('Thank you!', style: body)),
         ],
       ),
@@ -218,4 +232,42 @@ Future<Uint8List> buildReceiptPdfWithOpenSans(PosReceipt receipt) async {
     font: pw.Font.ttf(await rootBundle.load(labelFontAsset)),
     bold: pw.Font.ttf(await rootBundle.load(labelBoldFontAsset)),
   );
+}
+
+/// One receipt as ESC/POS for the 58 mm roll: the printer's own commands,
+/// ending with a fixed tear-off feed, so the paper used is the receipt's lines
+/// and nothing more. This, not [buildReceiptPdf], is what the counter prints:
+/// a PDF reached the thermal printer through a generic driver as PostScript
+/// and printed as text down most of a roll.
+Uint8List buildReceiptEscPos(PosReceipt receipt) {
+  final content = ReceiptContent(receipt);
+  final job = EscPosJob()
+    ..text('QUEEN BUILDERS', bold: true, center: true, large: true)
+    ..text('Hardware store', center: true)
+    ..feed(1);
+  for (final text in content.header) {
+    job.text(text);
+  }
+  job.divider();
+  for (final line in content.lines) {
+    job
+      ..text(line.name)
+      ..row(line.detail, line.total);
+    // Owner 2026-11-19: no "Pick up at" line; the staff know where goods are.
+  }
+  job.divider();
+  for (final row in content.amounts) {
+    job.row(row.label, row.amount, bold: true);
+  }
+  job.feed(1);
+  // Decision 25: the OR number as a QR code, so the Bodega Checker can scan
+  // the receipt with a phone to release the goods it paid for.
+  if (receipt.officialReceiptNumber.isNotEmpty) {
+    job
+      ..qr(receipt.officialReceiptNumber)
+      ..text(receipt.officialReceiptNumber, center: true)
+      ..feed(1);
+  }
+  job.text('Thank you!', center: true);
+  return job.finish();
 }

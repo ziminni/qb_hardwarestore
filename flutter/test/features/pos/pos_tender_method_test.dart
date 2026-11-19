@@ -20,7 +20,6 @@ import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/pos_transaction.dart' show PosReceipt;
 import 'package:client/data/models/shift.dart';
-import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/repositories/inventory_repository.dart';
 import 'package:client/data/repositories/pos_repository.dart';
@@ -41,6 +40,7 @@ import '../../support/phase4_fakes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import '../../support/payment_steps.dart';
 
 class _RecordingPosRepository extends PosRepository {
   _RecordingPosRepository() : super(PosService());
@@ -140,17 +140,19 @@ Future<void> _pumpTill(WidgetTester tester) async {
 Future<void> _payWith(WidgetTester tester, {String? label}) async {
   await tester.tap(find.text('Proceed to payment'));
   await tester.pumpAndSettle();
-  expect(find.text('Payment'), findsOneWidget);
+  expect(find.byKey(const ValueKey('pos-amount-due')), findsOneWidget);
+  // The till's dialog opens on its Items step; the method is on Payment.
+  await goToPaymentStep(tester);
 
   if (label != null) {
     // The field shows the CURRENT choice; tapping it opens the menu.
-    await tester.tap(find.byType(DropdownButtonFormField<TenderMethod>));
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
     await tester.pumpAndSettle();
     await tester.tap(find.text(label).last);
     await tester.pumpAndSettle();
   }
 
-  await tester.tap(find.text('Complete sale'));
+  await completePayment(tester);
   await tester.pumpAndSettle();
 }
 
@@ -185,12 +187,17 @@ void main() {
       expect(_pos.sentPayments.single.method, 'GCASH');
     });
 
-    testWidgets('Card posts method CARD', (tester) async {
+    // Owner 2026-11-19: Card left the till; Utang took its place.
+    testWidgets('the method list offers Utang, never Card', (tester) async {
       await _pumpTill(tester);
-      await _payWith(tester, label: 'Card');
+      await tester.tap(find.text('Proceed to payment'));
+      await tester.pumpAndSettle();
+      await goToPaymentStep(tester);
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
 
-      expect(_pos.calls, 1);
-      expect(_pos.sentPayments.single.method, 'CARD');
+      expect(find.text('Utang'), findsWidgets);
+      expect(find.text('Card'), findsNothing);
     });
   });
 

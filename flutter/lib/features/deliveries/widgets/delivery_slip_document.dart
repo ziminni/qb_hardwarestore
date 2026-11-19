@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:client/core/format/format.dart';
+import 'package:client/core/printing/escpos.dart';
 import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/pick_up.dart';
 import 'package:client/features/labels/label_document.dart'
@@ -129,8 +130,6 @@ Future<Uint8List> buildDeliverySlipPdf(
                 children: [
                   pw.Text(line.name, style: body),
                   pw.Text(line.quantityLine, style: body),
-                  if (line.pickUpLine case final pickUp?)
-                    pw.Text(pickUp, style: strong),
                 ],
               ),
             ),
@@ -162,4 +161,36 @@ Future<Uint8List> buildDeliverySlipPdfWithOpenSans(Delivery delivery) async {
     font: pw.Font.ttf(await rootBundle.load(labelFontAsset)),
     bold: pw.Font.ttf(await rootBundle.load(labelBoldFontAsset)),
   );
+}
+
+/// One delivery slip as ESC/POS, on the same 58 mm roll and receipt printer as
+/// the sales receipt, ending with the same fixed tear-off feed.
+Uint8List buildDeliverySlipEscPos(Delivery delivery) {
+  final content = DeliverySlipContent(delivery);
+  final job = EscPosJob()
+    ..text('QUEEN BUILDERS', bold: true, center: true, large: true)
+    ..text('Delivery slip', center: true)
+    ..feed(1);
+  for (final text in content.header) {
+    job.text(text);
+  }
+  job.divider();
+  for (final line in content.lines) {
+    job
+      ..text(line.name)
+      ..text(line.quantityLine);
+  }
+  job.divider();
+  if (content.feeLine case (final label, final amount)) {
+    job.row(label, amount, bold: true);
+  }
+  if (content.failureReason.isNotEmpty) {
+    job
+      ..feed(1)
+      ..text('Failed: ${content.failureReason}');
+  }
+  job
+    ..feed(1)
+    ..text('Thank you!', center: true);
+  return job.finish();
 }

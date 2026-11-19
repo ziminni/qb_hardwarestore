@@ -116,7 +116,10 @@ void main() {
   test('load reads the slips and the shelves', () async {
     final state = _state(
       transfers: _FakeStockTransferRepository(
-        transfers: [transfer(id: 1), transfer(id: 2, number: 'TR-20261113-0002')],
+        transfers: [
+          transfer(id: 1),
+          transfer(id: 2, number: 'TR-20261113-0002'),
+        ],
       ),
     );
 

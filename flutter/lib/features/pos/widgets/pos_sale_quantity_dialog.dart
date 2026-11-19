@@ -107,8 +107,7 @@ class _PosSaleQuantityDialogState extends State<PosSaleQuantityDialog> {
                       return 'Enter a valid quantity';
                     }
                     // The server's flag, shared with the till's scan path.
-                    if (_selected.isWhole &&
-                        number != number.roundToDouble()) {
+                    if (_selected.isWhole && number != number.roundToDouble()) {
                       return 'Use a whole number for ${_selected.unit}';
                     }
                     if (number > _selected.availableSaleQuantity) {

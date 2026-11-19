@@ -10,6 +10,7 @@ import 'package:client/data/models/tender_method.dart';
 import 'package:client/features/pos/widgets/pos_payment_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../../support/payment_steps.dart';
 
 Future<PosPaymentDetails?> _open(
   WidgetTester tester, {
@@ -55,6 +56,17 @@ Future<void> _setMethod(WidgetTester tester, int row, String label) async {
   await tester.pumpAndSettle();
 }
 
+/// Owner 2026-11-19: the discount is behind an off-by-default switch, like
+/// Deliver; its fields appear once it is on.
+Future<void> _discountOn(WidgetTester tester) async {
+  await goToDiscountStep(tester);
+  final toggle = find.byKey(const ValueKey('pos-discount-toggle'));
+  await tester.ensureVisible(toggle);
+  await tester.pumpAndSettle();
+  await tester.tap(toggle);
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('a cash and GCash sale sends two tenders', (tester) async {
     await _open(tester);
@@ -77,7 +89,7 @@ void main() {
     // Nothing left owing, so no utang sentence.
     expect(find.textContaining('will be left unpaid'), findsNothing);
 
-    await tester.tap(find.text('Complete sale'));
+    await completePayment(tester);
     await tester.pumpAndSettle();
 
     // The dialog closed and handed back BOTH tenders, in order.
@@ -111,6 +123,9 @@ void main() {
     await _open(tester, total: 20);
 
     // 10 percent off 20 leaves 18 due, and the untouched cash row follows it.
+    await _discountOn(tester);
+    await tester.ensureVisible(find.text('% Percent'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('% Percent'));
     await tester.pumpAndSettle();
     await tester.enterText(
@@ -123,7 +138,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Amount due: ₱18.00'), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('pos-amount-due'))).data,
+      '₱18.00',
+    );
+    // The payment rows are on the Payment step, one back.
+    await tester.tap(find.text('Back'));
+    await tester.pumpAndSettle();
     final cash = tester.widget<TextFormField>(
       find.byKey(const ValueKey('pos-tender-amount-0')),
     );
@@ -201,7 +222,7 @@ void main() {
       '5',
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Complete sale'));
+    await completePayment(tester);
     await tester.pumpAndSettle();
 
     expect(details, isNotNull);

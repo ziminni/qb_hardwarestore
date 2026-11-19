@@ -37,6 +37,7 @@ import '../../support/phase4_fakes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import '../../support/payment_steps.dart';
 
 class _FakePosRepository extends PosRepository {
   _FakePosRepository() : super(PosService());
@@ -371,7 +372,7 @@ void main() {
 
         await tester.tap(find.text('Proceed to payment'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Complete sale'));
+        await completePayment(tester);
         await tester.pumpAndSettle();
 
         expect(heldService.completes, hasLength(1));

@@ -85,7 +85,7 @@ void main() {
       'the inventory sidebar keeps 13 Payables and gains Deliveries at 14',
       () {
         final order = _areaOrder(AppAreas.inventory);
-        expect(order, hasLength(16));
+        expect(order, hasLength(17));
         expect(order[8], 'inventoryReceiving');
         expect(order[13], 'inventoryPayables');
         expect(order[14], 'inventoryDeliveries');
@@ -99,7 +99,7 @@ void main() {
 
     test('the sales sidebar keeps 9 Payables and gains Deliveries at 10', () {
       final order = _areaOrder(AppAreas.sales);
-      expect(order, hasLength(12));
+      expect(order, hasLength(13));
       expect(order[6], 'salesReports');
       expect(order[9], 'salesPayables');
       expect(order[10], 'salesDeliveries');
@@ -108,6 +108,7 @@ void main() {
         'salesTransfers',
         reason: 'Phase 9 F3 APPENDED Transfers at 11; nothing moved',
       );
+      expect(order[12], 'salesSettings');
     });
 
     test('every page declares its own shell index', () {
@@ -117,13 +118,20 @@ void main() {
       final declared = RegExp(
         r'selectedNavigationIndex:\s*(\d+)',
       ).allMatches(source).map((match) => int.parse(match.group(1)!)).toList();
-      expect(declared, containsAll(<int>[14, 10, 9]));
+      expect(declared, containsAll(<int>[14, 10]));
+      // Owner 2026-11-18: no admin shell; the Admin only watches.
+      expect(source, isNot(contains('AdminSkeletonLayout')));
     });
 
-    test('the admin menu appends Deliveries after Payables', () {
-      final items = AppDestinations.labelsFor(AppAreas.admin);
-      expect(items.indexOf('Payables'), 8);
-      expect(items.indexOf('Deliveries'), 9);
+    test('the Admin menu has no Deliveries and no admin route', () {
+      expect(
+        AppDestinations.labelsFor(AppAreas.admin),
+        isNot(contains('Deliveries')),
+      );
+      expect(
+        _read('lib/routes/routes.dart'),
+        isNot(contains('path: adminDeliveries')),
+      );
     });
   });
 }

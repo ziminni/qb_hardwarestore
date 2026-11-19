@@ -14,9 +14,7 @@ import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/empty_state.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
-import 'package:client/features/catalogue_io/catalogue_import_dialog.dart';
-import 'package:client/features/catalogue_io/catalogue_io_dialog.dart';
-import 'package:client/features/catalogue_io/catalogue_sheet.dart';
+import 'package:client/features/catalogue_io/import_export_actions.dart';
 import 'package:client/features/labels/barcode_list_dialog.dart';
 import 'package:client/features/labels/label_document.dart';
 import 'package:client/features/labels/label_print_dialog.dart';
@@ -203,64 +201,8 @@ class _ProductsPageState extends State<ProductsPage> {
     );
   }
 
-  /// Opens the barcode masterlist (Phase 4 Task F2, panel comment #5).
-  ///
-  /// Handed the WHOLE catalogue, not the table's filtered rows: the masterlist has
-  /// its own category and active filters, and a storekeeper who narrowed the table
-  /// to one brand must still be able to export every code.
-  Future<void> _showBarcodeList(BuildContext context) async {
-    final inventory = context.read<InventoryViewmodel>();
-    await showDialog<void>(
-      context: context,
-      builder: (_) => BarcodeListDialog(
-        products: inventory.products,
-        // The store's own selling units when it has reloaded them: a code edit
-        // returns fresh rows, so the nested catalogue rows can be older.
-        unitsOf: (variant) =>
-            inventory.variantFor(variant.id)?.sellingUoms ??
-            variant.sellingUoms,
-      ),
-    );
-  }
-
-  /// Opens the catalogue workbook export (Phase 3 Task F1).
-  ///
-  /// The whole catalogue, archived products included: the sheet's Active column
-  /// carries the archive flag, so editing and re-importing changes nothing. The
-  /// lists for the second sheet come from what the store already fetched; no
-  /// extra request, and no stock anywhere in the file.
-  Future<void> _showCatalogueIo(BuildContext context) async {
-    final inventory = context.read<InventoryViewmodel>();
-    await showDialog<void>(
-      context: context,
-      builder: (_) => CatalogueIoDialog(
-        products: inventory.products,
-        lists: CatalogueSheetLists.fromSources(
-          categories: inventory.categories,
-          units: inventory.units,
-          locations: inventory.storageLocations,
-          brands: inventory.brands,
-        ),
-        unitsOf: (variant) =>
-            inventory.variantFor(variant.id)?.sellingUoms ??
-            variant.sellingUoms,
-      ),
-    );
-  }
-
-  /// Opens the catalogue workbook import (Phase 3 Task F2).
-  ///
-  /// The dialog picks the file itself, so a cancelled pick closes it without a
-  /// word. It previews first and applies only when the clerk presses Apply, and a
-  /// successful apply writes rows this list is showing, so the catalogue is
-  /// reloaded through the one store every other catalogue write reloads through.
-  Future<void> _showCatalogueImport(BuildContext context) async {
-    final inventory = context.read<InventoryViewmodel>();
-    await showDialog<void>(
-      context: context,
-      builder: (_) => CatalogueImportDialog(onApplied: inventory.load),
-    );
-  }
+  // Barcode list / Excel export / Excel import open through the shared
+  // `import_export_actions.dart`, which the Import & export page uses too.
 
   Future<void> _archiveSelected(
     BuildContext context,
@@ -378,17 +320,17 @@ class _ProductsPageState extends State<ProductsPage> {
                       runSpacing: AppSpacing.sm,
                       children: [
                         OutlinedButton.icon(
-                          onPressed: () => _showBarcodeList(context),
+                          onPressed: () => openBarcodeList(context),
                           icon: const Icon(Icons.qr_code_2_rounded, size: 18),
                           label: const Text('Barcode list'),
                         ),
                         OutlinedButton.icon(
-                          onPressed: () => _showCatalogueIo(context),
+                          onPressed: () => openCatalogueExport(context),
                           icon: const Icon(Icons.table_view_outlined, size: 18),
                           label: const Text('Export to Excel'),
                         ),
                         OutlinedButton.icon(
-                          onPressed: () => _showCatalogueImport(context),
+                          onPressed: () => openCatalogueImport(context),
                           icon: const Icon(
                             Icons.upload_file_outlined,
                             size: 18,

@@ -129,14 +129,16 @@ void main() {
   });
 
   group('the on-screen receipt', () {
-    testWidgets('shows the pick-up line under its item', (tester) async {
+    // Owner 2026-11-19: no pick-up line on the receipt, even when the item
+    // is kept in the Bodega (the cart's stored-at chip stays).
+    testWidgets('shows no pick-up line under its item', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(body: PosReceiptDialog(receipt: _receipt())),
         ),
       );
 
-      expect(find.text('Pick up at Bodega'), findsOneWidget);
+      expect(find.textContaining('Pick up'), findsNothing);
     });
 
     testWidgets('a sale with no recorded place shows no pick-up line', (

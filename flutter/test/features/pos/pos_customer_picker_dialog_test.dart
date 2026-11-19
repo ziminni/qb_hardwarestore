@@ -195,139 +195,16 @@ void main() {
     expect(find.text('The customer list could not be loaded.'), findsOneWidget);
   });
 
-  group('recording a new customer', () {
-    testWidgets(
-      'asks only for a name and a type - never a TIN or a credit limit',
-      (tester) async {
-        await _open(tester);
-        await tester.tap(find.text('New customer'));
-        await tester.pumpAndSettle();
-
-        expect(find.text('Name'), findsOneWidget);
-        expect(find.text('Type'), findsOneWidget);
-        expect(find.text('Save and use'), findsOneWidget);
-        // Credit control is not the till's job (decision 14, locked decision 1).
-        expect(find.textContaining('TIN'), findsNothing);
-        expect(find.textContaining('credit'), findsNothing);
-      },
+  testWidgets('does NOT show a "New customer" button in the picker modal', (
+    tester,
+  ) async {
+    await _open(
+      tester,
+      customers: [_customer(1, 'Maria Santos')],
     );
 
-    testWidgets('does NOT offer Walk-in as a type for a NAMED record', (
-      tester,
-    ) async {
-      await _open(tester);
-      await tester.tap(find.text('New customer'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Regular'), findsOneWidget);
-      for (final label in ['Contractor', 'Construction Firm']) {
-        expect(find.text(label), findsOneWidget, reason: label);
-      }
-      expect(
-        find.text('Walk-in'),
-        findsNothing,
-        reason:
-            'a record typed walk-in is refused by the server AND hidden by this picker - '
-            'the dead end task 6 removed',
-      );
-    });
-
-    testWidgets('an empty name is refused WITHOUT calling the server', (
-      tester,
-    ) async {
-      final result = await _open(tester);
-      await tester.tap(find.text('New customer'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Save and use'));
-      await tester.pumpAndSettle();
-
-      expect(find.textContaining('Enter the customer'), findsOneWidget);
-      expect(
-        result.created,
-        isEmpty,
-        reason: 'a blank name must not become a POST',
-      );
-      expect(
-        find.text('Who is this sale for?'),
-        findsOneWidget,
-        reason: 'the dialog stays open',
-      );
-    });
-
-    testWidgets('a failed create shows the SERVER message and stays open', (
-      tester,
-    ) async {
-      final result = await _open(
-        tester,
-        createError: 'A customer with that name already exists.',
-      );
-      await tester.tap(find.text('New customer'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'Maria Santos');
-      await tester.tap(find.text('Save and use'));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.text('A customer with that name already exists.'),
-        findsOneWidget,
-      );
-      // A create that failed must select NOTHING and must not close as though it worked.
-      expect(result.answer, isNull);
-      expect(result.created.single.name, 'Maria Santos');
-    });
-
-    testWidgets(
-      'a successful create answers with it, and sends the CHOSEN type',
-      (tester) async {
-        PosCustomerSelection? answer;
-        final created = <({String name, CustomerType type})>[];
-
-        await tester.pumpWidget(
-          MaterialApp(
-            home: Builder(
-              builder: (context) => Scaffold(
-                body: Center(
-                  child: ElevatedButton(
-                    onPressed: () async {
-                      answer = await showDialog<PosCustomerSelection>(
-                        context: context,
-                        builder: (_) => PosCustomerPickerDialog(
-                          customers: const [],
-                          loadError: null,
-                          onCreate: (name, type) async {
-                            created.add((name: name, type: type));
-                            return (_customer(77, name), null);
-                          },
-                        ),
-                      );
-                    },
-                    child: const Text('open'),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-        await tester.tap(find.text('open'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('New customer'));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField).last, 'New Person');
-        await tester.tap(find.text('Contractor'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Save and use'));
-        await tester.pumpAndSettle();
-
-        expect(answer?.customer?.name, 'New Person');
-        expect(created.single.name, 'New Person');
-        expect(
-          created.single.type,
-          CustomerType.contractor,
-          reason:
-              'the chip the cashier tapped is what gets sent, not the default',
-        );
-      },
-    );
+    expect(find.text('New customer'), findsNothing);
+    expect(find.text('Walk-in (anonymous)'), findsOneWidget);
   });
 
   testWidgets('a search that matches nothing says how to proceed', (
@@ -338,6 +215,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('No customer matches'), findsOneWidget);
-    expect(find.textContaining('New customer'), findsWidgets);
+    expect(find.textContaining('Customers page'), findsOneWidget);
   });
 }

@@ -102,7 +102,8 @@ class _StubShifts extends ShiftService {
         cashSales: existing.zReading?.cashSales ?? 315,
         cardSales: existing.zReading?.cardSales ?? 0,
         gcashSales: existing.zReading?.gcashSales ?? 0,
-        expectedDrawer: existing.openingFloat +
+        expectedDrawer:
+            existing.openingFloat +
             (existing.zReading?.cashSales ?? 315) +
             cashIn -
             cashOut,

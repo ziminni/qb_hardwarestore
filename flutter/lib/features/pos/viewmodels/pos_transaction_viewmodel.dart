@@ -11,6 +11,7 @@ import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/repositories/customer_repository.dart';
 import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/repositories/products_repository.dart';
+import 'package:client/data/services/customer_profile_store.dart';
 import 'package:client/data/services/customer_service.dart';
 import 'package:client/data/services/held_cart_service.dart';
 import 'package:client/data/services/pos_service.dart';
@@ -400,12 +401,23 @@ class PosTransactionViewmodel extends ChangeNotifier {
   String get customerLabel =>
       _selectedCustomer?.name ?? 'Walk-in Customer (anonymous)';
 
+  /// Enriched profile (phone, address, standing discount preset) for the
+  /// currently selected customer, or null for an anonymous walk-in sale.
+  CustomerProfile? get selectedCustomerProfile =>
+      CustomerProfileStore.instance.resolveFor(_selectedCustomer);
+
+  /// Standing discount preset for the currently selected customer (e.g.
+  /// Mang Kanor's 20% Senior Citizen discount), or null when none applies.
+  PosDiscount? get selectedCustomerPresetDiscount =>
+      selectedCustomerProfile?.toPosDiscount;
+
   /// Chooses the buyer, or null to go back to an anonymous sale.
   ///
   /// Clears any loaded balance: a summary belonging to the PREVIOUS customer must never be
   /// displayed against the new one, which would show the cashier someone else's debt.
   void selectCustomer(Customer? customer) {
-    if (_selectedCustomer?.id != customer?.id) {
+    if (_selectedCustomer?.id != customer?.id ||
+        _selectedCustomer?.name != customer?.name) {
       _ledgerSummary = null;
       _ledgerError = null;
       // A different buyer is a different sale body, so a key spent on the previous
@@ -433,6 +445,13 @@ class PosTransactionViewmodel extends ChangeNotifier {
     final customer = _selectedCustomer;
     if (customer == null) {
       _ledgerSummary = null;
+      _ledgerError = null;
+      _isLoadingLedger = false;
+      notifyListeners();
+      return;
+    }
+    if (customer.id <= 0) {
+      _ledgerSummary = CustomerLedgerSummary.empty(customer.id);
       _ledgerError = null;
       _isLoadingLedger = false;
       notifyListeners();
@@ -486,6 +505,157 @@ class PosTransactionViewmodel extends ChangeNotifier {
       // balance on screen under the new customer's name whenever the caller did not follow
       // with loadLedgerForSelection - reachable because the picker's barrier is dismissible
       // while the create is in flight, so the page can take its "cancelled" early return.
+      selectCustomer(created);
+      return null;
+    } on CustomerServiceException catch (error) {
+      return error.message;
+    }
+  }
+
+  /// Creates or updates a rich regular customer profile from the Cashier
+  /// Customers page. Attempts to register a new customer on the server when
+  /// they do not yet have a server ID, and always persists their standing
+  /// discount, phone number, and address in [CustomerProfileStore].
+  Future<Customer> saveCustomerProfile(
+    CustomerProfile draft, {
+    String? previousName,
+    bool selectForCurrentSale = false,
+  }) async {
+    Customer? serverMatch;
+    final wantedName = draft.name.trim().toLowerCase();
+    for (final existing in _customerList) {
+      if (!existing.isWalkIn &&
+          existing.name.trim().toLowerCase() == wantedName) {
+        serverMatch = existing;
+        break;
+      }
+    }
+    if (serverMatch == null && (draft.customerId == null || draft.customerId! <= 0)) {
+      try {
+        final created = await _customerRepo.createCustomer(
+          name: draft.name.trim(),
+          type: draft.type,
+          contactDetails: draft.wireContactDetails,
+        );
+        _customerList.add(created);
+        serverMatch = created;
+      } catch (_) {
+        // Offline, unreachable, or uninitialized transport in isolated tests:
+        // keep the profile stored locally so the cashier can still use it in
+        // the till immediately.
+      }
+    }
+
+    final savedProfile = await CustomerProfileStore.instance.upsertProfile(
+      draft.copyWith(customerId: serverMatch?.id ?? draft.customerId),
+      previousName: previousName,
+    );
+    final resolvedCustomer = serverMatch != null
+        ? Customer(
+            id: serverMatch.id,
+            name: draft.name.trim(),
+            customerType: draft.type.apiValue,
+            totalCreditLimit: serverMatch.totalCreditLimit,
+            contactDetails: draft.wireContactDetails,
+          )
+        : savedProfile.toCustomer();
+
+    final existingIdx = _customerList.indexWhere(
+      (c) =>
+          c.id == resolvedCustomer.id ||
+          c.name.trim().toLowerCase() == wantedName,
+    );
+    if (existingIdx >= 0) {
+      _customerList[existingIdx] = resolvedCustomer;
+    }
+
+    if (selectForCurrentSale ||
+        (_selectedCustomer != null &&
+            (_selectedCustomer!.id == resolvedCustomer.id ||
+                _selectedCustomer!.name.trim().toLowerCase() ==
+                    (previousName ?? draft.name).trim().toLowerCase()))) {
+      selectCustomer(resolvedCustomer);
+    } else {
+      notifyListeners();
+    }
+    return resolvedCustomer;
+  }
+
+  /// Names the sale's customer for an utang (owner 2026-11-19): the person with
+  /// this name AND contact number when the store already has them, otherwise a
+  /// new customer carrying both (and the address, when given). Answers the
+  /// error sentence, or null once the customer is selected.
+  Future<String?> useUtangCustomer({
+    required String name,
+    required String contact,
+    String address = '',
+  }) async {
+    if (_customerList.isEmpty) await loadCustomers();
+    String digits(String value) => value.replaceAll(RegExp(r'[^0-9]'), '');
+    final wantedName = name.trim().toLowerCase();
+    final wantedNumber = digits(contact);
+
+    // If the currently selected customer already matches by name and has a
+    // valid server ID, keep them selected and enrich their local profile.
+    if (_selectedCustomer != null &&
+        !_selectedCustomer!.isWalkIn &&
+        _selectedCustomer!.id > 0 &&
+        _selectedCustomer!.name.trim().toLowerCase() == wantedName) {
+      final existingProfile =
+          CustomerProfileStore.instance.resolveFor(_selectedCustomer);
+      await CustomerProfileStore.instance.upsertProfile(
+        (existingProfile ??
+                CustomerProfile(
+                  customerId: _selectedCustomer!.id,
+                  name: _selectedCustomer!.name,
+                  type: _selectedCustomer!.type,
+                ))
+            .copyWith(
+              phone: contact.trim(),
+              address: address.trim().isNotEmpty
+                  ? address.trim()
+                  : existingProfile?.address,
+            ),
+      );
+      return null;
+    }
+
+    for (final customer in _customerList) {
+      if (customer.isWalkIn) continue;
+      if (customer.name.trim().toLowerCase() != wantedName) continue;
+      final profile = CustomerProfileStore.instance.resolveFor(customer);
+      final knownDigits = digits(
+        '${customer.contactDetails} ${profile?.phone ?? ''}',
+      );
+      if (wantedNumber.isNotEmpty &&
+          (knownDigits.isEmpty || knownDigits.contains(wantedNumber))) {
+        selectCustomer(customer);
+        return null;
+      }
+    }
+    try {
+      final created = await _customerRepo.createCustomer(
+        name: name.trim(),
+        type: CustomerType.regular,
+        contactDetails: address.trim().isEmpty
+            ? contact.trim()
+            : '${contact.trim()} · ${address.trim()}',
+      );
+      _customerList.add(created);
+      final existingProfile = CustomerProfileStore.instance.resolveFor(created);
+      await CustomerProfileStore.instance.upsertProfile(
+        (existingProfile ??
+                CustomerProfile(
+                  customerId: created.id,
+                  name: created.name,
+                  type: CustomerType.regular,
+                ))
+            .copyWith(
+              customerId: created.id,
+              phone: contact.trim(),
+              address: address.trim(),
+            ),
+      );
       selectCustomer(created);
       return null;
     } on CustomerServiceException catch (error) {
@@ -572,6 +742,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
             isWhole: uom.uomIsWhole,
             categoryName: record.product.categoryName,
             brandName: record.product.brandName,
+            imageUrl: record.product.imageUrl,
             // Phase 5 B4: the till badges the line with the SERVER's pick-up
             // point. The unit's own row carries it (a scan needs it without the
             // product list), and the product is the same fact.
@@ -691,6 +862,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
     );
   }
 
+  String get query => _query;
+
   void setQuery(String value) {
     _query = value.trim().toLowerCase();
     notifyListeners();
@@ -777,6 +950,28 @@ class PosTransactionViewmodel extends ChangeNotifier {
     return null;
   }
 
+  /// Sets a cart line to a typed [quantity] (the payment window's Items step,
+  /// owner 2026-11-19). More goes through [addLine], so it meets the same stock
+  /// check as a scan; 0 or less removes the line. Returns the refusal, or null.
+  String? setLineQuantity(int index, double quantity) {
+    final line = _lines[index];
+    if (quantity <= 0) {
+      removeLine(index);
+      return null;
+    }
+    final delta = quantity - line.quantity;
+    if (delta.abs() < 1e-9) return null;
+    if (delta > 0) {
+      final row = _rowFor(line);
+      if (row == null) return 'This item is no longer in the catalogue.';
+      return addLine(row, delta);
+    }
+    _lines[index] = line.copyWith(quantity: quantity);
+    _dropAttemptKey();
+    notifyListeners();
+    return null;
+  }
+
   void removeLine(int index) {
     _lines.removeAt(index);
     _dropAttemptKey();
@@ -789,6 +984,25 @@ class PosTransactionViewmodel extends ChangeNotifier {
     // complete (or void) a cart this basket came from.
     _forgetResumedCart();
     // Nor does it hold an order's remainder: the next sale is an ordinary one.
+    _forgetOrder();
+    _dropAttemptKey();
+    notifyListeners();
+  }
+
+  /// Clears the cached till state when the signed-in account logs out or
+  /// switches, so the next cashier never inherits an unfinished cart.
+  void resetSession() {
+    _lines.clear();
+    _selectedCustomer = null;
+    _ledgerSummary = null;
+    _ledgerError = null;
+    _isLoadingLedger = false;
+    _query = '';
+    _category = null;
+    _submitError = null;
+    _submitErrorCode = null;
+    _insufficientStockLineId = null;
+    _forgetResumedCart();
     _forgetOrder();
     _dropAttemptKey();
     notifyListeners();
@@ -1029,8 +1243,24 @@ class PosTransactionViewmodel extends ChangeNotifier {
         // The buyer is the SELECTED customer when the cashier picked or created one, and
         // the seeded Walk-in Customer otherwise - a walk-in sale still cannot omit the
         // customer, because the FK is not nullable (decision 06 section 2).
+        int? selectedId = _selectedCustomer?.id;
+        if (_selectedCustomer != null && (selectedId == null || selectedId <= 0)) {
+          try {
+            final created = await _customerRepo.createCustomer(
+              name: _selectedCustomer!.name,
+              type: _selectedCustomer!.type == CustomerType.unknown
+                  ? CustomerType.regular
+                  : _selectedCustomer!.type,
+              contactDetails: _selectedCustomer!.contactDetails,
+            );
+            _selectedCustomer = created;
+            selectedId = created.id;
+          } on CustomerServiceException {
+            selectedId = null;
+          }
+        }
         final buyer =
-            _selectedCustomer?.id ??
+            selectedId ??
             (_walkInCustomerId ??= await _pos.walkInCustomerId());
         result = await _pos.checkout(
           customerId: buyer,

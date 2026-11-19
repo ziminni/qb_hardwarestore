@@ -78,20 +78,19 @@ void main() {
   });
 
   group('the on-screen receipt', () {
-    testWidgets('prints the split under its item', (tester) async {
+    // Owner 2026-11-19: the pick-up line is gone from every receipt; staff
+    // know where goods are kept. The data still arrives (decoded below).
+    testWidgets('prints no pick-up split under its item', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(body: PosReceiptDialog(receipt: _receipt())),
         ),
       );
 
-      expect(
-        find.text('Pick up: 3 PC at Store, 2 PC at Bodega'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Pick up'), findsNothing);
     });
 
-    testWidgets('an old wire prints the plain caption', (tester) async {
+    testWidgets('an old wire prints no plain caption either', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -100,7 +99,7 @@ void main() {
         ),
       );
 
-      expect(find.text('Pick up at Bodega'), findsOneWidget);
+      expect(find.textContaining('Pick up'), findsNothing);
     });
   });
 
