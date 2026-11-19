@@ -9,11 +9,11 @@ import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/repositories/reports_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/features/admin/viewmodels/admin_reports_viewmodel.dart';
-import 'package:client/features/admin/views/reports_page.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:client/features/sales/views/sales_reports_page.dart';
 
 class _StubReportsRepository extends ReportsRepository {
   @override
@@ -84,7 +84,7 @@ void main() {
       ChangeNotifierProvider<AuthViewmodel>.value(
         value: AuthViewmodel(AuthRepository(AuthService())),
         child: MaterialApp(
-          home: ReportsPage(
+          home: SalesReportsPage(
             viewmodel: AdminReportsViewmodel(
               repository: _StubReportsRepository(),
             ),

@@ -51,6 +51,30 @@ class AuthService {
     }
   }
 
+  /// Sets the caller's own profile picture (`POST /auth/me/avatar/`), or clears
+  /// it when [bytes] is null (`DELETE`). Answers the updated account.
+  Future<User> setAvatar(List<int>? bytes, {String filename = 'avatar.jpg'}) async {
+    try {
+      final response = bytes == null
+          ? await _client.dio.delete<Map<String, dynamic>>(
+              '/api/v1/auth/me/avatar/',
+            )
+          : await _client.post<Map<String, dynamic>>(
+              '/api/v1/auth/me/avatar/',
+              data: FormData.fromMap({
+                'photo': MultipartFile.fromBytes(bytes, filename: filename),
+              }),
+            );
+      final data = response.data;
+      if (data == null) {
+        throw const AuthException('The server returned an empty response.');
+      }
+      return User.fromJson(data);
+    } on DioException catch (error) {
+      throw AuthException(_messageFrom(error));
+    }
+  }
+
   /// Signs out, revoking the refresh token held right now.
   ///
   /// The body is what makes sign-out stick: `POST /auth/logout/` blacklists the

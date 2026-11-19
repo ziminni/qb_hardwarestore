@@ -1,3 +1,6 @@
+import 'package:client/core/constants/app_radii.dart';
+import 'package:client/core/constants/app_text_styles.dart';
+import 'package:client/core/theme/app_palette.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -19,10 +22,22 @@ class AreaSwitcherMenu extends StatelessWidget {
     final roles = auth.assignedAreaRoles;
     if (roles.length < 2) return const SizedBox.shrink();
 
+    final p = AppPalette.of(context);
     final activeCode = auth.activeArea;
     return PopupMenuButton<String>(
       tooltip: 'Switch area',
       onSelected: auth.selectArea,
+      style: IconButton.styleFrom(
+        backgroundColor: p.surfaceSunken,
+        foregroundColor: p.accentInk,
+        hoverColor: p.selected,
+        minimumSize: const Size(36, 36),
+        padding: const EdgeInsets.all(8),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadii.pill),
+          side: BorderSide(color: p.border),
+        ),
+      ),
       itemBuilder: (context) => [
         for (final role in roles)
           PopupMenuItem<String>(
@@ -34,13 +49,22 @@ class AreaSwitcherMenu extends StatelessWidget {
                       ? Icons.radio_button_checked
                       : Icons.radio_button_unchecked,
                   size: 18,
+                  color: role.code == activeCode
+                      ? p.accentInk
+                      : p.textSecondary,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     role.displayName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.bodyMedium.copyWith(
+                      fontWeight: role.code == activeCode
+                          ? FontWeight.w600
+                          : FontWeight.w400,
+                      color: p.textPrimary,
+                    ),
                   ),
                 ),
               ],
@@ -49,7 +73,7 @@ class AreaSwitcherMenu extends StatelessWidget {
       ],
       // An IconButton: keyboard focus and the tooltip words come for free, and
       // the current area is already named on the sidebar's account tile.
-      icon: const Icon(Icons.swap_horiz, size: 18),
+      icon: const Icon(Icons.swap_horiz_rounded, size: 18),
     );
   }
 }

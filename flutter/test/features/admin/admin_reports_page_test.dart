@@ -16,7 +16,6 @@ import 'package:client/data/repositories/reports_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/reports_service.dart';
 import 'package:client/features/admin/viewmodels/admin_reports_viewmodel.dart';
-import 'package:client/features/admin/views/reports_page.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
@@ -25,6 +24,7 @@ import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:client/features/sales/views/sales_reports_page.dart';
 
 Widget _app(Widget child) => ChangeNotifierProvider<AuthViewmodel>.value(
   value: AuthViewmodel(AuthRepository(AuthService())),
@@ -131,7 +131,11 @@ Future<_StubReportsRepository> _pump(
   final repository = _StubReportsRepository()..failSales = failSales;
   if (history != null) repository.history = history;
   await tester.pumpWidget(
-    _app(ReportsPage(viewmodel: AdminReportsViewmodel(repository: repository))),
+    _app(
+      SalesReportsPage(
+        viewmodel: AdminReportsViewmodel(repository: repository),
+      ),
+    ),
   );
   await tester.pumpAndSettle();
   return repository;

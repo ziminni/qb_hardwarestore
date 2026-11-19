@@ -70,12 +70,61 @@ class CatalogueService {
     return _idOf(response.data);
   }
 
-  /// Renames and/or archives a category. There is no DELETE on this route (405).
+  /// Deletes a category nobody uses (Admin only, owner 2026-11-18). One with
+  /// products is refused with `IN_USE`: archive it instead.
+  Future<void> deleteCategory(int id) async {
+    await _write(() async {
+      await _client.delete('$categoriesPath$id/');
+      // 204 carries no body; the guard only needs the call to have succeeded.
+      return Response<Map<String, dynamic>>(requestOptions: RequestOptions());
+    });
+  }
+
+  /// Renames and/or archives a category.
   Future<void> patchCategory(int id, {String? name, bool? isActive}) async {
     await _write(
       () => _client.patch<Map<String, dynamic>>(
         '$categoriesPath$id/',
         data: {'name': ?name, 'is_active': ?isActive},
+      ),
+    );
+  }
+
+  /// Creates a brand and returns its server id.
+  Future<int> createBrand(String name) async {
+    final response = await _write(
+      () => _client.post<Map<String, dynamic>>(brandsPath, data: {'name': name}),
+    );
+    return _idOf(response.data);
+  }
+
+  /// Renames an existing brand.
+  Future<void> patchBrand(int id, {required String name}) async {
+    await _write(
+      () => _client.patch<Map<String, dynamic>>(
+        '$brandsPath$id/',
+        data: {'name': name},
+      ),
+    );
+  }
+
+  /// Creates a unit of measure (`code`, `name`) and returns its server id.
+  Future<int> createUnit({required String code, required String name}) async {
+    final response = await _write(
+      () => _client.post<Map<String, dynamic>>(
+        unitsPath,
+        data: {'code': code, 'name': name},
+      ),
+    );
+    return _idOf(response.data);
+  }
+
+  /// Updates an existing unit of measure's code and/or name.
+  Future<void> patchUnit(int id, {String? code, String? name}) async {
+    await _write(
+      () => _client.patch<Map<String, dynamic>>(
+        '$unitsPath$id/',
+        data: {'code': ?code, 'name': ?name},
       ),
     );
   }

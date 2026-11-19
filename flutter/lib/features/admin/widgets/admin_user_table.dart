@@ -1,5 +1,8 @@
 import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/constants/app_text_styles.dart';
+import 'package:client/core/theme/app_palette.dart';
 import 'package:client/data/models/user.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/status_badge.dart';
@@ -24,6 +27,8 @@ class AdminUserTable extends StatelessWidget {
     required this.onToggleActive,
     required this.onChangeRole,
     required this.isAdminViewer,
+    this.currentUserId,
+    this.currentUsername,
     this.isLoading = false,
     this.error,
     this.onRetry,
@@ -62,6 +67,11 @@ class AdminUserTable extends StatelessWidget {
   /// those rows instead of a button that can only fail.
   final bool isAdminViewer;
 
+  /// Signed-in user's ID and username so an Admin cannot modify roles on their
+  /// own Admin account.
+  final int? currentUserId;
+  final String? currentUsername;
+
   /// An account the server counts as admin: one 'admin' role CODE, which
   /// `serializers.py` sends for both the Admin and System Administrator groups.
   /// Compare the CODE, never the display label (Phase 4 lesson), and check
@@ -69,6 +79,22 @@ class AdminUserTable extends StatelessWidget {
   /// too, so a manager must not be offered a write on it.
   static bool _isAdminAccount(User user) =>
       user.assignedRoles.any((role) => role.code == 'admin');
+
+  /// True when [user] is the currently signed-in Admin's own Admin account.
+  static bool isOwnAdminAccount({
+    required User user,
+    int? currentUserId,
+    String? currentUsername,
+  }) {
+    if (!_isAdminAccount(user)) return false;
+    if (currentUserId != null && user.id == currentUserId) return true;
+    if (currentUsername != null &&
+        currentUsername.isNotEmpty &&
+        user.username == currentUsername) {
+      return true;
+    }
+    return false;
+  }
 
   /// Only an admin may act on an admin account. Phase 5 rules the server owns
   /// still apply on top (LAST_ADMIN, self-approval); this only stops the client
@@ -87,7 +113,7 @@ class AdminUserTable extends StatelessWidget {
           // The primary text column: a long full name must have room to read
           // instead of ellipsizing beside a two-word badge.
           flex: 3,
-          cell: _accountCell,
+          cell: (user) => _AccountCell(user: user),
         ),
         DataPanelColumn<User>(
           label: 'Role',
@@ -109,6 +135,11 @@ class AdminUserTable extends StatelessWidget {
           cell: (user) => mayActOn(isAdminViewer: isAdminViewer, user: user)
               ? _Actions(
                   user: user,
+                  canChangeRole: !isOwnAdminAccount(
+                    user: user,
+                    currentUserId: currentUserId,
+                    currentUsername: currentUsername,
+                  ),
                   onToggleActive: () => onToggleActive(user),
                   onChangeRole: () => onChangeRole(user),
                 )
@@ -125,15 +156,25 @@ class AdminUserTable extends StatelessWidget {
       rowKey: (user) => ValueKey('admin.user.${user.id}'),
     );
   }
+}
 
-  /// Full name over `username · email`.
-  ///
-  /// The three were three columns before, which cost the width the account name
-  /// and the actions needed. Together they are one fact: who this is.
-  static Widget _accountCell(User user) {
+/// Full name over `username · email` with a role-tinted initials avatar and
+/// status indicator dot.
+class _AccountCell extends StatelessWidget {
+  const _AccountCell({required this.user});
+
+  final User user;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return Row(
       children: [
-        _Initials(user.fullName),
+        _Initials(
+          name: user.fullName,
+          isActive: user.isActive,
+          tone: _roleTone(user),
+        ),
         const SizedBox(width: AppSpacing.md),
         Expanded(
           child: Column(
@@ -144,10 +185,10 @@ class AdminUserTable extends StatelessWidget {
                 user.fullName,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                  color: p.textPrimary,
                 ),
               ),
               const SizedBox(height: 2),
@@ -155,10 +196,7 @@ class AdminUserTable extends StatelessWidget {
                 '${user.username} · ${user.email}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: AppColors.textSecondary,
-                ),
+                style: TextStyle(fontSize: 12, color: p.textSecondary),
               ),
             ],
           ),
@@ -191,66 +229,166 @@ class _Actions extends StatelessWidget {
     required this.user,
     required this.onToggleActive,
     required this.onChangeRole,
+    this.canChangeRole = true,
   });
 
   final User user;
   final VoidCallback onToggleActive;
   final VoidCallback onChangeRole;
+  final bool canChangeRole;
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    final isDeactivate = user.isActive;
+    final toggleBg = isDeactivate
+        ? (p.isDark
+              ? AppColors.error.withValues(alpha: 0.16)
+              : AppColors.errorTint)
+        : (p.isDark
+              ? AppColors.success.withValues(alpha: 0.16)
+              : AppColors.successTint);
+    final toggleFg = isDeactivate
+        ? (p.isDark ? const Color(0xFFFCA5A5) : AppColors.errorText)
+        : (p.isDark ? const Color(0xFF86EFAC) : AppColors.successText);
+    final toggleBorder = isDeactivate
+        ? AppColors.error.withValues(alpha: p.isDark ? 0.32 : 0.22)
+        : AppColors.success.withValues(alpha: p.isDark ? 0.32 : 0.22);
+
     // A Wrap, not a Row: on a card the two buttons get a column width, and a
     // Row would paint them past the edge with an overflow stripe.
     return Wrap(
       spacing: AppSpacing.sm,
+      runSpacing: 6,
       children: [
-        TextButton(
+        if (canChangeRole)
+          TextButton.icon(
+            onPressed: onChangeRole,
+            style: TextButton.styleFrom(
+              backgroundColor: p.surfaceSunken,
+              foregroundColor: p.textPrimary,
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+              minimumSize: const Size(44, 38),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadii.small),
+                side: BorderSide(color: p.border),
+              ),
+              textStyle: const TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            icon: Icon(
+              Icons.manage_accounts_outlined,
+              size: 15,
+              color: p.accentInk,
+            ),
+            label: const Text('Change role'),
+          ),
+        TextButton.icon(
           onPressed: onToggleActive,
-          style: _compact,
-          child: Text(user.isActive ? 'Deactivate' : 'Reactivate'),
-        ),
-        TextButton(
-          onPressed: onChangeRole,
-          style: _compact,
-          child: const Text('Change role'),
+          style: TextButton.styleFrom(
+            backgroundColor: toggleBg,
+            foregroundColor: toggleFg,
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+            minimumSize: const Size(44, 38),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadii.small),
+              side: BorderSide(color: toggleBorder),
+            ),
+            textStyle: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          icon: Icon(
+            isDeactivate
+                ? Icons.person_off_outlined
+                : Icons.person_outline_rounded,
+            size: 15,
+          ),
+          label: Text(isDeactivate ? 'Deactivate' : 'Reactivate'),
         ),
       ],
     );
   }
-
-  /// Keeps both actions on one line at 1100 px: the default 16 px side padding
-  /// alone costs more than the row has to spare.
-  static final ButtonStyle _compact = TextButton.styleFrom(
-    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-    minimumSize: const Size(44, 44),
-    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-  );
 }
 
-/// The account's initials in a gold-tinted circle: staff read people, not ids.
+/// The account's initials in a role-tinted circular badge with a live status
+/// indicator dot: staff read people, not ids.
 class _Initials extends StatelessWidget {
-  const _Initials(this.name);
+  const _Initials({
+    required this.name,
+    required this.isActive,
+    required this.tone,
+  });
 
   final String name;
+  final bool isActive;
+  final StatusTone tone;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 32,
-      height: 32,
+    final p = AppPalette.of(context);
+    final (Color bg, Color fg, Color ring) = switch (tone) {
+      StatusTone.info => (
+        p.selected,
+        p.accentInk,
+        p.accent.withValues(alpha: 0.48),
+      ),
+      StatusTone.success => (
+        p.isDark ? const Color(0xFF14291E) : AppColors.successTint,
+        p.isDark ? const Color(0xFF86EFAC) : AppColors.successText,
+        AppColors.success.withValues(alpha: 0.35),
+      ),
+      StatusTone.warning => (
+        p.isDark ? const Color(0xFF2B2110) : AppColors.warningTint,
+        p.isDark ? const Color(0xFFFCD34D) : AppColors.warningText,
+        AppColors.warning.withValues(alpha: 0.4),
+      ),
+      _ => (p.surfaceSunken, p.textPrimary, p.border),
+    };
+
+    final avatar = Container(
+      width: 38,
+      height: 38,
       alignment: Alignment.center,
-      decoration: const BoxDecoration(
-        color: AppColors.selected,
+      decoration: BoxDecoration(
+        color: bg,
         shape: BoxShape.circle,
+        border: Border.all(color: ring),
       ),
       child: Text(
         _initials(name),
-        style: const TextStyle(
-          fontSize: 12,
+        style: TextStyle(
+          fontFamily: AppTextStyles.cinzelFont,
+          fontSize: 12.5,
           fontWeight: FontWeight.w700,
-          color: AppColors.textPrimary,
+          color: fg,
         ),
       ),
+    );
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Opacity(opacity: isActive ? 1.0 : 0.58, child: avatar),
+        Positioned(
+          right: -1,
+          bottom: -1,
+          child: Container(
+            width: 11,
+            height: 11,
+            decoration: BoxDecoration(
+              color: isActive ? AppColors.success : p.textSecondary,
+              shape: BoxShape.circle,
+              border: Border.all(color: p.cardBackground, width: 2),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

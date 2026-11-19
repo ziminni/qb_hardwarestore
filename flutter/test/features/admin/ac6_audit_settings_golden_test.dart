@@ -24,6 +24,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../support/offline_catalogue_lists.dart';
 
 /// The fallback visual check (00-shared/VERIFY.md, fallback 3) for card A6: the
 /// Audit logs screen (list, empty, error, permission denied) and the Settings
@@ -126,6 +127,7 @@ void main() {
           viewmodel: StoreSettingsViewmodel(
             service: _StubStoreSettingsService(),
           ),
+          catalogueLists: OfflineCatalogueLists(),
         ),
       );
       // `/admin/settings` is an admin-only route, so the capture must show the

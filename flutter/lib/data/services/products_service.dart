@@ -202,6 +202,24 @@ class ProductsService {
     return _idOf(response.data);
   }
 
+  /// Opening stock for a NEW variant (owner 2026-11-18): base quantity and its
+  /// cost. The server refuses it once the variant has stock history.
+  Future<void> createOpeningStock(
+    int variantId, {
+    required double qty,
+    required double unitCost,
+  }) async {
+    await _write(
+      () => _client.post<Map<String, dynamic>>(
+        '$variantsPath$variantId/opening-stock/',
+        data: {
+          'qty': qty.toStringAsFixed(2),
+          'unit_cost': unitCost.toStringAsFixed(2),
+        },
+      ),
+    );
+  }
+
   /// POSTs one selling unit and returns the server id.
   Future<int> createSellingUnit(Map<String, dynamic> body) async {
     final response = await _write(

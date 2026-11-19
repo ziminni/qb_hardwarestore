@@ -2,6 +2,7 @@ import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/navigation/merged_sidebar.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
+import 'package:client/features/bodega/viewmodels/bodega_viewmodel.dart';
 import 'package:client/features/dashboard/widget/admin_needs_attention_panel.dart';
 import 'package:client/features/dashboard/widget/inventory_dashboard_content.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
@@ -14,6 +15,7 @@ import 'package:client/routes/routes.dart';
 import 'package:client/shared/widgets/app_shell.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
+import 'package:client/shared/widgets/metric_tile.dart';
 import 'package:client/shared/widgets/section_heading.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -72,8 +74,53 @@ class CombinedDashboardPage extends StatelessWidget {
     'sales' => _SalesSection(viewmodel: salesAlertsViewmodel),
     'inventory' => const _StockSection(),
     'admin' => const _AdminSection(),
+    'bodega' => const _BodegaSection(),
     _ => const SizedBox.shrink(),
   };
+}
+
+/// Decision 25: the Bodega's "needs you" figures - receipts still waiting at
+/// the gate, and supplier deliveries waiting for the checker.
+class _BodegaSection extends StatelessWidget {
+  const _BodegaSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return ChangeNotifierProvider(
+      create: (_) => BodegaViewmodel()..loadPickups(),
+      child: Consumer<BodegaViewmodel>(
+        builder: (context, state, _) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (state.loadError != null) ...[
+              ErrorBanner(
+                message: state.loadError!,
+                onRetry: state.loadPickups,
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
+            MetricGrid(
+              children: [
+                MetricTile(
+                  label: 'Waiting for pick-up',
+                  value: formatCount(state.openClaims.length),
+                ),
+                MetricTile(
+                  label: 'Deliveries to check',
+                  value: formatCount(state.pendingDeliveries.length),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            TextButton(
+              onPressed: () => context.go(AppRoutes.bodegaPickups),
+              child: const Text('Open Bodega pick-ups'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _TillSection extends StatefulWidget {
@@ -304,8 +351,8 @@ class _AdminSection extends StatelessWidget {
           AdminAttentionItem(
             label: 'Unresolved alerts',
             value: formatCount(unresolvedAlerts),
-            actionLabel: 'Open monitoring',
-            onAction: () => context.go(AppRoutes.adminInventory),
+            actionLabel: 'Open dashboard',
+            onAction: () => context.go(AppRoutes.adminDashboard),
           ),
       ],
     );

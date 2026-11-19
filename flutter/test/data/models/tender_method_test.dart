@@ -18,15 +18,17 @@ void main() {
     expect(TenderMethod.bankTransfer.label, 'Bank transfer');
   });
 
-  test('the till offers four tenders, and never the bank transfer', () {
+  test('the till offers cash, GCash and cheque, never card or bank transfer', () {
     // Phase 4 F4b: CHEQUE joins the till (decision 18). Bank transfer stays out:
     // no counter screen takes one, because the money arrives in an account.
+    // Owner 2026-11-19: Card left the till (Utang took its place in the
+    // payment dialog); it stays a refund method.
     expect(TenderMethod.tillTenders, [
       TenderMethod.cash,
-      TenderMethod.card,
       TenderMethod.gcash,
       TenderMethod.cheque,
     ]);
+    expect(TenderMethod.refundTenders, contains(TenderMethod.card));
     expect(
       TenderMethod.refundTenders.contains(TenderMethod.bankTransfer),
       isTrue,

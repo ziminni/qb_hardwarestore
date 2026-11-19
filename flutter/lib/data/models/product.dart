@@ -14,9 +14,13 @@ class ProductVariant {
     required this.isActive,
     this.storedAtId,
     this.storedAtName = '',
+    this.sku = '',
   });
 
   final int id;
+
+  /// The shop's own stock-keeping code (owner 2026-11-18). Optional.
+  final String sku;
 
   /// Owning product id. API field `product`.
   final int productId;
@@ -84,6 +88,9 @@ class ProductVariant {
       variantName: variantName ?? this.variantName,
       baseUomCode: baseUomCode ?? this.baseUomCode,
       isActive: isActive ?? this.isActive,
+      storedAtId: storedAtId,
+      storedAtName: storedAtName,
+      sku: sku,
     );
   }
 
@@ -91,6 +98,7 @@ class ProductVariant {
     return ProductVariant(
       id: intField(json, 'id'),
       variantName: stringField(json, 'variant_name'),
+      sku: json['sku'] is String ? json['sku'] as String : '',
       baseUomCode: stringField(json, 'base_uom_code'),
       isActive: boolFieldOr(json, 'is_active', or: true),
       productId: intField(json, 'product'),

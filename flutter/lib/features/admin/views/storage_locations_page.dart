@@ -1,6 +1,5 @@
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
-import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/data/models/storage_location.dart';
 import 'package:client/features/admin/viewmodels/storage_locations_viewmodel.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
@@ -27,8 +26,12 @@ import 'package:provider/provider.dart';
 ///
 /// **No Delete.** The route answers 405 to DELETE, so deactivate is the exit and
 /// restore is the same PATCH with the other flag.
-class StorageLocationsPage extends StatelessWidget {
-  const StorageLocationsPage({super.key, this.viewmodel});
+///
+/// Owner 2026-11-18: no longer a page of its own. It is the "Storage locations"
+/// side tab of Admin → Settings, and `/admin/storage-locations` opens Settings
+/// on that tab.
+class StorageLocationsPanel extends StatelessWidget {
+  const StorageLocationsPanel({super.key, this.viewmodel});
 
   /// Injected by tests so a state can be rendered without a server.
   final StorageLocationsViewmodel? viewmodel;
@@ -143,8 +146,9 @@ class _StorageLocationsBodyState extends State<_StorageLocationsBody> {
     // One failure, never a failure plus an empty state under it.
     final showBanner = state.loadError != null && !state.isLoading;
 
-    final content = ListView(
-      padding: EdgeInsets.zero,
+    // A Column, not a ListView: Settings' own page scrolls.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Wrap(
           crossAxisAlignment: WrapCrossAlignment.center,
@@ -199,17 +203,6 @@ class _StorageLocationsBodyState extends State<_StorageLocationsBody> {
           ),
         _table(state, rows),
       ],
-    );
-
-    return AdminSkeletonLayout(
-      title: 'Storage locations',
-      subtitle: 'Where the shop keeps things, and what the till prints.',
-      // Appended after Deliveries (9), so no earlier index moved.
-      selectedNavigationIndex: 10,
-      scrollable: false,
-      // The admin shell navigates from its own tuple list, so it needs no
-      // callback here.
-      child: content,
     );
   }
 

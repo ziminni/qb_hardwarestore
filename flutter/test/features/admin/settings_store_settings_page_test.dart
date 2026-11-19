@@ -23,6 +23,7 @@ import 'package:client/shared/widgets/error_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import '../../support/offline_catalogue_lists.dart';
 
 class _StubService extends StoreSettingsService {
   _StubService({this.stored = _stored, this.loadFailure, this.saveFailure});
@@ -82,7 +83,10 @@ Future<void> _pump(
     ChangeNotifierProvider<AuthViewmodel>.value(
       value: auth,
       child: MaterialApp(
-        home: SettingsPage(viewmodel: StoreSettingsViewmodel(service: service)),
+        home: SettingsPage(
+          viewmodel: StoreSettingsViewmodel(service: service),
+          catalogueLists: OfflineCatalogueLists(),
+        ),
       ),
     ),
   );
@@ -109,7 +113,11 @@ void main() {
     await _pump(tester, service);
 
     expect(service.loads, 1);
-    expect(find.text('Sales settings'), findsOneWidget);
+    // Owner 2026-11-18: Settings opens on the Sales & tax side tab.
+    expect(
+      find.byKey(const ValueKey('settings-section-sales')),
+      findsOneWidget,
+    );
     expect(find.text('12.00'), findsOneWidget);
     expect(find.text('10.00'), findsOneWidget);
     expect(find.byType(Switch), findsOneWidget);
@@ -125,8 +133,14 @@ void main() {
       findsOneWidget,
     );
 
-    // Card A6 content is untouched: no store-details endpoint exists.
-    expect(find.text('Store information'), findsOneWidget);
+    // Card A6 content is untouched (no store-details endpoint exists); it is
+    // one side tab away.
+    await tester.tap(find.byKey(const ValueKey('settings-menu-store')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('settings-section-store')),
+      findsOneWidget,
+    );
     expect(find.text('QB Hardware & Construction Supplies'), findsOneWidget);
     expect(
       find.text('Editing store details is not available yet.'),

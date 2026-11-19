@@ -122,6 +122,23 @@ class ProductsRepository {
         );
       }
     }
+    // Opening stock last: the product and every way it is sold exist by now,
+    // so a refusal here is a partial create the caller must name.
+    if (draft.openingQty > 0) {
+      try {
+        await service.createOpeningStock(
+          variantId,
+          qty: draft.openingQty,
+          unitCost: draft.openingUnitCost,
+        );
+      } on ProductsServiceException catch (error) {
+        throw PartialCreateException(
+          created: created,
+          unit: 'opening stock',
+          message: error.message,
+        );
+      }
+    }
     return created;
   }
 

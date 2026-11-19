@@ -19,7 +19,12 @@ class CustomerRepository {
   Future<Customer> createCustomer({
     required String name,
     required CustomerType type,
-  }) => service.createCustomer(name: name, type: type);
+    String contactDetails = '',
+  }) => service.createCustomer(
+    name: name,
+    type: type,
+    contactDetails: contactDetails,
+  );
 
   Future<CustomerLedgerSummary> fetchLedgerSummary(int customerId) =>
       service.fetchLedgerSummary(customerId);

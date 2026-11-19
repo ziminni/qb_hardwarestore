@@ -13,7 +13,6 @@ import 'package:client/data/repositories/reports_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/reports_service.dart';
 import 'package:client/features/admin/viewmodels/admin_reports_viewmodel.dart';
-import 'package:client/features/admin/views/reports_page.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/sales/views/sales_reports_page.dart';
 import 'package:flutter/material.dart';
@@ -80,7 +79,7 @@ void main() {
       await _pump(
         tester,
         entry.$2,
-        ReportsPage(viewmodel: _viewmodel()),
+        SalesReportsPage(viewmodel: _viewmodel()),
         auth: _adminAuth(),
       );
       await _expectLater(tester, goldenDir, 'a5-sales-${entry.$1}.png');
@@ -91,7 +90,7 @@ void main() {
     await _pump(
       tester,
       const Size(760, 900),
-      ReportsPage(viewmodel: _viewmodel()),
+      SalesReportsPage(viewmodel: _viewmodel()),
       auth: _adminAuth(),
     );
     await tester.tap(
@@ -108,7 +107,7 @@ void main() {
     await _pump(
       tester,
       const Size(760, 900),
-      ReportsPage(viewmodel: _viewmodel()),
+      SalesReportsPage(viewmodel: _viewmodel()),
       auth: _adminAuth(),
     );
     await _openTab(tester, 'Valuation');
@@ -121,7 +120,7 @@ void main() {
     await _pump(
       tester,
       const Size(1100, 900),
-      ReportsPage(viewmodel: _viewmodel()),
+      SalesReportsPage(viewmodel: _viewmodel()),
       auth: _adminAuth(),
     );
     await _openTab(tester, 'Requisitions');
@@ -132,7 +131,7 @@ void main() {
     await _pump(
       tester,
       const Size(760, 900),
-      ReportsPage(viewmodel: _viewmodel(failSales: true)),
+      SalesReportsPage(viewmodel: _viewmodel(failSales: true)),
       auth: _adminAuth(),
     );
     expect(find.text('The sales summary could not be loaded.'), findsOneWidget);
@@ -143,7 +142,7 @@ void main() {
     await _pump(
       tester,
       const Size(760, 900),
-      ReportsPage(viewmodel: _viewmodel(emptySales: true)),
+      SalesReportsPage(viewmodel: _viewmodel(emptySales: true)),
       auth: _adminAuth(),
     );
     expect(find.text('No sales in this range.'), findsOneWidget);
@@ -166,7 +165,7 @@ void main() {
     await _pump(
       tester,
       const Size(760, 900),
-      ReportsPage(viewmodel: _viewmodel()),
+      SalesReportsPage(viewmodel: _viewmodel()),
       auth: _adminAuth(),
     );
     await tester.tap(find.byKey(const Key('reports-period')));

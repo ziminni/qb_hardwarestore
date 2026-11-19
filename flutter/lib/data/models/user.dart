@@ -14,6 +14,7 @@ class User {
     required this.role,
     this.roles,
     this.isActive = true,
+    this.avatarUrl = '',
   });
 
   final int id;
@@ -35,6 +36,9 @@ class User {
   /// access.
   final List<Role>? roles;
   final bool isActive;
+
+  /// The profile picture's URL, absolute or server-relative; empty when none.
+  final String avatarUrl;
 
   /// Every area the account holds, with the legacy single-role fallback.
   List<Role> get assignedRoles =>
@@ -60,6 +64,7 @@ class User {
       role: _roleFromJson(json['role']),
       roles: _rolesFromJson(json['roles']),
       isActive: json['is_active'] as bool? ?? true,
+      avatarUrl: json['avatar_url'] as String? ?? '',
     );
   }
 }

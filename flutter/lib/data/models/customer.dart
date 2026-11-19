@@ -51,6 +51,7 @@ class Customer {
     required this.name,
     required this.customerType,
     this.totalCreditLimit = 0,
+    this.contactDetails = '',
   });
 
   factory Customer.fromJson(Map<String, dynamic> json) => Customer(
@@ -62,7 +63,12 @@ class Customer {
     totalCreditLimit: json['total_credit_limit'] == null
         ? 0
         : decimalField(json, 'total_credit_limit'),
+    contactDetails: json['contact_details'] as String? ?? '',
   );
+
+  /// How to reach the customer: an utang's contact number (and address), as the
+  /// till recorded it (owner 2026-11-19). Empty for older records.
+  final String contactDetails;
 
   final int id;
   final String name;

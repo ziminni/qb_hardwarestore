@@ -406,4 +406,41 @@ void main() {
     expect(service.createCalls, 0);
     expect(viewmodel.createError, contains('Admin'));
   });
+
+  test('an admin cannot create another admin account or modify roles on their own admin account', () async {
+    expect(
+      AdminUsersViewmodel.creatableRoles().keys,
+      isNot(contains('admin')),
+    );
+
+    final createOk = await viewmodel.create(
+      username: 'secondadmin',
+      email: 'second@demo.ph',
+      fullName: 'Second Admin',
+      password: 'demo1234',
+      roleCodes: const ['admin'],
+      isAdminViewer: true,
+    );
+    expect(createOk, isFalse);
+    expect(service.createCalls, 0);
+    expect(viewmodel.createError, contains('cannot create another Admin'));
+
+    const ownAdmin = User(
+      id: 1,
+      username: 'admin',
+      email: 'admin@demo.ph',
+      fullName: 'Main Admin',
+      role: Role(id: 1, name: 'admin', displayName: 'Admin'),
+    );
+    final assignOk = await viewmodel.assignRoles(
+      ownAdmin,
+      roleCodes: const ['pos'],
+      isAdminViewer: true,
+      currentUserId: 1,
+      currentUsername: 'admin',
+    );
+    expect(assignOk, isFalse);
+    expect(service.assignCalls, 0);
+    expect(viewmodel.actionError, contains('own Admin account'));
+  });
 }

@@ -27,6 +27,7 @@ import 'package:client/features/inventory/views/inventory_settings_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import '../../support/offline_catalogue_lists.dart';
 
 const _storeName = 'QB Hardware & Construction Supplies';
 const _storeEmail = 'contact@qbhardware.com';
@@ -46,6 +47,7 @@ Widget _app(Widget page) => ChangeNotifierProvider<AuthViewmodel>(
 
 Widget _adminPage() => SettingsPage(
   viewmodel: StoreSettingsViewmodel(service: _StubSettingsService()),
+  catalogueLists: OfflineCatalogueLists(),
 );
 
 Future<void> _pump(WidgetTester tester, Widget page) async {
@@ -54,6 +56,12 @@ Future<void> _pump(WidgetTester tester, Widget page) async {
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   await tester.pumpWidget(_app(page));
+  await tester.pumpAndSettle();
+}
+
+/// Owner 2026-11-18: Settings has side tabs; the store card is its own section.
+Future<void> _openStore(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('settings-menu-store')));
   await tester.pumpAndSettle();
 }
 
@@ -71,8 +79,12 @@ void main() {
       tester,
     ) async {
       await _pump(tester, _adminPage());
+      await _openStore(tester);
 
-      expect(find.text('Store information'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('settings-section-store')),
+        findsOneWidget,
+      );
       expect(find.text(_storeName), findsOneWidget);
       expect(find.text(_storeEmail), findsOneWidget);
       expect(find.text(_storePhone), findsOneWidget);
@@ -93,6 +105,7 @@ void main() {
 
     testWidgets('no AdminMockData literal survives', (tester) async {
       await _pump(tester, _adminPage());
+      await _openStore(tester);
 
       // The sidebar brand legitimately renders the shop's trading name
       // (`SystemBrand`), so only the settings data is checked here.
@@ -111,7 +124,11 @@ void main() {
     ) async {
       await _pump(tester, const InventorySettingsPage());
 
-      expect(find.text('Store information'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('inventory-settings-section-store')),
+        findsOneWidget,
+      );
+      expect(find.text('Store information'), findsWidgets);
       // Same three literals as the admin card: one store, one name (D-03, D10).
       // `_fieldValues` would be empty here by design, so the values are read as
       // text rather than from fields that no longer exist.

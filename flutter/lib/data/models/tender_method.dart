@@ -33,7 +33,10 @@ enum TenderMethod {
   /// money arrives in an account, not the drawer), and offering it here would ask the
   /// cashier to record a tender they cannot verify. It stays in [values] because the
   /// server accepts it on a refund and a historical sale can carry it.
-  static const List<TenderMethod> tillTenders = [cash, card, gcash, cheque];
+  /// Card left the till on 2026-11-19 (owner): the dialog offers Utang in its
+  /// place, which is not a tender (see `PosUtang`). Card stays in [values] for
+  /// old sales and refunds.
+  static const List<TenderMethod> tillTenders = [cash, gcash, cheque];
 
   /// True for the one tender that is NOT money yet (Phase 4 B2, decision 18).
   ///

@@ -166,6 +166,47 @@ void main() {
   }
 
   group('createProductChain', () {
+    test('posts opening stock last, only when there is some', () async {
+      useAdapter({
+        '/api/v1/products/': {'id': 11},
+        '/api/v1/variants/': {'id': 22},
+        '/api/v1/variant-uoms/': {'id': 33},
+        '/api/v1/variants/22/opening-stock/': {'id': 22},
+      });
+
+      await repository.createProductChain(
+        const NewProductDraft(
+          categoryId: 4,
+          brandId: 2,
+          baseName: 'Gravel',
+          description: '',
+          imageUrl: '',
+          variantName: '3/4 inch',
+          sku: 'GRV-34',
+          baseUomId: 7,
+          minStockThreshold: 5,
+          maxStockLevel: 0,
+          sellingPrice: 1350,
+          openingQty: 40,
+          openingUnitCost: 950,
+        ),
+      );
+      expect(adapter.paths.last, '/api/v1/variants/22/opening-stock/');
+      expect(adapter.bodiesSent.last, {'qty': '40.00', 'unit_cost': '950.00'});
+      expect(adapter.bodiesSent[1]!['sku'], 'GRV-34');
+
+      useAdapter({
+        '/api/v1/products/': {'id': 11},
+        '/api/v1/variants/': {'id': 22},
+        '/api/v1/variant-uoms/': {'id': 33},
+      });
+      await repository.createProductChain(_draft());
+      expect(
+        adapter.paths.where((path) => path.contains('opening-stock')),
+        isEmpty,
+      );
+    });
+
     test(
       'posts product → variant → selling unit and threads the server ids',
       () async {
@@ -198,6 +239,7 @@ void main() {
         expect(adapter.bodiesSent[1], {
           'product': 11,
           'variant_name': '40kg',
+          'sku': '',
           'base_uom': 7,
           'min_stock_threshold': 5.0,
           'max_stock_level': 200.0,

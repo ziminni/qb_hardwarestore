@@ -1,12 +1,21 @@
-import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/navigation/app_destinations.dart';
+import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
+import 'package:client/core/theme/app_palette.dart';
 import 'package:client/data/models/store_settings.dart';
 import 'package:client/features/admin/viewmodels/store_settings_viewmodel.dart';
+import 'package:client/features/admin/viewmodels/catalogue_lists_viewmodel.dart';
+import 'package:client/features/admin/viewmodels/storage_locations_viewmodel.dart';
+import 'package:client/features/admin/views/storage_locations_page.dart';
+import 'package:client/features/admin/widgets/catalogue_lists_panel.dart';
+import 'package:client/features/admin/widgets/catalogue_masters_panel.dart';
+import 'package:client/features/admin/widgets/receipt_numbering_settings_panel.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
+import 'package:client/shared/widgets/system_settings_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -24,9 +33,87 @@ const _storeName = 'QB Hardware & Construction Supplies';
 const _storeEmail = 'contact@qbhardware.com';
 const _storePhone = '+63 912 345 6789';
 
-/// Where the columns stop growing on a wide window: label/value pairs read
+/// Where a section stops growing on a wide window: label/value pairs read
 /// better in a column than across 1200 px.
-const double _readingWidth = 640;
+const double _readingWidth = 720;
+
+/// Width of the side menu on a wide window.
+const double _menuWidth = 220;
+
+/// Below this the side menu becomes a row of tabs above the section.
+const double _sideMenuBreakpoint = 760;
+
+/// The sections of Settings, in side-menu order (owner 2026-11-18: side tabs on
+/// the left, like GitHub's settings).
+enum SettingsSection {
+  sales(
+    'Sales & tax',
+    Icons.receipt_long_outlined,
+    'VAT on receipts and the most a cashier may discount.',
+    'Store',
+  ),
+  store(
+    'Store information',
+    Icons.storefront_outlined,
+    'The name and contact details printed for this store.',
+    null,
+  ),
+  locations(
+    'Storage locations',
+    Icons.warehouse_outlined,
+    'Where the shop keeps goods, and the pick-up point the till prints. '
+        'Deactivate a place instead of deleting it; history keeps its name.',
+    null,
+  ),
+  documents(
+    'Receipts & numbering',
+    Icons.tag_rounded,
+    'Document series prefixes for official receipts, sales, deliveries, '
+        'purchase orders, and receipt print templates.',
+    null,
+  ),
+  categories(
+    'Categories',
+    Icons.category_outlined,
+    'Product categories every screen picks from. Archive to hide one from the '
+        'pickers and keep its history; delete only what was never used.',
+    'Catalogue',
+  ),
+  suppliers(
+    'Suppliers',
+    Icons.local_shipping_outlined,
+    'Suppliers purchase orders are raised to. Archive to hide one from the '
+        'pickers and keep its history; delete only what was never used.',
+    null,
+  ),
+  brands(
+    'Brands',
+    Icons.sell_outlined,
+    'Product brands shared across inventory, receiving, and POS product cards.',
+    null,
+  ),
+  units(
+    'Units (UOM)',
+    Icons.straighten_rounded,
+    'Standard measurement units (PC, BAG, SHEET, KG, M) and whole-unit rules.',
+    null,
+  ),
+  system(
+    'System settings',
+    Icons.palette_outlined,
+    'Customize the theme, accent palette, sidebar finish, and display comfort '
+        'for this device.',
+    'System',
+  );
+
+  const SettingsSection(this.label, this.icon, this.description, this.group);
+  final String label;
+  final IconData icon;
+  final String description;
+
+  /// The heading this section starts, if it starts one.
+  final String? group;
+}
 
 /// The admin Settings screen: the store's VAT and discount rules (server-owned)
 /// above the store's contact details (constants).
@@ -36,12 +123,32 @@ const double _readingWidth = 640;
 /// is what the banner shows. A non-admin who reaches this page reads the values
 /// and gets no fields and no Save.
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key, this.viewmodel});
+  const SettingsPage({
+    super.key,
+    this.viewmodel,
+    this.catalogueLists,
+    this.catalogueMasters,
+    this.storageLocations,
+    this.initialSection = SettingsSection.sales,
+  });
+
+  /// The storage-locations tab's data, injected by tests.
+  final StorageLocationsViewmodel? storageLocations;
+
+  /// The brands & units tabs' data, injected by tests.
+  final CatalogueMastersViewmodel? catalogueMasters;
+
+  /// The section open when the page opens.
+  final SettingsSection initialSection;
 
   /// Injected by tests so the load and save paths run without a server.
   /// Production reads the app-scoped instance registered in `main.dart`, which
   /// is also what the till reads (Phase 4 F4).
   final StoreSettingsViewmodel? viewmodel;
+
+  /// The categories & suppliers panel's data, injected by tests (it reads the
+  /// server otherwise).
+  final CatalogueListsViewmodel? catalogueLists;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -56,6 +163,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _vatRate = TextEditingController();
   final TextEditingController _discountCap = TextEditingController();
   bool _vatRegistered = StoreSettings.defaults.vatRegistered;
+  late SettingsSection _section = widget.initialSection;
 
   @override
   void initState() {
@@ -110,31 +218,116 @@ class _SettingsPageState extends State<SettingsPage> {
       title: 'Settings',
       subtitle: 'Store details this system keeps.',
       // 6, not 7: Requisitions left the sidebar (decision 01).
-      selectedNavigationIndex: 6,
+      selectedNavigationIndex: AppDestinations.indexOf(
+        'admin.settings',
+        AppAreas.admin,
+      ),
       child: LayoutBuilder(
-        builder: (context, slot) => Align(
-          alignment: Alignment.topLeft,
-          child: SizedBox(
-            width: slot.maxWidth < _readingWidth
-                ? double.infinity
-                : _readingWidth,
-            child: ListenableBuilder(
-              listenable: _settings,
-              builder: (context, _) => Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  AppPanel(
-                    title: 'Sales settings',
-                    child: isAdmin ? _form(context) : _readOnly(context),
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  const _StoreInformationCard(),
-                ],
+        builder: (context, slot) {
+          final wide = slot.maxWidth >= _sideMenuBreakpoint;
+          final menu = _SettingsMenu(
+            selected: _section,
+            vertical: wide,
+            onSelect: (section) => setState(() => _section = section),
+          );
+          final body = ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: _readingWidth),
+            child: _sectionBody(context, isAdmin),
+          );
+          if (!wide) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                menu,
+                const SizedBox(height: AppSpacing.lg),
+                body,
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(width: _menuWidth, child: menu),
+              const SizedBox(width: AppSpacing.xl),
+              Expanded(
+                child: Align(alignment: Alignment.topLeft, child: body),
               ),
-            ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// The open section: its heading, a rule, then its content.
+  Widget _sectionBody(BuildContext context, bool isAdmin) {
+    final p = AppPalette.of(context);
+    final section = _section;
+    final content = switch (section) {
+      SettingsSection.sales => ListenableBuilder(
+        listenable: _settings,
+        builder: (context, _) =>
+            AppPanel(child: isAdmin ? _form(context) : _readOnly(context)),
+      ),
+      SettingsSection.store => const _StoreInformationCard(),
+      // Owner 2026-11-18: moved here from its own sidebar row.
+      SettingsSection.locations => StorageLocationsPanel(
+        key: const ValueKey('settings-storage-locations'),
+        viewmodel: widget.storageLocations,
+      ),
+      SettingsSection.documents => ReceiptNumberingSettingsPanel(
+        key: const ValueKey('settings-documents'),
+        canEdit: isAdmin,
+      ),
+      // Owner 2026-11-18: the shop-wide categories and suppliers every other
+      // screen picks from.
+      SettingsSection.categories => CatalogueListsPanel(
+        key: const ValueKey('settings-categories'),
+        only: CatalogueList.categories,
+        canDelete: isAdmin,
+        viewmodel: widget.catalogueLists,
+      ),
+      SettingsSection.suppliers => CatalogueListsPanel(
+        key: const ValueKey('settings-suppliers'),
+        only: CatalogueList.suppliers,
+        canDelete: isAdmin,
+        viewmodel: widget.catalogueLists,
+      ),
+      SettingsSection.brands => CatalogueMastersPanel(
+        key: const ValueKey('settings-brands'),
+        kind: CatalogueMasterKind.brands,
+        canEdit: isAdmin,
+        viewmodel: widget.catalogueMasters,
+      ),
+      SettingsSection.units => CatalogueMastersPanel(
+        key: const ValueKey('settings-units'),
+        kind: CatalogueMasterKind.units,
+        canEdit: isAdmin,
+        viewmodel: widget.catalogueMasters,
+      ),
+      SettingsSection.system => const SystemSettingsPanel(
+        key: ValueKey('settings-system'),
+      ),
+    };
+    return Column(
+      key: ValueKey('settings-section-${section.name}'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          section.label,
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w600,
+            color: p.textPrimary,
           ),
         ),
-      ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(section.description, style: TextStyle(color: p.textSecondary)),
+        const SizedBox(height: AppSpacing.md),
+        const Divider(height: 1),
+        const SizedBox(height: AppSpacing.lg),
+        content,
+      ],
     );
   }
 
@@ -163,14 +356,20 @@ class _SettingsPageState extends State<SettingsPage> {
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    Text('VAT registered', style: TextStyle(fontSize: 15)),
-                    SizedBox(height: 2),
+                  children: [
+                    Text(
+                      'VAT registered',
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: AppPalette.of(context).textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
                     Text(
                       'Break out VAT on receipts and reports.',
                       style: TextStyle(
                         fontSize: 12,
-                        color: AppColors.textSecondary,
+                        color: AppPalette.of(context).textSecondary,
                       ),
                     ),
                   ],
@@ -293,7 +492,6 @@ class _StoreInformationCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppPanel(
-      title: 'Store information',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -306,9 +504,12 @@ class _StoreInformationCard extends StatelessWidget {
           // Read-only on purpose: a field the admin could type in, or a Save
           // button with nothing behind it, would promise an editing path the
           // system does not have.
-          const Text(
+          Text(
             'Editing store details is not available yet.',
-            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            style: TextStyle(
+              fontSize: 12,
+              color: AppPalette.of(context).textSecondary,
+            ),
           ),
         ],
       ),
@@ -326,23 +527,157 @@ class _Field extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,
-            color: AppColors.textSecondary,
+            color: p.textSecondary,
           ),
         ),
         const SizedBox(height: AppSpacing.xs),
-        Text(
-          value,
-          style: const TextStyle(fontSize: 15, color: AppColors.textPrimary),
-        ),
+        Text(value, style: TextStyle(fontSize: 15, color: p.textPrimary)),
       ],
+    );
+  }
+}
+
+/// GitHub-style settings menu: grouped items on the left, the open one marked
+/// with an accent bar. On a narrow window it is one scrolling row of tabs.
+class _SettingsMenu extends StatelessWidget {
+  const _SettingsMenu({
+    required this.selected,
+    required this.vertical,
+    required this.onSelect,
+  });
+
+  final SettingsSection selected;
+  final bool vertical;
+  final ValueChanged<SettingsSection> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    final items = [
+      for (final section in SettingsSection.values)
+        _SettingsMenuItem(
+          section: section,
+          selected: section == selected,
+          onTap: () => onSelect(section),
+        ),
+    ];
+    if (!vertical) {
+      return SingleChildScrollView(
+        key: const ValueKey('settings-menu'),
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (final item in items) ...[
+              item,
+              const SizedBox(width: AppSpacing.xs),
+            ],
+          ],
+        ),
+      );
+    }
+    return Column(
+      key: const ValueKey('settings-menu'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final (index, section) in SettingsSection.values.indexed) ...[
+          if (section.group != null) ...[
+            if (index > 0) ...[
+              const SizedBox(height: AppSpacing.md),
+              const Divider(height: 1),
+              const SizedBox(height: AppSpacing.md),
+            ],
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.md,
+                0,
+                AppSpacing.md,
+                AppSpacing.xs,
+              ),
+              child: Text(
+                section.group!,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: p.textSecondary,
+                ),
+              ),
+            ),
+          ],
+          items[index],
+          const SizedBox(height: 2),
+        ],
+      ],
+    );
+  }
+}
+
+class _SettingsMenuItem extends StatelessWidget {
+  const _SettingsMenuItem({
+    required this.section,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final SettingsSection section;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    return Material(
+      key: ValueKey('settings-menu-${section.name}'),
+      color: selected ? p.selected : Colors.transparent,
+      borderRadius: BorderRadius.circular(6),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Semantics(
+          selected: selected,
+          button: true,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // The open item's marker, like GitHub's left bar.
+              Container(
+                width: 3,
+                height: 36,
+                color: selected ? p.accent : Colors.transparent,
+              ),
+              const SizedBox(width: AppSpacing.md - 3),
+              Icon(
+                section.icon,
+                size: 18,
+                color: selected ? p.textPrimary : p.textSecondary,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              // Not Flexible: the narrow menu is a sideways-scrolling row,
+              // where a flex child has no width to share.
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 160),
+                child: Text(
+                  section.label,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    color: selected ? p.textPrimary : p.textSecondary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

@@ -1,14 +1,20 @@
+import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
+import 'package:client/core/navigation/app_destinations.dart';
+import 'package:client/core/theme/app_palette.dart';
 import 'package:client/data/models/user.dart';
 import 'package:client/features/admin/viewmodels/admin_users_viewmodel.dart';
 import 'package:client/features/admin/widgets/admin_user_action_button.dart';
 import 'package:client/features/admin/widgets/admin_user_table.dart';
+import 'package:client/features/admin/widgets/roles_permissions_dialog.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/gestures.dart';
@@ -126,7 +132,10 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
           return AdminSkeletonLayout(
             title: 'User Management',
             subtitle: subtitle,
-            selectedNavigationIndex: 1,
+            selectedNavigationIndex: AppDestinations.indexOf(
+              'staff',
+              AppAreas.admin,
+            ),
             scrollable: false,
             child: content,
           );
@@ -140,6 +149,8 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
     AdminUsersViewmodel viewmodel, {
     required bool isAdmin,
   }) {
+    final p = AppPalette.of(context);
+    final currentUser = context.watch<AuthViewmodel>().user;
     final stats = viewmodel.stats;
     // A FIRST read that failed is one banner: the rows below it would be an
     // empty panel, and a zero summary would claim the store has no staff.
@@ -159,62 +170,217 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: AppSpacing.md,
+            runSpacing: AppSpacing.sm,
             children: [
-              // The summary line the four metric cards became. Absent until the
-              // server has answered, so a failed first load never shows a zero.
-              Expanded(
-                child: stats == null
-                    ? const SizedBox.shrink()
-                    : Text(
-                        _summary(stats),
-                        style: const TextStyle(fontSize: 14, height: 1.4),
+              // The summary strip: absent until the server has answered, so a
+              // failed first load never claims the store has zero staff.
+              if (stats != null)
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.xs,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
                       ),
+                      decoration: BoxDecoration(
+                        color: p.cardBackground,
+                        borderRadius: BorderRadius.circular(AppRadii.medium),
+                        border: Border.all(color: p.border),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: p.selected,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Icon(
+                              Icons.groups_2_outlined,
+                              size: 14,
+                              color: p.accentInk,
+                            ),
+                          ),
+                          const SizedBox(width: 9),
+                          Flexible(
+                            child: Text(
+                              _summary(stats),
+                              style: TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
+                                color: p.textPrimary,
+                                height: 1.35,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (filtersHideRows)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: p.selected,
+                          borderRadius: BorderRadius.circular(AppRadii.pill),
+                          border: Border.all(
+                            color: p.accent.withValues(alpha: 0.45),
+                          ),
+                        ),
+                        child: Text(
+                          'Showing ${formatCount(rows.length)} of '
+                          '${formatCount(stats.total)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: p.accentInk,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ),
+                  ],
+                )
+              else
+                const SizedBox.shrink(),
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: [
+                  // FX5: beside the summary, so a reader who wonders where the
+                  // other accounts went has one obvious way back.
+                  if (filtersHideRows)
+                    TextButton.icon(
+                      onPressed: () => _clearFilters(viewmodel),
+                      style: TextButton.styleFrom(
+                        foregroundColor: p.accentInk,
+                        backgroundColor: p.selected,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        minimumSize: const Size(0, 42),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppRadii.medium),
+                          side: BorderSide(
+                            color: p.accent.withValues(alpha: 0.45),
+                          ),
+                        ),
+                        textStyle: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      icon: const Icon(
+                        Icons.filter_alt_off_outlined,
+                        size: 16,
+                      ),
+                      label: const Text('Clear filters'),
+                    ),
+                  SizedBox(
+                    width: 42,
+                    height: 42,
+                    child: IconButton(
+                      key: const ValueKey('user-management-roles-help'),
+                      tooltip: 'Roles & permissions guide',
+                      onPressed: () => showRolesPermissionsDialog(context),
+                      style: IconButton.styleFrom(
+                        backgroundColor: p.cardBackground,
+                        foregroundColor: p.accentInk,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppRadii.medium),
+                          side: BorderSide(color: p.border),
+                        ),
+                      ),
+                      icon: const Icon(Icons.help_outline_rounded, size: 19),
+                    ),
+                  ),
+                  if (!firstLoadFailed)
+                    SizedBox(
+                      width: 42,
+                      height: 42,
+                      child: IconButton(
+                        tooltip: 'Refresh staff list',
+                        onPressed: viewmodel.isLoading ? null : viewmodel.load,
+                        style: IconButton.styleFrom(
+                          backgroundColor: p.cardBackground,
+                          foregroundColor: p.textPrimary,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              AppRadii.medium,
+                            ),
+                            side: BorderSide(color: p.border),
+                          ),
+                        ),
+                        icon: const Icon(Icons.refresh_rounded, size: 19),
+                      ),
+                    ),
+                  // Creation stays Admin-only server-side (`register_view` is
+                  // `IsAdminRole`), so non-admins are not offered it.
+                  if (isAdmin)
+                    AdminUserActionButton(
+                      label: 'Create account',
+                      icon: Icons.person_add_outlined,
+                      onPressed: () => _openCreateDialog(
+                        context,
+                        viewmodel,
+                        isAdmin: isAdmin,
+                      ),
+                    ),
+                ],
               ),
-              // FX5: beside the summary, so a reader who wonders where the other
-              // accounts went has the way back in the same line as the count.
-              if (filtersHideRows)
-                TextButton(
-                  onPressed: () => _clearFilters(viewmodel),
-                  child: const Text('Clear filters'),
-                ),
-              // Creation stays Admin-only server-side (`register_view` is
-              // `IsAdminRole`), so non-admins are not offered it.
-              if (isAdmin)
-                AdminUserActionButton(
-                  label: 'Create account',
-                  icon: Icons.person_add_outlined,
-                  onPressed: () =>
-                      _openCreateDialog(context, viewmodel, isAdmin: isAdmin),
-                ),
             ],
           ),
-          const SizedBox(height: AppSpacing.lg),
+          const SizedBox(height: AppSpacing.md),
           if (firstLoadFailed)
             ErrorBanner(message: viewmodel.loadError!, onRetry: viewmodel.load)
           else ...[
-            FilterBar(
-              searchController: _searchController,
-              searchHint: 'Search name, username, or email',
-              onSearchChanged: (value) => setState(() => _query = value),
-              // Only the roles the loaded rows actually carry, plus "No role":
-              // filtering to a group nobody has would be an empty promise.
-              options: [_anyRole, ...viewmodel.availableRoles],
-              selected: viewmodel.roleFilter ?? _anyRole,
-              onSelected: (chip) =>
-                  viewmodel.setRoleFilter(chip == _anyRole ? null : chip),
-              extraOptions: const [_anyStatus, 'Active', 'Inactive'],
-              extraSelected: switch (viewmodel.activeFilter) {
-                true => 'Active',
-                false => 'Inactive',
-                null => _anyStatus,
-              },
-              onExtraSelected: (chip) =>
-                  viewmodel.setActiveFilter(switch (chip) {
-                    'Active' => true,
-                    'Inactive' => false,
-                    _ => null,
-                  }),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: p.cardBackground,
+                borderRadius: BorderRadius.circular(AppRadii.large),
+                border: Border.all(color: p.border),
+              ),
+              child: FilterBar(
+                searchController: _searchController,
+                searchHint: 'Search name, username, or email',
+                onSearchChanged: (value) => setState(() => _query = value),
+                // Only the roles the loaded rows actually carry, plus "No role":
+                // filtering to a group nobody has would be an empty promise.
+                optionsLabel: 'Role',
+                options: [_anyRole, ...viewmodel.availableRoles],
+                selected: viewmodel.roleFilter ?? _anyRole,
+                onSelected: (chip) =>
+                    viewmodel.setRoleFilter(chip == _anyRole ? null : chip),
+                extraOptionsLabel: 'Status',
+                extraOptions: const [_anyStatus, 'Active', 'Inactive'],
+                extraSelected: switch (viewmodel.activeFilter) {
+                  true => 'Active',
+                  false => 'Inactive',
+                  null => _anyStatus,
+                },
+                onExtraSelected: (chip) =>
+                    viewmodel.setActiveFilter(switch (chip) {
+                      'Active' => true,
+                      'Inactive' => false,
+                      _ => null,
+                    }),
+              ),
             ),
             const SizedBox(height: AppSpacing.md),
             // A refused write (403 USER_ADMIN_FORBIDDEN, 400 LAST_ADMIN) names
@@ -243,6 +409,8 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
                 // server refuses a non-admin's write on an admin account with
                 // 403 USER_ADMIN_FORBIDDEN, so the actions are not offered there.
                 isAdminViewer: isAdmin,
+                currentUserId: currentUser?.id,
+                currentUsername: currentUser?.username,
                 emptyMessage: filtered
                     ? 'No accounts match these filters.'
                     : 'No staff accounts yet.',
@@ -250,8 +418,13 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
                 isLoading: viewmodel.isLoading && !viewmodel.hasLoaded,
                 onToggleActive: (user) =>
                     _openToggleDialog(context, viewmodel, user),
-                onChangeRole: (user) =>
-                    _openRoleDialog(context, viewmodel, user, isAdmin: isAdmin),
+                onChangeRole: (user) => _openRoleDialog(
+                  context,
+                  viewmodel,
+                  user,
+                  isAdmin: isAdmin,
+                  currentUser: currentUser,
+                ),
               ),
             ),
           ],
@@ -318,28 +491,92 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
     final verb = user.isActive ? 'Deactivate' : 'Reactivate';
     return showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('$verb ${user.fullName}?'),
-        content: Text(
-          user.isActive
-              ? '${user.username} signs out on their next refresh. '
-                    'Their history stays; the account is never deleted.'
-              : '${user.username} can sign in again.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+      builder: (dialogContext) {
+        final p = AppPalette.of(dialogContext);
+        final isDeactivate = user.isActive;
+        final calloutBg = isDeactivate
+            ? (p.isDark
+                  ? AppColors.error.withValues(alpha: 0.14)
+                  : AppColors.errorTint)
+            : (p.isDark
+                  ? AppColors.success.withValues(alpha: 0.14)
+                  : AppColors.successTint);
+        final calloutInk = isDeactivate
+            ? (p.isDark ? const Color(0xFFFCA5A5) : AppColors.errorText)
+            : (p.isDark ? const Color(0xFF86EFAC) : AppColors.successText);
+        final actionFill = isDeactivate ? AppColors.error : AppColors.success;
+
+        return AppDialog(
+          icon: isDeactivate
+              ? Icons.person_off_outlined
+              : Icons.how_to_reg_outlined,
+          title: '$verb ${user.fullName}?',
+          subtitle: '${user.username} · ${user.email}',
+          width: 460,
+          content: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: calloutBg,
+              borderRadius: BorderRadius.circular(AppRadii.medium),
+              border: Border.all(color: actionFill.withValues(alpha: 0.28)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  isDeactivate
+                      ? Icons.info_outline_rounded
+                      : Icons.check_circle_outline_rounded,
+                  size: 18,
+                  color: calloutInk,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    isDeactivate
+                        ? '${user.username} signs out on their next refresh. '
+                              'Their history stays; the account is never deleted.'
+                        : '${user.username} can sign in again.',
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      height: 1.45,
+                      color: calloutInk,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-          TextButton(
-            onPressed: () async {
-              Navigator.of(dialogContext).pop();
-              await viewmodel.setActive(user, isActive: !user.isActive);
-            },
-            child: Text(verb),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(dialogContext).pop();
+                await viewmodel.setActive(user, isActive: !user.isActive);
+              },
+              style: TextButton.styleFrom(
+                backgroundColor: actionFill,
+                foregroundColor: AppColors.brandWhite,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 11,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadii.medium),
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              child: Text(verb),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -352,7 +589,15 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
     AdminUsersViewmodel viewmodel,
     User user, {
     required bool isAdmin,
-  }) {
+    User? currentUser,
+  }) async {
+    if (AdminUserTable.isOwnAdminAccount(
+      user: user,
+      currentUserId: currentUser?.id,
+      currentUsername: currentUser?.username,
+    )) {
+      return;
+    }
     final roles = AdminUsersViewmodel.assignableRoles(isAdmin: isAdmin);
     return showDialog<void>(
       context: context,
@@ -361,6 +606,8 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
         user: user,
         roles: roles,
         isAdminViewer: isAdmin,
+        currentUserId: currentUser?.id,
+        currentUsername: currentUser?.username,
       ),
     );
   }
@@ -383,6 +630,7 @@ class _RoleChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return Wrap(
       spacing: AppSpacing.sm,
       runSpacing: AppSpacing.sm,
@@ -391,25 +639,18 @@ class _RoleChips extends StatelessWidget {
           FilterChip(
             label: Text(entry.value),
             selected: selected.contains(entry.key),
-            // The house FilterBar chip, in the same words `chipTheme` cannot
-            // say: a Material chip paints its label with `labelStyle` whether
-            // or not it is selected (Flutter 3.47), so the theme's black
-            // `selectedColor` gave a black pill with a black-on-black label.
-            // Gold tint, dark gold ink, and the fill/border the bar uses.
-            backgroundColor: AppColors.cardBackground,
-            selectedColor: AppColors.selected,
-            checkmarkColor: AppColors.brandGoldText,
+            // Keep explicit palette ink/fill so light and dark selected pills
+            // always stay >= 4.5:1 WCAG AA contrast.
+            backgroundColor: p.cardBackground,
+            selectedColor: p.selected,
+            checkmarkColor: p.accentInk,
             side: BorderSide(
-              color: selected.contains(entry.key)
-                  ? AppColors.brandGold
-                  : AppColors.border,
+              color: selected.contains(entry.key) ? p.accent : p.border,
             ),
             labelStyle: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: selected.contains(entry.key)
-                  ? AppColors.brandGoldText
-                  : AppColors.textPrimary,
+              color: selected.contains(entry.key) ? p.accentInk : p.textPrimary,
             ),
             onSelected: (on) {
               final next = {...selected};
@@ -435,12 +676,16 @@ class _ChangeRoleDialog extends StatefulWidget {
     required this.user,
     required this.roles,
     required this.isAdminViewer,
+    this.currentUserId,
+    this.currentUsername,
   });
 
   final AdminUsersViewmodel viewmodel;
   final User user;
   final Map<String, String> roles;
   final bool isAdminViewer;
+  final int? currentUserId;
+  final String? currentUsername;
 
   @override
   State<_ChangeRoleDialog> createState() => _ChangeRoleDialogState();
@@ -464,34 +709,51 @@ class _ChangeRoleDialogState extends State<_ChangeRoleDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     final canSave = _selected.isNotEmpty && !_saving;
-    return AlertDialog(
-      title: Text('Change roles for ${widget.user.fullName}?'),
-      content: SizedBox(
-        width: 360,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Roles replace what the account has now. A role left out is '
-              'removed.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+    final saveBg = p.isDark ? p.accent : AppColors.brandBlack;
+    final saveFg = p.isDark ? p.onAccent : AppColors.brandWhite;
+
+    return AppDialog(
+      icon: Icons.manage_accounts_outlined,
+      title: 'Change roles for ${widget.user.fullName}?',
+      subtitle: '${widget.user.username} · ${widget.user.email}',
+      width: 480,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Roles replace what the account has now. A role left out is '
+            'removed.',
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.45,
+              color: p.textSecondary,
             ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          const DialogSectionLabel('Main role'),
+          _RoleChips(
+            roles: widget.roles,
+            selected: _selected,
+            onChanged: (next) => setState(() => _selected = next),
+          ),
+          if (_selected.isEmpty) ...[
             const SizedBox(height: AppSpacing.md),
-            _RoleChips(
-              roles: widget.roles,
-              selected: _selected,
-              onChanged: (next) => setState(() => _selected = next),
+            Text(
+              'Choose at least one role.',
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: p.isDark ? const Color(0xFFFCA5A5) : AppColors.errorText,
+              ),
             ),
-            if (_selected.isEmpty) ...[
-              const SizedBox(height: AppSpacing.sm),
-              const Text('Choose at least one role.'),
-            ],
           ],
-        ),
+          const SizedBox(height: AppSpacing.lg),
+          const DialogSectionLabel('Permissions'),
+          _RolePermissionsPreview(roleCodes: _selected),
+        ],
       ),
       actions: [
         TextButton(
@@ -507,6 +769,8 @@ class _ChangeRoleDialogState extends State<_ChangeRoleDialog> {
                     widget.user,
                     roleCodes: _selected.toList(),
                     isAdminViewer: widget.isAdminViewer,
+                    currentUserId: widget.currentUserId,
+                    currentUsername: widget.currentUsername,
                   );
                   if (!context.mounted) return;
                   Navigator.of(context).pop();
@@ -521,6 +785,18 @@ class _ChangeRoleDialogState extends State<_ChangeRoleDialog> {
                     );
                   }
                 },
+          style: TextButton.styleFrom(
+            backgroundColor: canSave ? saveBg : p.surfaceSunken,
+            foregroundColor: canSave ? saveFg : p.textSecondary,
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadii.medium),
+            ),
+            textStyle: const TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           child: const Text('Save roles'),
         ),
       ],
@@ -552,19 +828,22 @@ class _CreateAccountDialog extends StatefulWidget {
 
 class _CreateAccountDialogState extends State<_CreateAccountDialog> {
   final _username = TextEditingController();
-  final _email = TextEditingController();
   final _fullName = TextEditingController();
+  final _email = TextEditingController();
   final _password = TextEditingController();
+  final _contactNumber = TextEditingController();
   Set<String> _roleCodes = const {'pos'};
+  bool _obscurePassword = true;
   String? _error;
   bool _saving = false;
 
   @override
   void dispose() {
     _username.dispose();
-    _email.dispose();
     _fullName.dispose();
+    _email.dispose();
     _password.dispose();
+    _contactNumber.dispose();
     super.dispose();
   }
 
@@ -597,70 +876,159 @@ class _CreateAccountDialogState extends State<_CreateAccountDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     // Two columns only on a window wide enough to read them side by side; a
     // 760 px window gets the single stack, where each field is full width.
     final wide = MediaQuery.sizeOf(context).width >= 800;
     final error = _error;
-    final identity = <Widget>[
-      TextField(
-        controller: _username,
-        decoration: const InputDecoration(labelText: 'Username'),
-      ),
-      TextField(
-        controller: _email,
-        decoration: const InputDecoration(labelText: 'Email'),
-      ),
-      TextField(
-        controller: _fullName,
-        decoration: const InputDecoration(labelText: 'Full name'),
-      ),
-      TextField(
-        controller: _password,
-        decoration: const InputDecoration(labelText: 'Password'),
-        obscureText: true,
-      ),
-      // Multi-select: an account may hold several areas (Phase 4 F3b). The
-      // chips are keyed by code, so the label on screen and the code on the
-      // wire cannot drift apart.
-      _RoleChips(
-        roles: AdminUsersViewmodel.assignableRoles(
-          isAdmin: widget.isAdminViewer,
-        ),
-        selected: _roleCodes,
-        onChanged: (next) => setState(() => _roleCodes = next),
-      ),
-    ];
 
-    return AlertDialog(
-      title: const Text('Create account'),
-      content: SizedBox(
-        width: wide ? 520 : 360,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (error != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(error, style: const TextStyle(color: Colors.red)),
-                ),
-              // Two fields per column on a wide window, one stack on a narrow
-              // one: same fields, same order, only the arrangement changes.
-              if (wide)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: _stack(identity.sublist(0, 3))),
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(child: _stack(identity.sublist(3))),
-                  ],
-                )
-              else
-                _stack(identity),
-            ],
+    final usernameField = TextField(
+      controller: _username,
+      decoration: const InputDecoration(
+        labelText: 'Username',
+        prefixIcon: Icon(Icons.person_outline_rounded, size: 18),
+      ),
+    );
+    final fullNameField = TextField(
+      controller: _fullName,
+      decoration: const InputDecoration(
+        labelText: 'Full name',
+        prefixIcon: Icon(Icons.badge_outlined, size: 18),
+      ),
+    );
+    final emailField = TextField(
+      controller: _email,
+      keyboardType: TextInputType.emailAddress,
+      decoration: const InputDecoration(
+        labelText: 'Email',
+        prefixIcon: Icon(Icons.alternate_email_rounded, size: 18),
+      ),
+    );
+    final passwordField = TextField(
+      controller: _password,
+      obscureText: _obscurePassword,
+      decoration: InputDecoration(
+        labelText: 'Password',
+        helperText: 'At least 8 characters',
+        prefixIcon: const Icon(Icons.lock_outline_rounded, size: 18),
+        suffixIcon: IconButton(
+          tooltip: _obscurePassword ? 'Show password' : 'Hide password',
+          onPressed: () =>
+              setState(() => _obscurePassword = !_obscurePassword),
+          icon: Icon(
+            _obscurePassword
+                ? Icons.visibility_outlined
+                : Icons.visibility_off_outlined,
+            size: 18,
           ),
         ),
+      ),
+    );
+    final contactField = TextField(
+      controller: _contactNumber,
+      keyboardType: TextInputType.phone,
+      decoration: const InputDecoration(
+        labelText: 'Contact number',
+        hintText: 'e.g. +63 912 345 6789',
+        helperText: 'Optional',
+        prefixIcon: Icon(Icons.phone_outlined, size: 18),
+      ),
+    );
+
+    return AppDialog(
+      icon: Icons.person_add_outlined,
+      title: 'Create account',
+      subtitle: 'Set up login credentials, main role, and module permissions.',
+      width: wide ? 600 : 420,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (error != null) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: p.isDark
+                    ? AppColors.error.withValues(alpha: 0.14)
+                    : AppColors.errorTint,
+                borderRadius: BorderRadius.circular(AppRadii.medium),
+                border: Border.all(
+                  color: AppColors.error.withValues(alpha: 0.3),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.error_outline_rounded,
+                    size: 17,
+                    color: p.isDark
+                        ? const Color(0xFFFCA5A5)
+                        : AppColors.errorText,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      error,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: p.isDark
+                            ? const Color(0xFFFCA5A5)
+                            : AppColors.errorText,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
+          const DialogSectionLabel('Account details'),
+          if (wide) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: usernameField),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(child: fullNameField),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: emailField),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(child: passwordField),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            contactField,
+          ] else
+            _stack([
+              usernameField,
+              fullNameField,
+              emailField,
+              passwordField,
+              contactField,
+            ]),
+          const SizedBox(height: AppSpacing.lg),
+          const DialogSectionLabel('Main role'),
+          Text(
+            'Select the primary role for this account (you can combine roles '
+            'if this staff member covers more than one area).',
+            style: TextStyle(fontSize: 12.5, color: p.textSecondary),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _RoleChips(
+            roles: AdminUsersViewmodel.creatableRoles(),
+            selected: _roleCodes,
+            onChanged: (next) => setState(() => _roleCodes = next),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          const DialogSectionLabel('Permissions'),
+          _RolePermissionsPreview(roleCodes: _roleCodes),
+        ],
       ),
       actions: [
         TextButton(
@@ -686,9 +1054,186 @@ class _CreateAccountDialogState extends State<_CreateAccountDialog> {
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       for (var i = 0; i < fields.length; i++) ...[
-        if (i > 0) const SizedBox(height: AppSpacing.sm),
+        if (i > 0) const SizedBox(height: AppSpacing.md),
         fields[i],
       ],
     ],
   );
+}
+
+class _ModulePermission {
+  const _ModulePermission({
+    required this.module,
+    required this.icon,
+    required this.summary,
+  });
+
+  final String module;
+  final IconData icon;
+  final String summary;
+}
+
+/// Live preview of the modules unlocked by the selected main role(s).
+class _RolePermissionsPreview extends StatelessWidget {
+  const _RolePermissionsPreview({required this.roleCodes});
+
+  final Set<String> roleCodes;
+
+  static const Map<String, List<_ModulePermission>> _modulesByRole = {
+    'pos': [
+      _ModulePermission(
+        module: 'POS & Till',
+        icon: Icons.point_of_sale_outlined,
+        summary: 'New transaction, history, held carts, shifts, returns, printer',
+      ),
+      _ModulePermission(
+        module: 'Customer Release & Payments',
+        icon: Icons.payments_outlined,
+        summary: 'Release materials and record customer payments',
+      ),
+    ],
+    'sales': [
+      _ModulePermission(
+        module: 'Sales & Quotations',
+        icon: Icons.request_quote_outlined,
+        summary: 'Transactions, quotations, sales orders, returns & reports',
+      ),
+      _ModulePermission(
+        module: 'Projects & Receivables',
+        icon: Icons.assignment_outlined,
+        summary: 'Project requests review, receivables & cheque queue',
+      ),
+      _ModulePermission(
+        module: 'Store Operations & Staff',
+        icon: Icons.storefront_outlined,
+        summary: 'Payables, deliveries, transfers & non-admin staff roles',
+      ),
+    ],
+    'inventory': [
+      _ModulePermission(
+        module: 'Inventory & Stock Control',
+        icon: Icons.inventory_2_outlined,
+        summary: 'Products, categories, stock on hand, low stock & adjustments',
+      ),
+      _ModulePermission(
+        module: 'Purchasing & Logistics',
+        icon: Icons.local_shipping_outlined,
+        summary: 'Suppliers, purchase orders, receiving, payables & transfers',
+      ),
+      _ModulePermission(
+        module: 'Catalogue Files & Labels',
+        icon: Icons.import_export_rounded,
+        summary: 'Excel import/export, barcode lists & product labels',
+      ),
+    ],
+    'bodega': [
+      _ModulePermission(
+        module: 'Bodega Operations',
+        icon: Icons.qr_code_scanner_rounded,
+        summary: 'Scan pick-ups, verify deliveries, read-only Bodega stock',
+      ),
+    ],
+    'admin': [
+      _ModulePermission(
+        module: 'Shop Overview Dashboards',
+        icon: Icons.dashboard_outlined,
+        summary: 'Read-only System, Sales, Inventory, Bodega & Finance views',
+      ),
+      _ModulePermission(
+        module: 'Governance & System',
+        icon: Icons.admin_panel_settings_outlined,
+        summary: 'User accounts, store settings, audit logs, backups & security',
+      ),
+    ],
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    final modules = <_ModulePermission>[
+      for (final code in ['pos', 'sales', 'inventory', 'bodega', 'admin'])
+        if (roleCodes.contains(code)) ...?_modulesByRole[code],
+    ];
+
+    if (modules.isEmpty) {
+      return Container(
+        key: const ValueKey('role-permissions-preview'),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: p.surfaceSunken,
+          borderRadius: BorderRadius.circular(AppRadii.medium),
+          border: Border.all(color: p.border),
+        ),
+        child: Text(
+          'Select a main role above to view its module permissions.',
+          style: TextStyle(fontSize: 12.5, color: p.textSecondary),
+        ),
+      );
+    }
+
+    return Container(
+      key: const ValueKey('role-permissions-preview'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: p.surfaceSunken,
+        borderRadius: BorderRadius.circular(AppRadii.medium),
+        border: Border.all(color: p.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < modules.length; i++) ...[
+            if (i > 0)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Divider(height: 1, color: p.border),
+              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: p.selected,
+                    borderRadius: BorderRadius.circular(AppRadii.small),
+                  ),
+                  child: Icon(
+                    modules[i].icon,
+                    size: 15,
+                    color: p.accentInk,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        modules[i].module,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: p.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        modules[i].summary,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          height: 1.35,
+                          color: p.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }

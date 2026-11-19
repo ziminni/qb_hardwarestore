@@ -1,3 +1,5 @@
+import 'package:client/core/navigation/app_destinations.dart';
+import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
@@ -142,7 +144,10 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
       title: 'Audit Logs',
       subtitle: 'Review recorded activity across the system.',
       // 5, not 6: Requisitions left the sidebar (decision 01).
-      selectedNavigationIndex: 5,
+      selectedNavigationIndex: AppDestinations.indexOf(
+        'admin.audit-logs',
+        AppAreas.admin,
+      ),
       // The trail owns the scrolling: a 50 row server page builds only the rows
       // on screen, and the pager below never scrolls out of reach.
       scrollable: false,

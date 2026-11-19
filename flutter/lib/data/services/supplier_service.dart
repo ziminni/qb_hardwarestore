@@ -76,6 +76,16 @@ class SupplierService {
     return _idOf(response.data);
   }
 
+  /// Deletes a supplier nothing references (Admin only, owner 2026-11-18). One
+  /// with orders, bills or returns is refused with `IN_USE`: archive it instead.
+  Future<void> deleteSupplier(int id) async {
+    await _write(() async {
+      await _client.delete('$suppliersPath$id/');
+      // 204 carries no body; the guard only needs the call to have succeeded.
+      return Response<Map<String, dynamic>>(requestOptions: RequestOptions());
+    });
+  }
+
   /// Edits a supplier — including `is_active`, which is how one is retired.
   Future<void> patchSupplier(int id, Map<String, dynamic> body) async {
     if (body.isEmpty) return;

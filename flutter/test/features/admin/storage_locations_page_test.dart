@@ -20,7 +20,6 @@ import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/admin/viewmodels/storage_locations_viewmodel.dart';
-import 'package:client/features/admin/views/storage_locations_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,6 +27,11 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../support/phase4_fakes.dart';
+import 'package:client/data/models/store_settings.dart';
+import 'package:client/data/services/store_settings_service.dart';
+import 'package:client/features/admin/viewmodels/store_settings_viewmodel.dart';
+import 'package:client/features/admin/views/settings_page.dart';
+import '../../support/offline_catalogue_lists.dart';
 
 const _seeded = [
   StorageLocation(id: 1, name: 'Store'),
@@ -70,11 +74,23 @@ Future<void> _pump(
           ).copyWith(textScaler: TextScaler.linear(scale)),
           child: child!,
         ),
-        home: StorageLocationsPage(viewmodel: viewmodel),
+        // Owner 2026-11-18: the list is the Storage locations side tab of
+        // Admin → Settings.
+        home: SettingsPage(
+          initialSection: SettingsSection.locations,
+          storageLocations: viewmodel,
+          viewmodel: StoreSettingsViewmodel(service: _StubSettingsService()),
+          catalogueLists: OfflineCatalogueLists(),
+        ),
       ),
     ),
   );
   await tester.pumpAndSettle();
+}
+
+class _StubSettingsService extends StoreSettingsService {
+  @override
+  Future<StoreSettings> fetch() async => StoreSettings.defaults;
 }
 
 StorageLocationsViewmodel _state([

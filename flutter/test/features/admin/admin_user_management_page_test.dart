@@ -531,7 +531,7 @@ void main() {
     },
   );
 
-  testWidgets('an Admin gets row actions on every account, admin included', (
+  testWidgets('an Admin cannot modify roles on their own admin account, but can manage other accounts', (
     tester,
   ) async {
     await _pump(
@@ -539,17 +539,26 @@ void main() {
       viewmodel: AdminUsersViewmodel(users: _WithAdminStub()),
     );
 
+    // Row 1 is the signed-in Admin's own account: Change role is NOT offered.
     expect(
       find.descendant(
         of: _row(1),
         matching: find.widgetWithText(TextButton, 'Change role'),
       ),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.descendant(
         of: _row(1),
         matching: find.widgetWithText(TextButton, 'Deactivate'),
+      ),
+      findsOneWidget,
+    );
+    // Other staff rows still have Change role.
+    expect(
+      find.descendant(
+        of: _row(2),
+        matching: find.widgetWithText(TextButton, 'Change role'),
       ),
       findsOneWidget,
     );
@@ -876,4 +885,96 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets(
+    'search clear button, filter group labels, live match count and refresh work',
+    (tester) async {
+      final service = _StubUsersService();
+      await _pump(tester, viewmodel: AdminUsersViewmodel(users: service));
+      final readsBefore = service.fetchCalls;
+
+      // Filter sections carry clear Role and Status labels.
+      expect(find.text('ROLE'), findsOneWidget);
+      expect(find.text('STATUS'), findsOneWidget);
+
+      // Typing reveals the inline clear-search button and live match badge.
+      expect(find.byTooltip('Clear search'), findsNothing);
+      await tester.enterText(_searchField, 'rosa');
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Clear search'), findsOneWidget);
+      expect(find.text('Showing 1 of 12'), findsOneWidget);
+      expect(find.text('Mana Ger'), findsNothing);
+
+      // One tap on Clear search empties the field and restores all rows.
+      await tester.tap(find.byTooltip('Clear search'));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Clear search'), findsNothing);
+      expect(find.text('Mana Ger'), findsOneWidget);
+
+      // Refresh button triggers a fresh server read.
+      await tester.tap(find.byTooltip('Refresh staff list'));
+      await tester.pumpAndSettle();
+      expect(service.fetchCalls, greaterThan(readsBefore));
+    },
+  );
+
+  testWidgets('question mark help button opens the Roles & permissions matrix', (
+    tester,
+  ) async {
+    await _pump(tester);
+
+    final helpButton = find.byKey(const ValueKey('user-management-roles-help'));
+    expect(helpButton, findsOneWidget);
+    await tester.tap(helpButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Roles & permissions'), findsOneWidget);
+    expect(find.text('Process walk-in & project sales'), findsOneWidget);
+    expect(find.text('SERVER-ENFORCED GUARDRAILS'), findsOneWidget);
+
+    // Filtering by module narrows the matrix cleanly.
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Bodega'));
+    await tester.pumpAndSettle();
+    expect(find.text('Release pick-ups & verify deliveries (QR)'), findsOneWidget);
+    expect(find.text('Process walk-in & project sales'), findsNothing);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+    await tester.pumpAndSettle();
+    expect(find.text('Roles & permissions'), findsNothing);
+  });
+
+  testWidgets(
+    'create account shows contact number, Main role, and live module Permissions',
+    (tester) async {
+      await _pump(tester);
+      await tester.tap(find.text('Create account'));
+      await tester.pumpAndSettle();
+
+      // All five fields present.
+      expect(find.text('Username'), findsOneWidget);
+      expect(find.text('Full name'), findsOneWidget);
+      expect(find.text('Email'), findsOneWidget);
+      expect(find.text('Password'), findsOneWidget);
+      expect(find.text('Contact number'), findsOneWidget);
+
+      // Main role + Permissions (no Workspace roles label).
+      expect(find.text('MAIN ROLE'), findsOneWidget);
+      expect(find.text('PERMISSIONS'), findsOneWidget);
+      expect(find.text('WORKSPACE ROLES'), findsNothing);
+
+      // Default Cashier selection shows POS & Till modules.
+      expect(find.text('POS & Till'), findsOneWidget);
+      expect(find.text('Bodega Operations'), findsNothing);
+
+      // Selecting Bodega Checker adds Bodega Operations to Permissions live.
+      await tester.tap(find.widgetWithText(FilterChip, 'Bodega Checker'));
+      await tester.pumpAndSettle();
+      expect(find.text('Bodega Operations'), findsOneWidget);
+
+      // Cannot create another Admin account: Admin role chip is not offered.
+      expect(find.widgetWithText(FilterChip, 'Admin'), findsNothing);
+    },
+  );
 }

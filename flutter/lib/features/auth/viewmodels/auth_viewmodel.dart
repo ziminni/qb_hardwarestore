@@ -208,6 +208,23 @@ class AuthViewmodel extends ChangeNotifier {
     }
   }
 
+  /// Sets (or, with null [bytes], clears) the signed-in account's picture.
+  /// Answers the error sentence, or null on success; the account is replaced in
+  /// place, so its area and session are untouched.
+  Future<String?> setAvatar(List<int>? bytes, {String filename = 'avatar.jpg'}) async {
+    try {
+      final updated = await repository.authService.setAvatar(
+        bytes,
+        filename: filename,
+      );
+      user = updated;
+      notifyListeners();
+      return null;
+    } on AuthException catch (error) {
+      return error.message;
+    }
+  }
+
   Future<void> logout() async {
     isLoading = true;
     notifyListeners();

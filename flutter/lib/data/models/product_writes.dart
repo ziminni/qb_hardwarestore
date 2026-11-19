@@ -23,7 +23,20 @@ class NewProductDraft {
     this.locationHint = '',
     this.storedAtId,
     this.image,
+    this.sku = '',
+    this.openingQty = 0,
+    this.openingUnitCost = 0,
   });
+
+  /// The shop's own stock-keeping code (owner 2026-11-18). Optional.
+  final String sku;
+
+  /// Opening stock in BASE units and its cost per base unit (owner 2026-11-18).
+  /// Zero means none: the product's first stock then arrives through Receiving.
+  /// Posted last, to `/variants/{id}/opening-stock/`, as a bill-free delivery
+  /// onto the product's Stored at shelf (a Bodega product waits for the checker).
+  final double openingQty;
+  final double openingUnitCost;
 
   final int categoryId;
   final int brandId;
@@ -65,12 +78,8 @@ class NewProductDraft {
   /// request would leave a product with no photo whenever it failed).
   final ProductImageUpload? image;
 
-  /// There is deliberately no quantity, cost or opening-batch field.
-  ///
-  /// User decision 2026-10-25: a product's first stock arrives through a
-  /// purchase order the stock manager creates and then receives. "Add product"
-  /// creates the catalog item only, so the form cannot invent stock the server
-  /// never received.
+  /// The product row. Opening stock is NOT here: it is its own request after
+  /// the variant exists ([openingQty]).
   Map<String, dynamic> productBody() => {
     'category': categoryId,
     'brand': brandId,
@@ -83,6 +92,7 @@ class NewProductDraft {
   Map<String, dynamic> variantBody(int productId) => {
     'product': productId,
     'variant_name': variantName,
+    'sku': sku,
     'base_uom': baseUomId,
     'min_stock_threshold': minStockThreshold,
     'max_stock_level': maxStockLevel,
@@ -152,7 +162,11 @@ class ProductEditDraft {
     this.locationHint = '',
     this.storedAtId,
     this.image,
+    this.sku,
   });
+
+  /// Null leaves the variant's SKU untouched.
+  final String? sku;
 
   final int productId;
   final int variantId;
@@ -200,6 +214,7 @@ class ProductEditDraft {
 
   Map<String, dynamic> get variantBody => {
     if (variantName != null) 'variant_name': variantName,
+    if (sku != null) 'sku': sku,
     if (minStockThreshold != null) 'min_stock_threshold': minStockThreshold,
     if (maxStockLevel != null) 'max_stock_level': maxStockLevel,
   };

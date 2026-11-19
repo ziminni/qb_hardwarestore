@@ -2,7 +2,6 @@ import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
-import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/reports.dart';
 import 'package:client/data/models/requisition.dart';
@@ -16,45 +15,6 @@ import 'package:client/shared/widgets/status_badge.dart';
 import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-
-/// The ONE admin/manager Reports screen (decision 16, as amended).
-///
-/// Four tabs: Sales, Valuation, Movements and Requisitions, one report at a
-/// time. A failed tab names its failure without blanking the other three.
-class ReportsPage extends StatelessWidget {
-  const ReportsPage({super.key, this.viewmodel});
-
-  /// Injected by tests so a state can be rendered WITHOUT a server.
-  ///
-  /// The page otherwise builds its own viewmodel. Same seam shape as the
-  /// receivables page: a widget test cannot put the screen into a failed-load
-  /// state without it.
-  final AdminReportsViewmodel? viewmodel;
-
-  @override
-  Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => (viewmodel ?? AdminReportsViewmodel())..load(),
-      child: const _ReportsView(),
-    );
-  }
-}
-
-class _ReportsView extends StatelessWidget {
-  const _ReportsView();
-
-  @override
-  Widget build(BuildContext context) {
-    return const AdminSkeletonLayout(
-      title: 'Reports',
-      subtitle: 'Managerial reports over live operations data.',
-      // 4, not 5: Requisitions left the admin sidebar (decision 01), so
-      // Reports moved up one. A stale number here highlights Audit logs.
-      selectedNavigationIndex: 4,
-      child: ReportsContent(),
-    );
-  }
-}
 
 /// The four-tab report body, **layout-agnostic on purpose**.
 ///

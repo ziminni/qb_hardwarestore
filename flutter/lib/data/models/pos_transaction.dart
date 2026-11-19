@@ -16,6 +16,7 @@ class PosCatalogItem {
     this.isWhole = false,
     this.storedAtName = '',
     this.isLowStock = false,
+    this.imageUrl = '',
   });
   final int variantUomId;
   final int variantId;
@@ -30,6 +31,10 @@ class PosCatalogItem {
   /// Shown on the till's product card and used by its category chips.
   final String categoryName;
   final String brandName;
+
+  /// The product's photo URL (uploaded from Stocker → Products), or empty when
+  /// no photo has been added yet.
+  final String imageUrl;
 
   /// Where the shop keeps this product: the SERVER's pick-up point (Phase 5 B4).
   /// Empty when the row came from a server that does not send it, and the till

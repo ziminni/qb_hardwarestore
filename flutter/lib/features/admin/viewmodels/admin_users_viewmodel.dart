@@ -48,8 +48,14 @@ class AdminUsersViewmodel extends ChangeNotifier {
     'pos': 'Cashier',
     'inventory': 'Stock Manager',
     'sales': 'Store Manager',
+    'bodega': 'Bodega Checker',
     if (isAdmin) 'admin': 'Admin',
   };
+
+  /// Roles offered when creating a new account in User Management: another
+  /// Admin account cannot be created from User Management.
+  static Map<String, String> creatableRoles() =>
+      assignableRoles(isAdmin: false);
 
   /// The code that may not be handed to a manager, so the guard reads one home.
   static const String adminRoleCode = 'admin';
@@ -164,8 +170,23 @@ class AdminUsersViewmodel extends ChangeNotifier {
     User user, {
     required List<String> roleCodes,
     required bool isAdminViewer,
+    int? currentUserId,
+    String? currentUsername,
   }) async {
     _actionError = null;
+    final isTargetAdmin = user.assignedRoles.any(
+      (role) => role.code == adminRoleCode,
+    );
+    final isSelf =
+        (currentUserId != null && user.id == currentUserId) ||
+        (currentUsername != null &&
+            currentUsername.isNotEmpty &&
+            user.username == currentUsername);
+    if (isTargetAdmin && isSelf) {
+      _actionError = 'You cannot modify roles on your own Admin account.';
+      notifyListeners();
+      return false;
+    }
     if (roleCodes.isEmpty) {
       _actionError = 'Choose at least one role.';
       notifyListeners();
@@ -226,8 +247,10 @@ class AdminUsersViewmodel extends ChangeNotifier {
       notifyListeners();
       return false;
     }
-    if (!isAdminViewer && touchesAdmin(roleCodes)) {
-      _createError = 'Only an Admin may grant Admin authority.';
+    if (touchesAdmin(roleCodes)) {
+      _createError = !isAdminViewer
+          ? 'Only an Admin may grant Admin authority.'
+          : 'You cannot create another Admin account.';
       notifyListeners();
       return false;
     }

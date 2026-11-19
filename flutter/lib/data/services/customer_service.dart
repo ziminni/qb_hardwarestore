@@ -86,11 +86,18 @@ class CustomerService {
   Future<Customer> createCustomer({
     required String name,
     required CustomerType type,
+    String contactDetails = '',
   }) async {
     try {
       final response = await _client.post<Map<String, dynamic>>(
         customersPath,
-        data: {'name': name, 'customer_type': type.apiValue},
+        data: {
+          'name': name,
+          'customer_type': type.apiValue,
+          // Owner 2026-11-19: an utang at the till records how to reach the
+          // person who owes it (credit limit and TIN stay off the till).
+          if (contactDetails.isNotEmpty) 'contact_details': contactDetails,
+        },
       );
       return Customer.fromJson(response.data!);
     } on DioException catch (error) {

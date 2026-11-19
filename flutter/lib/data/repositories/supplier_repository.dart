@@ -24,6 +24,8 @@ class SupplierRepository {
       _service.createSupplier(body);
 
   /// Edits a supplier, including `is_active` (the archive path — no DELETE).
+  Future<void> deleteSupplier(int id) => _service.deleteSupplier(id);
+
   Future<void> patchSupplier(int id, Map<String, dynamic> body) =>
       _service.patchSupplier(id, body);
 
