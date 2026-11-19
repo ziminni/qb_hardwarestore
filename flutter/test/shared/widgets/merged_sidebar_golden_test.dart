@@ -3,6 +3,8 @@ library;
 
 import 'dart:io';
 
+import 'package:client/core/navigation/app_destinations.dart';
+import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
@@ -130,12 +132,16 @@ Widget _inventoryShell(Widget child) => InventorySkeletonLayout(
   child: child,
 );
 
+// Owner 2026-11-18: the Admin menu lost Project requests; the shell now opens
+// on Audit logs and carries no badge.
 Widget _adminShell(Widget child) => AdminSkeletonLayout(
   title: 'Admin',
-  subtitle: 'Project requests',
-  selectedNavigationIndex: AdminSkeletonLayout.projectRequestsIndex,
+  subtitle: 'Audit logs',
+  selectedNavigationIndex: AppDestinations.indexOf(
+    'admin.audit-logs',
+    AppAreas.admin,
+  ),
   onNavigationSelected: (_) {},
-  markers: const {AdminSkeletonLayout.projectRequestsIndex: 2},
   child: child,
 );
 

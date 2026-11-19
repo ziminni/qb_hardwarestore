@@ -1,5 +1,6 @@
 import 'package:client/core/theme/app_scroll_behavior.dart';
 import 'package:client/core/theme/app_theme.dart';
+import 'package:client/core/theme/theme_settings_controller.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/auth/widget/login_transition_overlay.dart';
 import 'package:client/routes/routes.dart';
@@ -26,17 +27,39 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp.router(
-      title: 'Hardware Store Management System',
-      theme: AppTheme.lightTheme,
-      // Wide tables must be reachable with a plain mouse on a 1366px screen.
-      scrollBehavior: const AppScrollBehavior(),
-      debugShowCheckedModeBanner: false,
-      routerConfig: _router,
-      // Sits above every route so it can cover the login-to-dashboard swap. It
-      // is the only place it lives: a page test never meets it.
-      builder: (context, child) =>
-          LoginTransitionOverlay(child: child ?? const SizedBox.shrink()),
+    return ListenableBuilder(
+      listenable: ThemeSettingsController.instance,
+      builder: (context, _) {
+        final settings = ThemeSettingsController.instance.settings;
+        return MaterialApp.router(
+          title: 'Hardware Store Management System',
+          theme: AppTheme.buildTheme(settings),
+          // Wide tables must be reachable with a plain mouse on a 1366px screen.
+          scrollBehavior: const AppScrollBehavior(),
+          debugShowCheckedModeBanner: false,
+          routerConfig: _router,
+          // Sits above every route so it can cover the login-to-dashboard swap.
+          // Also applies this device's local display-scale preference on top of
+          // the OS accessibility scale.
+          builder: (context, child) {
+            final media = MediaQuery.of(context);
+            final scaleFactor = settings.displayScale.factor;
+            final scaled = scaleFactor == 1.0
+                ? media
+                : media.copyWith(
+                    textScaler: TextScaler.linear(
+                      media.textScaler.scale(1.0) * scaleFactor,
+                    ),
+                  );
+            return MediaQuery(
+              data: scaled,
+              child: LoginTransitionOverlay(
+                child: child ?? const SizedBox.shrink(),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

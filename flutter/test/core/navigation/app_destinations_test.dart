@@ -70,6 +70,9 @@ const _tillMenu = <_Row>[
   ),
   _Row('Shifts', Icons.access_time, AppRoutes.posShifts),
   _Row('Returns', Icons.assignment_return_outlined, AppRoutes.posReturns),
+  // Owner 2026-11-18: the receipt printer is the cashier's to choose.
+  _Row('Settings', Icons.settings_outlined, AppRoutes.posSettings),
+  _Row('Customers', Icons.people_outline_rounded, AppRoutes.posCustomers),
 ];
 
 const _storeManagerMenu = <_Row>[
@@ -77,13 +80,12 @@ const _storeManagerMenu = <_Row>[
     'Dashboard',
     Icons.dashboard_outlined,
     AppRoutes.salesDashboard,
-    'Overview',
+    'Selling',
   ),
   _Row(
     'Transactions',
     Icons.receipt_long_outlined,
     AppRoutes.salesTransactions,
-    'Selling',
   ),
   _Row('Quotations', Icons.request_quote_outlined, AppRoutes.salesQuotations),
   _Row('Sales orders', Icons.assignment_outlined, AppRoutes.salesOrders),
@@ -97,39 +99,45 @@ const _storeManagerMenu = <_Row>[
     'Returns & refunds',
     Icons.assignment_return_outlined,
     AppRoutes.salesReturns,
-    'After Sales',
   ),
-  _Row('Reports', Icons.bar_chart_outlined, AppRoutes.salesReports, 'Insights'),
+  _Row(
+    'Reports',
+    Icons.bar_chart_outlined,
+    AppRoutes.salesReports,
+    'Management',
+  ),
   _Row(
     'Staff',
     Icons.manage_accounts_outlined,
     AppRoutes.salesStaff,
-    'Management',
   ),
   _Row(
     'Project requests',
     Icons.fact_check_outlined,
     AppRoutes.salesProjectRequests,
-    'Projects',
+    null,
     true,
   ),
   _Row(
     'Payables',
     Icons.account_balance_wallet_outlined,
     AppRoutes.salesPayables,
-    'Payables',
+    'Operations',
   ),
   _Row(
     'Deliveries',
     Icons.local_shipping_outlined,
     AppRoutes.salesDeliveries,
-    'Deliveries',
   ),
   _Row(
     'Transfers',
     Icons.swap_horiz_rounded,
     AppRoutes.salesTransfers,
-    'Transfers',
+  ),
+  _Row(
+    'Settings',
+    Icons.settings_outlined,
+    AppRoutes.salesSettings,
   ),
 ];
 
@@ -138,13 +146,12 @@ const _stockManagerMenu = <_Row>[
     'Dashboard',
     Icons.dashboard_outlined,
     AppRoutes.inventoryDashboard,
-    'Overview',
+    'Inventory',
   ),
   _Row(
     'Products',
     Icons.inventory_2_outlined,
     AppRoutes.inventoryProducts,
-    'Inventory',
   ),
   _Row('Categories', Icons.category_outlined, AppRoutes.inventoryCategories),
   _Row('Stock', Icons.warehouse_outlined, AppRoutes.inventoryStock),
@@ -185,25 +192,31 @@ const _stockManagerMenu = <_Row>[
     'Payables',
     Icons.account_balance_wallet_outlined,
     AppRoutes.inventoryPayables,
-    'Payables',
+    'Operations',
   ),
   _Row(
     'Deliveries',
     Icons.local_shipping_outlined,
     AppRoutes.inventoryDeliveries,
-    'Deliveries',
   ),
   _Row(
     'Transfers',
     Icons.swap_horiz_rounded,
     AppRoutes.inventoryTransfers,
-    'Transfers',
+  ),
+  _Row(
+    'Import & export',
+    Icons.import_export_rounded,
+    AppRoutes.inventoryImportExport,
   ),
 ];
 
+// Owner 2026-11-18: the Admin sees everything (the Dashboard's tabs) and acts
+// on nothing, so the menu keeps only the Admin's own jobs. Storage locations,
+// categories and suppliers live inside Settings.
 const _adminMenu = <_Row>[
   _Row(
-    'Overview',
+    'Dashboard',
     Icons.dashboard_outlined,
     AppRoutes.adminDashboard,
     'Overview',
@@ -215,46 +228,40 @@ const _adminMenu = <_Row>[
     'People',
   ),
   _Row(
-    'Inventory',
-    Icons.inventory_2_outlined,
-    AppRoutes.adminInventory,
-    'Operations',
-  ),
-  _Row('Sales & POS', Icons.point_of_sale_outlined, AppRoutes.adminSales),
-  _Row('Reports', Icons.bar_chart_rounded, AppRoutes.adminReports, 'Insights'),
-  _Row('Audit logs', Icons.history_rounded, AppRoutes.adminAuditLogs, 'System'),
-  _Row('Settings', Icons.settings_outlined, AppRoutes.adminSettings),
-  _Row(
-    'Project requests',
-    Icons.fact_check_outlined,
-    AppRoutes.adminProjectRequests,
-    'Projects',
-    true,
+    'Settings',
+    Icons.settings_outlined,
+    AppRoutes.adminSettings,
+    'Configuration',
   ),
   _Row(
-    'Payables',
-    Icons.account_balance_wallet_outlined,
-    AppRoutes.adminPayables,
-    'Payables',
+    'Audit logs',
+    Icons.history_rounded,
+    AppRoutes.adminAuditLogs,
+    'Monitoring',
   ),
   _Row(
-    'Deliveries',
-    Icons.local_shipping_outlined,
-    AppRoutes.adminDeliveries,
-    'Deliveries',
+    'Backup & restore',
+    Icons.backup_outlined,
+    AppRoutes.adminBackupRestore,
+  ),
+  _Row('Security', Icons.security_outlined, AppRoutes.adminSecurity),
+];
+
+// Decision 25: the Bodega Checker's whole menu - Bodega and nothing else.
+const _bodegaMenu = <_Row>[
+  _Row(
+    'Pick-ups',
+    Icons.qr_code_scanner_rounded,
+    AppRoutes.bodegaPickups,
+    'Bodega',
   ),
   _Row(
-    'Storage locations',
-    Icons.warehouse_outlined,
-    AppRoutes.adminStorageLocations,
-    'Locations',
+    'Deliveries to check',
+    Icons.move_to_inbox_outlined,
+    AppRoutes.bodegaDeliveries,
   ),
-  _Row(
-    'Transfers',
-    Icons.swap_horiz_rounded,
-    AppRoutes.adminTransfers,
-    'Transfers',
-  ),
+  _Row('Bodega stock', Icons.warehouse_outlined, AppRoutes.bodegaStock),
+  _Row('History', Icons.history_rounded, AppRoutes.bodegaHistory),
 ];
 
 void _expectMenu(String area, List<_Row> expected) {
@@ -313,17 +320,21 @@ void main() {
     _expectMenu(AppAreas.admin, _adminMenu);
   });
 
-  test('47 menu rows are 38 pages: only the locked set is shared', () {
+  test('the Bodega menu is the checker menu, row by row', () {
+    _expectMenu(AppAreas.bodega, _bodegaMenu);
+  });
+
+  test('49 menu rows are 45 pages: only the locked set is shared', () {
     // Without the counts, an empty or duplicated registry would make every
     // per-area check above pass against nothing.
     expect(
       AppDestinations.all,
-      hasLength(47),
-      reason: '4 menus: Till 7, Sales 12, Stock 16, Admin 12',
+      hasLength(49),
+      reason: '5 menus: Till 9, Sales 13, Stock 17, Admin 6, Bodega 4',
     );
     expect(
       AppDestinations.all.map((row) => row.id).toSet(),
-      hasLength(38),
+      hasLength(45),
       reason:
           'Payables, Deliveries, Reports, Project requests, Staff and Transfers '
           'appear in more than one menu; every other row is one page',
@@ -357,11 +368,12 @@ void main() {
       expect(stockReports.label, 'Reports');
       expect(stockReports.sharedKey, isNull);
       expect(stockReports.route, AppRoutes.inventoryReports);
+      // Owner 2026-11-18: only the Store Manager keeps Reports now.
       final others = [
         ...AppDestinations.forArea(AppAreas.admin),
         ...AppDestinations.forArea(AppAreas.sales),
       ].where((row) => row.id == 'reports');
-      expect(others, hasLength(2));
+      expect(others, hasLength(1));
       for (final row in others) {
         expect(row.sharedKey, 'reports');
       }
@@ -376,38 +388,24 @@ void main() {
         ('Till', 4),
       ],
       AppAreas.sales: [
-        ('Overview', 0),
-        ('Selling', 1),
+        ('Selling', 0),
         ('Customers', 4),
-        ('After Sales', 5),
-        ('Insights', 6),
-        ('Management', 7),
-        ('Projects', 8),
-        ('Payables', 9),
-        ('Deliveries', 10),
-        ('Transfers', 11),
+        ('Management', 6),
+        ('Operations', 9),
       ],
       AppAreas.inventory: [
-        ('Overview', 0),
-        ('Inventory', 1),
+        ('Inventory', 0),
         ('Purchasing', 6),
         ('Sales', 9),
-        ('Payables', 13),
-        ('Deliveries', 14),
-        ('Transfers', 15),
+        ('Operations', 13),
       ],
       AppAreas.admin: [
         ('Overview', 0),
         ('People', 1),
-        ('Operations', 2),
-        ('Insights', 4),
-        ('System', 5),
-        ('Projects', 7),
-        ('Payables', 8),
-        ('Deliveries', 9),
-        ('Locations', 10),
-        ('Transfers', 11),
+        ('Configuration', 2),
+        ('Monitoring', 3),
       ],
+      AppAreas.bodega: [('Bodega', 0)],
     };
     for (final area in AppAreas.codes) {
       expect(
@@ -493,12 +491,13 @@ void main() {
     // The constants are const ints (pages pass them in const marker maps), so
     // Dart cannot derive them from the registry at compile time: this is the pin
     // that keeps them from lying about where their row sits.
+    // Owner 2026-11-18: the Admin menu no longer has the queue.
     expect(
       AppDestinations.indexOf(
         AppDestinations.projectRequestsId,
         AppAreas.admin,
       ),
-      AdminSkeletonLayout.projectRequestsIndex,
+      -1,
     );
     expect(
       AppDestinations.indexOf(

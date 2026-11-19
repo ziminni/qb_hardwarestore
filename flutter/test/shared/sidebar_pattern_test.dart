@@ -134,33 +134,39 @@ void main() {
       expect(find.text('Returns'), findsOneWidget);
     });
 
-    testWidgets('the admin menu is grouped in its existing order', (
+    testWidgets('the admin menu keeps only the Admin\'s own jobs', (
       tester,
     ) async {
-      await _pump(tester, const Size(1440, 900), _admin());
+      await _pump(tester, const Size(1440, 1400), _admin());
 
-      for (final heading in const [
-        'OVERVIEW',
-        'PEOPLE',
-        'OPERATIONS',
-        'INSIGHTS',
-        'SYSTEM',
-      ]) {
+      // Owner 2026-11-18: the Admin sees everything and acts on nothing.
+      // Settings is pinned at the very bottom of every role's sidebar, so its
+      // standalone Configuration heading is omitted from the main list.
+      const headings = ['OVERVIEW', 'PEOPLE', 'MONITORING'];
+      for (final heading in headings) {
         expect(find.text(heading), findsOneWidget, reason: 'heading $heading');
       }
+      final tops = [
+        for (final heading in headings)
+          tester.getTopLeft(find.text(heading)).dy,
+      ];
+      expect(tops, orderedEquals([...tops]..sort()));
       for (final item in const [
-        'Overview',
+        'Dashboard',
         'User management',
-        'Inventory',
-        'Sales & POS',
-        'Reports',
-        'Audit logs',
         'Settings',
-        // Phase 1b: appended in the new final Projects group.
-        'Project requests',
+        'Audit logs',
+        'Backup & restore',
+        'Security',
       ]) {
         expect(find.text(item), findsOneWidget, reason: 'item $item');
       }
+      for (final gone in const ['Sales & POS', 'Payables', 'Transfers']) {
+        expect(find.text(gone), findsNothing, reason: gone);
+      }
+      // Owner 2026-11-18: Reports and Project requests left the Admin menu.
+      expect(find.text('Reports'), findsNothing);
+      expect(find.text('Project requests'), findsNothing);
       // Decision 01: requests are approved in CPMS, so there is no POS queue.
       expect(find.text('Requisitions'), findsNothing);
     });
@@ -178,6 +184,86 @@ void main() {
         reason: 'Phase 1b appends the store-review queue to this sidebar',
       );
     });
+
+    testWidgets(
+      'Settings is pinned at the very bottom of the sidebar in every role',
+      (tester) async {
+        final cases =
+            <(String, Widget Function(ValueChanged<int>), String, int)>[
+              (
+                'Admin',
+                (onTap) => AdminSkeletonLayout(
+                  title: 'Admin',
+                  subtitle: 'Back office',
+                  selectedNavigationIndex: 0,
+                  onNavigationSelected: onTap,
+                  child: const Text('BODY'),
+                ),
+                'Security',
+                2,
+              ),
+              (
+                'Stock Manager',
+                (onTap) => InventorySkeletonLayout(
+                  title: 'Inventory',
+                  subtitle: 'Stock',
+                  selectedNavigationIndex: 0,
+                  onNavigationSelected: onTap,
+                  child: const Text('BODY'),
+                ),
+                'Import & export',
+                12,
+              ),
+              (
+                'Store Manager',
+                (onTap) => SalesSkeletonLayout(
+                  title: 'Sales',
+                  subtitle: 'Store',
+                  selectedNavigationIndex: 0,
+                  onNavigationSelected: onTap,
+                  child: const Text('BODY'),
+                ),
+                'Transfers',
+                12,
+              ),
+              (
+                'Cashier',
+                (onTap) => DashboardShell(
+                  title: 'Till',
+                  subtitle: 'POS',
+                  selectedNavigationIndex: 0,
+                  navigationItems: posNavigationItems,
+                  onNavigationSelected: onTap,
+                  child: const Text('BODY'),
+                ),
+                'Customers',
+                7,
+              ),
+            ];
+
+        for (final (roleName, buildShell, lastMainLabel, expectedIndex)
+            in cases) {
+          final tapped = <int>[];
+          await _pump(tester, const Size(1440, 1400), buildShell(tapped.add));
+
+          final settingsY = tester.getTopLeft(find.text('Settings')).dy;
+          final lastMainY = tester.getTopLeft(find.text(lastMainLabel)).dy;
+          expect(
+            settingsY,
+            greaterThan(lastMainY),
+            reason: '$roleName: Settings must sit below $lastMainLabel',
+          );
+
+          await tester.tap(find.text('Settings'));
+          await tester.pumpAndSettle();
+          expect(
+            tapped,
+            [expectedIndex],
+            reason: '$roleName: Settings keeps its original destination index',
+          );
+        }
+      },
+    );
 
     testWidgets('the icon rail shows no headings, only the dividers', (
       tester,
@@ -252,6 +338,70 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Transaction history'), findsOneWidget);
     });
+
+    testWidgets(
+      'shows close button beside brand text only when open; clicking free space, logo, or edge opens when closed',
+      (tester) async {
+        await _pump(tester, const Size(1440, 900), _cashier());
+
+        // Close button is shown beside the brand text while the sidebar is open.
+        final collapseBtn = find.byKey(
+          const ValueKey('sidebar-collapse-button'),
+        );
+        expect(collapseBtn, findsOneWidget);
+        expect(find.byIcon(Icons.chevron_left_rounded), findsOneWidget);
+
+        // Clicking the close button collapses the sidebar, and the button
+        // hides while collapsed.
+        await tester.tap(collapseBtn);
+        await tester.pumpAndSettle();
+        expect(find.text('Transaction history'), findsNothing);
+        expect(collapseBtn, findsNothing);
+        expect(find.byIcon(Icons.chevron_left_rounded), findsNothing);
+        expect(find.byIcon(Icons.chevron_right_rounded), findsNothing);
+
+        // Clicking a non-icon / free space area inside the collapsed sidebar
+        // opens the sidebar again.
+        await tester.tapAt(const Offset(38, 620));
+        await tester.pumpAndSettle();
+        expect(find.text('Transaction history'), findsOneWidget);
+        expect(collapseBtn, findsOneWidget);
+
+        // The edge line sits on the sidebar seam with a resize-left cursor
+        // while expanded, and clicking it collapses the sidebar.
+        final edgeFinder = find.byKey(const ValueKey('sidebar-edge-toggle'));
+        expect(edgeFinder, findsOneWidget);
+        MouseRegion edgeRegion() => tester.widget<MouseRegion>(
+          find
+              .descendant(of: edgeFinder, matching: find.byType(MouseRegion))
+              .first,
+        );
+        expect(edgeRegion().cursor, SystemMouseCursors.resizeLeft);
+
+        await tester.tap(edgeFinder);
+        await tester.pumpAndSettle();
+        expect(find.text('Transaction history'), findsNothing);
+        expect(collapseBtn, findsNothing);
+
+        // Once collapsed, the edge line shows the extend-right cursor and
+        // clicking it opens the sidebar again.
+        expect(edgeRegion().cursor, SystemMouseCursors.resizeRight);
+        await tester.tap(edgeFinder);
+        await tester.pumpAndSettle();
+        expect(find.text('Transaction history'), findsOneWidget);
+
+        // Clicking the Queen Builders logo also collapses and re-opens it.
+        final logoToggle = find.byKey(const ValueKey('sidebar-brand-toggle'));
+        expect(logoToggle, findsOneWidget);
+        await tester.tap(logoToggle);
+        await tester.pumpAndSettle();
+        expect(find.text('Transaction history'), findsNothing);
+
+        await tester.tap(logoToggle);
+        await tester.pumpAndSettle();
+        expect(find.text('Transaction history'), findsOneWidget);
+      },
+    );
   });
 
   group('live markers', () {
@@ -379,20 +529,8 @@ void main() {
       });
 
       final shells = <(String, Widget, int)>[
-        (
-          'admin',
-          AdminSkeletonLayout(
-            title: 'Admin',
-            subtitle: 'Back office',
-            selectedNavigationIndex: 0,
-            onNavigationSelected: (_) {},
-            loadMarkers: () async => const {
-              AdminSkeletonLayout.projectRequestsIndex: 4,
-            },
-            child: const Text('BODY'),
-          ),
-          AdminSkeletonLayout.projectRequestsIndex,
-        ),
+        // Owner 2026-11-18: the Admin menu has no badged row any more (Project
+        // requests left it), so only the Store Manager's queue is checked.
         (
           'store manager',
           SalesSkeletonLayout(

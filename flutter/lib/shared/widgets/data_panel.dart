@@ -1,10 +1,10 @@
 import 'dart:math' as math;
 
-import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/constants/app_text_styles.dart';
 import 'package:client/core/format/format.dart';
+import 'package:client/core/theme/app_palette.dart';
 import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/empty_state.dart';
 import 'package:client/shared/widgets/error_banner.dart';
@@ -228,9 +228,9 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
 
   @override
   Widget build(BuildContext context) {
-    final heading = _heading();
+    final heading = _heading(context);
     final panel = _panel(context);
-    final footer = _footer();
+    final footer = _footer(context);
     if (heading == null && footer == null) return panel;
 
     // A page that gave the panel a slot of its own (an `Expanded`) hands down a
@@ -256,9 +256,10 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
 
   /// The strip under the rows: which slice is on screen and the two buttons
   /// that walk it. Null when the list fits on one page.
-  Widget? _footer() {
+  Widget? _footer(BuildContext context) {
     if (!_paged) return null;
 
+    final p = AppPalette.of(context);
     final pages = _pageCount;
     final start = (_page - 1) * widget.pageSize;
     final end = math.min(start + widget.pageSize, widget.rows.length);
@@ -277,10 +278,7 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
           Text(
             '${formatCount(start + 1)} to ${formatCount(end)} '
             'of ${formatCount(widget.rows.length)}',
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppColors.textSecondary,
-            ),
+            style: TextStyle(fontSize: 12, color: p.textSecondary),
           ),
           Row(
             mainAxisSize: MainAxisSize.min,
@@ -298,10 +296,7 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
                 child: ExcludeSemantics(
                   child: Text(
                     '$_page of $pages',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textSecondary,
-                    ),
+                    style: TextStyle(fontSize: 12, color: p.textSecondary),
                   ),
                 ),
               ),
@@ -319,9 +314,10 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
   }
 
   /// The title and count pill, or null when the caller wants neither.
-  Widget? _heading() {
+  Widget? _heading(BuildContext context) {
     if (widget.title == null && widget.count == null) return null;
     final label = widget.title;
+    final p = AppPalette.of(context);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
@@ -338,11 +334,11 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
                       label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontFamily: AppTextStyles.cinzelFont,
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
+                        color: p.textPrimary,
                       ),
                     ),
                   ),
@@ -453,6 +449,7 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
   }
 
   Widget _card(BuildContext context, int index) {
+    final p = AppPalette.of(context);
     final row = _rows[index];
     final title = widget.columns.first;
     final rest = widget.columns.skip(1);
@@ -460,7 +457,8 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
     final content = Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        border: Border.all(color: AppColors.border),
+        color: p.cardBackground,
+        border: Border.all(color: p.border),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -468,10 +466,10 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           DefaultTextStyle.merge(
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w600,
-              color: AppColors.textPrimary,
+              color: p.textPrimary,
             ),
             child: Align(
               alignment: Alignment.centerLeft,
@@ -490,10 +488,7 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
                     // Wraps rather than ellipsizes: a 110 px label column cuts
                     // "Cash difference" to "Cash differe..." at 1.3x text, and
                     // a label the reader cannot finish names nothing.
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textSecondary,
-                    ),
+                    style: TextStyle(fontSize: 12, color: p.textSecondary),
                   ),
                 ),
                 Expanded(
@@ -546,7 +541,7 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
         children: [
           // The header stays above the scroll, so it does not slide away from
           // the columns it labels.
-          _headerRow(),
+          _headerRow(context),
           if (scrolls)
             Expanded(
               child: ListView.builder(
@@ -569,21 +564,26 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
     );
   }
 
-  Widget _headerRow() {
+  Widget _headerRow(BuildContext context) {
+    final p = AppPalette.of(context);
     return Container(
       key: const ValueKey('DataPanel.header'),
       padding: const EdgeInsets.symmetric(vertical: 10),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         // The tinted header band: it separates the labels from the rows
         // without another hairline doing the same job.
-        color: AppColors.tableHeader,
-        border: Border(bottom: BorderSide(color: AppColors.border)),
+        color: p.tableHeader,
+        border: Border(bottom: BorderSide(color: p.border)),
       ),
-      child: Row(children: widget.columns.map(_headerCell).toList()),
+      child: Row(
+        children: widget.columns
+            .map((column) => _headerCell(column, p))
+            .toList(),
+      ),
     );
   }
 
-  Widget _headerCell(DataPanelColumn<T> column) {
+  Widget _headerCell(DataPanelColumn<T> column, AppPalette p) {
     return Expanded(
       flex: _flex(column),
       child: Padding(
@@ -602,11 +602,11 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
             // that still ends in an ellipsis.
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.6,
-              color: AppColors.textSecondary,
+              color: p.textSecondary,
             ),
           ),
         ),
@@ -615,14 +615,15 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
   }
 
   Widget _bodyRow(BuildContext context, int index) {
+    final p = AppPalette.of(context);
     final row = _rows[index];
     final content = Container(
       constraints: const BoxConstraints(minHeight: DataPanel._rowMinHeight),
       padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: index == _rows.length - 1
           ? null
-          : const BoxDecoration(
-              border: Border(bottom: BorderSide(color: AppColors.border)),
+          : BoxDecoration(
+              border: Border(bottom: BorderSide(color: p.border)),
             ),
       child: Row(
         children: [
@@ -684,6 +685,7 @@ class _CountPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     final shown = formatCount(count);
 
     return Semantics(
@@ -696,18 +698,17 @@ class _CountPill extends StatelessWidget {
             vertical: 3,
           ),
           decoration: BoxDecoration(
-            color: AppColors.selected,
+            color: p.selected,
             borderRadius: BorderRadius.circular(AppRadii.pill),
           ),
           child: Text(
             shown,
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: AppTextStyles.outfitFont,
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              // Gold as ink: the brand gold is a fill colour and is under
-              // 4.5:1 as 12 px text.
-              color: AppColors.brandGoldText,
+              // Accent ink stays >= 4.5:1 on both light and dark selected fills.
+              color: p.accentInk,
             ),
           ),
         ),

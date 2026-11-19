@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_areas.dart';
+import 'package:client/core/constants/app_assets.dart';
 import 'package:client/core/constants/app_breakpoints.dart';
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
@@ -7,13 +8,13 @@ import 'package:client/core/constants/app_text_styles.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/core/navigation/merged_sidebar.dart';
+import 'package:client/core/theme/app_palette.dart';
 import 'package:client/core/time/app_clock.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/auth/widget/area_switcher_menu.dart';
-import 'package:client/shared/widgets/shared_sidebar.dart';
 import 'package:client/shared/widgets/blueprint.dart';
 import 'package:client/shared/widgets/measure_ruler.dart';
-import 'package:client/shared/widgets/system_brand.dart';
+import 'package:client/shared/widgets/shared_sidebar.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -281,45 +282,64 @@ class _AppShellState extends State<AppShell> {
                   : null,
             );
 
+        final p = AppPalette.of(context);
+        final sidebarWidth = rail
+            ? SharedSidebar.railWidth
+            : SharedSidebar.width;
+        final canToggleSidebar = !compact && mode == ShellMode.expanded;
         return Scaffold(
-          backgroundColor: AppColors.background,
+          backgroundColor: p.background,
           drawer: compact
               ? Drawer(
                   width: SharedSidebar.width,
-                  backgroundColor: AppColors.chrome,
+                  backgroundColor: p.sidebarBg,
                   shape: const RoundedRectangleBorder(),
                   child: panel(collapsed: false, close: true),
                 )
               : null,
-          body: Row(
+          body: Stack(
             children: [
-              if (!compact)
-                Container(
-                  width: rail ? SharedSidebar.railWidth : SharedSidebar.width,
-                  decoration: const BoxDecoration(
-                    // The dark chrome: one black surface behind the whole nav
-                    // column, with a hairline against the cream page body.
-                    color: AppColors.chrome,
-                    border: Border(
-                      right: BorderSide(color: AppColors.chromeBorder),
+              Row(
+                children: [
+                  if (!compact)
+                    Container(
+                      width: sidebarWidth,
+                      decoration: BoxDecoration(
+                        // Sidebar chrome with a hairline border against the page.
+                        color: p.sidebarBg,
+                        border: Border(
+                          right: BorderSide(color: p.sidebarBorder),
+                        ),
+                      ),
+                      child: panel(collapsed: rail, close: false),
+                    ),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        _Header(
+                          shell: widget,
+                          showMenuButton: compact,
+                          // The merged list replaces the switcher: one menu already
+                          // holds every area (decision 24, ruling 1).
+                          showAreaSwitcher: !merged,
+                        ),
+                        Expanded(child: body),
+                      ],
                     ),
                   ),
-                  child: panel(collapsed: rail, close: false),
-                ),
-              Expanded(
-                child: Column(
-                  children: [
-                    _Header(
-                      shell: widget,
-                      showMenuButton: compact,
-                      // The merged list replaces the switcher: one menu already
-                      // holds every area (decision 24, ruling 1).
-                      showAreaSwitcher: !merged,
-                    ),
-                    Expanded(child: body),
-                  ],
-                ),
+                ],
               ),
+              if (canToggleSidebar)
+                Positioned(
+                  left: sidebarWidth - 5,
+                  top: 0,
+                  bottom: 0,
+                  width: 10,
+                  child: _SidebarEdgeToggle(
+                    collapsed: rail,
+                    onToggle: _toggleCollapsed,
+                  ),
+                ),
             ],
           ),
         );
@@ -392,65 +412,37 @@ class _SidebarPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthViewmodel>();
+    final p = AppPalette.of(context);
     final name = auth.user?.fullName ?? fallbackUserName;
     final role = auth.user?.roleLabel ?? fallbackRoleLabel;
     final onSelected = onDestinationSelected;
+    final nameColor = p.sidebarIsLight ? p.textPrimary : AppColors.brandWhite;
 
     return Material(
-      color: AppColors.chrome,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          const IgnorePointer(
-            child: RepaintBoundary(
-              child: CustomPaint(painter: _SidebarGridPainter()),
-            ),
-          ),
-          Column(
-            children: [
-              SizedBox(
-                height: AppShell.headerHeight,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Center(
-                        // Scale down, never ellipsize: the brand sits in a fixed
-                        // 260 px column, and "& CONSTRUCTION SUPPLIES" is wider
-                        // than the text area left beside the logo once the text
-                        // scale goes up - so the company name was cut to
-                        // "& CONSTRUCTION SUP...". A FittedBox lays the subtitle
-                        // out in full and shrinks the block to the column when it
-                        // has to; at the default scale it changes nothing.
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: collapsed
-                              ? const SystemBrand(logoSize: 40, showName: false)
-                              : const SystemBrand(
-                                  logoSize: 42,
-                                  fontSize: 14,
-                                  subtitle: '& CONSTRUCTION SUPPLIES',
-                                  textColor: AppColors.brandWhite,
-                                  subtitleColor: AppColors.brandGold,
-                                ),
-                        ),
-                      ),
-                    ),
-                    if (onToggleCollapsed case final toggle?)
-                      IconButton(
-                        tooltip: collapsed
-                            ? 'Expand sidebar'
-                            : 'Collapse sidebar',
-                        onPressed: toggle,
-                        icon: Icon(
-                          collapsed ? Icons.chevron_right : Icons.chevron_left,
-                          size: 18,
-                          color: AppColors.chromeText,
-                        ),
-                      ),
-                  ],
+      color: p.sidebarBg,
+      child: GestureDetector(
+        key: const ValueKey('sidebar-free-space-detector'),
+        behavior: HitTestBehavior.opaque,
+        onTap: collapsed ? onToggleCollapsed : null,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            IgnorePointer(
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  painter: _SidebarGridPainter(
+                    accent: p.accent,
+                    isLight: p.sidebarIsLight,
+                  ),
                 ),
               ),
-              const Divider(height: 1, color: AppColors.chromeBorder),
+            ),
+            Column(
+              children: [
+                _SidebarBrandHeader(
+                  collapsed: collapsed,
+                  onToggleCollapsed: onToggleCollapsed,
+                ),
               Expanded(
                 child: SharedSidebar(
                   sections: sections,
@@ -467,61 +459,66 @@ class _SidebarPanel extends StatelessWidget {
                         },
                 ),
               ),
-              const Divider(height: 1, color: AppColors.chromeBorder),
+              Divider(height: 1, color: p.sidebarBorder),
               if (collapsed)
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
                   child: Column(
                     children: [
                       Tooltip(
                         message: '$name · $role',
-                        child: CircleAvatar(
-                          radius: 18,
-                          backgroundColor: AppColors.chromeRaised,
-                          foregroundColor: AppColors.brandGoldLight,
-                          child: Text(
-                            _initials(name),
-                            // Initials are a heading: the brand face, not the
-                            // platform font the bare TextStyle fell back to.
-                            style: const TextStyle(
-                              fontFamily: AppTextStyles.cinzelFont,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: p.accent.withValues(alpha: 0.5),
+                            ),
+                          ),
+                          child: CircleAvatar(
+                            radius: 16,
+                            backgroundColor: p.sidebarRaised,
+                            foregroundColor: p.sidebarActiveText,
+                            child: Text(
+                              _initials(name),
+                              // Initials are a heading: the brand face, not the
+                              // platform font the bare TextStyle fell back to.
+                              style: const TextStyle(
+                                fontFamily: AppTextStyles.cinzelFont,
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                         ),
                       ),
-                      IconButton(
+                      const SizedBox(height: AppSpacing.sm),
+                      _ChromeIconButton(
                         tooltip: 'Log out',
+                        icon: Icons.logout_rounded,
                         onPressed: auth.logout,
-                        icon: const Icon(Icons.logout, size: 18),
-                        color: AppColors.chromeText,
                       ),
                     ],
                   ),
                 )
               else
-                // The signed-in account, on the raised dark surface the rest of
-                // the chrome is drawn on.
-                // The signed-in account, on the raised dark surface the rest
-                // of the chrome is drawn on. The tile paints its own
-                // background: a ListTile inside a coloured box hides its ink
-                // splashes, and the framework asserts on exactly that.
+                // The signed-in account on the raised chrome surface. The tile
+                // paints its own background so ink splashes render properly.
                 Padding(
                   padding: const EdgeInsets.all(AppSpacing.md),
                   child: ListTile(
                     leading: ClipPath(
-                      clipper: HexagonClipper(),
+                      clipper: const HexagonClipper(),
                       child: ColoredBox(
-                        color: AppColors.brandGold,
+                        color: p.accent,
                         child: SizedBox.square(
-                          dimension: 32,
+                          dimension: 36,
                           child: Center(
                             child: Text(
                               _initials(name),
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontFamily: AppTextStyles.outfitFont,
-                                color: AppColors.textPrimary,
+                                color: p.onAccent,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -530,43 +527,44 @@ class _SidebarPanel extends StatelessWidget {
                         ),
                       ),
                     ),
-                    horizontalTitleGap: AppSpacing.sm,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.sm,
-                    ),
-                    tileColor: AppColors.chromeRaised,
+                    horizontalTitleGap: 10,
+                    contentPadding: const EdgeInsets.fromLTRB(10, 2, 6, 2),
+                    tileColor: p.sidebarRaised,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadii.medium),
-                      side: const BorderSide(color: AppColors.chromeBorder),
+                      side: BorderSide(color: p.sidebarBorder),
                     ),
                     title: Text(
                       name,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.brandWhite,
+                      style: AppTextStyles.labelLarge.copyWith(
+                        color: nameColor,
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
+                        height: 1.25,
                       ),
                     ),
                     subtitle: Text(
                       role,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.brandGold,
+                      style: AppTextStyles.labelSmall.copyWith(
+                        color: p.sidebarSubtitle,
                         fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        height: 1.3,
                       ),
                     ),
-                    trailing: IconButton(
+                    trailing: _ChromeIconButton(
                       tooltip: 'Log out',
+                      icon: Icons.logout_rounded,
                       onPressed: auth.logout,
-                      icon: const Icon(Icons.logout, size: 18),
-                      color: AppColors.chromeText,
                     ),
                   ),
                 ),
             ],
           ),
         ],
+      ),
       ),
     );
   }
@@ -580,6 +578,266 @@ class _SidebarPanel extends StatelessWidget {
     final first = parts.first[0];
     final last = parts.length > 1 ? parts.last[0] : '';
     return (first + last).toUpperCase();
+  }
+}
+
+class _SidebarBrandHeader extends StatelessWidget {
+  const _SidebarBrandHeader({
+    required this.collapsed,
+    required this.onToggleCollapsed,
+  });
+
+  final bool collapsed;
+  final VoidCallback? onToggleCollapsed;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    const logoSize = 30.0;
+    final titleColor = p.sidebarIsLight ? p.textPrimary : AppColors.brandWhite;
+    final logoTile = Container(
+      width: 38,
+      height: 38,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: AppColors.brandWhite,
+        borderRadius: BorderRadius.circular(AppRadii.small),
+        border: Border.all(color: p.accent.withValues(alpha: 0.48)),
+      ),
+      child: Image.asset(
+        AppAssets.logo,
+        width: logoSize,
+        height: logoSize,
+        fit: BoxFit.contain,
+        cacheWidth: (logoSize * dpr).round(),
+        semanticLabel: 'Queen Builders logo',
+      ),
+    );
+
+    final brandContent = Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: collapsed ? 4 : 6,
+        vertical: 4,
+      ),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: collapsed ? Alignment.center : Alignment.centerLeft,
+        child: collapsed
+            ? logoTile
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  logoTile,
+                  const SizedBox(width: 10),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'QUEEN BUILDERS',
+                        style: AppTextStyles.h4.copyWith(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: titleColor,
+                          letterSpacing: 0.75,
+                          height: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        '& CONSTRUCTION SUPPLIES',
+                        style: AppTextStyles.labelSmall.copyWith(
+                          color: p.sidebarSubtitle,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.65,
+                          height: 1.25,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+      ),
+    );
+
+    final toggle = onToggleCollapsed;
+    Widget interactiveBrand = toggle == null
+        ? brandContent
+        : Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(AppRadii.medium),
+            child: InkWell(
+              key: const ValueKey('sidebar-brand-toggle'),
+              onTap: toggle,
+              borderRadius: BorderRadius.circular(AppRadii.medium),
+              hoverColor: p.accent.withValues(alpha: 0.14),
+              child: brandContent,
+            ),
+          );
+    if (toggle != null && collapsed) {
+      interactiveBrand = Tooltip(
+        message: 'Expand sidebar',
+        child: interactiveBrand,
+      );
+    }
+
+    return Container(
+      height: AppShell.headerHeight,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [p.sidebarRaised.withValues(alpha: 0.95), p.sidebarBg],
+        ),
+      ),
+      child: Column(
+        children: [
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: collapsed ? 8 : AppSpacing.sm + 2,
+              ),
+              child: collapsed
+                  ? Align(
+                      alignment: Alignment.center,
+                      child: interactiveBrand,
+                    )
+                  : Row(
+                      children: [
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: interactiveBrand,
+                          ),
+                        ),
+                        if (toggle != null) ...[
+                          const SizedBox(width: 6),
+                          _ChromeIconButton(
+                            key: const ValueKey('sidebar-collapse-button'),
+                            tooltip: 'Collapse sidebar',
+                            icon: Icons.chevron_left_rounded,
+                            onPressed: toggle,
+                          ),
+                        ],
+                      ],
+                    ),
+            ),
+          ),
+          // Architectural accent hairline anchoring the brand header.
+          Container(
+            height: 1.5,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [p.accent.withValues(alpha: 0.65), p.sidebarBorder],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Interactive seam along the sidebar's right border. Hovering shows the
+/// directional resize cursor and highlights the vertical line so it reads
+/// unmistakably as a sidebar toggle rather than a page click.
+class _SidebarEdgeToggle extends StatefulWidget {
+  const _SidebarEdgeToggle({required this.collapsed, required this.onToggle});
+
+  final bool collapsed;
+  final VoidCallback onToggle;
+
+  @override
+  State<_SidebarEdgeToggle> createState() => _SidebarEdgeToggleState();
+}
+
+class _SidebarEdgeToggleState extends State<_SidebarEdgeToggle> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    final duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 140);
+
+    return Semantics(
+      key: const ValueKey('sidebar-edge-toggle'),
+      button: true,
+      label: widget.collapsed ? 'Expand sidebar' : 'Collapse sidebar',
+      child: MouseRegion(
+        cursor: widget.collapsed
+            ? SystemMouseCursors.resizeRight
+            : SystemMouseCursors.resizeLeft,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onToggle,
+          child: Center(
+            child: AnimatedContainer(
+              duration: duration,
+              curve: Curves.easeOutCubic,
+              width: _hovered ? 3 : 1,
+              decoration: BoxDecoration(
+                color: _hovered ? p.accent : Colors.transparent,
+                boxShadow: _hovered
+                    ? [
+                        BoxShadow(
+                          color: p.accent.withValues(alpha: 0.35),
+                          blurRadius: 6,
+                        ),
+                      ]
+                    : null,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ChromeIconButton extends StatelessWidget {
+  const _ChromeIconButton({
+    super.key,
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  static const double _size = 32;
+  static const double _iconSize = 17;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    return SizedBox(
+      width: _size,
+      height: _size,
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: _size, height: _size),
+        style: IconButton.styleFrom(
+          backgroundColor: p.sidebarRaised,
+          foregroundColor: p.sidebarText,
+          hoverColor: p.accent.withValues(alpha: 0.14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadii.small),
+            side: BorderSide(color: p.sidebarBorder),
+          ),
+        ),
+        icon: Icon(icon, size: _iconSize),
+      ),
+    );
   }
 }
 
@@ -600,78 +858,163 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final p = AppPalette.of(context);
+    final hasSubtitle = shell.subtitle.trim().isNotEmpty;
+
     return SizedBox(
       height: AppShell.headerHeight,
       child: ColoredBox(
-        color: AppColors.cardBackground,
+        color: p.cardBackground,
         child: Column(
           children: [
-            Expanded(
-              child: Padding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: showMenuButton ? AppSpacing.sm : AppSpacing.xl,
-                ),
-                child: Row(
-                  children: [
-                    if (showMenuButton) ...[
-                      IconButton(
-                        tooltip: 'Open menu',
-                        onPressed: () => Scaffold.of(context).openDrawer(),
-                        icon: const Icon(Icons.menu),
-                      ),
-                      const SizedBox(width: AppSpacing.xs),
-                    ],
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            shell.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          Text(
-                            shell.subtitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (!showMenuButton) ...[
-                      const SizedBox(width: AppSpacing.md),
-                      Flexible(
-                        child: Text(
-                          formatWeekdayDate(appClock.now()),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                    ],
-                    // Multi-area staff switch areas from here (Phase 4 F3b).
-                    // It draws nothing for a single-area account, so every role
-                    // shell keeps the header it had. A merged account gets no
-                    // switcher at all: its sidebar is every area.
-                    if (showAreaSwitcher) const AreaSwitcherMenu(),
-                    ...shell.actions,
+            // Thin signature accent edge echoing the login card crown.
+            Container(
+              height: 2,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    p.accent,
+                    p.accentLight,
+                    p.accent.withValues(alpha: 0.25),
                   ],
                 ),
               ),
             ),
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: showMenuButton ? AppSpacing.md : AppSpacing.xl,
+                ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final hasSwitcher =
+                        showAreaSwitcher &&
+                        context.select<AuthViewmodel, bool>(
+                          (auth) => auth.assignedAreaRoles.length >= 2,
+                        );
+                    final hasTrailingActions =
+                        hasSwitcher || shell.actions.isNotEmpty;
+                    // Show the date pill only when the header has comfortable
+                    // horizontal room for the title, date, and actions without
+                    // truncating any of them.
+                    final minWidthForDate = shell.actions.length >= 3
+                        ? 1360.0
+                        : shell.actions.length >= 2
+                        ? 1060.0
+                        : 640.0;
+                    final showDatePill =
+                        !showMenuButton &&
+                        constraints.maxWidth >= minWidthForDate;
+
+                    return Row(
+                      children: [
+                        if (showMenuButton) ...[
+                          SizedBox(
+                            width: 38,
+                            height: 38,
+                            child: IconButton(
+                              tooltip: 'Open menu',
+                              onPressed: () =>
+                                  Scaffold.of(context).openDrawer(),
+                              padding: EdgeInsets.zero,
+                              style: IconButton.styleFrom(
+                                backgroundColor: p.surfaceSunken,
+                                foregroundColor: p.textPrimary,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    AppRadii.small,
+                                  ),
+                                  side: BorderSide(color: p.border),
+                                ),
+                              ),
+                              icon: const Icon(Icons.menu_rounded, size: 20),
+                            ),
+                          ),
+                          const SizedBox(width: AppSpacing.md),
+                        ],
+                        Container(
+                          width: 3.5,
+                          height: hasSubtitle ? 32 : 22,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(2),
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [p.accent, p.accentLight],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        // Single Expanded: fills all free width so the date
+                        // pill and action buttons always anchor flush right.
+                        Expanded(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                shell.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTextStyles.h3.copyWith(
+                                  fontFamily: AppTextStyles.cinzelFont,
+                                  fontSize: showMenuButton ? 17 : 19,
+                                  fontWeight: FontWeight.w700,
+                                  color: p.textPrimary,
+                                  letterSpacing: 0.35,
+                                  height: 1.15,
+                                ),
+                              ),
+                              if (hasSubtitle) ...[
+                                const SizedBox(height: 1),
+                                Text(
+                                  shell.subtitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTextStyles.bodySmall.copyWith(
+                                    fontSize: 12,
+                                    color: p.textSecondary,
+                                    height: 1.25,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        if (showDatePill) ...[
+                          const SizedBox(width: AppSpacing.md),
+                          _HeaderDatePill(palette: p),
+                          if (hasTrailingActions) ...[
+                            const SizedBox(width: AppSpacing.md),
+                            Container(width: 1, height: 22, color: p.border),
+                          ],
+                        ],
+                        // Multi-area staff switch areas from here (Phase 4 F3b).
+                        // Single-area accounts still mount the widget (it draws
+                        // SizedBox.shrink()); a merged account retires it.
+                        if (hasSwitcher) const SizedBox(width: AppSpacing.md),
+                        if (showAreaSwitcher) const AreaSwitcherMenu(),
+                        if (shell.actions.isNotEmpty) ...[
+                          SizedBox(
+                            width: hasSwitcher ? AppSpacing.sm : AppSpacing.md,
+                          ),
+                          ...shell.actions,
+                        ],
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
             // The tape-measure edge the design system uses on brand surfaces.
-            const MeasureRuler(height: 7),
+            Container(
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(color: p.border.withValues(alpha: 0.7)),
+                ),
+              ),
+              child: MeasureRuler(height: 6, color: p.accent),
+            ),
           ],
         ),
       ),
@@ -679,16 +1022,79 @@ class _Header extends StatelessWidget {
   }
 }
 
-/// The faint blueprint grid the dark chrome carries, so the sidebar reads as
-/// one drawn surface rather than a flat black band.
+/// Today's date chip shown on desktop headers when there is enough room.
+class _HeaderDatePill extends StatelessWidget {
+  const _HeaderDatePill({required this.palette});
+
+  final AppPalette palette;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 34,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: palette.surfaceSunken,
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+        border: Border.all(color: palette.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.calendar_today_outlined,
+            size: 13.5,
+            color: palette.accentInk,
+          ),
+          const SizedBox(width: 7),
+          Text(
+            formatWeekdayDate(appClock.now()),
+            maxLines: 1,
+            style: AppTextStyles.labelMedium.copyWith(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: palette.textPrimary,
+              height: 1.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The faint blueprint grid and warm glow the sidebar carries, linked to the
+/// login screen's architectural drafting canvas.
 class _SidebarGridPainter extends CustomPainter {
-  const _SidebarGridPainter();
+  const _SidebarGridPainter({required this.accent, required this.isLight});
+
+  final Color accent;
+  final bool isLight;
 
   @override
   void paint(Canvas canvas, Size size) {
-    Blueprint.paintGrid(canvas, size, opacity: 0.55);
+    final glowRect = Rect.fromCircle(
+      center: Offset(size.width * 0.2, 48),
+      radius: size.width * 1.15,
+    );
+    final glowPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          accent.withValues(alpha: isLight ? 0.05 : 0.08),
+          Colors.transparent,
+        ],
+      ).createShader(glowRect);
+    canvas.drawRect(Offset.zero & size, glowPaint);
+
+    Blueprint.paintGrid(
+      canvas,
+      size,
+      opacity: isLight ? 0.28 : 0.48,
+      color: accent,
+    );
   }
 
   @override
-  bool shouldRepaint(covariant _SidebarGridPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _SidebarGridPainter oldDelegate) =>
+      oldDelegate.accent != accent || oldDelegate.isLight != isLight;
 }

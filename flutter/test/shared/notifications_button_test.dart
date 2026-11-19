@@ -14,9 +14,11 @@ import 'dart:async';
 
 import 'package:client/data/models/system_alert.dart';
 import 'package:client/data/services/inventory_service.dart';
+import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/notifications_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _StubInventoryService extends InventoryService {
   _StubInventoryService() : super();
@@ -72,6 +74,8 @@ Future<void> _pumpSheet(
 }
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   testWidgets('shows a spinner while the alerts are loading', (tester) async {
     final gate = Completer<List<SystemAlert>>();
     final service = _StubInventoryService()..gate = gate;
@@ -195,4 +199,83 @@ void main() {
       reason: 'resolving is Phase 4; there is no endpoint call to offer',
     );
   });
+
+  testWidgets(
+    'header button opens a modal dialog pop-up with All, Unread and Read filters',
+    (tester) async {
+      final service = _StubInventoryService()
+        ..alerts = [
+          _alert(id: 1, message: 'Cement 40kg is below threshold'),
+          _alert(
+            id: 2,
+            type: 'OUT_OF_STOCK',
+            message: 'Tiles 60x60 is out of stock',
+          ),
+        ];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: NotificationsButton(service: service)),
+        ),
+      );
+
+      await tester.tap(find.text('Notifications'));
+      await tester.pumpAndSettle();
+
+      // Opens as a modal pop-up dialog, not a bottom sheet.
+      expect(find.byType(AppDialog), findsOneWidget);
+      expect(find.byType(Dialog), findsOneWidget);
+      expect(find.byType(BottomSheet), findsNothing);
+
+      // All three filter tabs exist.
+      final allTab = find.byKey(const ValueKey('notifications-filter-all'));
+      final unreadTab = find.byKey(
+        const ValueKey('notifications-filter-unread'),
+      );
+      final readTab = find.byKey(const ValueKey('notifications-filter-read'));
+      expect(allTab, findsOneWidget);
+      expect(unreadTab, findsOneWidget);
+      expect(readTab, findsOneWidget);
+
+      // Both alerts start unread: Read filter is empty.
+      await tester.tap(readTab);
+      await tester.pumpAndSettle();
+      expect(find.text('No read notifications yet.'), findsOneWidget);
+
+      // Switch to Unread and mark alert #1 as read by tapping it.
+      await tester.tap(unreadTab);
+      await tester.pumpAndSettle();
+      expect(find.text('Cement 40kg is below threshold'), findsOneWidget);
+      expect(find.text('Tiles 60x60 is out of stock'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('notification-item-1')));
+      await tester.pumpAndSettle();
+      expect(find.text('Cement 40kg is below threshold'), findsNothing);
+      expect(find.text('Tiles 60x60 is out of stock'), findsOneWidget);
+
+      // Alert #1 now appears under Read.
+      await tester.tap(readTab);
+      await tester.pumpAndSettle();
+      expect(find.text('Cement 40kg is below threshold'), findsOneWidget);
+      expect(find.text('Tiles 60x60 is out of stock'), findsNothing);
+
+      // Mark all read clears the remaining unread notification.
+      await tester.tap(
+        find.byKey(const ValueKey('notifications-mark-all-read')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(unreadTab);
+      await tester.pumpAndSettle();
+      expect(
+        find.text('You are all caught up — no unread notifications.'),
+        findsOneWidget,
+      );
+
+      // All still displays both notifications.
+      await tester.tap(allTab);
+      await tester.pumpAndSettle();
+      expect(find.text('Cement 40kg is below threshold'), findsOneWidget);
+      expect(find.text('Tiles 60x60 is out of stock'), findsOneWidget);
+    },
+  );
 }

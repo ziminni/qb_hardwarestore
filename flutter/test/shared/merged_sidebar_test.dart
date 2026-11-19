@@ -135,8 +135,8 @@ Future<void> _pump(
 /// Tall enough to build EVERY merged row: a ListView only builds what fits, and
 /// a row that was never built would look like a missing destination. The widths
 /// stay the ones the layout tests name (1440 full, 1100 rail, 760 drawer).
-const _tall = Size(1440, 1800);
-const _tallRail = Size(1100, 1800);
+const _tall = Size(1440, 2400);
+const _tallRail = Size(1100, 2400);
 
 /// The one row carrying [label]. Fails when the label is drawn twice, which is
 /// exactly the merged duplicate this file is about.
@@ -181,6 +181,7 @@ void main() {
         AppAreas.pos,
         AppAreas.sales,
         AppAreas.inventory,
+        AppAreas.bodega,
         AppAreas.admin,
       ]);
     });
@@ -190,7 +191,7 @@ void main() {
     test('Cashier + Store Manager: Till then Sales, every row kept', () {
       final rows = MergedSidebar.rows(const ['pos', 'sales']);
 
-      expect(rows.length, 20, reason: '7 Till rows + 12 Sales rows + landing');
+      expect(rows.length, 23, reason: '9 Till rows + 13 Sales rows + landing');
       expect(
         [for (final section in MergedSidebar.sectionsFor(rows)) section.label],
         ['', 'Till', 'Sales'],
@@ -200,14 +201,14 @@ void main() {
         rows.where((row) => row.id == 'pos.new-transaction').single.id,
         'pos.new-transaction',
       );
-      expect(rows.last.id, 'transfers');
+      expect(rows.last.id, 'sales.settings');
       expect(rows.last.area, AppAreas.sales);
     });
 
     test('Stock + Store Manager: shared pages once, under Sales', () {
       final rows = MergedSidebar.rows(const ['inventory', 'sales']);
 
-      expect(rows.length, 26, reason: '16 Stock + 12 Sales - 3 shared + 1');
+      expect(rows.length, 28, reason: '17 Stock + 13 Sales - 3 shared + 1');
       for (final sharedKey in const ['payables', 'deliveries', 'transfers']) {
         final owned = rows.where((row) => row.sharedKey == sharedKey).toList();
         expect(owned.length, 1, reason: '$sharedKey appears once');
@@ -222,18 +223,20 @@ void main() {
     test('Admin + Cashier: the till adds no shared page to the admin menu', () {
       final rows = MergedSidebar.rows(const ['admin', 'pos']);
 
-      expect(rows.length, 20, reason: '7 Till + 12 Admin rows + landing');
+      expect(rows.length, 16, reason: '9 Till + 6 Admin rows + landing');
       expect(
         [for (final section in MergedSidebar.sectionsFor(rows)) section.label],
         ['', 'Till', 'Admin'],
       );
     });
 
-    test('all four areas: 47 rows become 39, every identity once', () {
+    test('all five areas: 50 rows become 46, every identity once', () {
       final rows = MergedSidebar.rows(AppAreas.codes);
 
-      expect(rows.length, 39);
-      expect(rows.map((row) => row.id).toSet().length, 39);
+      // 49 area rows + the landing; Payables, Deliveries and Transfers are
+      // shared by Sales and Stock only since the Admin lost them (2026-11-18).
+      expect(rows.length, 46);
+      expect(rows.map((row) => row.id).toSet().length, 46);
       for (final sharedKey in AppDestinations.sharedIds) {
         expect(
           rows.where((row) => row.sharedKey == sharedKey).length,
@@ -246,7 +249,7 @@ void main() {
       expect(staff.label, 'User management', reason: 'Admin label preserved');
       expect(
         [for (final section in MergedSidebar.sectionsFor(rows)) section.label],
-        ['', 'Till', 'Sales', 'Stock', 'Admin'],
+        ['', 'Till', 'Sales', 'Stock', 'Bodega', 'Admin'],
       );
     });
 
@@ -275,11 +278,13 @@ void main() {
     });
 
     test('a merged row carries the widest area route, never a twin', () {
+      // Owner 2026-11-18: the Admin has no Payables, so an Admin + Stock
+      // account's row is the stock one.
       final rows = MergedSidebar.rows(const ['admin', 'inventory']);
       final payables = rows.firstWhere((row) => row.id == 'payables');
 
-      expect(payables.area, AppAreas.admin);
-      expect(payables.route, AppRoutes.adminPayables);
+      expect(payables.area, AppAreas.inventory);
+      expect(payables.route, AppRoutes.inventoryPayables);
 
       final salesAndStock = MergedSidebar.rows(const ['inventory', 'sales']);
       expect(
@@ -291,7 +296,7 @@ void main() {
 
   group('the merged badges', () {
     test(
-      'one query per held area, a shared badge keeps the widest count',
+      'the Admin menu has no badged row, so only the manager queue counts',
       () async {
         final calls = <String>[];
         Future<int> answer(String area) async {
@@ -307,9 +312,10 @@ void main() {
           },
         );
 
-        // Project requests is ONE row; adding the two areas would claim 11.
-        expect(counts, {'project-requests': 7});
-        expect(calls, unorderedEquals([AppAreas.admin, AppAreas.sales]));
+        // Owner 2026-11-18: Project requests left the Admin menu, so the
+        // admin query is never made and the Store Manager's count stands.
+        expect(counts, {'project-requests': 4});
+        expect(calls, [AppAreas.sales]);
       },
     );
 
@@ -339,8 +345,8 @@ void main() {
       expect(counts, {
         'pos.held': 3,
         'inventory.low-stock': 5,
-        // Admin is the wider owner of the shared row, so its answer stands.
-        'project-requests': 2,
+        // Only the Store Manager's menu has the queue now.
+        'project-requests': 9,
       });
     });
   });
@@ -386,6 +392,9 @@ void main() {
         tester,
         await _auth([_admin, _pos]),
         _cashierShell(selected: 1),
+        // User management sits lower since the admin menu was ordered by
+        // priority (owner 2026-11-18); build every row.
+        size: _tall,
       );
 
       expect(_tile(tester, 'Transaction history').selected, isTrue);
@@ -397,11 +406,13 @@ void main() {
       await _pump(
         tester,
         await _auth([_admin, _pos]),
-        _adminShell(selected: AdminSkeletonLayout.projectRequestsIndex),
+        _adminShell(
+          selected: AppDestinations.indexOf('admin.audit-logs', AppAreas.admin),
+        ),
         size: _tall,
       );
 
-      expect(_tile(tester, 'Project requests').selected, isTrue);
+      expect(_tile(tester, 'Audit logs').selected, isTrue);
       expect(find.text('ADMIN'), findsOneWidget);
       expect(find.text('TILL'), findsOneWidget);
     });
@@ -430,16 +441,18 @@ void main() {
 
   group('tapping a merged row', () {
     testWidgets('opens the widest area route of a shared page', (tester) async {
+      // Owner 2026-11-18: the Admin holds no Payables, so from the admin shell
+      // an Admin + Store Manager's Payables row opens the sales page.
       final router = GoRouter(
-        initialLocation: AppRoutes.salesPayables,
+        initialLocation: AppRoutes.adminDashboard,
         routes: [
           GoRoute(
-            path: AppRoutes.salesPayables,
-            builder: (context, state) => _salesShell(selected: 9),
+            path: AppRoutes.adminDashboard,
+            builder: (context, state) => _adminShell(),
           ),
           GoRoute(
-            path: AppRoutes.adminPayables,
-            builder: (context, state) => const Scaffold(body: Text('ADMIN')),
+            path: AppRoutes.salesPayables,
+            builder: (context, state) => const Scaffold(body: Text('SALES')),
           ),
           GoRoute(
             path: AppRoutes.combinedDashboard,
@@ -468,10 +481,10 @@ void main() {
 
       expect(
         router.routerDelegate.currentConfiguration.uri.path,
-        AppRoutes.adminPayables,
-        reason: 'the merged row links to the widest area route',
+        AppRoutes.salesPayables,
+        reason: 'the merged row links to the widest area that holds the page',
       );
-      expect(find.text('ADMIN'), findsOneWidget);
+      expect(find.text('SALES'), findsOneWidget);
     });
 
     testWidgets('the landing row opens the combined dashboard', (tester) async {

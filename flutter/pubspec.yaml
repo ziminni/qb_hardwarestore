@@ -20,7 +20,12 @@ dependencies:
   shared_preferences: ^2.5.6
   pdf: ^3.13.1
   printing: ^5.15.1
+  ffi: ^2.1.0              # Windows spooler, raw receipt-printer jobs
   excel_community: ^2.6.2  # Excel catalogue export/import (decision 23)
+  mobile_scanner: ^7.5.0
+  archive: ^4.0.0
+  image_picker: ^1.2.4
+  flutter_local_notifications: ^22.3.3
   
 dev_dependencies:
   flutter_test:

@@ -24,12 +24,17 @@ class Blueprint {
     return Path()..addPolygon(hexagonPoints(center, radius), true);
   }
 
-  static void paintGrid(Canvas canvas, Size size, {double opacity = 1}) {
+  static void paintGrid(
+    Canvas canvas,
+    Size size, {
+    double opacity = 1,
+    Color color = AppColors.brandGold,
+  }) {
     final minor = Paint()
-      ..color = AppColors.brandGold.withValues(alpha: 0.05 * opacity)
+      ..color = color.withValues(alpha: 0.05 * opacity)
       ..strokeWidth = 1;
     final major = Paint()
-      ..color = AppColors.brandGold.withValues(alpha: 0.11 * opacity)
+      ..color = color.withValues(alpha: 0.11 * opacity)
       ..strokeWidth = 1;
 
     for (double x = 0; x <= size.width; x += minorStep) {
@@ -42,11 +47,16 @@ class Blueprint {
     }
   }
 
-  static void paintCornerMarks(Canvas canvas, Size size, {double opacity = 1}) {
+  static void paintCornerMarks(
+    Canvas canvas,
+    Size size, {
+    double opacity = 1,
+    Color color = AppColors.brandGold,
+  }) {
     const inset = 20.0;
     const length = 18.0;
     final paint = Paint()
-      ..color = AppColors.brandGold.withValues(alpha: 0.5 * opacity)
+      ..color = color.withValues(alpha: 0.5 * opacity)
       ..strokeWidth = 1.2;
 
     final corners = [

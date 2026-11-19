@@ -30,7 +30,6 @@ Future<int> waitingProjectRequestsCount() =>
 const Map<String, BadgeCountLoader> badgeLoaders = {
   AppAreas.pos: heldCartsCount,
   AppAreas.inventory: unresolvedAlertsCount,
-  AppAreas.admin: waitingProjectRequestsCount,
   AppAreas.sales: waitingProjectRequestsCount,
 };
 
@@ -71,6 +70,7 @@ class MergedSidebar {
     AppAreas.pos,
     AppAreas.sales,
     AppAreas.inventory,
+    AppAreas.bodega,
     AppAreas.admin,
   ];
 
@@ -79,6 +79,7 @@ class MergedSidebar {
     AppAreas.pos: 'Till',
     AppAreas.sales: 'Sales',
     AppAreas.inventory: 'Stock',
+    AppAreas.bodega: 'Bodega',
     AppAreas.admin: 'Admin',
   };
 

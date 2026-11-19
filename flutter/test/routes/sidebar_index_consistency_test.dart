@@ -70,17 +70,17 @@ void main() {
     );
     expect(
       salesOrder.length,
-      12,
+      13,
       reason:
-          'the sales sidebar has 12 destinations — Reports (index 6) was added by '
+          'the sales sidebar has 13 destinations — Reports (index 6) was added by '
           'decision D-01 so the manager can reach live reports inside their own shell; '
           'Staff (7), Project requests (8) and Payables (9) were APPENDED the same '
-          'way, Deliveries (10) by Phase 5 F3 (decision 18) and Transfers (11) by '
-          'Phase 9 F3. Approvals is gone (decision 01: CPMS approves)',
+          'way, Deliveries (10) by Phase 5 F3 (decision 18), Transfers (11) by '
+          'Phase 9 F3, and Settings (12). Approvals is gone (decision 01: CPMS approves)',
     );
     expect(
       inventoryOrder.length,
-      16,
+      17,
       reason:
           'the inventory sidebar has 16 destinations — Phase 5 F2 APPENDED '
           'Payables at 13, F3 APPENDED Deliveries at 14 (decision 18) and Phase 9 '
@@ -88,18 +88,19 @@ void main() {
     );
     expect(
       tillOrder.length,
-      7,
+      9,
       reason:
-          'the POS sidebar has 7 destinations — Returns (decision 05) was '
-          'APPENDED at index 6, so tabs 0-5 keep their numbers',
+          'the POS sidebar has 9 destinations — Returns (decision 05) was '
+          'APPENDED at index 6, Settings (the receipt printer, 2026-11-18) '
+          'at 7, and Customers at 8, so tabs 0-7 keep their numbers',
     );
     expect(
       adminOrder.length,
-      12,
+      6,
       reason:
-          'the admin sidebar has 12 destinations — Project requests (7), '
-          'Payables (8), Deliveries (9), Storage locations (10) and Transfers (11) '
-          'were all APPENDED, so 0-6 keep their numbers',
+          'the admin sidebar has 6 destinations (Dashboard, User management, '
+          'Settings, Audit logs, Backup & restore, Security); admin pages look '
+          'their index up by id, so additions never shift earlier items',
     );
 
     expect(salesOrder.first, AppRoutes.salesDashboard);
@@ -163,6 +164,8 @@ void main() {
           'would send a cashier to the wrong screen — the regression this file '
           'exists for',
     );
+    expect(tillOrder[7], AppRoutes.posSettings);
+    expect(tillOrder[8], AppRoutes.posCustomers);
   });
 
   group('every page highlights its own entry in its own sidebar', () {
@@ -229,55 +232,53 @@ void main() {
   // Removing one destination silently renumbers the ones after it. The admin menu lost
   // Requisitions (decision 01) and three pages kept their old numbers, which the
   // regenerated a5-requisitions golden showed as the WRONG row highlighted.
+  // Owner 2026-11-18: the admin menu lost Reports and Project requests, so every
+  // admin page now LOOKS UP its index by registry id
+  // (`AppDestinations.indexOf('<id>', AppAreas.admin)`) instead of hard-coding a
+  // number that a removed row would silently shift. Pinned here: each page names
+  // the id whose row carries its own label.
   group('the admin pages highlight their own entry', () {
+    // Owner 2026-11-18: the Admin sees everything (Dashboard) and acts on
+    // nothing; the menu keeps only the Admin's own jobs.
     const restatedAdminOrder = [
-      'Overview',
+      'Dashboard',
       'User management',
-      'Inventory',
-      'Sales & POS',
-      'Reports',
-      'Audit logs',
       'Settings',
-      'Project requests',
-      'Payables',
-      'Deliveries',
-      'Storage locations',
-      'Transfers',
+      'Audit logs',
+      'Backup & restore',
+      'Security',
     ];
 
     const expected = {
-      'dashboard/views/admin_dashboard.dart': 'Overview',
+      'admin/views/admin_dashboard_page.dart': 'Dashboard',
       'admin/views/admin_user_management_page.dart': 'User management',
-      'admin/views/inventory_monitoring_page.dart': 'Inventory',
-      'admin/views/sales_monitoring_page.dart': 'Sales & POS',
-      'admin/views/reports_page.dart': 'Reports',
       'admin/views/audit_logs_page.dart': 'Audit logs',
+      'admin/views/admin_backup_restore_page.dart': 'Backup & restore',
+      'admin/views/admin_security_page.dart': 'Security',
       'admin/views/settings_page.dart': 'Settings',
-      'payables/views/payables_page.dart': 'Payables',
-      'deliveries/views/deliveries_page.dart': 'Deliveries',
-      'admin/views/storage_locations_page.dart': 'Storage locations',
-      'transfers/views/transfers_page.dart': 'Transfers',
     };
 
     test('the restated menu really is the registry\'s menu', () {
-      // Without this the map above could name a destination the sidebar does
-      // not have, and every index check below would pass against nothing.
       expect(adminOrder, restatedAdminOrder);
     });
 
     for (final entry in expected.entries) {
       test('${entry.key} is ${entry.value}', () {
         final source = _read('lib/features/${entry.key}');
-        final declared = RegExp(
-          r'selectedNavigationIndex:\s*(\d+)',
-        ).allMatches(source).map((m) => int.parse(m.group(1)!)).toList();
-        expect(declared, isNotEmpty, reason: 'no index declared at all');
+        final ids = RegExp(
+          r"indexOf\(\s*'([^']+)',\s*AppAreas\.admin",
+        ).allMatches(source).map((m) => m.group(1)!).toList();
+        expect(ids, isNotEmpty, reason: 'no admin index looked up at all');
+        final labels = [
+          for (final id in ids)
+            AppDestinations.forArea(
+              AppAreas.admin,
+            ).firstWhere((row) => row.id == id).label,
+        ];
         expect(
-          declared,
-          contains(restatedAdminOrder.indexOf(entry.value)),
-          reason:
-              '${entry.key} declares $declared, but ${entry.value} sits at '
-              '${restatedAdminOrder.indexOf(entry.value)} in the admin sidebar',
+          labels,
+          contains(entry.value),
+          reason: '${entry.key} looks up $ids, whose rows are $labels',
         );
       });
     }

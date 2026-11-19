@@ -110,74 +110,42 @@ void main() {
     final labels = _labels(SalesSkeletonLayout.navigationSections);
     expect(labels.indexOf('Project requests'), 8);
     expect(labels.indexOf('Staff'), 7, reason: 'no earlier index may move');
-    // Phase 5 F2 appended Payables at 9 and F3 appended Deliveries at 10, so
-    // the queue is no longer last and the list is one longer each time.
+    // Phase 5 F2 appended Payables at 9, F3 appended Deliveries at 10,
+    // Phase 9 F3 appended Transfers at 11, and Configuration Settings at 12.
     // Neither earlier index moved.
-    expect(labels, hasLength(12));
+    expect(labels, hasLength(13));
     expect(labels[9], 'Payables');
     expect(labels[10], 'Deliveries');
     expect(
       labels[11],
       'Transfers',
-      reason: 'Phase 9 F3 appends Transfers last; no earlier index may move',
+      reason: 'Phase 9 F3 appends Transfers at 11; no earlier index may move',
+    );
+    expect(
+      labels[12],
+      'Settings',
+      reason: 'Settings appends last under Configuration; earlier indices stay',
     );
     expect(
       SalesSkeletonLayout.navigationSections
           .map((section) => section.label)
           .toList(),
-      contains('Projects'),
+      contains('Management'),
       reason:
-          'the entry keeps its own section rather than renumbering the rest',
+          'Reports, Staff, and Project requests are grouped under Management without renumbering',
     );
     expect(SalesSkeletonLayout.projectRequestsIndex, 8);
   });
 
-  test('the admin sidebar appends the queue at index 7 in a final group', () {
-    const labels = [
-      'Overview',
-      'User management',
-      'Inventory',
-      'Sales & POS',
-      'Reports',
-      'Audit logs',
-      'Settings',
-      'Project requests',
-      'Payables',
-      'Deliveries',
-      'Storage locations',
-      'Transfers',
-    ];
-    expect(AdminSkeletonLayout.projectRequestsIndex, 7);
-    // Phase 5 F2/F3/F4 and Phase 9 F3 appended Payables, Deliveries, Storage
-    // locations and Transfers, each in a group of its own, so Projects is now
-    // FIFTH from the end; its index is untouched.
-    expect(AdminSkeletonLayout.groups[AdminSkeletonLayout.groups.length - 5], (
-      'Projects',
-      7,
-    ));
-    expect(AdminSkeletonLayout.groups[AdminSkeletonLayout.groups.length - 4], (
-      'Payables',
-      8,
-    ));
-    expect(AdminSkeletonLayout.groups[AdminSkeletonLayout.groups.length - 3], (
-      'Deliveries',
-      9,
-    ));
-    expect(AdminSkeletonLayout.groups[AdminSkeletonLayout.groups.length - 2], (
-      'Locations',
-      10,
-    ));
-    expect(AdminSkeletonLayout.groups.last, ('Transfers', 11));
-    // The group slicing is what actually renders the rows; a restated label list
-    // the layout does not produce would prove nothing. Phase 2 F1: the rows are
-    // the registry's admin slice, which the layout renders.
+  test('the admin sidebar no longer offers the queue', () {
+    // Owner 2026-11-18: Project requests (and Reports) left the Admin menu; the
+    // Store Manager's sales menu keeps the queue.
     final rendered = AppDestinations.labelsFor(AppAreas.admin);
-    for (final label in labels) {
-      expect(rendered, contains(label), reason: 'admin menu is missing $label');
-    }
+    expect(rendered, isNot(contains('Project requests')));
+    expect(rendered, isNot(contains('Reports')));
     expect(
       AdminSkeletonLayout.groups.map((group) => group.$1),
-      contains('Projects'),
+      isNot(contains('Projects')),
     );
   });
 
@@ -208,16 +176,13 @@ void main() {
     router.dispose();
   });
 
-  test('the router wires both paths to their own page class', () {
+  test('the router mounts the queue in the sales shell only', () {
     // The redirect tests above prove WHO may go where; this proves the door is
     // there at all, on the same source the router is built from.
     final routes = File('lib/routes/routes.dart').readAsStringSync();
-    expect(
-      RegExp(
-        r'path:\s*adminProjectRequests,[\s\S]{0,220}?const AdminProjectRequestsPage\(\)',
-      ).hasMatch(routes),
-      isTrue,
-    );
+    // Owner 2026-11-18: the admin copy of the queue is gone; only the sales
+    // route mounts it.
+    expect(routes, isNot(contains('AdminProjectRequestsPage')));
     expect(
       RegExp(
         r'path:\s*salesProjectRequests,[\s\S]{0,220}?const ProjectRequestsPage\(\)',
@@ -226,22 +191,6 @@ void main() {
     );
     expect(routes, isNot(contains("'/admin/requisitions'")));
     expect(routes, isNot(contains("'/sales/requisitions'")));
-  });
-
-  testWidgets('the admin page renders the admin shell on index 7', (
-    tester,
-  ) async {
-    await _pumpPage(tester, const AdminProjectRequestsPage());
-
-    final layout = tester.widget<AdminSkeletonLayout>(
-      find.byType(AdminSkeletonLayout),
-    );
-    expect(layout.title, 'Requests from projects');
-    expect(
-      layout.selectedNavigationIndex,
-      AdminSkeletonLayout.projectRequestsIndex,
-    );
-    expect(find.byType(SalesSkeletonLayout), findsNothing);
   });
 
   testWidgets('the manager page renders the sales shell on index 8', (

@@ -18,6 +18,7 @@ void main() {
     WidgetTester tester,
     Size size, {
     double textScale = 1.0,
+    List<Widget> actions = const [],
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -38,6 +39,7 @@ void main() {
             selectedNavigationIndex: 0,
             navigationItems: posNavigationItems,
             onNavigationSelected: taps.add,
+            actions: actions,
             child: const Text('BODY'),
           ),
         ),
@@ -141,5 +143,35 @@ void main() {
 
     final title = tester.widget<Text>(find.text('Point of Sale'));
     expect(title.style?.fontFamily, AppTextStyles.cinzelFont);
+  });
+
+  testWidgets('header date pill and actions anchor flush to the right edge', (
+    tester,
+  ) async {
+    await pumpShell(
+      tester,
+      const Size(1440, 900),
+      actions: [
+        OutlinedButton(
+          key: const ValueKey('header-test-action'),
+          onPressed: () {},
+          child: const Text('Notifications'),
+        ),
+      ],
+    );
+
+    final actionRect = tester.getRect(
+      find.byKey(const ValueKey('header-test-action')),
+    );
+    // Right edge of the action must sit at 1440 - AppSpacing.xl (24) = 1416,
+    // not stranded in the middle of the header with dead space to its right.
+    expect(actionRect.right, closeTo(1416, 2));
+
+    // Date pill sits directly to the left of the action on wide screens.
+    final dateIcon = find.byIcon(Icons.calendar_today_outlined);
+    expect(dateIcon, findsOneWidget);
+    final dateRect = tester.getRect(dateIcon);
+    expect(dateRect.right, lessThan(actionRect.left));
+    expect(actionRect.left - dateRect.left, lessThan(320));
   });
 }

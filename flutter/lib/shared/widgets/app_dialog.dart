@@ -3,6 +3,7 @@ import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/constants/app_text_styles.dart';
 import 'package:client/core/format/format.dart';
+import 'package:client/core/theme/app_palette.dart';
 import 'package:client/shared/widgets/blueprint.dart';
 import 'package:client/shared/widgets/measure_ruler.dart';
 import 'package:flutter/material.dart';
@@ -58,6 +59,7 @@ class AppDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     final maxHeight = MediaQuery.sizeOf(context).height * 0.9;
 
     return CallbackShortcuts(
@@ -70,7 +72,7 @@ class AppDialog extends StatelessWidget {
       child: Focus(
         autofocus: true,
         child: Dialog(
-          backgroundColor: AppColors.cardBackground,
+          backgroundColor: p.cardBackground,
           surfaceTintColor: Colors.transparent,
           elevation: 6,
           shadowColor: AppColors.brandBlack.withValues(alpha: 0.25),
@@ -78,6 +80,7 @@ class AppDialog extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadii.large),
+            side: BorderSide(color: p.border),
           ),
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: width, maxHeight: maxHeight),
@@ -91,7 +94,7 @@ class AppDialog extends StatelessWidget {
                   subtitle: subtitle,
                   trailing: headerTrailing,
                 ),
-                const MeasureRuler(height: 6),
+                MeasureRuler(height: 6, color: p.accent),
                 Flexible(
                   child: scrollable
                       ? SingleChildScrollView(
@@ -109,9 +112,9 @@ class AppDialog extends StatelessWidget {
                       horizontal: AppSpacing.xl,
                       vertical: AppSpacing.lg,
                     ),
-                    decoration: const BoxDecoration(
-                      color: AppColors.surfaceSunken,
-                      border: Border(top: BorderSide(color: AppColors.border)),
+                    decoration: BoxDecoration(
+                      color: p.surfaceSunken,
+                      border: Border(top: BorderSide(color: p.border)),
                     ),
                     child: Wrap(
                       alignment: WrapAlignment.end,
@@ -144,6 +147,7 @@ class _DialogHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.xl,
@@ -164,11 +168,19 @@ class _DialogHeader extends StatelessWidget {
                   title,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.h3.copyWith(height: 1.2),
+                  style: AppTextStyles.h3.copyWith(
+                    height: 1.2,
+                    color: p.textPrimary,
+                  ),
                 ),
                 if (subtitle != null) ...[
                   const SizedBox(height: 2),
-                  Text(subtitle!, style: AppTextStyles.bodySmall),
+                  Text(
+                    subtitle!,
+                    style: AppTextStyles.bodySmall.copyWith(
+                      color: p.textSecondary,
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -181,7 +193,7 @@ class _DialogHeader extends StatelessWidget {
           IconButton(
             tooltip: 'Close',
             onPressed: () => Navigator.of(context).pop(),
-            icon: const Icon(Icons.close_rounded, size: 20),
+            icon: Icon(Icons.close_rounded, size: 20, color: p.textSecondary),
           ),
         ],
       ),
@@ -199,14 +211,19 @@ class HexIconBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return ClipPath(
       clipper: const HexagonClipper(),
       child: Container(
         width: size,
         height: size,
-        color: AppColors.brandBlack,
+        color: p.isDark ? p.accent : AppColors.brandBlack,
         alignment: Alignment.center,
-        child: Icon(icon, size: size * 0.45, color: AppColors.brandGoldLight),
+        child: Icon(
+          icon,
+          size: size * 0.45,
+          color: p.isDark ? p.onAccent : p.accentLight,
+        ),
       ),
     );
   }
@@ -224,6 +241,7 @@ class DialogSectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
       child: Row(
@@ -231,13 +249,13 @@ class DialogSectionLabel extends StatelessWidget {
           Text(
             text.toUpperCase(),
             style: AppTextStyles.labelSmall.copyWith(
-              color: AppColors.brandGoldText,
+              color: p.accentInk,
               fontWeight: FontWeight.w700,
               letterSpacing: 1.6,
             ),
           ),
           const SizedBox(width: AppSpacing.md),
-          const Expanded(child: Divider(height: 1)),
+          Expanded(child: Divider(height: 1, color: p.border)),
           if (trailing != null) ...[
             const SizedBox(width: AppSpacing.md),
             trailing!,

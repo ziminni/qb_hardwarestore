@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_radii.dart';
 import '../constants/app_text_styles.dart';
+import 'app_palette.dart';
 
 class AppButtonTheme {
   static final _shape = RoundedRectangleBorder(
@@ -11,92 +12,95 @@ class AppButtonTheme {
 
   static const _padding = EdgeInsets.symmetric(horizontal: 18, vertical: 12);
 
-  // Keyboard focus on the gold buttons used to be invisible: the only change
-  // was the faint state overlay against a gold fill. A black ring reads at a
-  // glance and matches the brandBlack foreground.
-  static final WidgetStateProperty<BorderSide?> _focusSide =
-      WidgetStateProperty.resolveWith((states) {
-        if (states.contains(WidgetState.disabled)) {
-          return null;
-        }
-        if (states.contains(WidgetState.focused)) {
-          return const BorderSide(color: AppColors.brandBlack, width: 2);
-        }
+  // Keyboard focus on accent buttons needs a crisp high-contrast ring.
+  static WidgetStateProperty<BorderSide?> _focusSideFor(AppPalette p) {
+    final ring = p.isDark ? p.accentLight : AppColors.brandBlack;
+    return WidgetStateProperty.resolveWith((states) {
+      if (states.contains(WidgetState.disabled)) {
         return null;
-      });
+      }
+      if (states.contains(WidgetState.focused)) {
+        return BorderSide(color: ring, width: 2);
+      }
+      return null;
+    });
+  }
 
-  static ElevatedButtonThemeData elevatedButton() {
+  static ElevatedButtonThemeData elevatedButton([AppPalette? palette]) {
+    final p = palette ?? AppPalette.classic;
     return ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
-        backgroundColor: AppColors.primary,
-        foregroundColor: AppColors.brandBlack,
+        backgroundColor: p.accent,
+        foregroundColor: p.onAccent,
         elevation: 0,
         padding: _padding,
-        textStyle: AppTextStyles.button,
+        textStyle: AppTextStyles.button.copyWith(color: p.onAccent),
         shape: _shape,
-      ).copyWith(side: _focusSide),
+      ).copyWith(side: _focusSideFor(p)),
     );
   }
 
-  static TextButtonThemeData textButton() {
-    // `AppTextStyles.button` names the body family. A bare `TextStyle` here
-    // (fontWeight only, as it once was) replaces the labelLarge the other
-    // button styles inherit from and drops every TextButton label to the
-    // platform font; keep a family on any textStyle set here.
+  static TextButtonThemeData textButton([AppPalette? palette]) {
+    final p = palette ?? AppPalette.classic;
+    // `AppTextStyles.button` names the body family. Keeping a family on any
+    // textStyle set here prevents falling back to the platform font.
     return TextButtonThemeData(
       style: TextButton.styleFrom(
-        foregroundColor: AppColors.brandBlack,
-        textStyle: AppTextStyles.button,
+        foregroundColor: p.textPrimary,
+        textStyle: AppTextStyles.button.copyWith(color: p.textPrimary),
         shape: _shape,
-      ).copyWith(side: _focusSide),
+      ).copyWith(side: _focusSideFor(p)),
     );
   }
 
-  static FilledButtonThemeData filledButton() {
+  static FilledButtonThemeData filledButton([AppPalette? palette]) {
+    final p = palette ?? AppPalette.classic;
     return FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: AppColors.primary,
-        foregroundColor: AppColors.brandBlack,
-        disabledBackgroundColor: AppColors.surfaceMuted,
-        disabledForegroundColor: AppColors.disabled,
+        backgroundColor: p.accent,
+        foregroundColor: p.onAccent,
+        disabledBackgroundColor: p.surfaceMuted,
+        disabledForegroundColor: p.disabled,
         padding: _padding,
-        textStyle: AppTextStyles.button,
+        textStyle: AppTextStyles.button.copyWith(color: p.onAccent),
         shape: _shape,
-      ).copyWith(side: _focusSide),
+      ).copyWith(side: _focusSideFor(p)),
     );
   }
 
-  static OutlinedButtonThemeData outlinedButton() {
+  static OutlinedButtonThemeData outlinedButton([AppPalette? palette]) {
+    final p = palette ?? AppPalette.classic;
     return OutlinedButtonThemeData(
       style:
           OutlinedButton.styleFrom(
-            foregroundColor: AppColors.brandBlack,
-            backgroundColor: AppColors.cardBackground,
-            side: const BorderSide(color: AppColors.border),
+            foregroundColor: p.textPrimary,
+            backgroundColor: p.cardBackground,
+            side: BorderSide(color: p.border),
             padding: _padding,
-            textStyle: AppTextStyles.button,
+            textStyle: AppTextStyles.button.copyWith(color: p.textPrimary),
             shape: _shape,
           ).copyWith(
             side: WidgetStateProperty.resolveWith((states) {
               if (states.contains(WidgetState.disabled)) {
-                return const BorderSide(color: AppColors.border);
+                return BorderSide(color: p.border);
               }
               if (states.contains(WidgetState.hovered) ||
                   states.contains(WidgetState.focused)) {
-                return const BorderSide(color: AppColors.brandGold);
+                return BorderSide(color: p.accent);
               }
-              return const BorderSide(color: AppColors.border);
+              return BorderSide(color: p.border);
             }),
           ),
     );
   }
 
-  static IconButtonThemeData iconButton() {
+  static IconButtonThemeData iconButton([AppPalette? palette]) {
+    final p = palette ?? AppPalette.classic;
     return IconButtonThemeData(
       style: IconButton.styleFrom(
-        foregroundColor: AppColors.textSecondary,
-        hoverColor: AppColors.selected,
-        highlightColor: AppColors.selected,
+        foregroundColor: p.textSecondary,
+        hoverColor: p.selected,
+        highlightColor: p.selected,
       ),
     );
   }

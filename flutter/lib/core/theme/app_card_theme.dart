@@ -1,18 +1,19 @@
 import 'package:flutter/material.dart';
 
-import '../constants/app_colors.dart';
 import '../constants/app_radii.dart';
 import '../constants/app_spacing.dart';
+import 'app_palette.dart';
 
 class AppCardTheme {
-  static CardThemeData card() {
+  static CardThemeData card([AppPalette? palette]) {
+    final p = palette ?? AppPalette.classic;
     return CardThemeData(
-      color: AppColors.cardBackground,
+      color: p.cardBackground,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
-      margin: EdgeInsets.all(AppSpacing.md),
+      margin: const EdgeInsets.all(AppSpacing.md),
       shape: RoundedRectangleBorder(
-        side: const BorderSide(color: AppColors.border),
+        side: BorderSide(color: p.border),
         borderRadius: BorderRadius.circular(AppRadii.medium),
       ),
     );

@@ -1,14 +1,13 @@
-import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/constants/app_text_styles.dart';
+import 'package:client/core/theme/app_palette.dart';
 import 'package:flutter/material.dart';
 
-/// The white card every page is built from: the same panel the till uses.
+/// The surface card every page is built from: the same panel the till uses.
 ///
-/// Border, radius and padding are fixed on purpose. Pages used to mix `Card`,
-/// `Container` and `DecoratedBox` with five different paddings, and that is
-/// exactly what made the screens look unfinished next to the canvas.
+/// Border, radius and padding are fixed on purpose. Reads [AppPalette] so it
+/// adapts cleanly when the local device switches theme or appearance mode.
 class AppPanel extends StatelessWidget {
   const AppPanel({super.key, required this.child, this.title, this.trailing});
 
@@ -29,6 +28,7 @@ class AppPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     final header = title == null && trailing == null
         ? null
         : Row(
@@ -39,10 +39,11 @@ class AppPanel extends StatelessWidget {
                     title!,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: AppTextStyles.cinzelFont,
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
+                      color: p.textPrimary,
                     ),
                   ),
                 ),
@@ -52,8 +53,8 @@ class AppPanel extends StatelessWidget {
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: AppColors.cardBackground,
-        border: Border.all(color: AppColors.border),
+        color: p.cardBackground,
+        border: Border.all(color: p.border),
         borderRadius: BorderRadius.circular(AppRadii.large),
       ),
       child: Padding(

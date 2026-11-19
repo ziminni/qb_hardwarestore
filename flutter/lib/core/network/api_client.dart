@@ -25,6 +25,9 @@ class ApiClient {
   String? _refreshToken;
   Future<bool>? _refreshOperation;
 
+  /// Re-points every later request at [url] (the phone's Server address).
+  void setBaseUrl(String url) => dio.options.baseUrl = url;
+
   void init() {
     dio = Dio(
       BaseOptions(
@@ -265,10 +268,16 @@ class ApiClient {
 
   /// PATCHes [data] — the verb every catalog edit uses (Phase 4 Task 4).
   ///
-  /// There is deliberately no `delete`: the catalog and purchasing routes
-  /// answer **405** to DELETE (Phase 4 Task 1), so a client method for it could
-  /// only ever produce a refusal. Archive through `PATCH {"is_active": false}`.
+  /// Most catalog and purchasing routes still answer **405** to DELETE (Phase 4
+  /// Task 1): archive through `PATCH {"is_active": false}`.
   Future<Response<T>> patch<T>(String path, {Object? data}) {
     return dio.patch<T>(path, data: data);
+  }
+
+  /// DELETE — only for the Admin's categories and suppliers that nothing uses
+  /// yet (owner 2026-11-18). Anything in use answers 400 `IN_USE`.
+  /// A success is 204 with no body, so nothing is returned.
+  Future<void> delete(String path) async {
+    await dio.delete<dynamic>(path);
   }
 }

@@ -1,6 +1,5 @@
 import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/navigation/app_destinations.dart';
-import 'package:client/core/navigation/merged_sidebar.dart';
 import 'package:client/shared/widgets/app_shell.dart';
 import 'package:client/shared/widgets/notifications_button.dart';
 import 'package:client/shared/widgets/shared_sidebar.dart';
@@ -16,7 +15,7 @@ class AdminSkeletonLayout extends StatelessWidget {
     required this.child,
     this.onNavigationSelected,
     this.scrollable = true,
-    this.loadMarkers = projectRequestsMarkers,
+    this.loadMarkers = _noMarkers,
     this.markers,
   });
 
@@ -37,10 +36,6 @@ class AdminSkeletonLayout extends StatelessWidget {
   /// See [AppShell.markers]. The queue page passes its OWN fresh count, so a
   /// decision taken on that screen updates the badge immediately.
   final Map<int, int>? markers;
-
-  /// Flat sidebar index of "Project requests" (decision 13). APPENDED in a
-  /// final group, so no earlier index moves.
-  static const int projectRequestsIndex = 7;
 
   /// The admin menu as the sidebar renders it, derived from [AppDestinations]
   /// (Phase 2 F1). Read by the index tests so they pin the menu production
@@ -80,13 +75,6 @@ class AdminSkeletonLayout extends StatelessWidget {
   }
 }
 
-/// How many requests are waiting for the store, for the sidebar badge.
-///
-/// The server's own `count` for `?status=WAITING` (no page walk), read when the
-/// shell mounts. A failed read throws and [AppShell] draws nothing: a badge
-/// reading 0 is a claim that the queue is empty, which a failed read has not
-/// established.
-Future<Map<int, int>> projectRequestsMarkers() async {
-  final count = await waitingProjectRequestsCount();
-  return {AdminSkeletonLayout.projectRequestsIndex: count};
-}
+/// The Admin menu has no live count since Project requests left it (owner
+/// 2026-11-18).
+Future<Map<int, int>> _noMarkers() async => const {};

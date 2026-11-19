@@ -122,6 +122,21 @@ class AppDestinations {
       icon: Icons.assignment_return_outlined,
       route: AppRoutes.posReturns,
     ),
+    // Owner 2026-11-18: the cashier, not the Admin, picks the receipt printer.
+    AppDestination(
+      id: 'pos.settings',
+      area: AppAreas.pos,
+      label: 'Settings',
+      icon: Icons.settings_outlined,
+      route: AppRoutes.posSettings,
+    ),
+    AppDestination(
+      id: 'pos.customers',
+      area: AppAreas.pos,
+      label: 'Customers',
+      icon: Icons.people_outline_rounded,
+      route: AppRoutes.posCustomers,
+    ),
 
     // ---- Sales ----------------------------------------------------------------
     AppDestination(
@@ -130,7 +145,7 @@ class AppDestinations {
       label: 'Dashboard',
       icon: Icons.dashboard_outlined,
       route: AppRoutes.salesDashboard,
-      group: 'Overview',
+      group: 'Selling',
     ),
     AppDestination(
       id: 'sales.transactions',
@@ -138,7 +153,6 @@ class AppDestinations {
       label: 'Transactions',
       icon: Icons.receipt_long_outlined,
       route: AppRoutes.salesTransactions,
-      group: 'Selling',
     ),
     AppDestination(
       id: 'sales.quotations',
@@ -168,7 +182,6 @@ class AppDestinations {
       label: 'Returns & refunds',
       icon: Icons.assignment_return_outlined,
       route: AppRoutes.salesReturns,
-      group: 'After Sales',
     ),
     // The admin/sales Reports page: one body, two shells (decision 24's locked
     // shared set), so it carries a shared key. The icon differs per area and the
@@ -179,7 +192,7 @@ class AppDestinations {
       label: 'Reports',
       icon: Icons.bar_chart_outlined,
       route: AppRoutes.salesReports,
-      group: 'Insights',
+      group: 'Management',
       sharedKey: 'reports',
     ),
     // Shared Staff keeps the ADMIN label "User management" (Phase 2 F0 ruling);
@@ -190,7 +203,6 @@ class AppDestinations {
       label: 'Staff',
       icon: Icons.manage_accounts_outlined,
       route: AppRoutes.salesStaff,
-      group: 'Management',
       sharedKey: 'staff',
     ),
     AppDestination(
@@ -199,7 +211,6 @@ class AppDestinations {
       label: 'Project requests',
       icon: Icons.fact_check_outlined,
       route: AppRoutes.salesProjectRequests,
-      group: 'Projects',
       sharedKey: 'project-requests',
       badge: true,
     ),
@@ -209,7 +220,7 @@ class AppDestinations {
       label: 'Payables',
       icon: Icons.account_balance_wallet_outlined,
       route: AppRoutes.salesPayables,
-      group: 'Payables',
+      group: 'Operations',
       sharedKey: 'payables',
     ),
     AppDestination(
@@ -218,7 +229,6 @@ class AppDestinations {
       label: 'Deliveries',
       icon: Icons.local_shipping_outlined,
       route: AppRoutes.salesDeliveries,
-      group: 'Deliveries',
       sharedKey: 'deliveries',
     ),
     AppDestination(
@@ -227,8 +237,14 @@ class AppDestinations {
       label: 'Transfers',
       icon: Icons.swap_horiz_rounded,
       route: AppRoutes.salesTransfers,
-      group: 'Transfers',
       sharedKey: 'transfers',
+    ),
+    AppDestination(
+      id: 'sales.settings',
+      area: AppAreas.sales,
+      label: 'Settings',
+      icon: Icons.settings_outlined,
+      route: AppRoutes.salesSettings,
     ),
 
     // ---- Stock ----------------------------------------------------------------
@@ -238,7 +254,7 @@ class AppDestinations {
       label: 'Dashboard',
       icon: Icons.dashboard_outlined,
       route: AppRoutes.inventoryDashboard,
-      group: 'Overview',
+      group: 'Inventory',
     ),
     AppDestination(
       id: 'inventory.products',
@@ -246,7 +262,6 @@ class AppDestinations {
       label: 'Products',
       icon: Icons.inventory_2_outlined,
       route: AppRoutes.inventoryProducts,
-      group: 'Inventory',
     ),
     AppDestination(
       id: 'inventory.categories',
@@ -341,7 +356,7 @@ class AppDestinations {
       label: 'Payables',
       icon: Icons.account_balance_wallet_outlined,
       route: AppRoutes.inventoryPayables,
-      group: 'Payables',
+      group: 'Operations',
       sharedKey: 'payables',
     ),
     AppDestination(
@@ -350,7 +365,6 @@ class AppDestinations {
       label: 'Deliveries',
       icon: Icons.local_shipping_outlined,
       route: AppRoutes.inventoryDeliveries,
-      group: 'Deliveries',
       sharedKey: 'deliveries',
     ),
     AppDestination(
@@ -359,15 +373,27 @@ class AppDestinations {
       label: 'Transfers',
       icon: Icons.swap_horiz_rounded,
       route: AppRoutes.inventoryTransfers,
-      group: 'Transfers',
       sharedKey: 'transfers',
+    ),
+    // Owner 2026-11-18: every import and export on one page, APPENDED so no
+    // earlier Stock index moved.
+    AppDestination(
+      id: 'inventory.import-export',
+      area: AppAreas.inventory,
+      label: 'Import & export',
+      icon: Icons.import_export_rounded,
+      route: AppRoutes.inventoryImportExport,
     ),
 
     // ---- Admin ----------------------------------------------------------------
+    // Owner 2026-11-18: the Admin sees everything and acts on nothing. The
+    // Dashboard's tabs show every area; the menu keeps only the Admin's own
+    // jobs: accounts, settings (categories, suppliers, storage locations) and
+    // the audit trail. Admin pages find their row with `indexOf(id)`.
     AppDestination(
       id: 'admin.overview',
       area: AppAreas.admin,
-      label: 'Overview',
+      label: 'Dashboard',
       icon: Icons.dashboard_outlined,
       route: AppRoutes.adminDashboard,
       group: 'Overview',
@@ -382,28 +408,12 @@ class AppDestinations {
       sharedKey: 'staff',
     ),
     AppDestination(
-      id: 'admin.inventory',
+      id: 'admin.settings',
       area: AppAreas.admin,
-      label: 'Inventory',
-      icon: Icons.inventory_2_outlined,
-      route: AppRoutes.adminInventory,
-      group: 'Operations',
-    ),
-    AppDestination(
-      id: 'admin.sales',
-      area: AppAreas.admin,
-      label: 'Sales & POS',
-      icon: Icons.point_of_sale_outlined,
-      route: AppRoutes.adminSales,
-    ),
-    AppDestination(
-      id: 'reports',
-      area: AppAreas.admin,
-      label: 'Reports',
-      icon: Icons.bar_chart_rounded,
-      route: AppRoutes.adminReports,
-      group: 'Insights',
-      sharedKey: 'reports',
+      label: 'Settings',
+      icon: Icons.settings_outlined,
+      route: AppRoutes.adminSettings,
+      group: 'Configuration',
     ),
     AppDestination(
       id: 'admin.audit-logs',
@@ -411,62 +421,53 @@ class AppDestinations {
       label: 'Audit logs',
       icon: Icons.history_rounded,
       route: AppRoutes.adminAuditLogs,
-      group: 'System',
+      group: 'Monitoring',
     ),
     AppDestination(
-      id: 'admin.settings',
+      id: 'admin.backup-restore',
       area: AppAreas.admin,
-      label: 'Settings',
-      icon: Icons.settings_outlined,
-      route: AppRoutes.adminSettings,
-    ),
-    // The label is short because "Requests from projects" clipped to
-    // "Requests from p..." beside its count badge; the page title keeps the long
-    // form.
-    AppDestination(
-      id: 'project-requests',
-      area: AppAreas.admin,
-      label: 'Project requests',
-      icon: Icons.fact_check_outlined,
-      route: AppRoutes.adminProjectRequests,
-      group: 'Projects',
-      sharedKey: 'project-requests',
-      badge: true,
+      label: 'Backup & restore',
+      icon: Icons.backup_outlined,
+      route: AppRoutes.adminBackupRestore,
     ),
     AppDestination(
-      id: 'payables',
+      id: 'admin.security',
       area: AppAreas.admin,
-      label: 'Payables',
-      icon: Icons.account_balance_wallet_outlined,
-      route: AppRoutes.adminPayables,
-      group: 'Payables',
-      sharedKey: 'payables',
+      label: 'Security',
+      icon: Icons.security_outlined,
+      route: AppRoutes.adminSecurity,
+    ),
+
+    // ---- Bodega (decision 25) ---------------------------------------------------
+    // The Bodega Checker reads and confirms; it moves no stock. Phone-first.
+    AppDestination(
+      id: 'bodega.pickups',
+      area: AppAreas.bodega,
+      label: 'Pick-ups',
+      icon: Icons.qr_code_scanner_rounded,
+      route: AppRoutes.bodegaPickups,
+      group: 'Bodega',
     ),
     AppDestination(
-      id: 'deliveries',
-      area: AppAreas.admin,
-      label: 'Deliveries',
-      icon: Icons.local_shipping_outlined,
-      route: AppRoutes.adminDeliveries,
-      group: 'Deliveries',
-      sharedKey: 'deliveries',
+      id: 'bodega.deliveries',
+      area: AppAreas.bodega,
+      label: 'Deliveries to check',
+      icon: Icons.move_to_inbox_outlined,
+      route: AppRoutes.bodegaDeliveries,
     ),
     AppDestination(
-      id: 'admin.storage-locations',
-      area: AppAreas.admin,
-      label: 'Storage locations',
+      id: 'bodega.stock',
+      area: AppAreas.bodega,
+      label: 'Bodega stock',
       icon: Icons.warehouse_outlined,
-      route: AppRoutes.adminStorageLocations,
-      group: 'Locations',
+      route: AppRoutes.bodegaStock,
     ),
     AppDestination(
-      id: 'transfers',
-      area: AppAreas.admin,
-      label: 'Transfers',
-      icon: Icons.swap_horiz_rounded,
-      route: AppRoutes.adminTransfers,
-      group: 'Transfers',
-      sharedKey: 'transfers',
+      id: 'bodega.history',
+      area: AppAreas.bodega,
+      label: 'History',
+      icon: Icons.history_rounded,
+      route: AppRoutes.bodegaHistory,
     ),
   ];
 

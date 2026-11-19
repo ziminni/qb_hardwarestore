@@ -26,6 +26,7 @@ MoneyInputProblem? moneyInputProblem(String? value) {
   final text = (value ?? '').trim();
   final parsed = double.tryParse(text);
   if (parsed == null || parsed < 0) return MoneyInputProblem.notAnAmount;
-  if (!_twoDecimals.hasMatch(text)) return MoneyInputProblem.moreThanTwoDecimals;
+  if (!_twoDecimals.hasMatch(text))
+    return MoneyInputProblem.moreThanTwoDecimals;
   return null;
 }
