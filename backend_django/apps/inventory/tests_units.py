@@ -77,15 +77,23 @@ class StandardUnitsMigrationTests(TransactionTestCase):
 
     def _before_targets(self):
         """Every app at its leaf, except inventory, which stops before the flag."""
+        # Decision 25: `bodega` depends on the LATEST inventory and pos migrations, so it
+        # cannot stay at its leaf while they are rolled back; it is unapplied here and
+        # the tearDown's migrate-to-leaves applies it again.
         return [
-            (app, BEFORE if app == INVENTORY else name)
+            (
+                app,
+                BEFORE if app == INVENTORY else None if app == 'bodega' else name,
+            )
             for app, name in self._leaves()
         ]
 
     def setUp(self):
         self.before_targets = self._before_targets()
         executor = self._migrate(self.before_targets)
-        self.before = executor.loader.project_state(self.before_targets).apps
+        self.before = executor.loader.project_state(
+            [t for t in self.before_targets if t[1] is not None]
+        ).apps
         # The test database was built by migrating to head, so 0008's standard units are
         # already there. Each test states its own starting table instead of inheriting it.
         self.before.get_model(INVENTORY, 'UnitOfMeasure').objects.all().delete()

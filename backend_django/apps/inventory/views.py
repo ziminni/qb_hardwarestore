@@ -352,7 +352,49 @@ class _AuditedCatalogViewSet(_CatalogBaseViewSet):
             )
 
 
-class CategoryViewSet(_AuditedCatalogViewSet):
+class _AdminDeleteUnusedMixin:
+    """`DELETE` for master data nobody uses yet (owner 2026-11-18, Admin settings).
+
+    The catalog stays delete-free in general (`_CatalogBaseViewSet`): a category or
+    supplier that anything points at is HISTORY and is archived, never erased. This
+    opens the verb for the one safe case - a row nothing references - and only for an
+    Admin. The check is the database's own: the delete runs in a savepoint and every
+    `PROTECT` reference raises `ProtectedError`, which is answered as 400 `IN_USE`
+    naming what uses it, so a reference added later can never be deleted through.
+    """
+
+    def get_permissions(self):  # pyright: ignore[reportIncompatibleMethodOverride]
+        if self.action == "destroy":
+            return [IsAdminRole()]
+        return super().get_permissions()  # pyright: ignore[reportAttributeAccessIssue]
+
+    def destroy(self, request, pk=None):
+        from .exceptions import RecordInUse
+
+        instance = self.get_object()  # pyright: ignore[reportAttributeAccessIssue]
+        label = self.audit_label  # pyright: ignore[reportAttributeAccessIssue]
+        detail = self.audit_detail(instance)  # pyright: ignore[reportAttributeAccessIssue]
+        try:
+            with transaction.atomic():
+                instance.delete()
+                audit_request(
+                    request, AuditLog.ActionType.DELETE, f"{label} deleted: {detail}"
+                )
+        except ProtectedError as exc:
+            counts = {}
+            for obj in exc.protected_objects:
+                name = str(obj._meta.verbose_name_plural)  # noqa: SLF001
+                counts[name] = counts.get(name, 0) + 1
+            used_by = ", ".join(f"{n} {what}" for what, n in sorted(counts.items()))
+            raise RecordInUse(
+                f"{detail.split(' (')[0]} is used by {used_by}, so it cannot be "
+                "deleted. Archive it instead: it leaves every picker but history "
+                "keeps its name."
+            ) from exc
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CategoryViewSet(_AdminDeleteUnusedMixin, _AuditedCatalogViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
 
@@ -508,6 +550,42 @@ class ProductVariantViewSet(_AuditedCatalogViewSet):
 
     audit_label = "Variant"
 
+    @action(detail=True, methods=["post"], url_path="opening-stock")
+    def opening_stock(self, request, pk=None):
+        """`POST /variants/{id}/opening-stock/ {qty, unit_cost}` (owner 2026-11-18).
+
+        The stock a NEW product starts with, entered on Add product. Recorded as a
+        bill-free delivery from "Opening stock" onto the product's home shelf; a Bodega
+        home waits for the checker. Refused once the variant has stock history.
+        """
+        from decimal import Decimal, InvalidOperation
+
+        from .exceptions import OpeningStockRefused
+        from .services import record_opening_stock
+
+        try:
+            qty = Decimal(str(request.data.get("qty", "")))
+            unit_cost = Decimal(str(request.data.get("unit_cost", "0") or "0"))
+        except (InvalidOperation, ValueError) as exc:
+            raise OpeningStockRefused(
+                "Send the opening quantity and cost as numbers."
+            ) from exc
+        variant = self.get_object()
+        with transaction.atomic():
+            receipt = record_opening_stock(
+                variant=variant, qty=qty, unit_cost=unit_cost, user=request.user
+            )
+            audit_request(
+                request,
+                AuditLog.ActionType.RECEIPT,
+                f"Opening stock for {variant}: {qty} {variant.base_uom.code} at "
+                f"{unit_cost} each (receipt #{receipt.pk}, no supplier bill).",
+            )
+        variant.refresh_from_db()
+        return Response(
+            self.get_serializer(variant).data, status=status.HTTP_201_CREATED
+        )
+
 
 class VariantUOMViewSet(_AuditedCatalogViewSet):
     # `variant__product` is joined because the response explains WHY a scanned unit
@@ -650,7 +728,7 @@ class VariantUOMViewSet(_AuditedCatalogViewSet):
 # =========================================================================
 
 
-class SupplierViewSet(_AuditedCatalogViewSet):
+class SupplierViewSet(_AdminDeleteUnusedMixin, _AuditedCatalogViewSet):
     queryset = Supplier.objects.all()
     serializer_class = SupplierSerializer
 

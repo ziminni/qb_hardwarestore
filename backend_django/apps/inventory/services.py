@@ -95,7 +95,9 @@ def lock_selling_unit_lines(lines, *, document):
             )
 
 
-def process_goods_receipt(*, receipt: GoodsReceipt, user=None) -> list[InventoryBatch]:
+def process_goods_receipt(
+    *, receipt: GoodsReceipt, user=None, create_bill: bool = True
+) -> list[InventoryBatch]:
     """Convert ONE GoodsReceipt into InventoryBatch entries.
 
     The batches come from the quantities THIS receipt delivered, never from
@@ -225,15 +227,29 @@ def process_goods_receipt(*, receipt: GoodsReceipt, user=None) -> list[Inventory
         # and stocks nothing (the atomic block rolls back).
         destinations = _lock_receiving_locations(plan)
 
+        # Decision 25 (rev. 2026-11-18): a line bound for a BODEGA shelf is not stocked
+        # here. It waits as "for checking" until the Bodega Checker confirms how much
+        # arrived good and how much was damaged; `apps.bodega.services.confirm_delivery`
+        # mints the batch then. The bill and the PO status below still follow what the
+        # stocker recorded, so payables are unchanged by the check.
+        held_for_check = []
         for item, base_qty, _package_qty, location_id in plan:
+            location = destinations[location_id]
+            if location.is_bodega:
+                held_for_check.append((item, base_qty, location))
+                continue
             batches.append(
                 _create_batch(
                     receipt=receipt,
                     item=item,
                     base_qty=base_qty,
-                    location=destinations[location_id],
+                    location=location,
                 )
             )
+        if held_for_check:
+            from apps.bodega.services import hold_delivery_for_check
+
+            hold_delivery_for_check(receipt=receipt, lines=held_for_check)
 
         # Phase 5 B2 (decision 18): the SAME transaction that stocks the delivery writes
         # what the shop owes for it. A failure here (or in the audit row the view writes
@@ -244,7 +260,9 @@ def process_goods_receipt(*, receipt: GoodsReceipt, user=None) -> list[Inventory
         # nothing, and a zero-value delivery creates no bill (see
         # `payables.create_bill_for_receipt`). An already-processed receipt never reaches
         # here (`processed_at` is checked above), so history gets no retroactive bill.
-        if plan:
+        # `create_bill=False` is opening stock (owner 2026-11-18): goods the shop
+        # already owned when the product was entered, so nobody is owed for them.
+        if plan and create_bill:
             payables.create_bill_for_receipt(
                 receipt=receipt,
                 delivered=[
@@ -254,7 +272,7 @@ def process_goods_receipt(*, receipt: GoodsReceipt, user=None) -> list[Inventory
 
         # Update PO status only when something was actually received: an
         # empty process used to flip a DRAFT PO to PARTIAL with zero batches.
-        if batches:
+        if batches or held_for_check:
             all_received = not po.items.filter(
                 received_qty__lt=F("ordered_qty")
             ).exists()
@@ -272,6 +290,80 @@ def process_goods_receipt(*, receipt: GoodsReceipt, user=None) -> list[Inventory
         receipt.save(update_fields=["processed_at"])
 
     return batches
+
+
+OPENING_STOCK_SUPPLIER = "Opening stock"
+
+
+def record_opening_stock(*, variant, qty: Decimal, unit_cost: Decimal, user):
+    """The first stock a new product starts with (owner 2026-11-18, teammate form).
+
+    Recorded as an ordinary, completed delivery from the internal "Opening stock"
+    supplier, so batches, FIFO cost, the stock movements and the Bodega check all work
+    the way they do for a real delivery - but with NO supplier bill, because nobody is
+    owed for goods the shop already had. It lands on the product's home shelf; a Bodega
+    home sends it to the checker like any Bodega delivery.
+
+    Refused (`OPENING_STOCK_REFUSED`) once the variant has any stock history, so this
+    can never become a way round purchasing. Caller holds `transaction.atomic()`.
+    """
+    from common.exceptions import refuse_fractional_whole_unit
+
+    from .exceptions import OpeningStockRefused
+    from .models import GoodsReceiptItem, POItem, ProductVariant, Supplier, VariantUOM
+
+    variant = (
+        ProductVariant.objects.select_for_update()
+        .select_related("product__stored_at", "base_uom")
+        .get(pk=variant.pk)
+    )
+    if qty is None or qty <= 0:
+        raise OpeningStockRefused("Opening stock must be more than zero.")
+    if unit_cost is None or unit_cost < 0:
+        raise OpeningStockRefused("The cost cannot be negative.")
+    if qty != qty.quantize(CENT):
+        raise OpeningStockRefused(f"{qty} has more than two decimal places.")
+    refuse_fractional_whole_unit(
+        is_whole=variant.base_uom.is_whole,
+        qty=qty,
+        what=f"Opening stock of {variant}",
+    )
+    has_history = (
+        InventoryBatch.objects.filter(variant=variant).exists()
+        or POItem.objects.filter(variant=variant, received_qty__gt=0).exists()
+    )
+    if has_history:
+        raise OpeningStockRefused(
+            f"{variant} already has stock history, so it has no opening stock: "
+            "record a purchase order and receive it instead."
+        )
+    supplier, _ = Supplier.objects.get_or_create(
+        company_name=OPENING_STOCK_SUPPLIER,
+        defaults={"address": "Internal: stock the shop owned when it was entered."},
+    )
+    po = PurchaseOrder.objects.create(
+        supplier=supplier,
+        created_by=user,
+        status=PurchaseOrder.Status.ORDERED,
+        notes=f"Opening stock for {variant}",
+    )
+    base_unit = VariantUOM.objects.filter(
+        variant=variant, conversion_factor=Decimal(1)
+    ).order_by("pk").first()
+    item = POItem.objects.create(
+        po=po,
+        variant=variant,
+        variant_uom=base_unit,
+        ordered_qty=qty,
+        unit_cost=unit_cost,
+        received_qty=qty,
+    )
+    receipt = GoodsReceipt.objects.create(po=po, received_by=user)
+    GoodsReceiptItem.objects.create(
+        receipt=receipt, po_item=item, qty=qty, location=variant.product.stored_at
+    )
+    process_goods_receipt(receipt=receipt, user=user, create_bill=False)
+    return receipt
 
 
 def line_factor(item: POItem) -> Decimal:

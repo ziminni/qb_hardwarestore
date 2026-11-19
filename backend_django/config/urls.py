@@ -44,6 +44,7 @@ urlpatterns = [
     path('api/v1/', include('apps.pos.urls')),
     path('api/v1/', include('apps.collectibles.urls')),
     path('api/v1/', include('apps.requisitions.urls')),
+    path('api/v1/', include('apps.bodega.urls')),
     path('api/v1/reports/', include('apps.reports.urls')),
 
     # Phase 1, Task 2: the CPMS boundary. The account that may call these is refused

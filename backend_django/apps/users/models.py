@@ -78,6 +78,8 @@ class User(AbstractBaseUser, PermissionsMixin):
         help_text="Used for notifications and password resets.",
     )
     full_name = models.CharField(max_length=255)
+    # The profile picture the person set on their phone (`POST /auth/me/avatar/`).
+    avatar = models.ImageField(upload_to="avatars/", blank=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(
         default=False,

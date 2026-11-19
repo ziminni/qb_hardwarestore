@@ -42,6 +42,22 @@ from .models import (
 from .services import process_goods_receipt
 from .tests_storage_locations import StorageTestBase
 
+
+def _confirm_bodega_delivery(checker):
+    """Decision 25: the one pending Bodega delivery, confirmed whole; its new batch."""
+    from apps.bodega.models import BodegaDelivery
+    from apps.bodega.services import confirm_delivery
+
+    delivery = BodegaDelivery.objects.get(status=BodegaDelivery.Status.PENDING)
+    line = delivery.lines.get()
+    confirm_delivery(
+        delivery_id=delivery.pk,
+        checker=checker,
+        lines={line.pk: (line.delivered_qty, Decimal(0), "")},
+    )
+    line.refresh_from_db()
+    return line.batch
+
 RECEIPTS_URL = "/api/v1/goods-receipts/"
 ADJUSTMENTS_URL = "/api/v1/adjustments/"
 
@@ -112,7 +128,9 @@ class ReceivingDestinationTests(LocationWarehouseTestBase):
         )
 
         self.assertEqual(processed.status_code, 200, processed.data)
-        batch = InventoryBatch.objects.get(variant=self.variant)
+        # Decision 25: the Bodega line waits for the checker instead of becoming stock.
+        self.assertFalse(InventoryBatch.objects.filter(variant=self.variant).exists())
+        batch = _confirm_bodega_delivery(self.user)
         self.assertEqual(batch.location_id, self.bodega.pk)
         self.assertEqual(batch.current_qty, Decimal(4))
         self.assertFalse(
@@ -325,7 +343,8 @@ class AdjustmentLocationTests(LocationWarehouseTestBase):
 
         process_goods_receipt(receipt=receipt, user=self.user)
 
-        batch = InventoryBatch.objects.get(variant=self.variant)
+        # Decision 25: held for the Bodega checker, then stocked on the Bodega shelf.
+        batch = _confirm_bodega_delivery(self.user)
         self.assertEqual(batch.location_id, self.bodega.pk)
 
 

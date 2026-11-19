@@ -141,8 +141,9 @@ The seed creates users, catalogue/packaging units, Store/Bodega locations, stock
 | `stocker` | Stock Manager | `demo1234` |
 | `cashier` | Cashier | `demo1234` |
 | `cpms_service` | Machine integration account; no POS dashboard | `demo1234` |
+| `checker` | Bodega Checker (Bodega pick-ups and counts only) | `demo1234` |
 
-Emails use `<username>@demo.ph`. Existing accounts keep their existing passwords. Historical `admin123` instructions are incorrect for the seed. Django admin is at <http://127.0.0.1:8000/admin/>.
+Emails use `<username>@demo.ph`. Existing accounts keep their existing passwords. The `checker` account is only created on a fresh seed; on an existing database an Admin gives any account the **Bodega Checker** role from User management (migration `bodega.0002` creates the group). To add Bodega demo data (bulk products on the Bodega shelf, pick-ups, releases, a pending count) to an existing database, run `docker compose exec backend python manage.py seed_bodega_demo`; it creates `checker` if missing and does nothing on a second run. Historical `admin123` instructions are incorrect for the seed. Django admin is at <http://127.0.0.1:8000/admin/>.
 
 Seed output includes random material-release tokens; keep them private and do not commit logs containing them. Demo passwords must not be used for real store accounts.
 

@@ -167,6 +167,10 @@ class StorageLocation(models.Model):
 
     name = models.CharField(max_length=100, db_index=True)
     is_active = models.BooleanField(default=True, db_index=True)
+    # Bodega module (decision 25 §1): a shelf the Bodega Checker runs. Its goods are
+    # handed over against a claim (the sale's receipt) instead of off the counter, and
+    # its counts go through the checker. Migration 0019 marks the seeded "Bodega".
+    is_bodega = models.BooleanField(default=False, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -192,7 +196,14 @@ def storage_location(name):
     create inside a savepoint, so losing a race answers the winning row instead of
     leaving the surrounding transaction unusable.
     """
-    existing = StorageLocation.objects.filter(name__iexact=name).first()
+    # `.only(...)`: `Product.stored_at`'s FK default calls this from OLD migrations,
+    # which run on a fresh database before later columns (`is_bodega`, 0019) exist. A
+    # full-row SELECT there fails; the columns named here exist since 0011.
+    existing = (
+        StorageLocation.objects.only("id", "name", "is_active")
+        .filter(name__iexact=name)
+        .first()
+    )
     if existing is not None:
         return existing
     try:
@@ -277,6 +288,9 @@ class ProductVariant(models.Model):
         Product, on_delete=models.CASCADE, related_name="variants"
     )
     variant_name = models.CharField(max_length=255, db_index=True)
+    # Owner 2026-11-18 (teammate form): the shop's own stock-keeping code. Free text,
+    # optional and not unique - the scannable identity stays `VariantUOM.barcode_qr`.
+    sku = models.CharField(max_length=100, blank=True, default="", db_index=True)
     base_uom = models.ForeignKey(
         UnitOfMeasure,
         on_delete=models.PROTECT,

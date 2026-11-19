@@ -12,6 +12,7 @@ Phase 5 ✅ Done — owner-closed 2026-11-12. Editable order-line prices with ca
 | Stock Manager | Inventory | Keeps the catalogue, orders from suppliers by package, receives deliveries, adjusts stock, answers low-stock alerts. **(Phase 5)** Reads supplier payables (no pay action) and moves deliveries Scheduled → Out for delivery → Delivered/Failed |
 | Store Manager | Sales | Owns selling beyond the counter (quotations, sales orders), customers and receivables, accepts or declines CPMS project requests, reports, staff. **This is the sales role.** **(Phase 5)** Pays supplier bills and moves deliveries |
 | System Administrator | Admin | Users and roles, store settings, audit logs, every report, every area. **(Phase 5)** Manages the storage-location list, pays supplier bills and moves deliveries |
+| Bodega Checker | Bodega | **(Decision 25)** Works the Bodega only, mainly on a phone, and moves no stock: scans the receipt QR and releases paid goods (partial pick-ups allowed, receiver and truck plate recorded), and confirms supplier deliveries to the Bodega (good and damaged pieces) before they become stock. Sees Bodega stock read-only |
 | CPMS Service | none (machine) | The CPMS system pushes approved project requests and reads back status and payables. Refused everywhere outside `/api/v1/integration/cpms/` (403 `CPMS_SCOPE`), including all Phase 5 resources |
 
 One person can hold several roles, for example Cashier + Store Manager in a small store. **(Phase 4)** After login they pick an area and can switch from the header at any time.
@@ -102,18 +103,33 @@ Menu: Dashboard · Transactions · Quotations · Sales orders · Receivables (Ut
 
 ```mermaid
 flowchart LR
-  U[User management: create, deactivate, assign one or more roles] --> SET["Settings: VAT on or off, VAT rate, discount cap (Phase 4)"]
+  DSH["Dashboard: System · Sales · Inventory · Bodega · Finance tabs (sees everything)"] --> U[User management: create, deactivate, assign one or more roles]
+  U --> SET["Settings side tabs: Sales & tax, Store information, Storage locations, Categories, Suppliers"]
   SET --> AUD[Audit logs: who changed what]
-  AUD --> MON[Inventory and Sales & POS monitoring, Reports]
-  MON --> PRQ[Project requests]
-  PRQ --> PAR["Payables: pay any supplier bill (Phase 5)"]
-  PAR --> DLV["Deliveries: move the schedule (Phase 5)"]
-  DLV --> SLOC["Storage locations: add, rename, deactivate Store / Bodega (Phase 5)"]
 ```
 
-Menu: Overview · User management · Inventory · Sales & POS · Reports · Audit logs · Settings · Project requests · **Payables** (Phase 5) · **Deliveries** (Phase 5) · **Storage locations** (Phase 5).
+Menu (owner 2026-11-18): **Overview** Dashboard · **People** User management · **Configuration** Settings · **Monitoring** Audit logs.
+
+**The Admin sees everything and acts on nothing** (owner 2026-11-18). The Dashboard (`GET /api/v1/reports/admin-dashboard/`, the Admin's own page) shows every area, read-only; the Admin's own jobs are accounts, settings and the audit trail. Removed from the Admin menu and its routes: Inventory and Sales & POS monitoring, Payables, Deliveries, Transfers, Reports and Project requests; the Store Manager and Stock Manager keep theirs, and a typed `/admin/…` address for a removed page opens the Dashboard. Storage locations moved into Settings (`/admin/storage-locations` opens that tab). **The server's permissions are unchanged**: an Admin account can still call the write endpoints directly; only the app stopped offering them.
 
 Guards: the last Admin cannot be removed; a Store Manager cannot grant Admin.
+
+## Bodega Checker (decision 25)
+
+```mermaid
+flowchart LR
+  SALE["Cashier sells gravel / hollow blocks: receipt with OR QR"] --> PICK["Checker's Pick-ups list"]
+  PICK --> SCAN["Checker scans the receipt QR"]
+  SCAN --> LOAD["Record what is loaded now: received by, truck plate"]
+  LOAD --> LEFT{"Anything left?"}
+  LEFT -- yes --> PICK
+  LEFT -- no --> DONE[Fully released]
+  RCV["Stocker: Receiving, lines to the Bodega"] --> CHECK["Checker: Deliveries to check"]
+  CHECK --> CONF["Good / damaged per line"]
+  CONF --> STOCK["Good goes on the books; damaged and missing written off"]
+```
+
+Menu: Pick-ups · Deliveries to check · Bodega stock · History. Nothing else: no till, prices, catalogue, counts or reports. The stocker still records every delivery and adjustment.
 
 ## CPMS (other system)
 
@@ -141,9 +157,9 @@ Three screens, appended to the menus so no earlier entry moved:
 
 | Screen | Where it appears | What you can do |
 | --- | --- | --- |
-| **Payables** | Admin, Sales and Inventory sidebars | Bills with the supplier, due date, total, balance and an Overdue badge, plus a balance per supplier. **Store Manager and Admin** record a payment (cash, cheque or bank transfer, optional reference, exact cheque number/bank/cheque date, partial allowed). **Stock Manager** sees the same list and the payment history with no pay action. Nobody edits or deletes a bill or a payment — a bill is the record of a delivery and a payment is money that already left |
-| **Deliveries** | Admin, Sales and Inventory sidebars | The schedule, filterable by status and date, with a printable delivery slip that lists the items and where each one is picked up. **Store Manager, Admin and Stock Manager** move a delivery: Out for delivery, Delivered, or Failed with a reason. A Cashier has no screen here; the API shows a cashier only the slips they took |
-| **Storage locations** | Admin sidebar only | Add, rename and deactivate a place (seeded **Store** and **Bodega**). Admin sees deactivated places so one can be restored; everyone else sees active ones only. No delete: deactivating keeps labelling the products already there and only stops new assignments |
+| **Payables** | Sales and Inventory sidebars (Admin: Dashboard → Finance, read-only) | Bills with the supplier, due date, total, balance and an Overdue badge, plus a balance per supplier. **Store Manager and Admin** record a payment (cash, cheque or bank transfer, optional reference, exact cheque number/bank/cheque date, partial allowed). **Stock Manager** sees the same list and the payment history with no pay action. Nobody edits or deletes a bill or a payment — a bill is the record of a delivery and a payment is money that already left |
+| **Deliveries** | Sales and Inventory sidebars | The schedule, filterable by status and date, with a printable delivery slip that lists the items and where each one is picked up. **Store Manager, Admin and Stock Manager** move a delivery: Out for delivery, Delivered, or Failed with a reason. A Cashier has no screen here; the API shows a cashier only the slips they took |
+| **Storage locations** | Admin → Settings side tab | Add, rename and deactivate a place (seeded **Store** and **Bodega**). Admin sees deactivated places so one can be restored; everyone else sees active ones only. No delete: deactivating keeps labelling the products already there and only stops new assignments |
 
 Where things are kept **(Phase 5)** is a label, not a second stock ledger: each product says Store or Bodega, the till line shows a “Bodega” badge, the receipt prints “Pick up at Bodega” and the delivery slip prints the pick-up point per item. Nothing counts or moves stock per location.
 

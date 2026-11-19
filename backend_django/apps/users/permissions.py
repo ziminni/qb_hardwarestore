@@ -27,6 +27,9 @@ ROLE_SYSTEM_ADMIN = 'System Administrator'
 # `apps/users/authentication.py`. It is deliberately absent from every `*_ROLES` list
 # below, so it inherits no till, stock, reporting or admin access.
 ROLE_CPMS_SERVICE = 'CPMS Service'
+# Decision 25: the Bodega Checker. Its own area (`bodega`) and nothing else: it is in no
+# other `*_ROLES` list, so it rings no sale, edits no catalogue and reads no money.
+ROLE_BODEGA_CHECKER = 'Bodega Checker'
 
 # The UI code for `ROLE_CPMS_SERVICE` (Phase 4 task B3): accepted on a role write, never
 # read back as an area.
@@ -72,11 +75,12 @@ ROLE_CODE_GROUPS = {
     # emits it (see `ROLE_CODE_ORDER`), but a role write may still name it and the CPMS
     # guard has to see it.
     ROLE_CODE_CPMS: (ROLE_CPMS_SERVICE,),
+    'bodega': (ROLE_BODEGA_CHECKER,),
 }
 
 # The order `roles[]` is emitted in: widest authority first, so the area picker can open
 # on `roles[0]` and an old client's `role` stays the account's strongest area.
-ROLE_CODE_ORDER = ['admin', 'sales', 'inventory', 'pos']
+ROLE_CODE_ORDER = ['admin', 'sales', 'inventory', 'pos', 'bodega']
 
 # The Group a code grants when it is written.
 ROLE_CODE_GROUP = {
@@ -85,6 +89,7 @@ ROLE_CODE_GROUP = {
     'inventory': ROLE_STOCK_MANAGER,
     'pos': ROLE_CASHIER,
     ROLE_CODE_CPMS: ROLE_CPMS_SERVICE,
+    'bodega': ROLE_BODEGA_CHECKER,
 }
 
 
@@ -187,6 +192,19 @@ class IsPOSRole(RoleRequired):
     """Cashier / Store Manager / Admin — sales & payment writes."""
 
     required_roles = [ROLE_CASHIER, ROLE_STORE_MANAGER, *STAFF_ROLES]
+
+
+# Decision 25: who works the Bodega screens - the checker, plus the people who already
+# run the stock and the shop, so a day without the checker does not stop pick-ups.
+BODEGA_ROLES = [
+    ROLE_BODEGA_CHECKER, ROLE_STOCK_MANAGER, ROLE_STORE_MANAGER, *STAFF_ROLES,
+]
+
+
+class IsBodegaRole(RoleRequired):
+    """Bodega Checker / Stock Manager / Store Manager / Admin — Bodega releases and counts."""
+
+    required_roles = BODEGA_ROLES
 
 
 class IsManagerRole(RoleRequired):

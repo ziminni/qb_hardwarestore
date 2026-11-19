@@ -138,8 +138,13 @@ class MigrationSeedTests(TransactionTestCase):
         return MigrationExecutor(connection).loader.graph.leaf_nodes()
 
     def _old_targets(self):
+        # Decision 25: `bodega` depends on the LATEST inventory and pos migrations, so it
+        # cannot stay at its leaf while they are rolled back; it is unapplied here and
+        # the tearDown's migrate-to-leaves applies it again.
         return [
-            (app, name) for app, name in self._latest_targets() if app != "inventory"
+            (app, None if app == "bodega" else name)
+            for app, name in self._latest_targets()
+            if app != "inventory"
         ] + [("inventory", self.OLD_INVENTORY_LEAF)]
 
     def tearDown(self):
@@ -151,7 +156,9 @@ class MigrationSeedTests(TransactionTestCase):
     ):
         old_targets = self._old_targets()
         executor = self._migrate(old_targets)
-        old = executor.loader.project_state(old_targets).apps
+        old = executor.loader.project_state(
+            [t for t in old_targets if t[1] is not None]
+        ).apps
 
         old_category = old.get_model("inventory", "Category")
         old_brand = old.get_model("inventory", "Brand")

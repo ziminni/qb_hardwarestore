@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     'apps.collectibles',
     'apps.requisitions',
     'apps.reports',
+    'apps.bodega',
     # Phase 1, Task 2: the CPMS boundary (`/api/v1/integration/cpms/`). Has no models;
     # it is an app so its URLconf and tests sit where every other feature's do.
     'apps.integration',

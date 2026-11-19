@@ -816,9 +816,11 @@ class SeedIfEmptyTests(TestCase):
 
     def test_a_database_with_users_is_left_alone(self):
         get_user_model().objects.create_user(username="owner", email="owner@store.ph", password="x")
+        # Migrations may create groups (decision 25: `Bodega Checker`); the seed must add none.
+        groups_before = set(Group.objects.values_list("name", flat=True))
         call_command("seed_demo", "--if-empty", verbosity=0, stdout=StringIO())
         self.assertEqual(get_user_model().objects.count(), 1)
-        self.assertFalse(Group.objects.exists())
+        self.assertEqual(set(Group.objects.values_list("name", flat=True)), groups_before)
 
     def test_a_fresh_database_is_seeded(self):
         call_command("seed_demo", "--if-empty", verbosity=0, stdout=StringIO())

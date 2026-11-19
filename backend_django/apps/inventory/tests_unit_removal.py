@@ -301,11 +301,13 @@ class RemoveUnusedUnitTests(UnitRemovalTestBase):
         self.assertEqual(self._remove(admin_box, admin).status_code, 204)
 
     def test_only_selling_units_gained_a_delete(self):
-        """Every other catalog row is still archived, never deleted."""
+        """Products, variants and units are still archived, never deleted.
+
+        (Categories and suppliers: Admin-only delete, `tests_admin_delete.py`.)
+        """
         for path, row in (
             ("products", self.product),
             ("variants", self.variant),
-            ("categories", self.category),
             ("uoms", self.uom_pc),
         ):
             with self.subTest(path=path):

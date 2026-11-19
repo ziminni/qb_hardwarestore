@@ -9,7 +9,13 @@ from django.contrib.auth.models import Group
 from django.db import transaction
 from django.db.models import Q
 from rest_framework import serializers, status, viewsets
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import (
+    action,
+    api_view,
+    parser_classes,
+    permission_classes,
+)
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.exceptions import TokenError
@@ -18,6 +24,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from . import lockout
 from .models import AuditLog, User
+from .photos import checked_photo
 from .permissions import (
     STAFF_ROLES,
     IsAdminRole,
@@ -113,7 +120,28 @@ def register_view(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def me_view(request):
-    return Response(UserSerializer(request.user).data)
+    return Response(UserSerializer(request.user, context={"request": request}).data)
+
+
+@api_view(["POST", "DELETE"])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser])
+def my_avatar_view(request):
+    """`POST /auth/me/avatar/` (multipart `photo`) sets the caller's own picture;
+    `DELETE` clears it. Only ever the caller's own account; the old file is deleted
+    once the change is committed."""
+    user = request.user
+    previous = user.avatar.name if user.avatar else ""
+    storage = user.avatar.storage
+    if request.method == "DELETE":
+        user.avatar = ""
+    else:
+        user.avatar = checked_photo(request.FILES.get("photo"))
+    with transaction.atomic():
+        user.save(update_fields=["avatar", "updated_at"])
+        if previous:
+            transaction.on_commit(lambda: storage.delete(previous))
+    return Response(UserSerializer(user, context={"request": request}).data)
 
 
 @api_view(["POST"])

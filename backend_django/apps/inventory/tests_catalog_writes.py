@@ -132,18 +132,18 @@ class CatalogWriteTestBase(InventoryTestBase):
 class NoDeleteTests(CatalogWriteTestBase):
     """Every catalog row is `PROTECT`-referenced: DELETE answers 405, not 500.
 
-    A selling unit is the ONE exception since Phase 1d Task 3: it has a destroy action
+    A selling unit is an exception since Phase 1d Task 3: it has a destroy action
     that refuses the base unit and anything history references (`tests_unit_removal.py`).
+    Categories and suppliers are the other exception since 2026-11-18: an Admin may
+    delete an unused one (`tests_admin_delete.py`); anyone else gets 403.
     """
 
     def test_catalog_and_purchase_order_deletes_are_method_not_allowed(self):
         targets = [
-            ('categories', self.category, Category),
             ('brands', self.brand, Brand),
             ('uoms', self.uom_pc, UnitOfMeasure),
             ('products', self.product, Product),
             ('variants', self.variant, ProductVariant),
-            ('suppliers', self.supplier, Supplier),
             ('purchase-orders', self.po, PurchaseOrder),
         ]
         for path, row, model in targets:
@@ -157,6 +157,18 @@ class NoDeleteTests(CatalogWriteTestBase):
                 self.assertTrue(
                     model.objects.filter(pk=row.pk).exists(),
                     f'the {path} row must still exist')
+
+    def test_a_non_admin_cannot_delete_a_category_or_supplier(self):
+        for path, row, model in (
+            ('categories', self.category, Category),
+            ('suppliers', self.supplier, Supplier),
+        ):
+            with self.subTest(path=path):
+                response = self.client.delete(
+                    f'/api/v1/{path}/{row.pk}/', **self._auth(self.stocker))
+
+                self.assertEqual(response.status_code, 403, response.data)
+                self.assertTrue(model.objects.filter(pk=row.pk).exists())
 
 
 class CatalogWritePermissionTests(CatalogWriteTestBase):

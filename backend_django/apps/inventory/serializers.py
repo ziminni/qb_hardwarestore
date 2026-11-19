@@ -112,6 +112,7 @@ class StorageLocationSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "is_active",
+            "is_bodega",
             "created_at",
             "updated_at",
         ]
@@ -477,6 +478,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             "id",
             "product",
             "variant_name",
+            "sku",
             "base_uom",
             "base_uom_code",
             "min_stock_threshold",

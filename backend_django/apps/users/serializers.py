@@ -17,6 +17,7 @@ from .permissions import (
     ROLE_CODE_GROUP,
     role_code_for_group,
 )
+from .photos import photo_url
 
 
 ROLES_CONFLICT_CODE = 'ROLES_CONFLICT'
@@ -173,12 +174,14 @@ class UserSerializer(serializers.ModelSerializer):
     role_names = serializers.SerializerMethodField()
     role = serializers.SerializerMethodField()
     roles = serializers.SerializerMethodField()
+    avatar_url = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             'id', 'username', 'email', 'full_name', 'is_active', 'is_staff',
-            'role', 'roles', 'role_names', 'last_login', 'created_at', 'updated_at',
+            'role', 'roles', 'role_names', 'avatar_url', 'last_login', 'created_at',
+            'updated_at',
         ]
         read_only_fields = [
             'id', 'is_staff', 'last_login', 'created_at', 'updated_at',
@@ -202,6 +205,11 @@ class UserSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({'roles': exc.detail}) from exc
             attrs['roles'] = groups_for_role_codes(codes)
         return attrs
+
+    def get_avatar_url(self, obj):
+        # Absolute when a request is in context (so a phone can load it); otherwise
+        # the server-relative path, which the client resolves against its API host.
+        return photo_url(self.context.get('request'), obj.avatar)
 
     @staticmethod
     def get_roles(obj):

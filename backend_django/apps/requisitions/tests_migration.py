@@ -54,15 +54,21 @@ class _MigrationBase(TransactionTestCase):
 
     def _old_targets(self):
         """Every app at its leaf, except the ones pinned to an older shape here."""
+        # Decision 25: `bodega` depends on the LATEST pos migrations, so it
+        # cannot stay at its leaf while they are rolled back; it is unapplied here and
+        # the tearDown's migrate-to-leaves applies it again.
         return [
-            (app, name) for app, name in self._latest_targets()
+            (app, None if app == 'bodega' else name)
+            for app, name in self._latest_targets()
             if app not in OLD_LEAVES
         ] + [(app, name) for app, name in OLD_LEAVES.items()]
 
     def _state_apps(self, executor, targets) -> Any:
         # `Any`: a historical app registry is built at runtime, so a checker without
         # django-stubs sees `project_state(...).apps` as a bare `cached_property`.
-        return executor.loader.project_state(targets).apps
+        return executor.loader.project_state(
+            [t for t in targets if t[1] is not None]
+        ).apps
 
 
 class ForemanDataMigrationTests(_MigrationBase):

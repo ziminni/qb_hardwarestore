@@ -63,6 +63,8 @@ ROLES = [
     # POS role - the fence in `apps/users/authentication.py` keeps it inside
     # `/api/v1/integration/cpms/` - and the foreman role is gone (decision 01).
     "CPMS Service",
+    # Decision 25: the person who hands Bodega goods over and counts the Bodega.
+    "Bodega Checker",
 ]
 
 USERS = [
@@ -73,6 +75,7 @@ USERS = [
     ("cashier", "Cashi Er", "Cashier", False, False),
     # Decision 02: the machine account CPMS logs in as. Not staff, not a superuser.
     ("cpms_service", "CPMS Service", "CPMS Service", False, False),
+    ("checker", "Bodega Checker", "Bodega Checker", False, False),
 ]
 
 # The ONE seeded product the demo keeps in the Bodega instead of the Store, so the till
@@ -190,6 +193,7 @@ class Command(BaseCommand):
         self._seed_locations()
         variants = self._seed_catalog()
         self._seed_stock(users["stocker"], variants)
+        self._seed_bodega_checks(users["checker"])
         self._seed_transfer(users["stocker"])
         self._seed_adjustments(users["stocker"], variants)
         self._seed_customers()
@@ -215,6 +219,12 @@ class Command(BaseCommand):
         """
         for name in (STORE_LOCATION_NAME, BODEGA_LOCATION_NAME):
             storage_location(name)
+        # Decision 25 §1: the seeded Bodega is the checker's shelf (migration 0019 does the
+        # same for a database that had one before the flag existed).
+        bodega = storage_location(BODEGA_LOCATION_NAME)
+        if not bodega.is_bodega:
+            bodega.is_bodega = True
+            bodega.save(update_fields=["is_bodega"])
         self.stdout.write(self.style.MIGRATE_HEADING("Storage locations ensured"))
 
     def _seed_users(self):
@@ -380,6 +390,31 @@ class Command(BaseCommand):
             with db_txn.atomic():
                 allocate_fifo(variant_id=low_stock_variant.pk, qty_needed=Decimal(90))
         self.stdout.write(self.style.SUCCESS("Stock batches seeded (FIFO)"))
+
+    def _seed_bodega_checks(self, checker):
+        """Decision 25: a delivery to the Bodega is stock only once the checker confirms it.
+
+        The demo's opening Bodega delivery arrived whole, so the checker confirms every
+        line as delivered - through the same service the checker's screen calls.
+        """
+        from django.db import transaction
+
+        from apps.bodega.models import BodegaDelivery
+        from apps.bodega.services import confirm_delivery
+
+        with transaction.atomic():
+            for delivery in BodegaDelivery.objects.filter(
+                status=BodegaDelivery.Status.PENDING
+            ):
+                confirm_delivery(
+                    delivery_id=delivery.pk,
+                    checker=checker,
+                    lines={
+                        line.pk: (line.delivered_qty, Decimal(0), "")
+                        for line in delivery.lines.all()
+                    },
+                    notes="Opening stock",
+                )
 
     def _seed_adjustments(self, stocker, variants):
         """Record stock adjustments through the REAL service path.

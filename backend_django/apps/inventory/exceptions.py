@@ -493,6 +493,25 @@ class ReturnAdjustmentRetired(CatalogWriteRefused):
 # ---------------------------------------------------------------------------
 
 
+class RecordInUse(CatalogWriteRefused):
+    """A delete of master data that other records still point at (owner 2026-11-18).
+
+    The answer names what uses it; archiving is the way out.
+    """
+
+    code = "IN_USE"
+
+
+class OpeningStockRefused(CatalogWriteRefused):
+    """Opening stock asked for a variant that already has stock history, or a bad figure.
+
+    Opening stock is the first stock a NEW product starts with; after that every unit
+    arrives through a purchase order and Receiving, so the back door stays shut.
+    """
+
+    code = "OPENING_STOCK_REFUSED"
+
+
 class InvalidStorageLocation(CatalogWriteRefused):
     """A storage location the shop cannot accept (Phase 5 B4, decision 18).
 
