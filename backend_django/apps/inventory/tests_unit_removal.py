@@ -722,9 +722,9 @@ class ConcurrentWriterAndRemovalTests(ConcurrentRaceTestBase):
                 # held yet, so the removal is free to win.
                 real = pos_services._validated_payments
 
-                def paused(payments_data):
+                def paused(*args, **kwargs):
                     pause()
-                    return real(payments_data)
+                    return real(*args, **kwargs)
 
                 with mock.patch.object(
                     pos_services, "_validated_payments", side_effect=paused

@@ -33,6 +33,7 @@ LOGIN_URL = '/api/v1/auth/login/'
 # sweep below does not ask the fence about them. `test_the_cpms_account_may_still_log_in
 # _and_refresh` covers them instead.
 UNFENCED_ROUTES = {'/api/v1/auth/login/', '/api/v1/auth/refresh/'}
+SMS_GATEWAY_URL = '/api/v1/sms/gateway/'
 CPMS_GROUP = 'CPMS Service'
 # The fixture credential this suite signs in with - a test password, not a secret.
 CPMS_LOGIN = 'cpms-pass-123'
@@ -121,9 +122,14 @@ class FenceTests(CpmsTestCase):
             code = None
             if res.headers.get('Content-Type', '').startswith('application/json'):
                 code = res.json().get('code')
-            if res.status_code != 403 or code != 'CPMS_SCOPE':
+            # The modem bridge's routes take no JWT at all, only the gateway key, so the
+            # CPMS token is refused there by the key check instead of the fence.
+            expected = (
+                'SMS_GATEWAY_REFUSED' if path.startswith(SMS_GATEWAY_URL) else 'CPMS_SCOPE'
+            )
+            if res.status_code != 403 or code != expected:
                 refused.append((path, res.status_code, code))
-        self.assertEqual(refused, [], 'not 403 CPMS_SCOPE')
+        self.assertEqual(refused, [], 'not refused with 403')
 
     def test_the_cpms_account_may_still_log_in_and_refresh(self):
         # The fence must never lock the account out of its own credentials, even when the
