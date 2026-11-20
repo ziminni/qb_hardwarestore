@@ -35,6 +35,7 @@ class SalesSummary {
     required this.totalVat,
     required this.totalDiscounts,
     required this.days,
+    this.totalPaymentFees = 0,
   });
 
   final String from;
@@ -43,7 +44,11 @@ class SalesSummary {
   final double totalGross;
   final double totalVat;
   final double totalDiscounts;
+  final double totalPaymentFees;
   final List<SalesDay> days;
+
+  bool get hasPaymentFees =>
+      totalPaymentFees > 0 || days.any((day) => day.paymentFees > 0);
 
   factory SalesSummary.fromJson(Map<String, dynamic> json) {
     final totals = json['totals'];
@@ -61,6 +66,7 @@ class SalesSummary {
       totalGross: optionalDecimalField(totals, 'gross_sales'),
       totalVat: optionalDecimalField(totals, 'vat'),
       totalDiscounts: optionalDecimalField(totals, 'discounts'),
+      totalPaymentFees: optionalDecimalField(totals, 'payment_fees'),
       days: days
           .map((d) => SalesDay.fromJson(d as Map<String, dynamic>))
           .toList(),
@@ -75,6 +81,7 @@ class SalesDay {
     required this.gross,
     required this.vat,
     required this.discounts,
+    this.paymentFees = 0,
   });
 
   final String day;
@@ -82,6 +89,7 @@ class SalesDay {
   final double gross;
   final double vat;
   final double discounts;
+  final double paymentFees;
 
   factory SalesDay.fromJson(Map<String, dynamic> json) => SalesDay(
     day: stringField(json, 'day'),
@@ -89,6 +97,7 @@ class SalesDay {
     gross: optionalDecimalField(json, 'gross_sales'),
     vat: optionalDecimalField(json, 'vat'),
     discounts: optionalDecimalField(json, 'discounts'),
+    paymentFees: optionalDecimalField(json, 'payment_fees'),
   );
 }
 

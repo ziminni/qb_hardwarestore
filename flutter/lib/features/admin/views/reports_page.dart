@@ -311,6 +311,7 @@ typedef _SalesRow = ({
   double gross,
   double discounts,
   double vat,
+  double paymentFees,
   bool isTotal,
 });
 
@@ -320,7 +321,7 @@ class _SalesTab extends StatelessWidget {
   final AdminReportsViewmodel viewmodel;
   final Widget periodControl;
 
-  List<DataPanelColumn<_SalesRow>> get _columns => [
+  List<DataPanelColumn<_SalesRow>> _columnsFor(SalesSummary sales) => [
     DataPanelColumn<_SalesRow>(
       label: 'Day',
       flex: 3,
@@ -346,6 +347,12 @@ class _SalesTab extends StatelessWidget {
       numeric: true,
       cell: (row) => _cell(formatPeso(row.vat), bold: row.isTotal),
     ),
+    if (sales.hasPaymentFees)
+      DataPanelColumn<_SalesRow>(
+        label: 'Payment fees',
+        numeric: true,
+        cell: (row) => _cell(formatPeso(row.paymentFees), bold: row.isTotal),
+      ),
   ];
 
   List<_SalesRow> _rows(SalesSummary sales) => [
@@ -356,6 +363,7 @@ class _SalesTab extends StatelessWidget {
         gross: day.gross,
         discounts: day.discounts,
         vat: day.vat,
+        paymentFees: day.paymentFees,
         isTotal: false,
       ),
     if (sales.days.isNotEmpty)
@@ -365,6 +373,7 @@ class _SalesTab extends StatelessWidget {
         gross: sales.totalGross,
         discounts: sales.totalDiscounts,
         vat: sales.totalVat,
+        paymentFees: sales.totalPaymentFees,
         isTotal: true,
       ),
   ];
@@ -398,11 +407,16 @@ class _SalesTab extends StatelessWidget {
                 value: formatPeso(sales.totalDiscounts),
               ),
               MetricTile(label: 'VAT', value: formatPeso(sales.totalVat)),
+              if (sales.hasPaymentFees)
+                MetricTile(
+                  label: 'Payment fees',
+                  value: formatPeso(sales.totalPaymentFees),
+                ),
             ],
           ),
           const SizedBox(height: AppSpacing.md),
           DataPanel<_SalesRow>(
-            columns: _columns,
+            columns: _columnsFor(sales),
             rows: _rows(sales),
             emptyMessage: 'No sales in this range.',
           ),

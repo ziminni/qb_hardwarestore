@@ -101,6 +101,17 @@ class BodegaClaimLine {
         released: decimalField(json, 'released'),
         remaining: decimalField(json, 'remaining'),
       );
+
+  Map<String, dynamic> toJson() => {
+    'variant': variantId,
+    'label': label,
+    'unit': unit,
+    'location': locationId,
+    'location_name': locationName,
+    'sold': sold.toStringAsFixed(2),
+    'released': released.toStringAsFixed(2),
+    'remaining': remaining.toStringAsFixed(2),
+  };
 }
 
 /// A sale's Bodega claim: what was paid for, handed over and still to collect.
@@ -140,6 +151,18 @@ class BodegaClaim {
     lines: nestedList(json, 'lines', BodegaClaimLine.fromJson),
     releases: nestedList(json, 'releases', BodegaRelease.fromJson),
   );
+
+  Map<String, dynamic> toJson() => {
+    'sale': saleId,
+    'transaction_no': transactionNo,
+    'or_number': orNumber,
+    'customer_name': customerName,
+    'sold_at': soldAt?.toIso8601String(),
+    'is_open': isOpen,
+    'remaining_total': remainingTotal.toStringAsFixed(2),
+    'lines': [for (final line in lines) line.toJson()],
+    'releases': [for (final release in releases) release.toJson()],
+  };
 }
 
 class BodegaReleaseLine {
@@ -165,6 +188,14 @@ class BodegaReleaseLine {
         locationName: stringField(json, 'location_name'),
         qty: decimalField(json, 'qty'),
       );
+
+  Map<String, dynamic> toJson() => {
+    'variant': variantId,
+    'label': label,
+    'unit': unit,
+    'location_name': locationName,
+    'qty': qty.toStringAsFixed(2),
+  };
 }
 
 /// One hand-over at the Bodega (`BR-YYYYMMDD-NNNN`).
@@ -209,6 +240,19 @@ class BodegaRelease {
     createdAt: nullableDateField(json, 'created_at'),
     lines: nestedList(json, 'lines', BodegaReleaseLine.fromJson),
   );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'number': number,
+    'transaction_no': transactionNo,
+    'customer_name': customerName,
+    'checker_name': checkerName,
+    'received_by': receivedBy,
+    'plate_no': plateNo,
+    'notes': notes,
+    'created_at': createdAt?.toIso8601String(),
+    'lines': [for (final line in lines) line.toJson()],
+  };
 }
 
 String _qty(double value) => value == value.roundToDouble()
@@ -329,19 +373,52 @@ class BodegaReleaseRequest {
     required this.lines,
     this.plateNo = '',
     this.notes = '',
+    this.idempotencyKey = '',
   });
 
   final String receipt;
   final String receivedBy;
   final String plateNo;
   final String notes;
+  final String idempotencyKey;
   final List<({int variantId, int locationId, double qty})> lines;
+
+  BodegaReleaseRequest withIdempotencyKey(String key) => BodegaReleaseRequest(
+    receipt: receipt,
+    receivedBy: receivedBy,
+    plateNo: plateNo,
+    notes: notes,
+    idempotencyKey: key,
+    lines: lines,
+  );
+
+  factory BodegaReleaseRequest.fromJson(Map<String, dynamic> json) {
+    final rawLines = json['lines'];
+    return BodegaReleaseRequest(
+      receipt: stringField(json, 'receipt'),
+      receivedBy: stringField(json, 'received_by'),
+      plateNo: json['plate_no'] as String? ?? '',
+      notes: json['notes'] as String? ?? '',
+      idempotencyKey: json['idempotency_key'] as String? ?? '',
+      lines: [
+        if (rawLines is List)
+          for (final item in rawLines)
+            if (item is Map<String, dynamic>)
+              (
+                variantId: intField(item, 'variant'),
+                locationId: intField(item, 'location'),
+                qty: decimalField(item, 'qty'),
+              ),
+      ],
+    );
+  }
 
   Map<String, dynamic> toJson() => {
     'receipt': receipt,
     'received_by': receivedBy,
     'plate_no': plateNo,
     'notes': notes,
+    if (idempotencyKey.isNotEmpty) 'idempotency_key': idempotencyKey,
     'lines': [
       for (final line in lines)
         {

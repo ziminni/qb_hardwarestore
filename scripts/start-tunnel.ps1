@@ -18,21 +18,27 @@ if (-not (Test-Path $KeyFile)) {
     Write-Host "Created $KeyFile with a new gateway key."
 }
 $Key = ((Get-Content $KeyFile | Where-Object { $_ -like "QB_GATEWAY_KEY=*" }) -replace "^QB_GATEWAY_KEY=", "").Trim()
+$Token = ((Get-Content $KeyFile | Where-Object { $_ -like "CLOUDFLARE_TUNNEL_TOKEN=*" }) -replace "^CLOUDFLARE_TUNNEL_TOKEN=", "").Trim()
+$Hostname = ((Get-Content $KeyFile | Where-Object { $_ -like "CLOUDFLARE_TUNNEL_HOSTNAME=*" }) -replace "^CLOUDFLARE_TUNNEL_HOSTNAME=", "").Trim()
 
 # Recreate cloudflared so its log holds only this run's URL.
 docker compose --profile tunnel up -d --force-recreate gateway cloudflared
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "Waiting for the tunnel URL..."
-$Url = $null
-for ($i = 0; $i -lt 60 -and -not $Url; $i++) {
-    $logs = (docker compose logs cloudflared 2>&1) -join "`n"
-    $found = [regex]::Matches($logs, "https://[a-z0-9-]+\.trycloudflare\.com")
-    if ($found.Count -gt 0) { $Url = $found[$found.Count - 1].Value } else { Start-Sleep -Seconds 2 }
-}
-if (-not $Url) {
-    Write-Error "No tunnel URL after 2 minutes. Check: docker compose logs cloudflared"
-    exit 1
+if ($Token) {
+    $Url = if ($Hostname) { if ($Hostname -match "^https?://") { $Hostname } else { "https://$Hostname" } } else { "https://<your-named-tunnel-hostname>" }
+} else {
+    Write-Host "Waiting for the tunnel URL..."
+    $Url = $null
+    for ($i = 0; $i -lt 60 -and -not $Url; $i++) {
+        $logs = (docker compose logs cloudflared 2>&1) -join "`n"
+        $found = [regex]::Matches($logs, "https://[a-z0-9-]+\.trycloudflare\.com")
+        if ($found.Count -gt 0) { $Url = $found[$found.Count - 1].Value } else { Start-Sleep -Seconds 2 }
+    }
+    if (-not $Url) {
+        Write-Error "No tunnel URL after 2 minutes. Check: docker compose logs cloudflared"
+        exit 1
+    }
 }
 
 Write-Host ""

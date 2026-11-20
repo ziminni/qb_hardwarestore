@@ -47,6 +47,44 @@ class BodegaHomeTab extends StatelessWidget {
                 style: const TextStyle(color: AppColors.errorText),
               ),
             ),
+          if (viewmodel.usingOfflineSnapshot ||
+              viewmodel.queuedReleaseCount > 0)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: MobileCard(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.cloud_off_outlined,
+                      color: AppColors.warningText,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        viewmodel.queuedReleaseCount > 0
+                            ? 'Offline snapshot · '
+                                  '${viewmodel.queuedReleaseCount} '
+                                  'release${viewmodel.queuedReleaseCount == 1 ? '' : 's'} '
+                                  'queued to sync'
+                            : 'Offline snapshot — quantities may have changed '
+                                  'at the counter',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                    if (viewmodel.queuedReleaseCount > 0)
+                      TextButton(
+                        key: const ValueKey('bodega-sync-outbox'),
+                        onPressed: onRefresh,
+                        child: const Text('Sync now'),
+                      ),
+                  ],
+                ),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
             child: Row(

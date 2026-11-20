@@ -9,6 +9,7 @@ here until checked) and out at the till.
 from collections import defaultdict
 from typing import Any, cast
 
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q
 from rest_framework import mixins, status, viewsets
@@ -179,6 +180,20 @@ class BodegaReleaseViewSet(
         return rows
 
     def create(self, request):
+        idem_key = (request.headers.get("Idempotency-Key") or "").strip()[:64]
+        cache_key = (
+            f"bodega_release_idem:{request.user.pk}:{idem_key}" if idem_key else ""
+        )
+        if cache_key:
+            cached_id = cache.get(cache_key)
+            if cached_id is not None:
+                existing = self.get_queryset().filter(pk=cached_id).first()
+                if existing is not None:
+                    return Response(
+                        BodegaReleaseSerializer(existing).data,
+                        status=status.HTTP_200_OK,
+                    )
+
         data = ReleaseInput(data=request.data)
         data.is_valid(raise_exception=True)
         body = cast(dict[str, Any], data.validated_data)
@@ -203,6 +218,8 @@ class BodegaReleaseViewSet(
                 + (f", truck {release.plate_no}" if release.plate_no else "")
                 + ".",
             )
+        if cache_key:
+            cache.set(cache_key, release.pk, timeout=86400)
         release = self.get_queryset().get(pk=release.pk)
         return Response(
             BodegaReleaseSerializer(release).data, status=status.HTTP_201_CREATED

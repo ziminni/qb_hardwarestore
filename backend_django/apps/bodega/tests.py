@@ -159,6 +159,34 @@ class ClaimAndReleaseTests(BodegaTestBase):
             (Decimal(6), Decimal(3), Decimal(9)),
         )
 
+    def test_idempotency_key_replays_the_original_release_without_double_releasing(self):
+        sale = self._sell(4)
+        self.api.force_authenticate(self.checker)
+        body = {
+            "receipt": sale.transaction_no,
+            "received_by": "Pedro",
+            "plate_no": "ABC 123",
+            "lines": [
+                {"variant": self.variant.pk, "location": self.bodega.pk, "qty": "2.00"}
+            ],
+        }
+        first = self.api.post(
+            "/api/v1/bodega/releases/",
+            body,
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="offline-bodega-key-1",
+        )
+        self.assertEqual(first.status_code, 201, first.data)
+        replay = self.api.post(
+            "/api/v1/bodega/releases/",
+            body,
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="offline-bodega-key-1",
+        )
+        self.assertEqual(replay.status_code, 200, replay.data)
+        self.assertEqual(replay.data["id"], first.data["id"])
+        self.assertEqual(BodegaRelease.objects.filter(sale=sale).count(), 1)
+
 
 class DeliveryCheckTests(BodegaTestBase):
     """Decision 25 rev.: a Bodega delivery is stock only after the checker confirms it."""

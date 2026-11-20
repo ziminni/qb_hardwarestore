@@ -17,21 +17,28 @@ if [ ! -f "$KEY_FILE" ]; then
   echo "Created $KEY_FILE with a new gateway key."
 fi
 key=$(sed -n 's/^QB_GATEWAY_KEY=//p' "$KEY_FILE")
+token=$(sed -n 's/^CLOUDFLARE_TUNNEL_TOKEN=//p' "$KEY_FILE")
+hostname=$(sed -n 's/^CLOUDFLARE_TUNNEL_HOSTNAME=//p' "$KEY_FILE")
 
 # Recreate cloudflared so its log holds only this run's URL.
 docker compose --profile tunnel up -d --force-recreate gateway cloudflared
 
-echo "Waiting for the tunnel URL..."
-url=""
-for _ in $(seq 1 60); do
-  url=$(docker compose logs cloudflared 2>/dev/null \
-    | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | tail -1 || true)
-  [ -n "$url" ] && break
-  sleep 2
-done
-if [ -z "$url" ]; then
-  echo "No tunnel URL after 2 minutes. Check: docker compose logs cloudflared" >&2
-  exit 1
+if [ -n "$token" ]; then
+  url="${hostname:-https://<your-named-tunnel-hostname>}"
+  case "$url" in http://*|https://*) ;; *) url="https://$url" ;; esac
+else
+  echo "Waiting for the tunnel URL..."
+  url=""
+  for _ in $(seq 1 60); do
+    url=$(docker compose logs cloudflared 2>/dev/null \
+      | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | tail -1 || true)
+    [ -n "$url" ] && break
+    sleep 2
+  done
+  if [ -z "$url" ]; then
+    echo "No tunnel URL after 2 minutes. Check: docker compose logs cloudflared" >&2
+    exit 1
+  fi
 fi
 
 cat <<MSG

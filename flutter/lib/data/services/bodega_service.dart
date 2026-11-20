@@ -11,6 +11,10 @@ class BodegaServiceException implements Exception {
   /// The server's stable code (`RELEASE_EXCEEDS_CLAIM`, `NO_BODEGA_CLAIM`, …).
   final String? code;
 
+  bool get isConnectionFailure =>
+      code == 'OFFLINE' ||
+      message == 'Cannot connect to the BuildPro server.';
+
   @override
   String toString() => message;
 }
@@ -53,6 +57,9 @@ class BodegaService {
         final response = await _client.post<Map<String, dynamic>>(
           '$base/releases/',
           data: request.toJson(),
+          headers: request.idempotencyKey.isEmpty
+              ? null
+              : {'Idempotency-Key': request.idempotencyKey},
         );
         return BodegaRelease.fromJson(_object(response.data));
       });

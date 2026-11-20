@@ -49,7 +49,12 @@ which all share the password `demo1234`.
   See [backup-restore-safety.md](backup-restore-safety.md).
 - SMS link: see `scripts/sms_bridge/README.md` (`SMS_ENABLED`, `SMS_GATEWAY_KEY`).
 - CPMS link: see the README tunnel section (the CPMS key and the CPMS service password
-  must not be the demo values).
+  must not be the demo values). For a **permanent fixed hostname** (e.g.
+  `https://pos-api.yourdomain.com`) instead of a temporary Quick Tunnel URL, create a
+  Cloudflare Named Tunnel in Cloudflare Zero Trust pointing its Public Hostname to
+  `http://gateway:8080`, add `CLOUDFLARE_TUNNEL_TOKEN=<token>` and
+  `CLOUDFLARE_TUNNEL_HOSTNAME=https://pos-api.yourdomain.com` to `tunnel/gateway.env`,
+  then run `./scripts/start-tunnel.sh` (or `.\scripts\start-tunnel.ps1`).
 
 ## Notes
 

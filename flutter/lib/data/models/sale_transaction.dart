@@ -51,15 +51,18 @@ class TransactionPayment {
   const TransactionPayment({
     required this.method,
     required this.amountTendered,
+    this.fee = 0,
   });
 
   final String method;
   final double amountTendered;
+  final double fee;
 
   factory TransactionPayment.fromJson(Map<String, dynamic> json) =>
       TransactionPayment(
         method: stringField(json, 'method'),
         amountTendered: decimalField(json, 'amount_tendered'),
+        fee: double.tryParse('${json['fee'] ?? 0}') ?? 0,
       );
 }
 
@@ -82,6 +85,8 @@ class TransactionRecord {
     this.vatableSales = 0,
     this.vatAmount = 0,
     this.vatRegistered = true,
+    this.paymentFee = 0,
+    this.creditSale = false,
   });
 
   final int id;
@@ -107,6 +112,10 @@ class TransactionRecord {
   final double vatableSales;
   final double vatAmount;
   final bool vatRegistered;
+
+  /// Untaxed non-cash payment fee sum, and whether the sale used utang credit pricing.
+  final double paymentFee;
+  final bool creditSale;
 
   factory TransactionRecord.fromJson(Map<String, dynamic> json) {
     final items = json['items'];
@@ -139,6 +148,8 @@ class TransactionRecord {
       vatRegistered: json['vat_registered'] is bool
           ? json['vat_registered'] as bool
           : true,
+      paymentFee: double.tryParse('${json['payment_fee'] ?? 0}') ?? 0,
+      creditSale: json['credit_sale'] == true,
       items: items
           .map((i) => TransactionLineItem.fromJson(i as Map<String, dynamic>))
           .toList(),
