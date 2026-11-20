@@ -16,8 +16,8 @@ Including another URLconf
 """
 
 from django.conf import settings
-from django.conf.urls.static import static
 from django.contrib import admin
+from django.views.static import serve
 from django.http import HttpResponseNotFound
 from django.urls import include, path, re_path
 from rest_framework.decorators import api_view, permission_classes
@@ -66,5 +66,21 @@ urlpatterns += [
     path("media/system_security_policy.json", private_media_not_found),
 ]
 
-# Dev only: DEBUG serves uploaded product photos; static() is a no-op otherwise.
-urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Uploaded photos, served in production too (static() is a no-op with DEBUG off). Only
+# these three folders: anything else that lands in MEDIA_ROOT stays private.
+# shortcut: Django serves the files itself, fine for one store; front it with nginx or a
+# CDN if photo traffic ever grows.
+urlpatterns += [
+    re_path(
+        r"^media/(?P<path>(?:product-images|avatars|bodega-deliveries)/[^/]+)$",
+        lambda request, path: serve(request, path, document_root=settings.MEDIA_ROOT),
+    ),
+]
+# Django admin's CSS/JS (collected by `collectstatic` at production start).
+if not settings.DEBUG:
+    urlpatterns += [
+        re_path(
+            r"^static/(?P<path>.*)$",
+            lambda request, path: serve(request, path, document_root=settings.STATIC_ROOT),
+        )
+    ]

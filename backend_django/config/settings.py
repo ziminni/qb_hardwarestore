@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 
 from corsheaders.defaults import default_headers
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -22,15 +23,43 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-1y$rst#jhihg+_x%)jt_%-n4&xi_paerb$le)!b5^wg=!rr)$f"
+def _env_bool(name, default):
+    value = os.environ.get(name, "").strip().lower()
+    return default if not value else value in ("1", "true", "yes", "on")
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
 
-# Dev only: accept any Host header (web/desktop = 127.0.0.1, emulator = 10.0.2.2, physical device = LAN IP).
-# Restrict this to explicit hosts for production.
-ALLOWED_HOSTS = ["*"]
+def _env_list(name):
+    return [item.strip() for item in os.environ.get(name, "").split(",") if item.strip()]
+
+
+# Development stays the default so `docker compose up` keeps working unchanged.
+# Production sets DJANGO_DEBUG=false and must then supply its own secret key and hosts
+# (see docs/production-setup.md); it refuses to start without them.
+DEBUG = _env_bool("DJANGO_DEBUG", True)
+
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "").strip()
+if not SECRET_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured("DJANGO_SECRET_KEY is required when DJANGO_DEBUG=false.")
+    SECRET_KEY = "django-insecure-1y$rst#jhihg+_x%)jt_%-n4&xi_paerb$le)!b5^wg=!rr)$f"
+elif not DEBUG and (len(SECRET_KEY) < 50 or SECRET_KEY.startswith("django-insecure")):
+    raise ImproperlyConfigured("DJANGO_SECRET_KEY must be a fresh random value of 50+ characters.")
+
+# Dev accepts any Host (web/desktop = 127.0.0.1, emulator = 10.0.2.2, phone = LAN IP).
+# Production lists them, e.g. "192.168.1.10,pos-api.example.com" ("*" only on purpose).
+ALLOWED_HOSTS = _env_list("DJANGO_ALLOWED_HOSTS") or (["*"] if DEBUG else [])
+if not ALLOWED_HOSTS:
+    raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS is required when DJANGO_DEBUG=false.")
+
+# Only when the server sits behind HTTPS (hosted, or behind a TLS proxy). A store LAN
+# server is plain http:// and must leave this off, or every LAN request is redirected.
+if _env_bool("DJANGO_HTTPS", False):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_HSTS_SECONDS", "3600"))
+    CSRF_TRUSTED_ORIGINS = [f"https://{host}" for host in ALLOWED_HOSTS if host != "*"]
 
 
 # Application definition
@@ -108,11 +137,11 @@ DATABASES = {
     # }
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "buildpro_pos",
-        "USER": "admin",
-        "PASSWORD": "adminpassword",
-        "HOST": "db",  # match the service name in docker-compose.yml
-        "PORT": "5432",
+        "NAME": os.environ.get("POSTGRES_DB", "buildpro_pos"),
+        "USER": os.environ.get("POSTGRES_USER", "admin"),
+        "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "adminpassword"),
+        "HOST": os.environ.get("POSTGRES_HOST", "db"),  # the compose service name
+        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
     }
 }
 
@@ -152,6 +181,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Product photos (POS usability). Public catalogue media under the bind-mounted
 # backend directory; the dev server serves it, production must serve MEDIA_ROOT itself.
@@ -243,9 +273,11 @@ SMS_GATEWAY_KEY = os.environ.get('SMS_GATEWAY_KEY', '').strip()
 # =============================================
 # CORS (Cross-Origin Resource Sharing)
 # Allows Flutter Web and other dev origins to call the API.
-# Dev-only convenience; switch to CORS_ALLOWED_ORIGINS in production.
+# Dev allows every origin. Production allows only DJANGO_CORS_ALLOWED_ORIGINS (needed
+# just for the Flutter WEB build; desktop and phone apps are not subject to CORS).
 # =============================================
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOWED_ORIGINS = _env_list("DJANGO_CORS_ALLOWED_ORIGINS")
+CORS_ALLOW_ALL_ORIGINS = DEBUG and not CORS_ALLOWED_ORIGINS
 
 # `Idempotency-Key` is a CUSTOM header (ENDPOINTS.md, *Idempotency*), so it is not in
 # django-cors-headers' default allow-list. A browser will not send a header the preflight

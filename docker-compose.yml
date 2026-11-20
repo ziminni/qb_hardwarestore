@@ -21,10 +21,18 @@ services:
   backend:
     build: ./backend_django
     container_name: buildpro_backend
+    # DJANGO_DEBUG=false in backend_django/.env switches to production: no demo
+    # accounts, collected admin static files, gunicorn instead of the dev server.
+    # One worker process (threaded) because the login lockout cache is per process.
     command: >
       sh -c "python manage.py migrate &&
-             python manage.py seed_demo --if-empty &&
-             python manage.py runserver 0.0.0.0:8000"
+             if [ \"$${DJANGO_DEBUG:-true}\" = false ]; then
+               python manage.py collectstatic --noinput &&
+               exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 1 --threads 8 --timeout 300;
+             else
+               python manage.py seed_demo --if-empty &&
+               exec python manage.py runserver 0.0.0.0:8000;
+             fi"
     volumes:
       - ./backend_django:/app
     env_file:
