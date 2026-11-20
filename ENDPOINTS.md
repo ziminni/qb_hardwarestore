@@ -353,6 +353,39 @@ Quantities are **base units**. Everything: Bodega Checker, Stock Manager, Store 
 
 `StorageLocation` gains `is_bodega` (read/write on `/storage-locations/`); `POST /goods-receipts/{id}/process/` holds lines for a Bodega shelf as a pending `BodegaDelivery` instead of minting batches (bill and PO status unchanged). Role code `bodega` ↔ group `Bodega Checker` is accepted on user role writes and emitted last in `roles[]`.
 
+---
+
+### 3.9 `apps/sms` — Bodega pick-ups by text message (the modem link)
+
+The Bodega is outside the store's Wi-Fi, so the checker's phone cannot reach this server. A **bridge process** on the shop's computer (`scripts/sms_bridge/`, see its README) owns the GSM modem; the backend owns every decision. Set `SMS_ENABLED` and `SMS_GATEWAY_KEY` (≥ 24 chars) in `docker-compose.yml`. A sale that takes goods from a Bodega shelf queues `QB PICKUP <receipt>: <items>. Code <4 digits>. Reply: DONE <receipt> <code>` to every active contact (`DELIVERY` when the sale has a delivery slip). One reply releases **everything** still uncollected.
+
+**Bridge endpoints** (`/sms/gateway/*`): authenticated by the `X-SMS-Gateway-Key` header alone — **no JWT**, and every call is refused with `403 SMS_GATEWAY_REFUSED` when the configured key is empty or shorter than 24 characters. Bodies are `{code, detail}`.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/sms/gateway/outbox/?limit=5` | Claims up to `limit` (≤50) outbound messages with `SELECT … FOR UPDATE SKIP LOCKED`, marks them `SENDING` with a 5-minute lease, returns `[{id, phone, body}]`. A message left `SENDING` by a dead bridge is re-claimed after the lease. |
+| POST | `/sms/gateway/outbox/{id}/result/` | `{ok, error?}` → `SENT` (`sent_at` set), else back to `QUEUED` with `attempts + 1`, and `FAILED` at 5 attempts. Unknown id → **404** `SMS_MESSAGE_NOT_FOUND`. |
+| POST | `/sms/gateway/inbound/` | **`503 SMS_DISABLED`** while `SMS_ENABLED` is false — refused before anything is written, so the bridge keeps the SMS on the SIM (it only deletes on 2xx) and the retry after the link is switched on is processed for real. `{from, body, received_at?, key?}` → `{status, reply}`. `key` is the bridge's idempotency token (sha256 of sender+timestamp+body): a redelivery answers with the FIRST result and never releases twice. Unreadable → `REJECTED` with the format help; unknown or inactive sender → `REJECTED` with **no reply** (no load spent on strangers). Wrong code counts up and locks the receipt's ticket after 5 tries. |
+| POST | `/sms/gateway/heartbeat/` | `{info: {signal, operator, port, driver}}` → records `last_seen` + `info`. |
+
+**Staff endpoints** (JWT). Admin / Store Manager read; Admin alone registers numbers.
+
+| Method | Path | Roles | Notes |
+|---|---|---|---|
+| GET | `/sms/status/` | Admin, Store Manager | `enabled`, `gateway_configured`, `last_heartbeat`, `heartbeat_info`, `queued`, `failed`, `contacts`. |
+| GET / GET one | `/sms/messages/?direction=OUT\|IN&status=&phone=` | Admin, Store Manager | Paginated log, newest first; `transaction_no`, `release_number`, `attempts`, `last_error`, `result` (what the reply said). Read-only: **405** on writes. |
+| POST | `/sms/messages/{id}/retry/` | Admin, Store Manager | A `FAILED` outbound message goes back to `QUEUED` with `attempts` reset. Anything else → **400** `SMS_RETRY_REFUSED`. |
+| GET / POST / PATCH / DELETE | `/sms/contacts/` | Admin | `{phone, user, label, active}`. `phone` is normalized to `+639XXXXXXXXX` (`09171234567`, `9171234567`, `+63 917-123-4567` all work; a non-mobile → 400); `user` must hold the **Bodega Checker** role (or a role that may work the Bodega screens); a duplicate number → 400. |
+
+**Delivery is at-least-once**, deliberately: a lost send acknowledgement re-sends the same
+text after the lease expires. A duplicate carries the **same** one-time code, so a repeated
+`DONE` finds the ticket used and answers "already released" — no second release. A reply
+is then checked against the claim snapshot taken when the text was sent and REFUSED if the
+receipt changed since (a return, or a release at the counter): the phone is never authority
+over a stale list. There is no partial release by SMS.
+
+A reply creates the `BodegaRelease` (`BR-…`, `received_by` = the name sent after the code or `Customer (via SMS)`, `notes` = `Released by SMS from <phone>`) and an audit row under the checker's account, inside one transaction with the ticket row locked. Reply texts: `OK <release> <receipt> released`, `… already fully released`, `wrong code (N tries left)`, `… locked after 5 wrong tries`, `no receipt <ref> found`, `no pickup code …`, or the `DONE <receipt> <code>` format for `HELP`.
+
 ## 4. Typical Frontend Flows (which endpoints to call, in order)
 
 | Flow | Endpoint sequence |
