@@ -1,6 +1,8 @@
 import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/core/navigation/merged_sidebar.dart';
+import 'package:client/features/inventory/controllers/inventory_settings_controller.dart';
+import 'package:client/shared/widgets/app_lock_guard.dart';
 import 'package:client/shared/widgets/app_shell.dart';
 import 'package:client/shared/widgets/notifications_button.dart';
 import 'package:client/shared/widgets/shared_sidebar.dart';
@@ -52,20 +54,33 @@ class InventorySkeletonLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppShell(
-      title: title,
-      subtitle: subtitle,
-      sections: navigationSections,
-      selectedIndex: selectedNavigationIndex,
-      originArea: AppAreas.inventory,
-      onDestinationSelected: onNavigationSelected,
-      loadMarkers: loadMarkers,
-      markers: markers,
-      scrollable: scrollable,
-      actions: const [NotificationsButton()],
+    final settings = InventorySettingsController.instance;
+    settings.load();
+    return AppLockGuard(
+      listenable: settings,
+      autoLockDuration: () => settings.autoLockOption.duration,
+      shortcutEnabled: () => settings.lockShortcutEnabled,
+      builder: (context, lockNow) => AppShell(
+        title: title,
+        subtitle: subtitle,
+        sections: navigationSections,
+        selectedIndex: selectedNavigationIndex,
+        originArea: AppAreas.inventory,
+        onDestinationSelected: onNavigationSelected,
+        loadMarkers: loadMarkers,
+        markers: markers,
+        scrollable: scrollable,
+        actions: [
+          const NotificationsButton(),
+          AppLockGuard.lockIconButton(
+            key: const ValueKey('inventory-header-lock-button'),
+            onPressed: lockNow,
+          ),
+        ],
       fallbackUserName: 'Inventory Staff',
       fallbackRoleLabel: 'Inventory Staff',
       child: child,
+      ),
     );
   }
 }

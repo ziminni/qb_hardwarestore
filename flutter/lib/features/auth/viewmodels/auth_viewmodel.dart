@@ -208,6 +208,27 @@ class AuthViewmodel extends ChangeNotifier {
     }
   }
 
+  /// Verifies [password] for the currently signed-in account without
+  /// clearing the active session if verification fails. Returns `null` on
+  /// success or a human-readable error message otherwise.
+  Future<String?> verifyPassword(String password) async {
+    final username = user?.username.trim() ?? '';
+    if (username.isEmpty) {
+      return 'No active session to unlock.';
+    }
+    if (password.isEmpty) {
+      return 'Enter your password to unlock.';
+    }
+    try {
+      await repository.login(username, password);
+      return null;
+    } on AuthException catch (exception) {
+      return exception.message;
+    } catch (_) {
+      return 'Unable to verify password. Please try again.';
+    }
+  }
+
   /// Sets (or, with null [bytes], clears) the signed-in account's picture.
   /// Answers the error sentence, or null on success; the account is replaced in
   /// place, so its area and session are untouched.
