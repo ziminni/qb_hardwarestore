@@ -98,6 +98,37 @@ class MaterialReleaseViewmodel extends ChangeNotifier {
   Future<List<Requisition>> fetchReleaseQueue() =>
       _repository.fetchReleaseQueue();
 
+  /// Accepted requests waiting at the counter, shown on the page itself so the
+  /// cashier picks one instead of hunting for a token slip.
+  List<Requisition> queue = const [];
+
+  /// Why the queue could not be read; the last rows stay on screen.
+  String? queueError;
+
+  /// True until the first queue read answers.
+  bool queueLoading = true;
+
+  bool _queueReadInFlight = false;
+
+  /// Reads the queue. Overlapping reads are dropped, so a timer tick and a
+  /// manual refresh never race each other.
+  Future<void> loadQueue() async {
+    if (_queueReadInFlight) return;
+    _queueReadInFlight = true;
+    try {
+      queue = await _repository.fetchReleaseQueue();
+      queueError = null;
+    } on RequisitionServiceException catch (failure) {
+      queueError = failure.message;
+    } catch (_) {
+      queueError = 'The accepted requests could not be loaded.';
+    } finally {
+      _queueReadInFlight = false;
+      queueLoading = false;
+      notifyListeners();
+    }
+  }
+
   Future<PosReceipt> fetchReceipt() =>
       _repository.fetchReleaseReceipt(result!.transactionId);
 
@@ -150,6 +181,8 @@ class MaterialReleaseViewmodel extends ChangeNotifier {
       isBusy = false;
     }
     notifyListeners();
+    // A fully released request leaves the queue; a partial one stays.
+    loadQueue();
     return true;
   }
 

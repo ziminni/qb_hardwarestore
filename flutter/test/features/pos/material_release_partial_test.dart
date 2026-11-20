@@ -502,11 +502,11 @@ void main() {
       await _pressRelease(tester);
 
       await tester.ensureVisible(
-        find.widgetWithText(OutlinedButton, 'Verify another token'),
+        find.widgetWithText(OutlinedButton, 'Next request'),
       );
       await tester.pumpAndSettle();
       await tester.tap(
-        find.widgetWithText(OutlinedButton, 'Verify another token'),
+        find.widgetWithText(OutlinedButton, 'Next request'),
       );
       await tester.pumpAndSettle();
       // The same token is still in the project's hands after a short release.

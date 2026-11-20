@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:client/data/models/requisition.dart';
 import 'package:client/data/repositories/requisition_repository.dart';
 import 'package:client/data/services/requisition_service.dart';
@@ -102,9 +104,38 @@ class ProjectRequestsViewmodel extends ChangeNotifier {
 
   bool _disposed = false;
 
+  Timer? _autoRefresh;
+  bool _silentReadInFlight = false;
+
+  /// Re-reads the queue and the waiting count every [every] while the screen
+  /// is open, so a request CPMS sends shows up without leaving the page.
+  ///
+  /// A tick is skipped while any read or decision is still running, and a
+  /// failed background read keeps the rows on screen without an error banner
+  /// (the manual Refresh still reports errors).
+  void startAutoRefresh({Duration every = const Duration(seconds: 15)}) {
+    _autoRefresh?.cancel();
+    _autoRefresh = Timer.periodic(every, (_) async {
+      if (_disposed ||
+          _isLoading ||
+          _silentReadInFlight ||
+          _submitting.isNotEmpty) {
+        return;
+      }
+      _silentReadInFlight = true;
+      try {
+        await _readList();
+        _notify();
+      } finally {
+        _silentReadInFlight = false;
+      }
+    });
+  }
+
   @override
   void dispose() {
     _disposed = true;
+    _autoRefresh?.cancel();
     super.dispose();
   }
 

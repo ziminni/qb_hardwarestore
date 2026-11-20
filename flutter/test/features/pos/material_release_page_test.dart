@@ -142,7 +142,7 @@ void main() {
       );
     });
 
-    testWidgets('"Verify another token" clears the screen for the next one', (
+    testWidgets('"Next request" clears the screen for the next one', (
       tester,
     ) async {
       final vm = MaterialReleaseViewmodel(repository: _StubRequisitions());
@@ -156,11 +156,11 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.ensureVisible(
-        find.widgetWithText(OutlinedButton, 'Verify another token'),
+        find.widgetWithText(OutlinedButton, 'Next request'),
       );
       await tester.pumpAndSettle();
       await tester.tap(
-        find.widgetWithText(OutlinedButton, 'Verify another token'),
+        find.widgetWithText(OutlinedButton, 'Next request'),
       );
       await tester.pumpAndSettle();
 
@@ -171,7 +171,7 @@ void main() {
       expect(vm.result, isNull);
       expect(find.text('REQ-20260925-0003'), findsNothing);
       expect(find.textContaining('TXN-20261017-0042'), findsNothing);
-      expect(find.text('Review the requisition'), findsOneWidget);
+      expect(find.text('Check what to hand over, then release'), findsOneWidget);
     });
 
     testWidgets('Enter in the token field verifies the token', (tester) async {
@@ -231,7 +231,7 @@ void main() {
 
         expect(
           find.textContaining(
-            'store manager accepts or declines project requests in POS',
+            'Requests the store manager accepted',
           ),
           findsOneWidget,
           reason:
@@ -240,7 +240,7 @@ void main() {
         );
         expect(
           find.textContaining(
-            'Cashiers use the token to release accepted goods',
+            'Pick the one the project',
           ),
           findsOneWidget,
           reason: 'the release is the cashier\'s job once the store accepted',
@@ -281,8 +281,8 @@ void main() {
       await _pump(tester, vm, size: const Size(760, 900));
 
       const titles = [
-        'Verify the token',
-        'Review the requisition',
+        'Choose the request to release',
+        'Check what to hand over, then release',
         'Release receipt',
       ];
       for (final title in titles) {

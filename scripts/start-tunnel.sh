@@ -20,6 +20,13 @@ key=$(sed -n 's/^QB_GATEWAY_KEY=//p' "$KEY_FILE")
 token=$(sed -n 's/^CLOUDFLARE_TUNNEL_TOKEN=//p' "$KEY_FILE")
 hostname=$(sed -n 's/^CLOUDFLARE_TUNNEL_HOSTNAME=//p' "$KEY_FILE")
 
+# docker-compose.yml reads these to pick Named vs Quick Tunnel (the image has no shell).
+if [ -n "$token" ]; then
+  export CLOUDFLARE_TUNNEL_TOKEN="$token" CLOUDFLARED_TUNNEL_ARGS=run
+else
+  unset CLOUDFLARE_TUNNEL_TOKEN CLOUDFLARED_TUNNEL_ARGS
+fi
+
 # Recreate cloudflared so its log holds only this run's URL.
 docker compose --profile tunnel up -d --force-recreate gateway cloudflared
 

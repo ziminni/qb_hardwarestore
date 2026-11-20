@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
@@ -8,7 +10,6 @@ import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/viewmodels/material_release_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
 import 'package:client/features/pos/widgets/pos_release_step_panel.dart';
-import 'package:client/features/pos/widgets/material_request_lookup_dialog.dart';
 import 'package:client/features/pos/widgets/pos_receipt_dialog.dart';
 import 'package:client/routes/routes.dart';
 import 'package:client/shared/widgets/error_banner.dart';
@@ -47,9 +48,22 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
   final _token = TextEditingController();
   bool _printing = false;
   String? _printError;
+  Timer? _queueTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _viewmodel.loadQueue();
+    // New accepted requests appear without leaving the page.
+    _queueTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _viewmodel.loadQueue(),
+    );
+  }
 
   @override
   void dispose() {
+    _queueTimer?.cancel();
     _token.dispose();
     if (_ownsViewmodel) _viewmodel.dispose();
     super.dispose();
@@ -71,12 +85,8 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
     _viewmodel.reset();
   }
 
-  Future<void> _findRequest() async {
-    final id = await showDialog<int>(
-      context: context,
-      builder: (_) => MaterialRequestLookupDialog(viewmodel: _viewmodel),
-    );
-    if (id == null || !mounted) return;
+  Future<void> _pickRequest(int id) async {
+    if (_viewmodel.isBusy || _printing) return;
     _token.clear();
     setState(() => _printError = null);
     await _viewmodel.verifyRequest(id);
@@ -108,7 +118,7 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
     return DashboardShell(
       title: 'Release materials',
       subtitle:
-          'Find an accepted request or verify its token, then confirm handover',
+          'Choose an accepted request, check the items, then release them',
       selectedNavigationIndex: 2,
       navigationItems: posNavigationItems,
       onNavigationSelected: (i) => navigatePos(context, i),
@@ -175,36 +185,29 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
   // ------------------------------------------------------------------ step 1
 
   Widget _tokenStep() {
+    final selected = _viewmodel.verification?.reqNumber;
     return PosReleaseStepPanel(
       step: 1,
-      title: 'Verify the token',
+      title: 'Choose the request to release',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            'Scan or type the token from the requisition slip, then press '
-            'Enter.',
+            'Requests the store manager accepted. Pick the one the project '
+            'is collecting. The list updates by itself.',
             style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
           ),
-          const SizedBox(height: AppSpacing.xs),
-          // The store accepts in POS Project requests, not in CPMS.
-          const Text(
-            'The store manager accepts or declines project requests in POS. '
-            'Cashiers use the token to release accepted goods.',
-            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
-          ),
           const SizedBox(height: AppSpacing.md),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: OutlinedButton.icon(
-              onPressed: _viewmodel.isBusy || _printing ? null : _findRequest,
-              icon: const Icon(Icons.search),
-              label: const Text('Find accepted request'),
-            ),
+          _ReleaseQueue(
+            viewmodel: _viewmodel,
+            selectedReqNumber: selected,
+            enabled: !_viewmodel.isBusy && !_printing,
+            onPick: _pickRequest,
           ),
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: AppSpacing.lg),
           const Text(
-            'Or use the request token below. No need to scan each product.',
+            'Have a token slip instead? Scan its QR or type the token.',
+            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
           ),
           const SizedBox(height: AppSpacing.sm),
           Row(
@@ -262,12 +265,12 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
     final verification = _viewmodel.verification;
     return PosReleaseStepPanel(
       step: 2,
-      title: 'Review the requisition',
+      title: 'Check what to hand over, then release',
       pending: verification == null,
       child: verification == null
           ? const _StepHint(
-              'The requisition behind the token appears here once the token is '
-              'verified.',
+              'Choose a request above. Its items and what can be handed over '
+              'now appear here.',
             )
           : Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -434,7 +437,7 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size(0, 48),
                   ),
-                  child: const Text('Verify another token'),
+                  child: const Text('Next request'),
                 ),
               ],
             ),
@@ -446,8 +449,8 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
 String _openLines(ReleaseResult result) =>
     result.openLineCount == 1 ? '1 line' : '${result.openLineCount} lines';
 
-/// The verified requisition's lines: item, how many were asked for, how many are still to
-/// hand over, and what can leave the store now, in one compact table.
+/// The verified requisition's lines: item, how many were ordered, how many are still to
+/// hand over, how many go NOW on this release, and the line's status.
 ///
 /// Not `DataPanel`: inside a step panel its own frame doubled the borders, and
 /// under 720 px of content it falls back to one tall card per line, which put
@@ -472,16 +475,21 @@ class _RequisitionLines extends StatelessWidget {
         _row(
           const Text('Item', style: _headerStyle),
           const Text(
-            'Requested',
+            'Ordered',
             style: _headerStyle,
             textAlign: TextAlign.right,
           ),
           const Text(
-            'Remaining',
+            'Still to give',
             style: _headerStyle,
             textAlign: TextAlign.right,
           ),
-          const Text('Availability', style: _headerStyle),
+          const Text(
+            'Give now',
+            style: _headerStyle,
+            textAlign: TextAlign.right,
+          ),
+          const Text('Status', style: _headerStyle),
           last: false,
         ),
         for (var index = 0; index < items.length; index++)
@@ -501,6 +509,14 @@ class _RequisitionLines extends StatelessWidget {
               textAlign: TextAlign.right,
               style: _numberStyle,
             ),
+            // What the cashier physically hands over on this release.
+            Text(
+              formatQuantity(
+                items[index].available == false ? 0 : items[index].goesNow,
+              ),
+              textAlign: TextAlign.right,
+              style: _numberStyle.copyWith(fontWeight: FontWeight.w700),
+            ),
             _AvailabilityCell(item: items[index]),
             last: index == items.length - 1,
           ),
@@ -512,6 +528,7 @@ class _RequisitionLines extends StatelessWidget {
     Widget item,
     Widget requested,
     Widget remaining,
+    Widget goesNow,
     Widget availability, {
     required bool last,
   }) {
@@ -527,6 +544,7 @@ class _RequisitionLines extends StatelessWidget {
           Expanded(flex: 3, child: item),
           SizedBox(width: _numberWidth, child: requested),
           SizedBox(width: _numberWidth, child: remaining),
+          SizedBox(width: _numberWidth, child: goesNow),
           // A gap before the pill: right-aligned numbers butt straight into it
           // otherwise, and the two headers read as one word.
           SizedBox(
@@ -630,6 +648,7 @@ class _TokenField extends StatelessWidget {
       borderSide: const BorderSide(color: AppColors.brandGold, width: 2),
     );
     return TextField(
+      key: const ValueKey('release.tokenField'),
       controller: controller,
       autofocus: true,
       onSubmitted: onSubmitted,
@@ -713,3 +732,165 @@ class _MoneyLine extends StatelessWidget {
 
 /// A requisition quantity, written the one way the app writes quantities (D7):
 /// whole bags are not "10.0".
+
+
+/// The accepted requests waiting at the counter, picked with one click.
+class _ReleaseQueue extends StatefulWidget {
+  const _ReleaseQueue({
+    required this.viewmodel,
+    required this.selectedReqNumber,
+    required this.enabled,
+    required this.onPick,
+  });
+
+  final MaterialReleaseViewmodel viewmodel;
+  final String? selectedReqNumber;
+  final bool enabled;
+  final ValueChanged<int> onPick;
+
+  @override
+  State<_ReleaseQueue> createState() => _ReleaseQueueState();
+}
+
+class _ReleaseQueueState extends State<_ReleaseQueue> {
+  String _search = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final viewmodel = widget.viewmodel;
+    final all = viewmodel.queue;
+    final queue = [
+      for (final request in all)
+        if ('${request.reqNumber} ${request.projectName} '
+                '${request.projectCustomerName}'
+            .toLowerCase()
+            .contains(_search))
+          request,
+    ];
+    if (viewmodel.queueLoading && all.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(AppSpacing.md),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (viewmodel.queueError case final message?) ...[
+          ErrorBanner(message: message, onRetry: viewmodel.loadQueue),
+          const SizedBox(height: AppSpacing.sm),
+        ],
+        if (all.isNotEmpty) ...[
+          TextField(
+            key: const ValueKey('release.requestSearch'),
+            decoration: const InputDecoration(
+              labelText: 'Search request number, project or customer',
+              prefixIcon: Icon(Icons.search),
+              isDense: true,
+            ),
+            onChanged: (value) =>
+                setState(() => _search = value.trim().toLowerCase()),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+        ],
+        if (all.isEmpty && viewmodel.queueError == null)
+          const _StepHint(
+            'No accepted requests are waiting. New ones appear here as soon as '
+            'the store manager accepts them.',
+          )
+        else if (queue.isEmpty && all.isNotEmpty)
+          const _StepHint('No requests match your search.'),
+        for (final request in queue)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: _QueueTile(
+              request: request,
+              selected: request.reqNumber == widget.selectedReqNumber,
+              onTap: widget.enabled ? () => widget.onPick(request.id) : null,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _QueueTile extends StatelessWidget {
+  const _QueueTile({required this.request, required this.selected, this.onTap});
+
+  final Requisition request;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final partial = request.rawStatus == 'PARTIAL';
+    final lines = request.items.length;
+    return Material(
+      color: selected ? AppColors.selected : AppColors.cardBackground,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadii.medium),
+        side: BorderSide(
+          color: selected ? AppColors.brandGold : AppColors.border,
+          width: selected ? 2 : 1,
+        ),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadii.medium),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.lg,
+            vertical: AppSpacing.md,
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      request.reqNumber,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${request.projectName} · ${request.projectCustomerName}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      '$lines item${lines == 1 ? '' : 's'}'
+                      '${partial ? ' · remaining items only' : ''}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              StatusBadge(
+                label: selected
+                    ? 'Selected'
+                    : partial
+                    ? 'Partly released'
+                    : 'Ready',
+                tone: selected
+                    ? StatusTone.info
+                    : partial
+                    ? StatusTone.warning
+                    : StatusTone.success,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              const Icon(Icons.chevron_right),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
