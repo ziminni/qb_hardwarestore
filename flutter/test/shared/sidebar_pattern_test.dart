@@ -108,7 +108,9 @@ Widget _admin() => AdminSkeletonLayout(
 Future<Map<int, int>> _noMarkers() async => const {};
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(
+    () => SharedPreferences.setMockInitialValues({'sidebar_collapsed': false}),
+  );
 
   group('group headings', () {
     testWidgets('the cashier menu is grouped in its existing order', (
@@ -402,6 +404,19 @@ void main() {
         expect(find.text('Transaction history'), findsOneWidget);
       },
     );
+
+    testWidgets('defaults to collapsed when no preference is stored', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      await _pump(tester, const Size(1440, 900), _cashier());
+
+      expect(find.text('Transaction history'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('sidebar-collapse-button')),
+        findsNothing,
+      );
+    });
   });
 
   group('live markers', () {

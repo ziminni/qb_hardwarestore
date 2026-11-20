@@ -114,8 +114,8 @@ class _AppShellState extends State<AppShell> {
 
   /// The user's choice from the collapse button. Only consulted on a window
   /// wide enough to show the full sidebar ([AppBreakpoints.expanded]); a
-  /// narrow window and the drawer ignore it.
-  bool _collapsedByUser = false;
+  /// narrow window and the drawer ignore it. Defaults to collapsed.
+  bool _collapsedByUser = true;
 
   @override
   void initState() {
@@ -302,8 +302,11 @@ class _AppShellState extends State<AppShell> {
               Row(
                 children: [
                   if (!compact)
-                    Container(
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeInOutCubic,
                       width: sidebarWidth,
+                      clipBehavior: Clip.hardEdge,
                       decoration: BoxDecoration(
                         // Sidebar chrome with a hairline border against the page.
                         color: p.sidebarBg,
@@ -311,7 +314,12 @@ class _AppShellState extends State<AppShell> {
                           right: BorderSide(color: p.sidebarBorder),
                         ),
                       ),
-                      child: panel(collapsed: rail, close: false),
+                      child: OverflowBox(
+                        alignment: Alignment.topLeft,
+                        minWidth: sidebarWidth,
+                        maxWidth: sidebarWidth,
+                        child: panel(collapsed: rail, close: false),
+                      ),
                     ),
                   Expanded(
                     child: Column(
@@ -330,7 +338,9 @@ class _AppShellState extends State<AppShell> {
                 ],
               ),
               if (canToggleSidebar)
-                Positioned(
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeInOutCubic,
                   left: sidebarWidth - 5,
                   top: 0,
                   bottom: 0,
@@ -363,9 +373,9 @@ class SidebarCollapsePreference {
   static Future<bool> read() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      return prefs.getBool(key) ?? false;
+      return prefs.getBool(key) ?? true;
     } catch (_) {
-      return false;
+      return true;
     }
   }
 
