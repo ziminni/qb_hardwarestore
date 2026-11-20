@@ -147,6 +147,10 @@ Emails use `<username>@demo.ph`. Existing accounts keep their existing passwords
 
 Seed output includes random material-release tokens; keep them private and do not commit logs containing them. Demo passwords must not be used for real store accounts.
 
+**Real store use:** follow [docs/production-setup.md](docs/production-setup.md). One `backend_django/.env` file (`DJANGO_DEBUG=false` plus a fresh secret key and the allowed addresses) switches to the production server, skips the demo accounts and refuses to start with missing or weak settings.
+
+**Phones:** on the Android app's login screen, tap **Server: …** and type the server PC's address (e.g. `192.168.1.10:8000`) before signing in.
+
 ## 5. Run the native Windows client
 
 Leave Docker running. Open a second PowerShell terminal:
