@@ -4,8 +4,11 @@ import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/core/printing/raw_printer.dart';
 import 'package:client/core/theme/app_palette.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
+import 'package:client/features/pos/controllers/pos_lock_settings_controller.dart';
+import 'package:client/features/pos/controllers/pos_till_settings_controller.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
 import 'package:client/features/pos/widgets/receipt_printer_panel.dart';
+import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/system_settings_panel.dart';
 import 'package:flutter/material.dart';
 
@@ -28,6 +31,20 @@ enum PosSettingsSection {
     'The thermal printer on this computer that receipts and delivery slips '
         'print to. Saved on this computer only.',
     'Printing',
+  ),
+  checkoutAndRegister(
+    'Checkout & till',
+    Icons.point_of_sale_outlined,
+    'Receipt auto-printing, cash drawer kick, barcode scanner behavior, and '
+        'default sale preferences on this counter computer.',
+    'Till & Register',
+  ),
+  security(
+    'Security & lock',
+    Icons.lock_outline_rounded,
+    'Automatically lock the till screen after inactivity or after a sale. '
+        'Saved on this computer only.',
+    'Security',
   ),
   system(
     'System settings',
@@ -54,10 +71,21 @@ enum PosSettingsSection {
 /// into the counter computer. Appended last in the till's menu, so no earlier
 /// tab moves.
 class PosSettingsPage extends StatefulWidget {
-  const PosSettingsPage({super.key, this.raw});
+  const PosSettingsPage({
+    super.key,
+    this.raw,
+    this.lockSettings,
+    this.tillSettings,
+  });
 
   /// Injected by tests; the app talks to this computer's print system.
   final RawPrinter? raw;
+
+  /// Injected by tests; defaults to [PosLockSettingsController.instance].
+  final PosLockSettingsController? lockSettings;
+
+  /// Injected by tests; defaults to [PosTillSettingsController.instance].
+  final PosTillSettingsController? tillSettings;
 
   @override
   State<PosSettingsPage> createState() => _PosSettingsPageState();
@@ -77,6 +105,7 @@ class _PosSettingsPageState extends State<PosSettingsPage> {
       ),
       navigationItems: posNavigationItems,
       onNavigationSelected: (i) => navigatePos(context, i),
+      lockSettings: widget.lockSettings,
       child: LayoutBuilder(
         builder: (context, slot) {
           final wide = slot.maxWidth >= _sideMenuBreakpoint;
@@ -122,6 +151,14 @@ class _PosSettingsPageState extends State<PosSettingsPage> {
       PosSettingsSection.receiptPrinter => ReceiptPrinterPanel(
         key: const ValueKey('pos-settings-receipt-printer'),
         raw: widget.raw,
+      ),
+      PosSettingsSection.checkoutAndRegister => _PosTillSettingsPanel(
+        key: const ValueKey('pos-settings-checkout-register'),
+        controller: widget.tillSettings,
+      ),
+      PosSettingsSection.security => _PosAutoLockPanel(
+        key: const ValueKey('pos-settings-security'),
+        controller: widget.lockSettings,
       ),
       PosSettingsSection.system => const SystemSettingsPanel(
         key: ValueKey('pos-settings-system'),
@@ -280,6 +317,323 @@ class _PosSettingsMenuItem extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _PosAutoLockPanel extends StatefulWidget {
+  const _PosAutoLockPanel({super.key, this.controller});
+
+  final PosLockSettingsController? controller;
+
+  @override
+  State<_PosAutoLockPanel> createState() => _PosAutoLockPanelState();
+}
+
+class _PosAutoLockPanelState extends State<_PosAutoLockPanel> {
+  late PosLockSettingsController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = widget.controller ?? PosLockSettingsController.instance;
+    _controller.load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PosAutoLockPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final next = widget.controller ?? PosLockSettingsController.instance;
+    if (!identical(next, _controller)) {
+      _controller = next;
+      _controller.load();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    return ListenableBuilder(
+      listenable: _controller,
+      builder: (context, _) {
+        final current = _controller.option;
+        return AppPanel(
+          title: 'Automatic lock',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Lock the cashier till screen automatically after no pointer or '
+                'scroll activity for the selected duration.',
+                style: TextStyle(color: p.textSecondary),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 320),
+                child: DropdownButtonFormField<PosAutoLockOption>(
+                  key: const ValueKey('pos-auto-lock-dropdown'),
+                  initialValue: current,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Auto-lock after',
+                    prefixIcon: Icon(Icons.timer_outlined),
+                  ),
+                  items: [
+                    for (final option in PosAutoLockOption.values)
+                      DropdownMenuItem(
+                        value: option,
+                        child: Text(option.label),
+                      ),
+                  ],
+                  onChanged: (selected) {
+                    if (selected != null) {
+                      _controller.setOption(selected);
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              const Divider(height: 1),
+              Material(
+                type: MaterialType.transparency,
+                child: Column(
+                  children: [
+                    SwitchListTile(
+                      key: const ValueKey('pos-lock-shortcut-switch'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Quick-lock keyboard shortcut'),
+                      subtitle: const Text(
+                        'Press Ctrl+L or Cmd+L to lock immediately',
+                      ),
+                      value: _controller.lockShortcutEnabled,
+                      onChanged: _controller.setLockShortcutEnabled,
+                    ),
+                    SwitchListTile(
+                      key: const ValueKey('pos-lock-after-sale-switch'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Lock after completing a sale'),
+                      subtitle: const Text(
+                        'Require password after each checkout on shared counter '
+                        'PCs',
+                      ),
+                      value: _controller.lockAfterSale,
+                      onChanged: _controller.setLockAfterSale,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PosTillSettingsPanel extends StatefulWidget {
+  const _PosTillSettingsPanel({super.key, this.controller});
+
+  final PosTillSettingsController? controller;
+
+  @override
+  State<_PosTillSettingsPanel> createState() => _PosTillSettingsPanelState();
+}
+
+class _PosTillSettingsPanelState extends State<_PosTillSettingsPanel> {
+  late PosTillSettingsController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = widget.controller ?? PosTillSettingsController.instance;
+    _controller.load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PosTillSettingsPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final next = widget.controller ?? PosTillSettingsController.instance;
+    if (!identical(next, _controller)) {
+      _controller = next;
+      _controller.load();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    return ListenableBuilder(
+      listenable: _controller,
+      builder: (context, _) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AppPanel(
+              title: 'Checkout & printing',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Choose how receipts and the cash drawer behave when a sale '
+                    'is completed at this till.',
+                    style: TextStyle(color: p.textSecondary),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  Wrap(
+                    spacing: AppSpacing.md,
+                    runSpacing: AppSpacing.md,
+                    children: [
+                      SizedBox(
+                        width: 280,
+                        child: DropdownButtonFormField<PosAutoPrintMode>(
+                          key: const ValueKey('pos-auto-print-dropdown'),
+                          initialValue: _controller.autoPrintMode,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Auto-print receipt',
+                            prefixIcon: Icon(Icons.receipt_long_outlined),
+                          ),
+                          items: [
+                            for (final mode in PosAutoPrintMode.values)
+                              DropdownMenuItem(
+                                value: mode,
+                                child: Text(mode.label),
+                              ),
+                          ],
+                          onChanged: (selected) {
+                            if (selected != null) {
+                              _controller.setAutoPrintMode(selected);
+                            }
+                          },
+                        ),
+                      ),
+                      SizedBox(
+                        width: 220,
+                        child: DropdownButtonFormField<int>(
+                          key: const ValueKey('pos-receipt-copies-dropdown'),
+                          initialValue: _controller.receiptCopies,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Receipt copies',
+                            prefixIcon: Icon(Icons.copy_outlined),
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 1, child: Text('1 copy')),
+                            DropdownMenuItem(value: 2, child: Text('2 copies')),
+                          ],
+                          onChanged: (selected) {
+                            if (selected != null) {
+                              _controller.setReceiptCopies(selected);
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  const Divider(height: 1),
+                  Material(
+                    type: MaterialType.transparency,
+                    child: SwitchListTile(
+                      key: const ValueKey('pos-open-cash-drawer-switch'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'Auto-open cash drawer on cash payment',
+                      ),
+                      subtitle: const Text(
+                        'Send a drawer-kick pulse to the thermal printer on '
+                        'cash tenders',
+                      ),
+                      value: _controller.autoOpenCashDrawer,
+                      onChanged: _controller.setAutoOpenCashDrawer,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            AppPanel(
+              title: 'Register & scanner',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Customize barcode scanning, audio cues, and default sale '
+                    'mode on New transaction.',
+                    style: TextStyle(color: p.textSecondary),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 280),
+                    child: DropdownButtonFormField<PosDefaultFulfillment>(
+                      key: const ValueKey('pos-default-fulfillment-dropdown'),
+                      initialValue: _controller.defaultFulfillment,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Default sale type',
+                        prefixIcon: Icon(Icons.local_shipping_outlined),
+                      ),
+                      items: [
+                        for (final mode in PosDefaultFulfillment.values)
+                          DropdownMenuItem(
+                            value: mode,
+                            child: Text(mode.label),
+                          ),
+                      ],
+                      onChanged: (selected) {
+                        if (selected != null) {
+                          _controller.setDefaultFulfillment(selected);
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  const Divider(height: 1),
+                  Material(
+                    type: MaterialType.transparency,
+                    child: Column(
+                      children: [
+                        SwitchListTile(
+                          key: const ValueKey('pos-auto-add-scan-switch'),
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Auto-add 1 unit on barcode scan'),
+                          subtitle: const Text(
+                            'Add exact barcode matches straight to the cart',
+                          ),
+                          value: _controller.autoAddOnScan,
+                          onChanged: _controller.setAutoAddOnScan,
+                        ),
+                        SwitchListTile(
+                          key: const ValueKey('pos-auto-refocus-switch'),
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Auto-refocus search after sale'),
+                          subtitle: const Text(
+                            'Keep the product/barcode box ready for the next '
+                            'customer',
+                          ),
+                          value: _controller.autoRefocusSearch,
+                          onChanged: _controller.setAutoRefocusSearch,
+                        ),
+                        SwitchListTile(
+                          key: const ValueKey('pos-sound-feedback-switch'),
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Sound feedback'),
+                          subtitle: const Text(
+                            'Play a chime on scan or checkout and a tone on '
+                            'errors',
+                          ),
+                          value: _controller.soundFeedback,
+                          onChanged: _controller.setSoundFeedback,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
