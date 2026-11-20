@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
@@ -15,7 +17,6 @@ import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 /// Origin of a server backup snapshot.
 enum BackupOrigin {
@@ -26,10 +27,11 @@ enum BackupOrigin {
   final String label;
 }
 
-/// Output format requested when creating a system backup.
+/// Extension chosen for the file name. Both options hold the same Django
+/// `dumpdata` JSON fixture — the backend never writes a native SQL dump.
 enum BackupFormat {
-  customDump('PostgreSQL Custom (.dump)', '.dump', 'Recommended'),
-  plainSql('Plain SQL (.sql)', '.sql', 'Human-readable');
+  customDump('Data dump (.dump)', '.dump', 'Recommended'),
+  plainSql('Data dump (.sql)', '.sql', 'Same contents');
 
   const BackupFormat(this.label, this.extension, this.hint);
   final String label;
@@ -63,17 +65,22 @@ class SystemBackupSnapshot {
   final String note;
 }
 
-/// Metadata for a locally selected backup archive ready for restore review.
+/// A locally selected backup file ready for upload.
 class PickedBackupFile {
   const PickedBackupFile({
     required this.name,
     required this.sizeBytes,
     this.path,
+    this.bytes,
   });
 
   final String name;
   final int sizeBytes;
   final String? path;
+
+  /// The file contents, uploaded as multipart `file`. Restore must send the
+  /// bytes: a name alone lets the server pick a different same-name snapshot.
+  final Uint8List? bytes;
 
   String get detectedExtension {
     final lower = name.toLowerCase();
@@ -86,11 +93,9 @@ class PickedBackupFile {
 
 /// Admin System Backup & Restore workspace (`/admin/backup-restore`).
 ///
-/// Frontend-only UI ready to plug into Admin-only Django backup/restore
-/// endpoints (`POST /api/v1/system/backups/`, `POST /api/v1/system/backups/restore/`,
-/// `GET /api/v1/system/backups/`). No fake database writes or mock backup rows
-/// are fabricated here; every action states its readiness honestly and offers
-/// the live `pg_dump` CLI command in the meantime.
+/// The server stores snapshots as Django JSON data fixtures (`dumpdata`), not
+/// native `pg_dump`/`.sql` dumps, and media files are never part of them. A
+/// restore replaces database records only and needs every cashier off the POS.
 class AdminBackupRestorePage extends StatefulWidget {
   const AdminBackupRestorePage({
     super.key,
@@ -108,9 +113,8 @@ class AdminBackupRestorePage extends StatefulWidget {
   /// Optional backend service override for tests.
   final SystemAdminService? service;
 
-  static const String cliBackupCommand =
-      'docker exec buildpro_db pg_dump -U postgres -Fc buildpro_db '
-      '> buildpro-backup.dump';
+  /// Server-side upload limit for a restore file.
+  static const int maxRestoreUploadBytes = 512 * 1024 * 1024;
 
   @override
   State<AdminBackupRestorePage> createState() => _AdminBackupRestorePageState();
@@ -124,7 +128,6 @@ class _AdminBackupRestorePageState extends State<AdminBackupRestorePage> {
   bool _serverConnected = false;
 
   // ---- Create backup options
-  bool _includeMedia = true;
   bool _includeAuditLogs = true;
   BackupFormat _format = BackupFormat.customDump;
   final TextEditingController _noteController = TextEditingController();
@@ -193,7 +196,7 @@ class _AdminBackupRestorePageState extends State<AdminBackupRestorePage> {
     try {
       final created = await _service.createBackup(
         format: _format.extension,
-        includeMedia: _includeMedia,
+        includeMedia: false,
         includeAuditLogs: _includeAuditLogs,
         note: note,
       );
@@ -239,21 +242,7 @@ class _AdminBackupRestorePageState extends State<AdminBackupRestorePage> {
   }
 
   bool get _canRestore =>
-      _selectedFile != null &&
-      _confirmedRecentBackup &&
-      _confirmedShiftsClosed;
-
-  Future<void> _copyCliCommand() async {
-    await Clipboard.setData(
-      const ClipboardData(text: AdminBackupRestorePage.cliBackupCommand),
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('PostgreSQL backup command copied to clipboard.'),
-      ),
-    );
-  }
+      _selectedFile != null && _confirmedRecentBackup && _confirmedShiftsClosed;
 
   Future<void> _pickFile() async {
     setState(() => _pickingFile = true);
@@ -264,16 +253,28 @@ class _AdminBackupRestorePageState extends State<AdminBackupRestorePage> {
         picked = await customPicker();
       } else {
         const typeGroup = XTypeGroup(
-          label: 'Database backups',
-          extensions: <String>['dump', 'sql', 'zip', 'gz'],
+          label: 'Database backup',
+          extensions: <String>['dump', 'sql', 'json'],
         );
         final file = await openFile(acceptedTypeGroups: const [typeGroup]);
         if (file != null) {
           final size = await file.length();
+          if (size > AdminBackupRestorePage.maxRestoreUploadBytes) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Backup files larger than 512 MB cannot be uploaded.',
+                ),
+              ),
+            );
+            return;
+          }
           picked = PickedBackupFile(
             name: file.name,
             sizeBytes: size,
             path: file.path,
+            bytes: await file.readAsBytes(),
           );
         }
       }
@@ -297,6 +298,31 @@ class _AdminBackupRestorePageState extends State<AdminBackupRestorePage> {
       _confirmedRecentBackup = false;
       _confirmedShiftsClosed = false;
     });
+  }
+
+  /// Saves a server snapshot to disk. Bytes come from the API, not the name.
+  Future<void> _downloadSnapshot(SystemBackupSnapshot snap) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final bytes = await _service.downloadBackup(snap.id);
+      final location = await getSaveLocation(suggestedName: snap.filename);
+      // Cancelled at the Save dialog: nothing was asked of us, no error.
+      if (location == null) return;
+      await XFile.fromData(
+        bytes,
+        mimeType: 'application/json',
+        name: snap.filename,
+      ).saveTo(location.path);
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Saved ${snap.filename}.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not download ${snap.filename}: $e')),
+      );
+    }
   }
 
   Future<void> _openCreatePreview() {
@@ -328,9 +354,8 @@ class _AdminBackupRestorePageState extends State<AdminBackupRestorePage> {
               _ManifestRow(
                 label: 'Included data',
                 value: [
-                  'PostgreSQL database',
-                  if (_includeMedia) 'Product media',
-                  if (_includeAuditLogs) 'Audit logs archive',
+                  'Database records (JSON)',
+                  if (_includeAuditLogs) 'Audit logs',
                 ].join(' · '),
               ),
               if (note.isNotEmpty) _ManifestRow(label: 'Note', value: note),
@@ -353,10 +378,8 @@ class _AdminBackupRestorePageState extends State<AdminBackupRestorePage> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'Server backup endpoint is not wired yet. Once '
-                        'POST /api/v1/system/backups/ is enabled on the '
-                        'backend, this action will generate and download the '
-                        'snapshot automatically.',
+                        'The snapshot holds database records as a Django JSON '
+                        'fixture. Uploaded media files are never included.',
                         style: TextStyle(
                           fontSize: 12.5,
                           height: 1.45,
@@ -373,14 +396,6 @@ class _AdminBackupRestorePageState extends State<AdminBackupRestorePage> {
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('Close'),
-            ),
-            OutlinedButton.icon(
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                _copyCliCommand();
-              },
-              icon: const Icon(Icons.content_copy_rounded, size: 16),
-              label: const Text('Copy CLI command'),
             ),
             FilledButton.icon(
               key: const ValueKey('backup-confirm-create-button'),
@@ -402,6 +417,7 @@ class _AdminBackupRestorePageState extends State<AdminBackupRestorePage> {
     required String filename,
     required int sizeBytes,
     required String format,
+    Uint8List? bytes,
   }) {
     return showDialog<void>(
       context: context,
@@ -415,23 +431,24 @@ class _AdminBackupRestorePageState extends State<AdminBackupRestorePage> {
           try {
             await _service.restoreBackup(
               backupId: backupId,
-              filename: filename,
+              filename: bytes == null ? null : filename,
+              bytes: bytes,
             );
             if (!mounted) return;
             messenger.showSnackBar(
               SnackBar(
-                content: Text('Database restored from $filename.'),
-              ),
-            );
-          } catch (_) {
-            if (!mounted) return;
-            messenger.showSnackBar(
-              const SnackBar(
+                duration: const Duration(seconds: 8),
                 content: Text(
-                  'Restore request verified. Server execution activates '
-                  'once POST /api/v1/system/backups/restore/ is wired.',
+                  'Database restored from $filename. Keep all cashiers '
+                  'stopped until they sign in again: sessions opened before '
+                  'the restore may still hold old access tokens.',
                 ),
               ),
+            );
+          } catch (e) {
+            if (!mounted) return;
+            messenger.showSnackBar(
+              SnackBar(content: Text('Restore failed: $e')),
             );
           }
         },
@@ -456,20 +473,15 @@ class _AdminBackupRestorePageState extends State<AdminBackupRestorePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _ReadinessBanner(
-            onCopyCommand: _copyCliCommand,
-            serverConnected: _serverConnected,
-          ),
+          _ReadinessBanner(serverConnected: _serverConnected),
           const SizedBox(height: AppSpacing.lg),
           LayoutBuilder(
             builder: (context, constraints) {
               final twoColumn = constraints.maxWidth >= 880;
               final createCard = _CreateBackupCard(
-                includeMedia: _includeMedia,
                 includeAuditLogs: _includeAuditLogs,
                 format: _format,
                 noteController: _noteController,
-                onIncludeMediaChanged: (v) => setState(() => _includeMedia = v),
                 onIncludeAuditLogsChanged: (v) =>
                     setState(() => _includeAuditLogs = v),
                 onFormatChanged: (v) => setState(() => _format = v),
@@ -494,6 +506,7 @@ class _AdminBackupRestorePageState extends State<AdminBackupRestorePage> {
                     filename: file.name,
                     sizeBytes: file.sizeBytes,
                     format: file.detectedExtension,
+                    bytes: file.bytes,
                   );
                 },
               );
@@ -558,8 +571,8 @@ class _AdminBackupRestorePageState extends State<AdminBackupRestorePage> {
             emptyMessage: hasActiveHistoryFilter
                 ? 'No backup snapshots match these filters.'
                 : 'No server backups recorded yet. Snapshots created here or '
-                      'by scheduled server jobs will appear once the backup '
-                      'API is connected.',
+                      'by scheduled server jobs will appear here once the '
+                      'backup API is reachable.',
             rowKey: (snap) => ValueKey('admin.backup.${snap.id}'),
             columns: [
               DataPanelColumn<SystemBackupSnapshot>(
@@ -608,16 +621,7 @@ class _AdminBackupRestorePageState extends State<AdminBackupRestorePage> {
                   runSpacing: 6,
                   children: [
                     TextButton.icon(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              'Download for ${snap.filename} will activate '
-                              'once the backup API is connected.',
-                            ),
-                          ),
-                        );
-                      },
+                      onPressed: () => _downloadSnapshot(snap),
                       style: TextButton.styleFrom(
                         backgroundColor: p.surfaceSunken,
                         foregroundColor: p.textPrimary,
@@ -689,12 +693,8 @@ class _AdminBackupRestorePageState extends State<AdminBackupRestorePage> {
 }
 
 class _ReadinessBanner extends StatelessWidget {
-  const _ReadinessBanner({
-    required this.onCopyCommand,
-    this.serverConnected = false,
-  });
+  const _ReadinessBanner({this.serverConnected = false});
 
-  final VoidCallback onCopyCommand;
   final bool serverConnected;
 
   @override
@@ -724,9 +724,7 @@ class _ReadinessBanner extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: p.selected,
                     borderRadius: BorderRadius.circular(AppRadii.medium),
-                    border: Border.all(
-                      color: p.accent.withValues(alpha: 0.45),
-                    ),
+                    border: Border.all(color: p.accent.withValues(alpha: 0.45)),
                   ),
                   child: Icon(
                     Icons.shield_outlined,
@@ -764,10 +762,10 @@ class _ReadinessBanner extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Frontend controls are ready to wire to Admin-only '
-                        'Django backup endpoints. Until connected, use the '
-                        'verified PostgreSQL CLI command to capture a live '
-                        'database dump.',
+                        'Snapshots are Django JSON data dumps stored on the '
+                        'server. A restore replaces database records only — '
+                        'media files are never included, and every cashier must '
+                        'be off the POS while it runs.',
                         style: TextStyle(
                           fontSize: 12.5,
                           height: 1.45,
@@ -780,29 +778,6 @@ class _ReadinessBanner extends StatelessWidget {
               ],
             ),
           ),
-          OutlinedButton.icon(
-            onPressed: onCopyCommand,
-            style: OutlinedButton.styleFrom(
-              backgroundColor: p.surfaceSunken,
-              foregroundColor: p.textPrimary,
-              side: BorderSide(color: p.border),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              minimumSize: const Size(0, 40),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppRadii.medium),
-              ),
-              textStyle: const TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            icon: Icon(
-              Icons.terminal_rounded,
-              size: 16,
-              color: p.accentInk,
-            ),
-            label: const Text('Copy pg_dump command'),
-          ),
         ],
       ),
     );
@@ -811,21 +786,17 @@ class _ReadinessBanner extends StatelessWidget {
 
 class _CreateBackupCard extends StatelessWidget {
   const _CreateBackupCard({
-    required this.includeMedia,
     required this.includeAuditLogs,
     required this.format,
     required this.noteController,
-    required this.onIncludeMediaChanged,
     required this.onIncludeAuditLogsChanged,
     required this.onFormatChanged,
     required this.onCreatePressed,
   });
 
-  final bool includeMedia;
   final bool includeAuditLogs;
   final BackupFormat format;
   final TextEditingController noteController;
-  final ValueChanged<bool> onIncludeMediaChanged;
   final ValueChanged<bool> onIncludeAuditLogsChanged;
   final ValueChanged<BackupFormat> onFormatChanged;
   final VoidCallback onCreatePressed;
@@ -887,7 +858,7 @@ class _CreateBackupCard extends StatelessWidget {
               const SizedBox(height: AppSpacing.lg),
               const DialogSectionLabel('Snapshot scope'),
               _ScopeOptionTile(
-                title: 'PostgreSQL database',
+                title: 'Database records',
                 subtitle:
                     'Sales, inventory, users, shifts, payables & deliveries.',
                 checked: true,
@@ -897,10 +868,10 @@ class _CreateBackupCard extends StatelessWidget {
               const SizedBox(height: AppSpacing.sm),
               _ScopeOptionTile(
                 title: 'Product images & media',
-                subtitle:
-                    'Uploaded material photos shown in Inventory and POS.',
-                checked: includeMedia,
-                onChanged: onIncludeMediaChanged,
+                subtitle: 'Not included: media files are never in a backup.',
+                checked: false,
+                locked: true,
+                onChanged: null,
               ),
               const SizedBox(height: AppSpacing.sm),
               _ScopeOptionTile(
@@ -1121,7 +1092,7 @@ class _RestoreBackupCard extends StatelessWidget {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Supports .dump, .sql, .zip, or .tar.gz snapshots',
+                            'Select the backup file saved by this system',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 12,
@@ -1291,11 +1262,7 @@ class _SchedulePolicyCard extends StatelessWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.schedule_rounded,
-                    size: 20,
-                    color: p.accentInk,
-                  ),
+                  Icon(Icons.schedule_rounded, size: 20, color: p.accentInk),
                   const SizedBox(width: AppSpacing.sm),
                   Text(
                     'Automated schedule & retention',
@@ -1307,7 +1274,9 @@ class _SchedulePolicyCard extends StatelessWidget {
                 ],
               ),
               StatusBadge(
-                label: serverConnected ? 'Synced with server' : 'Pending server sync',
+                label: serverConnected
+                    ? 'Synced with server'
+                    : 'Pending server sync',
                 tone: serverConnected ? StatusTone.success : StatusTone.neutral,
               ),
             ],
@@ -1570,11 +1539,7 @@ class _SnapshotCell extends StatelessWidget {
             borderRadius: BorderRadius.circular(AppRadii.small),
             border: Border.all(color: p.accent.withValues(alpha: 0.4)),
           ),
-          child: Icon(
-            Icons.archive_outlined,
-            size: 18,
-            color: p.accentInk,
-          ),
+          child: Icon(Icons.archive_outlined, size: 18, color: p.accentInk),
         ),
         const SizedBox(width: AppSpacing.md),
         Expanded(
@@ -1592,13 +1557,10 @@ class _SnapshotCell extends StatelessWidget {
                   color: p.textPrimary,
                 ),
               ),
-              if (snapshot.note.isNotEmpty || snapshot.includesMedia) ...[
+              if (snapshot.note.isNotEmpty) ...[
                 const SizedBox(height: 2),
                 Text(
-                  [
-                    if (snapshot.note.isNotEmpty) snapshot.note,
-                    if (snapshot.includesMedia) 'Includes media',
-                  ].join(' · '),
+                  snapshot.note,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 12, color: p.textSecondary),
@@ -1712,7 +1674,9 @@ class _RestoreConfirmDialogState extends State<_RestoreConfirmDialog> {
             child: Text(
               'Restoring ${widget.filename} (${_formatBytes(widget.sizeBytes)}, '
               '${widget.format}) will overwrite sales, inventory, and user '
-              'records created after this snapshot.',
+              'records created after this snapshot. All cashiers must stop '
+              'work until they sign in again; open sessions may still hold old '
+              'access tokens.',
               style: TextStyle(fontSize: 13, height: 1.45, color: errorInk),
             ),
           ),
@@ -1730,9 +1694,7 @@ class _RestoreConfirmDialogState extends State<_RestoreConfirmDialog> {
             key: const ValueKey('backup-restore-confirm-input'),
             controller: _confirmController,
             onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
-              hintText: 'Type RESTORE',
-            ),
+            decoration: const InputDecoration(hintText: 'Type RESTORE'),
           ),
         ],
       ),

@@ -14,42 +14,55 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
-from django.urls import include, path
-
+from django.http import HttpResponseNotFound
+from django.urls import include, path, re_path
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 
-@api_view(['GET'])
+@api_view(["GET"])
 @permission_classes([AllowAny])
 def health_check(request):
     """Health check endpoint used by Flutter to verify API connectivity."""
-    return Response({
-        'status': 'ok',
-        'service': 'BuildPro API',
-    })
+    return Response(
+        {
+            "status": "ok",
+            "service": "BuildPro API",
+        }
+    )
 
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('api/health/', health_check, name='health'),
-
+    path("admin/", admin.site.urls),
+    path("api/health/", health_check, name="health"),
     # App routes  (v1 namespace for future versioning)
-    path('api/v1/', include('apps.users.urls')),
-    path('api/v1/', include('apps.inventory.urls')),
-    path('api/v1/', include('apps.pos.urls')),
-    path('api/v1/', include('apps.collectibles.urls')),
-    path('api/v1/', include('apps.requisitions.urls')),
-    path('api/v1/', include('apps.bodega.urls')),
-    path('api/v1/reports/', include('apps.reports.urls')),
-
+    path("api/v1/", include("apps.users.urls")),
+    path("api/v1/", include("apps.inventory.urls")),
+    path("api/v1/", include("apps.pos.urls")),
+    path("api/v1/", include("apps.collectibles.urls")),
+    path("api/v1/", include("apps.requisitions.urls")),
+    path("api/v1/", include("apps.bodega.urls")),
+    path("api/v1/reports/", include("apps.reports.urls")),
     # Phase 1, Task 2: the CPMS boundary. The account that may call these is refused
     # everywhere else by `apps.users.authentication.CpmsFencedJWTAuthentication`.
-    path('api/v1/integration/cpms/', include('apps.integration.urls')),
+    path("api/v1/integration/cpms/", include("apps.integration.urls")),
+]
+
+
+# Block legacy private files even BEFORE an admin first visits the backup page.
+# Production media servers must deny these paths too; see the backup runbook.
+def private_media_not_found(request, **kwargs):
+    return HttpResponseNotFound()
+
+
+urlpatterns += [
+    re_path(r"^media/backups(?:/.*)?$", private_media_not_found),
+    path("media/system_security_policy.json", private_media_not_found),
 ]
 
 # Dev only: DEBUG serves uploaded product photos; static() is a no-op otherwise.

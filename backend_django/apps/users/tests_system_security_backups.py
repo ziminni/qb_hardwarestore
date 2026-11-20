@@ -22,7 +22,10 @@ from .models import AuditLog, User
 class SystemSecurityAndBackupsTests(APITestCase):
     def setUp(self):
         self.temp_media = tempfile.mkdtemp(prefix="qb_system_test_")
-        self.override = override_settings(MEDIA_ROOT=Path(self.temp_media))
+        self.override = override_settings(
+            MEDIA_ROOT=Path(self.temp_media),
+            BACKUP_ROOT=Path(self.temp_media) / "private" / "backups",
+        )
         self.override.enable()
 
         self.admin_group, _ = Group.objects.get_or_create(name="Admin")
@@ -180,7 +183,7 @@ class SystemSecurityAndBackupsTests(APITestCase):
         )
         self.assertEqual(restore_res.status_code, status.HTTP_200_OK)
         self.assertTrue(restore_res.data["restored"])
-        self.assertTrue(restore_res.data["restored_from_server_archive"])
+        self.assertEqual(restore_res.data["source"], f"snapshot {snap['filename']}")
 
         self.cashier.refresh_from_db()
         self.assertEqual(self.cashier.full_name, "Rosa Cruz")

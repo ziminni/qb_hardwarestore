@@ -9,10 +9,10 @@ All endpoints in this module are fenced with `IsAdminRole`:
 * `/api/v1/system/security/policy/` — updates and persists password/lockout/session
   policy and syncs `apps.users.lockout.MAX_FAILURES`.
 * `/api/v1/system/backups/` — lists and creates real point-in-time database
-  snapshots stored under `MEDIA_ROOT/backups/`.
+  snapshots stored under `BACKUP_ROOT` (private; never under the public MEDIA_ROOT).
 * `/api/v1/system/backups/<backup_id>/download/` — downloads a snapshot file.
-* `/api/v1/system/backups/restore/` — restores database state from a snapshot
-  using `loaddata` inside `transaction.atomic()`.
+* `/api/v1/system/backups/restore/` — REPLACES database state with a known snapshot
+  (`backup_id`) or an uploaded backup file (`file`), after taking a safety snapshot.
 * `/api/v1/system/backups/schedule/` — updates automated backup frequency and
   retention policy on the server.
 """
@@ -20,12 +20,16 @@ All endpoints in this module are fenced with `IsAdminRole`:
 import hashlib
 import io
 import json
+import shutil
+import tempfile
 import uuid
 from pathlib import Path
 
+from django.apps import apps as django_apps
 from django.conf import settings
 from django.core.management import call_command
-from django.db import transaction
+from django.core.management.color import no_style
+from django.db import connection, transaction
 from django.http import FileResponse
 from django.utils import timezone
 from rest_framework import status
@@ -37,26 +41,59 @@ from rest_framework_simplejwt.token_blacklist.models import (
 )
 
 from . import lockout
-from .models import AuditLog
+from .models import AuditLog, User
 from .permissions import IsAdminRole
 from .serializers import role_objects_for
-from .services import audit_request
-
+from .services import audit_request, log_audit
 
 # ---------------------------------------------------------------------------
-# Storage helpers under MEDIA_ROOT
+# Private storage (BACKUP_ROOT). MEDIA_ROOT is served to anyone without a login,
+# so nothing in this module may live there.
 # ---------------------------------------------------------------------------
-
-def _system_dir() -> Path:
-    root = Path(getattr(settings, "MEDIA_ROOT", Path.cwd() / "media"))
-    root.mkdir(parents=True, exist_ok=True)
-    return root
 
 
 def _backups_dir() -> Path:
-    d = _system_dir() / "backups"
+    d = Path(settings.BACKUP_ROOT)
     d.mkdir(parents=True, exist_ok=True)
+    _move_legacy_files(d)
     return d
+
+
+def _system_dir() -> Path:
+    # The security policy sits beside the backups folder, in the same private root.
+    return _backups_dir().parent
+
+
+def _move_legacy_files(backups: Path) -> None:
+    """Move files the first version of this feature left under MEDIA_ROOT."""
+    media = Path(settings.MEDIA_ROOT)
+    legacy = media / "backups"
+    try:
+        if legacy.is_dir():
+            items = list(legacy.iterdir())
+            if any((backups / item.name).exists() for item in items):
+                # Preserve both archives and manifests on a collision.
+                shutil.move(str(legacy), str(backups / f"legacy-{uuid.uuid4().hex}"))
+            else:
+                for item in items:
+                    shutil.move(str(item), str(backups / item.name))
+                legacy.rmdir()
+        old_policy = media / "system_security_policy.json"
+        if old_policy.exists():
+            new_policy = backups.parent / old_policy.name
+            if not new_policy.exists():
+                shutil.move(str(old_policy), str(new_policy))
+            else:
+                shutil.move(
+                    str(old_policy),
+                    str(backups.parent / f"legacy-policy-{uuid.uuid4().hex}.json"),
+                )
+    except OSError as exc:
+        # Fail closed: do not report the private archive ready while legacy files
+        # could still be served by an external media server.
+        raise RuntimeError(
+            "Cannot secure legacy system files; check folder permissions."
+        ) from exc
 
 
 def _security_policy_path() -> Path:
@@ -165,6 +202,7 @@ def _save_backup_manifest(manifest: dict) -> None:
 # Security & Sessions API (`/api/v1/system/security/...`)
 # ---------------------------------------------------------------------------
 
+
 def _role_label_for_user(user) -> str:
     roles = role_objects_for(user)
     if roles:
@@ -174,9 +212,7 @@ def _role_label_for_user(user) -> str:
 
 def _active_sessions_payload(request) -> list[dict]:
     now = timezone.now()
-    blacklisted_ids = set(
-        BlacklistedToken.objects.values_list("token_id", flat=True)
-    )
+    blacklisted_ids = set(BlacklistedToken.objects.values_list("token_id", flat=True))
     tokens = (
         OutstandingToken.objects.select_related("user")
         .filter(expires_at__gt=now, user__is_active=True)
@@ -186,10 +222,9 @@ def _active_sessions_payload(request) -> list[dict]:
 
     # Latest LOGIN audit log per user for IP address & last seen timestamp.
     latest_login_by_user: dict[int, AuditLog] = {}
-    for log in (
-        AuditLog.objects.filter(action_type=AuditLog.ActionType.LOGIN)
-        .order_by("-timestamp")[:100]
-    ):
+    for log in AuditLog.objects.filter(action_type=AuditLog.ActionType.LOGIN).order_by(
+        "-timestamp"
+    )[:100]:
         if log.user_id and log.user_id not in latest_login_by_user:
             latest_login_by_user[log.user_id] = log
 
@@ -226,9 +261,7 @@ def _active_sessions_payload(request) -> list[dict]:
 
         role_label = _role_label_for_user(user)
         device_label = (
-            "Current Admin workstation"
-            if is_current
-            else f"{role_label} terminal"
+            "Current Admin workstation" if is_current else f"{role_label} terminal"
         )
         sessions.append(
             {
@@ -282,16 +315,11 @@ def _login_events_payload() -> list[dict]:
     )
     events = []
     for log in logs:
-        username = (
-            log.username_snapshot
-            or (log.user.username if log.user else "unknown")
+        username = log.username_snapshot or (
+            log.user.username if log.user else "unknown"
         )
         succeeded = log.action_type != AuditLog.ActionType.LOGIN_FAILED
-        device_label = (
-            "POS / Web client"
-            if succeeded
-            else "Unverified client"
-        )
+        device_label = "POS / Web client" if succeeded else "Unverified client"
         events.append(
             {
                 "id": str(log.id),
@@ -345,9 +373,17 @@ def system_revoke_session_view(request, session_id: str):
     """`POST /api/v1/system/security/sessions/<session_id>/revoke/` — blacklist session token."""
     token = None
     if session_id.isdigit():
-        token = OutstandingToken.objects.select_related("user").filter(id=int(session_id)).first()
+        token = (
+            OutstandingToken.objects.select_related("user")
+            .filter(id=int(session_id))
+            .first()
+        )
     if token is None:
-        token = OutstandingToken.objects.select_related("user").filter(jti=session_id).first()
+        token = (
+            OutstandingToken.objects.select_related("user")
+            .filter(jti=session_id)
+            .first()
+        )
 
     if token is None:
         return Response(
@@ -380,6 +416,7 @@ def system_revoke_session_view(request, session_id: str):
 # ---------------------------------------------------------------------------
 # Database Backup & Restore API (`/api/v1/system/backups/...`)
 # ---------------------------------------------------------------------------
+
 
 def _create_snapshot_on_disk(
     *,
@@ -424,9 +461,10 @@ def _create_snapshot_on_disk(
         "created_at": now.isoformat(),
         "size_bytes": len(payload_bytes),
         "format": ext,
-        "origin": "Scheduled" if origin == "Scheduled" else "Manual",
+        "origin": origin if origin in ("Scheduled", "Pre-restore") else "Manual",
         "created_by": creator_name,
-        "includes_media": bool(include_media),
+        # dumpdata stores file names, not uploaded photo bytes.
+        "includes_media": False,
         "includes_audit_logs": bool(include_audit_logs),
         "note": note.strip(),
         "sha256": checksum,
@@ -535,13 +573,19 @@ def system_backup_download_view(request, backup_id: str):
     )
     if target is None:
         return Response(
-            {"code": "BACKUP_NOT_FOUND", "detail": "Backup snapshot not found on server."},
+            {
+                "code": "BACKUP_NOT_FOUND",
+                "detail": "Backup snapshot not found on server.",
+            },
             status=status.HTTP_404_NOT_FOUND,
         )
     filepath = _backups_dir() / target["filename"]
     if not filepath.exists():
         return Response(
-            {"code": "BACKUP_FILE_MISSING", "detail": "Backup file is missing from disk."},
+            {
+                "code": "BACKUP_FILE_MISSING",
+                "detail": "Backup file is missing from disk.",
+            },
             status=status.HTTP_404_NOT_FOUND,
         )
     return FileResponse(
@@ -555,78 +599,162 @@ def system_backup_download_view(request, backup_id: str):
 @api_view(["POST"])
 @permission_classes([IsAdminRole])
 def system_backup_restore_view(request):
-    """`POST /api/v1/system/backups/restore/` — verify & restore from a backup snapshot."""
+    """`POST /api/v1/system/backups/restore/` — REPLACE the database with a backup.
+
+    The backup is either a snapshot this server holds (`backup_id`, or its exact
+    `filename`) or a backup file the admin uploads (multipart `file`). A name the
+    server does not hold is refused: it must never answer `restored` for nothing.
+
+    Every table the backups cover is emptied and reloaded in ONE transaction, so a
+    failure leaves the database as it was. A "Pre-restore" snapshot is taken first.
+    """
     data = request.data if hasattr(request.data, "get") else {}
+    upload = request.FILES.get("file")
     backup_id = str(data.get("backup_id") or "").strip()
     filename = str(data.get("filename") or "").strip()
 
-    manifest = _load_backup_manifest()
-    target = None
-    for snap in manifest["snapshots"]:
-        if (backup_id and snap.get("id") == backup_id) or (
-            filename and snap.get("filename") == filename
-        ):
-            target = snap
-            break
+    if upload is not None:
+        if upload.size > MAX_RESTORE_UPLOAD_BYTES:
+            return _refuse("BACKUP_INVALID", "The backup file is too large.")
+        raw = upload.read()
+        source = f"uploaded file {Path(upload.name or 'backup').name}"
+    else:
+        if not backup_id and not filename:
+            return _refuse("BACKUP_REQUIRED", "Choose a backup to restore.")
+        manifest = _load_backup_manifest()
+        target = next(
+            (
+                s
+                for s in manifest["snapshots"]
+                if (backup_id and s.get("id") == backup_id)
+                or (filename and s.get("filename") == filename)
+            ),
+            None,
+        )
+        if target is None:
+            return _refuse(
+                "BACKUP_NOT_FOUND",
+                "This server has no such backup. To restore a file from this "
+                "computer, upload the file itself.",
+                status.HTTP_404_NOT_FOUND,
+            )
+        # `_load_backup_manifest` drops snapshots whose file is gone, so reaching here
+        # means it exists; read it NOW, before the safety snapshot's retention trim.
+        raw = (_backups_dir() / Path(target["filename"]).name).read_bytes()
+        expected_sha = target.get("sha256")
+        if expected_sha and hashlib.sha256(raw).hexdigest() != expected_sha:
+            return _refuse(
+                "BACKUP_CHECKSUM_MISMATCH",
+                "Backup file failed SHA-256 integrity verification.",
+            )
+        source = f"snapshot {target['filename']}"
 
-    resolved_filename = target["filename"] if target else filename
-    if not resolved_filename:
-        return Response(
-            {
-                "code": "BACKUP_REQUIRED",
-                "detail": "Specify a backup_id or filename to restore.",
-            },
-            status=status.HTTP_400_BAD_REQUEST,
+    fixture = _parse_fixture(raw)
+    if fixture is None:
+        return _refuse(
+            "BACKUP_INVALID", "This file is not a backup made by this system."
         )
 
-    filepath = _backups_dir() / Path(resolved_filename).name
-    restored_from_disk = False
+    actor_name = getattr(request.user, "username", "") or "Administrator"
+    safety = _create_snapshot_on_disk(
+        creator_name=actor_name,
+        origin="Pre-restore",
+        note=f"Taken automatically before restoring {source}.",
+    )
 
-    with transaction.atomic():
-        if filepath.exists():
-            # Verify checksum when recorded in manifest.
-            raw = filepath.read_bytes()
-            expected_sha = target.get("sha256") if target else None
-            if expected_sha and hashlib.sha256(raw).hexdigest() != expected_sha:
-                return Response(
-                    {
-                        "code": "BACKUP_CHECKSUM_MISMATCH",
-                        "detail": "Backup file failed SHA-256 integrity verification.",
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            # Load JSON fixture when valid Django dumpdata JSON.
-            try:
-                parsed = json.loads(raw.decode("utf-8"))
-                if isinstance(parsed, list):
-                    json_temp = _backups_dir() / "_restore_stage.json"
-                    json_temp.write_bytes(raw)
-                    try:
-                        call_command("loaddata", str(json_temp), verbosity=0)
-                        restored_from_disk = True
-                    finally:
-                        if json_temp.exists():
-                            json_temp.unlink()
-            except Exception as exc:
-                return Response(
-                    {
-                        "code": "BACKUP_RESTORE_FAILED",
-                        "detail": f"Could not restore snapshot: {exc}",
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        audit_request(
-            request,
-            AuditLog.ActionType.UPDATE,
-            f"System restore executed from snapshot {resolved_filename}.",
-        )
+    fd, stage_name = tempfile.mkstemp(suffix=".json", dir=_backups_dir())
+    stage = Path(stage_name)
+    try:
+        with open(fd, "wb") as fh:
+            fh.write(raw)
+        with transaction.atomic():
+            _empty_backed_up_tables()
+            call_command("loaddata", str(stage), verbosity=0)
+            # The restored data may not contain this admin's account (or may hold it
+            # under another id); an audit row pointing at a missing user would fail
+            # the whole restore at commit.
+            actor = User.objects.filter(pk=request.user.pk, username=actor_name).first()
+            log_audit(
+                user=actor,
+                username=actor_name,
+                action_type=AuditLog.ActionType.UPDATE,
+                description=(
+                    f"System restore from {source} "
+                    f"(safety backup {safety['filename']})."
+                ),
+                ip_address=request.META.get("REMOTE_ADDR"),
+            )
+    except Exception as exc:  # noqa: BLE001 - any load failure rolls back and is reported
+        return _refuse("BACKUP_RESTORE_FAILED", f"Could not restore: {exc}")
+    finally:
+        stage.unlink(missing_ok=True)
 
     return Response(
         {
             "restored": True,
-            "filename": resolved_filename,
-            "restored_from_server_archive": restored_from_disk,
+            "source": source,
+            "records": len(fixture),
+            "safety_backup_id": safety["id"],
             "restored_at": timezone.localtime(timezone.now()).isoformat(),
         }
     )
+
+
+MAX_RESTORE_UPLOAD_BYTES = 512 * 1024 * 1024
+
+# What `_create_snapshot_on_disk` never dumps, so a restore must never empty.
+_NOT_BACKED_UP_APPS = {"contenttypes", "sessions", "admin", "token_blacklist"}
+_NOT_BACKED_UP_MODELS = {"auth.permission"}
+
+
+def _refuse(code, detail, http_status=status.HTTP_400_BAD_REQUEST):
+    return Response({"code": code, "detail": detail}, status=http_status)
+
+
+def _parse_fixture(raw: bytes):
+    """The dumpdata list, or None when `raw` is not one."""
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if (
+        not isinstance(parsed, list)
+        or not parsed
+        or not all(
+            isinstance(o, dict)
+            and isinstance(o.get("model"), str)
+            and isinstance(o.get("fields"), dict)
+            for o in parsed
+        )
+    ):
+        return None
+    # A partial fixture (or []) must never be accepted as a full database backup.
+    labels = {o["model"] for o in parsed}
+    if User._meta.label_lower not in labels or "auth.group" not in labels:
+        return None
+    return parsed
+
+
+def _empty_backed_up_tables() -> None:
+    """TRUNCATE every table a backup covers (caller holds the transaction).
+
+    CASCADE also empties JWT refresh-session tables that point at users. Existing
+    access JWTs can remain valid until expiry; restore requires maintenance downtime.
+    """
+    tables = [
+        model._meta.db_table
+        for model in django_apps.get_models(include_auto_created=True)
+        if model._meta.managed
+        and not model._meta.proxy
+        and model._meta.app_label not in _NOT_BACKED_UP_APPS
+        and model._meta.label_lower not in _NOT_BACKED_UP_MODELS
+    ]
+    statements = connection.ops.sql_flush(
+        no_style(), tables, reset_sequences=False, allow_cascade=True
+    )
+    with connection.cursor() as cursor:
+        # PostgreSQL refuses TRUNCATE while earlier writes in this transaction still
+        # have deferred FK checks queued: run them now, then defer again for loaddata.
+        cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+        connection.ops.execute_sql_flush(statements)
+        cursor.execute("SET CONSTRAINTS ALL DEFERRED")
