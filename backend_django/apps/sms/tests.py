@@ -178,7 +178,7 @@ class EnqueueTests(BodegaTestBase):
         self.assertIn(f"Reply: DONE {reference} {ticket.code}", message.body)
         self.assertLessEqual(len(message.body), services.SMS_LENGTH)
 
-    def test_a_delivery_sale_says_delivery_instead_of_pickup(self):
+    def test_a_delivery_sale_does_not_send_a_pickup_ticket(self):
         # The slip is written inside the same transaction as the sale, so the trigger
         # (which runs at commit) sees it - exactly the live order.
         with self.captureOnCommitCallbacks(execute=True):
@@ -192,8 +192,8 @@ class EnqueueTests(BodegaTestBase):
                 scheduled_date=sale.trans_date.date(),
                 fee=Decimal(0),
             )
-        (message,) = self._outbound()
-        self.assertTrue(message.body.startswith("QB DELIVERY"), message.body)
+        self.assertFalse(self._outbound().exists())
+        self.assertFalse(BodegaSmsTicket.objects.filter(sale=sale).exists())
 
     def test_every_active_contact_gets_the_same_code(self):
         SmsContact.objects.create(

@@ -1,10 +1,7 @@
-import 'package:client/core/constants/app_colors.dart';
-import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/shared/widgets/app_panel.dart';
-import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 
 class SalesRevenueTrend extends StatelessWidget {
@@ -14,95 +11,86 @@ class SalesRevenueTrend extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final completed = sales
-        .where((sale) => sale.status == InventorySaleStatus.completed)
-        .toList();
-    final dates = completed.map((sale) => sale.date).toList()..sort();
-    final lastDate = dates.isEmpty ? appClock.now() : dates.last;
+    final totals = <DateTime, double>{};
+    final counts = <DateTime, int>{};
+    for (final sale in sales) {
+      if (sale.status != InventorySaleStatus.completed) continue;
+      final day = DateUtils.dateOnly(sale.date);
+      totals.update(
+        day,
+        (total) => total + sale.total,
+        ifAbsent: () => sale.total,
+      );
+      counts.update(day, (count) => count + 1, ifAbsent: () => 1);
+    }
+    if (totals.isEmpty) {
+      return const AppPanel(
+        title: 'Sales trend',
+        child: Text('No completed sales in the loaded records.'),
+      );
+    }
+
+    final latest = totals.keys.reduce((a, b) => a.isAfter(b) ? a : b);
     final days = List.generate(
       7,
-      (index) =>
-          DateTime(lastDate.year, lastDate.month, lastDate.day - (6 - index)),
+      (index) => DateTime(latest.year, latest.month, latest.day - 6 + index),
     );
-    final values = days
-        .map(
-          (day) => completed
-              .where(
-                (sale) =>
-                    sale.date.year == day.year &&
-                    sale.date.month == day.month &&
-                    sale.date.day == day.day,
-              )
-              .fold<double>(0, (sum, sale) => sum + sale.total),
-        )
-        .toList();
-    final highest = values.fold<double>(
+    final sevenDayTotal = days.fold<double>(
       0,
-      (value, item) => item > value ? item : value,
+      (sum, day) => sum + (totals[day] ?? 0),
     );
-    // The bars grow to fill their box, so the CHART has a bounded height; the
-    // panel around it sizes to its content and never clips a longer caption.
+    final theme = Theme.of(context);
+
+    Widget cell(String text, {bool heading = false, bool end = false}) =>
+        Padding(
+          padding: const EdgeInsets.symmetric(
+            vertical: AppSpacing.xs,
+            horizontal: AppSpacing.xs,
+          ),
+          child: Text(
+            text,
+            textAlign: end ? TextAlign.end : TextAlign.start,
+            style: heading
+                ? theme.textTheme.labelMedium
+                : theme.textTheme.bodyMedium,
+          ),
+        );
+
     return AppPanel(
       title: 'Sales trend',
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text('Completed sales over the latest seven-day period'),
-          const SizedBox(height: AppSpacing.lg),
-          SizedBox(
-            height: 190,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                for (var index = 0; index < days.length; index++) ...[
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        // D1: one money format, so a day reads ₱1,141.00 instead
-                        // of ₱1141.0k. A day with no sales carries no number at
-                        // all: the empty string holds the line's height, which
-                        // keeps the bars aligned without claiming "None".
-                        // Scaled down, never wrapped: seven columns on a 1100 px
-                        // window leave the widest label barely its own width.
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            values[index] == 0 ? '' : formatPeso(values[index]),
-                            style: Theme.of(context).textTheme.labelSmall,
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.xs),
-                        Flexible(
-                          child: FractionallySizedBox(
-                            heightFactor: highest == 0
-                                ? .05
-                                : (values[index] / highest).clamp(.05, 1),
-                            alignment: Alignment.bottomCenter,
-                            child: Container(
-                              width: 28,
-                              decoration: BoxDecoration(
-                                color: AppColors.brandGold,
-                                borderRadius: BorderRadius.circular(
-                                  AppRadii.small,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                        Text(
-                          '${days[index].month}/${days[index].day}',
-                          style: Theme.of(context).textTheme.labelSmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (index < days.length - 1)
-                    const SizedBox(width: AppSpacing.sm),
-                ],
-              ],
+          Text('Seven-day total', style: theme.textTheme.labelMedium),
+          Text(formatPeso(sevenDayTotal), style: theme.textTheme.headlineSmall),
+          const SizedBox(height: AppSpacing.sm),
+          Table(
+            border: TableBorder(
+              horizontalInside: BorderSide(color: theme.dividerColor),
             ),
+            columnWidths: const {
+              0: FlexColumnWidth(1),
+              1: FlexColumnWidth(1.4),
+              2: FlexColumnWidth(1.6),
+            },
+            defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+            children: [
+              TableRow(
+                children: [
+                  cell('Day', heading: true),
+                  cell('Completed sales', heading: true, end: true),
+                  cell('Sales total', heading: true, end: true),
+                ],
+              ),
+              for (final day in days)
+                TableRow(
+                  children: [
+                    cell('${day.month}/${day.day}'),
+                    cell('${counts[day] ?? 0}', end: true),
+                    cell(formatPeso(totals[day] ?? 0), end: true),
+                  ],
+                ),
+            ],
           ),
         ],
       ),

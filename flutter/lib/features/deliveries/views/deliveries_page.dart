@@ -356,6 +356,59 @@ class _DeliveriesBodyState extends State<_DeliveriesBody> {
     );
   }
 
+  Future<void> _showLoadingDetails(Delivery delivery) => showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Loading details'),
+      scrollable: true,
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(delivery.documentNo),
+            if (delivery.saleId == null)
+              const Text(
+                'Suggested locations only. Stock has not been allocated.',
+              ),
+            if (delivery.items.isEmpty) const Text('No items listed.'),
+            for (final item in delivery.items)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${item.name} · ${formatQuantity(item.qty)} ${item.unit}',
+                    ),
+                    Text(_loadingLocations(item)),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
+
+  String _loadingLocations(DeliveryItem item) {
+    final locations = [
+      for (final part in item.pickUp)
+        if (part.locationName.isNotEmpty)
+          '${formatQuantity(part.qty)} ${part.unit} at ${part.locationName}',
+    ];
+    return locations.isEmpty
+        ? 'Loading location not recorded.'
+        : locations.join(', ');
+  }
+
   /// Start / Delivered / Failed, only where the status allows the move.
   ///
   /// A finished slip has no move left, so it says so instead of showing a button
@@ -397,6 +450,11 @@ class _DeliveriesBodyState extends State<_DeliveriesBody> {
               color: AppColors.textSecondary,
             ),
           ),
+        IconButton(
+          tooltip: 'View loading details',
+          onPressed: () => _showLoadingDetails(delivery),
+          icon: const Icon(Icons.list_alt_outlined, size: 18),
+        ),
         IconButton(
           key: ValueKey('delivery-slip-${delivery.id}'),
           tooltip: 'Print delivery slip',

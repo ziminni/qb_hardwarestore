@@ -149,7 +149,12 @@ class PosPaymentDialog extends StatefulWidget {
     this.cart,
     this.customer,
     this.tenderFees = const [],
-  });
+    this.onSubmit,
+    this.onCancel,
+  }) : assert((onSubmit == null) == (onCancel == null));
+
+  final ValueChanged<PosPaymentDetails>? onSubmit;
+  final VoidCallback? onCancel;
 
   /// The cart's gross: what the sale is worth before any discount.
   final double total;
@@ -277,7 +282,18 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
 
   _PayStep get _current => _steps[_stepIndex];
 
-  bool get _isLastStep => _stepIndex == _steps.length - 1;
+  bool get _inline => widget.onSubmit != null;
+
+  bool get _isLastStep => _inline || _stepIndex == _steps.length - 1;
+
+  void _cancel() {
+    final cancel = widget.onCancel;
+    if (cancel != null) {
+      cancel();
+    } else {
+      Navigator.pop(context);
+    }
+  }
 
   /// Next: the step's own fields are checked first, so a mistake is fixed on
   /// the step that made it rather than found at the end.
@@ -416,7 +432,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
     // receipt) or throw on an empty navigator.
     if (ModalRoute.of(context)?.isCurrent != true) return;
     if (widget.currentLines.isEmpty) {
-      Navigator.of(context).pop();
+      if (!_inline) Navigator.of(context).pop();
       return;
     }
     setState(_syncFollowingRows);
@@ -798,381 +814,401 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
     final needsApproval = amounts.needsApproval(widget.discountCapPercent);
     final unpaid = _remainingBeforeCheques;
     final media = MediaQuery.sizeOf(context);
-    return Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      // One fixed, tall size on every step (owner 2026-11-19): the window does
-      // not jump as the cashier moves between Items, Payment and Review.
-      child: SizedBox(
-        width: 520,
-        height: (media.height - 48).clamp(0, 760).toDouble(),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ---- Title bar --------------------------------------------
-              Container(
-                color: AppColors.brandBlack,
-                padding: const EdgeInsets.fromLTRB(24, 14, 12, 14),
-                child: Row(
+    Widget shell({required Widget child}) => _inline
+        ? Material(clipBehavior: Clip.antiAlias, child: child)
+        : Dialog(
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 24,
+            ),
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+            // One fixed, tall size on every step (owner 2026-11-19): the window does
+            // not jump as the cashier moves between Items, Payment and Review.
+            child: SizedBox(
+              width: 520,
+              height: (media.height - 48).clamp(0, 760).toDouble(),
+              child: child,
+            ),
+          );
+    return shell(
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // ---- Title bar --------------------------------------------
+            Container(
+              color: AppColors.brandBlack,
+              padding: const EdgeInsets.fromLTRB(24, 14, 12, 14),
+              child: Row(
+                children: [
+                  const Icon(Icons.point_of_sale, color: AppColors.brandGold),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Payment',
+                      style: TextStyle(
+                        color: AppColors.brandWhite,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Cancel',
+                    onPressed: _cancel,
+                    icon: const Icon(Icons.close, color: AppColors.brandWhite),
+                  ),
+                ],
+              ),
+            ),
+            // ---- Body ---------------------------------------------------
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Icon(Icons.point_of_sale, color: AppColors.brandGold),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text(
-                        'Payment',
-                        style: TextStyle(
-                          color: AppColors.brandWhite,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
+                    if (!_inline) ...[_stepBar(), const SizedBox(height: 24)],
+                    // Step 1: the cart itself, editable before paying.
+                    if (!_inline && _current == _PayStep.items) _itemsSection(),
+                    // Step 2: how it is paid, then whether it is delivered.
+                    if (_inline || _current == _PayStep.payment) ...[
+                      _section(
+                        icon: Icons.payments_outlined,
+                        title: 'Payment',
+                        trailing: TextButton.icon(
+                          key: const ValueKey('pos-add-tender'),
+                          // Off once every method has a row.
+                          onPressed: _unusedChoices.isEmpty ? null : _addRow,
+                          icon: const Icon(Icons.add, size: 18),
+                          label: const Text('Add tender'),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (final row in _rows) _tenderRow(row),
+                            if (_hasUtang) _utangFields(),
+                          ],
                         ),
                       ),
-                    ),
-                    IconButton(
-                      tooltip: 'Cancel',
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(
-                        Icons.close,
-                        color: AppColors.brandWhite,
+                    ],
+                    if (widget.lockedDeliveryFee == null &&
+                        (_inline || _current == _PayStep.payment))
+                      _section(
+                        icon: Icons.local_shipping_outlined,
+                        title: 'Delivery',
+                        // The switch sits on the heading's right (owner
+                        // 2026-11-19); the fields appear only when it is on.
+                        trailing: Switch(
+                          key: const ValueKey('pos-deliver-toggle'),
+                          value: _deliver,
+                          onChanged: _setDeliver,
+                        ),
+                        collapsed: !_deliver,
+                        child: _deliverySection(),
                       ),
-                    ),
+                    // Step 3: any discount (owner 2026-11-19). Off: only two
+                    // centred squares, Apply discount and Continue.
+                    if (widget.allowDiscount &&
+                        !_inline &&
+                        _current == _PayStep.discount &&
+                        !_discountOn)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 40),
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 400),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: _squareButton(
+                                    key: const ValueKey('pos-discount-toggle'),
+                                    icon: Icons.sell_outlined,
+                                    label: 'Apply discount',
+                                    onTap: () => _setDiscountOn(true),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _squareButton(
+                                    key: const ValueKey('pos-payment-next'),
+                                    icon: Icons.arrow_forward,
+                                    label: 'Continue',
+                                    dark: true,
+                                    onTap: _next,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    // On: the section as first designed; its switch turns
+                    // the discount back off and returns to the squares.
+                    if (widget.allowDiscount &&
+                        (_inline ||
+                            (_current == _PayStep.discount && _discountOn)))
+                      _section(
+                        icon: Icons.sell_outlined,
+                        title: 'Discount',
+                        collapsed: !_discountOn,
+                        trailing: Switch(
+                          key: const ValueKey('pos-discount-toggle'),
+                          value: _discountOn,
+                          onChanged: _setDiscountOn,
+                        ),
+                        note: needsApproval
+                            ? 'Needs manager approval: '
+                                  '${amounts.percentOfGross.toStringAsFixed(2)}% '
+                                  'is above the '
+                                  '${widget.discountCapPercent.toStringAsFixed(2)}% cap.'
+                            : null,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                for (final kind in DiscountKind.values) ...[
+                                  ChoiceChip(
+                                    label: Text(
+                                      kind == DiscountKind.amount
+                                          ? '₱ Amount'
+                                          : '% Percent',
+                                    ),
+                                    selected: _kind == kind,
+                                    onSelected: (_) {
+                                      if (_kind == kind) return;
+                                      setState(() => _kind = kind);
+                                      _onDiscountChanged();
+                                    },
+                                  ),
+                                  const SizedBox(width: 8),
+                                ],
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: TextFormField(
+                                    key: const ValueKey('pos-discount-value'),
+                                    controller: _discountValue,
+                                    onChanged: (_) => _onDiscountChanged(),
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    decoration: InputDecoration(
+                                      labelText: _kind == DiscountKind.amount
+                                          ? 'Discount amount'
+                                          : 'Discount percent',
+                                    ),
+                                    validator: (value) {
+                                      final text = (value ?? '').trim();
+                                      if (text.isEmpty) return null;
+                                      final parsed = double.tryParse(text);
+                                      if (parsed == null) {
+                                        return 'Enter a valid number';
+                                      }
+                                      if (parsed < 0) {
+                                        return 'A discount cannot be negative';
+                                      }
+                                      if (_kind == DiscountKind.percent &&
+                                          parsed > 100) {
+                                        return 'A discount cannot be more than 100 percent';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  flex: 2,
+                                  child: TextFormField(
+                                    key: const ValueKey('pos-discount-reason'),
+                                    controller: _discountReason,
+                                    onChanged: (_) => _onDiscountChanged(),
+                                    decoration: const InputDecoration(
+                                      labelText: 'Reason for the discount',
+                                    ),
+                                    validator: (value) {
+                                      if ((_discountValue.text
+                                              .trim()
+                                              .isNotEmpty) &&
+                                          (value ?? '').trim().isEmpty) {
+                                        return 'A discount needs a reason';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                            // The over-cap sentence is the section's note.
+                          ],
+                        ),
+                      ),
+                    // Step 4: what is being bought, before it is final.
+                    if (!_inline && _current == _PayStep.review)
+                      _reviewSection(),
                   ],
                 ),
               ),
-              // ---- Body ---------------------------------------------------
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _stepBar(),
-                      const SizedBox(height: 24),
-                      // Step 1: the cart itself, editable before paying.
-                      if (_current == _PayStep.items) _itemsSection(),
-                      // Step 2: how it is paid, then whether it is delivered.
-                      if (_current == _PayStep.payment) ...[
-                        _section(
-                          icon: Icons.payments_outlined,
-                          title: 'Payment',
-                          trailing: TextButton.icon(
-                            key: const ValueKey('pos-add-tender'),
-                            // Off once every method has a row.
-                            onPressed: _unusedChoices.isEmpty ? null : _addRow,
-                            icon: const Icon(Icons.add, size: 18),
-                            label: const Text('Add tender'),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              for (final row in _rows) _tenderRow(row),
-                              if (_hasUtang) _utangFields(),
-                            ],
-                          ),
-                        ),
-                      ],
-                      if (widget.lockedDeliveryFee == null &&
-                          _current == _PayStep.payment)
-                        _section(
-                          icon: Icons.local_shipping_outlined,
-                          title: 'Delivery',
-                          // The switch sits on the heading's right (owner
-                          // 2026-11-19); the fields appear only when it is on.
-                          trailing: Switch(
-                            key: const ValueKey('pos-deliver-toggle'),
-                            value: _deliver,
-                            onChanged: _setDeliver,
-                          ),
-                          collapsed: !_deliver,
-                          child: _deliverySection(),
-                        ),
-                      // Step 3: any discount (owner 2026-11-19). Off: only two
-                      // centred squares, Apply discount and Continue.
-                      if (widget.allowDiscount &&
-                          _current == _PayStep.discount &&
-                          !_discountOn)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 40),
-                          child: Center(
-                            child: ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 400),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: _squareButton(
-                                      key: const ValueKey(
-                                        'pos-discount-toggle',
-                                      ),
-                                      icon: Icons.sell_outlined,
-                                      label: 'Apply discount',
-                                      onTap: () => _setDiscountOn(true),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: _squareButton(
-                                      key: const ValueKey('pos-payment-next'),
-                                      icon: Icons.arrow_forward,
-                                      label: 'Continue',
-                                      dark: true,
-                                      onTap: _next,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      // On: the section as first designed; its switch turns
-                      // the discount back off and returns to the squares.
-                      if (widget.allowDiscount &&
-                          _current == _PayStep.discount &&
-                          _discountOn)
-                        _section(
-                          icon: Icons.sell_outlined,
-                          title: 'Discount',
-                          trailing: Switch(
-                            key: const ValueKey('pos-discount-toggle'),
-                            value: _discountOn,
-                            onChanged: _setDiscountOn,
-                          ),
-                          note: needsApproval
-                              ? 'Needs manager approval: '
-                                    '${amounts.percentOfGross.toStringAsFixed(2)}% '
-                                    'is above the '
-                                    '${widget.discountCapPercent.toStringAsFixed(2)}% cap.'
-                              : null,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Row(
-                                children: [
-                                  for (final kind in DiscountKind.values) ...[
-                                    ChoiceChip(
-                                      label: Text(
-                                        kind == DiscountKind.amount
-                                            ? '₱ Amount'
-                                            : '% Percent',
-                                      ),
-                                      selected: _kind == kind,
-                                      onSelected: (_) {
-                                        if (_kind == kind) return;
-                                        setState(() => _kind = kind);
-                                        _onDiscountChanged();
-                                      },
-                                    ),
-                                    const SizedBox(width: 8),
-                                  ],
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    child: TextFormField(
-                                      key: const ValueKey('pos-discount-value'),
-                                      controller: _discountValue,
-                                      onChanged: (_) => _onDiscountChanged(),
-                                      keyboardType:
-                                          const TextInputType.numberWithOptions(
-                                            decimal: true,
-                                          ),
-                                      decoration: InputDecoration(
-                                        labelText: _kind == DiscountKind.amount
-                                            ? 'Discount amount'
-                                            : 'Discount percent',
-                                      ),
-                                      validator: (value) {
-                                        final text = (value ?? '').trim();
-                                        if (text.isEmpty) return null;
-                                        final parsed = double.tryParse(text);
-                                        if (parsed == null) {
-                                          return 'Enter a valid number';
-                                        }
-                                        if (parsed < 0) {
-                                          return 'A discount cannot be negative';
-                                        }
-                                        if (_kind == DiscountKind.percent &&
-                                            parsed > 100) {
-                                          return 'A discount cannot be more than 100 percent';
-                                        }
-                                        return null;
-                                      },
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    flex: 2,
-                                    child: TextFormField(
-                                      key: const ValueKey(
-                                        'pos-discount-reason',
-                                      ),
-                                      controller: _discountReason,
-                                      onChanged: (_) => _onDiscountChanged(),
-                                      decoration: const InputDecoration(
-                                        labelText: 'Reason for the discount',
-                                      ),
-                                      validator: (value) {
-                                        if ((_discountValue.text
-                                                .trim()
-                                                .isNotEmpty) &&
-                                            (value ?? '').trim().isEmpty) {
-                                          return 'A discount needs a reason';
-                                        }
-                                        return null;
-                                      },
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              // The over-cap sentence is the section's note.
-                            ],
-                          ),
-                        ),
-                      // Step 4: what is being bought, before it is final.
-                      if (_current == _PayStep.review) _reviewSection(),
-                    ],
-                  ),
-                ),
+            ),
+            // ---- Footer: the totals and the decision, always in view ----
+            // (On the Discount step only a Back button: the step's own
+            // Continue moves on, owner 2026-11-19.)
+            Container(
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 18),
+              decoration: const BoxDecoration(
+                color: AppColors.surfaceSunken,
+                border: Border(top: BorderSide(color: AppColors.border)),
               ),
-              // ---- Footer: the totals and the decision, always in view ----
-              // (On the Discount step only a Back button: the step's own
-              // Continue moves on, owner 2026-11-19.)
-              Container(
-                padding: const EdgeInsets.fromLTRB(24, 16, 24, 18),
-                decoration: const BoxDecoration(
-                  color: AppColors.surfaceSunken,
-                  border: Border(top: BorderSide(color: AppColors.border)),
-                ),
-                child: _current == _PayStep.discount && !_discountOn
-                    ? _discountFooter()
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            children: [
-                              const Expanded(
-                                child: Text(
-                                  'Amount due',
-                                  style: TextStyle(fontWeight: FontWeight.w700),
-                                ),
-                              ),
-                              Text(
-                                formatPeso(_due),
-                                key: const ValueKey('pos-amount-due'),
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _total('Paid now', formatPeso(_paidNow)),
-                              ),
-                              Expanded(
-                                child: _total(
-                                  'Change (cash only)',
-                                  formatPeso(_change),
-                                ),
-                              ),
-                              Expanded(
-                                child: _total(
-                                  _hasUtang ? 'Utang' : 'Unpaid',
-                                  formatPeso(unpaid),
-                                  warn: unpaid > 0,
-                                ),
-                              ),
-                            ],
-                          ),
-                          if (_pendingChequeTotal > 0)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: _textSummaryRow(
-                                'Cheque pending (not counted as paid)',
-                                formatPeso(_pendingChequeTotal),
-                              ),
-                            ),
-                          // What the drawer has NOT covered stays owed even when a
-                          // cheque sits on it: a pending cheque is not money.
-                          if (unpaid > 0)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
+              child: !_inline && _current == _PayStep.discount && !_discountOn
+                  ? _discountFooter()
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            const Expanded(
                               child: Text(
-                                _pendingChequeTotal > 0
-                                    ? '${formatPeso(unpaid)} will be left unpaid. The '
-                                          'cheque holds it open as utang until a manager '
-                                          'clears it.'
-                                    : '${formatPeso(unpaid)} will be left unpaid. This '
-                                          'records an utang.',
-                                style: TextStyle(
-                                  color: Theme.of(context).colorScheme.error,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                                'Amount due',
+                                style: TextStyle(fontWeight: FontWeight.w700),
                               ),
                             ),
-                          if (_tenderError case final message?)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Text(
-                                message,
-                                style: TextStyle(
-                                  color: Theme.of(context).colorScheme.error,
-                                ),
+                            Text(
+                              formatPeso(_due),
+                              key: const ValueKey('pos-amount-due'),
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  style: OutlinedButton.styleFrom(
-                                    minimumSize: const Size.fromHeight(48),
-                                  ),
-                                  onPressed: _stepIndex == 0
-                                      ? () => Navigator.pop(context)
-                                      : _back,
-                                  child: Text(
-                                    _stepIndex == 0 ? 'Cancel' : 'Back',
-                                  ),
-                                ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _total('Paid now', formatPeso(_paidNow)),
+                            ),
+                            Expanded(
+                              child: _total(
+                                'Change (cash only)',
+                                formatPeso(_change),
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                flex: 2,
-                                child: FilledButton.icon(
-                                  style: FilledButton.styleFrom(
-                                    minimumSize: const Size.fromHeight(48),
-                                    backgroundColor: AppColors.brandBlack,
-                                    foregroundColor: AppColors.brandWhite,
-                                  ),
-                                  key: const ValueKey('pos-payment-next'),
-                                  onPressed: _isLastStep ? _complete : _next,
-                                  icon: Icon(
-                                    _isLastStep
-                                        ? Icons.check_circle_outline
-                                        : Icons.arrow_forward,
-                                  ),
-                                  label: Text(
-                                    _isLastStep
-                                        ? 'Complete transaction'
-                                        : 'Next',
-                                  ),
-                                ),
+                            ),
+                            Expanded(
+                              child: _total(
+                                _hasUtang ? 'Utang' : 'Unpaid',
+                                formatPeso(unpaid),
+                                warn: unpaid > 0,
                               ),
-                            ],
+                            ),
+                          ],
+                        ),
+                        if (_inline && _deliveryCharge > 0)
+                          _textSummaryRow(
+                            'Delivery charge',
+                            formatPeso(_deliveryCharge),
+                          ),
+                        if (_inline && _paymentFeeTotal > 0) ...[
+                          _textSummaryRow(
+                            'Payment fees',
+                            formatPeso(_paymentFeeTotal),
+                          ),
+                          _textSummaryRow(
+                            'Total to pay',
+                            formatPeso(_due + _paymentFeeTotal),
                           ),
                         ],
-                      ),
-              ),
-            ],
-          ),
+                        if (_pendingChequeTotal > 0)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: _textSummaryRow(
+                              'Cheque pending (not counted as paid)',
+                              formatPeso(_pendingChequeTotal),
+                            ),
+                          ),
+                        // What the drawer has NOT covered stays owed even when a
+                        // cheque sits on it: a pending cheque is not money.
+                        if (unpaid > 0)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Text(
+                              _pendingChequeTotal > 0
+                                  ? '${formatPeso(unpaid)} will be left unpaid. The '
+                                        'cheque holds it open as utang until a manager '
+                                        'clears it.'
+                                  : '${formatPeso(unpaid)} will be left unpaid. This '
+                                        'records an utang.',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        if (_tenderError case final message?)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Text(
+                              message,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                          ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(48),
+                                ),
+                                onPressed: _inline || _stepIndex == 0
+                                    ? _cancel
+                                    : _back,
+                                child: Text(
+                                  _inline || _stepIndex == 0
+                                      ? 'Cancel'
+                                      : 'Back',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              flex: 2,
+                              child: FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(48),
+                                  backgroundColor: AppColors.brandBlack,
+                                  foregroundColor: AppColors.brandWhite,
+                                ),
+                                key: const ValueKey('pos-payment-next'),
+                                onPressed: _isLastStep ? _complete : _next,
+                                icon: Icon(
+                                  _isLastStep
+                                      ? Icons.check_circle_outline
+                                      : Icons.arrow_forward,
+                                ),
+                                label: Text(
+                                  _isLastStep ? 'Complete transaction' : 'Next',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+            ),
+          ],
         ),
       ),
     );
@@ -1906,7 +1942,19 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
 
   /// Validates, asks for approval when the discount is over the cap, and pops with
   /// the details. Nothing is submitted from here: the page owns the sale.
+  bool _completing = false;
+
   Future<void> _complete() async {
+    if (_completing) return;
+    _completing = true;
+    try {
+      await _validateAndComplete();
+    } finally {
+      _completing = false;
+    }
+  }
+
+  Future<void> _validateAndComplete() async {
     setState(() => _tenderError = null);
     if (!_formKey.currentState!.validate()) return;
 
@@ -1971,34 +2019,37 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
           )
         : null;
 
-    Navigator.pop(
-      context,
-      PosPaymentDetails(
-        // An utang row is owed, not paid: it never goes on the wire.
-        tenders: [
-          for (final row in _rows.where((row) => !row.isUtang))
-            PosTender(
-              method: row.method,
-              amount: row.amount,
-              reference: row.reference.text.trim(),
-              chequeNumber: row.chequeNumber.text.trim(),
-              bank: row.bank.text.trim(),
-              chequeDate: row.chequeDate,
-            ),
-        ],
-        discount: discount,
-        discountApprovalToken: token,
-        delivery: delivery,
-        utang: _hasUtang
-            ? PosUtang(
-                name: _utangName.text.trim(),
-                contact: _utangContact.text.trim(),
-                address: _utangAddress.text.trim(),
-                amount: _utangTotal,
-              )
-            : null,
-      ),
+    final details = PosPaymentDetails(
+      // An utang row is owed, not paid: it never goes on the wire.
+      tenders: [
+        for (final row in _rows.where((row) => !row.isUtang))
+          PosTender(
+            method: row.method,
+            amount: row.amount,
+            reference: row.reference.text.trim(),
+            chequeNumber: row.chequeNumber.text.trim(),
+            bank: row.bank.text.trim(),
+            chequeDate: row.chequeDate,
+          ),
+      ],
+      discount: discount,
+      discountApprovalToken: token,
+      delivery: delivery,
+      utang: _hasUtang
+          ? PosUtang(
+              name: _utangName.text.trim(),
+              contact: _utangContact.text.trim(),
+              address: _utangAddress.text.trim(),
+              amount: _utangTotal,
+            )
+          : null,
     );
+    final submit = widget.onSubmit;
+    if (submit != null) {
+      submit(details);
+    } else {
+      Navigator.pop(context, details);
+    }
   }
 
   static DateTime _tomorrow() {

@@ -114,7 +114,7 @@ class BodegaHomeTab extends StatelessWidget {
           ),
           // No "See all" (owner 2026-11-19): pending pick-ups open only by
           // scanning, so the box scrolls instead of leading anywhere.
-          const SectionHeader(title: 'Waiting for pick-up'),
+          const SectionHeader(title: 'Customer pickups'),
           MobileCard(
             child: SizedBox(
               key: const ValueKey('pickup-box'),
@@ -127,7 +127,7 @@ class BodegaHomeTab extends StatelessWidget {
             ),
           ),
           SectionHeader(
-            title: 'New arrivals',
+            title: 'Supplier arrivals',
             onSeeAll: () => onOpenTab(BodegaTab.arrivals),
           ),
           if (arrivals.isEmpty)

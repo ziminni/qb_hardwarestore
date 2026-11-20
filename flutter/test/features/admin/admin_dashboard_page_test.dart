@@ -4,6 +4,7 @@
 import 'dart:async';
 
 import 'package:client/core/format/format.dart';
+import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/core/theme/app_theme.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/services/admin_dashboard_service.dart';
@@ -265,7 +266,6 @@ void main() {
 
     expect(find.text(formatPesoWhole(30871.40)), findsWidgets);
     expect(find.text('₱30,871'), findsWidgets);
-    expect(find.text('₱30,871.40'), findsNothing);
   });
 
   testWidgets('urgent attention rows come before warnings', (tester) async {
@@ -309,6 +309,14 @@ void main() {
     expect(find.textContaining('Store Manager pays'), findsOneWidget);
   });
 
+  testWidgets('daily admin sales show count and exact pesos', (tester) async {
+    await _pump(tester, _FakeService());
+    await _open(tester, 'Sales');
+
+    expect(find.textContaining('· 5 transactions'), findsOneWidget);
+    expect(find.text('₱30,871.40'), findsOneWidget);
+  });
+
   testWidgets('breakdown bars are sized against the largest row', (
     tester,
   ) async {
@@ -349,12 +357,12 @@ void main() {
     expect(find.text('Project requests'), findsNothing);
   });
 
-  testWidgets('the Admin menu keeps only the Admin\'s own jobs', (
-    tester,
-  ) async {
-    await _pump(tester, _FakeService());
+  test('the Admin menu keeps only the Admin\'s own jobs', () {
+    final labels = AdminSkeletonLayout.navigationSections
+        .expand((section) => section.destinations)
+        .map((destination) => destination.label);
     for (final kept in ['User management', 'Settings', 'Audit logs']) {
-      expect(find.text(kept), findsWidgets, reason: kept);
+      expect(labels, contains(kept));
     }
     for (final gone in [
       'Sales & POS',
@@ -363,7 +371,7 @@ void main() {
       'Transfers',
       'Storage locations',
     ]) {
-      expect(find.text(gone), findsNothing, reason: gone);
+      expect(labels, isNot(contains(gone)));
     }
   });
 

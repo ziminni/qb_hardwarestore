@@ -288,6 +288,8 @@ void main() {
   ) async {
     await _pump(tester, claims: 5, deliveries: [1, 2]);
 
+    expect(find.text('Customer pickups'), findsOneWidget);
+    expect(find.text('Supplier arrivals'), findsOneWidget);
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('tile-pickups')),
@@ -529,43 +531,46 @@ void main() {
     );
   });
 
-  test('offline snapshot lookup and release outbox queue replay when back online', () async {
-    SharedPreferences.setMockInitialValues({});
-    final repo = _FakeRepository(claimCount: 2);
-    final vm = BodegaViewmodel(repository: repo);
+  test(
+    'offline snapshot lookup and release outbox queue replay when back online',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final repo = _FakeRepository(claimCount: 2);
+      final vm = BodegaViewmodel(repository: repo);
 
-    // 1. Online load caches the open claims snapshot.
-    await vm.loadHome();
-    expect(vm.openClaims, hasLength(2));
-    expect(vm.usingOfflineSnapshot, isFalse);
+      // 1. Online load caches the open claims snapshot.
+      await vm.loadHome();
+      expect(vm.openClaims, hasLength(2));
+      expect(vm.usingOfflineSnapshot, isFalse);
 
-    // 2. Phone enters warehouse Wi-Fi dead zone: lookup and release use snapshot + outbox.
-    repo.offline = true;
-    final found = await vm.lookup('OR-20261118-0001');
-    expect(found, isTrue);
-    expect(vm.usingOfflineSnapshot, isTrue);
-    expect(vm.claim?.transactionNo, 'TRX-20261118-0001');
+      // 2. Phone enters warehouse Wi-Fi dead zone: lookup and release use snapshot + outbox.
+      repo.offline = true;
+      final found = await vm.lookup('OR-20261118-0001');
+      expect(found, isTrue);
+      expect(vm.usingOfflineSnapshot, isTrue);
+      expect(vm.claim?.transactionNo, 'TRX-20261118-0001');
 
-    final queued = await vm.release(
-      const BodegaReleaseRequest(
-        receipt: 'TRX-20261118-0001',
-        receivedBy: 'Pedro Driver',
-        plateNo: 'ABC-123',
-        lines: [(variantId: 5, locationId: 2, qty: 4.0)],
-      ),
-    );
-    expect(queued?.number, 'QUEUED-OFFLINE');
-    expect(vm.queuedReleaseCount, 1);
-    expect(vm.claim?.isOpen, isFalse);
-    expect(vm.openClaims.map((c) => c.transactionNo), ['TRX-20261118-0002']);
+      final queued = await vm.release(
+        const BodegaReleaseRequest(
+          receipt: 'TRX-20261118-0001',
+          receivedBy: 'Pedro Driver',
+          plateNo: 'ABC-123',
+          lines: [(variantId: 5, locationId: 2, qty: 4.0)],
+        ),
+      );
+      expect(queued?.number, 'QUEUED-OFFLINE');
+      expect(vm.queuedReleaseCount, 1);
+      expect(vm.claim?.isOpen, isFalse);
+      expect(vm.openClaims.map((c) => c.transactionNo), ['TRX-20261118-0002']);
 
-    // 3. Phone reconnects to Wi-Fi: loadHome replays the outbox with Idempotency-Key.
-    repo.offline = false;
-    await vm.loadHome();
-    expect(vm.queuedReleaseCount, 0);
-    expect(vm.usingOfflineSnapshot, isFalse);
-    expect(repo.releasedRequests, hasLength(1));
-    expect(repo.releasedRequests.single.idempotencyKey, isNotEmpty);
-    expect(repo.releasedRequests.single.receivedBy, 'Pedro Driver');
-  });
+      // 3. Phone reconnects to Wi-Fi: loadHome replays the outbox with Idempotency-Key.
+      repo.offline = false;
+      await vm.loadHome();
+      expect(vm.queuedReleaseCount, 0);
+      expect(vm.usingOfflineSnapshot, isFalse);
+      expect(repo.releasedRequests, hasLength(1));
+      expect(repo.releasedRequests.single.idempotencyKey, isNotEmpty);
+      expect(repo.releasedRequests.single.receivedBy, 'Pedro Driver');
+    },
+  );
 }

@@ -105,6 +105,8 @@ void main() {
       expect(find.text('Create backup'), findsOneWidget);
       expect(find.text('Restore system'), findsOneWidget);
       expect(find.text('Awaiting backup API'), findsOneWidget);
+      expect(find.text('Included'), findsOneWidget);
+      expect(find.text('Not included'), findsOneWidget);
       expect(
         find.textContaining('No server backups recorded yet'),
         findsOneWidget,

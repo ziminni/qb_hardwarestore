@@ -1,6 +1,7 @@
 # pyright: reportAttributeAccessIssue=false, reportArgumentType=false
 """Decision 25 — the Bodega module: claims, releases, delivery checks and the checker role."""
 
+from datetime import date
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
@@ -8,18 +9,33 @@ from django.contrib.auth.models import Group
 from rest_framework.test import APIClient
 
 from apps.inventory.models import InventoryBatch, StockAdjustment, StorageLocation
-from apps.pos.services import process_return, process_sale
+from apps.pos.models import Delivery, SalesOrder, SalesOrderItem
+from apps.pos.services import (
+    fulfil_sales_order,
+    process_return,
+    process_sale,
+    transition_delivery,
+)
 from apps.pos.tests import POSTestBase
 
-from .models import BodegaDelivery, BodegaRelease
+from .models import BodegaDelivery, BodegaRelease, BodegaReleaseLine
 
 User = get_user_model()
 RETURN_REASON = "customer changed their mind"
+DELIVERY_SLIP = {
+    "address": "12 Mabini St",
+    "contact_name": "Pedro",
+    "contact_phone": "09170000000",
+    "scheduled_date": "2026-12-01",
+    "fee": "0.00",
+}
 
 
 def _user(username, group):
     user = User.objects.create_user(
-        username=username, email=f"{username}@x.com", password="pass12345",
+        username=username,
+        email=f"{username}@x.com",
+        password="pass12345",
         full_name=username.title(),
     )
     user.groups.add(Group.objects.get_or_create(name=group)[0])
@@ -56,7 +72,11 @@ class BodegaTestBase(POSTestBase):
             "received_by": "Pedro",
             "plate_no": "ABC 123",
             "lines": [
-                {"variant": self.variant.pk, "location": self.bodega.pk, "qty": str(qty)}
+                {
+                    "variant": self.variant.pk,
+                    "location": self.bodega.pk,
+                    "qty": str(qty),
+                }
             ],
         }
         body.update(extra)
@@ -110,10 +130,16 @@ class ClaimAndReleaseTests(BodegaTestBase):
 
     def test_a_release_moves_no_stock(self):
         sale = self._sell(3)
-        before = sum(b.current_qty for b in InventoryBatch.objects.filter(variant=self.variant))
+        before = sum(
+            b.current_qty for b in InventoryBatch.objects.filter(variant=self.variant)
+        )
         self._release(sale, 3)
-        after = sum(b.current_qty for b in InventoryBatch.objects.filter(variant=self.variant))
-        self.assertEqual(before, after, "stock left the books at the sale, not at the gate")
+        after = sum(
+            b.current_qty for b in InventoryBatch.objects.filter(variant=self.variant)
+        )
+        self.assertEqual(
+            before, after, "stock left the books at the sale, not at the gate"
+        )
 
     def test_a_linked_return_shrinks_what_is_left_to_collect(self):
         sale = self._sell(5)
@@ -146,7 +172,9 @@ class ClaimAndReleaseTests(BodegaTestBase):
         done, waiting = self._sell(1), self._sell(2)
         self._release(done, 1)
         self.api.force_authenticate(self.checker)
-        numbers = [c["transaction_no"] for c in self.api.get("/api/v1/bodega/claims/").data]
+        numbers = [
+            c["transaction_no"] for c in self.api.get("/api/v1/bodega/claims/").data
+        ]
         self.assertEqual(numbers, [waiting.transaction_no])
 
     def test_stock_shows_books_unreleased_and_physical(self):
@@ -159,7 +187,9 @@ class ClaimAndReleaseTests(BodegaTestBase):
             (Decimal(6), Decimal(3), Decimal(9)),
         )
 
-    def test_idempotency_key_replays_the_original_release_without_double_releasing(self):
+    def test_idempotency_key_replays_the_original_release_without_double_releasing(
+        self,
+    ):
         sale = self._sell(4)
         self.api.force_authenticate(self.checker)
         body = {
@@ -188,6 +218,130 @@ class ClaimAndReleaseTests(BodegaTestBase):
         self.assertEqual(BodegaRelease.objects.filter(sale=sale).count(), 1)
 
 
+class DispatchSaleTests(BodegaTestBase):
+    """Owner ruling: a customer delivery is worked in Sales Deliveries, never at the gate.
+
+    The sale still takes the goods off the books at the till, so the Bodega has to keep
+    saying where they physically are (`awaiting_dispatch`) without pretending someone is
+    coming to collect them.
+    """
+
+    def _sell_for_delivery(self, qty):
+        return process_sale(
+            customer_id=self.customer.id,
+            cashier=self.cashier,
+            items_data=[{"variant_id": self.vuom.id, "qty": qty}],
+            payments_data=[{"method": "CASH", "amount_tendered": Decimal(qty) * 10}],
+            delivery_data=dict(DELIVERY_SLIP),
+        )
+
+    def _stock(self):
+        self.api.force_authenticate(self.checker)
+        (row,) = self.api.get("/api/v1/bodega/stock/").data
+        return row
+
+    def test_a_dispatch_sale_is_not_a_pickup_claim(self):
+        sale = self._sell_for_delivery(6)
+        response = self._lookup(sale)
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(response.data["code"], "NO_BODEGA_CLAIM")
+        self.assertEqual(self._release(sale, 1).data["code"], "NO_BODEGA_CLAIM")
+        self.api.force_authenticate(self.checker)
+        self.assertEqual(self.api.get("/api/v1/bodega/claims/").data, [])
+
+    def test_a_scheduled_dispatch_is_physical_stock_until_it_goes_out(self):
+        sale = self._sell_for_delivery(6)
+        row = self._stock()
+        self.assertEqual(
+            (
+                row["on_hand"],
+                row["unreleased"],
+                row["awaiting_dispatch"],
+                row["physical"],
+            ),
+            (Decimal(4), Decimal(0), Decimal(6), Decimal(10)),
+        )
+        transition_delivery(
+            delivery_id=Delivery.objects.get(sale=sale).pk, action="start"
+        )
+        row = self._stock()
+        self.assertEqual(
+            (row["awaiting_dispatch"], row["physical"]),
+            (Decimal(0), Decimal(4)),
+        )
+
+    def test_an_old_release_row_still_shows_and_never_double_counts_the_shelf(self):
+        # Written before this ruling, a gate release against a delivery sale must stay in
+        # the append-only log; the goods it handed over are not on the shelf any more.
+        sale = self._sell_for_delivery(6)
+        release = BodegaRelease.objects.create(
+            number="BR-LEGACY-1",
+            sale=sale,
+            checker=self.checker,
+            received_by="Old data",
+        )
+        BodegaReleaseLine.objects.create(
+            release=release, variant=self.variant, location=self.bodega, qty=Decimal(2)
+        )
+        row = self._stock()
+        self.assertEqual(
+            (row["awaiting_dispatch"], row["physical"]),
+            (Decimal(4), Decimal(8)),
+        )
+        self.api.force_authenticate(self.checker)
+        response = self.api.get("/api/v1/bodega/releases/")
+        self.assertEqual(response.status_code, 200, response.data)
+        numbers = [r["number"] for r in response.data["results"]]
+        self.assertEqual(numbers, ["BR-LEGACY-1"])
+
+    def test_a_later_fulfilment_of_a_delivery_order_is_not_a_claim(self):
+        # Only the FIRST fulfilment sale carries `Delivery.sale`; a later partial one is
+        # recognised through SalesItem.order_line -> order -> Delivery.
+        self.customer.customer_type = self.customer.Type.REGULAR
+        self.customer.save(update_fields=["customer_type"])
+        order = SalesOrder.objects.create(
+            order_no="SO-DISPATCH-1",
+            customer=self.customer,
+            status=SalesOrder.Status.CONFIRMED,
+            created_by=self.cashier,
+        )
+        line = SalesOrderItem.objects.create(
+            order=order,
+            variant_uom=self.vuom,
+            qty=Decimal(6),
+            unit_price=Decimal(10),
+        )
+        Delivery.objects.create(
+            sales_order=order,
+            created_by=self.cashier,
+            address="12 Mabini St",
+            contact_name="Pedro",
+            contact_phone="09170000000",
+            scheduled_date=date(2026, 12, 1),
+            fee=Decimal(0),
+        )
+        sold = []
+        for qty in (2, 3):
+            sold.append(
+                fulfil_sales_order(
+                    order_id=order.pk,
+                    cashier=self.cashier,
+                    lines_data=[{"order_line": line.pk, "qty": qty}],
+                    payments_data=[
+                        {"method": "CASH", "amount_tendered": Decimal(qty) * 10}
+                    ],
+                )
+            )
+        for sale in sold:
+            with self.subTest(sale=sale.transaction_no):
+                self.assertEqual(self._lookup(sale).status_code, 400)
+        row = self._stock()
+        self.assertEqual(
+            (row["unreleased"], row["awaiting_dispatch"], row["physical"]),
+            (Decimal(0), Decimal(5), Decimal(10)),
+        )
+
+
 class DeliveryCheckTests(BodegaTestBase):
     """Decision 25 rev.: a Bodega delivery is stock only after the checker confirms it."""
 
@@ -203,17 +357,23 @@ class DeliveryCheckTests(BodegaTestBase):
 
         supplier = Supplier.objects.create(company_name="Quarry Co")
         po = PurchaseOrder.objects.create(
-            supplier=supplier, created_by=self.manager,
+            supplier=supplier,
+            created_by=self.manager,
             status=PurchaseOrder.Status.ORDERED,
         )
         item = POItem.objects.create(
-            po=po, variant=self.variant, variant_uom=self.vuom,
-            ordered_qty=Decimal(qty), unit_cost=Decimal("40.00"),
+            po=po,
+            variant=self.variant,
+            variant_uom=self.vuom,
+            ordered_qty=Decimal(qty),
+            unit_cost=Decimal("40.00"),
             received_qty=Decimal(qty),
         )
         receipt = GoodsReceipt.objects.create(po=po, received_by=self.manager)
         GoodsReceiptItem.objects.create(
-            receipt=receipt, po_item=item, qty=Decimal(qty),
+            receipt=receipt,
+            po_item=item,
+            qty=Decimal(qty),
             location=location or self.bodega,
         )
         process_goods_receipt(receipt=receipt, user=self.manager)
@@ -229,8 +389,16 @@ class DeliveryCheckTests(BodegaTestBase):
         line = BodegaDelivery.objects.get(pk=delivery_id).lines.get()
         return self.api.post(
             f"/api/v1/bodega/deliveries/{delivery_id}/confirm/",
-            {"lines": [{"line": line.pk, "good_qty": str(good),
-                        "damaged_qty": str(damaged), "remarks": "cracked"}]},
+            {
+                "lines": [
+                    {
+                        "line": line.pk,
+                        "good_qty": str(good),
+                        "damaged_qty": str(damaged),
+                        "remarks": "cracked",
+                    }
+                ]
+            },
             format="json",
         )
 

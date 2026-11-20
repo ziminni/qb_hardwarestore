@@ -68,6 +68,7 @@ class PosTransactionPage extends StatefulWidget {
 }
 
 class _PosTransactionPageState extends State<PosTransactionPage> {
+  bool _showInlinePayment = false;
   final _scanFocusNode = FocusNode(debugLabel: 'POS barcode scanner');
   late final ShiftViewmodel _shiftViewmodel =
       widget.shiftViewmodel ?? ShiftViewmodel();
@@ -324,6 +325,8 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        final paying = _showInlinePayment && transaction.lines.isNotEmpty;
+        final main = paying ? _paymentForm(context, transaction) : browser;
         // Wide enough for both: products and cart side by side, the cart at
         // a readable fixed width so the product grid takes what is left.
         if (constraints.maxWidth >= _sideBySideMinWidth) {
@@ -331,7 +334,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
           return Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(child: browser),
+              Expanded(child: main),
               const SizedBox(width: 18),
               SizedBox(
                 width: cartWidth,
@@ -345,8 +348,9 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
             ],
           );
         }
-        // A narrow window: the products get the screen, and the sale stays
-        // one tap away in a bar pinned under them.
+        // At narrow widths checkout takes the cart bar's space too.
+        if (paying) return main;
+        // Otherwise the cart stays one tap away in a bar beneath the products.
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -783,10 +787,10 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     _restoreScannerFocus();
   }
 
-  Future<void> _pay(BuildContext context) async {
+  void _pay(BuildContext context) {
     final transaction = context.read<PosTransactionViewmodel>();
     // A sale is one atomic server operation, so a double submit would be two sales.
-    if (transaction.isSubmitting) return;
+    if (transaction.isSubmitting || _completingPayment) return;
     final error = transaction.validate();
     if (error != null) {
       ScaffoldMessenger.of(
@@ -795,42 +799,72 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
       _restoreScannerFocus();
       return;
     }
-    // The Admin's cap and the VAT rate come from the app-scoped settings, so the till
-    // applies the same rules the Admin saved (Phase 4 F4). A till without the provider
-    // (a widget test) falls back to the server's own defaults rather than blocking.
-    final storeSettings = context.read<StoreSettingsViewmodel?>();
-    final capPercent =
-        storeSettings?.discountCapPercent ??
-        StoreSettings.defaultDiscountCapPercent;
-    final vatRate = storeSettings?.vatRate ?? StoreSettings.defaultVatRate;
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _showInlinePayment = true);
+  }
 
-    final payment = await showDialog<PosPaymentDetails>(
-      context: context,
-      builder: (_) => PosPaymentDialog(
-        total: transaction.total,
-        discountCapPercent: capPercent,
-        // A pending cheque is owed by a NAMED customer; the seeded walk-in record
-        // owes nobody, so the dialog refuses the cheque before the round trip.
-        customerIsNamed: !transaction.isAnonymousSelection,
-        // An order's fulfilment carries the fee agreed on its slip (once, on the
-        // first fulfilment) and takes no new discount (decision 19 #1/#3).
-        lockedDeliveryFee: transaction.isFulfillingOrder
-            ? transaction.orderDeliveryFee
-            : null,
-        allowDiscount: !transaction.isFulfillingOrder,
-        // The Review step lists what is being bought (owner 2026-11-19).
-        lines: transaction.lines,
-        // The Items step edits this cart in place (owner 2026-11-19).
-        cart: transaction,
-        // Owner ruling (tender fees): the shop's own rates, for the PREVIEW
-        // only. The server charges them and stores the sum.
-        tenderFees: storeSettings?.settings.tenderFees ?? const [],
-      ),
+  PosPaymentDialog _paymentForm(
+    BuildContext context,
+    PosTransactionViewmodel transaction,
+  ) {
+    final settings = context.read<StoreSettingsViewmodel?>();
+    return PosPaymentDialog(
+      total: transaction.total,
+      discountCapPercent:
+          settings?.discountCapPercent ??
+          StoreSettings.defaultDiscountCapPercent,
+      customerIsNamed: !transaction.isAnonymousSelection,
+      lockedDeliveryFee: transaction.isFulfillingOrder
+          ? transaction.orderDeliveryFee
+          : null,
+      allowDiscount: !transaction.isFulfillingOrder,
+      cart: transaction,
+      tenderFees: settings?.settings.tenderFees ?? const [],
+      onSubmit: (payment) {
+        if (!_showInlinePayment) return;
+        setState(() => _showInlinePayment = false);
+        _completePayment(context, payment);
+      },
+      onCancel: () {
+        setState(() => _showInlinePayment = false);
+        _restoreScannerFocus();
+      },
     );
-    if (payment == null || !context.mounted) {
+  }
+
+  bool _completingPayment = false;
+
+  Future<void> _completePayment(
+    BuildContext context,
+    PosPaymentDetails payment,
+  ) async {
+    if (_completingPayment) return;
+    _completingPayment = true;
+    try {
+      await _processPayment(context, payment);
+    } catch (error, stack) {
+      debugPrintStack(label: 'Unexpected checkout error', stackTrace: stack);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Check Sales Transactions before retrying this sale.'),
+        ),
+      );
       _restoreScannerFocus();
-      return;
+    } finally {
+      _completingPayment = false;
     }
+  }
+
+  Future<void> _processPayment(
+    BuildContext context,
+    PosPaymentDetails payment,
+  ) async {
+    final transaction = context.read<PosTransactionViewmodel>();
+    if (transaction.isSubmitting || transaction.lines.isEmpty) return;
+    final vatRate =
+        context.read<StoreSettingsViewmodel?>()?.vatRate ??
+        StoreSettings.defaultVatRate;
 
     // What the customer actually owes: the gross less the discount the dialog
     // took, PLUS the delivery charge. The fee joins AFTER the discount and is

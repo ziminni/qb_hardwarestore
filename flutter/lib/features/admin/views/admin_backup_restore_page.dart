@@ -860,7 +860,7 @@ class _CreateBackupCard extends StatelessWidget {
               _ScopeOptionTile(
                 title: 'Database records',
                 subtitle:
-                    'Sales, inventory, users, shifts, payables & deliveries.',
+                    'Always included: sales, inventory, users, shifts, payables and deliveries.',
                 checked: true,
                 locked: true,
                 onChanged: null,
@@ -868,7 +868,7 @@ class _CreateBackupCard extends StatelessWidget {
               const SizedBox(height: AppSpacing.sm),
               _ScopeOptionTile(
                 title: 'Product images & media',
-                subtitle: 'Not included: media files are never in a backup.',
+                subtitle: 'Back up uploaded files separately. This snapshot only saves database records.',
                 checked: false,
                 locked: true,
                 onChanged: null,
@@ -1446,8 +1446,8 @@ class _ScopeOptionTile extends StatelessWidget {
                       ),
                       if (locked) ...[
                         const SizedBox(width: 8),
-                        const StatusBadge(
-                          label: 'Required',
+                        StatusBadge(
+                          label: checked ? 'Included' : 'Not included',
                           tone: StatusTone.info,
                         ),
                       ],

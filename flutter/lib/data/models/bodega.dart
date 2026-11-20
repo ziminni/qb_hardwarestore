@@ -22,6 +22,7 @@ class BodegaStockRow {
     required this.physical,
     required this.minStock,
     this.forChecking = 0,
+    this.awaitingDispatch = 0,
   });
 
   final int variantId;
@@ -39,7 +40,10 @@ class BodegaStockRow {
   /// Paid for and still waiting at the Bodega.
   final double unreleased;
 
-  /// [onHand] + [unreleased]: what a count should find.
+  /// Sold for delivery but not yet sent out.
+  final double awaitingDispatch;
+
+  /// [onHand] + [unreleased] + [awaitingDispatch]: what a count should find.
   final double physical;
   final double minStock;
 
@@ -60,6 +64,9 @@ class BodegaStockRow {
     isHome: boolFieldOr(json, 'is_home', or: false),
     onHand: decimalField(json, 'on_hand'),
     unreleased: decimalField(json, 'unreleased'),
+    awaitingDispatch: json['awaiting_dispatch'] == null
+        ? 0
+        : decimalField(json, 'awaiting_dispatch'),
     physical: decimalField(json, 'physical'),
     minStock: decimalField(json, 'min_stock'),
     forChecking: json['for_checking'] == null
