@@ -89,13 +89,51 @@ class ShiftService {
     }
   }
 
+  /// What the open-shift dialog may prefill (owner ruling, drawer carry).
+  ///
+  /// `suggested_float` can be `null` (no previous close, or that close did not
+  /// record what it left) and `cleared` says the last close left exactly 0.00.
+  /// Throws on a transport failure: "could not ask" must not be shown as 0.00,
+  /// because a prefilled zero is a number the cashier would confirm unread.
+  Future<ShiftOpeningSuggestion> fetchOpeningSuggestion() async {
+    try {
+      final response = await _client.get<Map<String, dynamic>>(
+        '${shiftsPath}opening-suggestion/',
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const ShiftServiceException(
+          'The server did not return an opening suggestion.',
+        );
+      }
+      return ShiftOpeningSuggestion.fromJson(data);
+    } on DioException catch (error) {
+      throw ShiftServiceException(_message(error));
+    } on FormatException {
+      throw const ShiftServiceException(
+        'The opening suggestion could not be read.',
+      );
+    }
+  }
+
   /// Closes the shift with the counted cash. The response carries the computed
   /// Z-reading. A non-zero variance is recorded, not refused.
-  Future<Shift> closeShift(int shiftId, double closingCount) async {
+  ///
+  /// [cashLeft] is what STAYS in the drawer (owner ruling): omitted means the
+  /// question was not asked (server stores null, "not recorded"), `0` means the
+  /// drawer was cleared. It is never assumed to be the whole count.
+  Future<Shift> closeShift(
+    int shiftId,
+    double closingCount, {
+    double? cashLeft,
+  }) async {
     try {
       final response = await _client.post<Map<String, dynamic>>(
         '$shiftsPath$shiftId/close/',
-        data: {'closing_count': closingCount.toStringAsFixed(2)},
+        data: {
+          'closing_count': closingCount.toStringAsFixed(2),
+          if (cashLeft != null) 'cash_left': cashLeft.toStringAsFixed(2),
+        },
       );
       final data = response.data;
       if (data == null) {

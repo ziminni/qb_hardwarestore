@@ -495,7 +495,7 @@ class BillCreationTests(PayablesTestBase):
         receipt = self._receipt(po, [(item, "2")])
         self._bill(receipt)
 
-        with self.assertRaises(IntegrityError), transaction.atomic():
+        with self.assertRaises(IntegrityError), transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
             SupplierBill.objects.create(
                 receipt=receipt,
                 supplier=po.supplier,

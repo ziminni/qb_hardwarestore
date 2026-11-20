@@ -15,6 +15,7 @@ rather than a duplicate. Gaps are fine; duplicates are not.
 """
 
 from datetime import date
+from typing import Any, cast
 
 from django.db import transaction
 
@@ -35,8 +36,8 @@ def generate_document_number(model, field: str, prefix: str) -> str:
 
     today = date.today()
     stamp = f"{prefix}-{today.strftime('%Y%m%d')}-"
-    with transaction.atomic():
-        lock = DocumentCounter.objects.select_for_update()
+    with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+        lock = cast(Any, DocumentCounter).objects.select_for_update()
         counter, _ = lock.get_or_create(
             prefix=prefix,
             day=today,

@@ -15,6 +15,9 @@ class VariantUom {
     required this.barcodeQr,
     required this.conversionFactor,
     required this.defaultSellingPrice,
+    this.creditMarkupKind = 'NONE',
+    this.creditMarkupValue = 0,
+    double? creditSellingPrice,
     this.productName = '',
     this.variantName = '',
     this.productIsActive = true,
@@ -23,7 +26,7 @@ class VariantUom {
     this.storedAtId,
     this.storedAtName = '',
     this.inUse = false,
-  });
+  }) : creditSellingPrice = creditSellingPrice ?? defaultSellingPrice;
 
   final int id;
   final int variantId;
@@ -43,6 +46,24 @@ class VariantUom {
   final double conversionFactor;
 
   final double defaultSellingPrice;
+
+  /// The utang markup the shop configured for this unit (owner ruling):
+  /// `NONE` (the default, and the reading of an older body), `AMOUNT` in pesos
+  /// or `PERCENT` of the shelf price.
+  final String creditMarkupKind;
+  final double creditMarkupValue;
+
+  /// What the SERVER says this unit costs on utang - the computed
+  /// `credit_selling_price`, rounded once server-side. Never re-derived here: a
+  /// second rounding rule would disagree with the receipt. Equals
+  /// [defaultSellingPrice] when no markup is configured (or the body predates
+  /// the field).
+  final double creditSellingPrice;
+
+  /// True when buying this unit on utang costs more than cash, i.e. the till's
+  /// "Utang prices" switch would charge a different number for it.
+  bool get hasCreditMarkup =>
+      creditMarkupKind != 'NONE' && creditMarkupValue > 0;
 
   /// Names and archive flags, carried by `GET /variant-uoms/?barcode=` so the
   /// till can say WHY a scanned code cannot be sold (decision 13). The nested
@@ -91,6 +112,18 @@ class VariantUom {
       barcodeQr: stringField(json, 'barcode_qr'),
       conversionFactor: decimalField(json, 'conversion_factor'),
       defaultSellingPrice: decimalField(json, 'default_selling_price'),
+      // Lenient when ABSENT (an older body), strict when present: a server that
+      // sends a kind we cannot read is a contract change, not a short payload.
+      creditMarkupKind: json['credit_markup_kind'] is String &&
+              (json['credit_markup_kind'] as String).isNotEmpty
+          ? json['credit_markup_kind'] as String
+          : 'NONE',
+      creditMarkupValue: json['credit_markup_value'] == null
+          ? 0
+          : decimalField(json, 'credit_markup_value'),
+      creditSellingPrice: json['credit_selling_price'] == null
+          ? null
+          : decimalField(json, 'credit_selling_price'),
       productName: json['product_name'] as String? ?? '',
       variantName: json['variant_name'] as String? ?? '',
       productIsActive: boolFieldOr(json, 'product_is_active', or: true),

@@ -16,6 +16,7 @@ from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.fields import BooleanField
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -56,6 +57,7 @@ from .models import (
     Shift,
     ShiftCashMovement,
     StoreSettings,
+    TenderFee,
 )
 from .serializers import (
     ChequeSerializer,
@@ -75,6 +77,7 @@ from .services import (
     compute_z_reading,
     decide_cheque,
     issue_discount_approval,
+    opening_suggestion,
     parse_idempotency_key,
     process_sale,
     replayed_transaction,
@@ -293,16 +296,159 @@ class StoreSettingsView(APIView):
             # everywhere else in this API, and a JSON float loses both.
             "vat_rate": f"{row.vat_rate:.2f}",
             "discount_cap_percent": f"{row.discount_cap_percent:.2f}",
+            # Owner ruling (payment-method fees): these belong on THIS endpoint and not on
+            # a collection of their own, because they are shop policy exactly like the VAT
+            # rate and the discount cap - one row of decisions the Admin sets and every
+            # till reads. Listed here in method order; an empty list means the shop charges
+            # no fee, which is what a fresh database says.
+            "tender_fees": [
+                {
+                    "method": fee.method,
+                    "kind": fee.kind,
+                    "value": f"{fee.value:.2f}",
+                    "is_active": fee.is_active,
+                }
+                for fee in TenderFee.objects.all()
+            ],
             "updated_at": row.updated_at,
         }
 
     def get(self, request):
         return Response(self._body(StoreSettings.load()))
 
+    @staticmethod
+    def _validated_tender_fees(raw):
+        """Parse the WHOLE fee list, or the `{code, detail}` refusal to send back.
+
+        The body REPLACES the list: a method that is not named ends up with no fee, which
+        is the only reading of a list a client can reason about. Every entry is checked
+        before anything is written - method must be one a fee may attach to (never cash or
+        cheque), kind PERCENT or AMOUNT, value a finite non-negative amount of whole
+        centavos, `is_active` a real boolean - and one bad entry refuses the whole body, so
+        a half-applied fee table cannot exist.
+        """
+        if raw is None:
+            raw = []
+        if not isinstance(raw, (list, tuple)):
+            return Response(
+                {
+                    "code": "INVALID_SETTINGS",
+                    "detail": "tender_fees must be a list of fee objects.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        kinds = dict(TenderFee.Kind.choices)
+        fees = []
+        seen = set()
+        for index, entry in enumerate(raw, start=1):
+            if not isinstance(entry, dict):
+                return Response(
+                    {
+                        "code": "INVALID_SETTINGS",
+                        "detail": f"tender_fees[{index}] must be an object.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            method = str(entry.get("method") or "").strip().upper()
+            if method not in TenderFee.FEEABLE_METHODS:
+                allowed = ", ".join(TenderFee.FEEABLE_METHODS)
+                return Response(
+                    {
+                        "code": "INVALID_SETTINGS",
+                        "detail": (
+                            f"tender_fees[{index}]: {method or 'method'} cannot carry a "
+                            f"fee. Only {allowed} may."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if method in seen:
+                return Response(
+                    {
+                        "code": "INVALID_SETTINGS",
+                        "detail": f"tender_fees names {method} twice: one fee per method.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            seen.add(method)
+            kind = str(entry.get("kind") or "").strip().upper()
+            if kind not in kinds:
+                return Response(
+                    {
+                        "code": "INVALID_SETTINGS",
+                        "detail": f"tender_fees[{index}]: kind must be PERCENT or AMOUNT.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                value = Decimal(str(entry.get("value", 0)))
+            except (InvalidOperation, TypeError, ValueError):
+                return Response(
+                    {
+                        "code": "INVALID_SETTINGS",
+                        "detail": f"tender_fees[{index}]: value must be a number.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not value.is_finite() or value < 0:
+                return Response(
+                    {
+                        "code": "INVALID_SETTINGS",
+                        "detail": f"tender_fees[{index}]: value cannot be negative.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if value != value.quantize(Decimal("0.01")):
+                return Response(
+                    {
+                        "code": "INVALID_SETTINGS",
+                        "detail": (
+                            f"tender_fees[{index}]: value must be in whole centavos "
+                            "(two decimal places)."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            is_active = entry.get("is_active", True)
+            if not isinstance(is_active, bool):
+                return Response(
+                    {
+                        "code": "INVALID_SETTINGS",
+                        "detail": f"tender_fees[{index}]: is_active must be true or false.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            fees.append(
+                {"method": method, "kind": kind, "value": value, "is_active": is_active}
+            )
+        return fees
+
+    @staticmethod
+    def _write_tender_fees(fees):
+        """Make the table say exactly what the body said - inside the PATCH's transaction.
+
+        `delete()` for the methods the body dropped, `update_or_create` for the rest: a
+        removed fee really is gone, so the checkout's one query stays `is_active=True` and
+        needs no tombstones. Called INSIDE the atomic block, so a failure below takes the
+        fee table back with it rather than leaving half a policy.
+        """
+        kept = [fee["method"] for fee in fees]
+        TenderFee.objects.exclude(method__in=kept).delete()
+        for fee in fees:
+            TenderFee.objects.update_or_create(method=fee["method"], defaults=fee)
+
     def patch(self, request):
         row = StoreSettings.load()
         before = self._body(row)
         data = request.data
+        # Owner ruling (payment-method fees): validated WHOLE here, before anything is
+        # written, so a body with one bad fee row leaves the settings AND the fee table
+        # exactly as they were.
+        tender_fees = None
+        if "tender_fees" in data:
+            tender_fees = self._validated_tender_fees(data["tender_fees"])
+            if isinstance(tender_fees, Response):
+                return tender_fees
 
         if "vat_registered" in data:
             if not isinstance(data["vat_registered"], bool):
@@ -344,13 +490,33 @@ class StoreSettingsView(APIView):
             setattr(row, field, value.quantize(Decimal("0.01")))
 
         after = self._body(row)
-        if after == before:
+        # The fee table is written below, so `after` cannot show it yet: compare the list
+        # the body ASKED for against the one on the row, or a PATCH that only changes fees
+        # would look like "nothing changed" and be dropped (a silent no-op).
+        fees_after = (
+            None
+            if tender_fees is None
+            else [
+                {
+                    "method": fee["method"],
+                    "kind": fee["kind"],
+                    "value": f"{fee['value']:.2f}",
+                    "is_active": fee["is_active"],
+                }
+                for fee in tender_fees
+            ]
+        )
+        if after == before and (
+            fees_after is None or fees_after == before["tender_fees"]
+        ):
             # A PATCH that repeats the current values is not an admin decision: nothing is
             # saved (a save bumps `updated_at`) and no SETTINGS_UPDATE row is written.
             return Response(after)
 
         with db_transaction.atomic():
             row.save()
+            if tender_fees is not None:
+                self._write_tender_fees(tender_fees)
             audit_request(
                 request,
                 AuditLog.ActionType.SETTINGS_UPDATE,
@@ -359,9 +525,23 @@ class StoreSettingsView(APIView):
                 f"{before['vat_registered']} -> {after['vat_registered']}, "
                 f"VAT rate {before['vat_rate']} -> {after['vat_rate']}, "
                 f"discount cap {before['discount_cap_percent']} -> "
-                f"{after['discount_cap_percent']}.",
+                f"{after['discount_cap_percent']}."
+                + (
+                    ""
+                    if fees_after is None
+                    else " Tender fees: "
+                    + (
+                        ", ".join(
+                            f"{fee['method']} {fee['kind']} {fee['value']}"
+                            f"{' (inactive)' if not fee['is_active'] else ''}"
+                            for fee in fees_after
+                        )
+                        or "none"
+                    )
+                    + "."
+                ),
             )
-        return Response(after)
+        return Response(self._body(row))
 
 
 class DiscountApprovalView(APIView):
@@ -651,6 +831,13 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
                     # Phase 5 task B3 (decision 18): the optional delivery slip, priced
                     # into the sale's total inside the same atomic block.
                     delivery_data=request.data.get("delivery"),
+                    # Owner ruling (utang markup): the till's "charge on utang" switch.
+                    # Validated inside `process_sale` (a credit sale that ends fully paid,
+                    # or utang that skipped the markup, is refused there), so a client
+                    # cannot make the flag mean anything the server has not checked.
+                    credit_sale=BooleanField().run_validation(
+                        request.data.get("credit_sale", False)
+                    ),
                 )
                 audit_request(
                     request,
@@ -800,10 +987,20 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
             # The shift and its audit row are one transaction (decision 07): the
             # IntegrityError handler below has to sit outside it, because it re-reads
             # the state the block just rolled back.
+            #
+            # Owner ruling (opening cash carried forward): the float this shift is EXPECTED
+            # to start with is what the most recent close - anyone's, there is one drawer -
+            # said it left behind. Recorded, never enforced: a cashier standing at an open
+            # drawer must be able to start the day, so a difference is AUDITED here and
+            # shown in the Z-reading for the manager to settle.
+            expected_opening = opening_suggestion()["suggested_float"]
             with db_transaction.atomic():
                 shift = Shift.objects.create(
                     cashier=request.user,
                     opening_float=opening_float,
+                    expected_opening=(
+                        None if expected_opening is None else Decimal(expected_opening)
+                    ),
                     notes=request.data.get("notes", ""),
                 )
                 audit_request(
@@ -811,6 +1008,21 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
                     AuditLog.ActionType.SHIFT_OPEN,
                     f"Shift #{shift.pk} opened with float {opening_float}.",
                 )
+                if (
+                    shift.expected_opening is not None
+                    and shift.expected_opening != opening_float
+                ):
+                    # A second row, not a longer first one: the trail's question is "did
+                    # anybody open a drawer that did not hold what the last close said it
+                    # would", and that has to be greppable without reading every open.
+                    audit_request(
+                        request,
+                        AuditLog.ActionType.SHIFT_OPEN,
+                        f"Shift #{shift.pk} opened with {opening_float} against the "
+                        f"{shift.expected_opening} expected from the previous close "
+                        "left in the drawer "
+                        f"(difference {opening_float - shift.expected_opening}).",
+                    )
         except IntegrityError:
             # The partial unique index is the real guard: two concurrent opens both pass
             # the check above, and only the database can refuse the second. Same 400, so
@@ -869,21 +1081,86 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Owner ruling (opening cash carried forward): the close records WHAT STAYS in the
+        # drawer, so the next shift knows what to expect. Optional on purpose - an older
+        # client that never asks the question stores NULL ("not recorded"), which is a
+        # different fact from 0.00 ("the drawer was cleared").
+        raw_left = request.data.get("cash_left")
+        cash_left = None
+        if raw_left is not None and raw_left != "":
+            try:
+                cash_left = Decimal(str(raw_left))
+            except (InvalidOperation, TypeError, ValueError):
+                return Response(
+                    {
+                        "code": "INVALID_CASH_LEFT",
+                        "detail": "cash_left must be a number.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            # Never more than was counted: that would record money the drawer does not
+            # hold AND a negative deposit on the Z-reading.
+            if not cash_left.is_finite() or cash_left < 0 or cash_left > closing_count:
+                return Response(
+                    {
+                        "code": "INVALID_CASH_LEFT",
+                        "detail": (
+                            "cash_left must be between 0 and the counted drawer "
+                            f"({closing_count:.2f})."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         shift.closing_count = closing_count
+        shift.cash_left_in_drawer = cash_left
         shift.status = Shift.Status.CLOSED
         shift.closed_at = timezone.now()
         if request.data.get("notes"):
             shift.notes = request.data["notes"]
         # The close and its audit row are one transaction (decision 07).
         with db_transaction.atomic():
-            shift.save(update_fields=["closing_count", "status", "closed_at", "notes"])
+            shift.save(
+                update_fields=[
+                    "closing_count",
+                    "cash_left_in_drawer",
+                    "status",
+                    "closed_at",
+                    "notes",
+                ]
+            )
             audit_request(
                 request,
                 AuditLog.ActionType.SHIFT_CLOSE,
                 f"Shift #{shift.pk} closed with count {closing_count} "
+                f"(float {shift.opening_float}), leaving {cash_left} in the drawer."
+                if cash_left is not None
+                else f"Shift #{shift.pk} closed with count {closing_count} "
                 f"(float {shift.opening_float}).",
             )
         return Response(self.get_serializer(shift).data)
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="opening-suggestion",
+        permission_classes=[IsPOSRole],
+    )
+    def suggest_opening(self, request):
+        """GET /shifts/opening-suggestion/ -> what the open-shift dialog prefills.
+
+        Body: `{suggested_float, source: {shift_id, cashier_name, closed_at,
+        closing_count, cash_left_in_drawer} | null, cleared}`.
+
+        `suggested_float` is null when there is no previous close OR that close did not
+        record a number - the dialog then asks the cashier to count instead of offering a
+        figure the server invented. `cleared` is true only when the last close recorded
+        ZERO, which means the float is entirely on the cashier starting now.
+
+        POS roles only: it reports the shared drawer, which is till data, not catalogue
+        data. Every other role gets 403 rather than a blank answer.
+        """
+        return Response(opening_suggestion())
 
     @action(detail=True, methods=["post"], url_path="cash-movements")
     def record_cash_movement(self, request, pk=None):
@@ -1525,6 +1802,9 @@ class HeldCartViewSet(BaseViewSet):
                     # Same contract as the checkout screen (B3): a cart that has to be
                     # delivered says so when it is completed.
                     delivery_data=request.data.get("delivery"),
+                    credit_sale=BooleanField().run_validation(
+                        request.data.get("credit_sale", False)
+                    ),
                 )
                 cart.delete()
                 # Inside THIS block (decision 07): the sale, the deleted cart and the

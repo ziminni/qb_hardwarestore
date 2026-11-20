@@ -58,6 +58,10 @@ class PosCartBar extends StatelessWidget {
                 ],
               ),
             ),
+            if (state.hasCreditMarkup) ...[
+              PosCreditPriceToggle(onDark: true),
+              const SizedBox(width: AppSpacing.sm),
+            ],
             OutlinedButton(
               onPressed: onViewCart,
               style: OutlinedButton.styleFrom(
@@ -81,6 +85,52 @@ class PosCartBar extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The "Utang prices" switch (owner ruling): the ONE place a credit sale is
+/// chosen, and it is chosen BEFORE the tender is taken.
+///
+/// * Off (the default) the till charges the shelf price. Once any unit carries a
+///   configured markup and the sale is underpaid, the server refuses that
+///   combination (`CREDIT_PRICE_REQUIRED`), so the switch is what the cashier
+///   flips first - not something inferred from a payment after the fact.
+/// * On, EVERY marked-up line is charged at its credit price, even when part of
+///   the bill is paid in cash/GCash. Order lines keep their agreed price.
+/// * A credit sale that ends fully paid is refused by the server, so it can
+///   never quietly ring a paid sale at credit prices.
+///
+/// Rendered only when the cart actually holds a marked-up unit: offering a
+/// switch that changes nothing would be a control with no effect.
+class PosCreditPriceToggle extends StatelessWidget {
+  const PosCreditPriceToggle({super.key, this.onDark = false});
+
+  /// The pinned bar sits on the brand black, the cart on the page background.
+  final bool onDark;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<PosTransactionViewmodel>();
+    final color = onDark ? AppColors.brandWhite : AppColors.textPrimary;
+    return Tooltip(
+      message:
+          'Credit prices cover all items with markup, even if part is paid now. '
+          'A fully paid sale cannot be a credit sale.',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Switch(
+            key: const ValueKey('credit-sale-switch'),
+            value: state.creditSale,
+            onChanged: state.lines.isEmpty ? null : state.setCreditSale,
+          ),
+          Text(
+            'Utang prices',
+            style: TextStyle(color: color, fontSize: 13),
+          ),
+        ],
       ),
     );
   }

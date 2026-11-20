@@ -102,6 +102,7 @@ class PosCheckoutResult {
     this.vatRegistered = true,
     this.changeGiven = 0,
     this.deliveryFee = 0,
+    this.paymentFee = 0,
   });
 
   factory PosCheckoutResult.fromJson(Map<String, dynamic> json) {
@@ -144,6 +145,8 @@ class PosCheckoutResult {
       // Phase 5 B3: the "Delivery charge" the server added AFTER the discount.
       // A body from before B3 has none, and the receipt then prints no line.
       deliveryFee: _moneyOrZero(json['delivery_fee']),
+      // Owner ruling (tender fees): the server's own sum, never recomputed.
+      paymentFee: _moneyOrZero(json['payment_fee']),
     );
   }
 
@@ -223,6 +226,10 @@ class PosCheckoutResult {
   /// The "Delivery charge" the server added to `grand_total` after the discount
   /// (Phase 5 B3, decision 18). Zero means this sale was not delivered.
   final double deliveryFee;
+
+  /// The fees the server charged on this sale's non-cash tenders (owner ruling),
+  /// already inside [grandTotal]. Zero when no fee applies.
+  final double paymentFee;
 }
 
 /// One written sale line, read back from the transaction response.
@@ -486,6 +493,7 @@ class PosService {
     PosDiscount? discount,
     String? discountApproval,
     DeliveryDraft? delivery,
+    bool creditSale = false,
   }) async {
     try {
       final response = await _client.post<Map<String, dynamic>>(
@@ -508,6 +516,10 @@ class PosService {
           // server writes the slip and adds its fee to `grand_total` AFTER the
           // discount (ENDPOINTS.md, *Delivery charge*).
           if (delivery != null) 'delivery': delivery.toJson(),
+          // Owner ruling (utang markup): the till's explicit "charge at credit
+          // prices" choice. The server still prices every line itself and
+          // refuses a fully-paid credit sale / underpaid cash sale with markup.
+          'credit_sale': creditSale,
         },
       );
       final data = response.data;

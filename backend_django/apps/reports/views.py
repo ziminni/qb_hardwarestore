@@ -76,6 +76,7 @@ def sales_summary_view(request):
             vatable_sales=Sum("vatable_sales"),
             vat=Sum("vat_amount"),
             discounts=Sum("discount_amount"),
+            payment_fees=Sum("payment_fee"),
         )
         .order_by("day")
     )
@@ -89,6 +90,8 @@ def sales_summary_view(request):
         vatable_sales=Sum("vatable_sales"),
         vat=Sum("vat_amount"),
         discounts=Sum("discount_amount"),
+        # Untaxed GCash/card fees, so gross = vatable + VAT + fees still reconciles.
+        payment_fees=Sum("payment_fee"),
     )
     return Response(
         {

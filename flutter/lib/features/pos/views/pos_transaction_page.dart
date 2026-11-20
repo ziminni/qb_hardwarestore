@@ -822,6 +822,9 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
         lines: transaction.lines,
         // The Items step edits this cart in place (owner 2026-11-19).
         cart: transaction,
+        // Owner ruling (tender fees): the shop's own rates, for the PREVIEW
+        // only. The server charges them and stores the sum.
+        tenderFees: storeSettings?.settings.tenderFees ?? const [],
       ),
     );
     if (payment == null || !context.mounted) {

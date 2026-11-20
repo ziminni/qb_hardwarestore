@@ -49,6 +49,7 @@ class PosZReadingSummary extends StatelessWidget {
     required this.reading,
     this.title = 'Z-READING',
     this.closingCount,
+    this.cashLeftInDrawer,
     this.cashMovements = const [],
   });
 
@@ -59,6 +60,10 @@ class PosZReadingSummary extends StatelessWidget {
 
   /// Cash counted at the close, or null while the shift is still open.
   final double? closingCount;
+
+  /// What the close said STAYS in the drawer (owner ruling, drawer carry), or
+  /// null when it was not recorded - which is not the same as `0.00`.
+  final double? cashLeftInDrawer;
 
   /// Mid-shift cash withdrawals and additions recorded on the shift.
   final List<ShiftCashMovement> cashMovements;
@@ -114,6 +119,35 @@ class PosZReadingSummary extends StatelessWidget {
                 value: formatPeso(reading.cashIn),
               ),
             ]),
+          ],
+          // Owner ruling (drawer carry): what stayed behind for the next shift
+          // and what was carried to the safe. Shown only when the server had the
+          // facts - a null is "not recorded", never printed as 0.00.
+          if (cashLeftInDrawer != null || reading.cashTakenOut != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            _tileRow([
+              MetricTile(
+                label: 'Left in drawer',
+                value: cashLeftInDrawer == null
+                    ? 'Not recorded'
+                    : formatPeso(cashLeftInDrawer!),
+              ),
+              MetricTile(
+                label: 'Deposit',
+                value: reading.cashTakenOut == null
+                    ? 'Not recorded'
+                    : formatPeso(reading.cashTakenOut!),
+              ),
+            ]),
+          ],
+          if (reading.openingDifference != null &&
+              reading.openingDifference != 0) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Started ${posVarianceText(reading.openingDifference!)} against '
+              'what the previous close left in the drawer.',
+              style: const TextStyle(fontSize: 12),
+            ),
           ],
           if (cashMovements.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.md),

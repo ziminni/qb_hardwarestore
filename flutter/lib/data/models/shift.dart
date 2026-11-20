@@ -21,6 +21,73 @@ double _optionalDecimalField(Map<String, dynamic> json, String key) {
   return decimalField(json, key);
 }
 
+/// A money field the server may send as `null`, where null means "not recorded"
+/// and is NOT the same fact as `0.00` (owner ruling, drawer carry).
+///
+/// `null` stays null: "the drawer was cleared" and "nobody said what was left"
+/// must not be shown as the same number.
+double? _nullableMoney(Map<String, dynamic> json, String key) {
+  if (!json.containsKey(key) || json[key] == null) return null;
+  return decimalField(json, key);
+}
+
+/// What `GET /shifts/opening-suggestion/` says the open-shift form may prefill.
+///
+/// `suggestedFloat` is null when there is no previous close OR that close did not
+/// record what it left behind - the cashier then counts instead of being offered
+/// a figure the server invented. `cleared` is true only when the last close
+/// recorded exactly `0.00` (the float is entirely on the cashier starting now).
+class ShiftOpeningSuggestion {
+  const ShiftOpeningSuggestion({
+    this.suggestedFloat,
+    this.source,
+    this.cleared = false,
+  });
+
+  factory ShiftOpeningSuggestion.fromJson(Map<String, dynamic> json) {
+    final rawSource = json['source'];
+    return ShiftOpeningSuggestion(
+      suggestedFloat: _nullableMoney(json, 'suggested_float'),
+      source: rawSource is Map<String, dynamic>
+          ? ShiftOpeningSource.fromJson(rawSource)
+          : null,
+      cleared: boolFieldOr(json, 'cleared', or: false),
+    );
+  }
+
+  final double? suggestedFloat;
+  final ShiftOpeningSource? source;
+  final bool cleared;
+}
+
+/// The previous close the suggestion came from, for the one sentence a cashier
+/// reads (who closed it, when, what they counted).
+class ShiftOpeningSource {
+  const ShiftOpeningSource({
+    required this.shiftId,
+    required this.cashierName,
+    required this.closingCount,
+    this.closedAt,
+    this.cashLeftInDrawer,
+  });
+
+  factory ShiftOpeningSource.fromJson(Map<String, dynamic> json) {
+    return ShiftOpeningSource(
+      shiftId: intField(json, 'shift_id'),
+      cashierName: stringField(json, 'cashier_name'),
+      closedAt: nullableDateField(json, 'closed_at'),
+      closingCount: decimalField(json, 'closing_count'),
+      cashLeftInDrawer: _nullableMoney(json, 'cash_left_in_drawer'),
+    );
+  }
+
+  final int shiftId;
+  final String cashierName;
+  final DateTime? closedAt;
+  final double closingCount;
+  final double? cashLeftInDrawer;
+}
+
 /// A mid-shift cash withdrawal (`CASH_OUT`) or addition (`CASH_IN`) recorded on
 /// an open shift so expected drawer cash accounts for safe drops / petty cash.
 class ShiftCashMovement {
@@ -39,8 +106,9 @@ class ShiftCashMovement {
       kind: stringField(json, 'kind'),
       amount: decimalField(json, 'amount'),
       reason: stringField(json, 'reason'),
-      recordedByName:
-          json['recorded_by_name'] is String ? json['recorded_by_name'] as String : '',
+      recordedByName: json['recorded_by_name'] is String
+          ? json['recorded_by_name'] as String
+          : '',
       createdAt: DateTime.parse(stringField(json, 'created_at')),
     );
   }
@@ -74,6 +142,8 @@ class ZReading {
     this.cashIn = 0,
     this.cashOut = 0,
     this.heldCartCount = 0,
+    this.cashTakenOut,
+    this.openingDifference,
   });
 
   factory ZReading.fromJson(Map<String, dynamic> json) {
@@ -96,6 +166,11 @@ class ZReading {
       // before the field existed must still parse — but a PRESENT value is read
       // strictly, because a count the client guessed would be a wrong warning.
       heldCartCount: _heldCartCount(json),
+      // Owner ruling (drawer carry): what the cashier took to the safe
+      // (`closing_count - cash_left`) and how far the drawer was from what the
+      // previous close said it left. Null when there was nothing to compare.
+      cashTakenOut: _nullableMoney(json, 'cash_taken_out'),
+      openingDifference: _nullableMoney(json, 'opening_difference'),
     );
   }
 
@@ -119,6 +194,15 @@ class ZReading {
   /// record-and-warn). Defaults to 0 so a fixture written before the field
   /// existed still parses.
   final int heldCartCount;
+
+  /// The deposit: `closing_count` minus what stayed in the drawer (owner ruling,
+  /// drawer carry). Null when the close recorded no `cash_left`, which is a
+  /// different fact from leaving `0.00`.
+  final double? cashTakenOut;
+
+  /// The opening float minus what the previous close said it left (server
+  /// arithmetic). Null when there was no previous number to compare against.
+  final double? openingDifference;
 }
 
 /// A cashier's shift — Phase 4 of the cashier workflow (decision 06).
@@ -139,6 +223,8 @@ class Shift {
     required this.zReading,
     this.heldCartCount = 0,
     this.cashMovements = const [],
+    this.expectedOpening,
+    this.cashLeftInDrawer,
   });
 
   factory Shift.fromJson(Map<String, dynamic> json) {
@@ -159,6 +245,10 @@ class Shift {
           ? ZReading.fromJson(zReading)
           : null,
       heldCartCount: _heldCartCount(json),
+      // Owner ruling (drawer carry): read-only wire facts. Null means the server
+      // did not know / nobody recorded it - never coerced to 0.00.
+      expectedOpening: _nullableMoney(json, 'expected_opening'),
+      cashLeftInDrawer: _nullableMoney(json, 'cash_left_in_drawer'),
       cashMovements: rawMovements is List
           ? [
               for (final item in rawMovements)
@@ -194,6 +284,15 @@ class Shift {
 
   /// Mid-shift cash withdrawals and additions recorded on this shift.
   final List<ShiftCashMovement> cashMovements;
+
+  /// What the drawer was EXPECTED to start with, from the previous close
+  /// store-wide (owner ruling). Null when there was no previous close, or that
+  /// close recorded no `cash_left_in_drawer`.
+  final double? expectedOpening;
+
+  /// What this close said STAYS in the drawer. Null = not recorded; `0.00` =
+  /// the drawer was cleared. The two are different facts and stay different.
+  final double? cashLeftInDrawer;
 
   bool get isOpen => status == openStatus;
 }

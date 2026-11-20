@@ -115,9 +115,15 @@ from .transfers import record_stock_transfer
 
 
 class _InventoryWritePermissions:
-    """Read requires auth; every write requires the inventory role."""
+    """Read requires auth; every write requires the inventory role.
 
-    def get_permissions(self):
+    `-> list` (not a specific list[...] of permission types) because each subclass narrows
+    the WRITE permission to its own role - `StoreSettings`-style Admin-only deletes, the
+    catalogue's inventory roles - and a narrower `list[IsAdminRole]` is only assignable to
+    the base's return type when the base does not promise a particular element type.
+    """
+
+    def get_permissions(self) -> list:
         if self.action in ("list", "retrieve"):
             return [IsAuthenticated()]
         return [IsInventoryRole()]
@@ -286,6 +292,19 @@ def selling_unit_changes(snapshot, instance) -> str:
     before = snapshot.get("default_selling_price")
     if before is not None and before != instance.default_selling_price:
         changes.append(f"price {before:.2f} -> {instance.default_selling_price:.2f}")
+    # Owner ruling (utang markup): a markup is money the till charges on credit, so a
+    # change to it belongs in the trail beside the price - otherwise the shelf's cash
+    # price is audited and the utang price quietly is not.
+    markup_before = snapshot.get("credit_markup_kind")
+    if markup_before is not None and (
+        markup_before != instance.credit_markup_kind
+        or snapshot.get("credit_markup_value") != instance.credit_markup_value
+    ):
+        changes.append(
+            "credit markup "
+            f"{markup_before} {snapshot.get('credit_markup_value', 0):.2f} -> "
+            f"{instance.credit_markup_kind} {instance.credit_markup_value:.2f}"
+        )
     code_before = snapshot.get("barcode_qr", "")
     if code_before != instance.barcode_qr:
         changes.append(f"barcode '{code_before}' -> '{instance.barcode_qr}'")
@@ -363,7 +382,7 @@ class _AdminDeleteUnusedMixin:
     naming what uses it, so a reference added later can never be deleted through.
     """
 
-    def get_permissions(self):  # pyright: ignore[reportIncompatibleMethodOverride]
+    def get_permissions(self) -> list:  # pyright: ignore[reportIncompatibleMethodOverride]
         if self.action == "destroy":
             return [IsAdminRole()]
         return super().get_permissions()  # pyright: ignore[reportAttributeAccessIssue]
@@ -375,7 +394,11 @@ class _AdminDeleteUnusedMixin:
         label = self.audit_label  # pyright: ignore[reportAttributeAccessIssue]
         detail = self.audit_detail(instance)  # pyright: ignore[reportAttributeAccessIssue]
         try:
-            with transaction.atomic():
+            # Same inline ignore and reason as `apps/inventory/models.py`: without
+            # django-stubs pyright reads `transaction.atomic()` as a plain call and cannot
+            # see the context manager. `reportGeneralTypeIssues` is deliberately ON in this
+            # file, so the one call site settles it instead of the whole file.
+            with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
                 instance.delete()
                 audit_request(
                     request, AuditLog.ActionType.DELETE, f"{label} deleted: {detail}"
@@ -383,7 +406,7 @@ class _AdminDeleteUnusedMixin:
         except ProtectedError as exc:
             counts = {}
             for obj in exc.protected_objects:
-                name = str(obj._meta.verbose_name_plural)  # noqa: SLF001
+                name = str(obj._meta.verbose_name_plural)
                 counts[name] = counts.get(name, 0) + 1
             used_by = ", ".join(f"{n} {what}" for what, n in sorted(counts.items()))
             raise RecordInUse(
@@ -605,6 +628,8 @@ class VariantUOMViewSet(_AuditedCatalogViewSet):
     def audit_snapshot(self, instance):
         return {
             "default_selling_price": instance.default_selling_price,
+            "credit_markup_kind": instance.credit_markup_kind,
+            "credit_markup_value": instance.credit_markup_value,
             "barcode_qr": instance.barcode_qr,
         }
 

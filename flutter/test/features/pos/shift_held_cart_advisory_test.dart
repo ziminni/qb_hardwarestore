@@ -64,7 +64,11 @@ class _StubShifts extends ShiftService {
   Future<List<Shift>> fetchAll() async => [?current];
 
   @override
-  Future<Shift> closeShift(int shiftId, double closingCount) async {
+  Future<Shift> closeShift(
+    int shiftId,
+    double closingCount, {
+    double? cashLeft,
+  }) async {
     closeCalls++;
     this.closingCount = closingCount;
     final closed = _closedShift(heldCarts: current?.heldCartCount ?? 0);
@@ -198,7 +202,10 @@ void main() {
     testWidgets('the close is still allowed with carts parked', (tester) async {
       final viewmodel = await _openCloseDialog(tester, heldCarts: 2);
 
-      await tester.enterText(find.byType(TextField), '7000');
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Cash counted'),
+        '7000',
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Close shift'));
       await tester.pumpAndSettle();

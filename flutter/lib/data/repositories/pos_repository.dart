@@ -27,6 +27,7 @@ class PosRepository {
     PosDiscount? discount,
     String? discountApproval,
     DeliveryDraft? delivery,
+    bool creditSale = false,
   }) => service.checkout(
     customerId: customerId,
     items: items,
@@ -36,6 +37,7 @@ class PosRepository {
     discount: discount,
     discountApproval: discountApproval,
     delivery: delivery,
+    creditSale: creditSale,
   );
 
   /// The customer id an anonymous sale must still send (decision 06 section 2).
