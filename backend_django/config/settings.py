@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 from corsheaders.defaults import default_headers
@@ -59,6 +60,10 @@ INSTALLED_APPS = [
     # Phase 1, Task 2: the CPMS boundary (`/api/v1/integration/cpms/`). Has no models;
     # it is an app so its URLconf and tests sit where every other feature's do.
     "apps.integration",
+    # The Bodega checker's phone as a second screen: outbound trigger, inbound parser and
+    # the bridge's queue. The modem itself is a host-side script (`scripts/sms_bridge/`),
+    # because Docker Desktop on Windows cannot pass a COM port into a container.
+    "apps.sms",
 ]
 
 MIDDLEWARE = [
@@ -218,6 +223,21 @@ CACHES = {
         "LOCATION": "buildpro-locmem",
     },
 }
+
+
+# =============================================
+# SMS gateway (Bodega checker, decision 25 follow-up)
+#
+# OFF by default: a shop with no modem must not queue texts nobody will send. `SMS_ENABLED`
+# asks the shop for real (one text per Bodega sale costs real load), and the bridge's key
+# is refused when it is shorter than 24 characters - a machine that can spend the shop's
+# load must not accept a guessable key. Set both in `docker-compose.yml`'s `environment:`
+# (see `scripts/sms_bridge/README.md`).
+# =============================================
+SMS_ENABLED = os.environ.get('SMS_ENABLED', 'false').strip().lower() in (
+    '1', 'true', 'yes', 'on'
+)
+SMS_GATEWAY_KEY = os.environ.get('SMS_GATEWAY_KEY', '').strip()
 
 
 # =============================================
