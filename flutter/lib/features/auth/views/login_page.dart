@@ -9,6 +9,10 @@ import 'package:client/data/services/health_service.dart';
 import 'package:client/data/services/remembered_login_store.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/auth/widget/login_brand_panel.dart';
+import 'package:client/core/config/api_config.dart';
+import 'package:client/features/bodega/mobile/bodega_mobile_shell.dart'
+    show runsAsPhoneApp;
+import 'package:client/shared/widgets/server_address_dialog.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/measure_ruler.dart';
 import 'package:flutter/foundation.dart';
@@ -16,7 +20,16 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key, this.showTestServer = !kReleaseMode});
+  const LoginPage({
+    super.key,
+    this.showTestServer = !kReleaseMode,
+    this.showServerAddress,
+  });
+
+  /// Whether the login offers "Server address". Null means the Android and
+  /// iPhone apps only: a phone has no address until one is typed, and the
+  /// Bodega Profile setting sits behind this very login.
+  final bool? showServerAddress;
 
   /// Whether this build offers the "Test server" health check.
   ///
@@ -144,10 +157,7 @@ class _LoginPageState extends State<LoginPage> {
             ),
             const SizedBox(width: AppSpacing.md),
             const Expanded(
-              child: Text(
-                'Forgot password',
-                style: AppTextStyles.h3,
-              ),
+              child: Text('Forgot password', style: AppTextStyles.h3),
             ),
           ],
         ),
@@ -275,7 +285,9 @@ class _LoginPageState extends State<LoginPage> {
         borderRadius: BorderRadius.circular(AppRadii.large),
         boxShadow: [
           BoxShadow(
-            color: AppColors.brandBlack.withValues(alpha: p.isDark ? 0.35 : 0.06),
+            color: AppColors.brandBlack.withValues(
+              alpha: p.isDark ? 0.35 : 0.06,
+            ),
             blurRadius: 24,
             offset: const Offset(0, 10),
           ),
@@ -331,11 +343,7 @@ class _LoginPageState extends State<LoginPage> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.verified_user_outlined,
-                size: 15,
-                color: p.accentInk,
-              ),
+              Icon(Icons.verified_user_outlined, size: 15, color: p.accentInk),
               const SizedBox(width: 6),
               Text(
                 'Authorized staff access',
@@ -382,6 +390,20 @@ class _LoginPageState extends State<LoginPage> {
                       color: p.accentInk,
                     ),
               label: Text(_isTestingServer ? 'Testing...' : 'Test server'),
+            ),
+          if (widget.showServerAddress ?? runsAsPhoneApp)
+            TextButton.icon(
+              key: const ValueKey('login-server-address'),
+              onPressed: () async {
+                await changeServerAddress(context);
+                if (mounted) setState(() {});
+              },
+              style: TextButton.styleFrom(
+                foregroundColor: p.textSecondary,
+                minimumSize: const Size(0, 44),
+              ),
+              icon: Icon(Icons.dns_outlined, size: 16, color: p.accentInk),
+              label: Text('Server: ${ApiConfig.baseUrl}'),
             ),
         ],
       ),

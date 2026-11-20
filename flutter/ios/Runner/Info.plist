@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Client</string>
+	<string>BuildPro POS</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -66,5 +66,17 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Scan the QR code on a customer's receipt and photograph deliveries.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choose a delivery or profile photo.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Connect to the BuildPro server on the store Wi-Fi.</string>
+	<!-- The store server is plain http:// on the LAN; the address is typed on the phone. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 </dict>
 </plist>
