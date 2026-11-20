@@ -68,6 +68,7 @@ class StoreSettingsViewmodel extends ChangeNotifier {
     required bool vatRegistered,
     required double vatRate,
     required double discountCapPercent,
+    List<TenderFee> tenderFees = const [],
   }) async {
     final invalid =
         StoreSettings.percentError(vatRate.toStringAsFixed(2)) ??
@@ -88,6 +89,7 @@ class StoreSettingsViewmodel extends ChangeNotifier {
           vatRegistered: vatRegistered,
           vatRate: vatRate,
           discountCapPercent: discountCapPercent,
+          tenderFees: tenderFees,
         ),
       );
       return true;

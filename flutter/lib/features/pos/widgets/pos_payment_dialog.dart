@@ -148,6 +148,7 @@ class PosPaymentDialog extends StatefulWidget {
     this.lines = const [],
     this.cart,
     this.customer,
+    this.tenderFees = const [],
   });
 
   /// The cart's gross: what the sale is worth before any discount.
@@ -196,6 +197,13 @@ class PosPaymentDialog extends StatefulWidget {
   final Customer? customer;
 
   Customer? get currentCustomer => customer ?? cart?.selectedCustomer;
+
+  /// The shop's per-tender fees (owner ruling), read from store settings.
+  ///
+  /// The dialog PREVIEWS them; it never sends one. Each tender row's amount is
+  /// the part of the BILL it covers, and the server adds the fee itself, so
+  /// sending the fee here would charge it twice.
+  final List<TenderFee> tenderFees;
 
   /// What is being bought, live from [cart] when there is one.
   List<PosCartLine> get currentLines => cart?.lines ?? lines;
@@ -538,6 +546,25 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
       .fold(0.0, (sum, row) => sum + row.amount);
 
   bool get _hasUtang => _rows.any((row) => row.isUtang);
+
+  /// The fee one tender row owes, mirroring the server's rule: percent of what
+  /// the row covers, or the flat value once per row.
+  double _feeFor(String method, double covered) {
+    for (final fee in widget.tenderFees) {
+      if (!fee.isActive || fee.method != method) continue;
+      final raw = fee.kind == TenderFee.kindPercent
+          ? covered * fee.value / 100
+          : fee.value;
+      return (raw * 100).roundToDouble() / 100;
+    }
+    return 0;
+  }
+
+  /// Every fee on this sale, previewed once (money tenders only: utang is owed,
+  /// a pending cheque has not arrived).
+  double get _paymentFeeTotal => _rows
+      .where((row) => row.isMoney)
+      .fold(0.0, (sum, row) => sum + _feeFor(row.method.code, row.amount));
 
   double get _utangTotal => _rows
       .where((row) => row.isUtang)
@@ -1381,6 +1408,19 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
               bold: false,
             ),
           _textSummaryRow('Amount due', formatPeso(_due)),
+          // Owner ruling (tender fees): a separate line from VAT, and the one
+          // number the customer actually hands over / transfers.
+          if (_paymentFeeTotal > 0) ...[
+            _textSummaryRow(
+              'Payment fees',
+              formatPeso(_paymentFeeTotal),
+              bold: false,
+            ),
+            _textSummaryRow(
+              'Total to pay',
+              formatPeso(_due + _paymentFeeTotal),
+            ),
+          ],
           const Divider(height: 16),
           for (final row in _rows)
             _textSummaryRow(
@@ -1388,6 +1428,9 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                   ? 'Utang · ${_utangName.text.trim()}'
                   : row.isCheque
                   ? '${row.method.label} (pending)'
+                  : _feeFor(row.method.code, row.amount) > 0
+                  ? '${row.method.label} · send '
+                        '${formatPeso(row.amount + _feeFor(row.method.code, row.amount))}'
                   : row.method.label,
               formatPeso(row.amount),
               bold: false,

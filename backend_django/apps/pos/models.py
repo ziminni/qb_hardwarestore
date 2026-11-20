@@ -1,5 +1,9 @@
 # pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportIncompatibleMethodOverride=false, reportMissingImports=false
+# ruff: noqa: RUF012
 #
+# `RUF012` (mutable class attribute) is a false positive on Django's `Meta` options: Django
+# requires them as lists/tuples and never mutates them (`ordering`, `indexes`,
+# `constraints`). Every model in this repo writes them the same way.
 # Same directive and reason as apps/pos/services.py, apps/pos/tests.py and seed_demo.py:
 # the checker resolves its config from its WORKING DIRECTORY and does not run inside this
 # repo here, so pyrightconfig.json is not found and this travels with the file. Without
@@ -96,6 +100,18 @@ class SalesTransaction(models.Model):
         max_digits=5, decimal_places=2, null=True, blank=True, default=None
     )
     grand_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Owner ruling (payment-method fees): the sum of the fees charged on this sale's
+    # non-cash tenders (GCash / card / bank transfer). It is money the customer actually
+    # paid, so it sits INSIDE `grand_total` - added after the discount beside the
+    # delivery charge, never discounted - and it is never refunded: the fee bought a
+    # transaction, not an item. Default 0 so every row written before this column reads
+    # exactly as it did.
+    payment_fee = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Owner ruling (utang markup): this sale was rung on credit terms, so its till lines
+    # were priced at `VariantUOM.credit_selling_price`. Stored because a reprinted receipt
+    # must still explain why a line cost more than the shelf price, even after the markup
+    # is edited. Default False keeps every existing row an ordinary cash sale.
+    credit_sale = models.BooleanField(default=False)
     # Phase 5 task B3 (decision 18): the delivery charge the customer paid ON TOP of the
     # goods, VAT-inclusive and priced from no stock. Persisted on the sale (not only on
     # the `Delivery` row) because the receipt, the Z-reading and the return arithmetic
@@ -249,6 +265,12 @@ class Payment(models.Model):
         max_length=15, choices=Method.choices, default=Method.CASH
     )
     amount_tendered = models.DecimalField(max_digits=12, decimal_places=2)
+    # Owner ruling (payment-method fees): what THIS tender's fee came to. The amount above
+    # is what actually ARRIVED - the part of the bill it covered PLUS this fee - so the
+    # drawer and the GCash report keep counting real money, and the fee stays separately
+    # readable instead of being inferred from a rate that may since have changed.
+    # Always 0 for cash and cheques, and on every row written before this column.
+    fee = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     reference_no = models.CharField(max_length=100, blank=True, default="")
     # Phase 4 task B2: PENDING/CLEARED/BOUNCED. Default CLEARED is what every existing row
     # was - money already taken - so the column needs no separate backfill.
@@ -561,6 +583,18 @@ class Shift(models.Model):
         max_length=10, choices=Status.choices, default=Status.OPEN, db_index=True
     )
     opening_float = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Owner ruling (opening cash carried forward): what the shift that closed before this
+    # one said it left in the drawer. NULL means there was no previous close, or it
+    # recorded none - a fact the open-shift dialog shows rather than guesses.
+    expected_opening = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
+    # What THIS shift leaves in the drawer when it closes, and therefore what the next
+    # shift should start with. NULL is "not recorded" (an older client never asked),
+    # which is a different fact from 0.00 - "the drawer was cleared out".
+    cash_left_in_drawer = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
     # Nullable because it does not exist until the cashier counts the drawer. A zero
     # default would be indistinguishable from "counted and found empty".
     closing_count = models.DecimalField(
@@ -617,8 +651,9 @@ class ShiftCashMovement(models.Model):
         ordering = ["created_at", "id"]
 
     def __str__(self):
-        return f"ShiftCashMovement {self.id} — {self.kind} {self.amount} ({self.shift_id})"
-
+        return (
+            f"ShiftCashMovement {self.id} — {self.kind} {self.amount} ({self.shift_id})"
+        )
 
 
 class DocumentCounter(models.Model):
@@ -712,6 +747,76 @@ class StoreSettings(models.Model):
             # Two requests raced the INSERT and the primary key settled it; the loser
             # simply reads the winner's row.
             return cls.objects.get(pk=cls.SINGLETON_PK)
+
+
+class TenderFee(models.Model):
+    """What the shop charges for taking a payment the bank charges IT for (owner ruling).
+
+    A GCash or card payment costs the shop a percentage, so the customer pays it: the fee
+    is calculated by the SERVER on every sale (never sent by the till) and added to the
+    bill exactly as the delivery charge is - after the discount, inside the VAT split.
+
+    Per METHOD and unique on it, because two rates for one method would make the sale's
+    answer depend on which row was read first. CASH and CHEQUE are deliberately not
+    offered: the drawer does not charge itself, and a cheque is money the shop has not
+    received yet at all. Nothing is seeded - a fresh shop charges no fee, so every
+    existing sale keeps meaning what it meant.
+
+    Admin-only to write (it is shop policy, beside the VAT rate and the discount cap) and
+    readable by every POS role, because the till has to PREVIEW the fee before the
+    customer pays.
+    """
+
+    # The only methods a fee may attach to. Written as a list so the model constraint and
+    # the API's validation read the SAME three values - a method the checkout can charge
+    # a fee on is exactly a method listed here.
+    FEEABLE_METHODS = (
+        Payment.Method.CARD,
+        Payment.Method.GCASH,
+        Payment.Method.BANK_TRANSFER,
+    )
+
+    class Kind(models.TextChoices):
+        PERCENT = "PERCENT", "Percent of the amount"
+        AMOUNT = "AMOUNT", "Peso amount per payment"
+
+    method = models.CharField(
+        max_length=15, choices=[(m, m) for m in FEEABLE_METHODS], unique=True
+    )
+    kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.PERCENT)
+    # A percentage of what the tender covers, or a flat peso amount charged once per
+    # PAYMENT ROW (two GCash rows pay the flat fee twice, which is what the bank does).
+    value = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(Decimal(0))],
+    )
+    # Turned off rather than deleted: a fee the shop stopped charging is still the reason
+    # past receipts read the way they do.
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "pos_tender_fee"
+        verbose_name = "tender fee"
+        verbose_name_plural = "tender fees"
+        ordering = ("method",)
+        constraints = (
+            # The API validates this first with a {code, detail} refusal; the constraint
+            # is what makes it true of the TABLE itself (a shell row, the Django admin or
+            # a race cannot put a fee on cash).
+            models.CheckConstraint(
+                condition=models.Q(method__in=["CARD", "GCASH", "BANK_TRANSFER"]),
+                name="tender_fee_method_is_feeable",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(value__gte=0), name="tender_fee_value_not_negative"
+            ),
+        )
+
+    def __str__(self):
+        return f"{self.method} fee {self.value} ({self.kind})"
 
 
 class DiscountApproval(models.Model):

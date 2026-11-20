@@ -11,6 +11,7 @@ fence in `apps.users.authentication`, not this file.
 """
 
 from decimal import Decimal
+from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import DecimalField, Q, Sum, Value
@@ -49,7 +50,7 @@ from .serializers import (
 # CPMS read endpoint importing the requisitions models would be a coupling for nothing.
 # (`apps.requisitions.services.PAYER_CUSTOMER_TYPES` holds the same pair for the import,
 # which has to ask the question on writes.)
-PAYER_CUSTOMER_TYPES = ('CONTRACTOR', 'CONSTRUCTION_FIRM')
+PAYER_CUSTOMER_TYPES = ("CONTRACTOR", "CONSTRUCTION_FIRM")
 
 
 class CpmsCustomerListView(ListAPIView):
@@ -62,12 +63,14 @@ class CpmsCustomerListView(ListAPIView):
     Read-only by construction: there is no create/update/delete on the CPMS boundary.
     """
 
-    permission_classes = (IsCpmsService,)  # tuple: ruff's RUF012 on a mutable class attr
+    permission_classes = (
+        IsCpmsService,
+    )  # tuple: ruff's RUF012 on a mutable class attr
     serializer_class = CpmsCustomerSerializer
     queryset = Customer.objects.filter(
         is_active=True,
         customer_type__in=PAYER_CUSTOMER_TYPES,
-    ).order_by('name')
+    ).order_by("name")
 
 
 class CpmsMaterialListView(ListAPIView):
@@ -86,21 +89,25 @@ class CpmsMaterialListView(ListAPIView):
     permission_classes = (IsCpmsService,)
     serializer_class = CpmsMaterialSerializer
     queryset = (
-        VariantUOM.objects
-        .filter(variant__is_active=True, variant__product__is_active=True)
-        .select_related('variant__product', 'uom')
+        VariantUOM.objects.filter(
+            variant__is_active=True, variant__product__is_active=True
+        )
+        .select_related("variant__product", "uom")
         # Live stock in BASE units across every shelf (an emptied batch is history, the
         # allocator's own filter), summed in the same query as the rows.
-        .annotate(on_hand_base=Coalesce(
-            Sum(
-                'variant__batches__current_qty',
-                filter=Q(variant__batches__current_qty__gt=0),
-            ),
-            Value(Decimal('0.00')),
-            output_field=DecimalField(max_digits=14, decimal_places=2),
-        ))
+        .annotate(
+            on_hand_base=Coalesce(
+                Sum(
+                    "variant__batches__current_qty",
+                    filter=Q(variant__batches__current_qty__gt=0),
+                ),
+                Value(Decimal("0.00")),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            )
+        )
         .order_by(
-            'variant__product__base_name', 'variant__variant_name', 'uom__code', 'pk')
+            "variant__product__base_name", "variant__variant_name", "uom__code", "pk"
+        )
     )
 
 
@@ -128,30 +135,30 @@ class CpmsRequestImportView(APIView):
         try:
             with transaction.atomic():
                 result = import_request(
-                    cpms_request_id=payload['cpms_request_id'],
-                    token=payload['token'],
-                    project=payload['project'],
-                    requester_name=payload['requester_name'],
-                    approver_name=payload['approver_name'],
+                    cpms_request_id=payload["cpms_request_id"],
+                    token=payload["token"],
+                    project=payload["project"],
+                    requester_name=payload["requester_name"],
+                    approver_name=payload["approver_name"],
                     # `notes` is optional on the wire; the column is NOT NULL.
-                    notes=str(payload['notes'] or ''),
-                    items=payload['items'],
+                    notes=str(payload["notes"] or ""),
+                    items=payload["items"],
                 )
-                if result['created']:
+                if result["created"]:
                     audit_request(
                         request,
                         AuditLog.ActionType.REQ_APPROVE,
-                        f'Requisition {result["request"]["req_number"]} imported from '
-                        f'CPMS request {payload["cpms_request_id"]}.',
+                        f"Requisition {result['request']['req_number']} imported from "
+                        f"CPMS request {payload['cpms_request_id']}.",
                     )
         except RequestImportRefused as error:
             return Response(
-                {'code': error.code, 'detail': str(error)},
+                {"code": error.code, "detail": str(error)},
                 status=error.status_code,
             )
         return Response(
-            result['request'],
-            status=status.HTTP_201_CREATED if result['created'] else status.HTTP_200_OK,
+            result["request"],
+            status=status.HTTP_201_CREATED if result["created"] else status.HTTP_200_OK,
         )
 
 
@@ -174,22 +181,22 @@ class CpmsRequestCloseView(APIView):
         try:
             with transaction.atomic():
                 result = close_requisition(cpms_request_id=cpms_request_id)
-                if result['closed']:
+                if result["closed"]:
                     # No dedicated ActionType for a close (out of scope for this task), so
                     # the trail reuses REQ_REJECT: the remainder was given up rather than
                     # served, which is what that action already records.
                     audit_request(
                         request,
                         AuditLog.ActionType.REQ_REJECT,
-                        f'Requisition {result["request"]["req_number"]} closed by CPMS '
-                        f'request {cpms_request_id}.',
+                        f"Requisition {result['request']['req_number']} closed by CPMS "
+                        f"request {cpms_request_id}.",
                     )
         except CpmsRefusal as error:
             return Response(
-                {'code': error.code, 'detail': str(error)},
+                {"code": error.code, "detail": str(error)},
                 status=error.status_code,
             )
-        return Response(result['request'])
+        return Response(result["request"])
 
 
 class CpmsRequestReadBackView(APIView):
@@ -207,7 +214,7 @@ class CpmsRequestReadBackView(APIView):
             return Response(request_read_back(cpms_request_id=cpms_request_id))
         except CpmsRefusal as error:
             return Response(
-                {'code': error.code, 'detail': str(error)},
+                {"code": error.code, "detail": str(error)},
                 status=error.status_code,
             )
 
@@ -228,7 +235,7 @@ class CpmsProjectPayablesView(APIView):
             return Response(project_payables(cpms_project_id=cpms_project_id))
         except CpmsRefusal as error:
             return Response(
-                {'code': error.code, 'detail': str(error)},
+                {"code": error.code, "detail": str(error)},
                 status=error.status_code,
             )
 
@@ -241,43 +248,43 @@ class CpmsProjectPaymentReceiptView(APIView):
     def get(self, request, cpms_project_id):
         try:
             return Response(
-                {'results': list_cpms_payment_receipts(cpms_project_id=cpms_project_id)}
+                {"results": list_cpms_payment_receipts(cpms_project_id=cpms_project_id)}
             )
         except CpmsRefusal as error:
             return Response(
-                {'code': error.code, 'detail': str(error)},
+                {"code": error.code, "detail": str(error)},
                 status=error.status_code,
             )
 
     def post(self, request, cpms_project_id):
         serializer = CpmsPaymentReceiptSubmitSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        payload = serializer.validated_data
+        payload = cast(dict[str, Any], serializer.validated_data)
         try:
             with transaction.atomic():
                 result = submit_cpms_payment_receipt(
                     cpms_project_id=cpms_project_id,
-                    cpms_payment_id=payload['cpms_payment_id'],
-                    amount=payload['amount'],
-                    payment_method=payload['payment_method'],
-                    reference_no=payload['reference_no'],
-                    notes=str(payload.get('notes') or ''),
-                    submitted_by_name=str(payload.get('submitted_by_name') or ''),
+                    cpms_payment_id=payload["cpms_payment_id"],
+                    amount=payload["amount"],
+                    payment_method=payload["payment_method"],
+                    reference_no=payload["reference_no"],
+                    notes=str(payload.get("notes") or ""),
+                    submitted_by_name=str(payload.get("submitted_by_name") or ""),
                 )
-                if result['created']:
+                if result["created"]:
                     audit_request(
                         request,
                         AuditLog.ActionType.PAYMENT,
-                        f'CPMS payment receipt {payload["reference_no"]} '
-                        f'({payload["amount"]:.2f}) submitted for project '
-                        f'{cpms_project_id}.',
+                        f"CPMS payment receipt {payload['reference_no']} "
+                        f"({payload['amount']:.2f}) submitted for project "
+                        f"{cpms_project_id}.",
                     )
         except CpmsRefusal as error:
             return Response(
-                {'code': error.code, 'detail': str(error)},
+                {"code": error.code, "detail": str(error)},
                 status=error.status_code,
             )
         return Response(
-            result['receipt'],
-            status=status.HTTP_201_CREATED if result['created'] else status.HTTP_200_OK,
+            result["receipt"],
+            status=status.HTTP_201_CREATED if result["created"] else status.HTTP_200_OK,
         )

@@ -137,6 +137,7 @@ class HeldCartService {
     PosDiscount? discount,
     String? discountApproval,
     DeliveryDraft? delivery,
+    bool creditSale = false,
   }) async {
     try {
       final response = await _client.post<Map<String, dynamic>>(
@@ -154,6 +155,11 @@ class HeldCartService {
           // Phase 5 B3: the same optional `delivery` object the plain checkout
           // takes, because `complete` runs the same `process_sale`.
           if (delivery != null) 'delivery': delivery.toJson(),
+          // Owner ruling (utang markup): `complete` runs the same `process_sale`,
+          // so it must be told the SAME pricing the cashier chose. Without this
+          // flag a resumed utang basket would be refused (CREDIT_PRICE_REQUIRED)
+          // or quietly rung at cash prices.
+          'credit_sale': creditSale,
         },
       );
       final data = response.data;

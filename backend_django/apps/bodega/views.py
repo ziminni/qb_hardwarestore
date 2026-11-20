@@ -7,6 +7,7 @@ here until checked) and out at the till.
 """
 
 from collections import defaultdict
+from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import Q
@@ -39,10 +40,9 @@ def _claims_payload(lines):
     if not lines:
         return []
     sale_ids = {line["sale_id"] for line in lines}
-    sales = (
-        SalesTransaction.objects.select_related("customer", "receipt", "cashier")
-        .in_bulk(sale_ids)
-    )
+    sales = SalesTransaction.objects.select_related(
+        "customer", "receipt", "cashier"
+    ).in_bulk(sale_ids)
     variants = ProductVariant.objects.select_related("product", "base_uom").in_bulk(
         {line["variant_id"] for line in lines}
     )
@@ -109,9 +109,12 @@ class BodegaClaimListView(APIView):
         if query:
             sale_ids = list(
                 SalesTransaction.objects.filter(
-                    Q(transaction_no__icontains=query)
-                    | Q(receipt__or_number__icontains=query)
-                    | Q(customer__name__icontains=query)
+                    Q(
+                        Q(transaction_no__icontains=query),
+                        Q(receipt__or_number__icontains=query),
+                        Q(customer__name__icontains=query),
+                        _connector=Q.OR,
+                    )
                 ).values_list("pk", flat=True)[:200]
             )
         claims = _claims_payload(services.claim_lines(sale_ids))
@@ -135,9 +138,11 @@ class BodegaClaimLookupView(APIView):
             )
         payload = claims[0]
         payload["releases"] = BodegaReleaseSerializer(
-            sale.bodega_releases.select_related("checker", "sale__customer")
-            .prefetch_related("lines__variant__product", "lines__variant__base_uom",
-                              "lines__location"),
+            sale.bodega_releases.select_related(
+                "checker", "sale__customer"
+            ).prefetch_related(
+                "lines__variant__product", "lines__variant__base_uom", "lines__location"
+            ),
             many=True,
         ).data
         return Response(payload)
@@ -163,17 +168,20 @@ class BodegaReleaseViewSet(
         query = self.request.query_params.get("q", "").strip()
         if query:
             rows = rows.filter(
-                Q(number__icontains=query)
-                | Q(sale__transaction_no__icontains=query)
-                | Q(received_by__icontains=query)
-                | Q(plate_no__icontains=query)
+                Q(
+                    Q(number__icontains=query),
+                    Q(sale__transaction_no__icontains=query),
+                    Q(received_by__icontains=query),
+                    Q(plate_no__icontains=query),
+                    _connector=Q.OR,
+                )
             )
         return rows
 
     def create(self, request):
         data = ReleaseInput(data=request.data)
         data.is_valid(raise_exception=True)
-        body = data.validated_data
+        body = cast(dict[str, Any], data.validated_data)
         with transaction.atomic():
             sale = services.find_sale(body["receipt"])
             release = services.record_release(
@@ -226,7 +234,7 @@ class BodegaDeliveryViewSet(
     def confirm(self, request, pk=None):
         data = DeliveryConfirmInput(data=request.data)
         data.is_valid(raise_exception=True)
-        body = data.validated_data
+        body = cast(dict[str, Any], data.validated_data)
         with transaction.atomic():
             delivery = services.confirm_delivery(
                 delivery_id=pk,
@@ -241,7 +249,9 @@ class BodegaDeliveryViewSet(
                     for line in body["lines"]
                 },
             )
-            damaged = sum((row.damaged_qty for row in delivery.lines.all()), services.ZERO)
+            damaged = sum(
+                (row.damaged_qty for row in delivery.lines.all()), services.ZERO
+            )
             audit_request(
                 request,
                 AuditLog.ActionType.RECEIPT,
@@ -277,9 +287,7 @@ class BodegaDeliveryViewSet(
                 .first()
             )
             if line is None:
-                raise InvalidBodegaDelivery(
-                    f"Delivery #{pk} has no line #{line_id}."
-                )
+                raise InvalidBodegaDelivery(f"Delivery #{pk} has no line #{line_id}.")
             if line.delivery.status != BodegaDelivery.Status.PENDING:
                 raise InvalidBodegaDelivery(
                     f"{line.delivery.number} was already checked; its photos are final."

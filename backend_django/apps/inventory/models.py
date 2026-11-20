@@ -316,7 +316,41 @@ class ProductVariant(models.Model):
         return f"{self.product.base_name} — {self.variant_name}"
 
 
+def credit_price(base_price, *, kind, value):
+    """What ONE selling unit costs on utang (owner ruling, utang markup).
+
+    The shelf price is untouched: buying on credit costs MORE, and how much more is a
+    property of the selling unit, either a peso AMOUNT or a PERCENT of the base price:
+
+        AMOUNT   base + value
+        PERCENT  base x (1 + value/100)
+        NONE     base - no markup, so a credit sale is the ordinary sale
+
+    Rounded ONCE, with `money_round`'s rule (2dp, HALF_UP), because this number becomes
+    `SalesItem.unit_price` and the receipt, the ledger and the return all read it back.
+    `money_round` is imported INSIDE the function: `apps.pos.services` imports this
+    module at import time, so a module-level import would be a cycle.
+    """
+    from apps.pos.services import money_round
+
+    base = Decimal(base_price)
+    if kind == VariantUOM.CreditMarkupKind.AMOUNT:
+        return money_round(base + Decimal(value))
+    if kind == VariantUOM.CreditMarkupKind.PERCENT:
+        return money_round(base * (1 + Decimal(value) / 100))
+    # NONE, and any kind a future migration leaves behind: the base price is the safe
+    # answer, because charging a markup nobody configured is the worse mistake.
+    return money_round(base)
+
+
 class VariantUOM(models.Model):
+    class CreditMarkupKind(models.TextChoices):
+        # Owner ruling: an item bought on utang may cost more. NONE keeps every existing
+        # row - and therefore every existing sale - exactly as it was.
+        NONE = "NONE", "No markup"
+        AMOUNT = "AMOUNT", "Peso amount"
+        PERCENT = "PERCENT", "Percent of the price"
+
     variant = models.ForeignKey(
         ProductVariant, on_delete=models.CASCADE, related_name="selling_uoms"
     )
@@ -327,6 +361,21 @@ class VariantUOM(models.Model):
     )
     default_selling_price = models.DecimalField(
         max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal(0))]
+    )
+    # The utang markup, read by `credit_price` (the ONE pricer) on every credit sale and
+    # published by the catalogue so the till can show the difference before the sale.
+    # Separate from `default_selling_price` on purpose: cash stays at the shelf price, so
+    # the tax the shop already prints is not silently raised for everybody.
+    credit_markup_kind = models.CharField(
+        max_length=10,
+        choices=CreditMarkupKind.choices,
+        default=CreditMarkupKind.NONE,
+    )
+    credit_markup_value = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(Decimal(0))],
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -351,6 +400,19 @@ class VariantUOM(models.Model):
 
     def __str__(self):
         return f"{self.variant} @ {self.uom.code} (×{self.conversion_factor})"
+
+    @property
+    def credit_selling_price(self):
+        """This unit's price when the sale is on utang — computed, never stored.
+
+        One reader (`credit_price`) so the catalogue, the checkout and the receipt cannot
+        disagree about what credit costs.
+        """
+        return credit_price(
+            self.default_selling_price,
+            kind=self.credit_markup_kind,
+            value=self.credit_markup_value,
+        )
 
     def save(self, *args, **kwargs):
         """Every selling unit always carries a code (Phase 6, decision 16).

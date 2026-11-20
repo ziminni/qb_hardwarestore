@@ -275,7 +275,11 @@ class _StubShifts extends ShiftService {
   /// The close the dialog's form posts: the server's own closed copy, reading
   /// and all, so the dialog renders the numbers a cashier would really see.
   @override
-  Future<Shift> closeShift(int shiftId, double closingCount) async => _shift(
+  Future<Shift> closeShift(
+    int shiftId,
+    double closingCount, {
+    double? cashLeft,
+  }) async => _shift(
     id: shiftId,
     status: Shift.closedStatus,
     cashier: 'Ana Cruz',

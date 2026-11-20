@@ -82,6 +82,14 @@ class ReceiptContent {
         // Decision 18: the fee was added AFTER the discount and never discounted,
         // so the paper reconciles: lines less discount plus charge is the total.
         // A zero fee prints nothing: the customer was charged for goods only.
+        // Owner ruling (tender fees): the fee the shop charged for taking a
+        // non-cash payment, printed from the SERVER's stored number. It is NOT
+        // VAT and no tax treatment is claimed for it.
+        if (receipt.paymentFee > 0)
+          ReceiptAmountRow(
+            'Payment fee',
+            formatPesoForPrint(receipt.paymentFee),
+          ),
         if (receipt.deliveryFee > 0)
           ReceiptAmountRow(
             'Delivery charge',

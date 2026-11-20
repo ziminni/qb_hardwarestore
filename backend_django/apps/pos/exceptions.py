@@ -437,6 +437,67 @@ class ChequeError(ValueError):
         super().__init__(detail)
 
 
+class CreditSaleError(ValueError):
+    """A credit sale the server refuses (owner ruling: utang costs more).
+
+    Two refusals, each with its own code, because the cashier's fix differs: turn the
+    credit flag OFF when the customer is paying in full, or turn it ON when they are not.
+    A `ValueError` subclass like `InvalidSale` and `DiscountError`, raised from inside the
+    sale's atomic block at the one point where the shortfall is first known - so a refusal
+    rolls the whole sale back and leaves no transaction, no ledger and no moved stock.
+
+    `extra` carries the figures a refusal is only useful WITH (the marked-up lines it is
+    about), published into the `{code, detail}` body by the handler.
+    """
+
+    code = "INVALID_CREDIT_SALE"
+    # Same reason as `DiscountError.extra`: immutable default, per-instance dict override.
+    extra: Mapping[str, object] = MappingProxyType({})
+
+    def __init__(self, detail, **extra):
+        self.extra = extra
+        super().__init__(detail)
+
+
+class CreditSaleFullyPaid(CreditSaleError):
+    """A `credit_sale` that ends with nothing owed.
+
+    The flag exists so the customer pays the utang markup. Applying it to a sale they
+    paid in full charges a credit price for credit they never took, and it hides the
+    question the receipt should answer: was this sale cash or utang?
+    """
+
+    code = "CREDIT_SALE_FULLY_PAID"
+
+    def __init__(self):
+        super().__init__(
+            "This is marked as a credit (utang) sale, but the payment covers it in full, "
+            "so nothing would be owed. Take the payment with the credit option switched "
+            "off, or leave the rest on utang."
+        )
+
+
+class CreditPriceRequired(CreditSaleError):
+    """Utang on a selling unit that carries a credit markup, with the flag switched off.
+
+    The box the flag exists to close: leaving it off would quietly charge the CASH price
+    for goods the customer is paying for later. With no markup configured anywhere the
+    sale never reaches this check, so ordinary utang behaves exactly as before.
+    """
+
+    code = "CREDIT_PRICE_REQUIRED"
+
+    def __init__(self, lines):
+        self.lines = list(lines)
+        named = ", ".join(self.lines)
+        costs = "it costs" if len(self.lines) == 1 else "they cost"
+        super().__init__(
+            f"This sale leaves {named} to be paid on utang, and {costs} more on credit."
+            " Record it as a credit sale so the credit price applies.",
+            lines=self.lines,
+        )
+
+
 class ChequeNeedsCustomer(ChequeError):
     """A cheque against the shared walk-in record (decision 14's rule, one tender on).
 
@@ -912,6 +973,14 @@ def handler(exc, context):
         payload: dict[str, object] = {"code": exc.code, "detail": str(exc)}
         payload.update(exc.extra)
         return Response(payload, status=exc.http_status)
+    if isinstance(exc, CreditSaleError):
+        # Owner ruling (utang markup): a credit sale refused for what the flags say about
+        # the money. Same {`code`, `detail`, **extra} shape as the discount refusals, and
+        # the same guarantee: raised inside the sale's atomic block, so the 400 also means
+        # "nothing changed" - no sale, no ledger, no moved stock.
+        payload: dict[str, object] = {"code": exc.code, "detail": str(exc)}
+        payload.update(exc.extra)
+        return Response(payload, status=status.HTTP_400_BAD_REQUEST)
     if isinstance(exc, ChequeError):
         # Phase 4 task B2 (decision 18): the cheque refusals. Same shape and the same
         # "nothing changed" guarantee; the status is the exception's own, because
