@@ -2,6 +2,7 @@ import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/sale_discount.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
+import 'package:client/features/pos/widgets/pos_cart_bar.dart';
 import 'package:client/features/pos/widgets/pos_utang_panel.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
@@ -310,6 +311,20 @@ class PosTransactionCart extends StatelessWidget {
               ),
             ],
           ),
+          if (state.hasCreditMarkup) ...[
+            PosCreditPriceToggle(),
+            // The consequence spelled out where the choice is made: credit
+            // prices apply to every marked-up line, not only the unpaid part.
+            if (state.creditSale)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  'Credit prices apply to all marked-up items. A fully paid '
+                  'sale must be rung at cash prices.',
+                  style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                ),
+              ),
+          ],
           const SizedBox(height: 14),
           // The one action the till exists for: the biggest target on screen.
           FilledButton.icon(

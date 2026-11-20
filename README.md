@@ -2,6 +2,8 @@
 
 Hardware-store point of sale and inventory for Queen Builders. The Flutter desktop client talks to a Django REST API backed by PostgreSQL. Construction project management (CPMS) lives in a separate repository; ordinary store operations do not require CPMS to be online.
 
+Testing POS desktop, CPMS, and Bodega Android together? Start with the [three-client smoke-test guide](docs/three-client-smoke-test.md).
+
 This file owns **installation, startup, demo credentials and ports**. See [AGENTS.md](AGENTS.md) for the documentation map, [SYSTEM_ATLAS.md](docs/SYSTEM_ATLAS.md) for architecture, and [ENDPOINTS.md](ENDPOINTS.md) for the API.
 
 > **Local development/demo setup only.** Compose uses Django's development server, `DEBUG=True`, permissive hosts/CORS and known demo credentials. Ports are published on all host interfaces by default. Do not expose this stack to the internet or use it as a production deployment. Keep it on a trusted machine/network with appropriate firewall rules.
@@ -146,6 +148,10 @@ The seed creates users, catalogue/packaging units, Store/Bodega locations, stock
 Emails use `<username>@demo.ph`. Existing accounts keep their existing passwords. The `checker` account is only created on a fresh seed; on an existing database an Admin gives any account the **Bodega Checker** role from User management (migration `bodega.0002` creates the group). To add Bodega demo data (bulk products on the Bodega shelf, pick-ups, releases, a pending count) to an existing database, run `docker compose exec backend python manage.py seed_bodega_demo`; it creates `checker` if missing and does nothing on a second run. Historical `admin123` instructions are incorrect for the seed. Django admin is at <http://127.0.0.1:8000/admin/>.
 
 Seed output includes random material-release tokens; keep them private and do not commit logs containing them. Demo passwords must not be used for real store accounts.
+
+**Real store use:** follow [docs/production-setup.md](docs/production-setup.md). One `backend_django/.env` file (`DJANGO_DEBUG=false` plus a fresh secret key and the allowed addresses) switches to the production server, skips the demo accounts and refuses to start with missing or weak settings.
+
+**Phones:** on the Android app's login screen, tap **Server: …** and type the server PC's address (e.g. `192.168.1.10:8000`) before signing in.
 
 ## 5. Run the native Windows client
 

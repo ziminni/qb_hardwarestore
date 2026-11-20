@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:client/core/network/api_client.dart';
 import 'package:client/features/admin/views/admin_backup_restore_page.dart';
 import 'package:client/features/admin/views/admin_security_page.dart';
@@ -120,7 +123,7 @@ class SystemAdminService {
       filename: (json['filename'] as String?) ?? '',
       createdAt: DateTime.tryParse(rawDate)?.toLocal() ?? DateTime.now(),
       sizeBytes: (json['size_bytes'] as num?)?.toInt() ?? 0,
-      format: (json['format'] as String?) ?? '.dump',
+      format: (json['format'] as String?) ?? '.json',
       origin: originRaw == 'Scheduled'
           ? BackupOrigin.scheduled
           : BackupOrigin.manual,
@@ -131,7 +134,15 @@ class SystemAdminService {
   }
 
   static String _readError(DioException error, String fallback) {
-    final data = error.response?.data;
+    var data = error.response?.data;
+    // `ResponseType.bytes` requests (download) carry the JSON error body as bytes.
+    if (data is List<int>) {
+      try {
+        data = jsonDecode(utf8.decode(data));
+      } catch (_) {
+        return fallback;
+      }
+    }
     if (data is Map<String, dynamic>) {
       final detail = data['detail'];
       if (detail is String && detail.isNotEmpty) return detail;
@@ -145,8 +156,7 @@ class SystemAdminService {
         '/api/v1/system/security/',
       );
       final data = response.data ?? const <String, dynamic>{};
-      final policyJson =
-          (data['policy'] as Map<String, dynamic>?) ?? const {};
+      final policyJson = (data['policy'] as Map<String, dynamic>?) ?? const {};
       final sessionsList = (data['sessions'] as List?) ?? const [];
       final eventsList = (data['login_events'] as List?) ?? const [];
 
@@ -263,10 +273,7 @@ class SystemAdminService {
     try {
       final response = await ApiClient.instance.patch<Map<String, dynamic>>(
         '/api/v1/system/backups/schedule/',
-        data: {
-          'frequency': frequency,
-          'retention_count': retentionCount,
-        },
+        data: {'frequency': frequency, 'retention_count': retentionCount},
       );
       return BackupScheduleState.fromJson(
         response.data ?? const <String, dynamic>{},
@@ -280,22 +287,72 @@ class SystemAdminService {
     }
   }
 
+  /// Replaces the database with a server snapshot ([backupId]) or with the
+  /// bytes of a local backup file. A local file MUST be uploaded: sending only
+  /// its [filename] lets the server restore a different same-name snapshot.
   Future<void> restoreBackup({
     String? backupId,
     String? filename,
+    Uint8List? bytes,
   }) async {
-    try {
-      await ApiClient.instance.post<Map<String, dynamic>>(
-        '/api/v1/system/backups/restore/',
-        data: {
-          if (backupId != null && backupId.isNotEmpty) 'backup_id': backupId,
-          if (filename != null && filename.isNotEmpty) 'filename': filename,
-        },
+    final hasBytes = bytes != null && bytes.isNotEmpty;
+    final hasId = backupId != null && backupId.isNotEmpty;
+    if (!hasBytes && !hasId) {
+      throw const SystemAdminServiceException(
+        'Choose a server snapshot or select a backup file to upload.',
       );
+    }
+    if (hasBytes && (filename == null || filename.isEmpty)) {
+      throw const SystemAdminServiceException(
+        'The backup file needs a file name before upload.',
+      );
+    }
+    try {
+      final response = await ApiClient.instance.post<Map<String, dynamic>>(
+        '/api/v1/system/backups/restore/',
+        data: hasBytes
+            ? FormData.fromMap({
+                'file': MultipartFile.fromBytes(bytes, filename: filename),
+              })
+            : {'backup_id': backupId},
+      );
+      final data = response.data;
+      if (data == null || data['restored'] != true) {
+        throw const SystemAdminServiceException(
+          'The server did not confirm the restore.',
+        );
+      }
     } on DioException catch (e) {
       throw SystemAdminServiceException(
         _readError(e, 'Could not restore database snapshot.'),
       );
+    } on SystemAdminServiceException {
+      rethrow;
+    } catch (e) {
+      throw SystemAdminServiceException('$e');
+    }
+  }
+
+  /// Downloads a stored snapshot file as raw bytes.
+  Future<Uint8List> downloadBackup(String backupId) async {
+    try {
+      final response = await ApiClient.instance.dio.get<List<int>>(
+        '/api/v1/system/backups/$backupId/download/',
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final bytes = response.data;
+      if (bytes == null || bytes.isEmpty) {
+        throw const SystemAdminServiceException(
+          'The server returned an empty backup file.',
+        );
+      }
+      return Uint8List.fromList(bytes);
+    } on DioException catch (e) {
+      throw SystemAdminServiceException(
+        _readError(e, 'Could not download the backup file.'),
+      );
+    } on SystemAdminServiceException {
+      rethrow;
     } catch (e) {
       throw SystemAdminServiceException('$e');
     }

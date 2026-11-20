@@ -142,7 +142,7 @@ class MigrationSeedTests(TransactionTestCase):
         # cannot stay at its leaf while they are rolled back; it is unapplied here and
         # the tearDown's migrate-to-leaves applies it again.
         return [
-            (app, None if app == "bodega" else name)
+            (app, None if app in ("bodega", "sms") else name)
             for app, name in self._latest_targets()
             if app != "inventory"
         ] + [("inventory", self.OLD_INVENTORY_LEAF)]

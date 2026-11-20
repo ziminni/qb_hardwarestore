@@ -63,6 +63,7 @@ from .models import (
     SalesOrder,
     SalesTransaction,
     StoreSettings,
+    TenderFee,
 )
 
 # Decision 08: a ledger in one of these states is credit still in use. PAID is not -
@@ -536,23 +537,36 @@ def _parse_decimal(raw, *, field, line_no):
     return value
 
 
-def _priced_sale_lines(lines, items_data, order_lines):
+def _priced_sale_lines(lines, items_data, order_lines, *, credit_sale=False):
     """Pair every validated line with the price it is charged (Phase 7 B4).
 
     On the till that is the catalogue's `default_selling_price` and no order line, so the
     list is the same `(vuom, qty)` cart read back with the price decision 01 always used.
+    A sale marked `credit_sale` (owner ruling: utang costs more) prices those SAME till
+    lines from `VariantUOM.credit_selling_price` instead - one helper, so the shelf price,
+    the utang price and the catalogue's read-only `credit_selling_price` cannot disagree.
 
     On a FULFILMENT (`order_lines` = `{order_line_id: SalesOrderItem}`) each entry of
     `items_data` names the order line it rings and the price comes from THAT row - the
     price the manager agreed, which is why a fulfilment needs no new discount approval.
-    A line that names no order line the caller resolved is refused here, before anything
-    is written, because a fulfilment line without an order line has no price to charge.
+    That price is charged whether or not the sale is a credit sale: it was already agreed,
+    and re-pricing it upward would charge a customer more than the order they signed.
 
     `items_data` and `lines` are index-aligned: `_validated_sale_lines` builds exactly one
     tuple per item it accepts.
     """
     if order_lines is None:
-        return [(vuom, qty, vuom.default_selling_price, None) for vuom, qty in lines]
+        return [
+            (
+                vuom,
+                qty,
+                vuom.credit_selling_price
+                if credit_sale
+                else vuom.default_selling_price,
+                None,
+            )
+            for vuom, qty in lines
+        ]
     priced = []
     for index, ((vuom, qty), raw) in enumerate(zip(lines, items_data), start=1):
         order_line = order_lines.get(raw.get("order_line"))
@@ -623,7 +637,7 @@ def _validated_sale_lines(items_data):
     return lines
 
 
-def _validated_payments(payments_data):
+def _validated_payments(payments_data, *, fees=None):
     """Validate the tender before any write: method known, amount non-negative.
 
     An EMPTY list stays valid - a cash sale with nothing tendered is the walk-in shortfall
@@ -634,11 +648,19 @@ def _validated_payments(payments_data):
     Phase 4 task B2 (decision 18): a CHEQUE carries its number, bank and cheque date, and
     the shop cannot collect on one without them. Checked HERE, with the rest of the tender
     shape, so a refused cheque leaves no sale, no moved stock and no ledger behind.
+
+    Owner ruling (payment-method fees): each tender's `fee` is computed HERE, from the
+    shop's own `TenderFee` rows (`fees` = `{method: TenderFee}`, active only). `amount`
+    on the wire is what that tender COVERS of the bill; the fee is the shop's charge for
+    taking it, and `process_sale` stores `amount + fee` as the money that arrived.
     """
     if payments_data is None:
         payments_data = []
     if not isinstance(payments_data, (list, tuple)):
         raise InvalidSale("payments must be a list.")
+    # No fee map means no fee: a caller that is not a till sale (a return, an utang
+    # payment) has nothing to charge, and 0.00 is what every existing row carries.
+    fees = fees or {}
     methods = dict(Payment.Method.choices)
     payments = []
     for index, pdata in enumerate(payments_data, start=1):
@@ -657,6 +679,7 @@ def _validated_payments(payments_data):
         tender = {
             "method": method,
             "amount_tendered": amount,
+            "fee": tender_fee_for(fees.get(method), amount),
             "reference_no": pdata.get("reference_no") or "",
             # Every tender that is not a cheque is money in hand the moment it is
             # recorded. A cheque starts PENDING and is decided by a manager later.
@@ -669,6 +692,36 @@ def _validated_payments(payments_data):
             tender.update(_validated_cheque(pdata, line_no=index))
         payments.append(tender)
     return payments
+
+
+def active_tender_fees():
+    """`{method: TenderFee}` for the fees the shop is charging right now.
+
+    ONE query per checkout, read before the sale's atomic block. An INACTIVE fee is simply
+    absent, so a switched-off rate charges nothing rather than charging 0.00 (the two
+    look the same on money, but only one of them is a decision the owner made).
+    """
+    return {
+        row.method: row
+        for row in TenderFee.objects.filter(
+            is_active=True, method__in=TenderFee.FEEABLE_METHODS
+        )
+    }
+
+
+def tender_fee_for(tender_fee, amount):
+    """What ONE payment row owes in fees, from the shop's own setting.
+
+    PERCENT is a share of what that tender covers (`round(amount x value/100)`); AMOUNT is
+    a flat peso charge per PAYMENT ROW, because that is how the bank bills it - two GCash
+    transfers are two charges. Rounded with `money_round`, once, like every other figure.
+    A method with no active fee - cash, a cheque, or a switched-off rate - is 0.00.
+    """
+    if tender_fee is None:
+        return Decimal(0)
+    if tender_fee.kind == TenderFee.Kind.PERCENT:
+        return money_round(Decimal(amount) * tender_fee.value / 100)
+    return money_round(tender_fee.value)
 
 
 def _validated_cheque(pdata, *, line_no):
@@ -1145,6 +1198,7 @@ def process_sale(
     delivery_data=None,
     order_lines=None,
     delivery_link=None,
+    credit_sale=False,
 ):
     """Process a complete walk-in sale or requisition release.
 
@@ -1194,14 +1248,34 @@ def process_sale(
     the unique constraint on (cashier, idempotency_key) is what settles two concurrent
     retries - a check-then-insert in the view cannot, since the row does not exist yet for
     either request.
+
+    Owner ruling (utang markup): `credit_sale` says this customer is buying ON CREDIT, so
+    the till's lines are priced at `VariantUOM.credit_selling_price` (the shelf price plus
+    the unit's configured markup) and the flag is stored on the sale. The two refusals
+    that keep the flag honest are raised at the bottom of the atomic block, where the
+    shortfall is first known: a credit sale that ends fully paid, and an utang sale that
+    skipped the markup. Both roll the whole sale back, exactly like `WalkInCannotOwe`.
+
+    Owner ruling (payment-method fees): the shop's `TenderFee` rows turn each non-cash
+    tender into covered + fee. `payment_fee` is their sum, joins `grand_total` after the
+    discount beside the delivery charge (a fee is never discounted), and is inside the
+    VAT split for the same reason the delivery charge is: it is money the customer paid.
+    Each `Payment.amount_tendered` is stored as covered + fee - the money that ARRIVED -
+    so the drawer, the Z-reading and a GCash report keep counting real money.
     """
     lines = _validated_sale_lines(items_data)
     # Phase 7 B4: every line now carries the price THIS sale charges and the order line it
     # rings (None/None on the till). Done once, before the atomic block, so the gross - and
     # with it the discount, the VAT, the change and the utang check - is computed from the
     # money the customer actually owes.
-    priced_lines = _priced_sale_lines(lines, items_data, order_lines)
-    payments = _validated_payments(payments_data)
+    priced_lines = _priced_sale_lines(
+        lines, items_data, order_lines, credit_sale=credit_sale
+    )
+    fees = active_tender_fees()
+    payments = _validated_payments(payments_data, fees=fees)
+    # Owner ruling: the fee is money the customer pays, so it belongs to the bill from
+    # here on - the VAT split, the change and the shortfall all measure it.
+    payment_fee = money_round(sum((p["fee"] for p in payments), Decimal(0)))
     # Phase 4 task B2 (decision 18): a cheque is the one tender that is not money yet.
     # Everything below treats it as a CLAIM against the utang it will settle, never as
     # payment: it does not reduce `total_paid`, it must be covered by what the sale still
@@ -1311,6 +1385,9 @@ def process_sale(
             grand_total=0,
             idempotency_key=idempotency_key,
             request_hash=request_hash,
+            # Owner ruling (utang markup): WHICH terms this sale was rung on, so a
+            # reprinted receipt can still explain why a line cost more than the shelf.
+            credit_sale=credit_sale,
         )
 
         # Task 4.3: the variants that lose stock in THIS sale, collected so the
@@ -1367,19 +1444,25 @@ def process_sale(
         # Phase 5 task B3 (decision 18): the delivery charge joins the total AFTER the
         # discount, so it is never discounted, and the VAT split is taken out of the sum
         # the customer is actually paying - which is what the receipt has to add up to.
-        grand_total = money_round(goods_net + delivery_fee)
+        # Owner ruling (payment-method fees): the tender fee joins the total after the
+        # discount but stays OUTSIDE the VAT split - fees and VAT are separate charges.
         vatable_sales, vat_amount = vat_split(
-            grand_total, rate=store.vat_rate, registered=store.vat_registered
+            money_round(goods_net + delivery_fee),
+            rate=store.vat_rate,
+            registered=store.vat_registered,
         )
+        grand_total = money_round(goods_net + delivery_fee + payment_fee)
         txn.vatable_sales = vatable_sales
         txn.vat_amount = vat_amount
         txn.delivery_fee = delivery_fee
+        txn.payment_fee = payment_fee
         txn.grand_total = grand_total
         txn.save(
             update_fields=[
                 "vatable_sales",
                 "vat_amount",
                 "delivery_fee",
+                "payment_fee",
                 "grand_total",
             ]
         )
@@ -1418,10 +1501,16 @@ def process_sale(
         cash_tendered = Decimal(0)
         cheque_rows = []
         for pdata in payments:
+            # Owner ruling (payment-method fees): the amount STORED is the money that
+            # arrived - what this tender covers plus the fee charged for taking it - and
+            # the fee rides beside it so a report can split the two. A cheque carries no
+            # fee at all (no `TenderFee` row may name it), and `fee` defaults to 0.
+            received = money_round(pdata["amount_tendered"] + pdata["fee"])
             row = Payment.objects.create(
                 transaction=txn,
                 method=pdata["method"],
-                amount_tendered=pdata["amount_tendered"],
+                amount_tendered=received,
+                fee=pdata["fee"],
                 reference_no=pdata["reference_no"],
                 status=pdata["status"],
                 cheque_number=pdata["cheque_number"],
@@ -1431,9 +1520,9 @@ def process_sale(
             if pdata["method"] == Payment.Method.CHEQUE:
                 cheque_rows.append(row)
             else:
-                total_paid += pdata["amount_tendered"]
+                total_paid += received
                 if pdata["method"] == Payment.Method.CASH:
-                    cash_tendered += pdata["amount_tendered"]
+                    cash_tendered += received
 
         # OA High (Phase 4 close): change is money OUT of the drawer, so the sale records
         # it instead of leaving the Z-reading to count the whole cash tender as takings.
@@ -1468,6 +1557,27 @@ def process_sale(
         # enclosing `transaction.atomic()` rolls the sale back wholesale, so a refused
         # walk-in leaves no transaction, no ledger and no moved stock.
         shortfall = grand_total - total_paid
+        # Owner ruling (utang markup): the two refusals that keep `credit_sale` honest.
+        # Raised HERE, not up front, for the same reason `WalkInCannotOwe` is raised below:
+        # "did this sale end in utang?" is only known once the lines and the tenders are
+        # totalled. The enclosing atomic block rolls the whole sale back, so a refusal is
+        # still "nothing written". A line is a MARKED UP one when its credit price differs
+        # from its shelf price - the same comparison the pricer makes, so no second rule.
+        if credit_sale and shortfall <= 0:
+            from .exceptions import CreditSaleFullyPaid
+
+            raise CreditSaleFullyPaid()
+        if not credit_sale and shortfall > 0:
+            marked_up = [
+                str(vuom)
+                for vuom, _qty, _price, order_line in priced_lines
+                if order_line is None
+                and vuom.credit_selling_price != vuom.default_selling_price
+            ]
+            if marked_up:
+                from .exceptions import CreditPriceRequired
+
+                raise CreditPriceRequired(marked_up)
         if cheque_rows:
             # Change comes from the DRAWER. A cheque may only cover what is still owed;
             # anything above that would mean paying out cash for funds the shop has not
@@ -1755,6 +1865,58 @@ def held_cart_count(shift):
     return HeldCart.objects.filter(cashier_id=shift.cashier_id).count()
 
 
+def latest_closed_shift():
+    """The most recent CLOSED shift store-wide, or None (owner ruling: one drawer).
+
+    Store-wide and not per cashier on purpose: the shop has ONE drawer, so the float the
+    last close left behind is what the next shift - whoever works it - inherits. Ordered
+    by `closed_at` and then id so two closes stamped in the same second still resolve to
+    one answer, which is what makes the suggestion stable rather than a coin toss.
+    """
+    from .models import Shift
+
+    return (
+        Shift.objects.filter(status=Shift.Status.CLOSED, closed_at__isnull=False)
+        .select_related("cashier")
+        .order_by("-closed_at", "-id")
+        .first()
+    )
+
+
+def opening_suggestion():
+    """What the open-shift dialog prefills, and whether it is worth prefilling.
+
+    `suggested_float` is the previous close's `cash_left_in_drawer`, or None when there is
+    no previous close or it did not record one - the dialog then asks the cashier to count
+    rather than offering a number the server made up. `cleared` says the last close left
+    NOTHING, which is a real answer and a different one from "not recorded": the cashier
+    starting after a cleared drawer must know the float is on them.
+
+    Money crosses as 2-decimal strings, like every other figure on this wire.
+    """
+    previous = latest_closed_shift()
+    left = None if previous is None else previous.cash_left_in_drawer
+    return {
+        "suggested_float": None if left is None else _money(left),
+        "source": (
+            None
+            if previous is None
+            else {
+                "shift_id": previous.id,
+                "cashier_name": previous.cashier.full_name,
+                "closed_at": previous.closed_at,
+                "closing_count": (
+                    None
+                    if previous.closing_count is None
+                    else _money(previous.closing_count)
+                ),
+                "cash_left_in_drawer": None if left is None else _money(left),
+            }
+        ),
+        "cleared": left is not None and Decimal(left) == 0,
+    }
+
+
 def compute_z_reading(shift):
     """The end-of-shift (Z) summary for one shift, derived - never stored.
 
@@ -1816,18 +1978,12 @@ def compute_z_reading(shift):
     change_total = sales.aggregate(total=Sum("change_given"))["total"] or Decimal(0)
 
     cash_sales = by_method.get(Payment.Method.CASH, Decimal(0)) - change_total
-    cash_in = (
-        shift.cash_movements.filter(kind="CASH_IN").aggregate(total=Sum("amount"))[
-            "total"
-        ]
-        or Decimal(0)
-    )
-    cash_out = (
-        shift.cash_movements.filter(kind="CASH_OUT").aggregate(total=Sum("amount"))[
-            "total"
-        ]
-        or Decimal(0)
-    )
+    cash_in = shift.cash_movements.filter(kind="CASH_IN").aggregate(
+        total=Sum("amount")
+    )["total"] or Decimal(0)
+    cash_out = shift.cash_movements.filter(kind="CASH_OUT").aggregate(
+        total=Sum("amount")
+    )["total"] or Decimal(0)
     expected_drawer = (
         shift.opening_float + cash_sales - abs(cash_refunds) + cash_in - cash_out
     )
@@ -1857,6 +2013,31 @@ def compute_z_reading(shift):
         "cash_out": _money(cash_out),
         "expected_drawer": _money(expected_drawer),
         "variance": None if variance is None else _money(variance),
+        # Owner ruling (opening cash carried forward): the drawer the PREVIOUS close said
+        # it left, what this shift actually opened with, and the gap between them - so a
+        # manager reads a short float as a number instead of an argument. Null when the
+        # previous close did not record one, or there was no previous close.
+        "expected_opening": (
+            None if shift.expected_opening is None else _money(shift.expected_opening)
+        ),
+        "opening_difference": (
+            None
+            if shift.expected_opening is None
+            else _money(shift.opening_float - shift.expected_opening)
+        ),
+        # What this close left in the drawer, and the rest - what was taken out and
+        # deposited. Both null when the close did not record a `cash_left` (an older
+        # client), and the deposit is null too while either number is unknown.
+        "cash_left_in_drawer": (
+            None
+            if shift.cash_left_in_drawer is None
+            else _money(shift.cash_left_in_drawer)
+        ),
+        "cash_taken_out": (
+            None
+            if shift.cash_left_in_drawer is None or shift.closing_count is None
+            else _money(shift.closing_count - shift.cash_left_in_drawer)
+        ),
         # Advisory, not a blocker: `close_shift` records the count and closes anyway.
         "held_cart_count": held_cart_count(shift),
     }
@@ -1957,7 +2138,12 @@ def _return_net_share(*, original, returned_gross):
     # goods net and NOT the fee - the trip was still made - and a refund of the fee
     # itself is out of scope for this task. Subtracting it here is what keeps the share
     # and the cumulative cap on the same goods-only basis.
-    sale_net = money_round(original.grand_total - original.delivery_fee)
+    # Owner ruling (payment-method fees): the tender fee is excluded for the SAME reason -
+    # the fee bought a transaction that happened, so a full return refunds the goods and
+    # leaves the fee with the shop.
+    sale_net = money_round(
+        original.grand_total - original.delivery_fee - original.payment_fee
+    )
     if sale_gross <= 0 or sale_net <= 0:
         # A fully discounted sale (or a zero-priced one) refunds nothing: the customer
         # paid nothing for the goods coming back.

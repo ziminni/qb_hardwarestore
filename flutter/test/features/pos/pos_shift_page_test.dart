@@ -41,6 +41,10 @@ class _StubShifts extends ShiftService {
   List<Shift> history = const [];
 
   @override
+  Future<ShiftOpeningSuggestion> fetchOpeningSuggestion() async =>
+      const ShiftOpeningSuggestion();
+
+  @override
   Future<Shift?> fetchCurrent() async {
     currentCalls++;
     if (failCurrent != null) throw failCurrent!;

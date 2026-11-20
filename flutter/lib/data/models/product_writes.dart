@@ -19,6 +19,8 @@ class NewProductDraft {
     required this.maxStockLevel,
     required this.sellingPrice,
     this.barcodeQr = '',
+    this.creditMarkupKind = 'NONE',
+    this.creditMarkupValue = 0,
     this.extraSellingUnits = const [],
     this.locationHint = '',
     this.storedAtId,
@@ -50,6 +52,12 @@ class NewProductDraft {
 
   /// The factor-1 selling unit's price. The till charges this (decision 08).
   final double sellingPrice;
+
+  /// The utang markup of the factor-1 unit (owner ruling): `NONE` / `AMOUNT` /
+  /// `PERCENT`, with the peso or percent value. `NONE` is the server's default,
+  /// so a shop that configures nothing behaves exactly as before.
+  final String creditMarkupKind;
+  final double creditMarkupValue;
 
   /// Optional: the server defaults it to an empty string, and the seeded
   /// catalogue has no barcodes at all.
@@ -104,6 +112,10 @@ class NewProductDraft {
     'conversion_factor': 1,
     'default_selling_price': sellingPrice,
     'barcode_qr': barcodeQr,
+    // Sent explicitly so a create states the same thing the form shows, and
+    // `NONE` + 0 is what "no markup" means to the server.
+    'credit_markup_kind': creditMarkupKind,
+    'credit_markup_value': creditMarkupValue,
   };
 }
 
@@ -158,6 +170,8 @@ class ProductEditDraft {
     this.maxStockLevel,
     this.sellingPrice,
     this.barcodeQr,
+    this.creditMarkupKind,
+    this.creditMarkupValue,
     this.isActive,
     this.locationHint = '',
     this.storedAtId,
@@ -184,6 +198,12 @@ class ProductEditDraft {
   final double? maxStockLevel;
   final double? sellingPrice;
   final String? barcodeQr;
+
+  /// The utang markup, and ONLY when the clerk changed it. Null means "leave the
+  /// stored markup alone", exactly like [sellingPrice]: an edit that only fixes a
+  /// name must not wipe a configured markup.
+  final String? creditMarkupKind;
+  final double? creditMarkupValue;
   final bool? isActive;
 
   /// Device-local, like the create draft's. Never in a PATCH body.
@@ -224,5 +244,7 @@ class ProductEditDraft {
   Map<String, dynamic> get sellingUnitBody => {
     if (sellingPrice != null) 'default_selling_price': sellingPrice,
     if (barcodeQr != null) 'barcode_qr': barcodeQr,
+    if (creditMarkupKind != null) 'credit_markup_kind': creditMarkupKind,
+    if (creditMarkupValue != null) 'credit_markup_value': creditMarkupValue,
   };
 }

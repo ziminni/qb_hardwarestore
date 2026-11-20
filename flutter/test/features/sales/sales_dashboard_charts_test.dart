@@ -23,19 +23,23 @@ import 'package:provider/provider.dart';
 import '../../support/phase4_fakes.dart';
 
 void main() {
-  testWidgets('a day with sales is labelled in pesos, a zero day is blank', (
+  testWidgets('sales trend shows seven-day total and each day in pesos', (
     tester,
   ) async {
     await tester.pumpWidget(_wrap(SalesRevenueTrend(sales: _sales())));
 
+    expect(find.text('Seven-day total'), findsOneWidget);
+    expect(find.text('₱1,040.50'), findsOneWidget);
+    expect(find.text('Completed sales'), findsOneWidget);
+    expect(find.text('₱0.00'), findsNWidgets(5));
     expect(find.text('₱1,000.00'), findsOneWidget);
     expect(find.text('₱40.50'), findsOneWidget);
     expect(
       find.text('None'),
       findsNothing,
-      reason: 'a day without sales shows no label at all',
+      reason: 'a day without sales is zero, not missing data',
     );
-    expect(find.textContaining('k'), findsNothing);
+    expect(find.text('₱1.0k'), findsNothing);
   });
 
   testWidgets('the labels never overflow their column', (tester) async {

@@ -21,13 +21,16 @@ Future<Shift?> showShiftCloseDialog(
   final shift = viewmodel.currentShift;
   if (shift == null) return null;
 
-  final count = await showDialog<double>(
+  final result = await showDialog<_CloseResult>(
     context: context,
     builder: (dialogContext) => _CloseShiftDialog(shift: shift),
   );
-  if (count == null) return null;
+  if (result == null) return null;
 
-  final closed = await viewmodel.closeShift(count);
+  final closed = await viewmodel.closeShift(
+    result.count,
+    cashLeft: result.cashLeft,
+  );
   if (!context.mounted) return closed;
   if (closed == null) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -77,10 +80,16 @@ class _CloseShiftDialog extends StatefulWidget {
 
 class _CloseShiftDialogState extends State<_CloseShiftDialog> {
   final _controller = TextEditingController();
+  final _leftController = TextEditingController();
+
+  /// "The drawer was cleared": sends `cash_left: 0.00`, which the server records
+  /// as a REAL number (different from omitting the field).
+  bool _cleared = false;
 
   @override
   void dispose() {
     _controller.dispose();
+    _leftController.dispose();
     super.dispose();
   }
 
@@ -93,9 +102,31 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
     return parsed;
   }
 
+  /// What STAYS in the drawer (owner ruling). Null = the cashier leaves the
+  /// question unanswered, which the server records as "not recorded". Never
+  /// assumed to be the whole count: the deposit is the rest.
+  double? get _cashLeft {
+    if (_cleared) return 0;
+    final text = _leftController.text.trim();
+    if (text.isEmpty) return null;
+    final parsed = double.tryParse(text);
+    if (parsed == null || parsed < 0) return null;
+    final count = _count;
+    if (count != null && parsed > count) return null;
+    return parsed;
+  }
+
+  bool get _cashLeftValid {
+    if (_cleared) return true;
+    final text = _leftController.text.trim();
+    if (text.isEmpty) return true;
+    return _cashLeft != null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final count = _count;
+    final cashLeft = _cashLeft;
     return AlertDialog(
       title: const Text('Close shift'),
       content: Column(
@@ -132,6 +163,39 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
             ),
             onChanged: (_) => setState(() {}),
           ),
+          const SizedBox(height: AppSpacing.sm),
+          // Owner ruling (drawer carry): what stays behind for the next shift.
+          // Optional on purpose - an unanswered question is stored as "not
+          // recorded", which is a different fact from a cleared drawer.
+          TextField(
+            controller: _leftController,
+            enabled: !_cleared,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(
+              labelText: 'Cash left in drawer',
+              prefixText: '₱ ',
+              helperText: count == null
+                  ? 'Count the drawer first.'
+                  : 'Stays for the next shift; the rest is the deposit.',
+              errorText: _cashLeftValid
+                  ? null
+                  : 'Enter 0 or more, up to the counted cash.',
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          CheckboxListTile(
+            value: _cleared,
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            title: const Text('Drawer cleared'),
+            subtitle: const Text('Leaves ₱0.00 in the drawer.'),
+            onChanged: (value) => setState(() => _cleared = value ?? false),
+          ),
+          if (cashLeft != null && count != null)
+            Text(
+              'Deposit: ${formatPeso(count - cashLeft)}',
+              style: const TextStyle(fontSize: 12),
+            ),
         ],
       ),
       actions: [
@@ -140,12 +204,23 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: count == null
+          onPressed: count == null || !_cashLeftValid
               ? null
-              : () => Navigator.of(context).pop(count),
+              : () => Navigator.of(
+                  context,
+                ).pop(_CloseResult(count: count, cashLeft: cashLeft)),
           child: const Text('Close shift'),
         ),
       ],
     );
   }
+}
+
+/// What the close form collected: the counted cash, and what stays in the
+/// drawer (`null` = the question was not answered).
+class _CloseResult {
+  const _CloseResult({required this.count, this.cashLeft});
+
+  final double count;
+  final double? cashLeft;
 }

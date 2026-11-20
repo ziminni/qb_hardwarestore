@@ -10,9 +10,11 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 from corsheaders.defaults import default_headers
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -21,79 +23,108 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-1y$rst#jhihg+_x%)jt_%-n4&xi_paerb$le)!b5^wg=!rr)$f'
+def _env_bool(name, default):
+    value = os.environ.get(name, "").strip().lower()
+    return default if not value else value in ("1", "true", "yes", "on")
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
 
-# Dev only: accept any Host header (web/desktop = 127.0.0.1, emulator = 10.0.2.2, physical device = LAN IP).
-# Restrict this to explicit hosts for production.
-ALLOWED_HOSTS = ['*']
+def _env_list(name):
+    return [item.strip() for item in os.environ.get(name, "").split(",") if item.strip()]
+
+
+# Development stays the default so `docker compose up` keeps working unchanged.
+# Production sets DJANGO_DEBUG=false and must then supply its own secret key and hosts
+# (see docs/production-setup.md); it refuses to start without them.
+DEBUG = _env_bool("DJANGO_DEBUG", True)
+
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "").strip()
+if not SECRET_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured("DJANGO_SECRET_KEY is required when DJANGO_DEBUG=false.")
+    SECRET_KEY = "django-insecure-1y$rst#jhihg+_x%)jt_%-n4&xi_paerb$le)!b5^wg=!rr)$f"
+elif not DEBUG and (len(SECRET_KEY) < 50 or SECRET_KEY.startswith("django-insecure")):
+    raise ImproperlyConfigured("DJANGO_SECRET_KEY must be a fresh random value of 50+ characters.")
+
+# Dev accepts any Host (web/desktop = 127.0.0.1, emulator = 10.0.2.2, phone = LAN IP).
+# Production lists them, e.g. "192.168.1.10,pos-api.example.com" ("*" only on purpose).
+ALLOWED_HOSTS = _env_list("DJANGO_ALLOWED_HOSTS") or (["*"] if DEBUG else [])
+if not ALLOWED_HOSTS:
+    raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS is required when DJANGO_DEBUG=false.")
+
+# Only when the server sits behind HTTPS (hosted, or behind a TLS proxy). A store LAN
+# server is plain http:// and must leave this off, or every LAN request is redirected.
+if _env_bool("DJANGO_HTTPS", False):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_HSTS_SECONDS", "3600"))
+    CSRF_TRUSTED_ORIGINS = [f"https://{host}" for host in ALLOWED_HOSTS if host != "*"]
 
 
 # Application definition
 
 INSTALLED_APPS = [
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
     # Third-party
-    'rest_framework',
-    'corsheaders',
+    "rest_framework",
+    "corsheaders",
     # Refresh-token blacklist. Without this app the blacklist models do not exist,
     # so `BLACKLIST_AFTER_ROTATION` below silently does nothing: a rotated refresh
     # token stays valid forever and a logout cannot revoke anything.
-    'rest_framework_simplejwt.token_blacklist',
-
+    "rest_framework_simplejwt.token_blacklist",
     # BuildPro Modules
-    'apps.users',
-    'apps.inventory',
-    'apps.pos',
-    'apps.collectibles',
-    'apps.requisitions',
-    'apps.reports',
-    'apps.bodega',
+    "apps.users",
+    "apps.inventory",
+    "apps.pos",
+    "apps.collectibles",
+    "apps.requisitions",
+    "apps.reports",
+    "apps.bodega",
     # Phase 1, Task 2: the CPMS boundary (`/api/v1/integration/cpms/`). Has no models;
     # it is an app so its URLconf and tests sit where every other feature's do.
-    'apps.integration',
-
+    "apps.integration",
+    # The Bodega checker's phone as a second screen: outbound trigger, inbound parser and
+    # the bridge's queue. The modem itself is a host-side script (`scripts/sms_bridge/`),
+    # because Docker Desktop on Windows cannot pass a COM port into a container.
+    "apps.sms",
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = 'config.urls'
+ROOT_URLCONF = "config.urls"
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.debug',
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
 ]
 
-WSGI_APPLICATION = 'config.wsgi.application'
+WSGI_APPLICATION = "config.wsgi.application"
 
 
 # Database
@@ -104,14 +135,13 @@ DATABASES = {
     #     'ENGINE': 'django.db.backends.sqlite3',
     #     'NAME': BASE_DIR / 'db.sqlite3',
     # }
-
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'buildpro_pos',
-        'USER': 'admin',
-        'PASSWORD': 'adminpassword',
-        'HOST': 'db',   # match the service name in docker-compose.yml
-        'PORT': '5432',
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ.get("POSTGRES_DB", "buildpro_pos"),
+        "USER": os.environ.get("POSTGRES_USER", "admin"),
+        "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "adminpassword"),
+        "HOST": os.environ.get("POSTGRES_HOST", "db"),  # the compose service name
+        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
     }
 }
 
@@ -121,16 +151,16 @@ DATABASES = {
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
 
@@ -138,9 +168,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/4.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = "en-us"
 
-TIME_ZONE = 'Asia/Manila'
+TIME_ZONE = "Asia/Manila"
 
 USE_I18N = True
 
@@ -150,43 +180,46 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Product photos (POS usability). Public catalogue media under the bind-mounted
 # backend directory; the dev server serves it, production must serve MEDIA_ROOT itself.
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+# Database backups and the security policy file. NEVER under MEDIA_ROOT: media is
+# served to anyone, and a backup holds every password hash and customer record.
+BACKUP_ROOT = BASE_DIR / "private" / "backups"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
 # =============================================
 # Auth — Custom User model
 # =============================================
-AUTH_USER_MODEL = 'apps_users.User'
+AUTH_USER_MODEL = "apps_users.User"
 
 
 # =============================================
 # Django REST Framework
 # =============================================
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
+    "DEFAULT_AUTHENTICATION_CLASSES": (
         # Phase 1, Task 2: plain JWTAuthentication plus the CPMS fence. A member of the
         # `CPMS Service` group is refused (403 CPMS_SCOPE) everywhere outside
         # `/api/v1/integration/cpms/`, in ONE place instead of on every POS view.
-        'apps.users.authentication.CpmsFencedJWTAuthentication',
+        "apps.users.authentication.CpmsFencedJWTAuthentication",
     ),
-    'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
-    ),
+    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     # Decision 06: publishes InsufficientStock as a 400 with a stable code so a
     # short-stock sale is distinguishable from a server failure.
-    'EXCEPTION_HANDLER': 'apps.pos.exceptions.handler',
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 50,
+    "EXCEPTION_HANDLER": "apps.pos.exceptions.handler",
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 50,
 }
 
 
@@ -196,11 +229,11 @@ REST_FRAMEWORK = {
 from datetime import timedelta
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(hours=8),   # POS shift length
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
-    'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': True,
-    'AUTH_HEADER_TYPES': ('Bearer',),
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=8),  # POS shift length
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
 
@@ -215,19 +248,36 @@ SIMPLE_JWT = {
 # lockout to hold across workers.
 # =============================================
 CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'buildpro-locmem',
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "buildpro-locmem",
     },
 }
 
 
 # =============================================
+# SMS gateway (Bodega checker, decision 25 follow-up)
+#
+# OFF by default: a shop with no modem must not queue texts nobody will send. `SMS_ENABLED`
+# asks the shop for real (one text per Bodega sale costs real load), and the bridge's key
+# is refused when it is shorter than 24 characters - a machine that can spend the shop's
+# load must not accept a guessable key. Set both in `docker-compose.yml`'s `environment:`
+# (see `scripts/sms_bridge/README.md`).
+# =============================================
+SMS_ENABLED = os.environ.get('SMS_ENABLED', 'false').strip().lower() in (
+    '1', 'true', 'yes', 'on'
+)
+SMS_GATEWAY_KEY = os.environ.get('SMS_GATEWAY_KEY', '').strip()
+
+
+# =============================================
 # CORS (Cross-Origin Resource Sharing)
 # Allows Flutter Web and other dev origins to call the API.
-# Dev-only convenience; switch to CORS_ALLOWED_ORIGINS in production.
+# Dev allows every origin. Production allows only DJANGO_CORS_ALLOWED_ORIGINS (needed
+# just for the Flutter WEB build; desktop and phone apps are not subject to CORS).
 # =============================================
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOWED_ORIGINS = _env_list("DJANGO_CORS_ALLOWED_ORIGINS")
+CORS_ALLOW_ALL_ORIGINS = DEBUG and not CORS_ALLOWED_ORIGINS
 
 # `Idempotency-Key` is a CUSTOM header (ENDPOINTS.md, *Idempotency*), so it is not in
 # django-cors-headers' default allow-list. A browser will not send a header the preflight
@@ -235,4 +285,4 @@ CORS_ALLOW_ALL_ORIGINS = True
 # while desktop worked, because CORS never applies to Dio's native client. Extend the
 # defaults rather than replace them - dropping `authorization` or `content-type` would
 # break every other browser call.
-CORS_ALLOW_HEADERS = (*default_headers, 'idempotency-key')
+CORS_ALLOW_HEADERS = (*default_headers, "idempotency-key")

@@ -19,7 +19,7 @@ from apps.inventory.models import (
     StorageLocation,
 )
 from apps.inventory.services import apply_stock_adjustment
-from apps.pos.models import SalesItemDeduction, SalesTransaction
+from apps.pos.models import Delivery, SalesItemDeduction, SalesTransaction
 from common.numbering import generate_document_number
 
 from .exceptions import (
@@ -49,7 +49,24 @@ def bodega_locations():
 # ---------------------------------------------------------------------------
 
 
-def _sold_by_key(sale_ids=None):
+def _dispatch_sales(sale_ids=None, *, scheduled_only=False):
+    slips = Delivery.objects.all()
+    if scheduled_only:
+        slips = slips.filter(status=Delivery.Status.SCHEDULED)
+    sales = SalesTransaction.objects.filter(
+        Q(pk__in=slips.values("sale_id").filter(sale_id__isnull=False))
+        | Q(
+            items__order_line__order_id__in=slips.values("sales_order_id").filter(
+                sales_order_id__isnull=False
+            )
+        )
+    )
+    if sale_ids is not None:
+        sales = sales.filter(pk__in=sale_ids)
+    return sales.values("pk")
+
+
+def _sold_by_key(sale_ids=None, *, excluded_sales=None):
     """`{(sale_id, variant_id, location_id): base qty}` taken from Bodega shelves, net of
     linked returns. `sale_ids=None` means every sale."""
     sold = defaultdict(lambda: ZERO)
@@ -67,6 +84,11 @@ def _sold_by_key(sale_ids=None):
         taken = taken.filter(sales_item__transaction_id__in=sale_ids)
         given_back = given_back.filter(
             sales_item__transaction__original_transaction_id__in=sale_ids
+        )
+    if excluded_sales is not None:
+        taken = taken.exclude(sales_item__transaction_id__in=excluded_sales)
+        given_back = given_back.exclude(
+            sales_item__transaction__original_transaction_id__in=excluded_sales
         )
     for row in taken.values(
         "sales_item__transaction_id",
@@ -93,11 +115,13 @@ def _sold_by_key(sale_ids=None):
     return sold
 
 
-def _released_by_key(sale_ids=None):
+def _released_by_key(sale_ids=None, *, excluded_sales=None):
     released = defaultdict(lambda: ZERO)
     rows = BodegaReleaseLine.objects.all()
     if sale_ids is not None:
         rows = rows.filter(release__sale_id__in=sale_ids)
+    if excluded_sales is not None:
+        rows = rows.exclude(release__sale_id__in=excluded_sales)
     for row in rows.values("release__sale_id", "variant_id", "location_id").annotate(
         total=Sum("qty")
     ):
@@ -113,8 +137,9 @@ def claim_lines(sale_ids=None):
     `remaining` never goes below zero: goods handed over and THEN returned at the counter
     make `sold - released` negative, and "owes the customer -2" means nothing at a gate.
     """
-    sold = _sold_by_key(sale_ids)
-    released = _released_by_key(sale_ids)
+    dispatch = _dispatch_sales(sale_ids)
+    sold = _sold_by_key(sale_ids, excluded_sales=dispatch)
+    released = _released_by_key(sale_ids, excluded_sales=dispatch)
     lines = []
     for key in set(sold) | set(released):
         sale_id, variant_id, location_id = key
@@ -150,13 +175,16 @@ def find_sale(reference):
         raise NoBodegaClaim("Type or scan the receipt number to find the claim.")
     sale = (
         SalesTransaction.objects.filter(
-            Q(transaction_no__iexact=reference) | Q(receipt__or_number__iexact=reference)
+            Q(transaction_no__iexact=reference)
+            | Q(receipt__or_number__iexact=reference)
         )
         .exclude(source=SalesTransaction.Source.RETURN)
         .first()
     )
     if sale is None:
         raise NoBodegaClaim(f'No sale has the receipt number "{reference}".')
+    if _dispatch_sales([sale.pk]).exists():
+        raise NoBodegaClaim("This receipt is for delivery. Open Sales → Deliveries.")
     return sale
 
 
@@ -181,7 +209,9 @@ def record_release(*, sale, checker, received_by, plate_no, notes, lines):
     wanted = defaultdict(lambda: ZERO)
     for variant, location, qty in lines:
         if qty is None or qty <= 0:
-            raise InvalidBodegaRelease("Every released quantity must be more than zero.")
+            raise InvalidBodegaRelease(
+                "Every released quantity must be more than zero."
+            )
         if qty != qty.quantize(CENT):
             raise InvalidBodegaRelease(
                 f"{qty} has more than two decimal places; stock is kept to 0.01."
@@ -239,7 +269,7 @@ def bodega_stock():
     """One row per (variant, Bodega shelf) the Bodega holds or is home to.
 
     `on_hand` is the books (what the till may still sell); `unreleased` is paid for and
-    not yet collected; `physical = on_hand + unreleased` is what should be on the ground.
+    not yet collected. Scheduled dispatch stock is physically present until it goes out.
     """
     locations = {loc.pk: loc for loc in bodega_locations()}
     if not locations:
@@ -252,6 +282,11 @@ def bodega_stock():
     ):
         on_hand[(row["variant_id"], row["location_id"])] = row["total"] or ZERO
     unreleased = unreleased_by_variant_location()
+    scheduled_sales = _dispatch_sales(scheduled_only=True)
+    already_released = _released_by_key(scheduled_sales)
+    dispatch = defaultdict(lambda: ZERO)
+    for key, qty in _sold_by_key(scheduled_sales).items():
+        dispatch[key[1:]] += max(qty - already_released[key], ZERO)
     for_checking = defaultdict(lambda: ZERO)
     for row in (
         BodegaDeliveryLine.objects.filter(
@@ -265,6 +300,7 @@ def bodega_stock():
     keys = (
         set(on_hand)
         | {key for key, qty in unreleased.items() if qty > 0}
+        | {key for key, qty in dispatch.items() if qty > 0}
         | set(for_checking)
     )
     # A product whose HOME is a Bodega belongs on the list even before its first delivery.
@@ -294,7 +330,10 @@ def bodega_stock():
                 "is_home": variant.product.stored_at_id == location_id,
                 "on_hand": held,
                 "unreleased": open_qty,
-                "physical": held + open_qty,
+                "awaiting_dispatch": dispatch.get((variant_id, location_id), ZERO),
+                "physical": held
+                + open_qty
+                + dispatch.get((variant_id, location_id), ZERO),
                 "for_checking": for_checking.get((variant_id, location_id), ZERO),
                 "min_stock": variant.min_stock_threshold,
             }
@@ -415,14 +454,20 @@ def confirm_delivery(*, delivery_id, checker, lines, notes=""):
         )
         if damaged > 0:
             _write_off(
-                variant=row.variant, location=delivery.location, user=checker,
-                qty=damaged, adjustment_type=StockAdjustment.AdjustmentType.DAMAGE,
+                variant=row.variant,
+                location=delivery.location,
+                user=checker,
+                qty=damaged,
+                adjustment_type=StockAdjustment.AdjustmentType.DAMAGE,
                 remarks=f"{note} (damaged on delivery)",
             )
         if missing > 0:
             _write_off(
-                variant=row.variant, location=delivery.location, user=checker,
-                qty=missing, adjustment_type=StockAdjustment.AdjustmentType.SHRINKAGE,
+                variant=row.variant,
+                location=delivery.location,
+                user=checker,
+                qty=missing,
+                adjustment_type=StockAdjustment.AdjustmentType.SHRINKAGE,
                 remarks=f"{note} (not delivered)",
             )
         row.good_qty = good

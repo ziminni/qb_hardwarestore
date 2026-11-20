@@ -49,7 +49,31 @@ class ShiftViewmodel extends ChangeNotifier {
   /// Why the last open/close failed, or null.
   String? actionError;
 
+  /// What the server says the drawer last held (owner ruling, drawer carry), or
+  /// null when it could not be asked. Read by the opening form as a PREFILL,
+  /// never as the answer: the cashier always counts.
+  ShiftOpeningSuggestion? openingSuggestion;
+
+  /// Why the opening suggestion could not be read, or null. A failure shows
+  /// "unavailable" in the form - never an invented 0.00 float.
+  String? openingSuggestionError;
+
   bool get hasOpenShift => _currentShift?.isOpen ?? false;
+
+  /// Asks what the previous close left in the drawer. Failure is recorded, not
+  /// thrown: the open form still works, it just asks the cashier to count.
+  Future<void> loadOpeningSuggestion() async {
+    try {
+      openingSuggestion = await _service.fetchOpeningSuggestion();
+      openingSuggestionError = null;
+    } on ShiftServiceException catch (failure) {
+      openingSuggestion = null;
+      openingSuggestionError = failure.message;
+    } on Object {
+      openingSuggestion = null;
+    }
+    notifyListeners();
+  }
 
   /// Reads the caller's open shift. Null from the service is the normal
   /// start-of-day answer, so it clears [loadError] rather than setting one.
@@ -117,13 +141,17 @@ class ShiftViewmodel extends ChangeNotifier {
   /// — or null after setting [actionError]. [currentShift] is cleared only on
   /// success: a failed close leaves the shift open on the server, so the till
   /// must keep showing it open.
-  Future<Shift?> closeShift(double closingCount) async {
+  Future<Shift?> closeShift(double closingCount, {double? cashLeft}) async {
     final shift = _currentShift;
     if (shift == null) return null;
 
     actionError = null;
     try {
-      final closed = await _service.closeShift(shift.id, closingCount);
+      final closed = await _service.closeShift(
+        shift.id,
+        closingCount,
+        cashLeft: cashLeft,
+      );
       _currentShift = null;
       _history = [closed, ..._history.where((other) => other.id != closed.id)];
       notifyListeners();

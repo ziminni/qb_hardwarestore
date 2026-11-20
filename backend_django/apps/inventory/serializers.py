@@ -254,6 +254,20 @@ class VariantUOMSerializer(serializers.ModelSerializer):
     )
     conversion_factor = serializers.DecimalField(max_digits=12, decimal_places=2)
     default_selling_price = serializers.DecimalField(max_digits=12, decimal_places=2)
+    # Owner ruling (utang markup): a unit may cost more when bought on credit. The KIND and
+    # the VALUE are writable exactly where the shelf price is - the same inventory roles,
+    # the same PATCH - and `credit_selling_price` is COMPUTED, so the till shows the number
+    # the checkout will charge instead of re-implementing the rounding rule.
+    # `required=False` on BOTH: every client that existed before this feature sends
+    # neither, and the model's own defaults (NONE / 0.00) are exactly what "no markup"
+    # means. Making them required would have refused every create that worked yesterday.
+    credit_markup_kind = serializers.ChoiceField(
+        choices=VariantUOM.CreditMarkupKind.choices, required=False
+    )
+    credit_markup_value = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False
+    )
+    credit_selling_price = serializers.SerializerMethodField()
     # Phase 1d Task 1: the till reads whether this unit is counted in ones instead of
     # keeping its own list, and a screen offers "remove" only where nothing references
     # the unit. Both are computed, so neither is writable here.
@@ -300,11 +314,25 @@ class VariantUOMSerializer(serializers.ModelSerializer):
             "barcode_qr",
             "conversion_factor",
             "default_selling_price",
+            # Owner ruling (utang markup): what credit costs, and what produced it.
+            "credit_markup_kind",
+            "credit_markup_value",
+            "credit_selling_price",
             "stored_at",
             "stored_at_name",
             "in_use",
         ]
         read_only_fields = ["id"]
+
+    def get_credit_selling_price(self, obj):
+        """`obj.credit_selling_price` - the SAME helper the checkout prices with.
+
+        Rendered through DRF's DecimalField so it crosses the wire as the same 2-decimal
+        string as `default_selling_price`, not a number the client re-rounds.
+        """
+        return serializers.DecimalField(
+            max_digits=12, decimal_places=2
+        ).to_representation(obj.credit_selling_price)
 
     def get_in_use(self, obj):
         """`annotate_unit_in_use`'s annotation when the view attached one, else ask.
@@ -399,6 +427,32 @@ class VariantUOMSerializer(serializers.ModelSerializer):
             )
         if price is not None and price < 0:
             raise InvalidSellingUnit("default_selling_price must not be negative.")
+
+        # Owner ruling (utang markup): the same refusal shape for the markup, because it is
+        # the same kind of number - money the till charges. A markup is never negative
+        # (that would make credit cheaper than cash), and 1000 percent is the ceiling: a
+        # typo one digit too long would make the utang price meaningless.
+        kind = attrs.get("credit_markup_kind")
+        if kind is None and self.instance is not None:
+            kind = self.instance.credit_markup_kind
+        markup = attrs.get("credit_markup_value")
+        if markup is None and self.instance is not None:
+            markup = self.instance.credit_markup_value
+        if markup is not None and markup < 0:
+            raise InvalidSellingUnit("credit_markup_value must not be negative.")
+        if (
+            kind == VariantUOM.CreditMarkupKind.PERCENT
+            and markup is not None
+            and markup > 1000
+        ):
+            raise InvalidSellingUnit(
+                "credit_markup_value cannot be more than 1000 percent: that is an "
+                "eleven-fold price. Check the number."
+            )
+        if kind == VariantUOM.CreditMarkupKind.NONE and markup:
+            # NONE means no markup, so a leftover value would make the row read as a
+            # switched-off markup - a trap for the next person who flips the kind back.
+            attrs["credit_markup_value"] = Decimal(0)
 
         if factor is not None and factor == 1 and variant is not None:
             # Factor 1 IS the base unit. Checked on create and whenever the factor is

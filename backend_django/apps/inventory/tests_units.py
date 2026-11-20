@@ -83,7 +83,7 @@ class StandardUnitsMigrationTests(TransactionTestCase):
         return [
             (
                 app,
-                BEFORE if app == INVENTORY else None if app == 'bodega' else name,
+                BEFORE if app == INVENTORY else None if app in ('bodega', 'sms') else name,
             )
             for app, name in self._leaves()
         ]

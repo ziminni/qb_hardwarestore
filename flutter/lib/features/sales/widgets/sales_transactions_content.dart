@@ -445,6 +445,7 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
             'Payment (${TenderMethod.labelFor(payment.method)})',
             formatPeso(payment.amount),
           ),
+        if (sale.creditSale) ('Pricing', 'Credit price (utang)'),
         // Phase 4 F4: the discount and its reason, then the VAT split the server
         // computed. A non-VAT store says so instead of printing two zeroes.
         if (sale.discountAmount > 0)
@@ -454,6 +455,7 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
                 : 'Discount (${sale.discountReason})',
             formatPeso(sale.discountAmount),
           ),
+        if (sale.paymentFee > 0) ('Payment fee', formatPeso(sale.paymentFee)),
         if (sale.vatRegistered) ...[
           ('Vatable sales', formatPeso(sale.vatableSales)),
           ('VAT', formatPeso(sale.vatAmount)),

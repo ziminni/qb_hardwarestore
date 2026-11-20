@@ -40,7 +40,15 @@ class _StubShifts extends ShiftService {
   }
 
   @override
-  Future<Shift> closeShift(int shiftId, double closingCount) async {
+  Future<ShiftOpeningSuggestion> fetchOpeningSuggestion() async =>
+      const ShiftOpeningSuggestion();
+
+  @override
+  Future<Shift> closeShift(
+    int shiftId,
+    double closingCount, {
+    double? cashLeft,
+  }) async {
     closedId = shiftId;
     closedWith = closingCount;
     if (failClose != null) throw failClose!;

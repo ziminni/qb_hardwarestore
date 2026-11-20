@@ -14,6 +14,7 @@ class StoreSettings {
     required this.vatRegistered,
     required this.vatRate,
     required this.discountCapPercent,
+    this.tenderFees = const [],
     this.updatedAt,
   });
 
@@ -43,8 +44,33 @@ class StoreSettings {
   /// The largest discount a cashier may take without an approval (`10.00` = 10%).
   final double discountCapPercent;
 
+  /// Per-tender fees the shop charges on CARD / GCASH / BANK_TRANSFER (owner
+  /// ruling). EMPTY on a fresh shop: no rate is invented here, ever.
+  final List<TenderFee> tenderFees;
+
   /// When the server last stored these values, or null if it did not say.
   final DateTime? updatedAt;
+
+  /// The active fee for a tender method, or null when the shop charges none.
+  TenderFee? feeFor(String method) {
+    for (final fee in tenderFees) {
+      if (fee.isActive && fee.method == method) return fee;
+    }
+    return null;
+  }
+
+  /// What ONE payment row owes for [method] on [covered] - the server's own
+  /// rule (`round(covered x value/100)` or the flat value), mirrored ONLY for
+  /// the preview. The wire never carries it: the server recomputes and stores
+  /// `fee`, and the receipt prints that stored number.
+  double previewFee(String method, double covered) {
+    final fee = feeFor(method);
+    if (fee == null || covered <= 0) return 0;
+    final raw = fee.kind == TenderFee.kindPercent
+        ? covered * fee.value / 100
+        : fee.value;
+    return (raw * 100).roundToDouble() / 100;
+  }
 
   factory StoreSettings.fromJson(Map<String, dynamic> json) {
     return StoreSettings(
@@ -55,6 +81,7 @@ class StoreSettings {
         'discount_cap_percent',
         defaultDiscountCapPercent,
       ),
+      tenderFees: nestedList(json, 'tender_fees', TenderFee.fromJson),
       updatedAt: nullableDateField(json, 'updated_at'),
     );
   }
@@ -64,6 +91,9 @@ class StoreSettings {
     'vat_registered': vatRegistered,
     'vat_rate': vatRate.toStringAsFixed(2),
     'discount_cap_percent': discountCapPercent.toStringAsFixed(2),
+    // The list REPLACES the server's table: a method left out ends up with no
+    // fee, which is the only reading of a list a client can reason about.
+    'tender_fees': [for (final fee in tenderFees) fee.toJson()],
   };
 
   /// The one percent rule the form and the viewmodel share, as a sentence for
@@ -104,4 +134,60 @@ double _percentOr(Map<String, dynamic> json, String key, double fallback) {
   };
   if (parsed == null || !parsed.isFinite) return fallback;
   return parsed;
+}
+
+/// One per-tender fee row (`GET/PATCH /store-settings/` -> `tender_fees[]`).
+///
+/// Wire shape (server serializer): `{method, kind, value, is_active}` - the flag
+/// is `is_active`, NOT `active`, and it is a real boolean. `value` is a
+/// 2-decimal STRING like every other money field.
+class TenderFee {
+  const TenderFee({
+    required this.method,
+    required this.kind,
+    required this.value,
+    this.isActive = true,
+  });
+
+  static const kindPercent = 'PERCENT';
+  static const kindAmount = 'AMOUNT';
+
+  /// The ONLY methods a fee may attach to (the server refuses the rest).
+  static const feeableMethods = ['GCASH', 'CARD', 'BANK_TRANSFER'];
+
+  factory TenderFee.fromJson(Map<String, dynamic> json) {
+    return TenderFee(
+      method: stringField(json, 'method'),
+      kind: stringField(json, 'kind'),
+      value: decimalField(json, 'value'),
+      isActive: boolFieldOr(json, 'is_active', or: true),
+    );
+  }
+
+  final String method;
+  final String kind;
+  final double value;
+  final bool isActive;
+
+  TenderFee copyWith({String? kind, double? value, bool? isActive}) =>
+      TenderFee(
+        method: method,
+        kind: kind ?? this.kind,
+        value: value ?? this.value,
+        isActive: isActive ?? this.isActive,
+      );
+
+  Map<String, dynamic> toJson() => {
+    'method': method,
+    'kind': kind,
+    'value': value.toStringAsFixed(2),
+    'is_active': isActive,
+  };
+
+  String get label => switch (method) {
+    'GCASH' => 'GCash',
+    'CARD' => 'Card',
+    'BANK_TRANSFER' => 'Bank transfer',
+    _ => method,
+  };
 }

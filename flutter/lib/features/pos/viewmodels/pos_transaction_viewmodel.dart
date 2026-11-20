@@ -105,7 +105,36 @@ class PosTransactionViewmodel extends ChangeNotifier {
   List<PosCartLine> get lines => List.unmodifiable(_lines);
   List<PosReceipt> get receipts => List.unmodifiable(_receipts);
   double get subtotal => _lines.fold(0, (sum, line) => sum + line.total);
-  double get total => subtotal;
+
+  /// True when the cashier chose to ring this sale on utang terms (owner ruling).
+  ///
+  /// It is an EXPLICIT choice made before the tender is taken, never a guess from
+  /// a mixed payment: the server refuses a credit sale that ends fully paid, and
+  /// refuses an underpaid cash-price sale once any unit carries a markup. Agreed
+  /// order prices are untouched either way.
+  bool _creditSale = false;
+  bool get creditSale => _creditSale;
+
+  /// Whether ANY cart line costs more on utang, so the till only offers the
+  /// switch when it would change a price.
+  bool get hasCreditMarkup =>
+      _lines.any((line) => line.creditTotal != line.total);
+
+  /// The cart at credit prices, for the preview the cashier reads.
+  double get creditTotal =>
+      _lines.fold(0, (sum, line) => sum + line.creditTotal);
+
+  /// Turns the utang-price switch on or off. The pending attempt key is dropped:
+  /// a different pricing is a different sale.
+  void setCreditSale(bool value) {
+    if (_creditSale == value) return;
+    _creditSale = value;
+    _dropAttemptKey();
+    notifyListeners();
+  }
+
+  /// What the cart is worth right now: credit prices when the switch is on.
+  double get total => _creditSale ? creditTotal : subtotal;
   int get itemCount => _lines.length;
 
   /// True while a sale is in flight. The submit action must be disabled, because the
@@ -733,6 +762,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
             // I1, QA defects 1 and 2).
             conversionFactor: uom.conversionFactor,
             unitPrice: uom.defaultSellingPrice,
+            // The server's own computed utang price, never re-derived here.
+            creditUnitPrice: uom.creditSellingPrice,
             availableBaseStock: baseStock,
             // Match the server's strict threshold in base units, even for packages.
             isLowStock:
@@ -915,6 +946,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
           quantity: quantity,
           unit: item.unit,
           unitPrice: item.unitPrice,
+          creditUnitPrice: item.creditUnitPrice,
           availableQuantity: item.availableSaleQuantity,
           storedAtName: item.storedAtName,
         ),
@@ -1236,6 +1268,9 @@ class PosTransactionViewmodel extends ChangeNotifier {
             discount: discount,
             discountApproval: discountApprovalToken,
             delivery: delivery,
+            // Owner ruling (utang markup): the parked cart is completed at the
+            // SAME pricing the cashier chose before the tender was taken.
+            creditSale: _creditSale,
           ),
         );
         _completedHeldCartId = completeCartId;
@@ -1277,6 +1312,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
           discount: discount,
           discountApproval: discountApprovalToken,
           delivery: delivery,
+          creditSale: _creditSale,
         );
         if (resumedCartId != null) {
           // The edited basket is sold, so the parked copy must not survive to be resumed
@@ -1306,6 +1342,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
             (sum, payment) => sum + payment.amountTendered,
           ),
           payments: result.payments,
+          // The server's own fee sum for this sale, printed as its own line.
+          paymentFee: result.paymentFee,
           // QA High (Phase 4 close): the change the SERVER recorded. The receipt
           // prints this number - a till-side recomputation got a split sale wrong.
           changeGiven: result.changeGiven,

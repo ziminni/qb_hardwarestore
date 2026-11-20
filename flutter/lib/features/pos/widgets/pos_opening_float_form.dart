@@ -33,6 +33,28 @@ class PosOpeningFloatForm extends StatefulWidget {
 class _PosOpeningFloatFormState extends State<PosOpeningFloatForm> {
   final _floatController = TextEditingController();
   bool _opening = false;
+  bool _askedForSuggestion = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Owner ruling (drawer carry): ask ONCE what the last close left, then
+    // prefill it as an EDITABLE starting point. The cashier still counts and
+    // may overwrite it freely; nothing here opens a shift.
+    if (_askedForSuggestion) return;
+    _askedForSuggestion = true;
+    final shift = context.read<ShiftViewmodel>();
+    shift.loadOpeningSuggestion().then((_) {
+      if (!mounted) return;
+      final suggested = shift.openingSuggestion?.suggestedFloat;
+      if (suggested == null || _floatController.text.isNotEmpty) {
+        setState(() {});
+        return;
+      }
+      _floatController.text = suggested.toStringAsFixed(2);
+      setState(() {});
+    });
+  }
 
   @override
   void dispose() {
@@ -68,10 +90,41 @@ class _PosOpeningFloatFormState extends State<PosOpeningFloatForm> {
   @override
   Widget build(BuildContext context) {
     final openingFloat = _openingFloat;
+    final suggestion = context.watch<ShiftViewmodel>().openingSuggestion;
+    final suggestionError = context
+        .watch<ShiftViewmodel>()
+        .openingSuggestionError;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (suggestionError != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: Text(
+              'Last drawer amount unavailable - count the cash. '
+              '($suggestionError)',
+              style: const TextStyle(fontSize: 12),
+            ),
+          )
+        else if (suggestion != null && suggestion.cleared)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: Text(
+              'The last shift cleared the drawer, so it starts empty. '
+              'Count and confirm the cash you are starting with.',
+              style: const TextStyle(fontSize: 12),
+            ),
+          )
+        else if (suggestion?.source != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: Text(
+              'The last shift left a drawer amount to carry over. It is '
+              'prefilled - count and correct it if it differs.',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
         TextField(
           controller: _floatController,
           autofocus: true,

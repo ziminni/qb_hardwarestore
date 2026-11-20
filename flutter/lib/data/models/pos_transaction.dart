@@ -11,6 +11,7 @@ class PosCatalogItem {
     required this.conversionFactor,
     required this.unitPrice,
     required this.availableBaseStock,
+    this.creditUnitPrice,
     this.categoryName = '',
     this.brandName = '',
     this.isWhole = false,
@@ -27,6 +28,14 @@ class PosCatalogItem {
   final double conversionFactor;
   final double unitPrice;
   final double availableBaseStock;
+
+  /// What this unit costs on utang (owner ruling): the server's computed
+  /// `credit_selling_price`. Null/absent means no markup was configured, and the
+  /// cash price is then the credit price too.
+  final double? creditUnitPrice;
+
+  /// The price a credit sale charges for this row, from the catalogue.
+  double get creditPrice => creditUnitPrice ?? unitPrice;
 
   /// Shown on the till's product card and used by its category chips.
   final String categoryName;
@@ -75,6 +84,7 @@ class PosCartLine {
     required this.unit,
     required this.unitPrice,
     required this.availableQuantity,
+    this.creditUnitPrice,
     this.storedAtName = '',
     this.pickUp = const [],
   });
@@ -85,6 +95,13 @@ class PosCartLine {
   final String unit;
   final double unitPrice;
   final double availableQuantity;
+
+  /// The unit's utang price, carried from the catalogue so the cart can show
+  /// what a credit sale would charge. Null reads as [unitPrice].
+  final double? creditUnitPrice;
+
+  /// This line's money at credit prices.
+  double get creditTotal => quantity * (creditUnitPrice ?? unitPrice);
 
   /// The pick-up point the receipt prints as "Pick up at …" (Phase 5 B4).
   ///
@@ -106,6 +123,7 @@ class PosCartLine {
     unit: unit,
     unitPrice: unitPrice,
     availableQuantity: availableQuantity,
+    creditUnitPrice: creditUnitPrice,
     storedAtName: storedAtName,
     pickUp: pickUp,
   );
@@ -134,6 +152,7 @@ class PosReceipt {
     this.vatRate = 0,
     this.changeGiven = 0,
     this.deliveryFee = 0,
+    this.paymentFee = 0,
   });
   final String reference;
   final String officialReceiptNumber;
@@ -198,6 +217,11 @@ class PosReceipt {
   /// carried out, and the receipt then prints no line.
   final double deliveryFee;
 
+  /// The sum of the fees charged on this sale's non-cash tenders, as the SERVER
+  /// stored it. Already inside [total]; printed as its own line so the customer
+  /// sees the fee and VAT as different things.
+  final double paymentFee;
+
   /// What the customer still owes after the money in hand: the utang the pending
   /// cheque is holding open, or the shortfall on an underpaid sale.
   double get balanceDue => (total - paidNow).clamp(0, double.infinity);
@@ -228,6 +252,7 @@ class PosReceiptPayment {
     required this.method,
     required this.amount,
     this.status = 'CLEARED',
+    this.fee = 0,
     this.chequeNumber = '',
     this.bank = '',
     this.chequeDate,
@@ -239,6 +264,11 @@ class PosReceiptPayment {
   final String method;
   final double amount;
   final String status;
+
+  /// The fee this tender was charged, as the SERVER stored it (already inside
+  /// `amount`). Read-only: recomputing it here would print a number that may
+  /// disagree with what the shop actually collected.
+  final double fee;
   final String chequeNumber;
   final String bank;
   final DateTime? chequeDate;
@@ -261,6 +291,7 @@ class PosReceiptPayment {
       method: '${json['method'] ?? ''}',
       amount: double.tryParse('${json['amount_tendered']}') ?? 0,
       status: '${json['status'] ?? 'CLEARED'}',
+      fee: double.tryParse('${json['fee'] ?? 0}') ?? 0,
       chequeNumber: '${json['cheque_number'] ?? ''}',
       bank: '${json['bank'] ?? ''}',
       chequeDate: date is String ? DateTime.tryParse(date) : null,

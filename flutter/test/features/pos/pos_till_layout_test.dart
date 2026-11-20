@@ -7,6 +7,9 @@
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/repositories/pos_repository.dart';
 import 'package:client/data/services/auth_service.dart';
+import 'package:client/core/format/format.dart';
+import 'package:client/data/models/store_settings.dart';
+import 'package:client/features/admin/viewmodels/store_settings_viewmodel.dart';
 import 'package:client/data/models/sale_discount.dart';
 import 'package:client/data/models/delivery.dart';
 import 'package:client/data/services/pos_service.dart';
@@ -32,6 +35,7 @@ class _StubPosRepository extends PosRepository {
   _StubPosRepository() : super(PosService());
 
   int calls = 0;
+  List<PosCheckoutPayment> sent = const [];
 
   @override
   Future<int> walkInCustomerId() async => 1;
@@ -46,8 +50,10 @@ class _StubPosRepository extends PosRepository {
     PosDiscount? discount,
     String? discountApproval,
     DeliveryDraft? delivery,
+    bool creditSale = false,
   }) async {
     calls++;
+    sent = payments;
     return PosCheckoutResult(
       id: 1,
       transactionNo: 'TRX-1',
@@ -104,6 +110,19 @@ class _FailingInventoryRepository extends InventoryRepository {
   Future<List<StockAdjustment>> loadAdjustments() async => [];
 }
 
+class _FeeSettings extends StoreSettingsViewmodel {
+  @override
+  Future<void> load() async {}
+
+  @override
+  StoreSettings get settings => const StoreSettings(
+    vatRegistered: false,
+    vatRate: 12,
+    discountCapPercent: 20,
+    tenderFees: [TenderFee(method: 'GCASH', kind: 'AMOUNT', value: 3)],
+  );
+}
+
 Future<void> _pump(WidgetTester tester, Size size) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
@@ -115,6 +134,9 @@ Future<void> _pump(WidgetTester tester, Size size) async {
       value: AuthViewmodel(AuthRepository(AuthService())),
       child: MultiProvider(
         providers: [
+          ChangeNotifierProvider<StoreSettingsViewmodel>(
+            create: (_) => _FeeSettings(),
+          ),
           ChangeNotifierProvider<InventoryViewmodel>.value(
             value: InventoryViewmodel(
               products: _FailingProductsRepository(),
@@ -155,6 +177,66 @@ void main() {
     expect(find.text('View cart'), findsNothing);
   });
 
+  testWidgets('wide till opens checkout without wizard steps', (tester) async {
+    _addOneLine();
+    await _pump(tester, const Size(1600, 1000));
+    await tester.tap(find.text('Proceed to payment'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.byKey(const ValueKey('pos-discount-toggle')), findsOneWidget);
+    expect(find.text('Next'), findsNothing);
+    expect(find.text('Complete transaction'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(_pos.calls, 0);
+    expect(_cart.lines, hasLength(1));
+  });
+
+  testWidgets('double tap on inline checkout posts cash only once', (
+    tester,
+  ) async {
+    _addOneLine();
+    await _pump(tester, const Size(1600, 1000));
+    await tester.tap(find.text('Proceed to payment'));
+    await tester.pumpAndSettle();
+
+    final complete = tester.widget<FilledButton>(
+      find.byKey(const ValueKey('pos-payment-next')),
+    );
+    complete.onPressed!();
+    complete.onPressed!();
+    await tester.pumpAndSettle();
+
+    expect(_pos.calls, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('inline GCash shows fee but submits only covered amount', (
+    tester,
+  ) async {
+    _addOneLine();
+    final covered = _cart.total;
+    await _pump(tester, const Size(1600, 1000));
+    await tester.tap(find.text('Proceed to payment'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('pos-tender-method-0')));
+    await tester.pumpAndSettle();
+    expect(find.text('Card'), findsNothing);
+    await tester.tap(find.text('GCash').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Payment fees'), findsOneWidget);
+    expect(find.text(formatPeso(3)), findsOneWidget);
+    expect(find.text('Total to pay'), findsOneWidget);
+    expect(find.text(formatPeso(covered + 3)), findsOneWidget);
+    await tester.tap(find.text('Complete transaction'));
+    await tester.pumpAndSettle();
+    expect(_pos.calls, 1);
+    expect(_pos.sent.single.method, 'GCASH');
+    expect(_pos.sent.single.amountTendered, covered);
+  });
+
   testWidgets('a narrow window moves the cart into a bar and a sheet', (
     tester,
   ) async {
@@ -168,24 +250,43 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Proceed to payment'), findsOneWidget);
 
-    // Pay from the sheet still reaches the payment dialog, and cancelling it
-    // submits nothing (the decision 06 invariant holds on this path too).
+    // Pay closes the cart sheet and opens the same till checkout as the bar.
     await tester.tap(find.text('Proceed to payment'));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('pos-amount-due')), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.byKey(const ValueKey('pos-discount-toggle')), findsOneWidget);
+    expect(find.text('Next'), findsNothing);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     expect(_pos.calls, 0);
     expect(_cart.lines, hasLength(1));
   });
 
-  testWidgets('the bar\'s Pay goes straight to payment', (tester) async {
+  testWidgets('the narrow Pay bar submits GCash in one checkout panel', (
+    tester,
+  ) async {
     _addOneLine();
-    await _pump(tester, const Size(700, 800));
+    final covered = _cart.total;
+    await _pump(tester, const Size(700, 640));
 
     await tester.tap(find.widgetWithText(FilledButton, 'Pay'));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('pos-amount-due')), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.text('Next'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('pos-tender-method-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('GCash').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Payment fees'), findsOneWidget);
+    expect(find.text(formatPeso(covered + 3)), findsOneWidget);
+    await tester.tap(find.text('Complete transaction'));
+    await tester.pumpAndSettle();
+    expect(_pos.calls, 1);
+    expect(_pos.sent.single.method, 'GCASH');
+    expect(_pos.sent.single.amountTendered, covered);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('no window size overflows the till', (tester) async {

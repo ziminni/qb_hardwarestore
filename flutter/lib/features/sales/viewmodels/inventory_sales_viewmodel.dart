@@ -124,6 +124,7 @@ class InventorySalesViewmodel extends ChangeNotifier {
         InventorySalePayment(
           method: TenderMethod.labelFor(p.method),
           amount: p.amountTendered,
+          fee: p.fee,
         ),
     ],
     lines: [
@@ -147,6 +148,8 @@ class InventorySalesViewmodel extends ChangeNotifier {
     vatableSales: r.vatableSales,
     vatAmount: r.vatAmount,
     vatRegistered: r.vatRegistered,
+    paymentFee: r.paymentFee,
+    creditSale: r.creditSale,
   );
 
   InventoryReturn _returnOf(

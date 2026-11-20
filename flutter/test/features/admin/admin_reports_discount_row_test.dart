@@ -98,5 +98,57 @@ void main() {
     // ₱250 for the period, and the same figure in the Total row of the table.
     expect(find.text('₱250.00'), findsWidgets);
     expect(find.text('₱0.00'), findsNothing);
+    expect(find.text('Payment fees'), findsNothing);
   });
+
+  testWidgets('the sales report shows Payment fees tile and column when fees exist', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1600, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthViewmodel>.value(
+        value: AuthViewmodel(AuthRepository(AuthService())),
+        child: MaterialApp(
+          home: SalesReportsPage(
+            viewmodel: AdminReportsViewmodel(
+              repository: _FeeStubReportsRepository(),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Payment fees'), findsNWidgets(2));
+    expect(find.text('₱35.00'), findsWidgets);
+  });
+}
+
+class _FeeStubReportsRepository extends _StubReportsRepository {
+  @override
+  Future<SalesSummary> fetchSalesSummary({String? from, String? to}) async {
+    return const SalesSummary(
+      from: '2026-11-01',
+      to: '2026-11-11',
+      totalTransactions: 2,
+      totalGross: 2035,
+      totalVat: 180.00,
+      totalDiscounts: 250,
+      totalPaymentFees: 35.00,
+      days: [
+        SalesDay(
+          day: '2026-11-11',
+          transactions: 2,
+          gross: 2035,
+          vat: 180.00,
+          discounts: 250,
+          paymentFees: 35.00,
+        ),
+      ],
+    );
+  }
 }

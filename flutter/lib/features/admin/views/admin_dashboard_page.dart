@@ -424,22 +424,21 @@ class _SalesTab extends StatelessWidget {
           ],
         ),
         DashboardCard(
-          icon: Icons.bar_chart,
+          icon: Icons.calendar_today_outlined,
           title: 'Last 7 days',
-          subtitle: 'Sales per day',
-          child: BreakdownBars(
-            empty: 'No sales in the last 7 days.',
-            entries: [
-              for (final row in s.rows('last_7_days').reversed)
-                BreakdownEntry(
-                  label: _date(row['date']) == null
-                      ? '${row['date']}'
-                      : formatWeekdayDate(_date(row['date'])!),
-                  value: _num(row['total']),
-                  display: formatPesoWhole(_num(row['total'])),
+          subtitle: 'Daily transactions and sales totals',
+          child: s.rows('last_7_days').isEmpty
+              ? const Text('No daily sales data available.')
+              : Column(
+                  children: [
+                    for (final row in s.rows('last_7_days').reversed)
+                      FactLine(
+                        '${_date(row['date']) == null ? row['date'] : formatWeekdayDate(_date(row['date'])!)}'
+                        ' · ${_plural(_num(row['transactions']).toInt(), 'transaction')}',
+                        formatPeso(_num(row['total'])),
+                      ),
+                  ],
                 ),
-            ],
-          ),
         ),
         ItemListCard(
           icon: Icons.star_outline,

@@ -51,9 +51,14 @@ class InventorySaleLine {
 /// Mirrors `pos.serializers.TransactionPaymentSerializer` as the View sheet
 /// (decision D-02) needs it: how it was paid, and how much.
 class InventorySalePayment {
-  const InventorySalePayment({required this.method, required this.amount});
+  const InventorySalePayment({
+    required this.method,
+    required this.amount,
+    this.fee = 0,
+  });
   final String method;
   final double amount;
+  final double fee;
 }
 
 class InventorySale {
@@ -72,6 +77,8 @@ class InventorySale {
     this.vatableSales = 0,
     this.vatAmount = 0,
     this.vatRegistered = true,
+    this.paymentFee = 0,
+    this.creditSale = false,
   });
   final String transactionNo;
   final DateTime date;
@@ -98,9 +105,13 @@ class InventorySale {
   final double vatAmount;
   final bool vatRegistered;
 
-  /// What the customer actually owed: the lines less the discount. The sheet's total
-  /// bar shows this, so a discounted sale does not read as if the discount vanished.
-  double get amountDue => total - discountAmount;
+  /// Untaxed non-cash payment fee sum, and whether the sale used utang credit pricing.
+  final double paymentFee;
+  final bool creditSale;
+
+  /// What the customer actually owed: the lines less the discount plus any payment fee.
+  /// The sheet's total bar shows this, so a discounted or fee-bearing sale reconciles.
+  double get amountDue => total - discountAmount + paymentFee;
 }
 
 class InventoryReturn {

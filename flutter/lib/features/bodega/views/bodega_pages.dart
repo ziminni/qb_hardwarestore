@@ -840,6 +840,7 @@ class _StockBodyState extends State<_StockBody> {
                   _muted(
                     'Can still sell ${_q(row.onHand)} · waiting pick-up '
                     '${_q(row.unreleased)}'
+                    '${row.awaitingDispatch > 0 ? ' · awaiting dispatch ${_q(row.awaitingDispatch)}' : ''}'
                     '${row.forChecking > 0 ? ' · for checking ${_q(row.forChecking)}' : ''}'
                     ' ${row.unit}',
                   ),

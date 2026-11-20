@@ -100,7 +100,9 @@ class _FakeRepository extends BodegaRepository {
 
   int claimCount;
   List<int> deliveryIds;
+  bool offline = false;
   final uploads = <(int, int)>[];
+  final releasedRequests = <BodegaReleaseRequest>[];
   int fetches = 0;
   final confirmations = <BodegaDeliveryConfirmation>[];
 
@@ -108,12 +110,24 @@ class _FakeRepository extends BodegaRepository {
   Future<List<BodegaClaim>> fetchClaims({
     bool openOnly = true,
     String query = '',
-  }) async => [
-    for (var i = 1; i <= claimCount; i++) BodegaClaim.fromJson(_claim(i)),
-  ];
+  }) async {
+    if (offline) {
+      throw const BodegaServiceException(
+        'Cannot connect to the BuildPro server.',
+      );
+    }
+    return [
+      for (var i = 1; i <= claimCount; i++) BodegaClaim.fromJson(_claim(i)),
+    ];
+  }
 
   @override
   Future<BodegaClaim> lookupClaim(String receipt) async {
+    if (offline) {
+      throw const BodegaServiceException(
+        'Cannot connect to the BuildPro server.',
+      );
+    }
     for (var i = 1; i <= claimCount; i++) {
       final claim = BodegaClaim.fromJson(_claim(i));
       if (claim.orNumber == receipt || claim.transactionNo == receipt) {
@@ -121,6 +135,28 @@ class _FakeRepository extends BodegaRepository {
       }
     }
     throw BodegaServiceException('No sale has the receipt number "$receipt".');
+  }
+
+  @override
+  Future<BodegaRelease> release(BodegaReleaseRequest request) async {
+    if (offline) {
+      throw const BodegaServiceException(
+        'Cannot connect to the BuildPro server.',
+      );
+    }
+    releasedRequests.add(request);
+    return BodegaRelease(
+      id: releasedRequests.length,
+      number: 'BR-20261118-000${releasedRequests.length}',
+      transactionNo: request.receipt,
+      customerName: 'Customer 1',
+      checkerName: 'Juan Checker',
+      receivedBy: request.receivedBy,
+      plateNo: request.plateNo,
+      notes: request.notes,
+      createdAt: DateTime(2026, 11, 18, 10),
+      lines: const [],
+    );
   }
 
   @override
@@ -252,6 +288,8 @@ void main() {
   ) async {
     await _pump(tester, claims: 5, deliveries: [1, 2]);
 
+    expect(find.text('Customer pickups'), findsOneWidget);
+    expect(find.text('Supplier arrivals'), findsOneWidget);
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('tile-pickups')),
@@ -492,4 +530,47 @@ void main() {
       },
     );
   });
+
+  test(
+    'offline snapshot lookup and release outbox queue replay when back online',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final repo = _FakeRepository(claimCount: 2);
+      final vm = BodegaViewmodel(repository: repo);
+
+      // 1. Online load caches the open claims snapshot.
+      await vm.loadHome();
+      expect(vm.openClaims, hasLength(2));
+      expect(vm.usingOfflineSnapshot, isFalse);
+
+      // 2. Phone enters warehouse Wi-Fi dead zone: lookup and release use snapshot + outbox.
+      repo.offline = true;
+      final found = await vm.lookup('OR-20261118-0001');
+      expect(found, isTrue);
+      expect(vm.usingOfflineSnapshot, isTrue);
+      expect(vm.claim?.transactionNo, 'TRX-20261118-0001');
+
+      final queued = await vm.release(
+        const BodegaReleaseRequest(
+          receipt: 'TRX-20261118-0001',
+          receivedBy: 'Pedro Driver',
+          plateNo: 'ABC-123',
+          lines: [(variantId: 5, locationId: 2, qty: 4.0)],
+        ),
+      );
+      expect(queued?.number, 'QUEUED-OFFLINE');
+      expect(vm.queuedReleaseCount, 1);
+      expect(vm.claim?.isOpen, isFalse);
+      expect(vm.openClaims.map((c) => c.transactionNo), ['TRX-20261118-0002']);
+
+      // 3. Phone reconnects to Wi-Fi: loadHome replays the outbox with Idempotency-Key.
+      repo.offline = false;
+      await vm.loadHome();
+      expect(vm.queuedReleaseCount, 0);
+      expect(vm.usingOfflineSnapshot, isFalse);
+      expect(repo.releasedRequests, hasLength(1));
+      expect(repo.releasedRequests.single.idempotencyKey, isNotEmpty);
+      expect(repo.releasedRequests.single.receivedBy, 'Pedro Driver');
+    },
+  );
 }

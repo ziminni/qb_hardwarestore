@@ -114,6 +114,12 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   late final TextEditingController _barcodeController;
   late final TextEditingController _reorderController;
   late final TextEditingController _sellingController;
+  late final TextEditingController _creditValueController;
+
+  /// The utang markup kind for the base selling unit (owner ruling): NONE,
+  /// AMOUNT or PERCENT. Prefilled from the existing unit when editing, so the
+  /// clerk sees what is stored instead of a blank form that would erase it.
+  String _creditKind = 'NONE';
   late final TextEditingController _costController;
   late final TextEditingController _initialController;
   late final TextEditingController _packageSizeController;
@@ -211,6 +217,13 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     );
     _sellingController = TextEditingController(
       text: formatQuantity(_baseSellingUnit(variant)?.defaultSellingPrice ?? 0),
+    );
+    final baseUnit = _baseSellingUnit(variant);
+    _creditKind = baseUnit?.creditMarkupKind ?? 'NONE';
+    _creditValueController = TextEditingController(
+      text: (baseUnit == null || baseUnit.creditMarkupValue == 0)
+          ? ''
+          : formatQuantity(baseUnit.creditMarkupValue),
     );
     _costController = TextEditingController(text: '0');
     _initialController = TextEditingController(text: '0');
@@ -323,6 +336,15 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     return variant?.barcode ?? '';
   }
 
+  /// True once the clerk touched the markup controls, so an edit sends them
+  /// only then (null means "leave the stored markup alone").
+  bool _creditMarkupChanged = false;
+
+  /// The markup value in pesos or percent; `NONE` always sends 0, which is what
+  /// the server normalises a switched-off markup to anyway.
+  double get _creditValue =>
+      _creditKind == 'NONE' ? 0 : _num(_creditValueController);
+
   double _num(TextEditingController controller) =>
       double.tryParse(controller.text.trim().replaceAll(',', '')) ?? 0;
 
@@ -409,6 +431,8 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
             minStockThreshold: threshold,
             maxStockLevel: 0,
             sellingPrice: price,
+            creditMarkupKind: _creditKind,
+            creditMarkupValue: _creditValue,
             barcodeQr: barcode,
             locationHint: widget.locationHint,
             storedAtId: _storedAtId,
@@ -445,6 +469,10 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
           sku: _skuController.text.trim(),
           minStockThreshold: threshold,
           sellingPrice: price,
+          // Only sent when the clerk actually changed the markup, so an edit
+          // that touches a price cannot silently clear a stored markup.
+          creditMarkupKind: _creditMarkupChanged ? _creditKind : null,
+          creditMarkupValue: _creditMarkupChanged ? _creditValue : null,
           barcodeQr: barcode,
           locationHint: widget.locationHint,
           storedAtId: _storedAtChanged ? _storedAtId : null,
@@ -856,6 +884,68 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
               validator: _validateBasePrice,
             ),
           ),
+        ],
+      ),
+      const SizedBox(height: AppSpacing.md),
+      // Owner ruling (utang markup): how much MORE this unit costs when bought
+      // on utang. Two compact controls beside the selling price, because the
+      // credit price is a property of the price, not a second price to type.
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 3,
+            child: DropdownButtonFormField<String>(
+              key: const ValueKey('credit-markup-kind'),
+              initialValue: _creditKind,
+              decoration: const InputDecoration(
+                labelText: 'Utang markup',
+                helperText: 'Cash price is unchanged.',
+              ),
+              items: const [
+                DropdownMenuItem(value: 'NONE', child: Text('None')),
+                DropdownMenuItem(value: 'AMOUNT', child: Text('Peso amount')),
+                DropdownMenuItem(value: 'PERCENT', child: Text('Percent')),
+              ],
+              onChanged: (value) => setState(() {
+                _creditKind = value ?? 'NONE';
+                _creditMarkupChanged = true;
+              }),
+            ),
+          ),
+          if (_creditKind != 'NONE') ...[
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              flex: 2,
+              child: TextFormField(
+                key: const ValueKey('credit-markup-value'),
+                controller: _creditValueController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                onChanged: (_) => setState(() => _creditMarkupChanged = true),
+                decoration: InputDecoration(
+                  labelText: _creditKind == 'PERCENT'
+                      ? 'Percent'
+                      : 'Peso amount',
+                  suffixText: _creditKind == 'PERCENT' ? '%' : null,
+                  prefixText: _creditKind == 'AMOUNT' ? '₱ ' : null,
+                ),
+                validator: (raw) {
+                  final text = (raw ?? '').trim();
+                  if (text.isEmpty) return 'Enter the utang markup.';
+                  final value = double.tryParse(text);
+                  if (value == null || !value.isFinite || value < 0) {
+                    return 'Enter 0 or more.';
+                  }
+                  if (_creditKind == 'PERCENT' && value > 1000) {
+                    return 'At most 1000%.';
+                  }
+                  return null;
+                },
+              ),
+            ),
+          ],
         ],
       ),
       const SizedBox(height: AppSpacing.md),

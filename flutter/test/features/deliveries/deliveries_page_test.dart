@@ -14,6 +14,7 @@ import 'dart:io';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/theme/app_theme.dart';
 import 'package:client/data/models/delivery.dart';
+import 'package:client/data/models/pick_up.dart';
 import 'package:client/data/repositories/auth_repository.dart';
 import 'package:client/data/services/auth_service.dart';
 import 'package:client/data/services/delivery_service.dart';
@@ -159,6 +160,47 @@ Future<void> _pump(
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
   setUpAll(_loadAppFonts);
+
+  testWidgets('loading details show allocated quantities without printing', (
+    tester,
+  ) async {
+    final service = _StubService(
+      deliveries: [
+        _delivery(
+          items: const [
+            DeliveryItem(
+              name: 'Hollow block',
+              unit: 'PC',
+              qty: 5,
+              pickUp: [
+                PickUpPart(
+                  locationId: 1,
+                  locationName: 'Store',
+                  qty: 2,
+                  unit: 'PC',
+                ),
+                PickUpPart(
+                  locationId: 2,
+                  locationName: 'Bodega',
+                  qty: 3,
+                  unit: 'PC',
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+    );
+    await _pump(
+      tester,
+      InventoryDeliveriesPage(viewmodel: DeliveriesViewmodel(service: service)),
+    );
+    await tester.tap(find.byTooltip('View loading details'));
+    await tester.pumpAndSettle();
+    expect(find.text('Loading details'), findsOneWidget);
+    expect(find.text('2 PC at Store, 3 PC at Bodega'), findsOneWidget);
+    expect(service.calls, ['load']);
+  });
 
   testWidgets(
     'a scheduled slip shows what is going out, when and for what fee',

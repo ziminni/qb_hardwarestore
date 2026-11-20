@@ -57,6 +57,10 @@ class PaymentSerializer(serializers.ModelSerializer):
             "transaction",
             "method",
             "amount_tendered",
+            # Owner ruling (payment-method fees): the fee this tender was charged, which is
+            # ALSO inside `amount_tendered` above (the money that arrived). Read-only: the
+            # server computes it from the shop's own `TenderFee` rows.
+            "fee",
             "reference_no",
             # Phase 4 task B2 (decision 18): the cheque facts and where the decision
             # stands. `status` is CLEARED for every tender that is money in hand, and
@@ -78,6 +82,7 @@ class PaymentSerializer(serializers.ModelSerializer):
             "id",
             "timestamp",
             "status",
+            "fee",
             "decided_by",
             "decided_at",
             "decision_reason",
@@ -245,8 +250,15 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
             # and outside discount_amount. Read-only - it comes from the `delivery`
             # object on the checkout body, never from a money field the client can set.
             "delivery_fee",
+            # Owner ruling (payment-method fees): the sum of the fees charged on this
+            # sale's non-cash tenders. Inside `grand_total`, outside `discount_amount`,
+            # never refunded. Read-only: computed per payment row by the server.
+            "payment_fee",
             "grand_total",
             "change_given",
+            # Owner ruling (utang markup): this sale was rung on credit terms, so its till
+            # lines carry the credit price. Read-only: the checkout records it.
+            "credit_sale",
             "source",
             "original_transaction",
             "status",
@@ -288,6 +300,8 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
             # is derived by `process_sale` from the tenders the server stored, so a till
             # that echoes it back cannot write it (the same trust boundary as VAT above).
             "change_given",
+            "payment_fee",
+            "credit_sale",
         ]
 
 
@@ -343,6 +357,12 @@ class ShiftSerializer(serializers.ModelSerializer):
             "status",
             "opening_float",
             "closing_count",
+            # Owner ruling (opening cash carried forward): what the previous close said it
+            # left, and what THIS close leaves behind. Read-only - the open and close
+            # ACTIONS are the only writers, and `expected_opening` is never the client's to
+            # claim (a shift that could name its own expectation would hide a short float).
+            "expected_opening",
+            "cash_left_in_drawer",
             "opened_at",
             "closed_at",
             "notes",
@@ -356,6 +376,8 @@ class ShiftSerializer(serializers.ModelSerializer):
             "status",
             "opened_at",
             "closed_at",
+            "expected_opening",
+            "cash_left_in_drawer",
             "held_cart_count",
             "cash_movements",
         ]

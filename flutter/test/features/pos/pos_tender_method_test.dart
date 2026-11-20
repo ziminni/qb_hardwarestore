@@ -61,6 +61,7 @@ class _RecordingPosRepository extends PosRepository {
     PosDiscount? discount,
     String? discountApproval,
     DeliveryDraft? delivery,
+    bool creditSale = false,
   }) async {
     calls++;
     sentPayments = payments;

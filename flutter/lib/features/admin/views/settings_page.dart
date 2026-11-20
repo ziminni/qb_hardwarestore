@@ -177,15 +177,37 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     _vatRate.dispose();
     _discountCap.dispose();
+    for (final controller in _feeValues.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
   /// Copies the current values into the fields. Called on open and after the
   /// load answers, never while someone is typing.
+  /// Per-method fee controls (owner ruling). One row per method the server
+  /// allows a fee on; a fresh shop starts switched OFF with 0.00, never with an
+  /// invented rate.
+  final Map<String, TextEditingController> _feeValues = {
+    for (final method in TenderFee.feeableMethods)
+      method: TextEditingController(text: '0.00'),
+  };
+  final Map<String, String> _feeKinds = {};
+  final Map<String, bool> _feeActive = {};
+
   void _seedFields() {
     _vatRegistered = _settings.vatRegistered;
     _vatRate.text = _settings.vatRate.toStringAsFixed(2);
     _discountCap.text = _settings.discountCapPercent.toStringAsFixed(2);
+    for (final method in TenderFee.feeableMethods) {
+      TenderFee? stored;
+      for (final fee in _settings.settings.tenderFees) {
+        if (fee.method == method) stored = fee;
+      }
+      _feeKinds[method] = stored?.kind ?? TenderFee.kindPercent;
+      _feeActive[method] = stored?.isActive ?? false;
+      _feeValues[method]!.text = (stored?.value ?? 0).toStringAsFixed(2);
+    }
   }
 
   Future<void> _load() async {
@@ -202,6 +224,17 @@ class _SettingsPageState extends State<SettingsPage> {
       vatRegistered: _vatRegistered,
       vatRate: _percent(_vatRate.text),
       discountCapPercent: _percent(_discountCap.text),
+      // The WHOLE list is sent: a method left out ends up with no fee on the
+      // server, so an unchecked row must still be named as switched off.
+      tenderFees: [
+        for (final method in TenderFee.feeableMethods)
+          TenderFee(
+            method: method,
+            kind: _feeKinds[method] ?? TenderFee.kindPercent,
+            value: double.tryParse(_feeValues[method]!.text.trim()) ?? 0,
+            isActive: _feeActive[method] ?? false,
+          ),
+      ],
     );
     if (!mounted || !saved) return;
     ScaffoldMessenger.of(
@@ -408,6 +441,104 @@ class _SettingsPageState extends State<SettingsPage> {
             enabled: !isSaving,
             onChanged: _settings.clearSaveError,
           ),
+          const SizedBox(height: AppSpacing.lg),
+          Text(
+            'Payment method fees',
+            style: TextStyle(
+              fontSize: 15,
+              color: AppPalette.of(context).textPrimary,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Charged on top of the bill for taking a payment the bank bills the '
+            'shop for. Off by default. Not VAT.',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppPalette.of(context).textSecondary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          for (final method in TenderFee.feeableMethods) ...[
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 120,
+                    child: Text(
+                      TenderFee(
+                        method: method,
+                        kind: TenderFee.kindPercent,
+                        value: 0,
+                      ).label,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: AppPalette.of(context).textPrimary,
+                      ),
+                    ),
+                  ),
+                  Switch(
+                    value: _feeActive[method] ?? false,
+                    onChanged: isSaving
+                        ? null
+                        : (value) {
+                            setState(() => _feeActive[method] = value);
+                            _settings.clearSaveError();
+                          },
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  DropdownButton<String>(
+                    value: _feeKinds[method] ?? TenderFee.kindPercent,
+                    onChanged: isSaving
+                        ? null
+                        : (value) {
+                            setState(
+                              () => _feeKinds[method] =
+                                  value ?? TenderFee.kindPercent,
+                            );
+                            _settings.clearSaveError();
+                          },
+                    items: const [
+                      DropdownMenuItem(
+                        value: TenderFee.kindPercent,
+                        child: Text('Percent'),
+                      ),
+                      DropdownMenuItem(
+                        value: TenderFee.kindAmount,
+                        child: Text('Peso amount'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  SizedBox(
+                    width: 120,
+                    child: TextField(
+                      controller: _feeValues[method],
+                      enabled: !isSaving,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      onChanged: (_) => _settings.clearSaveError(),
+                      decoration: InputDecoration(
+                        isDense: true,
+                        prefixText: (_feeKinds[method] ??
+                                    TenderFee.kindPercent) ==
+                                TenderFee.kindAmount
+                            ? '₱ '
+                            : null,
+                        suffixText: (_feeKinds[method] ??
+                                    TenderFee.kindPercent) ==
+                                TenderFee.kindPercent
+                            ? '%'
+                            : null,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: AppSpacing.lg),
           Align(
             alignment: Alignment.centerRight,

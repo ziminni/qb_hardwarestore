@@ -44,7 +44,7 @@ class ExtraDefaultIsImmutableTests(SimpleTestCase):
 
         self.assertEqual(
             dict(capped.extra),
-            {'cap_percent': '10.00', 'requested_percent': '25.00'},
+            {"cap_percent": "10.00", "requested_percent": "25.00"},
         )
         # The base default and a sibling are untouched by the instance's dict.
         self.assertEqual(dict(InvalidDiscount.extra), {})
@@ -53,11 +53,12 @@ class ExtraDefaultIsImmutableTests(SimpleTestCase):
 
 class ChequeExtraTests(SimpleTestCase):
     def test_missing_details_are_carried_in_extra(self):
-        exc = ChequeDetailsRequired(['number', 'bank'])
+        exc = ChequeDetailsRequired(["number", "bank"])
 
-        self.assertEqual(exc.extra['missing'], ['number', 'bank'])
+        self.assertEqual(exc.extra["missing"], ["number", "bank"])
         self.assertEqual(
-            str(exc), 'A cheque needs its number and bank. Fill it in and try again.')
+            str(exc), "A cheque needs its number and bank. Fill it in and try again."
+        )
 
     def test_a_reasonless_bounce_carries_no_figures(self):
         self.assertEqual(dict(ChequeReasonRequired().extra), {})
@@ -70,19 +71,21 @@ class HandlerPublishesExtraTests(SimpleTestCase):
         from apps.pos.exceptions import handler
 
         exc = DiscountOverCap(cap_percent=10, requested_percent=25)
-        response = handler(exc, {'request': None})
+        response = handler(exc, {"request": None})
+        assert response is not None and response.data is not None
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.data['code'], 'DISCOUNT_OVER_CAP')
-        self.assertEqual(response.data['cap_percent'], '10.00')
-        self.assertEqual(response.data['requested_percent'], '25.00')
+        self.assertEqual(response.data["code"], "DISCOUNT_OVER_CAP")
+        self.assertEqual(response.data["cap_percent"], "10.00")
+        self.assertEqual(response.data["requested_percent"], "25.00")
 
     def test_cheque_refusal_keeps_its_own_status_and_figures(self):
         from apps.pos.exceptions import handler
 
-        exc = ChequeDetailsRequired(['number'])
-        response = handler(exc, {'request': None})
+        exc = ChequeDetailsRequired(["number"])
+        response = handler(exc, {"request": None})
+        assert response is not None and response.data is not None
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.data['code'], 'CHEQUE_DETAILS_REQUIRED')
-        self.assertEqual(response.data['missing'], ['number'])
+        self.assertEqual(response.data["code"], "CHEQUE_DETAILS_REQUIRED")
+        self.assertEqual(response.data["missing"], ["number"])
