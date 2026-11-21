@@ -245,6 +245,20 @@ POS_API_GATEWAY_HEADER_VALUE=<48-character key>
 
 Send these four lines to the CPMS laptop, for example in a private chat. The key works like a password: don't post it anywhere public. Only a small gateway is exposed, never the whole POS. It allows only the CPMS sign-in and the `/api/v1/integration/cpms/` routes, and only with that key.
 
+#### Permanent URL with a Cloudflare Named Tunnel (Windows & macOS, survives reboots)
+
+To keep a fixed hostname (so CPMS never has to update `POS_API_BASE_URL` after a restart):
+
+1. In **Cloudflare Zero Trust → Networks → Tunnels**, create a tunnel and copy its token (you do **not** need to install `cloudflared` on Windows or macOS — Docker runs it automatically).
+2. Add a **Public Hostname** on that tunnel pointing **HTTP** → `gateway:8080` (for example `pos-api.yourdomain.com` → `http://gateway:8080`).
+3. Put these three lines in `tunnel/gateway.env` (gitignored, ASCII without BOM):
+   ```env
+   QB_GATEWAY_KEY=<48-character-hex-key>
+   CLOUDFLARE_TUNNEL_TOKEN=<your-cloudflare-tunnel-token>
+   CLOUDFLARE_TUNNEL_HOSTNAME=pos-api.yourdomain.com
+   ```
+4. Start it once with `.\scripts\start-tunnel.ps1` (Windows) or `./scripts/start-tunnel.sh` (macOS/Linux). Because `db`, `backend`, `gateway`, and `cloudflared` use `restart: unless-stopped`, they automatically reconnect after a reboot as soon as Docker Desktop starts.
+
 **Step 2: CPMS laptop.** Create the file `qb_project_management_system/django-backend/.env`, paste the four lines, save it, then run this in `qb_project_management_system`:
 
 ```sh
@@ -334,6 +348,10 @@ flutter run -d linux --dart-define=API_BASE_URL=http://127.0.0.1:8000
 # macOS (Xcode + CocoaPods): see section 6 "Run the apps".
 flutter config --enable-macos-desktop
 flutter run -d macos
+
+# Android release APK (Windows PowerShell, from flutter/):
+flutter build apk --release
+# Output: flutter\build\app\outputs\flutter-apk\app-release.apk
 
 # Browser smoke test; does not replace native Windows picker/save verification.
 flutter run -d chrome --dart-define=API_BASE_URL=http://127.0.0.1:8000

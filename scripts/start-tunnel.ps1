@@ -69,5 +69,10 @@ Write-Host "POS_API_ALLOW_INSECURE_LOCAL=False"
 Write-Host "POS_API_GATEWAY_HEADER_NAME=X-QB-Gateway-Key"
 Write-Host "POS_API_GATEWAY_HEADER_VALUE=$Key"
 Write-Host ""
-Write-Host "Keep the key private. The URL changes every time the tunnel restarts."
+$UrlNote = if ($Token) {
+    "Named tunnel active: this URL stays fixed across restarts."
+} else {
+    "The URL changes every time a Quick Tunnel restarts."
+}
+Write-Host "Keep the key private. $UrlNote"
 Write-Host "Stop:  docker compose --profile tunnel stop gateway cloudflared"

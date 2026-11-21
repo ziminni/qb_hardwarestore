@@ -48,6 +48,12 @@ else
   fi
 fi
 
+if [ -n "$token" ]; then
+  url_note="Named tunnel active: this URL stays fixed across restarts."
+else
+  url_note="The URL changes every time a Quick Tunnel restarts."
+fi
+
 cat <<MSG
 
 POS is reachable at $url (gateway only).
@@ -61,6 +67,6 @@ POS_API_ALLOW_INSECURE_LOCAL=False
 POS_API_GATEWAY_HEADER_NAME=X-QB-Gateway-Key
 POS_API_GATEWAY_HEADER_VALUE=$key
 
-Keep the key private. The URL changes every time the tunnel restarts.
+Keep the key private. $url_note
 Stop:  docker compose --profile tunnel stop gateway cloudflared
 MSG
