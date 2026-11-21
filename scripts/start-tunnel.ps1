@@ -1,33 +1,60 @@
-# Share this POS with a CPMS on another computer through a free Cloudflare Quick
-# Tunnel. Only the tunnel gateway is exposed: CPMS sign-in plus the
+# Share this POS with a CPMS on another computer through Cloudflare Tunnel
+# (Named Tunnel with a permanent domain, or free Quick Tunnel).
+# Only the tunnel gateway is exposed: CPMS sign-in plus the
 # /api/v1/integration/cpms/ routes, and only with the secret gateway key.
 #
-# Usage (PowerShell, from anywhere):  .\scripts\start-tunnel.ps1
-# Stop:  docker compose --profile tunnel stop gateway cloudflared
+# Usage (PowerShell, from anywhere):
+#   .\scripts\start-tunnel.ps1
+#   .\scripts\start-tunnel.ps1 -Token "<cloudflare-token>" -Hostname "pos-api.yourdomain.com"
+# Stop:
+#   docker compose --profile tunnel stop gateway cloudflared
+
+param(
+    [string]$Token = "",
+    [string]$Hostname = "",
+    [string]$GatewayKey = ""
+)
 
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
 $KeyFile = "tunnel/gateway.env"
-if (-not (Test-Path $KeyFile)) {
-    $bytes = New-Object byte[] 24
-    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-    $newKey = -join ($bytes | ForEach-Object { $_.ToString("x2") })
-    # ASCII, no BOM: docker compose reads this file.
-    [System.IO.File]::WriteAllText((Join-Path (Get-Location) $KeyFile), "QB_GATEWAY_KEY=$newKey`n", [System.Text.Encoding]::ASCII)
-    Write-Host "Created $KeyFile with a new gateway key."
-}
+$KeyFilePath = Join-Path (Get-Location) $KeyFile
+
 # Returns the value of NAME=value from the key file, or "" when the line is absent.
 # (A missing line must not reach .Trim(): in Windows PowerShell 5.1 an empty
 # pipeline result becomes an empty array, which has no Trim method.)
 function Get-GatewaySetting([string]$Name) {
+    if (-not (Test-Path $KeyFile)) { return "" }
     $line = Get-Content $KeyFile | Where-Object { $_ -like "$Name=*" } | Select-Object -First 1
     if ($null -eq $line) { return "" }
     return ($line.Substring($Name.Length + 1)).Trim()
 }
-$Key = Get-GatewaySetting "QB_GATEWAY_KEY"
-$Token = Get-GatewaySetting "CLOUDFLARE_TUNNEL_TOKEN"
-$Hostname = Get-GatewaySetting "CLOUDFLARE_TUNNEL_HOSTNAME"
+
+$ExistingKey = Get-GatewaySetting "QB_GATEWAY_KEY"
+$ExistingToken = Get-GatewaySetting "CLOUDFLARE_TUNNEL_TOKEN"
+$ExistingHostname = Get-GatewaySetting "CLOUDFLARE_TUNNEL_HOSTNAME"
+
+$FinalKey = if ($GatewayKey) { $GatewayKey.Trim() } elseif ($ExistingKey) { $ExistingKey } else {
+    $bytes = New-Object byte[] 24
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+    -join ($bytes | ForEach-Object { $_.ToString("x2") })
+}
+$FinalToken = if ($Token) { $Token.Trim() } else { $ExistingToken }
+$FinalHostname = if ($Hostname) { $Hostname.Trim() } else { $ExistingHostname }
+
+if (-not (Test-Path $KeyFile) -or $Token -or $Hostname -or $GatewayKey) {
+    $lines = @("QB_GATEWAY_KEY=$FinalKey")
+    if ($FinalToken) { $lines += "CLOUDFLARE_TUNNEL_TOKEN=$FinalToken" }
+    if ($FinalHostname) { $lines += "CLOUDFLARE_TUNNEL_HOSTNAME=$FinalHostname" }
+    # ASCII, no BOM: docker compose reads this file.
+    [System.IO.File]::WriteAllText($KeyFilePath, (($lines -join "`n") + "`n"), [System.Text.Encoding]::ASCII)
+    Write-Host "Saved $KeyFile."
+}
+
+$Key = $FinalKey
+$Token = $FinalToken
+$Hostname = $FinalHostname
 
 # docker-compose.yml reads these to pick Named vs Quick Tunnel (the image has no shell).
 if ($Token) {

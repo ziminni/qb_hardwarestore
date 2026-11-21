@@ -251,13 +251,16 @@ To keep a fixed hostname (so CPMS never has to update `POS_API_BASE_URL` after a
 
 1. In **Cloudflare Zero Trust → Networks → Tunnels**, create a tunnel and copy its token (you do **not** need to install `cloudflared` on Windows or macOS — Docker runs it automatically).
 2. Add a **Public Hostname** on that tunnel pointing **HTTP** → `gateway:8080` (for example `pos-api.yourdomain.com` → `http://gateway:8080`).
-3. Put these three lines in `tunnel/gateway.env` (gitignored, ASCII without BOM):
-   ```env
-   QB_GATEWAY_KEY=<48-character-hex-key>
-   CLOUDFLARE_TUNNEL_TOKEN=<your-cloudflare-tunnel-token>
-   CLOUDFLARE_TUNNEL_HOSTNAME=pos-api.yourdomain.com
+3. Run the one-line setup command once from `qb_pos_inventory_system` (this saves `tunnel/gateway.env` automatically, starts `db`, `backend`, `gateway`, and `cloudflared`, and prints the 4 lines for CPMS's `.env`):
+   ```powershell
+   # Windows PowerShell (one-time setup)
+   .\scripts\start-tunnel.ps1 -Token "<your-cloudflare-tunnel-token>" -Hostname "pos-api.yourdomain.com"
    ```
-4. Start it once with `.\scripts\start-tunnel.ps1` (Windows) or `./scripts/start-tunnel.sh` (macOS/Linux). Because `db`, `backend`, `gateway`, and `cloudflared` use `restart: unless-stopped`, they automatically reconnect after a reboot as soon as Docker Desktop starts.
+   ```sh
+   # macOS / Linux (one-time setup)
+   ./scripts/start-tunnel.sh --token "<your-cloudflare-tunnel-token>" --hostname "pos-api.yourdomain.com"
+   ```
+4. Because `db`, `backend`, `gateway`, and `cloudflared` all use `restart: unless-stopped`, **after any reboot you just open Docker Desktop** (or enable *"Start Docker Desktop when you sign in"* in Docker Desktop Settings) — everything starts and reconnects automatically with zero commands.
 
 **Step 2: CPMS laptop.** Create the file `qb_project_management_system/django-backend/.env`, paste the four lines, save it, then run this in `qb_project_management_system`:
 
