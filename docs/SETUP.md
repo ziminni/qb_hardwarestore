@@ -74,16 +74,25 @@ Django Admin: `http://127.0.0.1:8000/admin/`
 
 > **Optional Due Dates (Default: None):** Freshly seeded supplier bills (`terms_days = 0`) and customer utang ledgers are created with **no due date** (`due_date = null`) and are never marked Overdue unless a due date or positive supplier payment term is explicitly set.
 
-### Clean Demo Reseed (Dev / Demo Only)
-To wipe a **dev/demo** database and reseed from scratch with the latest schema and demo data:
+### Clean Demo Reseed (Dev / Demo Only — Fresh Pull or Behind Branch)
+To pull the latest `master`, wipe a **dev/demo** database cleanly, and reseed from scratch with the latest schema and demo data:
 ```powershell
-# With tunnel profile:
-docker compose --profile tunnel down -v
-docker compose --profile tunnel up -d --build
+# 1. Pull latest code (from an existing clone behind master):
+git checkout master
+git pull --ff-only origin master
 
-# Without tunnel profile:
-docker compose down -v
-docker compose up -d --build backend
+# 2. Wipe demo DB & stop all containers (including tunnel):
+docker compose --profile tunnel down -v
+
+# 3. Rebuild, migrate, reseed & start tunnel:
+.\scripts\start-tunnel.ps1
+# (First time on a new PC? Pass -Token "<cf-token>" -Hostname "pos-api.yourdomain.com")
+# (No tunnel needed? Run: docker compose up -d --build backend)
+
+# 4. Run the desktop app:
+cd flutter
+flutter pub get
+flutter run -d windows   # or: -d macos
 ```
 > **Warning:** `-v` deletes the PostgreSQL volume. **Never** run `down -v` on a live store database.
 
