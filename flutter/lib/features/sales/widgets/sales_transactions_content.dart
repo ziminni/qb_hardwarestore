@@ -446,6 +446,15 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
             formatPeso(payment.amount),
           ),
         if (sale.creditSale) ('Pricing', 'Credit price (utang)'),
+        if (sale.bodegaStatus != null)
+          (
+            'Bodega pickup',
+            switch (sale.bodegaStatus) {
+              'RELEASED' => 'Accomplished (picked up)',
+              'PARTIAL' => 'Partially picked up',
+              _ => 'Waiting for pickup at Bodega',
+            },
+          ),
         // Phase 4 F4: the discount and its reason, then the VAT split the server
         // computed. A non-VAT store says so instead of printing two zeroes.
         if (sale.discountAmount > 0)

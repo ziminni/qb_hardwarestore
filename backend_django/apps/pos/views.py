@@ -1811,10 +1811,16 @@ class HeldCartViewSet(BaseViewSet):
         # line from `VariantUOM.default_selling_price` and converts selling units to base
         # units, exactly as the checkout screen does. One price authority, both entry
         # points.
-        items_data = [
-            {"variant_id": item.variant_uom_id, "qty": item.qty}
-            for item in cart.items.all()
-        ]
+        items_data = []
+        for item in cart.items.all():
+            row = {"variant_id": item.variant_uom_id, "qty": item.qty}
+            if item.discount_kind and item.discount_value is not None:
+                row["discount"] = {
+                    "kind": item.discount_kind,
+                    "value": item.discount_value,
+                    "reason": item.discount_reason,
+                }
+            items_data.append(row)
         payments_data = request.data.get("payments", [])
         customer_id = cart.customer_id or request.data.get("customer")
         if not customer_id:

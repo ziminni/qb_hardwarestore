@@ -394,12 +394,7 @@ class PosTransactionCart extends StatelessWidget {
               if (onHold != null) ...[
                 Expanded(
                   child: OutlinedButton(
-                    // A parked cart cannot carry a line discount (the held-cart wire
-                    // takes ids, quantities and prices only), so holding is refused
-                    // rather than silently dropping the discount.
-                    onPressed: state.lines.isEmpty || state.hasLineDiscount
-                        ? null
-                        : onHold,
+                    onPressed: state.lines.isEmpty ? null : onHold,
                     style: _secondary,
                     child: const Text(
                       'Hold transaction',
@@ -427,19 +422,6 @@ class PosTransactionCart extends StatelessWidget {
               ),
             ],
           ),
-          if (state.hasLineDiscount && onHold != null)
-            Padding(
-              key: const ValueKey('pos-cart-hold-blocked'),
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                'A line discount cannot be held. Remove it to hold this cart, or '
-                'take payment now.',
-                style: TextStyle(
-                  fontSize: 11.5,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ),
         ],
       ),
     );

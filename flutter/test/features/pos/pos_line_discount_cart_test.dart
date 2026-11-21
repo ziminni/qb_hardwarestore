@@ -160,7 +160,7 @@ void main() {
     expect(cart.lines.single.discount, isNull);
   });
 
-  testWidgets('Hold is disabled with a reason while a line discount exists', (
+  testWidgets('Hold stays enabled when a line discount exists', (
     tester,
   ) async {
     cart.setLineDiscount(
@@ -176,8 +176,8 @@ void main() {
     final hold = tester.widget<OutlinedButton>(
       find.widgetWithText(OutlinedButton, 'Hold transaction'),
     );
-    expect(hold.onPressed, isNull);
-    expect(find.byKey(const ValueKey('pos-cart-hold-blocked')), findsOneWidget);
+    expect(hold.onPressed, isNotNull);
+    expect(find.byKey(const ValueKey('pos-cart-hold-blocked')), findsNothing);
   });
 
   testWidgets('a line discount alone above the cap asks for approval', (

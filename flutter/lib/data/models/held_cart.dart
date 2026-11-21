@@ -1,4 +1,5 @@
 import 'package:client/data/models/json_field.dart';
+import 'package:client/data/models/sale_discount.dart';
 
 /// One line of a parked (held) cart, read from `GET /api/v1/held-carts/`.
 ///
@@ -11,14 +12,31 @@ class HeldCartItem {
     required this.variantUom,
     required this.qty,
     required this.unitPrice,
+    this.discount,
   });
 
   factory HeldCartItem.fromJson(Map<String, dynamic> json) {
+    PosDiscount? parsedDiscount;
+    final rawKind = (json['discount_kind'] as String? ?? '').trim().toUpperCase();
+    final rawVal = json['discount_value'];
+    if (rawKind.isNotEmpty && rawVal != null) {
+      final val = rawVal is num
+          ? rawVal.toDouble()
+          : double.tryParse('$rawVal');
+      if (val != null && val > 0) {
+        parsedDiscount = PosDiscount(
+          kind: rawKind == 'PERCENT' ? DiscountKind.percent : DiscountKind.amount,
+          value: val,
+          reason: (json['discount_reason'] as String? ?? '').trim(),
+        );
+      }
+    }
     return HeldCartItem(
       id: intField(json, 'id'),
       variantUom: intField(json, 'variant_uom'),
       qty: decimalField(json, 'qty'),
       unitPrice: decimalField(json, 'unit_price'),
+      discount: parsedDiscount,
     );
   }
 
@@ -30,6 +48,7 @@ class HeldCartItem {
 
   final double qty;
   final double unitPrice;
+  final PosDiscount? discount;
 
   double get subtotal => qty * unitPrice;
 
@@ -43,6 +62,13 @@ class HeldCartItem {
     'variant_uom': variantUom,
     'qty': qty,
     'unit_price': unitPrice,
+    if (discount != null) ...{
+      'discount_kind': discount!.kind == DiscountKind.percent
+          ? 'PERCENT'
+          : 'AMOUNT',
+      'discount_value': discount!.value.toStringAsFixed(2),
+      'discount_reason': discount!.reason,
+    },
   };
 }
 

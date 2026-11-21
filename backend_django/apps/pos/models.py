@@ -570,6 +570,12 @@ class HeldCartItem(models.Model):
     )
     qty = models.DecimalField(max_digits=12, decimal_places=2)
     unit_price = models.DecimalField(max_digits=12, decimal_places=2)
+    # Optional per-line (inline) discount preserved across Hold -> Resume.
+    discount_kind = models.CharField(max_length=10, blank=True, default="")
+    discount_value = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
+    discount_reason = models.CharField(max_length=255, blank=True, default="")
 
     class Meta:
         db_table = "pos_held_cart_item"

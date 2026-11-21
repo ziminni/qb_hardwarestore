@@ -79,6 +79,7 @@ class InventorySale {
     this.vatRegistered = true,
     this.paymentFee = 0,
     this.creditSale = false,
+    this.bodegaStatus,
   });
   final String transactionNo;
   final DateTime date;
@@ -108,6 +109,7 @@ class InventorySale {
   /// Untaxed non-cash payment fee sum, and whether the sale used utang credit pricing.
   final double paymentFee;
   final bool creditSale;
+  final String? bodegaStatus;
 
   /// What the customer actually owed: the lines less the discount plus any payment fee.
   /// The sheet's total bar shows this, so a discounted or fee-bearing sale reconciles.

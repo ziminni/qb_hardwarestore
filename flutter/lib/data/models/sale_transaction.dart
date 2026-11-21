@@ -87,6 +87,7 @@ class TransactionRecord {
     this.vatRegistered = true,
     this.paymentFee = 0,
     this.creditSale = false,
+    this.bodegaStatus,
   });
 
   final int id;
@@ -116,6 +117,7 @@ class TransactionRecord {
   /// Untaxed non-cash payment fee sum, and whether the sale used utang credit pricing.
   final double paymentFee;
   final bool creditSale;
+  final String? bodegaStatus;
 
   factory TransactionRecord.fromJson(Map<String, dynamic> json) {
     final items = json['items'];
@@ -150,6 +152,9 @@ class TransactionRecord {
           : true,
       paymentFee: double.tryParse('${json['payment_fee'] ?? 0}') ?? 0,
       creditSale: json['credit_sale'] == true,
+      bodegaStatus: json['bodega_status'] is String
+          ? json['bodega_status'] as String
+          : null,
       items: items
           .map((i) => TransactionLineItem.fromJson(i as Map<String, dynamic>))
           .toList(),

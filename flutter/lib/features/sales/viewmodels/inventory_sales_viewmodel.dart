@@ -150,6 +150,7 @@ class InventorySalesViewmodel extends ChangeNotifier {
     vatRegistered: r.vatRegistered,
     paymentFee: r.paymentFee,
     creditSale: r.creditSale,
+    bodegaStatus: r.bodegaStatus,
   );
 
   InventoryReturn _returnOf(

@@ -24,6 +24,7 @@ class BodegaPickupsTab extends StatefulWidget {
 
 class _BodegaPickupsTabState extends State<BodegaPickupsTab> {
   final _number = TextEditingController();
+  bool _showAccomplished = false;
 
   @override
   void dispose() {
@@ -41,145 +42,214 @@ class _BodegaPickupsTabState extends State<BodegaPickupsTab> {
     final viewmodel = context.watch<BodegaViewmodel>();
     final searched = viewmodel.searchedFor;
     final found = sortedClaims(viewmodel.foundClaims);
-    final completed = [
-      for (final claim in found)
-        if (!claim.isOpen) claim,
-    ];
-    final stillWaiting = [
-      for (final claim in found)
-        if (claim.isOpen) claim,
-    ];
-    return ListView(
-      key: const ValueKey('bodega-pickups'),
-      padding: const EdgeInsets.only(top: 16, bottom: 24),
-      children: [
-        MobileCard(
-          child: InkWell(
-            key: const ValueKey('pickups-scan'),
-            onTap: () => scanAndOpenClaim(context, viewmodel, widget.scanner),
-            child: const Padding(
-              padding: EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 24,
-                    backgroundColor: AppColors.brandGold,
-                    child: Icon(
-                      Icons.qr_code_scanner,
-                      color: AppColors.brandBlack,
-                    ),
-                  ),
-                  SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Release goods',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        Text(
-                          'Scan the receipt QR. Damaged? Tap the arrow in the '
-                          'scanner and type the OR number.',
-                          style: TextStyle(color: AppColors.textSecondary),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Icon(Icons.chevron_right),
-                ],
-              ),
-            ),
-          ),
-        ),
-        const SectionHeader(title: 'Completed pick-ups'),
-        MobileCard(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  key: const ValueKey('or-number'),
-                  controller: _number,
-                  textCapitalization: TextCapitalization.characters,
-                  textInputAction: TextInputAction.search,
-                  onSubmitted: (_) => _search(viewmodel),
-                  decoration: const InputDecoration(
-                    hintText: 'Type the OR number',
-                    prefixIcon: Icon(Icons.search),
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              IconButton.filled(
-                key: const ValueKey('or-search'),
-                tooltip: 'Search',
-                style: IconButton.styleFrom(
-                  backgroundColor: AppColors.brandBlack,
-                  foregroundColor: AppColors.brandWhite,
-                ),
-                onPressed: viewmodel.isSearching
-                    ? null
-                    : () => _search(viewmodel),
-                icon: const Icon(Icons.search),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        if (viewmodel.isSearching)
-          const Padding(
-            padding: EdgeInsets.all(24),
-            child: Center(child: CircularProgressIndicator()),
-          )
-        else if (viewmodel.searchError case final error?)
-          MobileCard(child: EmptyNote(error))
-        else if (searched.isEmpty)
-          const MobileCard(
-            child: EmptyNote(
-              'Type an OR number to find a pick-up that was already handed '
-              'over.',
-            ),
-          )
-        else ...[
-          for (final claim in completed)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _CompletedTile(claim: claim),
-            ),
-          for (final claim in stillWaiting)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: MobileCard(
-                padding: const EdgeInsets.all(14),
+    final waitingList = searched.isNotEmpty
+        ? [
+            for (final claim in found)
+              if (claim.isOpen) claim,
+          ]
+        : sortedClaims(viewmodel.openClaims);
+    final completedList = searched.isNotEmpty
+        ? [
+            for (final claim in found)
+              if (!claim.isOpen) claim,
+          ]
+        : sortedClaims(viewmodel.completedClaims);
+
+    return RefreshIndicator(
+      onRefresh: widget.onRefresh,
+      child: ListView(
+        key: const ValueKey('bodega-pickups'),
+        padding: const EdgeInsets.only(top: 16, bottom: 24),
+        children: [
+          MobileCard(
+            child: InkWell(
+              key: const ValueKey('pickups-scan'),
+              onTap: () => scanAndOpenClaim(context, viewmodel, widget.scanner),
+              child: const Padding(
+                padding: EdgeInsets.all(16),
                 child: Row(
                   children: [
-                    const Icon(
-                      Icons.hourglass_top,
-                      color: AppColors.warningText,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        '${_receiptNumber(claim)} still has goods waiting. '
-                        'Scan its QR to release them.',
+                    CircleAvatar(
+                      radius: 24,
+                      backgroundColor: AppColors.brandGold,
+                      child: Icon(
+                        Icons.qr_code_scanner,
+                        color: AppColors.brandBlack,
                       ),
                     ),
+                    SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Scan & release goods',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            'Scan the customer receipt QR (or enter OR number) '
+                            'to hand over Bodega items.',
+                            style: TextStyle(color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.chevron_right),
                   ],
                 ),
               ),
             ),
-          if (found.isEmpty)
-            MobileCard(
-              child: EmptyNote('No pick-up has the OR number "$searched".'),
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: SegmentedButton<bool>(
+              key: const ValueKey('pickups-status-toggle'),
+              segments: [
+                ButtonSegment<bool>(
+                  value: false,
+                  label: Text('Waiting (${viewmodel.openClaims.length})'),
+                  icon: const Icon(Icons.hourglass_top, size: 16),
+                ),
+                ButtonSegment<bool>(
+                  value: true,
+                  label: Text(
+                    'Accomplished (${viewmodel.completedClaims.length})',
+                  ),
+                  icon: const Icon(Icons.task_alt, size: 16),
+                ),
+              ],
+              selected: {_showAccomplished},
+              onSelectionChanged: (values) =>
+                  setState(() => _showAccomplished = values.first),
             ),
+          ),
+          const SizedBox(height: 10),
+          MobileCard(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    key: const ValueKey('or-number'),
+                    controller: _number,
+                    textCapitalization: TextCapitalization.characters,
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: (_) => _search(viewmodel),
+                    decoration: const InputDecoration(
+                      hintText: 'Search by OR number or customer',
+                      prefixIcon: Icon(Icons.search),
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  key: const ValueKey('or-search'),
+                  tooltip: 'Search',
+                  style: IconButton.styleFrom(
+                    backgroundColor: AppColors.brandBlack,
+                    foregroundColor: AppColors.brandWhite,
+                  ),
+                  onPressed: viewmodel.isSearching
+                      ? null
+                      : () => _search(viewmodel),
+                  icon: const Icon(Icons.search),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (viewmodel.isSearching)
+            const Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (viewmodel.searchError case final error?)
+            MobileCard(child: EmptyNote(error))
+          else if (!_showAccomplished) ...[
+            if (waitingList.isEmpty)
+              MobileCard(
+                child: EmptyNote(
+                  searched.isEmpty
+                      ? 'No customer pick-ups waiting at the Bodega right now.'
+                      : 'No waiting pick-up matches "$searched".',
+                ),
+              )
+            else
+              for (final claim in waitingList)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _WaitingPickupTile(
+                    claim: claim,
+                    onTap: () =>
+                        scanAndOpenClaim(context, viewmodel, widget.scanner),
+                  ),
+                ),
+          ] else ...[
+            if (completedList.isEmpty)
+              MobileCard(
+                child: EmptyNote(
+                  searched.isEmpty
+                      ? 'No accomplished pick-ups recorded yet.'
+                      : 'No accomplished pick-up matches "$searched".',
+                ),
+              )
+            else
+              for (final claim in completedList)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _CompletedTile(claim: claim),
+                ),
+          ],
         ],
-      ],
+      ),
+    );
+  }
+}
+
+class _WaitingPickupTile extends StatelessWidget {
+  const _WaitingPickupTile({required this.claim, required this.onTap});
+
+  final BodegaClaim claim;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final releasedAny = claim.lines.any((l) => l.released > 0);
+    final statusLabel = releasedAny
+        ? 'Partially picked up · ${formatQuantity(claim.remainingTotal)} left'
+        : 'Waiting for pickup · ${formatQuantity(claim.remainingTotal)} item(s)';
+    return MobileCard(
+      child: ListTile(
+        onTap: onTap,
+        leading: CircleAvatar(
+          backgroundColor: releasedAny
+              ? AppColors.info.withValues(alpha: 0.14)
+              : AppColors.warningTint,
+          child: Icon(
+            releasedAny ? Icons.timelapse : Icons.hourglass_top,
+            color: releasedAny ? AppColors.info : AppColors.warningText,
+          ),
+        ),
+        title: Text(
+          _receiptNumber(claim),
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: Text(
+          [
+            claim.customerName.isEmpty ? 'Walk-in' : claim.customerName,
+            statusLabel,
+          ].join(' · '),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: const Icon(Icons.qr_code_scanner),
+      ),
     );
   }
 }

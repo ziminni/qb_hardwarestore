@@ -678,6 +678,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
             variantUom: line.variantUomId,
             qty: line.quantity,
             unitPrice: line.unitPrice,
+            discount: line.discount,
           ),
       ],
     );

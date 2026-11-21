@@ -1134,6 +1134,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
           storedAtName: row?.storedAtName ?? '',
           // Same source, same reason: a row we cannot find stays discountable.
           allowDiscount: row?.allowDiscount ?? true,
+          discount: item.discount,
         ),
       );
     }

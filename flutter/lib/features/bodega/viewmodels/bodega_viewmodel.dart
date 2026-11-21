@@ -22,6 +22,7 @@ class BodegaViewmodel extends ChangeNotifier {
 
   List<BodegaStockRow> _stock = const [];
   List<BodegaClaim> _openClaims = const [];
+  List<BodegaClaim> _completedClaims = const [];
   List<BodegaRelease> _releases = const [];
   List<BodegaDelivery> _deliveries = const [];
   final Map<String, BodegaClaim> _cachedClaims = {};
@@ -39,6 +40,7 @@ class BodegaViewmodel extends ChangeNotifier {
 
   List<BodegaStockRow> get stock => List.unmodifiable(_stock);
   List<BodegaClaim> get openClaims => List.unmodifiable(_openClaims);
+  List<BodegaClaim> get completedClaims => List.unmodifiable(_completedClaims);
   List<BodegaRelease> get releases => List.unmodifiable(_releases);
   List<BodegaDelivery> get deliveries => List.unmodifiable(_deliveries);
   List<BodegaReleaseRequest> get queuedReleases =>
@@ -217,22 +219,26 @@ class BodegaViewmodel extends ChangeNotifier {
     }
   }
 
-  /// Receipts waiting at the gate, plus the deliveries count for the banner.
+  /// Receipts waiting at the gate, plus accomplished ones and pending deliveries.
   Future<void> loadPickups() => _load(() async {
     await syncOutbox();
-    _openClaims = await _repository.fetchClaims();
+    final all = await _repository.fetchClaims(openOnly: false);
+    _openClaims = [for (final c in all) if (c.isOpen) c];
+    _completedClaims = [for (final c in all) if (!c.isOpen) c];
     _usingOfflineSnapshot = false;
-    await _persistClaimsCache(_openClaims);
+    await _persistClaimsCache(all);
     _deliveries = await _repository.fetchDeliveries(status: 'PENDING');
   }, fallbackToCachedClaims: true);
 
-  /// The phone's Home and Arrivals: receipts waiting at the gate and every
-  /// delivery (waiting ones first in [pendingDeliveries]).
+  /// The phone's Home and Arrivals: receipts waiting at the gate, accomplished
+  /// pick-ups, and every delivery (waiting ones first in [pendingDeliveries]).
   Future<void> loadHome() => _load(() async {
     await syncOutbox();
-    _openClaims = await _repository.fetchClaims();
+    final all = await _repository.fetchClaims(openOnly: false);
+    _openClaims = [for (final c in all) if (c.isOpen) c];
+    _completedClaims = [for (final c in all) if (!c.isOpen) c];
     _usingOfflineSnapshot = false;
-    await _persistClaimsCache(_openClaims);
+    await _persistClaimsCache(all);
     _deliveries = await _repository.fetchDeliveries();
   }, fallbackToCachedClaims: true);
 

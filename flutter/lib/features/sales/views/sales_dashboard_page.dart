@@ -10,6 +10,7 @@ import 'package:client/features/sales/widgets/sales_needs_you_tile.dart';
 import 'package:client/features/sales/widgets/sales_recent_transactions.dart';
 import 'package:client/features/sales/widgets/sales_revenue_trend.dart';
 import 'package:client/features/sales/widgets/sales_top_products.dart';
+import 'package:client/shared/widgets/analytics_charts.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
@@ -240,8 +241,63 @@ class _DashboardViewState extends State<_DashboardView> {
                 value: average == null ? 'Not loaded' : formatPeso(average),
                 caption: 'Per completed transaction',
               ),
+              if (summary?.grossProfit != null)
+                MetricTile(
+                  label: 'Gross profit',
+                  value: formatPeso(summary!.grossProfit!),
+                  caption: summary.grossMarginPercent != null
+                      ? '${summary.grossMarginPercent!.toStringAsFixed(1)}% margin · $scopeCaption'
+                      : scopeCaption,
+                ),
             ],
           ),
+          if (summary != null && summary.days.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.lg),
+            GroupedBarTrendChart(
+              key: const ValueKey('sales-dashboard-profit-chart'),
+              title: 'Daily Sales & Profit ($scopeCaption)',
+              subtitle: summary.days.any((d) => d.cogs != null)
+                  ? 'Bars compare net sales (ex-VAT) vs. landed COGS; line tracks gross profit.'
+                  : 'Daily sales totals across reported dates.',
+              primaryLabel: summary.days.any((d) => d.merchandiseNetExVat != null)
+                  ? 'Net sales'
+                  : 'Invoice total',
+              secondaryLabel: 'COGS',
+              lineLabel: 'Profit',
+              height: 190,
+              points: [
+                for (final day in summary.days)
+                  TrendPoint(
+                    label: day.day.length >= 10 ? day.day.substring(5) : day.day,
+                    primary: day.merchandiseNetExVat ?? day.gross,
+                    secondary: day.cogs,
+                    lineValue: day.grossProfit,
+                  ),
+              ],
+            ),
+          ],
+          if (summary != null && summary.categories.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.lg),
+            HorizontalComparisonChart(
+              key: const ValueKey('sales-dashboard-category-chart'),
+              title: 'Sales & Cost by Category ($scopeCaption)',
+              subtitle: 'Top categories by net merchandise sales vs. landed cost.',
+              primaryLabel: 'Net sales',
+              secondaryLabel: 'COGS',
+              items: [
+                for (final cat in summary.categories.take(6))
+                  ComparisonBarItem(
+                    label: cat.categoryName,
+                    primaryValue: cat.netMerchandise,
+                    primaryText: formatPeso(cat.netMerchandise),
+                    secondaryValue: cat.cogs,
+                    secondaryText: cat.cogs != null
+                        ? 'COGS ${formatPeso(cat.cogs!)}'
+                        : null,
+                  ),
+              ],
+            ),
+          ],
           // The panels below read the transaction list. Until it answers there
           // is nothing honest to draw there: a "No completed sales yet" panel
           // under a failure banner would claim a fact the failed read never

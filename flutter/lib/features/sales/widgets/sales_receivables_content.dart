@@ -218,6 +218,19 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
     // on screen under the banner, because they are still true.
     final firstLoadFailed = failure != null && viewmodel.entries.isEmpty;
 
+    final partPaidEntries = viewmodel.entries
+        .where((e) => !e.isPaid && !e.isUnpaid)
+        .toList();
+    final partPaidBalance = partPaidEntries.fold<double>(
+      0,
+      (sum, e) => sum + e.balanceDue,
+    );
+    final paidEntries = viewmodel.entries.where((e) => e.isPaid).toList();
+    final totalCollected = viewmodel.entries.fold<double>(
+      0,
+      (sum, e) => sum + e.paidAmount,
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -233,9 +246,23 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
                   : '${formatCount(viewmodel.entries.where((e) => !e.isPaid).length)} open invoices',
             ),
             MetricTile(
+              label: 'Part-paid',
+              value: totalsUnknown ? _notLoaded : formatPeso(partPaidBalance),
+              caption: totalsUnknown
+                  ? null
+                  : '${formatCount(partPaidEntries.length)} partially settled',
+            ),
+            MetricTile(
               label: 'Overdue',
               value: totalsUnknown ? _notLoaded : formatPeso(viewmodel.overdue),
               caption: totalsUnknown ? null : 'Requires follow-up',
+            ),
+            MetricTile(
+              label: 'Collected',
+              value: totalsUnknown ? _notLoaded : formatPeso(totalCollected),
+              caption: totalsUnknown
+                  ? null
+                  : '${formatCount(paidEntries.length)} paid in full',
             ),
           ],
         ),
@@ -389,34 +416,226 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
   }
 
   Widget _actionButton(SalesReceivablesViewmodel viewmodel, LedgerEntry entry) {
+    final detailsBtn = TextButton(
+      key: ValueKey('receivable-details-${entry.id}'),
+      onPressed: () => _openDetailsDialog(context, viewmodel, entry),
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        minimumSize: const Size(44, 36),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: const Text('History'),
+    );
     if (entry.isPaid) {
-      return _caption(
-        entry.paidAt == null
-            ? 'Paid'
-            : 'Paid ${formatDate(entry.paidAt!.toLocal())}',
+      return Wrap(
+        spacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          _caption(
+            entry.paidAt == null
+                ? 'Paid'
+                : 'Paid ${formatDate(entry.paidAt!.toLocal())}',
+          ),
+          detailsBtn,
+        ],
       );
     }
     final paying = viewmodel.isPaying(entry.id);
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: TextButton(
-        // Disabled in flight so a double tap cannot post twice; the viewmodel
-        // holds the same guard for the dialog's own Record button.
-        onPressed: paying
-            ? null
-            : () => _openPaymentDialog(context, viewmodel, entry),
-        style: TextButton.styleFrom(
-          padding: EdgeInsets.zero,
-          minimumSize: const Size(44, 44),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    return Wrap(
+      spacing: 4,
+      runSpacing: 4,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        detailsBtn,
+        FilledButton.tonal(
+          // Disabled in flight so a double tap cannot post twice; the viewmodel
+          // holds the same guard for the dialog's own Record button.
+          onPressed: paying
+              ? null
+              : () => _openPaymentDialog(context, viewmodel, entry),
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            minimumSize: const Size(44, 36),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          child: paying
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Record payment'),
         ),
-        child: paying
-            ? const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Text('Record payment'),
+      ],
+    );
+  }
+
+  Future<void> _openDetailsDialog(
+    BuildContext context,
+    SalesReceivablesViewmodel viewmodel,
+    LedgerEntry entry,
+  ) {
+    final entryPayments = viewmodel.payments
+        .where((p) => p.transactionNo == entry.transactionNo)
+        .toList();
+    final progress = entry.originalAmount > 0
+        ? (entry.paidAmount / entry.originalAmount).clamp(0.0, 1.0)
+        : (entry.isPaid ? 1.0 : 0.0);
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('${entry.customerName} · ${entry.transactionNo}'),
+        content: SizedBox(
+          width: 480,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (entry.projectName case final project?)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      'Project: $project',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceSunken,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Original charge: ${formatPeso(entry.originalAmount)}',
+                            style: const TextStyle(fontSize: 12.5),
+                          ),
+                          Text(
+                            '${(progress * 100).toStringAsFixed(0)}% paid',
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.successText,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 8,
+                        borderRadius: BorderRadius.circular(4),
+                        color: AppColors.success,
+                        backgroundColor: AppColors.border,
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Paid: ${formatPeso(entry.paidAmount)}',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            'Balance: ${formatPeso(entry.balanceDue)}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: entry.isPaid
+                                  ? AppColors.successText
+                                  : AppColors.textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Partial & full payment history (${entryPayments.length})',
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const Divider(height: 12),
+                if (entryPayments.isEmpty)
+                  const Text(
+                    'No individual payments recorded for this invoice yet.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: AppColors.textSecondary,
+                    ),
+                  )
+                else
+                  for (final payment in entryPayments)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  TenderMethod.labelFor(payment.paymentMethod),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                Text(
+                                  '${formatDateTime(payment.paymentDate.toLocal())}'
+                                  '${payment.processedByName.isNotEmpty ? ' · ${payment.processedByName}' : ''}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Text(
+                            formatPeso(payment.amountPaid),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+          if (!entry.isPaid)
+            FilledButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _openPaymentDialog(context, viewmodel, entry);
+              },
+              child: const Text('Record payment'),
+            ),
+        ],
       ),
     );
   }
@@ -1260,61 +1479,145 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
   Widget build(BuildContext context) {
     final failure = _error;
     final notice = _notice;
+    final typedAmount = double.tryParse(_amount.text.trim()) ?? 0;
+    final remainingAfter = (widget.entry.balanceDue - typedAmount).clamp(
+      0.0,
+      double.infinity,
+    );
     return AlertDialog(
       title: Text('Record payment \u00b7 ${widget.entry.transactionNo}'),
       content: SizedBox(
-        width: 340,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              '${widget.entry.customerName} owes '
-              '${formatPeso(widget.entry.balanceDue)}',
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppColors.textSecondary,
+        width: 400,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceSunken,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      widget.entry.customerName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Original: ${formatPeso(widget.entry.originalAmount)}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        Text(
+                          'Paid: ${formatPeso(widget.entry.paidAmount)}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${widget.entry.customerName} owes ${formatPeso(widget.entry.balanceDue)}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(value: false, label: Text('Cash')),
-                ButtonSegment(
-                  value: true,
-                  label: Text('Cheque'),
-                  icon: Icon(Icons.account_balance_outlined),
+              const SizedBox(height: AppSpacing.md),
+              SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(value: false, label: Text('Cash')),
+                  ButtonSegment(
+                    value: true,
+                    label: Text('Cheque'),
+                    icon: Icon(Icons.account_balance_outlined),
+                  ),
+                ],
+                selected: {_isCheque},
+                // Locked once a cheque is on its way: switching the method
+                // mid-post would post the other one.
+                onSelectionChanged: _posting || notice != null
+                    ? null
+                    : (values) => setState(() {
+                        _isCheque = values.first;
+                        _error = null;
+                      }),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: _amount,
+                enabled: !_posting && notice == null,
+                onChanged: (_) => setState(() {}),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                // The till's money styling: large, tabular, the one field on the
+                // dialog a hand actually types into.
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Amount (\u20b1)',
+                  isDense: true,
+                ),
+              ),
+              if (!_posting && notice == null) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    for (final preset in [
+                      ('25%', widget.entry.balanceDue * 0.25),
+                      ('50%', widget.entry.balanceDue * 0.50),
+                      ('Full balance', widget.entry.balanceDue),
+                    ])
+                      ActionChip(
+                        label: Text(preset.$1),
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => setState(() {
+                          _amount.text = preset.$2.toStringAsFixed(2);
+                          _error = null;
+                        }),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  typedAmount <= 0
+                      ? 'Enter a payment amount.'
+                      : (remainingAfter <= 0.005
+                            ? 'After this payment: Paid in full'
+                            : 'Remaining balance after payment: ${formatPeso(remainingAfter)}'),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: remainingAfter <= 0.005 && typedAmount > 0
+                        ? AppColors.successText
+                        : AppColors.textSecondary,
+                  ),
                 ),
               ],
-              selected: {_isCheque},
-              // Locked once a cheque is on its way: switching the method
-              // mid-post would post the other one.
-              onSelectionChanged: _posting || notice != null
-                  ? null
-                  : (values) => setState(() {
-                      _isCheque = values.first;
-                      _error = null;
-                    }),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            TextField(
-              controller: _amount,
-              enabled: !_posting && notice == null,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              // The till's money styling: large, tabular, the one field on the
-              // dialog a hand actually types into.
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
-                fontFeatures: [FontFeature.tabularFigures()],
-              ),
-              decoration: const InputDecoration(
-                labelText: 'Amount (\u20b1)',
-                isDense: true,
-              ),
-            ),
             if (_isCheque) ...[
               const SizedBox(height: AppSpacing.md),
               TextField(
@@ -1359,7 +1662,8 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
                 ),
               ),
             ],
-          ],
+            ],
+          ),
         ),
       ),
       actions: [

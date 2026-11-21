@@ -266,6 +266,7 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
             "items",
             "payments",
             "receipt",
+            "bodega_status",
             "created_at",
             "updated_at",
         ]
@@ -302,7 +303,28 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
             "change_given",
             "payment_fee",
             "credit_sale",
+            "bodega_status",
         ]
+
+    bodega_status = serializers.SerializerMethodField()
+
+    def get_bodega_status(self, obj):
+        if obj.status != SalesTransaction.Status.COMPLETED or obj.source == SalesTransaction.Source.RETURN:
+            return None
+        from apps.bodega import services as bodega_services
+
+        lines = bodega_services.claim_lines(sale_ids=[obj.pk])
+        if not lines:
+            return None
+        total_sold = sum((row["sold"] for row in lines), bodega_services.ZERO)
+        total_remaining = sum((row["remaining"] for row in lines), bodega_services.ZERO)
+        if total_sold <= 0:
+            return None
+        if total_remaining <= 0:
+            return "RELEASED"
+        if total_remaining < total_sold:
+            return "PARTIAL"
+        return "PENDING"
 
 
 class ShiftCashMovementSerializer(serializers.ModelSerializer):
@@ -783,7 +805,16 @@ class SalesOrderSerializer(serializers.ModelSerializer):
 class HeldCartItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = HeldCartItem
-        fields = ["id", "cart", "variant_uom", "qty", "unit_price"]
+        fields = [
+            "id",
+            "cart",
+            "variant_uom",
+            "qty",
+            "unit_price",
+            "discount_kind",
+            "discount_value",
+            "discount_reason",
+        ]
         read_only_fields = ["id", "cart"]
 
 
