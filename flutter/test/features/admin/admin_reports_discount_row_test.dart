@@ -126,6 +126,89 @@ void main() {
     expect(find.text('Payment fees'), findsNWidgets(2));
     expect(find.text('₱35.00'), findsWidgets);
   });
+
+  testWidgets('the sales report shows Operational Profit Breakdown and visual charts', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1600, 1800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthViewmodel>.value(
+        value: AuthViewmodel(AuthRepository(AuthService())),
+        child: MaterialApp(
+          home: SalesReportsPage(
+            viewmodel: AdminReportsViewmodel(
+              repository: _ProfitStubReportsRepository(),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('profit-breakdown-card')), findsOneWidget);
+    expect(find.byKey(const ValueKey('sales-daily-chart')), findsOneWidget);
+    expect(find.byKey(const ValueKey('sales-category-chart')), findsOneWidget);
+    expect(find.text('Operational Profit Breakdown'), findsOneWidget);
+    expect(find.text('Margin 20.0%'), findsOneWidget);
+    expect(find.text('Markup 25.0%'), findsOneWidget);
+    expect(find.text('₱90.00'), findsWidgets);
+  });
+}
+
+class _ProfitStubReportsRepository extends _StubReportsRepository {
+  @override
+  Future<SalesSummary> fetchSalesSummary({String? from, String? to}) async {
+    return const SalesSummary(
+      from: '2026-11-01',
+      to: '2026-11-21',
+      totalTransactions: 2,
+      totalGross: 619,
+      totalVatableSales: 539.29,
+      totalVat: 64.71,
+      totalDiscounts: 56,
+      totalPaymentFees: 15,
+      totalDeliveryFees: 100,
+      merchandiseGross: 560,
+      merchandiseNetExVat: 450,
+      totalCogs: 360,
+      grossProfit: 90,
+      grossMarginPercent: 20,
+      effectiveMarkupPercent: 25,
+      costCoverage: CostCoverage(
+        costedDeductions: 2,
+        missingCostDeductions: 0,
+        complete: true,
+      ),
+      days: [
+        SalesDay(
+          day: '2026-11-21',
+          transactions: 2,
+          gross: 619,
+          vat: 64.71,
+          discounts: 56,
+          paymentFees: 15,
+          deliveryFees: 100,
+          merchandiseNetExVat: 450,
+          cogs: 360,
+          grossProfit: 90,
+        ),
+      ],
+      categories: [
+        SalesCategoryBreakdown(
+          categoryId: 1,
+          categoryName: 'Cement',
+          grossMerchandise: 560,
+          discounts: 56,
+          netMerchandise: 504,
+          cogs: 360,
+        ),
+      ],
+    );
+  }
 }
 
 class _FeeStubReportsRepository extends _StubReportsRepository {

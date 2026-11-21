@@ -188,7 +188,8 @@ void main() {
     // Phase 4 F4 supersedes D12: checkout applies a capped discount again. The finder
     // is by WORD, so two matches are the tile and the table's column heading.
     expect(find.text('Discounts'), findsNWidgets(2));
-    expect(find.text('Invoice total'), findsNWidgets(2));
+    expect(find.text('Invoice total'), findsWidgets);
+    expect(find.byKey(const ValueKey('sales-daily-chart')), findsOneWidget);
   });
 
   testWidgets(
@@ -263,7 +264,11 @@ void main() {
         findsOneWidget,
         reason: 'an unlabelled total reads as the whole stock movement',
       );
-      expect(find.text('Damaged'), findsOneWidget);
+      expect(find.text('Damaged'), findsWidgets);
+      expect(
+        find.byKey(const ValueKey('movements-adjustments-chart')),
+        findsOneWidget,
+      );
     },
   );
 
@@ -401,9 +406,13 @@ void main() {
       findsOneWidget,
       reason: 'the partly released request is the one a manager chases',
     );
-    // The row badges use the same words as the chips, never the raw token.
-    expect(find.text('Closed'), findsOneWidget);
-    expect(find.text('Partially released'), findsOneWidget);
+    // The row badges and status chart use the same words as the chips, never the raw token.
+    expect(find.text('Closed'), findsWidgets);
+    expect(find.text('Partially released'), findsWidgets);
+    expect(
+      find.byKey(const ValueKey('requisitions-status-chart')),
+      findsOneWidget,
+    );
     expect(find.text('CLOSED'), findsNothing);
     // Decision 08: the requester is CPMS's text, shown as typed.
     expect(find.text('Ben Cruz'), findsOneWidget);

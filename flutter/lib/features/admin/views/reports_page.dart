@@ -6,6 +6,7 @@ import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/reports.dart';
 import 'package:client/data/models/requisition.dart';
 import 'package:client/features/admin/viewmodels/admin_reports_viewmodel.dart';
+import 'package:client/shared/widgets/analytics_charts.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
@@ -413,8 +414,67 @@ class _SalesTab extends StatelessWidget {
                   label: 'Payment fees',
                   value: formatPeso(sales.totalPaymentFees),
                 ),
+              if (sales.grossProfit != null)
+                MetricTile(
+                  label: 'Gross profit',
+                  value: formatPeso(sales.grossProfit!),
+                  caption: sales.grossMarginPercent != null
+                      ? '${sales.grossMarginPercent!.toStringAsFixed(1)}% margin'
+                            '${sales.effectiveMarkupPercent != null ? ' · ${sales.effectiveMarkupPercent!.toStringAsFixed(1)}% markup' : ''}'
+                      : 'Net merchandise ex-VAT minus COGS',
+                ),
             ],
           ),
+          if (sales.hasProfitBreakdown) ...[
+            const SizedBox(height: AppSpacing.md),
+            ProfitBreakdownCard(sales: sales),
+          ],
+          if (sales.days.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            GroupedBarTrendChart(
+              key: const ValueKey('sales-daily-chart'),
+              title: 'Daily Sales & Profit Graph',
+              subtitle: sales.days.any((d) => d.cogs != null)
+                  ? 'Bars compare invoice/net sales vs. landed COGS; line tracks daily gross profit.'
+                  : 'Daily invoice total across reported dates.',
+              points: [
+                for (final day in sales.days)
+                  TrendPoint(
+                    label: _shortDateLabel(day.day),
+                    primary: day.merchandiseNetExVat ?? day.gross,
+                    secondary: day.cogs,
+                    lineValue: day.grossProfit,
+                  ),
+              ],
+              primaryLabel: sales.days.any((d) => d.merchandiseNetExVat != null)
+                  ? 'Net sales (ex-VAT)'
+                  : 'Invoice total',
+              secondaryLabel: 'COGS',
+              lineLabel: 'Gross profit',
+            ),
+          ],
+          if (sales.categories.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            HorizontalComparisonChart(
+              key: const ValueKey('sales-category-chart'),
+              title: 'Sales & Cost by Category',
+              subtitle: 'Top categories by net merchandise sales vs. landed cost.',
+              primaryLabel: 'Net sales',
+              secondaryLabel: 'COGS',
+              items: [
+                for (final cat in sales.categories.take(8))
+                  ComparisonBarItem(
+                    label: cat.categoryName,
+                    primaryValue: cat.netMerchandise,
+                    primaryText: formatPeso(cat.netMerchandise),
+                    secondaryValue: cat.cogs,
+                    secondaryText: cat.cogs != null
+                        ? 'COGS ${formatPeso(cat.cogs!)}'
+                        : null,
+                  ),
+              ],
+            ),
+          ],
           const SizedBox(height: AppSpacing.md),
           if (sales.days.isNotEmpty) _InvoiceTrend(days: sales.days),
           DataPanel<_SalesRow>(
@@ -568,6 +628,54 @@ class _ValuationTab extends StatelessWidget {
               ),
             ],
           ),
+          if (valuation.categories.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            HorizontalComparisonChart(
+              key: const ValueKey('valuation-category-chart'),
+              title: 'Inventory Value by Category (Retail vs. Cost)',
+              subtitle:
+                  'Compares current retail value against landed cost and potential markup.',
+              primaryLabel: 'At retail',
+              primaryColor: AppColors.primary,
+              secondaryLabel: 'At cost',
+              secondaryColor: const Color(0xFF64748B),
+              items: [
+                for (final cat in valuation.categories.take(8))
+                  ComparisonBarItem(
+                    label: cat.name,
+                    primaryValue: cat.retail,
+                    primaryText: formatPeso(cat.retail),
+                    secondaryValue: cat.cost,
+                    secondaryText: 'Cost ${formatPeso(cat.cost)}',
+                    badgeText: cat.cost > 0
+                        ? '+${(((cat.retail - cat.cost) / cat.cost) * 100).toStringAsFixed(0)}%'
+                        : null,
+                  ),
+              ],
+            ),
+          ],
+          if (valuation.locations.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            HorizontalComparisonChart(
+              key: const ValueKey('valuation-location-chart'),
+              title: 'Stock Value by Location',
+              subtitle: 'Where stock capital is currently held (Store vs. Bodega).',
+              primaryLabel: 'At retail',
+              primaryColor: AppColors.info,
+              secondaryLabel: 'At cost',
+              secondaryColor: const Color(0xFF64748B),
+              items: [
+                for (final loc in valuation.locations)
+                  ComparisonBarItem(
+                    label: loc.locationName,
+                    primaryValue: loc.retail,
+                    primaryText: formatPeso(loc.retail),
+                    secondaryValue: loc.cost,
+                    secondaryText: 'Cost ${formatPeso(loc.cost)}',
+                  ),
+              ],
+            ),
+          ],
           const SizedBox(height: AppSpacing.md),
           DataPanel<_ValuationRow>(
             columns: _columns,
@@ -711,6 +819,44 @@ class _MovementsTab extends StatelessWidget {
             style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
           ),
           const SizedBox(height: AppSpacing.md),
+          if (movements.receiptsByDay.isNotEmpty) ...[
+            GroupedBarTrendChart(
+              key: const ValueKey('movements-receipts-chart'),
+              title: 'Daily Goods Received',
+              subtitle: 'Units received per delivery date.',
+              primaryLabel: 'Units in',
+              primaryColor: AppColors.success,
+              isCurrency: false,
+              height: 170,
+              points: [
+                for (final day in movements.receiptsByDay)
+                  TrendPoint(
+                    label: _shortDateLabel(day.date),
+                    primary: day.qtyIn,
+                  ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
+          if (movements.adjustmentsByType.isNotEmpty) ...[
+            HorizontalComparisonChart(
+              key: const ValueKey('movements-adjustments-chart'),
+              title: 'Adjustments Breakdown',
+              subtitle: 'Units written off or corrected by reason.',
+              primaryLabel: 'Units adjusted',
+              primaryColor: AppColors.warning,
+              items: [
+                for (final type in movements.adjustmentsByType)
+                  ComparisonBarItem(
+                    label: _adjustmentLabel(type.type),
+                    primaryValue: type.qtyOut,
+                    primaryText: '${formatQuantity(type.qtyOut)} units',
+                    badgeText: '${type.movements}x',
+                  ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
           const SectionHeading(title: 'Goods received'),
           DataPanel<_ReceiptRow>(
             columns: _receiptColumns,
@@ -796,6 +942,22 @@ class _RequisitionsTab extends StatelessWidget {
               ],
             ),
             const SizedBox(height: AppSpacing.md),
+            HorizontalComparisonChart(
+              key: const ValueKey('requisitions-status-chart'),
+              title: 'Requisitions by Status',
+              subtitle: 'Distribution of project requests in this range.',
+              primaryLabel: 'Requests',
+              primaryColor: AppColors.primary,
+              items: [
+                for (final entry in history.countByStatus.entries)
+                  ComparisonBarItem(
+                    label: _statusLabel(entry.key),
+                    primaryValue: entry.value.toDouble(),
+                    primaryText: formatCount(entry.value),
+                  ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
           ],
           DataPanel<RequisitionHistoryRow>(
             columns: _columns,
@@ -826,6 +988,26 @@ Widget _cell(String text, {bool bold = false}) => Text(
 String _dateLabel(String value) {
   final date = DateTime.tryParse(value);
   return date == null ? value : formatDate(date);
+}
+
+String _shortDateLabel(String value) {
+  final date = DateTime.tryParse(value);
+  if (date == null) return value;
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return '${months[date.month - 1]} ${date.day}';
 }
 
 /// The one shape the server's `from`/`to` query takes.

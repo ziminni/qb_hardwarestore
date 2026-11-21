@@ -5,10 +5,10 @@
 | Phase | Scope | Blocking Decisions | Status |
 |---|---|---|---|
 | 1 | Research and source audit | None; owner delegated recommended policy | ✅ Done |
-| 2 | Selling-price history and line/cart discounts | Price history independent; allocations must reconcile approvals and returns | 🟡 In Progress |
-| 3 | Reporting visuals and grouped partial payments | Use server facts; don’t guess missing legacy allocations/costs | 🟡 In Progress |
+| 2 | Selling-price history and line/cart discounts | Price history independent; allocations must reconcile approvals and returns | ✅ Done |
+| 3 | Reporting visuals and grouped partial payments | Use server facts; don’t guess missing legacy allocations/costs | ✅ Done |
 | 4 | Cashier dispatch and role workflow verification | Native smoke pending in phase 5 | ✅ Done |
-| 5 | Integrated QA, migration and demo instructions | Phases 2–4 | [ ] Pending |
+| 5 | Integrated QA, migration and demo instructions | Phases 2–4 | ✅ Done (native smoke pending on user hardware) |
 
 ## Research-backed design direction
 

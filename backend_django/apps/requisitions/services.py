@@ -442,7 +442,12 @@ def release_materials(*, token_value: str, cashier) -> dict:
             )
             SalesItemDeduction.objects.bulk_create(
                 [
-                    SalesItemDeduction(sales_item=sales_item, batch=batch, qty=take)
+                    SalesItemDeduction(
+                        sales_item=sales_item,
+                        batch=batch,
+                        qty=take,
+                        unit_cost=batch.unit_cost_landed,
+                    )
                     for batch, take in allocations
                 ]
             )

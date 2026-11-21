@@ -194,4 +194,68 @@ void main() {
     expect(lastRequest?.queryParameters['from'], '2026-01-01');
     expect(lastRequest?.queryParameters['to'], '2026-01-31');
   });
+
+  test('sales summary parses profit breakdown, cost coverage, and categories', () async {
+    adapter.respond = (_) => _json({
+      'from': '2026-11-01',
+      'to': '2026-11-21',
+      'totals': {
+        'transactions': 2,
+        'gross_sales': '619.00',
+        'vatable_sales': '539.29',
+        'vat': '64.71',
+        'discounts': '56.00',
+        'payment_fees': '15.00',
+        'delivery_fees': '100.00',
+        'merchandise_gross': '560.00',
+        'merchandise_net_ex_vat': '450.00',
+        'cogs': '360.00',
+        'gross_profit': '90.00',
+        'gross_margin_percent': '20.00',
+        'effective_markup_percent': '25.00',
+      },
+      'cost_coverage': {
+        'costed_deductions': 2,
+        'missing_cost_deductions': 0,
+        'complete': true,
+      },
+      'by_day': [
+        {
+          'day': '2026-11-21',
+          'transactions': 2,
+          'gross_sales': '619.00',
+          'vatable_sales': '539.29',
+          'vat': '64.71',
+          'discounts': '56.00',
+          'payment_fees': '15.00',
+          'delivery_fees': '100.00',
+          'merchandise_net_ex_vat': '450.00',
+          'cogs': '360.00',
+          'gross_profit': '90.00',
+        },
+      ],
+      'by_category': [
+        {
+          'category_id': 1,
+          'category_name': 'Cement',
+          'gross_merchandise': '560.00',
+          'discounts': '56.00',
+          'net_merchandise': '504.00',
+          'cogs': '360.00',
+          'missing_cost_deductions': 0,
+        },
+      ],
+    });
+
+    final summary = await service.fetchSalesSummary();
+    expect(summary.merchandiseGross, 560.0);
+    expect(summary.merchandiseNetExVat, 450.0);
+    expect(summary.totalCogs, 360.0);
+    expect(summary.grossProfit, 90.0);
+    expect(summary.grossMarginPercent, 20.0);
+    expect(summary.effectiveMarkupPercent, 25.0);
+    expect(summary.costCoverage.complete, isTrue);
+    expect(summary.categories.single.categoryName, 'Cement');
+    expect(summary.days.single.grossProfit, 90.0);
+  });
 }

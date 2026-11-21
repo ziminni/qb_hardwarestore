@@ -215,3 +215,142 @@ class SalesSummaryDiscountTests(TestCase):
         self.assertEqual(Decimal(str(totals['gross_sales'])), Decimal('38.00'))
         by_day = response.json()['by_day']
         self.assertEqual(Decimal(str(by_day[0]['discounts'])), Decimal('2.00'))
+
+
+class SalesSummaryProfitBreakdownTests(TestCase):
+    """Operational profit breakdown: net merchandise (ex-VAT) minus snapshotted COGS."""
+
+    def setUp(self):
+        from apps.inventory.models import (
+            Brand,
+            Category,
+            GoodsReceipt,
+            InventoryBatch,
+            Product,
+            ProductVariant,
+            PurchaseOrder,
+            Supplier,
+            UnitOfMeasure,
+            VariantUOM,
+        )
+        from apps.pos.models import SalesItem, SalesItemDeduction
+
+        self.SalesItem = SalesItem
+        self.SalesItemDeduction = SalesItemDeduction
+        self.manager = User.objects.create_user(
+            username='profitmanager', email='pm@x.com', password=PASSWORD,
+            full_name='Maria Santos')
+        self.manager.groups.add(Group.objects.get_or_create(name='Store Manager')[0])
+        self.cashier = User.objects.create_user(
+            username='profitcashier', email='pc@x.com', password=PASSWORD,
+            full_name='Cashy Ir')
+        self.customer = Customer.objects.create(name='Juan Dela Cruz')
+
+        cat = Category.objects.create(name='Cement')
+        brand = Brand.objects.create(name='Holcim')
+        uom, _ = UnitOfMeasure.objects.get_or_create(
+            code='BAG', defaults={'name': 'Bag', 'is_whole': True})
+        product = Product.objects.create(
+            category=cat, brand=brand, base_name='Portland Cement')
+        variant = ProductVariant.objects.create(
+            product=product, variant_name='40kg', base_uom=uom)
+        self.vuom = VariantUOM.objects.create(
+            variant=variant, uom=uom, conversion_factor=Decimal('1'),
+            default_selling_price=Decimal('280.00'))
+        supplier = Supplier.objects.create(company_name='Holcim PH')
+        po = PurchaseOrder.objects.create(supplier=supplier, created_by=self.manager)
+        receipt = GoodsReceipt.objects.create(po=po, received_by=self.manager)
+        self.batch = InventoryBatch.objects.create(
+            variant=variant, receipt=receipt, location=product.stored_at,
+            initial_qty=Decimal('100'), current_qty=Decimal('90'),
+            unit_cost_landed=Decimal('180.00'), batch_selling_price=Decimal('280.00'))
+
+        login = self.client.post(
+            LOGIN_URL,
+            {'username': 'profitmanager', 'password': PASSWORD},
+            content_type='application/json')
+        self.assertEqual(login.status_code, 200)
+        self.auth = {'HTTP_AUTHORIZATION': f'Bearer {login.json()["access"]}'}
+
+    def test_profit_breakdown_computes_cogs_gross_profit_margin_and_category(self):
+        # 2 bags @ 280 = 560 gross; 56 discount -> 504 net incl VAT -> 450.00 ex-VAT + 54.00 VAT
+        # Plus 100 delivery fee (VAT-incl -> 89.29 ex-VAT + 10.71 VAT) and 15 payment fee
+        # COGS = 2 * 180 = 360.00 -> gross_profit = 450.00 - 360.00 = 90.00 (20.00% margin, 25.00% markup)
+        tx = SalesTransaction.objects.create(
+            customer=self.customer,
+            cashier=self.cashier,
+            transaction_no='TRX-PROFIT-1',
+            grand_total=Decimal('619.00'),
+            discount_amount=Decimal('56.00'),
+            delivery_fee=Decimal('100.00'),
+            payment_fee=Decimal('15.00'),
+            vat_registered=True,
+            vat_rate=Decimal('12.00'),
+            vatable_sales=Decimal('539.29'),
+            vat_amount=Decimal('64.71'),
+        )
+        item = self.SalesItem.objects.create(
+            transaction=tx,
+            variant_uom=self.vuom,
+            qty=Decimal('2'),
+            unit_price=Decimal('280.00'),
+            subtotal=Decimal('560.00'),
+            cart_discount_amount=Decimal('56.00'),
+        )
+        self.SalesItemDeduction.objects.create(
+            sales_item=item,
+            batch=self.batch,
+            qty=Decimal('2'),
+            unit_cost=Decimal('180.00'),
+        )
+
+        response = self.client.get(
+            SALES_SUMMARY_URL, **self.auth)  # pyright: ignore[reportArgumentType]
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        totals = body['totals']
+        self.assertEqual(Decimal(str(totals['merchandise_gross'])), Decimal('560.00'))
+        self.assertEqual(Decimal(str(totals['merchandise_net_ex_vat'])), Decimal('450.00'))
+        self.assertEqual(Decimal(str(totals['cogs'])), Decimal('360.00'))
+        self.assertEqual(Decimal(str(totals['gross_profit'])), Decimal('90.00'))
+        self.assertEqual(Decimal(str(totals['gross_margin_percent'])), Decimal('20.00'))
+        self.assertEqual(Decimal(str(totals['effective_markup_percent'])), Decimal('25.00'))
+        self.assertTrue(body['cost_coverage']['complete'])
+        self.assertEqual(body['cost_coverage']['costed_deductions'], 1)
+        self.assertEqual(len(body['by_category']), 1)
+        self.assertEqual(body['by_category'][0]['category_name'], 'Cement')
+        self.assertEqual(Decimal(str(body['by_category'][0]['cogs'])), Decimal('360.00'))
+
+    def test_legacy_null_unit_cost_reports_incomplete_coverage_not_zero_cost(self):
+        tx = SalesTransaction.objects.create(
+            customer=self.customer,
+            cashier=self.cashier,
+            transaction_no='TRX-LEGACY-1',
+            grand_total=Decimal('280.00'),
+            discount_amount=Decimal('0.00'),
+            vat_registered=False,
+            vatable_sales=Decimal('280.00'),
+            vat_amount=Decimal('0.00'),
+        )
+        item = self.SalesItem.objects.create(
+            transaction=tx,
+            variant_uom=self.vuom,
+            qty=Decimal('1'),
+            unit_price=Decimal('280.00'),
+            subtotal=Decimal('280.00'),
+        )
+        self.SalesItemDeduction.objects.create(
+            sales_item=item,
+            batch=self.batch,
+            qty=Decimal('1'),
+            unit_cost=None,
+        )
+
+        response = self.client.get(
+            SALES_SUMMARY_URL, **self.auth)  # pyright: ignore[reportArgumentType]
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertIsNone(body['totals']['cogs'])
+        self.assertIsNone(body['totals']['gross_profit'])
+        self.assertFalse(body['cost_coverage']['complete'])
+        self.assertEqual(body['cost_coverage']['missing_cost_deductions'], 1)
