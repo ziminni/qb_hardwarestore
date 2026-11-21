@@ -306,6 +306,35 @@ class InventoryViewmodel extends ChangeNotifier {
   // "could not add product" message the user would retry into a duplicate.
   // ---------------------------------------------------------------------
 
+  /// Creates a new brand via `/api/v1/brands/` and refreshes the in-memory
+  /// brand list so Stocker / Manager / Admin can add brands inline while
+  /// creating a product.
+  Future<({Brand? brand, String? error})> createBrand(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      return (brand: null, error: 'Enter a brand name.');
+    }
+    try {
+      final id = await _catalogueLists.createBrand(trimmed);
+      final brands = await _catalogueLists.fetchBrands();
+      _brands
+        ..clear()
+        ..addAll(brands);
+      Brand? created;
+      for (final b in _brands) {
+        if (b.id == id) {
+          created = b;
+          break;
+        }
+      }
+      created ??= Brand(id: id, name: trimmed);
+      notifyListeners();
+      return (brand: created, error: null);
+    } on CatalogueServiceException catch (error) {
+      return (brand: null, error: error.message);
+    }
+  }
+
   // ---------------------------------------------------------------------
   // Storage locations (Phase 5 B4/F4)
   // ---------------------------------------------------------------------

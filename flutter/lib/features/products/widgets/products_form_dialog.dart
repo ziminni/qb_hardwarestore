@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
@@ -18,6 +16,7 @@ import 'package:client/features/products/widgets/tracking_kind.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// What the product form produced: a creation draft, or an edit draft.
 ///
@@ -57,6 +56,7 @@ class ProductsFormDialog extends StatefulWidget {
     this.locationHint = '',
     this.storageLocations = const [],
     this.storageLocationError,
+    this.onCreateBrand,
     this.imageFileService = const ImageFileService(),
   });
 
@@ -65,6 +65,11 @@ class ProductsFormDialog extends StatefulWidget {
   final List<UnitOfMeasure> units;
   final List<Product> products;
   final Product? product;
+
+  /// Optional inline brand creation callback so Stock Manager / Store Manager /
+  /// Admin can create a brand without leaving the Add/Edit Product dialog.
+  final Future<({Brand? brand, String? error})> Function(String name)?
+      onCreateBrand;
 
   /// Where this device says the stock sits. Blank on a product nobody recorded.
   final String locationHint;
@@ -106,7 +111,12 @@ enum _StockForm {
 }
 
 class _ProductsFormDialogState extends State<ProductsFormDialog> {
+  static final _decimalFormatter = FilteringTextInputFormatter.allow(
+    RegExp(r'^-?\d*\.?\d{0,2}'),
+  );
+
   final _formKey = GlobalKey<FormState>();
+  late List<Brand> _brands;
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
   late final TextEditingController _variantController;
@@ -234,8 +244,9 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     _costController = TextEditingController(text: '0');
     _initialController = TextEditingController(text: '0');
     _packageSizeController = TextEditingController(text: '40');
+    _brands = List<Brand>.of(widget.brands);
     _categoryId = product?.categoryId ?? widget.categories.firstOrNull?.id;
-    _brandId = product?.brandId ?? widget.brands.firstOrNull?.id;
+    _brandId = product?.brandId ?? _brands.firstOrNull?.id;
     _baseUomId = variant?.baseUomId ?? widget.units.firstOrNull?.id;
     _packageUomId = _packageUnits.firstOrNull?.id;
     _imageUrl = product?.imageUrl ?? '';
@@ -308,6 +319,86 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
       controller.dispose();
     }
     super.dispose();
+  }
+
+  Future<void> _createBrandInline() async {
+    final creator = widget.onCreateBrand;
+    if (creator == null) return;
+    final controller = TextEditingController();
+    String? errorText;
+    var saving = false;
+    final created = await showDialog<Brand>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('New brand'),
+          content: SizedBox(
+            width: 360,
+            child: TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: 'Brand name',
+                hintText: 'e.g. Holcim, Boysen, Stanley',
+                errorText: errorText,
+              ),
+              onSubmitted: (_) async {
+                if (saving) return;
+                setDialogState(() {
+                  saving = true;
+                  errorText = null;
+                });
+                final res = await creator(controller.text);
+                if (!dialogContext.mounted) return;
+                if (res.brand != null) {
+                  Navigator.of(dialogContext).pop(res.brand);
+                } else {
+                  setDialogState(() {
+                    saving = false;
+                    errorText = res.error ?? 'Could not create brand.';
+                  });
+                }
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      setDialogState(() {
+                        saving = true;
+                        errorText = null;
+                      });
+                      final res = await creator(controller.text);
+                      if (!dialogContext.mounted) return;
+                      if (res.brand != null) {
+                        Navigator.of(dialogContext).pop(res.brand);
+                      } else {
+                        setDialogState(() {
+                          saving = false;
+                          errorText = res.error ?? 'Could not create brand.';
+                        });
+                      }
+                    },
+              child: Text(saving ? 'Saving…' : 'Create'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    if (!mounted || created == null) return;
+    setState(() {
+      if (!_brands.any((b) => b.id == created.id)) {
+        _brands.add(created);
+      }
+      _brandId = created.id;
+    });
   }
 
   /// Picks a photo and keeps its BYTES (the server refuses a local path).
@@ -504,6 +595,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
       width: 600,
       content: Form(
         key: _formKey,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -624,23 +716,51 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
       },
     ),
     const SizedBox(height: AppSpacing.lg),
-    DropdownButtonFormField<int>(
-      key: const ValueKey('brand-picker'),
-      isExpanded: true,
-      initialValue: _brandId,
-      decoration: const InputDecoration(labelText: 'Brand'),
-      items: widget.brands
-          .map(
-            (brand) => DropdownMenuItem(
-              value: brand.id,
-              child: Text(brand.name, overflow: TextOverflow.ellipsis),
+    Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: KeyedSubtree(
+            key: ValueKey('brand-list-${_brands.length}-$_brandId'),
+            child: DropdownButtonFormField<int>(
+              key: const ValueKey('brand-picker'),
+              isExpanded: true,
+              initialValue: _brandId,
+              decoration: InputDecoration(
+                labelText: 'Brand',
+                helperText: _brands.isEmpty
+                    ? 'No brands yet — click "+ New" to create one.'
+                    : null,
+              ),
+              items: _brands
+                  .map(
+                    (brand) => DropdownMenuItem(
+                      value: brand.id,
+                      child: Text(brand.name, overflow: TextOverflow.ellipsis),
+                    ),
+                  )
+                  .toList(),
+              validator: (value) =>
+                  value == null ? 'Choose or create a brand.' : null,
+              onChanged: (value) {
+                if (value != null) setState(() => _brandId = value);
+              },
             ),
-          )
-          .toList(),
-      validator: (value) => value == null ? 'Choose a brand.' : null,
-      onChanged: (value) {
-        if (value != null) setState(() => _brandId = value);
-      },
+          ),
+        ),
+        if (widget.onCreateBrand != null) ...[
+          const SizedBox(width: AppSpacing.sm),
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: OutlinedButton.icon(
+              key: const ValueKey('new-brand-button'),
+              onPressed: _createBrandInline,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('New'),
+            ),
+          ),
+        ],
+      ],
     ),
     const SizedBox(height: AppSpacing.lg),
     TextFormField(
@@ -670,6 +790,14 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     final kind = _kind;
     final unit = _shownBaseUnit;
     return [
+      if (widget.units.isEmpty) ...[
+        const ErrorBanner(
+          message:
+              'No units of measure exist in the database yet (PC, KG, M, L, BAG). '
+              'Ask an admin to seed standard units before adding products.',
+        ),
+        const SizedBox(height: AppSpacing.md),
+      ],
       const Text('How is this product tracked?'),
       const SizedBox(height: AppSpacing.md),
       Wrap(
@@ -763,11 +891,13 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                inputFormatters: [_decimalFormatter],
                 onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(
                   labelText: _stockForm == _StockForm.standardLengths
                       ? 'Standard length per piece'
                       : 'Quantity per package',
+                  hintText: 'Number (e.g. 40)',
                   suffixText: _baseCode,
                 ),
                 validator: (raw) =>
@@ -890,9 +1020,11 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
+              inputFormatters: [_decimalFormatter],
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
                 labelText: 'Cost per $_baseCode',
+                hintText: '0.00',
                 prefixText: '₱ ',
               ),
               validator: _nonNegative,
@@ -906,9 +1038,11 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
+              inputFormatters: [_decimalFormatter],
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
                 labelText: 'Selling price per $_baseCode',
+                hintText: '0.00',
                 prefixText: '₱ ',
               ),
               validator: _validateBasePrice,
@@ -953,11 +1087,13 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                inputFormatters: [_decimalFormatter],
                 onChanged: (_) => setState(() => _creditMarkupChanged = true),
                 decoration: InputDecoration(
                   labelText: _creditKind == 'PERCENT'
                       ? 'Percent'
                       : 'Peso amount',
+                  hintText: '0.00',
                   suffixText: _creditKind == 'PERCENT' ? '%' : null,
                   prefixText: _creditKind == 'AMOUNT' ? '₱ ' : null,
                 ),
@@ -989,11 +1125,13 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
+              inputFormatters: [_decimalFormatter],
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
                 labelText: initialIsPackages
                     ? 'Initial packages / pieces'
                     : 'Initial quantity',
+                hintText: '0',
                 suffixText: initialIsPackages ? packageName : _baseCode,
               ),
               validator: _validateInitial,
@@ -1007,8 +1145,10 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
+              inputFormatters: [_decimalFormatter],
               decoration: InputDecoration(
                 labelText: 'Reorder level',
+                hintText: '10',
                 suffixText: _baseCode,
               ),
               validator: _nonNegative,
@@ -1032,8 +1172,10 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
             key: const ValueKey('base-price'),
             controller: _sellingController,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [_decimalFormatter],
             decoration: InputDecoration(
               labelText: 'Selling price per $_baseCode',
+              hintText: '0.00',
               prefixText: '₱ ',
             ),
             validator: _validateBasePrice,
@@ -1045,8 +1187,10 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
             key: const ValueKey('reorder-field'),
             controller: _reorderController,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [_decimalFormatter],
             decoration: InputDecoration(
               labelText: 'Reorder level',
+              hintText: '10',
               suffixText: _baseCode,
             ),
             validator: _nonNegative,

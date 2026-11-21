@@ -75,6 +75,7 @@ class _ProductsPageState extends State<ProductsPage> {
         products: viewModel.products,
         categories: inventory.categories,
         brands: inventory.brands,
+        onCreateBrand: inventory.createBrand,
         units: inventory.units,
         // Device-local knowledge (decision 15): the server has no location field,
         // so the form opens with whatever THIS device remembered.
