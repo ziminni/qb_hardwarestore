@@ -335,6 +335,44 @@ class InventoryViewmodel extends ChangeNotifier {
     }
   }
 
+  /// Creates a new unit of measure via `/api/v1/uoms/` and refreshes the
+  /// in-memory unit list so Stocker / Manager / Admin can add UOMs inline.
+  Future<({UnitOfMeasure? unit, String? error})> createUnit({
+    required String code,
+    required String name,
+  }) async {
+    final trimmedCode = code.trim().toUpperCase();
+    final trimmedName = name.trim();
+    if (trimmedCode.isEmpty) {
+      return (unit: null, error: 'Enter a unit code (e.g. PC, KG, BAG).');
+    }
+    if (trimmedName.isEmpty) {
+      return (unit: null, error: 'Enter a unit name (e.g. Piece, Kilogram).');
+    }
+    try {
+      final id = await _catalogueLists.createUnit(
+        code: trimmedCode,
+        name: trimmedName,
+      );
+      final units = await _catalogueLists.fetchUnits();
+      _units
+        ..clear()
+        ..addAll(units);
+      UnitOfMeasure? created;
+      for (final u in _units) {
+        if (u.id == id) {
+          created = u;
+          break;
+        }
+      }
+      created ??= UnitOfMeasure(id: id, code: trimmedCode, name: trimmedName);
+      notifyListeners();
+      return (unit: created, error: null);
+    } on CatalogueServiceException catch (error) {
+      return (unit: null, error: error.message);
+    }
+  }
+
   // ---------------------------------------------------------------------
   // Storage locations (Phase 5 B4/F4)
   // ---------------------------------------------------------------------

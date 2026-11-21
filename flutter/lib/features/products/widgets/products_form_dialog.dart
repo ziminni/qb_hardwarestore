@@ -57,6 +57,7 @@ class ProductsFormDialog extends StatefulWidget {
     this.storageLocations = const [],
     this.storageLocationError,
     this.onCreateBrand,
+    this.onCreateUnit,
     this.imageFileService = const ImageFileService(),
   });
 
@@ -70,6 +71,13 @@ class ProductsFormDialog extends StatefulWidget {
   /// Admin can create a brand without leaving the Add/Edit Product dialog.
   final Future<({Brand? brand, String? error})> Function(String name)?
       onCreateBrand;
+
+  /// Optional inline unit-of-measure creation callback so Stock Manager /
+  /// Store Manager / Admin can add a UOM without leaving Step 2.
+  final Future<({UnitOfMeasure? unit, String? error})> Function({
+    required String code,
+    required String name,
+  })? onCreateUnit;
 
   /// Where this device says the stock sits. Blank on a product nobody recorded.
   final String locationHint;
@@ -117,6 +125,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
 
   final _formKey = GlobalKey<FormState>();
   late List<Brand> _brands;
+  late List<UnitOfMeasure> _units;
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
   late final TextEditingController _variantController;
@@ -166,7 +175,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   ProductVariant? get _variant => widget.product?.variants.firstOrNull;
 
   UnitOfMeasure? _unitWithId(int? id) {
-    for (final unit in widget.units) {
+    for (final unit in _units) {
       if (unit.id == id) return unit;
     }
     return null;
@@ -177,7 +186,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   UnitOfMeasure? get _shownBaseUnit {
     if (!_editing) return _unitWithId(_baseUomId);
     final code = _variant?.baseUomCode ?? '';
-    for (final unit in widget.units) {
+    for (final unit in _units) {
       if (unit.code == code) return unit;
     }
     return null;
@@ -205,7 +214,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
 
   /// Whole, counted units a package can be: Bag, Box, Pack, Roll, Piece...
   List<UnitOfMeasure> get _packageUnits => [
-    for (final unit in widget.units)
+    for (final unit in _units)
       if (unit.isWhole &&
           TrackingKind.of(unit) == TrackingKind.quantity &&
           unit.id != _baseUomId)
@@ -245,9 +254,10 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     _initialController = TextEditingController(text: '0');
     _packageSizeController = TextEditingController(text: '40');
     _brands = List<Brand>.of(widget.brands);
+    _units = List<UnitOfMeasure>.of(widget.units);
     _categoryId = product?.categoryId ?? widget.categories.firstOrNull?.id;
     _brandId = product?.brandId ?? _brands.firstOrNull?.id;
-    _baseUomId = variant?.baseUomId ?? widget.units.firstOrNull?.id;
+    _baseUomId = variant?.baseUomId ?? _units.firstOrNull?.id;
     _packageUomId = _packageUnits.firstOrNull?.id;
     _imageUrl = product?.imageUrl ?? '';
     _storedAtId = product?.storedAtId ?? _defaultStoredAtId();
@@ -401,6 +411,98 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     });
   }
 
+  Future<void> _createUnitInline() async {
+    final creator = widget.onCreateUnit;
+    if (creator == null) return;
+    final codeController = TextEditingController();
+    final nameController = TextEditingController();
+    String? errorText;
+    var saving = false;
+    final created = await showDialog<UnitOfMeasure>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          Future<void> submit() async {
+            if (saving) return;
+            setDialogState(() {
+              saving = true;
+              errorText = null;
+            });
+            final res = await creator(
+              code: codeController.text,
+              name: nameController.text,
+            );
+            if (!dialogContext.mounted) return;
+            if (res.unit != null) {
+              Navigator.of(dialogContext).pop(res.unit);
+            } else {
+              setDialogState(() {
+                saving = false;
+                errorText = res.error ?? 'Could not create unit.';
+              });
+            }
+          }
+
+          return AlertDialog(
+            title: const Text('New unit of measure'),
+            content: SizedBox(
+              width: 360,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: codeController,
+                    autofocus: true,
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: const InputDecoration(
+                      labelText: 'Unit code',
+                      hintText: 'e.g. PC, BAG, BOX, KG, M, L',
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  TextField(
+                    controller: nameController,
+                    decoration: InputDecoration(
+                      labelText: 'Unit name',
+                      hintText: 'e.g. Piece, Bag, Kilogram, Metre',
+                      errorText: errorText,
+                    ),
+                    onSubmitted: (_) => submit(),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving
+                    ? null
+                    : () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: saving ? null : submit,
+                child: Text(saving ? 'Saving…' : 'Create'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    codeController.dispose();
+    nameController.dispose();
+    if (!mounted || created == null) return;
+    setState(() {
+      if (!_units.any((u) => u.id == created.id)) {
+        _units.add(created);
+      }
+      _baseUomId = created.id;
+      _stockForm = _stockOptions.first;
+      if (_packageUomId == _baseUomId || _packageUomId == null) {
+        _packageUomId = _packageUnits.firstOrNull?.id;
+      }
+    });
+  }
+
   /// Picks a photo and keeps its BYTES (the server refuses a local path).
   Future<void> _selectImage() async {
     try {
@@ -454,7 +556,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
       : _num(_initialController);
 
   void _pickKind(TrackingKind kind) {
-    final options = kind.unitsIn(widget.units);
+    final options = kind.unitsIn(_units);
     if (options.isEmpty) return;
     setState(() {
       _baseUomId = options.first.id;
@@ -790,11 +892,11 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     final kind = _kind;
     final unit = _shownBaseUnit;
     return [
-      if (widget.units.isEmpty) ...[
+      if (_units.isEmpty) ...[
         const ErrorBanner(
           message:
-              'No units of measure exist in the database yet (PC, KG, M, L, BAG). '
-              'Ask an admin to seed standard units before adding products.',
+              'No units of measure exist yet (e.g. PC, BAG, KG, M, L). '
+              'Click "+ New" below to add your first unit.',
         ),
         const SizedBox(height: AppSpacing.md),
       ],
@@ -809,7 +911,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
               key: ValueKey('tracking-${option.name}'),
               label: Text(option.label),
               selected: option == kind,
-              onSelected: option.unitsIn(widget.units).isEmpty
+              onSelected: option.unitsIn(_units).isEmpty
                   ? null
                   : (_) => _pickKind(option),
             ),
@@ -818,26 +920,52 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
       const SizedBox(height: AppSpacing.sm),
       Text(kind.caption, style: Theme.of(context).textTheme.bodySmall),
       const SizedBox(height: AppSpacing.lg),
-      DropdownButtonFormField<int>(
-        key: const ValueKey('base-unit-picker'),
-        isExpanded: true,
-        initialValue: _baseUomId,
-        decoration: const InputDecoration(
-          labelText: 'Base measurement / unit',
-          helperText:
-              'Set once: a variant keeps this unit for its whole history.',
-        ),
-        items: [
-          for (final option
-              in kind.unitsIn(widget.units).isEmpty
-                  ? widget.units
-                  : kind.unitsIn(widget.units))
-            DropdownMenuItem(value: option.id, child: Text(option.label)),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: KeyedSubtree(
+              key: ValueKey('uom-list-${_units.length}-$_baseUomId'),
+              child: DropdownButtonFormField<int>(
+                key: const ValueKey('base-unit-picker'),
+                isExpanded: true,
+                initialValue: _baseUomId,
+                decoration: const InputDecoration(
+                  labelText: 'Base measurement / unit',
+                  helperText:
+                      'Set once: a variant keeps this unit for its whole history.',
+                ),
+                items: [
+                  for (final option
+                      in kind.unitsIn(_units).isEmpty
+                          ? _units
+                          : kind.unitsIn(_units))
+                    DropdownMenuItem(
+                      value: option.id,
+                      child: Text(option.label),
+                    ),
+                ],
+                validator: (value) =>
+                    value == null ? 'Choose or create a base unit.' : null,
+                onChanged: (value) {
+                  if (value != null) setState(() => _baseUomId = value);
+                },
+              ),
+            ),
+          ),
+          if (widget.onCreateUnit != null) ...[
+            const SizedBox(width: AppSpacing.sm),
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: OutlinedButton.icon(
+                key: const ValueKey('new-uom-button'),
+                onPressed: _createUnitInline,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('New'),
+              ),
+            ),
+          ],
         ],
-        validator: (value) => value == null ? 'Choose a base unit.' : null,
-        onChanged: (value) {
-          if (value != null) setState(() => _baseUomId = value);
-        },
       ),
       if (kind != TrackingKind.quantity) ...[
         const SizedBox(height: AppSpacing.md),
@@ -916,7 +1044,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   /// rule when the shop has one, and is locked, saying why, when it has none.
   Widget _fractionSwitch(UnitOfMeasure unit) {
     UnitOfMeasure? other;
-    for (final candidate in TrackingKind.of(unit).unitsIn(widget.units)) {
+    for (final candidate in TrackingKind.of(unit).unitsIn(_units)) {
       if (candidate.isWhole != unit.isWhole) {
         other = candidate;
         break;
