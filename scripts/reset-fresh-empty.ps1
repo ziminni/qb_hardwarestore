@@ -12,22 +12,34 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
 
-Write-Host "=== 1/3 Wiping POS DB volume & restarting stack + tunnel ===" -ForegroundColor Cyan
+Write-Host "=== 1/4 Wiping POS DB volume & restarting stack + tunnel ===" -ForegroundColor Cyan
 docker compose --profile tunnel down -v
 & (Join-Path $PSScriptRoot 'start-tunnel.ps1')
 
-Write-Host "=== 2/3 Flushing demo rows ===" -ForegroundColor Cyan
+Write-Host "=== 2/4 Waiting for backend migrations & startup to finish ===" -ForegroundColor Cyan
+$ready = $false
+for ($i = 0; $i -lt 60; $i++) {
+    try {
+        $resp = Invoke-WebRequest -Uri 'http://127.0.0.1:8000/api/health/' -UseBasicParsing -TimeoutSec 2
+        if ($resp.StatusCode -eq 200) { $ready = $true; break }
+    } catch {}
+    Start-Sleep 2
+}
+if (-not $ready) { throw "Backend did not become healthy on http://127.0.0.1:8000/api/health/ within 120s." }
+
+Write-Host "=== 3/4 Flushing demo rows ===" -ForegroundColor Cyan
+docker compose exec -T backend python manage.py migrate --noinput
 docker compose exec -T backend python manage.py flush --noinput
 
-Write-Host "=== 3/3 Seeding clean accounts, Store/Bodega, 12 standard UOMs & contractor payer ===" -ForegroundColor Cyan
+Write-Host "=== 4/4 Seeding clean accounts, Store/Bodega, 12 standard UOMs & contractor payer ===" -ForegroundColor Cyan
 $py = @'
 from django.contrib.auth.models import Group
 from apps.users.models import User
 from apps.pos.models import Customer
 from apps.inventory.models import StorageLocation, UnitOfMeasure
 
-for loc in ("Store", "Bodega"):
-    StorageLocation.objects.get_or_create(name=loc)
+StorageLocation.objects.update_or_create(name="Store", defaults={"is_bodega": False})
+StorageLocation.objects.update_or_create(name="Bodega", defaults={"is_bodega": True})
 
 uoms = [
     ("PC", "Piece", True),

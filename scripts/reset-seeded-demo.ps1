@@ -16,10 +16,20 @@ Write-Host "=== 1/2 Wiping POS DB volume & restarting stack + tunnel (auto-migra
 docker compose --profile tunnel down -v
 & (Join-Path $PSScriptRoot 'start-tunnel.ps1')
 
-Write-Host "=== 2/2 Verifying backend health ===" -ForegroundColor Cyan
-Start-Sleep 3
-curl.exe -s http://127.0.0.1:8000/api/health/
-Write-Host ""
+Write-Host "=== 2/2 Waiting for backend migrations & seed_demo to finish ===" -ForegroundColor Cyan
+$ready = $false
+for ($i = 0; $i -lt 60; $i++) {
+    try {
+        $resp = Invoke-WebRequest -Uri 'http://127.0.0.1:8000/api/health/' -UseBasicParsing -TimeoutSec 2
+        if ($resp.StatusCode -eq 200) {
+            Write-Host $resp.Content
+            $ready = $true
+            break
+        }
+    } catch {}
+    Start-Sleep 2
+}
+if (-not $ready) { throw "Backend did not become healthy on http://127.0.0.1:8000/api/health/ within 120s." }
 
 Write-Host ""
 Write-Host "Done! Seeded demo POS is ready (password: demo1234 -> admin, manager, stocker, cashier, checker, cpms_service)." -ForegroundColor Green
