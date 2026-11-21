@@ -12,6 +12,7 @@ Construction Project Management (**CPMS**) lives in a separate repository; norma
 |---|---|
 | **[Setup & Daily Operations](docs/SETUP.md)** | Prerequisites, first install, safe DB updates, Cloudflare Named Tunnel (permanent URL + zero-click auto-start on reboot), CPMS linking, and troubleshooting. |
 | **[Bodega Mobile App](docs/MOBILE-BODEGA.md)** | Building the Android APK (`flutter build apk --release`), pre-baking tunnel URL/key, connecting remotely over mobile data or local Wi-Fi, offline outbox sync, and SMS fallback. |
+| **[Profit, Markup & Discounts](docs/PROFIT-AND-DISCOUNTS.md)** | Plain-language guide to FIFO landed cost, markup, inline vs. proportional cart discount allocation, VAT stripping, partial refunds, and operational gross profit. |
 | **[Production Deployment](docs/production-setup.md)** | Real store go-live (`DJANGO_DEBUG=false`, `gunicorn`, strong secrets, real accounts, private backups, USB SMS modem bridge). |
 | **[Three-Client Smoke Test](docs/three-client-smoke-test.md)** | End-to-end verification walkthrough across POS Desktop + CPMS + Bodega Android. |
 | **[System Architecture (Atlas)](docs/SYSTEM_ATLAS.md)** | Full module overview, role workflows ([ROLE-FLOWS.md](docs/ROLE-FLOWS.md)), and data model. |
