@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- Offline Bodega release confirmation via store SIM800C SMS bridge. -->
     <uses-permission android:name="android.permission.SEND_SMS"/>
+    <!-- Detect Dual-SIM cards so the checker can pick which SIM sends offline SMS. -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
 
     <application
         android:label="BuildPro POS"

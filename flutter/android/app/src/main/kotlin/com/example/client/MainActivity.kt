@@ -1,11 +1,14 @@
 package com.example.client
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.telephony.SmsManager
+import android.telephony.SubscriptionInfo
+import android.telephony.SubscriptionManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -41,21 +44,27 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun handleSendSms(phone: String, body: String, result: MethodChannel.Result) {
-        val granted = ContextCompat.checkSelfPermission(
+        val hasSms = ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.SEND_SMS,
         ) == PackageManager.PERMISSION_GRANTED
-        if (granted) {
-            result.success(sendDirectOrComposer(phone, body))
+        val hasPhoneState = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.READ_PHONE_STATE,
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (hasSms && hasPhoneState) {
+            dispatchSms(phone, body, result)
             return
         }
-        // Request runtime permission once; on denial, fall back cleanly to Option A composer.
+
+        // Request both SEND_SMS and READ_PHONE_STATE (for Dual-SIM picker) together once.
         pendingPhone = phone
         pendingBody = body
         pendingResult = result
         ActivityCompat.requestPermissions(
             this,
-            arrayOf(Manifest.permission.SEND_SMS),
+            arrayOf(Manifest.permission.SEND_SMS, Manifest.permission.READ_PHONE_STATE),
             REQ_SEND_SMS,
         )
     }
@@ -75,22 +84,72 @@ class MainActivity : FlutterActivity() {
         pendingResult = null
         if (phone == null || body == null || result == null) return
 
-        val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
-        if (granted) {
-            result.success(sendDirectOrComposer(phone, body))
+        val hasSms = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.SEND_SMS,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasSms) {
+            dispatchSms(phone, body, result)
         } else {
             result.success(openSmsComposer(phone, body))
         }
     }
 
-    private fun sendDirectOrComposer(phone: String, body: String): String {
-        return try {
-            val manager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                applicationContext.getSystemService(SmsManager::class.java)
-            } else {
-                @Suppress("DEPRECATION")
-                SmsManager.getDefault()
+    private fun dispatchSms(phone: String, body: String, result: MethodChannel.Result) {
+        val sims = activeSims()
+        if (sims.size <= 1) {
+            val subId = sims.firstOrNull()?.subscriptionId
+            result.success(sendDirectOrComposer(phone, body, subId))
+            return
+        }
+
+        // Dual-SIM phone: let the checker tap which SIM (with load) should send the SMS.
+        val labels = sims.mapIndexed { idx, info ->
+            val slot = info.simSlotIndex + 1
+            val carrier = info.carrierName?.toString()?.trim().orEmpty()
+            val display = info.displayName?.toString()?.trim().orEmpty()
+            val name = when {
+                carrier.isNotEmpty() -> carrier
+                display.isNotEmpty() -> display
+                else -> "SIM ${idx + 1}"
             }
+            "SIM $slot — $name"
+        }.toTypedArray()
+
+        runOnUiThread {
+            AlertDialog.Builder(this)
+                .setTitle("Choose SIM for offline SMS")
+                .setItems(labels) { _, which ->
+                    val chosen = sims[which]
+                    result.success(sendDirectOrComposer(phone, body, chosen.subscriptionId))
+                }
+                .setNegativeButton("Open Messages app") { _, _ ->
+                    result.success(openSmsComposer(phone, body))
+                }
+                .setOnCancelListener {
+                    result.success("skipped")
+                }
+                .show()
+        }
+    }
+
+    private fun activeSims(): List<SubscriptionInfo> {
+        val hasPhoneState = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.READ_PHONE_STATE,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!hasPhoneState) return emptyList()
+        return try {
+            val subManager = applicationContext.getSystemService(SubscriptionManager::class.java)
+            subManager?.activeSubscriptionInfoList?.sortedBy { it.simSlotIndex } ?: emptyList()
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
+
+    private fun sendDirectOrComposer(phone: String, body: String, subscriptionId: Int?): String {
+        return try {
+            val manager = smsManagerFor(subscriptionId)
             if (manager == null) {
                 openSmsComposer(phone, body)
             } else {
@@ -99,6 +158,20 @@ class MainActivity : FlutterActivity() {
             }
         } catch (_: Throwable) {
             openSmsComposer(phone, body)
+        }
+    }
+
+    private fun smsManagerFor(subscriptionId: Int?): SmsManager? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val base = applicationContext.getSystemService(SmsManager::class.java) ?: return null
+            if (subscriptionId != null) base.createForSubscriptionId(subscriptionId) else base
+        } else {
+            @Suppress("DEPRECATION")
+            if (subscriptionId != null) {
+                SmsManager.getSmsManagerForSubscriptionId(subscriptionId)
+            } else {
+                SmsManager.getDefault()
+            }
         }
     }
 
