@@ -41,6 +41,13 @@ class _PosTransactionHistoryPageState extends State<PosTransactionHistoryPage> {
       selectedNavigationIndex: 1,
       navigationItems: posNavigationItems,
       onNavigationSelected: (i) => navigatePos(context, i),
+      actions: [
+        IconButton(
+          tooltip: 'Refresh transactions',
+          onPressed: viewmodel.isLoading ? null : viewmodel.load,
+          icon: const Icon(Icons.refresh_rounded),
+        ),
+      ],
       // See the manager page: the list owns the scrolling, so it builds only the
       // rows on screen.
       scrollable: false,

@@ -342,10 +342,12 @@ class _ClaimCardState extends State<BodegaClaimCard> {
       ),
     );
     if (!mounted || recorded == null) return;
+    final notice = state.outboxNotice;
+    final message = (recorded.number == 'QUEUED-OFFLINE' && notice != null)
+        ? notice
+        : '${recorded.number} recorded: ${recorded.summary}.';
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${recorded.number} recorded: ${recorded.summary}.'),
-      ),
+      SnackBar(content: Text(message)),
     );
   }
 

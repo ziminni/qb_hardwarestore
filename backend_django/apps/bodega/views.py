@@ -63,6 +63,8 @@ def _claims_payload(lines):
                 "remaining": line["remaining"],
             }
         )
+    import secrets
+
     from apps.sms.models import BodegaSmsTicket
 
     tickets_by_sale = {
@@ -77,12 +79,19 @@ def _claims_payload(lines):
         sale_lines.sort(key=lambda row: row["label"])
         remaining = sum((row["remaining"] for row in sale_lines), services.ZERO)
         receipt = getattr(sale, "receipt", None)
+        sms_code = tickets_by_sale.get(sale.pk, "")
+        if remaining > 0 and not sms_code:
+            ticket, _ = BodegaSmsTicket.objects.get_or_create(
+                sale=sale,
+                defaults={"code": f"{secrets.randbelow(10000):04d}"},
+            )
+            sms_code = ticket.code
         out.append(
             {
                 "sale": sale.pk,
                 "transaction_no": sale.transaction_no,
                 "or_number": receipt.or_number if receipt else "",
-                "sms_code": tickets_by_sale.get(sale.pk, ""),
+                "sms_code": sms_code,
                 "customer_name": sale.customer.name if sale.customer_id else "",
                 "sold_at": sale.trans_date,
                 "is_open": remaining > 0,

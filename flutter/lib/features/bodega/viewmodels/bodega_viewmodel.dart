@@ -485,7 +485,16 @@ class BodegaViewmodel extends ChangeNotifier {
           } else if (outcome == OfflineSmsOutcome.composer) {
             _outboxNotice =
                 'Offline: opened SMS app with pre-filled reply — tap Send.';
+          } else if (outcome == OfflineSmsOutcome.skipped) {
+            _outboxNotice =
+                'Queued offline. Set Store SMS number in Server Settings for automatic SMS fallback.';
+          } else {
+            _outboxNotice =
+                'Queued offline (SMS send failed — will sync when online).';
           }
+        } else {
+          _outboxNotice =
+              'Queued offline (refresh pick-ups while online to cache SMS code).';
         }
         return queued;
       }
