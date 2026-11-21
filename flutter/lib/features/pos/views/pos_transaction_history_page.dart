@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
@@ -23,12 +25,26 @@ class PosTransactionHistoryPage extends StatefulWidget {
 }
 
 class _PosTransactionHistoryPageState extends State<PosTransactionHistoryPage> {
+  Timer? _pollTimer;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<InventorySalesViewmodel>().load();
+      if (!mounted) return;
+      context.read<InventorySalesViewmodel>().load();
+      _pollTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+        if (mounted) {
+          context.read<InventorySalesViewmodel>().load(silent: true);
+        }
+      });
     });
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
   }
 
   @override

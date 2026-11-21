@@ -345,7 +345,25 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
             ),
           ],
           const SizedBox(height: AppSpacing.xs),
-          StatusBadge(label: sale.status.label, tone: _tone(sale.status)),
+          Wrap(
+            spacing: 4,
+            runSpacing: 4,
+            children: [
+              StatusBadge(label: sale.status.label, tone: _tone(sale.status)),
+              if (sale.bodegaStatus != null)
+                StatusBadge(
+                  label: switch (sale.bodegaStatus) {
+                    'ACCOMPLISHED' => 'Bodega: Accomplished',
+                    'PARTIAL' => 'Bodega: Partial',
+                    _ => 'Awaiting Bodega',
+                  },
+                  tone: switch (sale.bodegaStatus) {
+                    'ACCOMPLISHED' => StatusTone.success,
+                    _ => StatusTone.warning,
+                  },
+                ),
+            ],
+          ),
         ],
       ),
     );

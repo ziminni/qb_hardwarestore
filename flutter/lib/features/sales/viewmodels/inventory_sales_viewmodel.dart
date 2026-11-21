@@ -76,10 +76,13 @@ class InventorySalesViewmodel extends ChangeNotifier {
   /// so no second endpoint is involved — the same list feeds the dashboard,
   /// the transactions table and the returns page. A failed load keeps the rows
   /// already shown: emptying the table would read as "no sales".
-  Future<void> load() async {
+  Future<void> load({bool silent = false}) async {
+    if (_isLoading) return;
     _isLoading = true;
-    _loadError = null;
-    notifyListeners();
+    if (!silent) {
+      _loadError = null;
+      notifyListeners();
+    }
     try {
       final rows = await _service.fetchTransactions();
       final byId = {for (final r in rows) r.id: r.transactionNo};
