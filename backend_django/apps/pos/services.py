@@ -1545,7 +1545,12 @@ def process_sale(
 
             SalesItemDeduction.objects.bulk_create(
                 [
-                    SalesItemDeduction(sales_item=item_row, batch=batch, qty=take)
+                    SalesItemDeduction(
+                        sales_item=item_row,
+                        batch=batch,
+                        qty=take,
+                        unit_cost=batch.unit_cost_landed,
+                    )
                     for batch, take in allocations
                 ]
             )
@@ -1946,7 +1951,12 @@ def _restock_returned(*, variant_id, qty_needed, original_id, return_item):
                 batch.current_qty += add
                 touched.append(batch)
                 planned.append(
-                    SalesItemDeduction(sales_item=return_item, batch=batch, qty=-add)
+                    SalesItemDeduction(
+                        sales_item=return_item,
+                        batch=batch,
+                        qty=-add,
+                        unit_cost=batch.unit_cost_landed,
+                    )
                 )
                 remaining -= add
             if touched:

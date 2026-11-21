@@ -245,6 +245,12 @@ class SalesItemDeduction(models.Model):
         "inventory.InventoryBatch", on_delete=models.PROTECT, related_name="+"
     )
     qty = models.DecimalField(max_digits=12, decimal_places=2)
+    # The batch's landed cost PER BASE UNIT when this row was written (cost of goods sold is
+    # qty x this). NULL = written before costs were snapshotted: reports must count those
+    # as missing cost history, never as zero cost.
+    unit_cost = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
 
     class Meta:
         db_table = "pos_sales_item_deduction"
