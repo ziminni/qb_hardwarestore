@@ -119,8 +119,8 @@ class _SmsContactsSettingsPanelState extends State<SmsContactsSettingsPanel> {
     try {
       final dio = ApiClient.instance.dio;
       final results = await Future.wait([
-        dio.get<dynamic>('/sms/status/'),
-        dio.get<dynamic>('/sms/contacts/'),
+        dio.get<dynamic>('/api/v1/sms/status/'),
+        dio.get<dynamic>('/api/v1/sms/contacts/'),
       ]);
       final statusRaw = results[0].data;
       final contactsRaw = results[1].data;
@@ -160,7 +160,7 @@ class _SmsContactsSettingsPanelState extends State<SmsContactsSettingsPanel> {
     });
     try {
       await ApiClient.instance.dio.post<dynamic>(
-        '/sms/contacts/',
+        '/api/v1/sms/contacts/',
         data: {'phone': phone, 'label': label, 'active': true},
       );
       _phoneCtrl.clear();
@@ -186,7 +186,7 @@ class _SmsContactsSettingsPanelState extends State<SmsContactsSettingsPanel> {
     });
     try {
       await ApiClient.instance.dio.patch<dynamic>(
-        '/sms/contacts/${contact.id}/',
+        '/api/v1/sms/contacts/${contact.id}/',
         data: {'active': next},
       );
       await _load();
@@ -205,7 +205,7 @@ class _SmsContactsSettingsPanelState extends State<SmsContactsSettingsPanel> {
     });
     try {
       await ApiClient.instance.dio.delete<dynamic>(
-        '/sms/contacts/${contact.id}/',
+        '/api/v1/sms/contacts/${contact.id}/',
       );
       await _load();
       if (mounted) {
