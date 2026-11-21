@@ -8,6 +8,7 @@ import 'package:client/features/sales/controllers/sales_settings_controller.dart
 import 'package:client/features/sales/widgets/sales_navigation.dart';
 import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/settings_side_layout.dart';
+import 'package:client/shared/widgets/sms_contacts_settings_panel.dart';
 import 'package:client/shared/widgets/system_settings_panel.dart';
 import 'package:flutter/material.dart';
 
@@ -42,6 +43,17 @@ class SalesSettingsPage extends StatelessWidget {
             'and margin privacy for this device.',
         group: 'Operations',
         builder: (_) => _SalesOperationsPanel(controller: ctrl),
+      ),
+      SettingsSideSection(
+        id: 'sms',
+        label: 'SMS & Bodega phones',
+        icon: Icons.sms_outlined,
+        description:
+            'Register authorized Bodega Checker phone numbers for offline USB '
+            'SMS pickup alerts and replies.',
+        builder: (_) => const SmsContactsSettingsPanel(
+          key: ValueKey('sales-settings-sms'),
+        ),
       ),
       SettingsSideSection(
         id: 'security',

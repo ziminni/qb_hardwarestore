@@ -15,6 +15,7 @@ import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
+import 'package:client/shared/widgets/sms_contacts_settings_panel.dart';
 import 'package:client/shared/widgets/system_settings_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -70,6 +71,13 @@ enum SettingsSection {
     Icons.tag_rounded,
     'Document series prefixes for official receipts, sales, deliveries, '
         'purchase orders, and receipt print templates.',
+    null,
+  ),
+  sms(
+    'SMS & Bodega phones',
+    Icons.sms_outlined,
+    'Register authorized Bodega Checker phone numbers for offline USB SMS '
+        'pickup alerts and replies.',
     null,
   ),
   categories(
@@ -351,6 +359,9 @@ class _SettingsPageState extends State<SettingsPage> {
         kind: CatalogueMasterKind.units,
         canEdit: isAdmin,
         viewmodel: widget.catalogueMasters,
+      ),
+      SettingsSection.sms => const SmsContactsSettingsPanel(
+        key: ValueKey('settings-sms'),
       ),
       SettingsSection.system => const SystemSettingsPanel(
         key: ValueKey('settings-system'),

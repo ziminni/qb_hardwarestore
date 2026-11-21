@@ -206,14 +206,14 @@ class SmsMessageViewSet(
 
 
 class SmsContactViewSet(viewsets.ModelViewSet):
-    """`/sms/contacts/` - which numbers may release goods, and as whom (Admin only).
+    """`/sms/contacts/` - which numbers may release goods, and as whom (Manager / Admin).
 
-    A contact is the one place a phone number becomes authority, so only an Admin writes
-    here; the number is normalized on the way in and the account must hold the Bodega
-    Checker role.
+    A contact is the one place a phone number becomes authority, so only a Store Manager
+    or Admin writes here; the number is normalized on the way in and any linked account
+    must hold the Bodega Checker role.
     """
 
-    permission_classes = (IsAdminRole,)
+    permission_classes = (IsManagerRole,)
     serializer_class = SmsContactSerializer
 
     def get_queryset(self):
