@@ -33,6 +33,7 @@ class _InventoryStockPageState extends State<InventoryStockPage> {
   String _query = '';
   String? _category;
   InventoryStockStatus? _status;
+  String? _shelfFilter;
   String? _location;
   bool _ascending = true;
 
@@ -112,6 +113,14 @@ class _InventoryStockPageState extends State<InventoryStockPage> {
               (_category == null || record.product.categoryName == _category) &&
               (_status == null ||
                   inventory.statusForVariant(record.variant.id) == _status) &&
+              (_shelfFilter == null ||
+                  (_shelfFilter == 'bodega'
+                      ? record.product.storedAtName
+                            .toLowerCase()
+                            .contains('bodega')
+                      : !record.product.storedAtName
+                            .toLowerCase()
+                            .contains('bodega'))) &&
               (_location == null ||
                   inventory.locationHintFor(record.variant.id) == _location);
         }).toList()..sort(
@@ -144,18 +153,35 @@ class _InventoryStockPageState extends State<InventoryStockPage> {
           ),
           const SizedBox(height: AppSpacing.md),
           Wrap(
-            spacing: AppSpacing.md,
-            runSpacing: AppSpacing.md,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
             children: [
+              ChoiceChip(
+                label: const Text('All shelves'),
+                selected: _shelfFilter == null,
+                onSelected: (_) => setState(() => _shelfFilter = null),
+              ),
+              ChoiceChip(
+                label: const Text('Store'),
+                selected: _shelfFilter == 'store',
+                onSelected: (_) => setState(() => _shelfFilter = 'store'),
+              ),
+              ChoiceChip(
+                label: const Text('Bodega'),
+                selected: _shelfFilter == 'bodega',
+                onSelected: (_) => setState(() => _shelfFilter = 'bodega'),
+              ),
+              const SizedBox(width: AppSpacing.sm),
               SizedBox(
                 width: 200,
                 child: DropdownButtonFormField<String?>(
                   initialValue: _category,
-                  // Load-bearing, like the Purchases filter: the selected label
-                  // plus the arrow does not fit the fixed box without it, and an
-                  // overflowing Row clips the label.
                   isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Category'),
+                  decoration: const InputDecoration(
+                    labelText: 'Category',
+                    isDense: true,
+                  ),
                   items: [
                     const DropdownMenuItem(
                       value: null,
@@ -172,14 +198,13 @@ class _InventoryStockPageState extends State<InventoryStockPage> {
                 ),
               ),
               SizedBox(
-                width: 260,
+                width: 240,
                 child: DropdownButtonFormField<String?>(
                   initialValue: _location,
                   isExpanded: true,
-                  // D9: these notes are kept on this computer, so the filter
-                  // says where the value comes from instead of looking shared.
                   decoration: const InputDecoration(
                     labelText: 'Shelf note (this computer)',
+                    isDense: true,
                   ),
                   items: [
                     const DropdownMenuItem(
@@ -194,14 +219,17 @@ class _InventoryStockPageState extends State<InventoryStockPage> {
                   onChanged: (value) => setState(() => _location = value),
                 ),
               ),
-              OutlinedButton.icon(
-                onPressed: () => setState(() => _ascending = !_ascending),
-                icon: const Icon(Icons.sort_by_alpha),
-                label: Text(_ascending ? 'Name A to Z' : 'Name Z to A'),
+              SizedBox(
+                height: 44,
+                child: OutlinedButton.icon(
+                  onPressed: () => setState(() => _ascending = !_ascending),
+                  icon: const Icon(Icons.sort_by_alpha, size: 18),
+                  label: Text(_ascending ? 'Name A to Z' : 'Name Z to A'),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.xl),
+          const SizedBox(height: AppSpacing.lg),
           if (staleRows)
             Padding(
               padding: const EdgeInsets.only(bottom: AppSpacing.md),

@@ -93,7 +93,8 @@ class _ReceivingViewState extends State<_ReceivingView> {
     final viewmodel = context.watch<ReceivingViewmodel>();
     return InventorySkeletonLayout(
       title: 'Receiving',
-      subtitle: 'Receive purchase orders into FIFO stock.',
+      subtitle:
+          '1. Pick an ordered PO → 2. Enter delivered quantities & shelf (Store/Bodega) → 3. Process into FIFO stock.',
       selectedNavigationIndex: 8,
       onNavigationSelected: (index) => navigateInventory(context, index),
       // The delivery history can hold every receipt ever booked, so that tab

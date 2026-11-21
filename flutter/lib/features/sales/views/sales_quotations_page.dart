@@ -82,7 +82,8 @@ class _SalesQuotationsPageState extends State<SalesQuotationsPage> {
 
     return SalesSkeletonLayout(
       title: 'Quotations',
-      subtitle: 'Prepare and track customer estimates before an order.',
+      subtitle:
+          'Formal price estimates for customers (does not reserve or deduct stock).',
       selectedNavigationIndex: 2,
       // The list owns the scrolling, so it builds only the rows on screen.
       scrollable: false,

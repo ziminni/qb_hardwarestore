@@ -70,14 +70,49 @@ class InventoryStockTable extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
-              Text(
-                row.variant.variantName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: AppColors.textSecondary,
-                ),
+              Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      row.variant.variantName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                  if (row.product.storedAtName.isNotEmpty) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: row.product.storedAtName
+                                .toLowerCase()
+                                .contains('bodega')
+                            ? AppColors.warningTint
+                            : AppColors.info.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        row.product.storedAtName,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: row.product.storedAtName
+                                  .toLowerCase()
+                                  .contains('bodega')
+                              ? AppColors.warningText
+                              : AppColors.info,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ],
           ),

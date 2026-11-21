@@ -192,7 +192,8 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
 
     return SalesSkeletonLayout(
       title: 'Sales Orders',
-      subtitle: 'Track confirmed orders from preparation through completion.',
+      subtitle:
+          'Confirmed customer orders awaiting payment and stock release at the POS till.',
       selectedNavigationIndex: 3,
       // The list owns the scrolling, so it builds only the rows on screen.
       scrollable: false,

@@ -30,7 +30,8 @@ class _InventorySalesPageState extends State<InventorySalesPage> {
 
     return InventorySkeletonLayout(
       title: 'Sales',
-      subtitle: 'Review inventory deducted through completed sales.',
+      subtitle:
+          'Read-only log of goods sold off your shelves (units deducted per completed sale).',
       selectedNavigationIndex: 9,
       // See the manager page: the list owns the scrolling, so it builds only the
       // rows on screen.
