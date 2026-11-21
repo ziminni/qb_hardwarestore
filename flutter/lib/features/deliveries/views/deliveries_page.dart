@@ -8,6 +8,8 @@ import 'package:client/data/models/delivery.dart';
 import 'package:client/features/deliveries/viewmodels/deliveries_viewmodel.dart';
 import 'package:client/features/deliveries/widgets/delivery_slip_document.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
+import 'package:client/features/dashboard/widget/dashboard_shell.dart';
+import 'package:client/features/pos/widgets/pos_navigation.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
@@ -36,14 +38,19 @@ class RollDeliverySlipPrinter implements DeliverySlipPrinter {
   );
 }
 
-/// Which role shell the same screen body is drawn in.
-///
-/// Status moves are writable by the Store Manager, Admin and Stock Manager — the
-/// three accounts that reach this screen at all. A Cashier has no deliveries
-/// page: the server scopes a cashier to their OWN slips but refuses a move with
-/// 403, so a view that could only be read is not offered (decision 18 leaves it
-/// to the brief, and the sidebar stays as it was).
-enum DeliveriesShell { inventory, sales }
+enum DeliveriesShell { inventory, sales, pos }
+
+class PosDeliveriesPage extends StatelessWidget {
+  const PosDeliveriesPage({super.key, this.viewmodel});
+
+  final DeliveriesViewmodel? viewmodel;
+
+  @override
+  Widget build(BuildContext context) => ChangeNotifierProvider(
+    create: (_) => (viewmodel ?? DeliveriesViewmodel())..load(),
+    child: const _DeliveriesBody(shell: DeliveriesShell.pos),
+  );
+}
 
 /// The delivery schedule in the Stock Manager's shell (inventory sidebar index
 /// 14, APPENDED so no earlier tab moves).
@@ -198,6 +205,16 @@ class _DeliveriesBodyState extends State<_DeliveriesBody> {
     );
 
     return switch (widget.shell) {
+      DeliveriesShell.pos => DashboardShell(
+        title: 'Deliveries',
+        subtitle:
+            'Your delivery slips. Start your till sales when the goods leave.',
+        selectedNavigationIndex: 9,
+        navigationItems: posNavigationItems,
+        scrollable: false,
+        onNavigationSelected: (index) => navigatePos(context, index),
+        child: content,
+      ),
       DeliveriesShell.inventory => InventorySkeletonLayout(
         title: 'Deliveries',
         subtitle: 'The delivery schedule: what goes out, when, and by whom.',
@@ -416,24 +433,27 @@ class _DeliveriesBodyState extends State<_DeliveriesBody> {
   /// wire, which is what stops a double click becoming a second POST.
   Widget _actions(DeliveriesViewmodel state, Delivery delivery) {
     final busy = state.isMoving(delivery.id);
+    final till = widget.shell == DeliveriesShell.pos;
     return Wrap(
       spacing: 4,
       runSpacing: 4,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        if (delivery.status.canStart)
+        if (delivery.status.canStart &&
+            (!till ||
+                (delivery.saleId != null && delivery.salesOrderId == null)))
           TextButton(
             key: ValueKey('delivery-start-${delivery.id}'),
             onPressed: busy ? null : () => _start(delivery),
             child: const Text('Start'),
           ),
-        if (delivery.status.canDeliver)
+        if (!till && delivery.status.canDeliver)
           TextButton(
             key: ValueKey('delivery-delivered-${delivery.id}'),
             onPressed: busy ? null : () => _deliver(delivery),
             child: const Text('Delivered'),
           ),
-        if (delivery.status.canFail)
+        if (!till && delivery.status.canFail)
           TextButton(
             key: ValueKey('delivery-failed-${delivery.id}'),
             onPressed: busy ? null : () => _fail(delivery),

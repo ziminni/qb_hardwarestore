@@ -18,7 +18,10 @@ class ProjectRequestsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ChangeNotifierProvider(
-    create: (_) => (viewmodel ?? ProjectRequestsViewmodel())..load(),
+    // Kept fresh while open: a request CPMS sends appears without re-login.
+    create: (_) => (viewmodel ?? ProjectRequestsViewmodel())
+      ..load()
+      ..startAutoRefresh(),
     child: const _ProjectRequestsView(),
   );
 }

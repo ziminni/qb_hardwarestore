@@ -1,4 +1,4 @@
-# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportIncompatibleMethodOverride=false, reportMissingImports=false, reportOperatorIssue=false
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportCallIssue=false, reportIncompatibleMethodOverride=false, reportMissingImports=false, reportOperatorIssue=false
 #
 # Same directive and reason as apps/pos/models.py: the checker resolves its config from
 # its WORKING DIRECTORY and does not run inside this repo here, so pyrightconfig.json is
@@ -7,7 +7,8 @@
 # `BooleanField(default=True)` and arithmetic on a `DecimalField`
 # (`self.total_amount - self.balance_amount`, a property the ORM reads as `Decimal` at
 # runtime) is a false positive on valid Django, and so is an
-# `__str__` whose return type pyright reads off a `CharField`. Django's own
+# `__str__` whose return type pyright reads off a `CharField`, and so is
+# `QuerySet.as_manager()` (its `cls` reads as a missing argument). Django's own
 # `manage.py check` and the test run remain the authority.
 """Inventory Module — Product Catalog, Purchasing & Stock (Phase 2).
 
@@ -34,6 +35,8 @@ from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import IntegrityError, models, transaction
 from django.db.models.functions import Upper
+
+from apps.users.exceptions import ImmutableAuditLog
 
 # =========================================================================
 # Selling-unit codes  (Phase 6, decisions 11/12/16)
@@ -268,6 +271,9 @@ class Product(models.Model):
         default=default_storage_location_pk,
     )
     is_active = models.BooleanField(default=True, db_index=True)
+    # False for goods the shop never discounts (cement): checkout refuses a line
+    # discount on it and leaves it out of the sale discount's share.
+    allow_discount = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -431,6 +437,113 @@ class VariantUOM(models.Model):
             if not self.barcode_qr:
                 self.barcode_qr = derived_code(self.pk)
                 super().save(update_fields=["barcode_qr"])
+
+
+class SellingUnitPriceChangeQuerySet(models.QuerySet):
+    """Append-only at the ORM level, exactly like `AuditLog` (decision 07).
+
+    The two bulk doors - `update()` and `delete()` - are the ones that change rows without
+    calling `save()`, so both refuse here and history stays evidence.
+    """
+
+    def update(self, **kwargs):
+        raise ImmutableAuditLog("Price history is append-only and cannot be changed.")
+
+    def delete(self):
+        raise ImmutableAuditLog("Price history is append-only and cannot be removed.")
+
+
+class SellingUnitPriceChange(models.Model):
+    """One recorded change to a selling unit's shelf price (pricing insights).
+
+    A sale line keeps the price it was charged at, so repricing never rewrites a past
+    receipt; this table answers the other question - what the shelf price was BEFORE, when
+    it changed, who changed it and through which door. Only a REAL change is written: a
+    PATCH that names the stored price, an unchanged import sheet or an edit to another
+    field (`credit_markup_*`) writes no row, because a history of edits that never
+    happened is not evidence.
+
+    Written by the three writers that can change the price - `VariantUOMViewSet`
+    (`CATALOGUE`), the catalogue import's apply (`IMPORT`) and the Django admin (`ADMIN`) -
+    inside the write's own transaction, so a refused or rolled-back write leaves no row
+    claiming it happened. A row created directly through the ORM (a seed, a shell) writes
+    nothing: those are not price DECISIONS the shop made.
+
+    RETENTION: an event lives as long as its selling unit (`CASCADE`). A unit referenced
+    by a sale, a held cart, a request, a quotation or an order can never be deleted, so
+    deleting a unit means nothing was ever sold at these prices - there is no sale to
+    read them against and the delete stays a `204` instead of a 500 from a `PROTECT`.
+    """
+
+    class Source(models.TextChoices):
+        CATALOGUE = "CATALOGUE", "Catalogue screen"
+        IMPORT = "IMPORT", "Catalogue import"
+        ADMIN = "ADMIN", "Django admin"
+
+    variant_uom = models.ForeignKey(
+        VariantUOM, on_delete=models.CASCADE, related_name="price_changes"
+    )
+    # NULL means "this was the unit's first recorded price": nothing was replaced.
+    old_price = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
+    new_price = models.DecimalField(max_digits=12, decimal_places=2)
+    changed_at = models.DateTimeField(auto_now_add=True)
+    # NULL when the door knows of no account (a management command or a shell), never a
+    # name taken from a request body.
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    source = models.CharField(max_length=10, choices=Source.choices)
+
+    objects = SellingUnitPriceChangeQuerySet.as_manager()
+
+    class Meta:
+        db_table = "inventory_selling_unit_price_change"
+        verbose_name = "selling unit price change"
+        verbose_name_plural = "selling unit price changes"
+        # Newest first: the reader's question is "what changed last", and `-id` breaks
+        # the tie between two edits written in the same statement tick.
+        ordering = ["-changed_at", "-id"]  # noqa: RUF012 - declarative Meta option
+        indexes = [  # noqa: RUF012 - declarative Meta option
+            models.Index(fields=["variant_uom", "-changed_at"])
+        ]
+
+    def __str__(self):
+        before = "-" if self.old_price is None else f"{self.old_price:.2f}"
+        return f"{self.variant_uom_id}: {before} -> {self.new_price:.2f}"
+
+    @classmethod
+    def record(cls, *, unit, old_price, new_price, actor, source):
+        """Append one row IF the price really changed; the caller owns the transaction.
+
+        Callers pass the price they READ before the write, so a no-op PATCH, an unchanged
+        import row or an edit to another field writes nothing at all.
+        """
+        if old_price == new_price:
+            return None
+        return cls.objects.create(
+            variant_uom=unit,
+            old_price=old_price,
+            new_price=new_price,
+            actor=actor,
+            source=source,
+        )
+
+    def save(self, *args, **kwargs):
+        """Insert only: a pk that already exists is an attempt to rewrite history."""
+        if self.pk is not None and type(self).objects.filter(pk=self.pk).exists():
+            raise ImmutableAuditLog(
+                "Price history is append-only and cannot be changed."
+            )
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ImmutableAuditLog("Price history is append-only and cannot be removed.")
 
 
 # =========================================================================

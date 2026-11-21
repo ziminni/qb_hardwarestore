@@ -76,7 +76,7 @@ void main() {
     testWidgets('empty at ${width.$1} px', (tester) async {
       await _pumpRelease(tester, width.$2, _StubRequisitions());
 
-      expect(find.text('Verify the token'), findsOneWidget);
+      expect(find.text('Choose the request to release'), findsOneWidget);
       expect(
         find.widgetWithText(FilledButton, 'Release materials'),
         findsNothing,
@@ -106,7 +106,7 @@ void main() {
       expect(find.textContaining('TXN-20261030-0184'), findsWidgets);
       expect(find.textContaining('1,234,567.89'), findsWidgets);
       expect(
-        find.widgetWithText(OutlinedButton, 'Verify another token'),
+        find.widgetWithText(OutlinedButton, 'Next request'),
         findsOneWidget,
       );
 

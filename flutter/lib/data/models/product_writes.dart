@@ -28,6 +28,7 @@ class NewProductDraft {
     this.sku = '',
     this.openingQty = 0,
     this.openingUnitCost = 0,
+    this.allowDiscount = true,
   });
 
   /// The shop's own stock-keeping code (owner 2026-11-18). Optional.
@@ -39,6 +40,11 @@ class NewProductDraft {
   /// onto the product's Stored at shelf (a Bodega product waits for the checker).
   final double openingQty;
   final double openingUnitCost;
+
+  /// Whether the till may discount a LINE of this product (owner ruling: cement is
+  /// never discounted). Sent explicitly so a create states the same thing the form
+  /// shows; the server's own default is true.
+  final bool allowDiscount;
 
   final int categoryId;
   final int brandId;
@@ -95,6 +101,7 @@ class NewProductDraft {
     'description': description,
     'image_url': imageUrl,
     if (storedAtId != null) 'stored_at': storedAtId,
+    'allow_discount': allowDiscount,
   };
 
   Map<String, dynamic> variantBody(int productId) => {
@@ -177,6 +184,7 @@ class ProductEditDraft {
     this.storedAtId,
     this.image,
     this.sku,
+    this.allowDiscount,
   });
 
   /// Null leaves the variant's SKU untouched.
@@ -206,6 +214,11 @@ class ProductEditDraft {
   final double? creditMarkupValue;
   final bool? isActive;
 
+  /// The never-discount flag, and ONLY when the clerk touched the switch. Null means
+  /// "leave the stored flag alone", like [sellingPrice]: a save that only fixes a
+  /// name must not silently re-enable discounting on cement.
+  final bool? allowDiscount;
+
   /// Device-local, like the create draft's. Never in a PATCH body.
   final String locationHint;
 
@@ -229,6 +242,7 @@ class ProductEditDraft {
     if (categoryId != null) 'category': categoryId,
     if (brandId != null) 'brand': brandId,
     if (isActive != null) 'is_active': isActive,
+    if (allowDiscount != null) 'allow_discount': allowDiscount,
     if (storedAtId != null) 'stored_at': storedAtId,
   };
 

@@ -55,11 +55,13 @@ enum _ReceivablesTab { ledger, payments, receipts, cheques }
 class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
   /// The chip that filters nothing.
   static const String _anyStatus = 'All';
+  static const String _partPaidStatus = 'Part-paid';
 
   /// The chip labels are the status labels the badges use, so a chip and a row
   /// badge cannot describe the same debt with two different words.
   static final List<String> _statusChips = [
     _anyStatus,
+    _partPaidStatus,
     for (final status in LedgerStatus.values) status.label,
   ];
 
@@ -79,6 +81,7 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
   /// claim a failed load cannot make.
   static const String _notLoaded = 'Not loaded';
 
+  bool _partPaidOnly = false;
   String _query = '';
   String _paymentsQuery = '';
   String _receiptsQuery = '';
@@ -92,7 +95,11 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
   /// Rows the status chip left visible, then narrowed by the search text. The
   /// chip goes through the viewmodel so the tiles and the list stay one dataset.
   List<LedgerEntry> _visibleRows(SalesReceivablesViewmodel viewmodel) {
-    final rows = viewmodel.filteredEntries;
+    final rows = _partPaidOnly
+        ? viewmodel.filteredEntries
+              .where((entry) => !entry.isPaid && !entry.isUnpaid)
+              .toList()
+        : viewmodel.filteredEntries;
     final query = _query.trim().toLowerCase();
     if (query.isEmpty) return rows;
     return [
@@ -115,7 +122,9 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
   /// facts. A failed load is a third, and it is said by the banner, not here:
   /// an inbox icon under the banner reads as "nothing owed".
   String _emptyMessage(SalesReceivablesViewmodel viewmodel) {
-    if (_query.trim().isNotEmpty || viewmodel.statusFilter != null) {
+    if (_query.trim().isNotEmpty ||
+        _partPaidOnly ||
+        viewmodel.statusFilter != null) {
       return 'No receivables match these filters.';
     }
     return 'No receivables available.';
@@ -131,8 +140,8 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
     final viewmodel = context.watch<SalesReceivablesViewmodel>();
     final isManager = chequeViewmodel != null;
     final activeTab = switch (_tab) {
-      _ReceivablesTab.receipts || _ReceivablesTab.cheques when !isManager =>
-        _ReceivablesTab.ledger,
+      _ReceivablesTab.receipts ||
+      _ReceivablesTab.cheques when !isManager => _ReceivablesTab.ledger,
       final other => other,
     };
 
@@ -250,8 +259,13 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
           searchHint: 'Customer, invoice or project',
           onSearchChanged: (value) => setState(() => _query = value),
           options: _statusChips,
-          selected: viewmodel.statusFilter?.label ?? _anyStatus,
-          onSelected: (chip) => viewmodel.setStatusFilter(_statusFor(chip)),
+          selected: _partPaidOnly
+              ? _partPaidStatus
+              : viewmodel.statusFilter?.label ?? _anyStatus,
+          onSelected: (chip) {
+            setState(() => _partPaidOnly = chip == _partPaidStatus);
+            viewmodel.setStatusFilter(_statusFor(chip));
+          },
         ),
         // A refresh that fails keeps the rows it already had, so the failure
         // needs to be said out loud above them.
@@ -475,10 +489,8 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
       DataPanelColumn<LedgerPayment>(
         label: 'Date & time',
         flex: 2,
-        cell: (payment) => _text(
-          formatDateTime(payment.paymentDate.toLocal()),
-          maxLines: 2,
-        ),
+        cell: (payment) =>
+            _text(formatDateTime(payment.paymentDate.toLocal()), maxLines: 2),
       ),
       DataPanelColumn<LedgerPayment>(
         label: 'Customer',
@@ -526,7 +538,9 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
                 _caption(
                   'CPMS receipt ${cpmsRef ?? (orRef.isNotEmpty ? orRef : '#${payment.paymentReceiptId}')}',
                 ),
-                if (orRef.isNotEmpty && cpmsRef != null && orRef != cpmsRef) ...[
+                if (orRef.isNotEmpty &&
+                    cpmsRef != null &&
+                    orRef != cpmsRef) ...[
                   const SizedBox(height: 2),
                   _caption('OR/Ref: $orRef'),
                 ],
@@ -963,10 +977,7 @@ class _SingleFieldDialogState extends State<_SingleFieldDialog> {
       content: TextField(
         controller: _controller,
         keyboardType: widget.keyboardType,
-        decoration: InputDecoration(
-          labelText: widget.labelText,
-          isDense: true,
-        ),
+        decoration: InputDecoration(labelText: widget.labelText, isDense: true),
       ),
       actions: [
         TextButton(

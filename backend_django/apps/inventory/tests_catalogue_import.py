@@ -51,6 +51,7 @@ from .models import (
     Product,
     ProductVariant,
     PurchaseOrder,
+    SellingUnitPriceChange,
     StorageLocation,
     Supplier,
     UnitOfMeasure,
@@ -777,6 +778,9 @@ class CatalogueApplyRefusalTests(CatalogueApplyTestBase):
         self.assertEqual(self._counts(), before)
         self.vuom.refresh_from_db()
         self.assertEqual(self.vuom.default_selling_price, Decimal(10))
+        self.assertFalse(
+            SellingUnitPriceChange.objects.filter(variant_uom=self.vuom).exists()
+        )
 
     def test_a_sold_units_factor_change_is_refused_but_its_price_change_applies(self):
         transaction = SalesTransaction.objects.create(
@@ -804,6 +808,10 @@ class CatalogueApplyRefusalTests(CatalogueApplyTestBase):
         self.assertEqual(applied["updates"], {"products": 0, "variants": 0, "units": 1})
         self.sack_unit.refresh_from_db()
         self.assertEqual(self.sack_unit.default_selling_price, Decimal(550))
+        event = SellingUnitPriceChange.objects.get(variant_uom=self.sack_unit)
+        self.assertEqual(event.new_price, Decimal(550))
+        self.assertEqual(event.source, SellingUnitPriceChange.Source.IMPORT)
+        self.assertEqual(event.actor_id, self.stocker.pk)
 
     def test_a_second_apply_of_the_same_fingerprint_is_refused_as_stale(self):
         rows = [self._row(price="12.50")]

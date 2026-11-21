@@ -169,6 +169,7 @@ class AppRoutes {
   /// The till's Customers tab (index 8): regular customers with standing
   /// discount, utang, and delivery presets for "Who is this sale for?".
   static const String posCustomers = '/pos/customers';
+  static const String posDeliveries = '/pos/deliveries';
   static const String salesDashboard = '/sales/dashboard';
   static const String salesTransactions = '/sales/transactions';
   static const String salesQuotations = '/sales/quotations';
@@ -755,6 +756,12 @@ class AppRoutes {
           name: 'pos_customers',
           pageBuilder: (context, state) =>
               _transitionPage(state, const PosCustomersPage()),
+        ),
+        GoRoute(
+          path: posDeliveries,
+          name: 'pos_deliveries',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const PosDeliveriesPage()),
         ),
         GoRoute(
           path: salesDashboard,

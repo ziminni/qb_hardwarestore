@@ -90,6 +90,10 @@ void main() {
       'vat_registered': false,
       'vat_rate': '0.00',
       'discount_cap_percent': '15.50',
+      'shift_discount_cap_percent': null,
+      // Pre-existing key from the tender-fee work: the body always names the
+      // list, and an empty list clears the server's table.
+      'tender_fees': <Object?>[],
     });
   });
 

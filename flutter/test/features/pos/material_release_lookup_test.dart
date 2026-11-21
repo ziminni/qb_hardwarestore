@@ -152,7 +152,7 @@ void main() {
       final repo = _Repository();
       final printer = _Printer();
       final vm = await _pump(tester, repo, printer);
-      await tester.tap(find.text('Find accepted request'));
+      // The accepted requests are listed on the page itself.
       await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(const ValueKey('release.requestSearch')),
@@ -186,7 +186,10 @@ void main() {
   ) async {
     final repo = _Repository();
     await _pump(tester, repo, _Printer());
-    await tester.enterText(find.byType(TextField), '  manual-token  ');
+    await tester.enterText(
+      find.byKey(const ValueKey('release.tokenField')),
+      '  manual-token  ',
+    );
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
     expect(repo.tokens, ['manual-token']);
@@ -220,7 +223,6 @@ void main() {
   ) async {
     final repo = _Repository()..offline = true;
     await _pump(tester, repo, _Printer());
-    await tester.tap(find.text('Find accepted request'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Store offline'), findsWidgets);
     repo.offline = false;
@@ -233,7 +235,6 @@ void main() {
     tester,
   ) async {
     await _pump(tester, _Repository(), _Printer(), size: const Size(760, 900));
-    await tester.tap(find.text('Find accepted request'));
     await tester.pumpAndSettle();
     expect(find.text('REQ-3'), findsOneWidget);
     expect(tester.takeException(), isNull);

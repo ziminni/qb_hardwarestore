@@ -24,6 +24,7 @@ from rest_framework.views import APIView
 from apps.users import lockout
 from apps.users.models import AuditLog
 from apps.users.permissions import (
+    ROLE_CASHIER,
     ROLE_STOCK_MANAGER,
     ROLE_STORE_MANAGER,
     SALES_READER_ROLES,
@@ -158,23 +159,39 @@ def _replayed_response(transaction):
 # it silently.
 DELIVERY_UPDATER_ROLES = [ROLE_STORE_MANAGER, ROLE_STOCK_MANAGER, *STAFF_ROLES]
 
+# Owner ruling (2026-11-17, delegated): the cashier who scheduled the trip is standing in
+# the shop when the goods leave, so they may make the FIRST move - `start/` - on their
+# own slips. Everything that FINISHES a trip (Delivered, Failed) stays with
+# `DELIVERY_UPDATER_ROLES`, so this widens one action and no other.
+DELIVERY_STARTER_ROLES = [ROLE_CASHIER, *DELIVERY_UPDATER_ROLES]
+
 
 class DeliveryReadWritePermission(BasePermission):
-    """Read a delivery with any SALES role; MOVE it with the three the ruling names.
+    """Read a delivery with any SALES role; move it with the role the ACTION needs.
 
     Reads are wider on purpose: the cashier who took the order at the till has to see the
     slip they created on the deliveries page, and a Stock Manager reads sales already.
-    Writes are exactly `DELIVERY_UPDATER_ROLES`, so a Cashier - the role that MAY take a
-    delivery order - cannot move one, while a Cashier who also holds Stock Manager can
-    (the union, through `has_role`). The CPMS service account holds no sales role, so it
-    is refused here as everywhere else in this app.
+
+    Writes are per action, because the ruling is: `start/` (Scheduled -> Out for
+    delivery) is the cashier's own dispatch move - `DELIVERY_STARTER_ROLES` - while
+    `deliver/` and `fail/` stay exactly `DELIVERY_UPDATER_ROLES`. A permission class
+    cannot read a row (the id is not resolved yet), so "their OWN slips only" is
+    `OwnSalesScopeMixin` on the viewset: another till's slip is a 404 before this move is
+    even considered. A Cashier who also holds Stock Manager takes the union, through
+    `has_role`. The CPMS service account holds no sales role, so it is refused here as
+    everywhere else in this app.
     """
 
-    message = "Only a Store Manager, Admin or Stock Manager may move a delivery."
+    message = (
+        "Only the cashier who took the delivery may send it out, and only a Store "
+        "Manager, Admin or Stock Manager may mark it delivered or failed."
+    )
 
     def has_permission(self, request, view):  # pyright: ignore[reportIncompatibleMethodOverride]
         if request.method in SAFE_METHODS:
             return has_role(request.user, SALES_READER_ROLES)
+        if getattr(view, "action", None) == "start":
+            return has_role(request.user, DELIVERY_STARTER_ROLES)
         return has_role(request.user, DELIVERY_UPDATER_ROLES)
 
 
@@ -296,6 +313,11 @@ class StoreSettingsView(APIView):
             # everywhere else in this API, and a JSON float loses both.
             "vat_rate": f"{row.vat_rate:.2f}",
             "discount_cap_percent": f"{row.discount_cap_percent:.2f}",
+            "shift_discount_cap_percent": (
+                None
+                if row.shift_discount_cap_percent is None
+                else f"{row.shift_discount_cap_percent:.2f}"
+            ),
             # Owner ruling (payment-method fees): these belong on THIS endpoint and not on
             # a collection of their own, because they are shop policy exactly like the VAT
             # rate and the discount cap - one row of decisions the Admin sets and every
@@ -488,6 +510,25 @@ class StoreSettingsView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             setattr(row, field, value.quantize(Decimal("0.01")))
+
+        if "shift_discount_cap_percent" in data:
+            raw = data["shift_discount_cap_percent"]
+            if raw is None or raw == "":
+                row.shift_discount_cap_percent = None
+            else:
+                try:
+                    value = Decimal(str(raw))
+                except (InvalidOperation, TypeError, ValueError):
+                    value = None
+                if value is None or not value.is_finite() or not 0 <= value <= 100:
+                    return Response(
+                        {
+                            "code": "INVALID_SETTINGS",
+                            "detail": "Shift discount limit must be between 0 and 100, or empty for no limit.",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                row.shift_discount_cap_percent = value.quantize(Decimal("0.01"))
 
         after = self._body(row)
         # The fee table is written below, so `after` cannot show it yet: compare the list
@@ -1894,6 +1935,8 @@ class DeliveryViewSet(OwnSalesScopeMixin, viewsets.ReadOnlyModelViewSet):
         from .exceptions import InvalidDelivery
 
         qs = super().get_queryset()
+        if self.action == "start" and is_cashier_only(self.request.user):
+            qs = qs.filter(sale__isnull=False, sales_order__isnull=True)
         status_param = (self.request.query_params.get("status") or "").strip()
         if status_param:
             if status_param.upper() not in Delivery.Status.values:

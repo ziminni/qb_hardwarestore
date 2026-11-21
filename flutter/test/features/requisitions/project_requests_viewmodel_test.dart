@@ -216,6 +216,56 @@ ProjectRequestsViewmodel _viewmodel(_StubRepository repository) =>
     ProjectRequestsViewmodel(repository: repository);
 
 void main() {
+  group('auto refresh', () {
+    test('re-reads the queue and the badge on a timer, and a new request '
+        'appears without leaving the page', () async {
+      final repository = _StubRepository()..waiting = 0;
+      final viewmodel = _viewmodel(repository);
+      await viewmodel.load();
+      expect(viewmodel.requests, isEmpty);
+
+      // CPMS sends a request while the manager is on the page.
+      repository
+        ..rows = [_request()]
+        ..waiting = 1;
+      viewmodel.startAutoRefresh(every: const Duration(milliseconds: 10));
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      expect(viewmodel.requests.map((row) => row.id), [7]);
+      expect(viewmodel.waitingCount, 1);
+      expect(viewmodel.isLoading, isFalse);
+      viewmodel.dispose();
+    });
+
+    test('stops when the screen goes away', () async {
+      final repository = _StubRepository();
+      final viewmodel = _viewmodel(repository);
+      await viewmodel.load();
+      viewmodel.startAutoRefresh(every: const Duration(milliseconds: 10));
+
+      viewmodel.dispose();
+      final calls = repository.listCalls;
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(repository.listCalls, calls);
+    });
+
+    test('skips a tick while a read is still running', () async {
+      final repository = _StubRepository();
+      final viewmodel = _viewmodel(repository);
+      await viewmodel.load();
+      final gate = Completer<void>();
+      repository.listReplies[1] = _ListReply(gate: gate);
+      viewmodel.startAutoRefresh(every: const Duration(milliseconds: 10));
+
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(repository.listCalls, 2, reason: 'one silent read in flight');
+
+      gate.complete();
+      viewmodel.dispose();
+    });
+  });
+
   group('loading the queue', () {
     test('the default filter is Waiting for store', () async {
       final repository = _StubRepository()

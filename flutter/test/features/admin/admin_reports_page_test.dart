@@ -188,8 +188,28 @@ void main() {
     // Phase 4 F4 supersedes D12: checkout applies a capped discount again. The finder
     // is by WORD, so two matches are the tile and the table's column heading.
     expect(find.text('Discounts'), findsNWidgets(2));
-    expect(find.text('Gross sales'), findsOneWidget);
+    expect(find.text('Invoice total'), findsNWidgets(2));
   });
+
+  testWidgets(
+    'invoice trend displays exact daily values without hiding the table',
+    (tester) async {
+      await _pump(tester);
+      await tester.tap(find.text('Daily invoice trend'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('invoice-trend-2026-10-29')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('invoice-trend-2026-10-30')),
+        findsOneWidget,
+      );
+      expect(find.text('₱1,000.00'), findsWidgets);
+      expect(find.text('₱500.00'), findsWidgets);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('a failed first load is one banner with a retry, no zero tiles', (
     tester,

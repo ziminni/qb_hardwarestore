@@ -5,15 +5,17 @@ import 'package:client/data/models/json_field.dart';
 /// `PATCH` (Admin only).
 ///
 /// Wire shape: `{"vat_registered": true, "vat_rate": "12.00",
-/// "discount_cap_percent": "10.00", "updated_at": "..."}`. DRF sends every
-/// `DecimalField` as a STRING, so the percents are parsed string-first and sent
-/// back as 2 dp strings: `12.0` as a double can serialize as
-/// `11.999999999999998`, and the server would then store a rate nobody typed.
+/// "discount_cap_percent": "10.00", "shift_discount_cap_percent": "5.00",
+/// "updated_at": "..."}`. DRF sends every `DecimalField` as a STRING, so the
+/// percents are parsed string-first and sent back as 2 dp strings: `12.0` as a
+/// double can serialize as `11.999999999999998`, and the server would then
+/// store a rate nobody typed.
 class StoreSettings {
   const StoreSettings({
     required this.vatRegistered,
     required this.vatRate,
     required this.discountCapPercent,
+    this.shiftDiscountCapPercent,
     this.tenderFees = const [],
     this.updatedAt,
   });
@@ -43,6 +45,12 @@ class StoreSettings {
 
   /// The largest discount a cashier may take without an approval (`10.00` = 10%).
   final double discountCapPercent;
+
+  /// The largest CUMULATIVE discount one cashier may give over a whole shift,
+  /// as a percent of that shift's goods sold, before a manager approves. NULL
+  /// means no shift limit, which is also the server's own NULL default: there
+  /// is no safe number to invent for a value the server left unset.
+  final double? shiftDiscountCapPercent;
 
   /// Per-tender fees the shop charges on CARD / GCASH / BANK_TRANSFER (owner
   /// ruling). EMPTY on a fresh shop: no rate is invented here, ever.
@@ -81,6 +89,10 @@ class StoreSettings {
         'discount_cap_percent',
         defaultDiscountCapPercent,
       ),
+      shiftDiscountCapPercent: _nullablePercentOr(
+        json,
+        'shift_discount_cap_percent',
+      ),
       tenderFees: nestedList(json, 'tender_fees', TenderFee.fromJson),
       updatedAt: nullableDateField(json, 'updated_at'),
     );
@@ -91,6 +103,9 @@ class StoreSettings {
     'vat_registered': vatRegistered,
     'vat_rate': vatRate.toStringAsFixed(2),
     'discount_cap_percent': discountCapPercent.toStringAsFixed(2),
+    // Sent even when null: the key IS the instruction to clear the stored
+    // shift cap, and an omitted key would leave the old limit in place.
+    'shift_discount_cap_percent': shiftDiscountCapPercent?.toStringAsFixed(2),
     // The list REPLACES the server's table: a method left out ends up with no
     // fee, which is the only reading of a list a client can reason about.
     'tender_fees': [for (final fee in tenderFees) fee.toJson()],
@@ -133,6 +148,22 @@ double _percentOr(Map<String, dynamic> json, String key, double fallback) {
     _ => null,
   };
   if (parsed == null || !parsed.isFinite) return fallback;
+  return parsed;
+}
+
+/// The same reading for an OPTIONAL percent: null and an unreadable value both
+/// stay null, which the server reads as "no limit". There is no default to
+/// stand in for a field the server leaves NULL (the per-sale cap still applies),
+/// so a malformed value must not invent one.
+double? _nullablePercentOr(Map<String, dynamic> json, String key) {
+  final value = json[key];
+  if (value == null) return null;
+  final parsed = switch (value) {
+    num number => number.toDouble(),
+    String text => double.tryParse(text),
+    _ => null,
+  };
+  if (parsed == null || !parsed.isFinite) return null;
   return parsed;
 }
 

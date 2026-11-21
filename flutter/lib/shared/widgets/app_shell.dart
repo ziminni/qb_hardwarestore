@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/constants/app_assets.dart';
 import 'package:client/core/constants/app_breakpoints.dart';
@@ -131,6 +133,25 @@ class _AppShellState extends State<AppShell> {
     );
     if (_markersStarted) return;
     _markersStarted = true;
+    _refreshMarkers();
+    // Badges stay live while the shell is open: a request CPMS sends raises
+    // the "waiting" count on any page, with no re-login.
+    _markerTimer = Timer.periodic(markerRefreshEvery, (_) => _refreshMarkers());
+  }
+
+  /// How often the sidebar badges are read again while the shell is open.
+  static const Duration markerRefreshEvery = Duration(seconds: 15);
+
+  Timer? _markerTimer;
+
+  @override
+  void dispose() {
+    _markerTimer?.cancel();
+    super.dispose();
+  }
+
+  void _refreshMarkers() {
+    if (!mounted) return;
     if (_areas.length > 1) {
       // The merged list shows every held area's badge, so it runs those areas'
       // own queries once instead of the shell's single one.

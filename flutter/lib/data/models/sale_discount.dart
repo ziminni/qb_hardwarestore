@@ -61,41 +61,75 @@ class PosDiscount {
 /// A PREVIEW. The server runs the same arithmetic on its own prices and its answer
 /// wins; this exists so the cashier sees the net before they press Complete sale.
 class PosDiscountAmounts {
-  const PosDiscountAmounts({required this.gross, required this.discountAmount});
+  const PosDiscountAmounts({
+    required this.gross,
+    required this.discountAmount,
+    this.lineDiscountAmount = 0,
+  });
 
-  /// Builds the preview for [discount] against [gross].
+  /// Builds the preview for [discount] against [base].
   ///
-  /// A percent is of the gross (decision 18). The discount is clamped to the gross so
-  /// a peso discount larger than the sale previews as "free", not as a negative net
-  /// that the server would refuse.
-  factory PosDiscountAmounts.forDiscount(double gross, PosDiscount? discount) {
-    if (discount == null || gross <= 0) {
-      return PosDiscountAmounts(gross: gross, discountAmount: 0);
+  /// [base] is what the SALE-level discount is measured on: the gross, or the gross
+  /// less the cart's LINE discounts when it has any, because the server takes a line
+  /// discount off its line first and measures the sale discount on what is left.
+  /// [lineDiscountAmount] is what the lines already took off, added back for [gross]:
+  /// the server's cap check measures the COMBINED discount as a percent of the gross.
+  ///
+  /// A percent is of [base]. The discount is clamped to it so a peso discount larger
+  /// than the sale previews as "free", not as a negative net the server would refuse.
+  /// [neverDiscountedTotal] is the part of [base] the shop never discounts (cement):
+  /// the server leaves those lines out of the figure a sale discount is MEASURED on
+  /// and shared over, so a percent applies to `base - neverDiscountedTotal` and an
+  /// AMOUNT cannot exceed it. The customer still owes their money: [gross] is the
+  /// whole sale, them included.
+  factory PosDiscountAmounts.forDiscount(
+    double base,
+    PosDiscount? discount, {
+    double lineDiscountAmount = 0,
+    double neverDiscountedTotal = 0,
+  }) {
+    final gross = roundMoney(base + lineDiscountAmount);
+    final measuredBase = roundMoney(base - neverDiscountedTotal);
+    if (discount == null || measuredBase <= 0) {
+      return PosDiscountAmounts(
+        gross: gross,
+        discountAmount: 0,
+        lineDiscountAmount: lineDiscountAmount,
+      );
     }
     final raw = switch (discount.kind) {
       DiscountKind.amount => discount.value,
-      DiscountKind.percent => gross * (discount.value / 100),
+      DiscountKind.percent => measuredBase * (discount.value / 100),
     };
     return PosDiscountAmounts(
       gross: gross,
-      discountAmount: roundMoney(raw.clamp(0, gross)),
+      discountAmount: roundMoney(raw.clamp(0, measuredBase)),
+      lineDiscountAmount: lineDiscountAmount,
     );
   }
 
   final double gross;
   final double discountAmount;
 
+  /// What the cart's LINE discounts already took off [gross].
+  final double lineDiscountAmount;
+
+  /// Everything given away on this sale, the amount the server reports back.
+  double get totalDiscountAmount =>
+      roundMoney(lineDiscountAmount + discountAmount);
+
   /// What the customer actually pays: the amount due, and what change is counted from.
-  double get net => roundMoney(gross - discountAmount);
+  double get net => roundMoney(gross - totalDiscountAmount);
 
-  /// The discount as a share of the gross, the number the cap is compared against.
+  /// The COMBINED discount as a share of the gross: the number the cap is compared
+  /// against and the percent a manager approves.
   double get percentOfGross =>
-      gross <= 0 ? 0 : roundMoney(discountAmount / gross * 100);
+      gross <= 0 ? 0 : roundMoney(totalDiscountAmount / gross * 100);
 
-  /// True when this discount is larger than [capPercent], so the till must ask a
-  /// manager to approve it before the sale can be submitted.
+  /// True when the discounts together are larger than [capPercent], so the till must
+  /// ask a manager to approve them before the sale can be submitted.
   bool needsApproval(double capPercent) =>
-      discountAmount > 0 && percentOfGross > capPercent;
+      totalDiscountAmount > 0 && percentOfGross > capPercent;
 }
 
 /// Two decimals, half away from zero (the server's `ROUND_HALF_UP` for positives).

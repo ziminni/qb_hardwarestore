@@ -1,4 +1,5 @@
 import 'package:client/data/models/pick_up.dart';
+import 'package:client/data/models/sale_discount.dart';
 
 class PosCatalogItem {
   const PosCatalogItem({
@@ -18,6 +19,7 @@ class PosCatalogItem {
     this.storedAtName = '',
     this.isLowStock = false,
     this.imageUrl = '',
+    this.allowDiscount = true,
   });
   final int variantUomId;
   final int variantId;
@@ -49,6 +51,11 @@ class PosCatalogItem {
   /// Empty when the row came from a server that does not send it, and the till
   /// then shows no badge rather than an invented one.
   final String storedAtName;
+
+  /// Whether the shop ever discounts this product (owner ruling: cement is never
+  /// discounted). False means the till must not offer a LINE discount on it, because
+  /// the server refuses one with 400 `INVALID_DISCOUNT`.
+  final bool allowDiscount;
 
   /// Derived from base stock and the server's per-variant threshold.
   final bool isLowStock;
@@ -87,6 +94,8 @@ class PosCartLine {
     this.creditUnitPrice,
     this.storedAtName = '',
     this.pickUp = const [],
+    this.discount,
+    this.allowDiscount = true,
   });
   final int variantUomId;
   final String productName;
@@ -115,6 +124,28 @@ class PosCartLine {
   /// to [storedAtName] — see `pickUpCaption`.
   final List<PickUpPart> pickUp;
   double get total => quantity * unitPrice;
+
+  /// Whether this line may take a discount at all (owner ruling: cement is never
+  /// discounted). Carried from the catalogue row like the name and the pick-up point,
+  /// so the cart can hide the control instead of letting the server refuse the sale.
+  final bool allowDiscount;
+
+  /// The discount the cashier gave on THIS line, or null when it has none.
+  ///
+  /// The server takes it off the line before it measures the sale-level discount,
+  /// so the cart's own preview follows the same order (see [netTotal]).
+  final PosDiscount? discount;
+
+  /// What this line's own discount takes off, clamped to the line.
+  double get discountAmount =>
+      PosDiscountAmounts.forDiscount(total, discount).discountAmount;
+
+  /// This line's money after its own discount.
+  //
+  // shortcut: a line PERCENT discount previews against the CASH line total even on a
+  // credit sale; upgrade if utang sales with line discounts become common.
+  double get netTotal => roundMoney(total - discountAmount);
+
   PosCartLine copyWith({double? quantity}) => PosCartLine(
     variantUomId: variantUomId,
     productName: productName,
@@ -126,7 +157,26 @@ class PosCartLine {
     creditUnitPrice: creditUnitPrice,
     storedAtName: storedAtName,
     pickUp: pickUp,
+    discount: discount,
+    allowDiscount: allowDiscount,
   );
+
+  /// This line with [discount] (null clears it).
+  PosCartLine withDiscount(PosDiscount? discount) => PosCartLine(
+    variantUomId: variantUomId,
+    productName: productName,
+    variantName: variantName,
+    quantity: quantity,
+    unit: unit,
+    unitPrice: unitPrice,
+    availableQuantity: availableQuantity,
+    creditUnitPrice: creditUnitPrice,
+    storedAtName: storedAtName,
+    pickUp: pickUp,
+    discount: discount,
+    allowDiscount: allowDiscount,
+  );
+
   Map<String, dynamic> toCheckoutJson() => {
     'variant_id': variantUomId,
     'qty': quantity,

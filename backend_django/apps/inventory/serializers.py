@@ -47,6 +47,7 @@ from .models import (
     Product,
     ProductVariant,
     PurchaseOrder,
+    SellingUnitPriceChange,
     StockAdjustment,
     StockTransfer,
     StockTransferLine,
@@ -67,6 +68,15 @@ from .models import (
     normalise_barcode,
 )
 from .services import lock_selling_unit_lines
+
+
+class SellingUnitPriceChangeSerializer(serializers.ModelSerializer):
+    actor = serializers.CharField(source="actor.username", default=None, read_only=True)
+
+    class Meta:
+        model = SellingUnitPriceChange
+        fields = ("id", "old_price", "new_price", "changed_at", "actor", "source")
+        read_only_fields = fields
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -668,6 +678,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "stored_at",
             "stored_at_name",
             "is_active",
+            "allow_discount",
             "variants",
             "created_at",
             "updated_at",

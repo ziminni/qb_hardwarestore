@@ -34,7 +34,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import '../../support/phase4_fakes.dart';
-import '../../support/payment_steps.dart';
 
 /// A CONFIRMED order: cement 10 bags at 250 (catalogue says 270), PVC 5 pc at
 /// 90 (catalogue says 95). Only 4 bags are on the shelf, so line 1 is short.
@@ -61,34 +60,6 @@ PosOpenOrder _confirmedOrder() => const PosOpenOrder(
       remainingQty: 5,
       availableQty: 40,
       fulfilledQty: 0,
-    ),
-  ],
-);
-
-/// The same order after a first fulfilment: 4 bags and 5 pipes already rung.
-PosOpenOrder _partialOrder() => const PosOpenOrder(
-  id: 7,
-  number: 'ORD-20261113-0001',
-  customerId: 3,
-  status: 'PARTIAL',
-  lines: [
-    PosOpenOrderLine(
-      id: 71,
-      variantUomId: 1,
-      qty: 10,
-      unitPrice: 250,
-      remainingQty: 6,
-      availableQty: 40,
-      fulfilledQty: 4,
-    ),
-    PosOpenOrderLine(
-      id: 72,
-      variantUomId: 2,
-      qty: 5,
-      unitPrice: 90,
-      remainingQty: 0,
-      availableQty: 40,
-      fulfilledQty: 5,
     ),
   ],
 );
@@ -302,153 +273,20 @@ void main() {
     expect(chosen?.id, 7);
   });
 
-  testWidgets('opening an order loads its remaining lines at the order prices', (
-    tester,
-  ) async {
-    final service = _FakeOrderService()..orders = [_confirmedOrder()];
+  // Owner 2026-11-20: the till header no longer offers "Open order" (no
+  // sales orders are taken at this store), so the cashier's top bar only
+  // carries the shift actions.
+  testWidgets('the till header has no Open order button', (tester) async {
     final cart = PosTransactionViewmodel(
       inventory,
       pos: _StubPosRepository(),
-      orderService: service,
+      orderService: _FakeOrderService()..orders = [_confirmedOrder()],
       customers: CustomerRepository(_StubCustomers()),
     );
     await pumpTill(tester, cart);
 
-    await tester.tap(find.byKey(const ValueKey('pos-open-order')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Ring this order'));
-    await tester.pumpAndSettle();
-
-    expect(cart.lines, hasLength(2));
-    expect(cart.lines.first.quantity, 10);
-    // Read-only price: the order's 250, not the catalogue's 270.
-    expect(cart.lines.first.unitPrice, 250);
-    expect(cart.lines.last.unitPrice, 90);
-    expect(cart.isFulfillingOrder, isTrue);
-    // Nothing rung yet, so this fulfilment carries the agreed delivery charge.
-    expect(cart.orderDeliveryFee, 120);
-
-    // Capped at what is still owed on the line.
-    final refusal = cart.stepLine(0, 1);
-    expect(refusal, isNotNull);
-    expect(cart.lines.first.quantity, 10);
-    // Editable DOWN to zero (a line the customer no longer wants is not rung).
-    expect(cart.stepLine(0, -1), isNull);
-    expect(cart.lines.first.quantity, 9);
+    expect(find.byKey(const ValueKey('pos-open-order')), findsNothing);
+    expect(find.text('Open order'), findsNothing);
   });
 
-  testWidgets(
-    'the first fulfilment shows the fee, with no toggle and no discount',
-    (tester) async {
-      final service = _FakeOrderService()..orders = [_confirmedOrder()];
-      final cart = PosTransactionViewmodel(
-        inventory,
-        pos: _StubPosRepository(),
-        orderService: service,
-        customers: CustomerRepository(_StubCustomers()),
-      );
-      await pumpTill(tester, cart);
-
-      await tester.tap(find.byKey(const ValueKey('pos-open-order')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Ring this order'));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Pay'));
-      await tester.pumpAndSettle();
-
-      // The trip was agreed with the order: it is not re-booked at the till.
-      await goToPaymentStep(tester);
-      expect(find.text('Deliver to the customer'), findsNothing);
-      expect(find.byKey(const ValueKey('pos-deliver-toggle')), findsNothing);
-      // No new discount either - the approval was spent when the order was
-      // saved; the flow goes straight on to Review, which shows the fee.
-      await goToReviewStep(tester);
-      expect(find.text('Apply a discount'), findsNothing);
-      expect(find.textContaining('Delivery charge'), findsOneWidget);
-      expect(find.textContaining('120.00'), findsWidgets);
-
-      await completePayment(tester);
-      await tester.pumpAndSettle();
-
-      expect(service.fulfilCalls, 1);
-      expect(service.sentOrderId, 7);
-      expect([for (final l in service.sentLines) l.orderLineId], [71, 72]);
-      expect([for (final l in service.sentLines) l.quantity], [10, 5]);
-      // One key for this attempt, so a dropped response cannot ring it twice.
-      expect(service.sentKey, isNotNull);
-      expect(service.sentKey, hasLength(32));
-      // The sale is written: the cart is cleared and the order is left behind.
-      expect(cart.lines, isEmpty);
-      expect(cart.isFulfillingOrder, isFalse);
-    },
-  );
-
-  testWidgets('a later fulfilment carries no fee', (tester) async {
-    final service = _FakeOrderService()..orders = [_partialOrder()];
-    final cart = PosTransactionViewmodel(
-      inventory,
-      pos: _StubPosRepository(),
-      orderService: service,
-      customers: CustomerRepository(_StubCustomers()),
-    );
-    await pumpTill(tester, cart);
-
-    await tester.tap(find.byKey(const ValueKey('pos-open-order')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Ring this order'));
-    await tester.pumpAndSettle();
-
-    // Only the bags are left; the pipes are done.
-    expect(cart.lines, hasLength(1));
-    expect(cart.lines.first.quantity, 6);
-    // The fee was charged on the first fulfilment, so it is not owed again.
-    expect(cart.orderDeliveryFee, 0);
-
-    await tester.tap(find.text('Pay'));
-    await tester.pumpAndSettle();
-    expect(find.textContaining('Delivery charge'), findsNothing);
-    expect(find.byKey(const ValueKey('pos-deliver-toggle')), findsNothing);
-  });
-
-  testWidgets('a refused fulfilment keeps the order in the cart', (
-    tester,
-  ) async {
-    final service = _FakeOrderService()
-      ..orders = [_confirmedOrder()]
-      ..failure = const PosServiceException(
-        'There is not enough stock to ring this order.',
-        code: 'INSUFFICIENT_STOCK',
-        variantId: 1,
-      );
-    final cart = PosTransactionViewmodel(
-      inventory,
-      pos: _StubPosRepository(),
-      orderService: service,
-      customers: CustomerRepository(_StubCustomers()),
-    );
-    await pumpTill(tester, cart);
-
-    await tester.tap(find.byKey(const ValueKey('pos-open-order')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Ring this order'));
-    await tester.pumpAndSettle();
-    // Let "Order loaded" clear: a ScaffoldMessenger QUEUES messages, so a refusal
-    // shown next would otherwise sit behind a notice the cashier already read.
-    await tester.pump(const Duration(seconds: 5));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Pay'));
-    await tester.pumpAndSettle();
-    await completePayment(tester);
-    await tester.pumpAndSettle();
-
-    expect(cart.submitError, contains('not enough stock'));
-    expect(cart.submitErrorCode, 'INSUFFICIENT_STOCK');
-    // Nothing was written, so the cashier corrects the basket and retries.
-    expect(cart.lines, hasLength(2));
-    expect(cart.isFulfillingOrder, isTrue);
-    // The "Order loaded" notice has to clear before the refusal can be read: a
-    // ScaffoldMessenger QUEUES messages rather than replacing them.
-    expect(find.textContaining('not enough stock'), findsOneWidget);
-  });
 }

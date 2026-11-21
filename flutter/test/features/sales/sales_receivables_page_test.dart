@@ -250,6 +250,30 @@ void main() {
     }
   });
 
+  testWidgets(
+    'Part-paid includes overdue balances but excludes unpaid and settled',
+    (tester) async {
+      await _pump(
+        tester,
+        rows: [
+          _entry(balance: 472, isOverdue: true),
+          _entry(id: 2, customerName: 'Unpaid customer', balance: 5000),
+          _entry(id: 3, customerName: 'Settled customer', balance: 0),
+        ],
+      );
+      final filter = find.descendant(
+        of: find.byType(FilterBar),
+        matching: find.text('Part-paid'),
+      );
+      await tester.tap(filter);
+      await tester.pumpAndSettle();
+      expect(find.text('Dela Cruz Construction'), findsOneWidget);
+      expect(find.text('Overdue'), findsWidgets);
+      expect(find.text('Unpaid customer'), findsNothing);
+      expect(find.text('Settled customer'), findsNothing);
+    },
+  );
+
   testWidgets('a search narrows the list to the customer typed', (
     tester,
   ) async {

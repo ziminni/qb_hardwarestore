@@ -110,6 +110,7 @@ Product product({
   List<ProductVariant>? variants,
   bool isActive = true,
   int? storedAtId,
+  bool allowDiscount = true,
 }) => Product(
   id: id,
   categoryId: categoryId,
@@ -120,6 +121,7 @@ Product product({
   description: '',
   imageUrl: '',
   isActive: isActive,
+  allowDiscount: allowDiscount,
   storedAtId: storedAtId,
   variants: variants ?? [variant(id: id, productId: id)],
 );

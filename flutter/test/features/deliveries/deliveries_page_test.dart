@@ -36,14 +36,16 @@ Delivery _delivery({
   String phone = '09171234567',
   DateTime? scheduledDate,
   double fee = 50,
+  int? saleId = 9,
+  int? salesOrderId,
   List<DeliveryItem> items = const [
     DeliveryItem(name: 'Portland cement', unit: 'BAG', qty: 2),
   ],
 }) => Delivery(
   id: id,
   deliveryNo: no,
-  saleId: 9,
-  salesOrderId: null,
+  saleId: saleId,
+  salesOrderId: salesOrderId,
   transactionNo: 'TRX-20261111-0009',
   orderNo: '',
   customerId: 3,
@@ -160,6 +162,29 @@ Future<void> _pump(
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
   setUpAll(_loadAppFonts);
+
+  testWidgets('cashier can start till sales but cannot close or start orders', (
+    tester,
+  ) async {
+    final service = _StubService(
+      deliveries: [
+        _delivery(),
+        _delivery(id: 2, saleId: null, salesOrderId: 2),
+        _delivery(id: 3, status: DeliveryStatus.outForDelivery),
+      ],
+    );
+    await _pump(
+      tester,
+      PosDeliveriesPage(viewmodel: DeliveriesViewmodel(service: service)),
+    );
+    expect(find.byKey(const ValueKey('delivery-start-2')), findsNothing);
+    expect(find.byKey(const ValueKey('delivery-failed-1')), findsNothing);
+    expect(find.byKey(const ValueKey('delivery-delivered-3')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('delivery-start-1')));
+    await tester.pumpAndSettle();
+    expect(service.calls, ['load', 'start:1']);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('loading details show allocated quantities without printing', (
     tester,

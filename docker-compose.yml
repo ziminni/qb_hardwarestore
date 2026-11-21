@@ -75,20 +75,15 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: buildpro_tunnel
     profiles: ["tunnel"]
-    env_file:
-      - path: ./tunnel/gateway.env
-        required: false
-    # When CLOUDFLARE_TUNNEL_TOKEN is set in tunnel/gateway.env, runs a permanent
-    # Cloudflare Named Tunnel (fixed hostname, e.g. https://pos-api.yourdomain.com ->
-    # http://gateway:8080). Otherwise runs a free Quick Tunnel (*.trycloudflare.com).
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        if [ -n "$${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
-          exec cloudflared tunnel --no-autoupdate --edge-ip-version 4 --protocol http2 run --token "$$CLOUDFLARE_TUNNEL_TOKEN"
-        fi
-        exec cloudflared tunnel --no-autoupdate --edge-ip-version 4 --protocol http2 --url http://gateway:8080
+    # The cloudflared image is distroless (no /bin/sh), so the mode cannot be chosen
+    # by a shell inside the container. scripts/start-tunnel.{sh,ps1} choose it: when
+    # CLOUDFLARE_TUNNEL_TOKEN is set in tunnel/gateway.env they export it plus
+    # CLOUDFLARED_TUNNEL_ARGS=run, giving a permanent Cloudflare Named Tunnel (fixed
+    # hostname, e.g. https://pos-api.yourdomain.com -> http://gateway:8080).
+    # Otherwise this runs a free Quick Tunnel (*.trycloudflare.com).
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    command: tunnel --no-autoupdate --edge-ip-version 4 --protocol http2 ${CLOUDFLARED_TUNNEL_ARGS:---url http://gateway:8080}
     depends_on:
       - gateway
 

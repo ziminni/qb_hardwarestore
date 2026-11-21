@@ -157,11 +157,16 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   static const _vatRateLabel = 'VAT rate (%)';
   static const _discountCapLabel = 'Discount cap (%)';
+  static const _shiftDiscountCapLabel = 'Shift discount limit (%)';
+  static const _shiftDiscountCapHelper =
+      'Total discounts a cashier can give in one shift before a manager must '
+      'approve. Leave empty for no limit.';
 
   late final StoreSettingsViewmodel _settings;
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _vatRate = TextEditingController();
   final TextEditingController _discountCap = TextEditingController();
+  final TextEditingController _shiftDiscountCap = TextEditingController();
   bool _vatRegistered = StoreSettings.defaults.vatRegistered;
   late SettingsSection _section = widget.initialSection;
 
@@ -177,6 +182,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     _vatRate.dispose();
     _discountCap.dispose();
+    _shiftDiscountCap.dispose();
     for (final controller in _feeValues.values) {
       controller.dispose();
     }
@@ -199,6 +205,8 @@ class _SettingsPageState extends State<SettingsPage> {
     _vatRegistered = _settings.vatRegistered;
     _vatRate.text = _settings.vatRate.toStringAsFixed(2);
     _discountCap.text = _settings.discountCapPercent.toStringAsFixed(2);
+    final shiftCap = _settings.shiftDiscountCapPercent;
+    _shiftDiscountCap.text = shiftCap?.toStringAsFixed(2) ?? '';
     for (final method in TenderFee.feeableMethods) {
       TenderFee? stored;
       for (final fee in _settings.settings.tenderFees) {
@@ -218,12 +226,18 @@ class _SettingsPageState extends State<SettingsPage> {
 
   double _percent(String raw) => double.parse(raw.trim());
 
+  /// The optional shift cap: an empty field means no limit, which goes to the
+  /// server as an explicit null.
+  double? _optionalPercent(String raw) =>
+      raw.trim().isEmpty ? null : _percent(raw);
+
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     final saved = await _settings.save(
       vatRegistered: _vatRegistered,
       vatRate: _percent(_vatRate.text),
       discountCapPercent: _percent(_discountCap.text),
+      shiftDiscountCapPercent: _optionalPercent(_shiftDiscountCap.text),
       // The WHOLE list is sent: a method left out ends up with no fee on the
       // server, so an unchecked row must still be named as switched off.
       tenderFees: [
@@ -441,6 +455,17 @@ class _SettingsPageState extends State<SettingsPage> {
             enabled: !isSaving,
             onChanged: _settings.clearSaveError,
           ),
+          const SizedBox(height: AppSpacing.md),
+          // Optional on purpose: the per-sale cap above always applies, and an
+          // empty field means the shop sets no limit across a shift.
+          _PercentField(
+            label: _shiftDiscountCapLabel,
+            controller: _shiftDiscountCap,
+            enabled: !isSaving,
+            onChanged: _settings.clearSaveError,
+            helperText: _shiftDiscountCapHelper,
+            optional: true,
+          ),
           const SizedBox(height: AppSpacing.lg),
           Text(
             'Payment method fees',
@@ -522,13 +547,13 @@ class _SettingsPageState extends State<SettingsPage> {
                       onChanged: (_) => _settings.clearSaveError(),
                       decoration: InputDecoration(
                         isDense: true,
-                        prefixText: (_feeKinds[method] ??
-                                    TenderFee.kindPercent) ==
+                        prefixText:
+                            (_feeKinds[method] ?? TenderFee.kindPercent) ==
                                 TenderFee.kindAmount
                             ? '₱ '
                             : null,
-                        suffixText: (_feeKinds[method] ??
-                                    TenderFee.kindPercent) ==
+                        suffixText:
+                            (_feeKinds[method] ?? TenderFee.kindPercent) ==
                                 TenderFee.kindPercent
                             ? '%'
                             : null,
@@ -582,6 +607,14 @@ class _SettingsPageState extends State<SettingsPage> {
           label: _discountCapLabel,
           value: '${_settings.discountCapPercent.toStringAsFixed(2)}%',
         ),
+        const SizedBox(height: AppSpacing.md),
+        _Field(
+          label: _shiftDiscountCapLabel,
+          value: switch (_settings.shiftDiscountCapPercent) {
+            final cap? => '${cap.toStringAsFixed(2)}%',
+            null => 'No limit',
+          },
+        ),
         const SizedBox(height: AppSpacing.lg),
         const InfoBanner(message: 'Only an Admin can change these settings.'),
       ],
@@ -589,19 +622,25 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 }
 
-/// One percent input with the shared rule as its validator.
+/// One percent input with the shared rule as its validator. With [optional]
+/// set, an empty field is allowed and means "not set"; when it is not, an empty
+/// field fails the same rule as any other non-number.
 class _PercentField extends StatelessWidget {
   const _PercentField({
     required this.label,
     required this.controller,
     required this.enabled,
     required this.onChanged,
+    this.helperText,
+    this.optional = false,
   });
 
   final String label;
   final TextEditingController controller;
   final bool enabled;
   final VoidCallback onChanged;
+  final String? helperText;
+  final bool optional;
 
   @override
   Widget build(BuildContext context) {
@@ -609,8 +648,16 @@ class _PercentField extends StatelessWidget {
       controller: controller,
       enabled: enabled,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      decoration: InputDecoration(labelText: label),
-      validator: (value) => StoreSettings.percentError(value ?? ''),
+      decoration: InputDecoration(
+        labelText: label,
+        helperText: helperText,
+        helperMaxLines: 3,
+      ),
+      validator: (value) {
+        final raw = value ?? '';
+        if (optional && raw.trim().isEmpty) return null;
+        return StoreSettings.percentError(raw);
+      },
       onChanged: (_) => onChanged(),
     );
   }

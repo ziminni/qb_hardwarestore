@@ -249,7 +249,7 @@ void main() {
       );
     }
     expect(
-      find.text('Gross sales'),
+      find.text('Invoice total'),
       findsOneWidget,
       reason: 'the Sales tab must render live data, not an empty shell',
     );

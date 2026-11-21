@@ -130,6 +130,49 @@ void main() {
     },
   );
 
+  test('save carries the optional shift cap, and null clears it', () async {
+    final service = _StubService(loaded: _stored);
+    final viewmodel = StoreSettingsViewmodel(service: service);
+    await viewmodel.load();
+
+    expect(viewmodel.shiftDiscountCapPercent, isNull);
+    await viewmodel.save(
+      vatRegistered: true,
+      vatRate: 12,
+      discountCapPercent: 10,
+      shiftDiscountCapPercent: 5,
+    );
+
+    expect(service.saved.single.shiftDiscountCapPercent, 5);
+    expect(viewmodel.shiftDiscountCapPercent, 5);
+
+    await viewmodel.save(
+      vatRegistered: true,
+      vatRate: 12,
+      discountCapPercent: 10,
+    );
+
+    expect(service.saved.last.shiftDiscountCapPercent, isNull);
+    expect(viewmodel.shiftDiscountCapPercent, isNull);
+  });
+
+  test('an out-of-range shift cap never reaches the server', () async {
+    final service = _StubService(loaded: _stored);
+    final viewmodel = StoreSettingsViewmodel(service: service);
+    await viewmodel.load();
+
+    final ok = await viewmodel.save(
+      vatRegistered: true,
+      vatRate: 12,
+      discountCapPercent: 10,
+      shiftDiscountCapPercent: 120,
+    );
+
+    expect(ok, isFalse);
+    expect(service.saved, isEmpty);
+    expect(viewmodel.saveError, isNotNull);
+  });
+
   test('an out-of-range percent never reaches the server', () async {
     final service = _StubService(loaded: _stored);
     final viewmodel = StoreSettingsViewmodel(service: service);

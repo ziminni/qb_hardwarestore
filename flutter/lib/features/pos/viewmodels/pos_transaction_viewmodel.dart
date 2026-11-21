@@ -133,8 +133,53 @@ class PosTransactionViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// What the cart is worth right now: credit prices when the switch is on.
-  double get total => _creditSale ? creditTotal : subtotal;
+  /// What the cart is worth right now: credit prices when the switch is on, less the
+  /// LINE discounts the cashier gave (they come off before the sale discount).
+  double get total =>
+      (_creditSale ? creditTotal : subtotal) - lineDiscountTotal;
+
+  /// What the cart's line discounts take off together.
+  double get lineDiscountTotal =>
+      _lines.fold(0, (sum, line) => sum + line.discountAmount);
+
+  /// What the cart holds of goods the shop NEVER discounts (cement).
+  ///
+  /// The server leaves these lines out of the figure a sale-level discount is
+  /// measured on and shared over, so the till's preview has to as well or the
+  /// cashier reads a discount the server will charge differently.
+  /// Priced on the SAME basis as [total]: credit prices while the utang switch is
+  /// on, or the base would not subtract from the figure the discount is measured on.
+  double get neverDiscountedTotal => _lines
+      .where((line) => !line.allowDiscount)
+      .fold(0, (sum, line) => sum + (_creditSale ? line.creditTotal : line.total));
+
+  /// True when any line carries a discount. A parkable basket cannot keep one (the
+  /// held-cart wire takes ids, quantities and prices only), so the till stops the
+  /// hold instead of dropping it silently.
+  bool get hasLineDiscount => _lines.any((line) => line.discount != null);
+
+  /// Why the lines are discounted, for the manager approval the till asks when the
+  /// combined discount is over the cap.
+  String get lineDiscountReasons => _lines
+      .where((line) => line.discount != null)
+      .map((line) => line.discount!.reason)
+      .toSet()
+      .join('; ');
+
+  /// Gives (or clears) the discount on cart line [index].
+  ///
+  /// The payload changed, so a pending attempt key is dropped, exactly as a quantity
+  /// edit does: the same key with a different body is a 409, not a sale.
+  /// A line the shop never discounts REFUSES one, whatever the caller does: the
+  /// server answers 400 `INVALID_DISCOUNT`, so the till must not build a cart it
+  /// cannot ring. Clearing a discount is always allowed.
+  void setLineDiscount(int index, PosDiscount? discount) {
+    if (discount != null && !_lines[index].allowDiscount) return;
+    _lines[index] = _lines[index].withDiscount(discount);
+    _dropAttemptKey();
+    notifyListeners();
+  }
+
   int get itemCount => _lines.length;
 
   /// True while a sale is in flight. The submit action must be disabled, because the
@@ -199,7 +244,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
   /// sale is addressed to.
   String _basketSignature() => [
     for (final line in _lines)
-      '${line.variantUomId}:${line.quantity}:${line.unitPrice}',
+      '${line.variantUomId}:${line.quantity}:${line.unitPrice}'
+          '${line.discount == null ? '' : ':d${line.discount!.kind.code}${line.discount!.value}'}',
     'customer:${_selectedCustomer?.id}',
   ].join('|');
 
@@ -322,6 +368,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
           unitPrice: line.unitPrice,
           availableQuantity: row?.availableSaleQuantity ?? 0,
           storedAtName: row?.storedAtName ?? '',
+          allowDiscount: row?.allowDiscount ?? true,
         ),
       );
       _orderLineCaps[line.variantUomId] = line.remainingQty;
@@ -559,7 +606,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
         break;
       }
     }
-    if (serverMatch == null && (draft.customerId == null || draft.customerId! <= 0)) {
+    if (serverMatch == null &&
+        (draft.customerId == null || draft.customerId! <= 0)) {
       try {
         final created = await _customerRepo.createCustomer(
           name: draft.name.trim(),
@@ -630,8 +678,9 @@ class PosTransactionViewmodel extends ChangeNotifier {
         !_selectedCustomer!.isWalkIn &&
         _selectedCustomer!.id > 0 &&
         _selectedCustomer!.name.trim().toLowerCase() == wantedName) {
-      final existingProfile =
-          CustomerProfileStore.instance.resolveFor(_selectedCustomer);
+      final existingProfile = CustomerProfileStore.instance.resolveFor(
+        _selectedCustomer,
+      );
       await CustomerProfileStore.instance.upsertProfile(
         (existingProfile ??
                 CustomerProfile(
@@ -780,6 +829,9 @@ class PosTransactionViewmodel extends ChangeNotifier {
             storedAtName: uom.storedAtName.isNotEmpty
                 ? uom.storedAtName
                 : record.product.storedAtName,
+            // Owner ruling: some goods are never discounted (cement). It travels
+            // with the row so the cart line can say so without a second lookup.
+            allowDiscount: record.product.allowDiscount,
           ),
         );
       }
@@ -949,6 +1001,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
           creditUnitPrice: item.creditUnitPrice,
           availableQuantity: item.availableSaleQuantity,
           storedAtName: item.storedAtName,
+          allowDiscount: item.allowDiscount,
         ),
       );
     } else {
@@ -1079,6 +1132,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
           // A held line carries ids only; the catalogue row is the only place that
           // knows where the goods are. Absent row (or an older server) = no badge.
           storedAtName: row?.storedAtName ?? '',
+          // Same source, same reason: a row we cannot find stays discountable.
+          allowDiscount: row?.allowDiscount ?? true,
         ),
       );
     }
@@ -1279,7 +1334,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
         // the seeded Walk-in Customer otherwise - a walk-in sale still cannot omit the
         // customer, because the FK is not nullable (decision 06 section 2).
         int? selectedId = _selectedCustomer?.id;
-        if (_selectedCustomer != null && (selectedId == null || selectedId <= 0)) {
+        if (_selectedCustomer != null &&
+            (selectedId == null || selectedId <= 0)) {
           try {
             final created = await _customerRepo.createCustomer(
               name: _selectedCustomer!.name,
@@ -1295,8 +1351,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
           }
         }
         final buyer =
-            selectedId ??
-            (_walkInCustomerId ??= await _pos.walkInCustomerId());
+            selectedId ?? (_walkInCustomerId ??= await _pos.walkInCustomerId());
         result = await _pos.checkout(
           customerId: buyer,
           items: [
@@ -1305,6 +1360,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
                 variantUomId: line.variantUomId,
                 quantity: line.quantity,
                 unitPrice: line.unitPrice,
+                discount: line.discount,
               ),
           ],
           payments: payments,

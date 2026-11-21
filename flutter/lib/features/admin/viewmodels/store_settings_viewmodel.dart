@@ -33,6 +33,7 @@ class StoreSettingsViewmodel extends ChangeNotifier {
   bool get vatRegistered => settings.vatRegistered;
   double get vatRate => settings.vatRate;
   double get discountCapPercent => settings.discountCapPercent;
+  double? get shiftDiscountCapPercent => settings.shiftDiscountCapPercent;
 
   bool get isLoading => _isLoading;
   bool get isSaving => _isSaving;
@@ -59,8 +60,8 @@ class StoreSettingsViewmodel extends ChangeNotifier {
     }
   }
 
-  /// Stores [vatRegistered], [vatRate] and [discountCapPercent], then publishes
-  /// what the server kept.
+  /// Stores [vatRegistered], [vatRate], [discountCapPercent] and the optional
+  /// [shiftDiscountCapPercent], then publishes what the server kept.
   ///
   /// Returns false without a request when a percent breaks the shared rule:
   /// the round trip would only repeat what the form already knows.
@@ -68,11 +69,20 @@ class StoreSettingsViewmodel extends ChangeNotifier {
     required bool vatRegistered,
     required double vatRate,
     required double discountCapPercent,
+    double? shiftDiscountCapPercent,
     List<TenderFee> tenderFees = const [],
   }) async {
+    // An absent shift cap is "no limit" and needs no check; a present one obeys
+    // the same 0 to 100 rule as the per-sale cap.
+    final shiftInvalid = shiftDiscountCapPercent == null
+        ? null
+        : StoreSettings.percentError(
+            shiftDiscountCapPercent.toStringAsFixed(2),
+          );
     final invalid =
         StoreSettings.percentError(vatRate.toStringAsFixed(2)) ??
-        StoreSettings.percentError(discountCapPercent.toStringAsFixed(2));
+        StoreSettings.percentError(discountCapPercent.toStringAsFixed(2)) ??
+        shiftInvalid;
     if (invalid != null) {
       _saveError = invalid;
       _fieldErrors = const {};
@@ -89,6 +99,7 @@ class StoreSettingsViewmodel extends ChangeNotifier {
           vatRegistered: vatRegistered,
           vatRate: vatRate,
           discountCapPercent: discountCapPercent,
+          shiftDiscountCapPercent: shiftDiscountCapPercent,
           tenderFees: tenderFees,
         ),
       );

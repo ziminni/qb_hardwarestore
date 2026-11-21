@@ -3,6 +3,7 @@ import 'package:client/core/format/format.dart';
 import 'package:client/data/models/sale_discount.dart';
 import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_cart_bar.dart';
+import 'package:client/features/pos/widgets/pos_line_discount_dialog.dart';
 import 'package:client/features/pos/widgets/pos_utang_panel.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
@@ -229,7 +230,15 @@ class PosTransactionCart extends StatelessWidget {
   Widget _footer(BuildContext context, PosTransactionViewmodel state) {
     const tabular = [FontFeature.tabularFigures()];
     final presetDiscount = state.selectedCustomerPresetDiscount;
-    final amounts = PosDiscountAmounts.forDiscount(state.total, presetDiscount);
+    // The sale discount is measured on what the line discounts left, and the cap on
+    // the combined share of the gross — the server's own order.
+    final amounts = PosDiscountAmounts.forDiscount(
+      state.total,
+      presetDiscount,
+      lineDiscountAmount: state.lineDiscountTotal,
+      // Goods the shop never discounts sit outside what the sale discount applies to.
+      neverDiscountedTotal: state.neverDiscountedTotal,
+    );
     final total = formatPeso(amounts.net);
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
@@ -257,6 +266,33 @@ class PosTransactionCart extends StatelessWidget {
               ),
             ],
           ),
+          if (state.lineDiscountTotal > 0) ...[
+            const SizedBox(height: 6),
+            Row(
+              key: const ValueKey('pos-cart-line-discount-section'),
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Line discounts',
+                    style: TextStyle(
+                      color: AppColors.successText,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '-${formatPeso(state.lineDiscountTotal)}',
+                  style: const TextStyle(
+                    color: AppColors.successText,
+                    fontWeight: FontWeight.w700,
+                    fontFeatures: tabular,
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (presetDiscount != null) ...[
             const SizedBox(height: 6),
             Row(
@@ -321,7 +357,10 @@ class PosTransactionCart extends StatelessWidget {
                 child: Text(
                   'Credit prices apply to all marked-up items. A fully paid '
                   'sale must be rung at cash prices.',
-                  style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textSecondary,
+                  ),
                 ),
               ),
           ],
@@ -355,7 +394,12 @@ class PosTransactionCart extends StatelessWidget {
               if (onHold != null) ...[
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: state.lines.isEmpty ? null : onHold,
+                    // A parked cart cannot carry a line discount (the held-cart wire
+                    // takes ids, quantities and prices only), so holding is refused
+                    // rather than silently dropping the discount.
+                    onPressed: state.lines.isEmpty || state.hasLineDiscount
+                        ? null
+                        : onHold,
                     style: _secondary,
                     child: const Text(
                       'Hold transaction',
@@ -383,6 +427,19 @@ class PosTransactionCart extends StatelessWidget {
               ),
             ],
           ),
+          if (state.hasLineDiscount && onHold != null)
+            Padding(
+              key: const ValueKey('pos-cart-hold-blocked'),
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'A line discount cannot be held. Remove it to hold this cart, or '
+                'take payment now.',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -394,6 +451,23 @@ class PosTransactionCart extends StatelessWidget {
     backgroundColor: AppColors.cardBackground,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
   );
+
+  /// Opens the discount dialog for cart line [index] and applies the choice.
+  ///
+  /// A dismissed dialog (null) changes nothing: cancelling must not quietly clear a
+  /// discount the cashier already gave.
+  Future<void> _editLineDiscount(
+    BuildContext context,
+    PosTransactionViewmodel state,
+    int index,
+  ) async {
+    final result = await showDialog<PosLineDiscountResult>(
+      context: context,
+      builder: (_) => PosLineDiscountDialog(line: state.lines[index]),
+    );
+    if (result == null) return;
+    state.setLineDiscount(index, result.discount);
+  }
 
   Widget _lines(
     BuildContext context,
@@ -466,7 +540,7 @@ class PosTransactionCart extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                   Text(
-                    formatPeso(line.total),
+                    formatPeso(line.netTotal),
                     style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
@@ -506,6 +580,29 @@ class PosTransactionCart extends StatelessWidget {
                     width: 36,
                     height: 36,
                     child: IconButton(
+                      key: ValueKey('pos-line-discount-open-$index'),
+                      // The server refuses a line discount on goods the shop never
+                      // discounts, so the control is DISABLED with the reason rather
+                      // than hidden: a vanished button reads as a bug, and the
+                      // cashier needs to know why cement cannot be marked down.
+                      tooltip: line.allowDiscount
+                          ? 'Discount ${line.productName}'
+                          : 'This product is never discounted',
+                      padding: EdgeInsets.zero,
+                      iconSize: 18,
+                      color: line.discount == null
+                          ? null
+                          : AppColors.successText,
+                      onPressed: line.allowDiscount
+                          ? () => _editLineDiscount(context, state, index)
+                          : null,
+                      icon: const Icon(Icons.percent),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: IconButton(
                       key: ValueKey('pos-cart-remove-$index'),
                       tooltip: 'Remove ${line.productName}',
                       padding: EdgeInsets.zero,
@@ -517,6 +614,37 @@ class PosTransactionCart extends StatelessWidget {
                   ),
                 ],
               ),
+              if (line.discount case final discount?)
+                Padding(
+                  key: ValueKey('pos-line-discount-label-$index'),
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Discount · ${discount.reason}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.successText,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '-${formatPeso(line.discountAmount)}',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.successText,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               if (isShort)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),

@@ -145,6 +145,12 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   /// True once the clerk picked a location themselves (item 12).
   bool _storedAtTouched = false;
 
+  /// Whether a LINE of this product may be discounted (owner ruling: cement is
+  /// never discounted). Prefilled from the product so an edit shows what is stored,
+  /// and remembered as TOUCHED so a save that only fixes a name leaves it alone.
+  late bool _allowDiscount;
+  bool _allowDiscountTouched = false;
+
   bool get _editing => widget.product != null;
 
   ProductVariant? get _variant => widget.product?.variants.firstOrNull;
@@ -234,6 +240,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     _packageUomId = _packageUnits.firstOrNull?.id;
     _imageUrl = product?.imageUrl ?? '';
     _storedAtId = product?.storedAtId ?? _defaultStoredAtId();
+    _allowDiscount = product?.allowDiscount ?? true;
   }
 
   /// What a NEW product is stored at: the row NAMED **Store**, the server's own
@@ -436,6 +443,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
             barcodeQr: barcode,
             locationHint: widget.locationHint,
             storedAtId: _storedAtId,
+            allowDiscount: _allowDiscount,
             extraSellingUnits: [
               if (_packaged && package != null)
                 NewSellingUnit(
@@ -476,6 +484,9 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
           barcodeQr: barcode,
           locationHint: widget.locationHint,
           storedAtId: _storedAtChanged ? _storedAtId : null,
+          // Only when the clerk touched it: an untouched switch must not PATCH the
+          // stored flag back on cement.
+          allowDiscount: _allowDiscountTouched ? _allowDiscount : null,
           image: _imageUpload,
         ),
       ),
@@ -806,6 +817,25 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     );
   }
 
+  /// "Allow discounts": off for goods the shop never discounts (cement).
+  ///
+  /// A LINE discount is what the server refuses on such a product, and the flag is
+  /// what lets the till hide that control instead of letting the cashier type a
+  /// discount the server will reject at checkout.
+  Widget _allowDiscountSwitch() => SwitchListTile(
+    key: const ValueKey('allow-discount-switch'),
+    contentPadding: EdgeInsets.zero,
+    title: const Text('Allow discounts'),
+    subtitle: const Text(
+      'Turn off for goods you never discount, like cement.',
+    ),
+    value: _allowDiscount,
+    onChanged: (value) => setState(() {
+      _allowDiscount = value;
+      _allowDiscountTouched = true;
+    }),
+  );
+
   Widget _storedAtField() => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
@@ -988,6 +1018,8 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
       ),
       const SizedBox(height: AppSpacing.md),
       _storedAtField(),
+      const SizedBox(height: AppSpacing.sm),
+      _allowDiscountSwitch(),
     ];
   }
 
@@ -1024,6 +1056,8 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     ),
     const SizedBox(height: AppSpacing.md),
     _storedAtField(),
+    const SizedBox(height: AppSpacing.sm),
+    _allowDiscountSwitch(),
     const SizedBox(height: AppSpacing.sm),
     Text(
       'Stock changes through Receiving and Stock adjustments, not here.',

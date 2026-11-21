@@ -17,9 +17,25 @@ if (-not (Test-Path $KeyFile)) {
     [System.IO.File]::WriteAllText((Join-Path (Get-Location) $KeyFile), "QB_GATEWAY_KEY=$newKey`n", [System.Text.Encoding]::ASCII)
     Write-Host "Created $KeyFile with a new gateway key."
 }
-$Key = ((Get-Content $KeyFile | Where-Object { $_ -like "QB_GATEWAY_KEY=*" }) -replace "^QB_GATEWAY_KEY=", "").Trim()
-$Token = ((Get-Content $KeyFile | Where-Object { $_ -like "CLOUDFLARE_TUNNEL_TOKEN=*" }) -replace "^CLOUDFLARE_TUNNEL_TOKEN=", "").Trim()
-$Hostname = ((Get-Content $KeyFile | Where-Object { $_ -like "CLOUDFLARE_TUNNEL_HOSTNAME=*" }) -replace "^CLOUDFLARE_TUNNEL_HOSTNAME=", "").Trim()
+# Returns the value of NAME=value from the key file, or "" when the line is absent.
+# (A missing line must not reach .Trim(): in Windows PowerShell 5.1 an empty
+# pipeline result becomes an empty array, which has no Trim method.)
+function Get-GatewaySetting([string]$Name) {
+    $line = Get-Content $KeyFile | Where-Object { $_ -like "$Name=*" } | Select-Object -First 1
+    if ($null -eq $line) { return "" }
+    return ($line.Substring($Name.Length + 1)).Trim()
+}
+$Key = Get-GatewaySetting "QB_GATEWAY_KEY"
+$Token = Get-GatewaySetting "CLOUDFLARE_TUNNEL_TOKEN"
+$Hostname = Get-GatewaySetting "CLOUDFLARE_TUNNEL_HOSTNAME"
+
+# docker-compose.yml reads these to pick Named vs Quick Tunnel (the image has no shell).
+if ($Token) {
+    $env:CLOUDFLARE_TUNNEL_TOKEN = $Token
+    $env:CLOUDFLARED_TUNNEL_ARGS = "run"
+} else {
+    Remove-Item Env:CLOUDFLARE_TUNNEL_TOKEN, Env:CLOUDFLARED_TUNNEL_ARGS -ErrorAction SilentlyContinue
+}
 
 # Recreate cloudflared so its log holds only this run's URL.
 docker compose --profile tunnel up -d --force-recreate gateway cloudflared

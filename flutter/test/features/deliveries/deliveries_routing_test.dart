@@ -4,9 +4,10 @@
 //   * the route exists in all three shells and each page highlights ITS OWN
 //     sidebar entry (an index is just an int);
 //   * every deliveries path is APPENDED, so no earlier tab moved;
-//   * a Cashier has no deliveries page at all — the server scopes a cashier to
-//     their own slips but refuses every move with 403, so the read-only screen is
-//     not offered (the sidebar stays exactly as it was).
+//   * the Cashier has the TILL one — `/pos/deliveries`, APPENDED after Customers.
+//     The server scopes a cashier to their own slips and admits exactly one move
+//     on them (`start/`, direct sales only), so the till screen offers exactly
+//     that; the other three shells keep the whole schedule and every move.
 
 import 'dart:io';
 
@@ -41,7 +42,7 @@ void main() {
       assignedAreas: [role],
     );
 
-    test('a Cashier cannot open any deliveries page', () {
+    test('a Cashier cannot open the manager deliveries pages', () {
       for (final location in const [
         AppRoutes.inventoryDeliveries,
         AppRoutes.salesDeliveries,
@@ -53,6 +54,10 @@ void main() {
           reason: '$location is not till work',
         );
       }
+    });
+
+    test('a Cashier opens the till own-dispatch page', () {
+      expect(redirect('pos', AppRoutes.posDeliveries), isNull);
     });
 
     test('the Stock Manager opens the inventory one only', () {
@@ -121,6 +126,22 @@ void main() {
       expect(declared, containsAll(<int>[14, 10]));
       // Owner 2026-11-18: no admin shell; the Admin only watches.
       expect(source, isNot(contains('AdminSkeletonLayout')));
+    });
+
+    test('the till sidebar keeps 8 Customers and gains Deliveries at 9', () {
+      final order = _areaOrder(AppAreas.pos);
+      expect(order, hasLength(10));
+      expect(order[8], 'posCustomers');
+      expect(order[9], 'posDeliveries');
+    });
+
+    test('the till page draws the till shell, not a manager one', () {
+      final source = _read(
+        'lib/features/deliveries/views/deliveries_page.dart',
+      );
+      expect(source, contains('selectedNavigationIndex: 9'));
+      expect(source, contains('posNavigationItems'));
+      expect(source, contains('class PosDeliveriesPage'));
     });
 
     test('the Admin menu has no Deliveries and no admin route', () {

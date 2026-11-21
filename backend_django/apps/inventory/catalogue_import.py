@@ -62,6 +62,7 @@ from .models import (
     Category,
     Product,
     ProductVariant,
+    SellingUnitPriceChange,
     StorageLocation,
     UnitOfMeasure,
     VariantUOM,
@@ -1280,7 +1281,9 @@ def _write_plan(plan, request):
         serializer = op["serializer"]
         if op["instance"] is None:
             instance = serializer.save(**_parent_link(op, created))
-            if kind != "unit":
+            if kind == "unit":
+                _record_import_price(request, instance, None)
+            else:
                 # Only a product and a variant can be a PARENT of another row this same
                 # file creates; a selling unit is a leaf, so it is not remembered here.
                 created[kind][op["key"]] = instance
@@ -1295,6 +1298,8 @@ def _write_plan(plan, request):
         # half of the change worth auditing (the same order the per-row endpoint uses).
         snapshot = _audit_snapshot(kind, op["instance"])
         instance = serializer.save()
+        if kind == "unit":
+            _record_import_price(request, instance, snapshot["default_selling_price"])
         applied["updates"][plural] += 1
         changes = _audit_changes(kind, snapshot, instance)
         description = f"{label} {_audit_detail(kind, instance)} updated"
@@ -1302,6 +1307,16 @@ def _write_plan(plan, request):
             description = f"{description}: {changes}"
         audit_request(request, AuditLog.ActionType.UPDATE, f"{description}.")
     return applied
+
+
+def _record_import_price(request, unit, old_price):
+    SellingUnitPriceChange.record(
+        unit=unit,
+        old_price=old_price,
+        new_price=unit.default_selling_price,
+        actor=request.user,
+        source=SellingUnitPriceChange.Source.IMPORT,
+    )
 
 
 def _parent_link(op, created):
