@@ -4,9 +4,11 @@ import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
 import 'package:client/core/navigation/app_destinations.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/services/admin_dashboard_service.dart';
 import 'package:client/features/admin/widgets/dashboard_kit.dart';
 import 'package:client/routes/routes.dart';
+import 'package:client/shared/widgets/analytics_charts.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
@@ -408,6 +410,19 @@ class _SalesTab extends StatelessWidget {
           icon: Icons.schedule,
           value: _count(s, 'open_shifts'),
         ),
+        if (s.has('month_gross_profit'))
+          DashboardStat(
+            label: 'Gross profit (month)',
+            icon: Icons.trending_up,
+            value: _whole(s, 'month_gross_profit'),
+            tone: s.money('month_gross_profit') < 0
+                ? StatusTone.error
+                : StatusTone.success,
+            caption: s.has('month_margin_percent')
+                ? '${s.text('month_margin_percent')}% margin'
+                      '${s.flag('month_cost_coverage_complete') ? '' : ' (partial cost)'}'
+                : 'Net sales ex-VAT minus COGS',
+          ),
       ],
       main: [
         AttentionCard(
@@ -423,6 +438,27 @@ class _SalesTab extends StatelessWidget {
               ),
           ],
         ),
+        if (s.rows('last_7_days').isNotEmpty)
+          GroupedBarTrendChart(
+            key: const ValueKey('admin-dashboard-7d-chart'),
+            title: 'Last 7 days sales & profit',
+            subtitle: 'Visual comparison of daily sales, landed COGS, and gross profit.',
+            primaryLabel: 'Sales',
+            secondaryLabel: 'COGS',
+            lineLabel: 'Profit',
+            height: 185,
+            points: [
+              for (final row in s.rows('last_7_days'))
+                TrendPoint(
+                  label: _shortDay(row['date']),
+                  primary: _num(row['total']),
+                  secondary: row['cogs'] != null ? _num(row['cogs']) : null,
+                  lineValue: row['gross_profit'] != null
+                      ? _num(row['gross_profit'])
+                      : null,
+                ),
+            ],
+          ),
         DashboardCard(
           icon: Icons.calendar_today_outlined,
           title: 'Last 7 days',
@@ -474,6 +510,24 @@ class _SalesTab extends StatelessWidget {
             ],
           ),
         ),
+        if (s.rows('by_payment_method_month').isNotEmpty)
+          DashboardCard(
+            icon: Icons.payments_outlined,
+            title: 'Payment methods this month',
+            subtitle: 'Cleared tenders',
+            child: BreakdownBars(
+              empty: 'No cleared payments this month.',
+              entries: [
+                for (final row in s.rows('by_payment_method_month'))
+                  BreakdownEntry(
+                    label:
+                        '${TenderMethod.labelFor('${row['method']}')} (${row['count']})',
+                    value: _num(row['total']),
+                    display: formatPesoWhole(_num(row['total'])),
+                  ),
+              ],
+            ),
+          ),
       ],
     );
   }
@@ -954,4 +1008,24 @@ class _FinanceTab extends StatelessWidget {
       ],
     );
   }
+}
+
+String _shortDay(Object? raw) {
+  final dt = _date(raw);
+  if (dt == null) return '${raw ?? ''}';
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return '${months[dt.month - 1]} ${dt.day}';
 }

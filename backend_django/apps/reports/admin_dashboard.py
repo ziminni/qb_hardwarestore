@@ -87,11 +87,20 @@ def _system(today):
 
 
 def _sales(today):
-    from apps.pos.models import SalesItem, SalesTransaction, Shift
+    from apps.pos.models import (
+        Payment,
+        SalesItem,
+        SalesItemDeduction,
+        SalesTransaction,
+        Shift,
+    )
 
     sales = SalesTransaction.objects.filter(
         status=SalesTransaction.Status.COMPLETED
     ).exclude(source=SalesTransaction.Source.RETURN)
+    completed_all = SalesTransaction.objects.filter(
+        status=SalesTransaction.Status.COMPLETED
+    )
     month_start = today.replace(day=1)
     week_start = today - timedelta(days=6)
     daily = {
@@ -99,17 +108,56 @@ def _sales(today):
         for row in sales.filter(trans_date__date__gte=week_start)
         .annotate(day=TruncDate("trans_date"))
         .values("day")
-        .annotate(total=Sum("grand_total"), count=Count("id"))
+        .annotate(
+            total=Sum("grand_total"),
+            vatable=Sum("vatable_sales"),
+            delivery=Sum("delivery_fee"),
+            count=Count("id"),
+        )
+    }
+    cost_expr = ExpressionWrapper(
+        F("qty") * F("unit_cost"),
+        output_field=DecimalField(max_digits=16, decimal_places=4),
+    )
+    daily_cogs = {
+        row["day"]: row
+        for row in SalesItemDeduction.objects.filter(
+            sales_item__transaction__status=SalesTransaction.Status.COMPLETED,
+            sales_item__transaction__trans_date__date__gte=week_start,
+        )
+        .annotate(day=TruncDate("sales_item__transaction__trans_date"))
+        .values("day")
+        .annotate(
+            cogs=Sum(cost_expr, filter=Q(unit_cost__isnull=False)),
+            costed=Count("id", filter=Q(unit_cost__isnull=False)),
+            missing=Count("id", filter=Q(unit_cost__isnull=True)),
+        )
     }
     last_7_days = []
     for offset in range(7):
         day = week_start + timedelta(days=offset)
         row = daily.get(day, {})
+        c_row = daily_cogs.get(day, {})
+        costed = c_row.get("costed") or 0
+        missing = c_row.get("missing") or 0
+        if (costed + missing) > 0 and costed == 0:
+            day_cogs = None
+            day_profit = None
+        elif (costed + missing) == 0:
+            day_cogs = None
+            day_profit = None
+        else:
+            cogs_val = c_row.get("cogs") or ZERO
+            vatable_val = row.get("vatable") or ZERO
+            day_cogs = _money(cogs_val)
+            day_profit = _money(vatable_val - cogs_val)
         last_7_days.append(
             {
                 "date": day.isoformat(),
                 "total": _money(row.get("total")),
                 "transactions": row.get("count", 0),
+                "cogs": day_cogs,
+                "gross_profit": day_profit,
             }
         )
     returns = SalesTransaction.objects.filter(
@@ -132,13 +180,57 @@ def _sales(today):
         .annotate(total=Sum("grand_total"), count=Count("id"))
         .order_by("-total")
     )
+    by_method = (
+        Payment.objects.filter(
+            transaction__in=sales.filter(trans_date__date__gte=month_start),
+            status=Payment.Status.CLEARED,
+        )
+        .values("method")
+        .annotate(total=Sum("amount_tendered"), count=Count("id"))
+        .order_by("-total")
+    )
     today_sales = sales.filter(trans_date__date=today)
     month_sales = sales.filter(trans_date__date__gte=month_start)
+    month_all = completed_all.filter(trans_date__date__gte=month_start)
+    month_deductions = SalesItemDeduction.objects.filter(
+        sales_item__transaction__in=month_all
+    ).aggregate(
+        cogs=Sum(cost_expr, filter=Q(unit_cost__isnull=False)),
+        costed=Count("id", filter=Q(unit_cost__isnull=False)),
+        missing=Count("id", filter=Q(unit_cost__isnull=True)),
+    )
+    m_costed = month_deductions["costed"] or 0
+    m_missing = month_deductions["missing"] or 0
+    month_vatable = _sum(month_all, "vatable_sales")
+    month_discounts = _sum(month_all, "discount_amount")
+    if (m_costed + m_missing) > 0 and m_costed == 0:
+        month_cogs = None
+        month_gross_profit = None
+        month_margin_percent = None
+    elif (m_costed + m_missing) == 0:
+        month_cogs = None
+        month_gross_profit = None
+        month_margin_percent = None
+    else:
+        cogs_dec = month_deductions["cogs"] or ZERO
+        profit_dec = month_vatable - cogs_dec
+        month_cogs = _money(cogs_dec)
+        month_gross_profit = _money(profit_dec)
+        month_margin_percent = (
+            f"{((profit_dec / month_vatable) * Decimal('100')):.1f}"
+            if month_vatable > ZERO
+            else None
+        )
     return {
         "today_total": _money(_sum(today_sales, "grand_total")),
         "today_transactions": today_sales.count(),
         "month_total": _money(_sum(month_sales, "grand_total")),
         "month_transactions": month_sales.count(),
+        "month_discounts": _money(month_discounts),
+        "month_cogs": month_cogs,
+        "month_gross_profit": month_gross_profit,
+        "month_margin_percent": month_margin_percent,
+        "month_cost_coverage_complete": m_missing == 0,
         "month_returns_total": _money(-_sum(returns, "grand_total")),
         "month_returns_count": returns.count(),
         "open_shifts": Shift.objects.filter(status=Shift.Status.OPEN).count(),
@@ -171,6 +263,14 @@ def _sales(today):
                 "transactions": row["count"],
             }
             for row in by_cashier
+        ],
+        "by_payment_method_month": [
+            {
+                "method": row["method"],
+                "total": _money(row["total"]),
+                "count": row["count"],
+            }
+            for row in by_method
         ],
     }
 

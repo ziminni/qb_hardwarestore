@@ -31,6 +31,8 @@ class DashboardSection {
     return double.tryParse('${value ?? ''}') ?? 0;
   }
 
+  bool has(String key) => _json[key] != null;
+
   String text(String key) => _json[key]?.toString() ?? '';
 
   bool flag(String key) => _json[key] == true;
