@@ -58,9 +58,12 @@ class ReceiptContent {
         for (final line in receipt.lines)
           (
             name: '${line.productName} · ${line.variantName}',
-            detail:
-                '${formatQuantity(line.quantity)} ${line.unit} × '
-                '${formatPesoForPrint(line.unitPrice)}',
+            detail: line.discountAmount > 0
+                ? '${formatQuantity(line.quantity)} ${line.unit} × '
+                      '${formatPesoForPrint(line.unitPrice)} '
+                      '(line disc −${formatPesoForPrint(line.discountAmount)})'
+                : '${formatQuantity(line.quantity)} ${line.unit} × '
+                      '${formatPesoForPrint(line.unitPrice)}',
             total: formatPesoForPrint(line.total),
             // Phase 9 F2 (decision 21 §2/§4): WHERE this line was picked from.
             // A split sale names each shelf; a pre-Phase-9 sale keeps Phase 5's

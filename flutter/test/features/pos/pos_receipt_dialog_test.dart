@@ -1,9 +1,11 @@
 import 'package:client/data/models/pos_transaction.dart'
     hide PosCheckoutResult;
+import 'package:client/data/models/sale_discount.dart';
 // The model file declares an older, unrelated `PosCheckoutResult`; the JSON parser
 // this test exercises lives beside the service.
 import 'package:client/data/services/pos_service.dart' show PosCheckoutResult;
 import 'package:client/features/pos/widgets/pos_receipt_dialog.dart';
+import 'package:client/features/pos/widgets/receipt_document.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -127,5 +129,46 @@ void main() {
       findsNothing,
       reason: '250 - 225 is arithmetic the till does not get to do',
     );
+  });
+
+  testWidgets('per-line discounts show on both the receipt dialog and paper content', (
+    tester,
+  ) async {
+    final receipt = PosReceipt(
+      reference: 'TRX-20261121-0001',
+      officialReceiptNumber: 'OR-20261121-0001',
+      createdAt: DateTime(2026, 11, 21, 10, 0),
+      lines: const [
+        PosCartLine(
+          variantUomId: 1,
+          productName: 'Hammer',
+          variantName: 'Claw 16oz',
+          quantity: 2,
+          unit: 'PC',
+          unitPrice: 150,
+          availableQuantity: 10,
+          discount: PosDiscount(
+            kind: DiscountKind.amount,
+            value: 30,
+            reason: 'Damaged box',
+          ),
+        ),
+      ],
+      paymentMethod: 'CASH',
+      amountPaid: 300,
+      changeGiven: 30,
+      discountAmount: 30,
+      discountReason: 'Damaged box',
+      total: 270,
+      vatRegistered: false,
+    );
+
+    final content = ReceiptContent(receipt);
+    expect(content.lines.single.detail, contains('line disc'));
+    expect(content.lines.single.detail, contains('30.00'));
+
+    await _pump(tester, receipt);
+    expect(find.text('  Line discount (Damaged box)'), findsOneWidget);
+    expect(find.text('−₱30.00'), findsOneWidget);
   });
 }

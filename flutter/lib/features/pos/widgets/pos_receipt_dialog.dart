@@ -112,6 +112,26 @@ class _PosReceiptDialogState extends State<PosReceiptDialog> {
                           Text(formatPeso(line.total)),
                         ],
                       ),
+                      if (line.discountAmount > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  line.discount?.reason.trim().isNotEmpty == true
+                                      ? '  Line discount (${line.discount!.reason.trim()})'
+                                      : '  Line discount',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ),
+                              Text(
+                                '−${formatPeso(line.discountAmount)}',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
                       // Owner 2026-11-19: no "Pick up at" line; the staff know
                       // where their goods are kept.
                     ],

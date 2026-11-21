@@ -1,6 +1,7 @@
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
+import 'package:client/core/network/api_client.dart';
 import 'package:client/data/models/catalogue_option.dart';
 import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/product.dart';
@@ -282,6 +283,12 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
                     onPressed: () => _editCode(context, unit),
                     child: const Text('Edit code'),
                   ),
+                if (canEdit)
+                  TextButton(
+                    key: ValueKey('price-history-unit-${unit.id}'),
+                    onPressed: () => _showPriceHistory(context, variant, unit),
+                    child: const Text('Price history'),
+                  ),
                 if (canRemove)
                   TextButton(
                     key: ValueKey('remove-unit-${unit.id}'),
@@ -291,6 +298,21 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
               ],
             ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _showPriceHistory(
+    BuildContext context,
+    ProductVariant variant,
+    VariantUom unit,
+  ) {
+    return showDialog<void>(
+      context: context,
+      builder: (_) => _PriceHistoryDialog(
+        title: '${widget.product.baseName} · ${variant.variantName}',
+        unitLabel: '${unit.uomCode} (×${formatQuantity(unit.conversionFactor)})',
+        variantUomId: unit.id,
       ),
     );
   }
@@ -474,6 +496,160 @@ class _AddSellingUnitDialogState extends State<_AddSellingUnitDialog> {
         FilledButton(
           onPressed: _saving ? null : _save,
           child: const Text('Add unit'),
+        ),
+      ],
+    );
+  }
+}
+
+class _PriceHistoryEntry {
+  const _PriceHistoryEntry({
+    required this.oldPrice,
+    required this.newPrice,
+    required this.changedAt,
+    required this.actor,
+    required this.source,
+  });
+
+  final double? oldPrice;
+  final double newPrice;
+  final DateTime? changedAt;
+  final String? actor;
+  final String source;
+
+  factory _PriceHistoryEntry.fromJson(Map<String, dynamic> json) {
+    double? parseOpt(Object? v) {
+      if (v == null) return null;
+      if (v is num) return v.toDouble();
+      if (v is String) return double.tryParse(v);
+      return null;
+    }
+
+    return _PriceHistoryEntry(
+      oldPrice: parseOpt(json['old_price']),
+      newPrice: parseOpt(json['new_price']) ?? 0,
+      changedAt: json['changed_at'] is String
+          ? DateTime.tryParse(json['changed_at'] as String)
+          : null,
+      actor: json['actor'] as String?,
+      source: (json['source'] as String? ?? '').toUpperCase(),
+    );
+  }
+}
+
+class _PriceHistoryDialog extends StatefulWidget {
+  const _PriceHistoryDialog({
+    required this.title,
+    required this.unitLabel,
+    required this.variantUomId,
+  });
+
+  final String title;
+  final String unitLabel;
+  final int variantUomId;
+
+  @override
+  State<_PriceHistoryDialog> createState() => _PriceHistoryDialogState();
+}
+
+class _PriceHistoryDialogState extends State<_PriceHistoryDialog> {
+  late Future<List<_PriceHistoryEntry>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  Future<List<_PriceHistoryEntry>> _load() async {
+    final response = await ApiClient.instance.dio.get<dynamic>(
+      '/api/v1/variant-uoms/${widget.variantUomId}/price-history/',
+    );
+    final data = response.data;
+    final rows = data is Map<String, dynamic> && data['results'] is List
+        ? data['results'] as List<dynamic>
+        : (data is List ? data : const <dynamic>[]);
+    return [
+      for (final row in rows)
+        if (row is Map<String, dynamic>) _PriceHistoryEntry.fromJson(row),
+    ];
+  }
+
+  String _sourceLabel(String source) => switch (source) {
+    'CATALOGUE' => 'Catalogue',
+    'IMPORT' => 'Excel import',
+    'ADMIN' => 'Admin',
+    _ => source.isEmpty ? 'System' : source,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return AppDialog(
+      icon: Icons.history,
+      title: 'Price History',
+      subtitle: '${widget.title} · ${widget.unitLabel}',
+      width: 560,
+      content: FutureBuilder<List<_PriceHistoryEntry>>(
+        future: _future,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+          if (snapshot.hasError) {
+            return ErrorBanner(
+              message: 'Could not load price history.',
+              onRetry: () => setState(() => _future = _load()),
+            );
+          }
+          final entries = snapshot.data ?? const [];
+          if (entries.isEmpty) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
+              child: Text('No price changes recorded yet for this selling unit.'),
+            );
+          }
+          return ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 360),
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: entries.length,
+              separatorBuilder: (_, _) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                final item = entries[index];
+                final priceLine = item.oldPrice == null
+                    ? 'Initial price: ${formatPeso(item.newPrice)}'
+                    : '${formatPeso(item.oldPrice!)} → ${formatPeso(item.newPrice)}';
+                final when = item.changedAt != null
+                    ? formatDateTime(item.changedAt!.toLocal())
+                    : '';
+                final who = item.actor != null && item.actor!.isNotEmpty
+                    ? 'by ${item.actor}'
+                    : '';
+                final meta = [
+                  _sourceLabel(item.source),
+                  if (who.isNotEmpty) who,
+                  if (when.isNotEmpty) when,
+                ].join(' · ');
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    priceLine,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(meta),
+                );
+              },
+            ),
+          );
+        },
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
         ),
       ],
     );

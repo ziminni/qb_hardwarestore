@@ -13,19 +13,36 @@ Endpoints (mounted under /api/v1/reports/):
 """
 
 from datetime import date, timedelta
+from decimal import Decimal
 
-from django.db.models import Count, F, Q, Sum
+from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum
 from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
 from apps.inventory.models import GoodsReceipt, InventoryBatch, StockAdjustment
-from apps.pos.models import SalesTransaction
+from apps.pos.models import SalesItem, SalesItemDeduction, SalesTransaction
 from apps.requisitions.models import Requisition
 from apps.users.permissions import IsManagerRole
 
 DEFAULT_RANGE_DAYS = 30
+_ZERO = Decimal("0.00")
+_CENT = Decimal("0.01")
+
+
+def _q2(value: Decimal) -> Decimal:
+    return value.quantize(_CENT)
+
+
+def _delivery_fee_ex_vat(tx) -> Decimal:
+    fee = tx.delivery_fee or _ZERO
+    if fee == _ZERO:
+        return _ZERO
+    if tx.vat_registered and tx.vat_rate and tx.vat_rate > _ZERO:
+        divisor = Decimal("1") + (tx.vat_rate / Decimal("100"))
+        return _q2(fee / divisor)
+    return _q2(fee)
 
 
 def _parse_range(request):
@@ -67,7 +84,7 @@ def sales_summary_view(request):
         status=SalesTransaction.Status.COMPLETED,
         trans_date__date__range=(frm, to),
     )
-    by_day = (
+    by_day_rows = list(
         qs.annotate(day=F("trans_date__date"))
         .values("day")
         .annotate(
@@ -77,6 +94,7 @@ def sales_summary_view(request):
             vat=Sum("vat_amount"),
             discounts=Sum("discount_amount"),
             payment_fees=Sum("payment_fee"),
+            delivery_fees=Sum("delivery_fee"),
         )
         .order_by("day")
     )
@@ -92,13 +110,190 @@ def sales_summary_view(request):
         discounts=Sum("discount_amount"),
         # Untaxed GCash/card fees, so gross = vatable + VAT + fees still reconciles.
         payment_fees=Sum("payment_fee"),
+        delivery_fees=Sum("delivery_fee"),
     )
+
+    # Delivery fees are VAT-inclusive when the store is VAT-registered; strip their VAT
+    # share per transaction so merchandise_net_ex_vat reflects goods only.
+    delivery_ex_vat_by_day: dict[date, Decimal] = {}
+    total_delivery_ex_vat = _ZERO
+    for tx in qs.exclude(delivery_fee=_ZERO).only(
+        "trans_date", "delivery_fee", "vat_registered", "vat_rate"
+    ):
+        ex = _delivery_fee_ex_vat(tx)
+        total_delivery_ex_vat += ex
+        d = tx.trans_date.date()
+        delivery_ex_vat_by_day[d] = delivery_ex_vat_by_day.get(d, _ZERO) + ex
+
+    # Snapshotted landed COGS from SalesItemDeduction (migration pos 0022).
+    # Rows with unit_cost=NULL predate cost snapshots and are tracked in cost_coverage
+    # rather than silently treated as ₱0 cost.
+    deductions = SalesItemDeduction.objects.filter(
+        sales_item__transaction__status=SalesTransaction.Status.COMPLETED,
+        sales_item__transaction__trans_date__date__range=(frm, to),
+    )
+    cost_expr = ExpressionWrapper(
+        F("qty") * F("unit_cost"),
+        output_field=DecimalField(max_digits=16, decimal_places=4),
+    )
+    coverage_agg = deductions.aggregate(
+        costed=Count("id", filter=Q(unit_cost__isnull=False)),
+        missing=Count("id", filter=Q(unit_cost__isnull=True)),
+        total_cogs=Sum(cost_expr, filter=Q(unit_cost__isnull=False)),
+    )
+    costed_count = coverage_agg["costed"] or 0
+    missing_count = coverage_agg["missing"] or 0
+    has_any_deductions = (costed_count + missing_count) > 0
+    cogs_by_day_rows = (
+        deductions.annotate(day=F("sales_item__transaction__trans_date__date"))
+        .values("day")
+        .annotate(
+            cogs=Sum(cost_expr, filter=Q(unit_cost__isnull=False)),
+            costed=Count("id", filter=Q(unit_cost__isnull=False)),
+            missing=Count("id", filter=Q(unit_cost__isnull=True)),
+        )
+    )
+    cogs_by_day = {
+        row["day"]: (
+            _q2(row["cogs"]) if row["cogs"] is not None else _ZERO,
+            row["costed"] or 0,
+            row["missing"] or 0,
+        )
+        for row in cogs_by_day_rows
+    }
+
+    gross_sales_val = totals["gross_sales"] or _ZERO
+    vatable_val = totals["vatable_sales"] or _ZERO
+    discounts_val = totals["discounts"] or _ZERO
+    payment_fees_val = totals["payment_fees"] or _ZERO
+    delivery_fees_val = totals["delivery_fees"] or _ZERO
+
+    merchandise_gross = _q2(
+        gross_sales_val - delivery_fees_val - payment_fees_val + discounts_val
+    )
+    merchandise_net_ex_vat = _q2(vatable_val - total_delivery_ex_vat)
+
+    if has_any_deductions and costed_count == 0:
+        total_cogs = None
+        gross_profit = None
+        gross_margin_percent = None
+        effective_markup_percent = None
+    else:
+        total_cogs = _q2(coverage_agg["total_cogs"] or _ZERO)
+        gross_profit = _q2(merchandise_net_ex_vat - total_cogs)
+        gross_margin_percent = (
+            _q2((gross_profit / merchandise_net_ex_vat) * Decimal("100"))
+            if merchandise_net_ex_vat > _ZERO
+            else None
+        )
+        effective_markup_percent = (
+            _q2((gross_profit / total_cogs) * Decimal("100"))
+            if total_cogs > _ZERO
+            else None
+        )
+
+    totals.update(
+        {
+            "merchandise_gross": merchandise_gross if totals["transactions"] else None,
+            "merchandise_net_ex_vat": (
+                merchandise_net_ex_vat if totals["transactions"] else None
+            ),
+            "cogs": total_cogs if totals["transactions"] else None,
+            "gross_profit": gross_profit if totals["transactions"] else None,
+            "gross_margin_percent": gross_margin_percent,
+            "effective_markup_percent": effective_markup_percent,
+        }
+    )
+
+    by_day = []
+    for row in by_day_rows:
+        d = row["day"]
+        day_vatable = row["vatable_sales"] or _ZERO
+        day_net_ex_vat = _q2(day_vatable - delivery_ex_vat_by_day.get(d, _ZERO))
+        day_cogs_val, day_costed, day_missing = cogs_by_day.get(d, (_ZERO, 0, 0))
+        if (day_costed + day_missing) > 0 and day_costed == 0:
+            day_cogs = None
+            day_profit = None
+        else:
+            day_cogs = day_cogs_val
+            day_profit = _q2(day_net_ex_vat - day_cogs)
+        row["merchandise_net_ex_vat"] = day_net_ex_vat
+        row["cogs"] = day_cogs
+        row["gross_profit"] = day_profit
+        by_day.append(row)
+
+    # Category-level breakdown for analytics charts: merchandise net (incl. discounts)
+    # and snapshotted COGS per category.
+    cat_sales_rows = (
+        SalesItem.objects.filter(
+            transaction__status=SalesTransaction.Status.COMPLETED,
+            transaction__trans_date__date__range=(frm, to),
+        )
+        .values(
+            "variant_uom__variant__product__category__id",
+            "variant_uom__variant__product__category__name",
+        )
+        .annotate(
+            gross_merchandise=Sum("subtotal"),
+            item_discounts=Sum("item_discount_amount"),
+            cart_discounts=Sum("cart_discount_amount"),
+        )
+    )
+    cat_cogs_rows = (
+        deductions.values(
+            "sales_item__variant_uom__variant__product__category__id",
+        )
+        .annotate(
+            cogs=Sum(cost_expr, filter=Q(unit_cost__isnull=False)),
+            costed=Count("id", filter=Q(unit_cost__isnull=False)),
+            missing=Count("id", filter=Q(unit_cost__isnull=True)),
+        )
+    )
+    cat_cogs_map = {
+        row["sales_item__variant_uom__variant__product__category__id"]: (
+            _q2(row["cogs"]) if row["cogs"] is not None else _ZERO,
+            row["costed"] or 0,
+            row["missing"] or 0,
+        )
+        for row in cat_cogs_rows
+    }
+    by_category = []
+    for row in cat_sales_rows:
+        cat_id = row["variant_uom__variant__product__category__id"]
+        cat_name = row["variant_uom__variant__product__category__name"] or "Uncategorized"
+        gross_m = _q2(row["gross_merchandise"] or _ZERO)
+        disc_m = _q2((row["item_discounts"] or _ZERO) + (row["cart_discounts"] or _ZERO))
+        net_m = _q2(gross_m - disc_m)
+        c_cogs_val, c_costed, c_missing = cat_cogs_map.get(cat_id, (_ZERO, 0, 0))
+        if (c_costed + c_missing) > 0 and c_costed == 0:
+            c_cogs = None
+        else:
+            c_cogs = c_cogs_val
+        by_category.append(
+            {
+                "category_id": cat_id,
+                "category_name": cat_name,
+                "gross_merchandise": gross_m,
+                "discounts": disc_m,
+                "net_merchandise": net_m,
+                "cogs": c_cogs,
+                "missing_cost_deductions": c_missing,
+            }
+        )
+    by_category.sort(key=lambda r: r["net_merchandise"], reverse=True)
+
     return Response(
         {
             "from": str(frm),
             "to": str(to),
             "totals": totals,
-            "by_day": list(by_day),
+            "cost_coverage": {
+                "costed_deductions": costed_count,
+                "missing_cost_deductions": missing_count,
+                "complete": missing_count == 0,
+            },
+            "by_day": by_day,
+            "by_category": by_category,
         }
     )
 
