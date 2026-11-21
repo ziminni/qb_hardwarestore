@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
@@ -5,6 +7,7 @@ import 'package:client/core/format/format.dart';
 import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/reports.dart';
 import 'package:client/data/models/requisition.dart';
+import 'package:client/features/admin/reports_excel_export.dart';
 import 'package:client/features/admin/viewmodels/admin_reports_viewmodel.dart';
 import 'package:client/shared/widgets/analytics_charts.dart';
 import 'package:client/shared/widgets/data_panel.dart';
@@ -14,6 +17,7 @@ import 'package:client/shared/widgets/metric_tile.dart';
 import 'package:client/shared/widgets/section_heading.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:client/core/time/app_clock.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -388,7 +392,15 @@ class _SalesTab extends StatelessWidget {
       builder: (context, sales) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          periodControl,
+          Row(
+            children: [
+              Expanded(child: periodControl),
+              _ExportExcelButton(
+                suggestedName: 'sales-report-${sales.from}-to-${sales.to}.xlsx',
+                buildBytes: () => buildSalesReportXlsx(sales),
+              ),
+            ],
+          ),
           const SizedBox(height: AppSpacing.md),
           // Phase 4 F4 (supersedes D12): checkout takes a capped discount again, so the
           // Discounts tile is a real number and not a ₱0.00 advertisement.
@@ -608,6 +620,14 @@ class _ValuationTab extends StatelessWidget {
       builder: (context, valuation) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Align(
+            alignment: Alignment.centerRight,
+            child: _ExportExcelButton(
+              suggestedName: 'inventory-valuation.xlsx',
+              buildBytes: () => buildValuationReportXlsx(valuation),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
           MetricGrid(
             children: [
               MetricTile(
@@ -797,7 +817,16 @@ class _MovementsTab extends StatelessWidget {
       builder: (context, movements) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          periodControl,
+          Row(
+            children: [
+              Expanded(child: periodControl),
+              _ExportExcelButton(
+                suggestedName:
+                    'stock-movements-${movements.from}-to-${movements.to}.xlsx',
+                buildBytes: () => buildMovementsReportXlsx(movements),
+              ),
+            ],
+          ),
           const SizedBox(height: AppSpacing.md),
           MetricGrid(
             children: [
@@ -925,6 +954,14 @@ class _RequisitionsTab extends StatelessWidget {
       builder: (context, history) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Align(
+            alignment: Alignment.centerRight,
+            child: _ExportExcelButton(
+              suggestedName: 'requisition-history.xlsx',
+              buildBytes: () => buildRequisitionsReportXlsx(history),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
           if (history.countByStatus.isNotEmpty) ...[
             Wrap(
               spacing: AppSpacing.sm,
@@ -966,6 +1003,54 @@ class _RequisitionsTab extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ExportExcelButton extends StatelessWidget {
+  const _ExportExcelButton({
+    required this.suggestedName,
+    required this.buildBytes,
+  });
+
+  final String suggestedName;
+  final Uint8List Function() buildBytes;
+
+  Future<void> _export(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final location = await getSaveLocation(
+        suggestedName: suggestedName,
+        acceptedTypeGroups: const [
+          XTypeGroup(label: 'Excel workbook', extensions: ['xlsx']),
+        ],
+      );
+      if (location == null) return;
+      final bytes = buildBytes();
+      final file = XFile.fromData(
+        bytes,
+        name: suggestedName,
+        mimeType:
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      await file.saveTo(location.path);
+      messenger.showSnackBar(
+        SnackBar(content: Text('Exported $suggestedName')),
+      );
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not export Excel report: $error')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      key: const ValueKey('reports-export-excel'),
+      onPressed: () => _export(context),
+      icon: const Icon(Icons.download_outlined, size: 18),
+      label: const Text('Export Excel'),
     );
   }
 }
