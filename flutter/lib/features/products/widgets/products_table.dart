@@ -348,18 +348,53 @@ class _ProductsTableState extends State<ProductsTable> {
                   color: AppColors.textPrimary,
                 ),
               ),
-              if (caption.isNotEmpty)
-                Text(
-                  caption.toUpperCase(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.6,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
+              Row(
+                children: [
+                  if (caption.isNotEmpty)
+                    Flexible(
+                      child: Text(
+                        caption.toUpperCase(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  if (product.storedAtName.isNotEmpty) ...[
+                    if (caption.isNotEmpty) const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: product.storedAtName
+                                .toLowerCase()
+                                .contains('bodega')
+                            ? AppColors.warningTint
+                            : AppColors.info.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        product.storedAtName,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: product.storedAtName
+                                  .toLowerCase()
+                                  .contains('bodega')
+                              ? AppColors.warningText
+                              : AppColors.info,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ],
           ),
         ),

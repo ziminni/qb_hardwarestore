@@ -13,7 +13,6 @@ import 'package:client/features/pos/widgets/pos_navigation.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
-import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -239,44 +238,77 @@ class _DeliveriesBodyState extends State<_DeliveriesBody> {
       _anyStatus,
       for (final status in DeliveryStatus.values) status.label,
     ];
-    return Wrap(
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: AppSpacing.md,
-      runSpacing: AppSpacing.sm,
+    final selectedLabel = _status == null ? chips.first : _status!.label;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          width: 320,
-          child: FilterBar(
-            searchHint: 'Find a delivery or customer',
-            onSearchChanged: (value) => setState(() => _query = value),
-            options: chips,
-            selected: _status == null ? chips.first : _status!.label,
-            onSelected: (chip) => setState(() {
-              final index = chips.indexOf(chip);
-              _status = index <= 0 ? null : DeliveryStatus.values[index - 1];
-            }),
-          ),
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: [
+            SizedBox(
+              width: 320,
+              height: 40,
+              child: TextField(
+                onChanged: (value) => setState(() => _query = value),
+                decoration: const InputDecoration(
+                  hintText: 'Find a delivery or customer',
+                  prefixIcon: Icon(Icons.search_rounded, size: 18),
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(
+              height: 40,
+              child: OutlinedButton.icon(
+                key: const ValueKey('deliveries-from-date'),
+                onPressed: () => _pickDate(isFrom: true),
+                icon: const Icon(Icons.event, size: 18),
+                label: Text(_from == null ? 'From date' : formatDate(_from!)),
+              ),
+            ),
+            SizedBox(
+              height: 40,
+              child: OutlinedButton.icon(
+                key: const ValueKey('deliveries-to-date'),
+                onPressed: () => _pickDate(isFrom: false),
+                icon: const Icon(Icons.event, size: 18),
+                label: Text(_to == null ? 'To date' : formatDate(_to!)),
+              ),
+            ),
+            if (_from != null || _to != null)
+              SizedBox(
+                height: 40,
+                child: TextButton(
+                  onPressed: () => setState(() {
+                    _from = null;
+                    _to = null;
+                  }),
+                  child: const Text('Clear dates'),
+                ),
+              ),
+          ],
         ),
-        OutlinedButton.icon(
-          key: const ValueKey('deliveries-from-date'),
-          onPressed: () => _pickDate(isFrom: true),
-          icon: const Icon(Icons.event, size: 18),
-          label: Text(_from == null ? 'From date' : formatDate(_from!)),
+        const SizedBox(height: AppSpacing.sm),
+        Wrap(
+          spacing: AppSpacing.xs,
+          runSpacing: AppSpacing.xs,
+          children: [
+            for (var i = 0; i < chips.length; i++)
+              ChoiceChip(
+                label: Text(chips[i]),
+                selected: selectedLabel == chips[i],
+                onSelected: (_) => setState(() {
+                  _status = i == 0 ? null : DeliveryStatus.values[i - 1];
+                }),
+              ),
+          ],
         ),
-        OutlinedButton.icon(
-          key: const ValueKey('deliveries-to-date'),
-          onPressed: () => _pickDate(isFrom: false),
-          icon: const Icon(Icons.event, size: 18),
-          label: Text(_to == null ? 'To date' : formatDate(_to!)),
-        ),
-        if (_from != null || _to != null)
-          TextButton(
-            onPressed: () => setState(() {
-              _from = null;
-              _to = null;
-            }),
-            child: const Text('Clear dates'),
-          ),
       ],
     );
   }

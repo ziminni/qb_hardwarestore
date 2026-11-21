@@ -122,6 +122,11 @@ class PurchasesTable extends StatelessWidget {
           cell: (order) => Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              IconButton(
+                tooltip: 'View purchase order',
+                onPressed: () => onView(order),
+                icon: const Icon(Icons.visibility_outlined, size: 18),
+              ),
               if (order.canPlace)
                 IconButton(
                   tooltip: 'Place purchase order',

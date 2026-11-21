@@ -10,6 +10,7 @@ import 'package:client/features/dashboard/widget/inventory_waiting_to_receive_pa
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmodel.dart';
 import 'package:client/routes/routes.dart';
+import 'package:client/shared/widgets/analytics_charts.dart';
 import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/empty_state.dart';
 import 'package:client/shared/widgets/error_banner.dart';
@@ -167,15 +168,32 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
       return ErrorBanner(message: failure, onRetry: inventory.load);
     }
 
+    var inStock = 0;
     var lowStock = 0;
     var outOfStock = 0;
+    final variantCategory = <int, String>{};
     for (final product in inventory.products) {
+      final cat = product.categoryName.isEmpty
+          ? 'Uncategorized'
+          : product.categoryName;
       for (final variant in product.variants) {
+        variantCategory[variant.id] = cat;
         final status = inventory.statusForVariant(variant.id);
+        if (status == InventoryStockStatus.inStock) inStock++;
         if (status == InventoryStockStatus.lowStock) lowStock++;
         if (status == InventoryStockStatus.outOfStock) outOfStock++;
       }
     }
+    final valueByCategory = <String, double>{};
+    for (final batch in inventory.batches) {
+      if (batch.currentQty <= 0) continue;
+      final cat = variantCategory[batch.variantId] ?? 'Other';
+      valueByCategory[cat] =
+          (valueByCategory[cat] ?? 0) +
+          batch.currentQty * batch.unitCostLanded;
+    }
+    final topCategories = valueByCategory.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
     // The same valuation the stock screens use: every live batch at its landed
     // cost, not a price the catalogue wishes it had.
     final inventoryValue = inventory.batches.fold<double>(
@@ -257,6 +275,70 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
                 caption: 'Nothing on hand',
               ),
             ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final healthChart = HorizontalComparisonChart(
+                key: const ValueKey('inventory-dashboard-health-chart'),
+                title: 'Stock Health Overview',
+                subtitle: 'Variants grouped by current stock status.',
+                primaryLabel: 'Variants',
+                items: [
+                  ComparisonBarItem(
+                    label: 'Healthy / In stock',
+                    primaryValue: inStock.toDouble(),
+                    primaryText: '${formatCount(inStock)} variants',
+                  ),
+                  ComparisonBarItem(
+                    label: 'Low stock',
+                    primaryValue: lowStock.toDouble(),
+                    primaryText: '${formatCount(lowStock)} variants',
+                  ),
+                  ComparisonBarItem(
+                    label: 'Out of stock',
+                    primaryValue: outOfStock.toDouble(),
+                    primaryText: '${formatCount(outOfStock)} variants',
+                  ),
+                ],
+              );
+              final categoryChart = topCategories.isEmpty
+                  ? null
+                  : HorizontalComparisonChart(
+                      key: const ValueKey('inventory-dashboard-category-chart'),
+                      title: 'Inventory Value by Category',
+                      subtitle: 'On-hand stock valued at landed FIFO cost.',
+                      primaryLabel: 'Value at cost',
+                      items: [
+                        for (final entry in topCategories.take(6))
+                          ComparisonBarItem(
+                            label: entry.key,
+                            primaryValue: entry.value,
+                            primaryText: formatPeso(entry.value),
+                          ),
+                      ],
+                    );
+              if (categoryChart == null || constraints.maxWidth < 900) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    healthChart,
+                    if (categoryChart != null) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      categoryChart,
+                    ],
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: healthChart),
+                  const SizedBox(width: AppSpacing.lg),
+                  Expanded(child: categoryChart),
+                ],
+              );
+            },
           ),
           const SizedBox(height: AppSpacing.lg),
           LayoutBuilder(

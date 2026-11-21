@@ -401,6 +401,15 @@ class _SalesTab extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: AppSpacing.sm),
+          const _ReportExplainer(
+            icon: Icons.calculate_outlined,
+            title: 'How Sales & Profit are calculated',
+            body:
+                'COGS (Cost of Goods Sold) = FIFO purchase cost of items sold. '
+                'Gross Profit = Net Sales (excl. VAT) − COGS. '
+                'Margin % = Profit ÷ Net Sales · Markup % = Profit ÷ COGS.',
+          ),
           const SizedBox(height: AppSpacing.md),
           // Phase 4 F4 (supersedes D12): checkout takes a capped discount again, so the
           // Discounts tile is a real number and not a ₱0.00 advertisement.
@@ -493,6 +502,60 @@ class _SalesTab extends StatelessWidget {
             columns: _columnsFor(sales),
             rows: _rows(sales),
             emptyMessage: 'No sales in this range.',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReportExplainer extends StatelessWidget {
+  const _ReportExplainer({
+    required this.icon,
+    required this.title,
+    required this.body,
+  });
+
+  final IconData icon;
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.info.withValues(alpha: 0.08),
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(AppRadii.medium),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: AppColors.info),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  body,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -626,6 +689,14 @@ class _ValuationTab extends StatelessWidget {
               suggestedName: 'inventory-valuation.xlsx',
               buildBytes: () => buildValuationReportXlsx(valuation),
             ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          const _ReportExplainer(
+            icon: Icons.inventory_2_outlined,
+            title: 'What Inventory Valuation means',
+            body:
+                'Total peso value of unsold stock currently sitting on Store & Bodega shelves. '
+                'At Cost = On-Hand Qty × FIFO purchase cost · At Retail = On-Hand Qty × current selling price.',
           ),
           const SizedBox(height: AppSpacing.sm),
           MetricGrid(
@@ -826,6 +897,14 @@ class _MovementsTab extends StatelessWidget {
                 buildBytes: () => buildMovementsReportXlsx(movements),
               ),
             ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          const _ReportExplainer(
+            icon: Icons.sync_alt_rounded,
+            title: 'What Stock Movements shows',
+            body:
+                'Tracks units entering inventory via Goods Received (+) and manual Stock Adjustments '
+                '(Damage, Shrinkage, Cycle Count Corrections, and Supplier Returns). POS sales & releases are shown in the Sales tab.',
           ),
           const SizedBox(height: AppSpacing.md),
           MetricGrid(

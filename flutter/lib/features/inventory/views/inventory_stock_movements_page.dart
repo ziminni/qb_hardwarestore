@@ -332,7 +332,8 @@ class _InventoryStockMovementsPageState
 
     return InventorySkeletonLayout(
       title: 'Stock adjustments',
-      subtitle: 'Losses, damage, count corrections and returns to suppliers.',
+      subtitle:
+          'Audit log of manual stock adjustments — Damage, Shrinkage, Cycle Count Corrections, and Supplier Returns.',
       selectedNavigationIndex: 4,
       onNavigationSelected: (index) => navigateInventory(context, index),
       // A stock book records adjustments for years: the list builds its rows as

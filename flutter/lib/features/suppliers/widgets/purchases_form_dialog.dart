@@ -400,10 +400,7 @@ class _PurchasesFormDialogState extends State<PurchasesFormDialog> {
   /// Viewport height of each list pane. A list needs a bounded height to scroll
   /// itself; these are the panes' own size, not the window's, so the dialog
   /// keeps the same shape on every screen and scrolls when the window is short.
-  static const double _paneHeight = 230;
-  // 200 rather than 220: on a 760 wide window the dialog is capped at 90% of the
-  // window height, and 40 px less here is the difference between the Notes field
-  // being visible and being below the fold.
+  static const double _paneHeight = 250;
   static const double _stackedPaneHeight = 200;
 
   Widget _headerRow(

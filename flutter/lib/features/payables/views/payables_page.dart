@@ -13,7 +13,6 @@ import 'package:client/features/payables/widgets/supplier_pay_dialog.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
-import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -74,6 +73,7 @@ class _PayablesBodyState extends State<_PayablesBody> {
   SupplierBillStatus? _status;
   bool _overdueOnly = false;
   int? _supplierId;
+  String _query = '';
 
   /// Which tab is showing: Bills, Credit notes, Supplier cheques.
   int _tab = 0;
@@ -133,14 +133,27 @@ class _PayablesBodyState extends State<_PayablesBody> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<PayablesViewmodel>();
-    final bills = state.filteredBills(
+    final allBills = state.filteredBills(
       supplierId: _supplierId,
       status: _status,
       overdueOnly: _overdueOnly,
     );
+    final needle = _query.trim().toLowerCase();
+    final bills = needle.isEmpty
+        ? allBills
+        : [
+            for (final b in allBills)
+              if ('bill #${b.id}'.contains(needle) ||
+                  b.supplierName.toLowerCase().contains(needle))
+                b,
+          ];
     final failure = state.loadError;
     final staleRows = failure != null && bills.isNotEmpty;
-    final filtered = _status != null || _overdueOnly || _supplierId != null;
+    final filtered =
+        _status != null ||
+        _overdueOnly ||
+        _supplierId != null ||
+        needle.isNotEmpty;
 
     final content = ListView(
       padding: EdgeInsets.zero,
@@ -216,44 +229,86 @@ class _PayablesBodyState extends State<_PayablesBody> {
       _anyStatus,
       for (final status in SupplierBillStatus.values) status.label,
     ];
-    return Wrap(
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: AppSpacing.md,
-      runSpacing: AppSpacing.sm,
+    final selectedLabel = _status == null ? chips.first : _status!.label;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          width: 320,
-          child: FilterBar(
-            searchHint: 'Find a bill or supplier',
-            options: chips,
-            selected: _status == null ? chips.first : _status!.label,
-            onSelected: (chip) => setState(() {
-              final index = chips.indexOf(chip);
-              _status = index <= 0
-                  ? null
-                  : SupplierBillStatus.values[index - 1];
-            }),
-            extraOptions: const [_overdueChip],
-            extraSelected: _overdueOnly ? _overdueChip : null,
-            onExtraSelected: (_) =>
-                setState(() => _overdueOnly = !_overdueOnly),
-          ),
-        ),
-        if (state.suppliers.isNotEmpty)
-          DropdownButton<int?>(
-            key: const ValueKey('payables-supplier-filter'),
-            value: _supplierId,
-            hint: const Text('All suppliers'),
-            items: [
-              const DropdownMenuItem<int?>(child: Text('All suppliers')),
-              for (final supplier in state.suppliers)
-                DropdownMenuItem<int?>(
-                  value: supplier.supplierId,
-                  child: Text(supplier.supplierName),
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: [
+            SizedBox(
+              width: 300,
+              height: 40,
+              child: TextField(
+                onChanged: (value) => setState(() => _query = value),
+                decoration: const InputDecoration(
+                  hintText: 'Find a bill or supplier',
+                  prefixIcon: Icon(Icons.search_rounded, size: 18),
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                 ),
-            ],
-            onChanged: (value) => setState(() => _supplierId = value),
-          ),
+              ),
+            ),
+            if (state.suppliers.isNotEmpty)
+              SizedBox(
+                height: 40,
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<int?>(
+                      key: const ValueKey('payables-supplier-filter'),
+                      value: _supplierId,
+                      isDense: true,
+                      hint: const Text('All suppliers'),
+                      items: [
+                        const DropdownMenuItem<int?>(
+                          child: Text('All suppliers'),
+                        ),
+                        for (final supplier in state.suppliers)
+                          DropdownMenuItem<int?>(
+                            value: supplier.supplierId,
+                            child: Text(supplier.supplierName),
+                          ),
+                      ],
+                      onChanged: (value) => setState(() => _supplierId = value),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Wrap(
+          spacing: AppSpacing.xs,
+          runSpacing: AppSpacing.xs,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            for (var i = 0; i < chips.length; i++)
+              ChoiceChip(
+                label: Text(chips[i]),
+                selected: selectedLabel == chips[i],
+                onSelected: (_) => setState(() {
+                  _status = i == 0 ? null : SupplierBillStatus.values[i - 1];
+                }),
+              ),
+            FilterChip(
+              label: const Text(_overdueChip),
+              selected: _overdueOnly,
+              onSelected: (_) => setState(() => _overdueOnly = !_overdueOnly),
+            ),
+          ],
+        ),
       ],
     );
   }

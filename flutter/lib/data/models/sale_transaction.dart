@@ -88,6 +88,7 @@ class TransactionRecord {
     this.paymentFee = 0,
     this.creditSale = false,
     this.bodegaStatus,
+    this.orNumber = '',
   });
 
   final int id;
@@ -118,6 +119,7 @@ class TransactionRecord {
   final double paymentFee;
   final bool creditSale;
   final String? bodegaStatus;
+  final String orNumber;
 
   factory TransactionRecord.fromJson(Map<String, dynamic> json) {
     final items = json['items'];
@@ -155,6 +157,9 @@ class TransactionRecord {
       bodegaStatus: json['bodega_status'] is String
           ? json['bodega_status'] as String
           : null,
+      orNumber: json['receipt'] is Map && json['receipt']['or_number'] is String
+          ? (json['receipt']['or_number'] as String).trim()
+          : '',
       items: items
           .map((i) => TransactionLineItem.fromJson(i as Map<String, dynamic>))
           .toList(),

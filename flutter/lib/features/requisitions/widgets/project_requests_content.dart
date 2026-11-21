@@ -1,3 +1,4 @@
+import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/requisition.dart';
@@ -43,11 +44,43 @@ class _ProjectRequestsContentState extends State<ProjectRequestsContent> {
 
   List<Requisition> _visible(List<Requisition> rows) {
     final query = _query.trim().toLowerCase();
-    if (query.isEmpty) return rows;
-    return [
-      for (final row in rows)
-        if (_matches(row, query)) row,
-    ];
+    final filtered = query.isEmpty
+        ? [...rows]
+        : [
+            for (final row in rows)
+              if (_matches(row, query)) row,
+          ];
+    // Show newest requests first so a freshly sent CPMS request appears at row 1.
+    filtered.sort((a, b) {
+      final ad = a.createdAt;
+      final bd = b.createdAt;
+      if (ad != null && bd != null) {
+        final cmp = bd.compareTo(ad);
+        if (cmp != 0) return cmp;
+      }
+      return b.id.compareTo(a.id);
+    });
+    return filtered;
+  }
+
+  static String _relativeTime(DateTime? dt) {
+    if (dt == null) return '—';
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return formatDateTime(dt);
+  }
+
+  static String _itemsPreview(Requisition row) {
+    if (row.items.isEmpty) return '';
+    final first = row.items.first;
+    final name = first.productName.isNotEmpty
+        ? first.productName
+        : first.variantName;
+    final head = '$name × ${formatQuantity(first.quantity)} ${first.unit}';
+    if (row.items.length == 1) return head;
+    return '$head (+${row.items.length - 1} more)';
   }
 
   bool _matches(Requisition row, String query) => [
@@ -129,13 +162,73 @@ class _ProjectRequestsContentState extends State<ProjectRequestsContent> {
             columns: [
               DataPanelColumn(
                 label: 'Request',
-                flex: 2,
-                cell: (row) => Text(
-                  row.reqNumber,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
+                flex: 3,
+                cell: (row) {
+                  final preview = _itemsPreview(row);
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              row.reqNumber,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          if (row.status == RequisitionStatus.waiting) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.warningTint,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: const Text(
+                                'NEW',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.warningText,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      if (row.cpmsRequestId != null &&
+                          row.cpmsRequestId!.isNotEmpty)
+                        Text(
+                          'CPMS: ${row.cpmsRequestId!}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      if (preview.isNotEmpty)
+                        Text(
+                          preview,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                    ],
+                  );
+                },
               ),
               DataPanelColumn(
                 label: 'Project',
@@ -148,15 +241,16 @@ class _ProjectRequestsContentState extends State<ProjectRequestsContent> {
                       row.projectName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
                     ),
-                    // The contractor is the project's customer, not a second
-                    // project: a Store Manager recognises the firm faster than
-                    // the site name.
                     Text(
                       row.projectCustomerName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ],
                 ),
@@ -173,8 +267,30 @@ class _ProjectRequestsContentState extends State<ProjectRequestsContent> {
               DataPanelColumn(
                 label: 'Received',
                 flex: 2,
-                cell: (row) => Text(
-                  row.createdAt == null ? '—' : formatDate(row.createdAt!),
+                cell: (row) => Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      row.createdAt == null ? '—' : formatDate(row.createdAt!),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (row.createdAt != null)
+                      Text(
+                        _relativeTime(row.createdAt),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                  ],
                 ),
               ),
               DataPanelColumn(
@@ -187,17 +303,34 @@ class _ProjectRequestsContentState extends State<ProjectRequestsContent> {
               ),
               DataPanelColumn(
                 label: 'Action',
-                // At weight 1 "Review" split mid-word at 1100 px (QA).
                 flex: 2,
                 cell: (row) => Align(
                   alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () => _open(row),
-                    child: Text(
-                      row.status == RequisitionStatus.waiting
-                          ? 'Review'
-                          : 'View',
-                    ),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: row.status == RequisitionStatus.waiting
+                        ? FilledButton.tonal(
+                            onPressed: () => _open(row),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              minimumSize: const Size(0, 32),
+                            ),
+                            child: const Text('Review'),
+                          )
+                        : OutlinedButton(
+                            onPressed: () => _open(row),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              minimumSize: const Size(0, 32),
+                            ),
+                            child: const Text('View'),
+                          ),
                   ),
                 ),
               ),

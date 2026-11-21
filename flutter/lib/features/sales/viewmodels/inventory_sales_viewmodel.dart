@@ -106,6 +106,7 @@ class InventorySalesViewmodel extends ChangeNotifier {
 
   InventorySale _saleOf(TransactionRecord r) => InventorySale(
     transactionNo: r.transactionNo,
+    orNumber: r.orNumber,
     date: r.transDate,
     customer: r.customerName,
     cashier: r.cashierName,

@@ -80,6 +80,7 @@ class InventorySale {
     this.paymentFee = 0,
     this.creditSale = false,
     this.bodegaStatus,
+    this.orNumber = '',
   });
   final String transactionNo;
   final DateTime date;
@@ -110,6 +111,7 @@ class InventorySale {
   final double paymentFee;
   final bool creditSale;
   final String? bodegaStatus;
+  final String orNumber;
 
   /// What the customer actually owed: the lines less the discount plus any payment fee.
   /// The sheet's total bar shows this, so a discounted or fee-bearing sale reconciles.

@@ -13,7 +13,6 @@ import 'package:client/features/transfers/viewmodels/transfers_viewmodel.dart';
 import 'package:client/features/transfers/widgets/stock_transfer_dialog.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
-import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -168,7 +167,8 @@ class _TransfersBodyState extends State<_TransfersBody> {
     );
 
     const title = 'Transfers';
-    const subtitle = 'Move stock between shelves: one numbered slip, at once.';
+    const subtitle =
+        'Move stock between Store and Bodega shelves — balances update automatically on both sides.';
     return switch (widget.shell) {
       TransfersShell.inventory => InventorySkeletonLayout(
         title: title,
@@ -190,23 +190,33 @@ class _TransfersBodyState extends State<_TransfersBody> {
   }
 
   Widget _toolbar(TransfersViewmodel state) {
-    return Wrap(
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: AppSpacing.md,
-      runSpacing: AppSpacing.sm,
+    return Row(
       children: [
         SizedBox(
-          width: 320,
-          child: FilterBar(
-            searchHint: 'Find a slip, shelf or product',
-            onSearchChanged: (value) => setState(() => _query = value),
+          width: 340,
+          height: 40,
+          child: TextField(
+            onChanged: (value) => setState(() => _query = value),
+            decoration: const InputDecoration(
+              hintText: 'Find a slip, shelf or product',
+              prefixIcon: Icon(Icons.search_rounded, size: 18),
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+            ),
           ),
         ),
-        FilledButton.icon(
-          key: const ValueKey('transfers-record'),
-          onPressed: state.isRecording ? null : _record,
-          icon: const Icon(Icons.swap_horiz_rounded, size: 18),
-          label: const Text('Record transfer'),
+        const Spacer(),
+        SizedBox(
+          height: 40,
+          child: FilledButton.icon(
+            key: const ValueKey('transfers-record'),
+            onPressed: state.isRecording ? null : _record,
+            icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+            label: const Text('Record transfer'),
+          ),
         ),
       ],
     );
@@ -254,11 +264,49 @@ class _TransfersBodyState extends State<_TransfersBody> {
         DataPanelColumn<StockTransfer>(
           label: 'Route',
           flex: 3,
-          cell: (transfer) => Text(
-            transfer.routeLabel,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
+          cell: (transfer) {
+            final toBodega = transfer.toLocationName
+                .toLowerCase()
+                .contains('bodega');
+            final bg = toBodega
+                ? AppColors.warningTint
+                : AppColors.successTint;
+            final fg = toBodega
+                ? AppColors.warningText
+                : AppColors.successText;
+            return Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: bg,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.swap_horiz_rounded, size: 14, color: fg),
+                    const SizedBox(width: 5),
+                    Flexible(
+                      child: Text(
+                        transfer.routeLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: fg,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
         ),
         DataPanelColumn<StockTransfer>(
           label: 'Moved',

@@ -6,9 +6,9 @@ import 'package:client/features/products/widgets/products_image.dart';
 import 'package:client/shared/widgets/blueprint.dart';
 import 'package:flutter/material.dart';
 
-/// The till's left panel: the scan field, the category chips and the
+/// The till's left panel: the scan field, the category + location chips and the
 /// product grid.
-class PosProductBrowser extends StatelessWidget {
+class PosProductBrowser extends StatefulWidget {
   const PosProductBrowser({
     super.key,
     required this.products,
@@ -42,9 +42,34 @@ class PosProductBrowser extends StatelessWidget {
   final ValueChanged<String?>? onCategorySelected;
 
   @override
+  State<PosProductBrowser> createState() => _PosProductBrowserState();
+}
+
+class _PosProductBrowserState extends State<PosProductBrowser> {
+  /// Location filter: null = All, 'store' = Store, 'bodega' = Bodega.
+  String? _locationFilter;
+
+  List<PosCatalogItem> get _filteredProducts {
+    final loc = _locationFilter;
+    if (loc == null) return widget.products;
+    return [
+      for (final item in widget.products)
+        if (loc == 'bodega'
+            ? item.storedAtName.toLowerCase().contains('bodega')
+            : !item.storedAtName.toLowerCase().contains('bodega'))
+          item,
+    ];
+  }
+
+  @override
   Widget build(BuildContext context) {
     final p = AppPalette.of(context);
-    final showChips = onCategorySelected != null && categories.length > 1;
+    final showChips =
+        widget.onCategorySelected != null && widget.categories.length > 1;
+    final visibleProducts = _filteredProducts;
+    final hasAnyLocation = widget.products.any(
+      (item) => item.storedAtName.isNotEmpty,
+    );
     return DecoratedBox(
       decoration: BoxDecoration(
         color: p.cardBackground,
@@ -57,37 +82,64 @@ class PosProductBrowser extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _ScanField(
-              controller: searchController,
-              focusNode: searchFocusNode,
-              onChanged: onSearch,
-              onSubmitted: onSubmitted,
+              controller: widget.searchController,
+              focusNode: widget.searchFocusNode,
+              onChanged: widget.onSearch,
+              onSubmitted: widget.onSubmitted,
             ),
-            if (showChips) ...[
-              const SizedBox(height: 14),
+            if (showChips || hasAnyLocation) ...[
+              const SizedBox(height: 12),
               SizedBox(
-                height: 40,
+                height: 38,
                 child: ListView(
                   scrollDirection: Axis.horizontal,
                   children: [
-                    _CategoryChip(
-                      label: 'All',
-                      selected: selectedCategory == null,
-                      onTap: () => onCategorySelected!(null),
-                    ),
-                    for (final category in categories)
+                    if (hasAnyLocation) ...[
                       _CategoryChip(
-                        label: category,
-                        selected: selectedCategory == category,
-                        onTap: () => onCategorySelected!(category),
+                        label: 'All locations',
+                        selected: _locationFilter == null,
+                        onTap: () => setState(() => _locationFilter = null),
                       ),
+                      _CategoryChip(
+                        label: 'Store',
+                        selected: _locationFilter == 'store',
+                        onTap: () => setState(() => _locationFilter = 'store'),
+                      ),
+                      _CategoryChip(
+                        label: 'Bodega',
+                        selected: _locationFilter == 'bodega',
+                        onTap: () => setState(() => _locationFilter = 'bodega'),
+                      ),
+                      if (showChips)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 6,
+                          ),
+                          child: VerticalDivider(width: 1, color: p.border),
+                        ),
+                    ],
+                    if (showChips) ...[
+                      _CategoryChip(
+                        label: 'All',
+                        selected: widget.selectedCategory == null,
+                        onTap: () => widget.onCategorySelected!(null),
+                      ),
+                      for (final category in widget.categories)
+                        _CategoryChip(
+                          label: category,
+                          selected: widget.selectedCategory == category,
+                          onTap: () => widget.onCategorySelected!(category),
+                        ),
+                    ],
                   ],
                 ),
               ),
             ],
             const SizedBox(height: 14),
             Expanded(
-              child: products.isEmpty
-                  ? Center(child: Text(emptyMessage))
+              child: visibleProducts.isEmpty
+                  ? Center(child: Text(widget.emptyMessage))
                   : LayoutBuilder(
                       builder: (context, constraints) {
                         const maxExtent = 240.0;
@@ -120,10 +172,10 @@ class PosProductBrowser extends StatelessWidget {
                                 crossAxisSpacing: gap,
                                 mainAxisSpacing: gap,
                               ),
-                          itemCount: products.length,
+                          itemCount: visibleProducts.length,
                           itemBuilder: (context, index) => _ProductCard(
-                            product: products[index],
-                            onAdd: () => onSelect(products[index]),
+                            product: visibleProducts[index],
+                            onAdd: () => widget.onSelect(visibleProducts[index]),
                           ),
                         );
                       },

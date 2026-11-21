@@ -94,6 +94,7 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
   static const List<String> _dateChips = [
     _anyDate,
     'Today',
+    'Yesterday',
     'This week',
     'This month',
   ];
@@ -133,11 +134,11 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
       // The stock manager looks sales up by what left the shelf, so the SKU is
       // searchable there and nowhere else.
       SalesTransactionsRole.stockManager =>
-        '${sale.transactionNo} ${sale.customer} '
+        '${sale.transactionNo} ${sale.orNumber} ${sale.customer} '
             '${sale.lines.map((line) => line.sku).join(' ')}',
       SalesTransactionsRole.cashier || SalesTransactionsRole.storeManager =>
-        '${sale.transactionNo} ${sale.customer} ${sale.paymentMethod} '
-            '${sale.cashier}',
+        '${sale.transactionNo} ${sale.orNumber} ${sale.customer} '
+            '${sale.paymentMethod} ${sale.cashier}',
     };
     return haystack.toLowerCase().contains(query);
   }
@@ -153,6 +154,10 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
   /// every comparison is local time, because the dates the reader sees are.
   bool _matchesDate(InventorySale sale, DateTime now) => switch (_date) {
     'Today' => _sameDay(sale.date, now),
+    'Yesterday' => _sameDay(
+      sale.date,
+      DateTime(now.year, now.month, now.day).subtract(const Duration(days: 1)),
+    ),
     'This week' => _inWeekOf(sale.date, now),
     'This month' => sale.date.year == now.year && sale.date.month == now.month,
     _ => true,
@@ -172,29 +177,29 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
   @override
   Widget build(BuildContext context) {
     final rows = _visible;
-    final storeManager = widget.role == SalesTransactionsRole.storeManager;
+    final showDateFilters =
+        widget.role == SalesTransactionsRole.storeManager ||
+        widget.role == SalesTransactionsRole.cashier;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         FilterBar(
           searchHint: switch (widget.role) {
             SalesTransactionsRole.stockManager =>
-              'Transaction, customer, or SKU',
+              'Transaction, OR #, customer, or SKU',
             SalesTransactionsRole.cashier ||
             SalesTransactionsRole.storeManager =>
-              'Transaction, customer, or payment',
+              'Transaction, OR #, customer, or payment',
           },
           onSearchChanged: (value) => setState(() => _query = value),
           options: _statusChips,
           selected: _status,
           onSelected: (chip) => setState(() => _status = chip),
-          // The date range is the store manager's filter: a cashier reads the
-          // till's own shift, and the stock manager reads what left the shelf.
-          extraOptions: storeManager ? _dateChips : const <String>[],
+          extraOptions: showDateFilters ? _dateChips : const <String>[],
           extraSelected: _date,
           onExtraSelected: (chip) => setState(() => _date = chip),
         ),
-        if (storeManager) ...[
+        if (showDateFilters) ...[
           const SizedBox(height: AppSpacing.sm),
           const Text(
             _dateCaption,
@@ -326,6 +331,19 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
               color: AppColors.textPrimary,
             ),
           ),
+          if (sale.orNumber.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              'OR ${sale.orNumber}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
           const SizedBox(height: AppSpacing.xs),
           StatusBadge(label: sale.status.label, tone: _tone(sale.status)),
         ],

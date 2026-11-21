@@ -252,9 +252,35 @@ class _ProjectRequestReviewDialogState
                   ),
                 ),
               const Divider(height: AppSpacing.lg),
-              const Text(
-                'Lines',
-                style: TextStyle(fontWeight: FontWeight.w700),
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.xs,
+                children: [
+                  Text(
+                    'Requested Items (${request.items.length})',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
+                  if (reviewable)
+                    TextButton.icon(
+                      onPressed: submitting || blocked
+                          ? null
+                          : () {
+                              setState(() {
+                                for (final line in request.items) {
+                                  _answers[line.id] = true;
+                                }
+                                _error = null;
+                              });
+                            },
+                      icon: const Icon(Icons.done_all_rounded, size: 16),
+                      label: const Text('Mark all available'),
+                    ),
+                ],
               ),
               const SizedBox(height: AppSpacing.sm),
               for (final line in request.items)
@@ -318,22 +344,47 @@ class _ProjectRequestReviewDialogState
           ),
         ),
       ),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
       actions: reviewable
           ? [
-              TextButton(
+              OutlinedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 42),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                ),
+                child: const Text('Cancel'),
+              ),
+              OutlinedButton.icon(
                 key: const Key('decline-request'),
                 onPressed: submitting || blocked ? null : _decline,
-                child: const Text('Decline request'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.errorText,
+                  side: const BorderSide(color: AppColors.errorText),
+                  minimumSize: const Size(0, 42),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                ),
+                icon: const Icon(Icons.close_rounded, size: 18),
+                label: const Text('Decline request'),
               ),
-              FilledButton(
+              FilledButton.icon(
                 key: const Key('accept-request'),
                 onPressed: submitting || blocked ? null : _accept,
-                child: const Text('Accept request'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(0, 42),
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                ),
+                icon: const Icon(Icons.check_rounded, size: 18),
+                label: const Text('Accept request'),
               ),
             ]
           : [
-              TextButton(
+              FilledButton.tonal(
                 onPressed: () => Navigator.of(context).pop(),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(0, 42),
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                ),
                 child: const Text('Close'),
               ),
             ],

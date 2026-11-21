@@ -282,7 +282,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       builder: (context, constraints) {
         final mode = shellModeFor(constraints.maxWidth);
         final compact = mode == ShellMode.compact;
-        final padding = compact ? AppSpacing.lg : AppSpacing.xl;
+        final padding = compact ? AppSpacing.md : AppSpacing.lg;
         // The stored choice only ever turns the wide sidebar into the rail; it
         // cannot widen a window that is too narrow for labels.
         final rail =
