@@ -359,7 +359,11 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
               _caption(project),
             ],
             const SizedBox(height: 2),
-            _caption(entry.transactionNo),
+            _caption(
+              entry.createdAt == null
+                  ? entry.transactionNo
+                  : '${entry.transactionNo} · ${formatDateTime(entry.createdAt!)}',
+            ),
           ],
         ),
       ),

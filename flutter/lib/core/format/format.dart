@@ -48,13 +48,21 @@ String formatPesoWhole(num amount) {
 String formatPesoForPrint(num amount) =>
     formatPeso(amount).replaceFirst(_peso, 'PHP ');
 
+/// Converts UTC timestamps from the API into the terminal's local timezone
+/// while leaving local date-only values (`isUtc == false`) untouched.
+DateTime _local(DateTime value) => value.isUtc ? value.toLocal() : value;
+
 /// `DateTime(2026, 10, 29)` becomes `Oct 29, 2026`.
-String formatDate(DateTime value) =>
-    '${_months[value.month - 1]} ${value.day}, ${value.year}';
+String formatDate(DateTime value) {
+  final local = _local(value);
+  return '${_months[local.month - 1]} ${local.day}, ${local.year}';
+}
 
 /// `Nov 18`: [formatDate] without the year, for a phone row's corner.
-String formatShortDate(DateTime value) =>
-    '${_months[value.month - 1]} ${value.day}';
+String formatShortDate(DateTime value) {
+  final local = _local(value);
+  return '${_months[local.month - 1]} ${local.day}';
+}
 
 /// The three-letter weekday names, Monday first: `DateTime.weekday` is 1-7
 /// starting on Monday, so the index is `weekday - 1`.
@@ -73,15 +81,18 @@ const List<String> _weekdays = <String>[
 /// The page header says which day it is, and a weekday is what a manager reads
 /// faster than a bare date. Built from the same month list as [formatDate], so
 /// there is still one place that spells a month.
-String formatWeekdayDate(DateTime value) =>
-    '${_weekdays[value.weekday - 1]}, ${formatDate(value)}';
+String formatWeekdayDate(DateTime value) {
+  final local = _local(value);
+  return '${_weekdays[local.weekday - 1]}, ${formatDate(local)}';
+}
 
 /// `DateTime(2026, 10, 29, 14, 14)` becomes `Oct 29, 2026, 2:14 PM`.
 String formatDateTime(DateTime value) {
-  final hour12 = value.hour % 12 == 0 ? 12 : value.hour % 12;
-  final minute = value.minute.toString().padLeft(2, '0');
-  final meridiem = value.hour < 12 ? 'AM' : 'PM';
-  return '${formatDate(value)}, $hour12:$minute $meridiem';
+  final local = _local(value);
+  final hour12 = local.hour % 12 == 0 ? 12 : local.hour % 12;
+  final minute = local.minute.toString().padLeft(2, '0');
+  final meridiem = local.hour < 12 ? 'AM' : 'PM';
+  return '${formatDate(local)}, $hour12:$minute $meridiem';
 }
 
 /// `1248` becomes `1,248`.

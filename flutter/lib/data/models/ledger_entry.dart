@@ -38,6 +38,7 @@ class LedgerEntry {
     this.dueDate,
     required this.isOverdue,
     this.projectName,
+    this.createdAt,
     this.paidAt,
   });
 
@@ -58,6 +59,7 @@ class LedgerEntry {
   final double originalAmount;
   final double balanceDue;
   final DateTime? dueDate;
+  final DateTime? createdAt;
   final bool isOverdue;
 
   /// When a settled ledger (`balanceDue <= 0`) was paid in full, if known.
@@ -126,6 +128,7 @@ class LedgerEntry {
       originalAmount: decimalField(json, 'original_amount'),
       balanceDue: balanceDue,
       dueDate: nullableDateField(json, 'due_date'),
+      createdAt: nullableDateField(json, 'created_at'),
       isOverdue: json['is_overdue'] == true,
       paidAt: paidAt,
     );
