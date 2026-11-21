@@ -59,6 +59,7 @@ from .models import (
     Product,
     ProductVariant,
     PurchaseOrder,
+    SellingUnitPriceChange,
     StockAdjustment,
     StockTransfer,
     StorageLocation,
@@ -88,6 +89,7 @@ from .serializers import (
     ProductSerializer,
     ProductVariantSerializer,
     PurchaseOrderSerializer,
+    SellingUnitPriceChangeSerializer,
     StockAdjustmentSerializer,
     StockTransferCreateSerializer,
     StockTransferSerializer,
@@ -658,15 +660,50 @@ class VariantUOMViewSet(_AuditedCatalogViewSet):
 
     def perform_create(self, serializer):
         try:
-            super().perform_create(serializer)
+            with transaction.atomic():
+                super().perform_create(serializer)
+                self._record_price(serializer.instance, None)
         except IntegrityError as exc:
             _refuse_lost_barcode_race(exc)
 
     def perform_update(self, serializer):
         try:
-            super().perform_update(serializer)
+            with transaction.atomic():
+                unit = (
+                    VariantUOM.objects.select_for_update()
+                    .filter(pk=serializer.instance.pk)
+                    .first()
+                )
+                if unit is None:
+                    raise Http404("This selling unit has already been removed.")
+                old_price = unit.default_selling_price
+                serializer.instance = unit
+                super().perform_update(serializer)
+                self._record_price(serializer.instance, old_price)
         except IntegrityError as exc:
             _refuse_lost_barcode_race(exc)
+
+    def _record_price(self, unit, old_price):
+        SellingUnitPriceChange.record(
+            unit=unit,
+            old_price=old_price,
+            new_price=unit.default_selling_price,
+            actor=self.request.user,
+            source=SellingUnitPriceChange.Source.CATALOGUE,
+        )
+
+    @action(detail=True, methods=["get"], url_path="price-history")
+    def price_history(self, request, pk=None):
+        unit = self.get_object()
+        events = SellingUnitPriceChange.objects.filter(variant_uom=unit).select_related(
+            "actor"
+        )
+        page = self.paginate_queryset(events)
+        if page is not None:
+            return self.get_paginated_response(
+                SellingUnitPriceChangeSerializer(page, many=True).data
+            )
+        return Response(SellingUnitPriceChangeSerializer(events, many=True).data)
 
     def destroy(self, request, *args, **kwargs):
         """`DELETE /variant-uoms/{id}/` — remove a selling unit nothing references.

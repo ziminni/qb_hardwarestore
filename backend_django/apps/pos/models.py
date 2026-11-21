@@ -200,6 +200,16 @@ class SalesItem(models.Model):
     )
     unit_price = models.DecimalField(max_digits=12, decimal_places=2)
     subtotal = models.DecimalField(max_digits=12, decimal_places=2)
+    # This line's share of the sale-level discount, in pesos. NULL = sold before shares
+    # were recorded (or no discount): readers must not guess an allocation for those.
+    cart_discount_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
+    # A discount given on THIS line alone, in pesos (comes off before the sale discount
+    # is shared). NULL = none given, or sold before line discounts existed.
+    item_discount_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
     # Phase 7 B1 (decision 19 #3): the order line a fulfilment sale line was rung from,
     # which is what makes "fulfilled vs remaining" arithmetically checkable. NULL for
     # every ordinary till sale; a fulfilment (B4) sets it, and a return against that sale
@@ -719,6 +729,12 @@ class StoreSettings(models.Model):
     )
     discount_cap_percent = models.DecimalField(
         max_digits=5, decimal_places=2, default=Decimal("10.00")
+    )
+    # Cap on a cashier's CUMULATIVE discount over one shift (percent of that shift's
+    # goods sold), so splitting a purchase into small sales cannot dodge the per-sale cap.
+    # NULL = no shift limit, which is what every existing row keeps.
+    shift_discount_cap_percent = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True, default=None
     )
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -20,6 +20,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from django.core import signing
 from django.db import transaction
+from django.db.models import Sum
 from django.utils import timezone
 
 from apps.collectibles.models import CollectibleLedger
@@ -34,6 +35,7 @@ from common.exceptions import (
     refuse_inactive_selling_unit,
 )
 
+from .discount_allocation import allocate_discounts
 from .exceptions import (
     CreditLimitExceeded,
     DeliveryReasonRequired,
@@ -287,6 +289,115 @@ def issue_discount_approval(*, approver, percent, reason=""):
         salt=DISCOUNT_APPROVAL_SALT,
     )
     return row, token
+
+
+def _validated_line_discounts(items_data, priced_lines, order_lines):
+    """One entry per cart line: its validated discount (see `_validated_discount`) or None.
+
+    A line discount comes off that line only, needs its own reason and cannot exceed the
+    line. A fulfilment bills prices the manager already agreed, so it takes none.
+    """
+    found = []
+    for raw, (vuom, qty, unit_price, _line) in zip(items_data, priced_lines):
+        data = raw.get("discount") if isinstance(raw, dict) else None
+        if data in (None, "", {}):
+            found.append(None)
+            continue
+        if order_lines is not None:
+            raise InvalidDiscount(
+                "A fulfilment bills the agreed prices and takes no line discount."
+            )
+        if not vuom.variant.product.allow_discount:
+            raise InvalidDiscount(f"{vuom.variant.product} is never discounted.")
+        info = _validated_discount(data, gross=money_round(qty * unit_price))
+        found.append(info if info and info["amount"] > 0 else None)
+    return found
+
+
+def _combined_discount(line_discounts, discount_data, priced_lines, *, gross):
+    """The sale's whole discount: line discounts plus the sale discount, or None.
+
+    The sale discount (a percentage included) is measured on what the line discounts
+    left over. `percent` is the COMBINED share of the gross, which is what the cap and a
+    manager's approval are compared against; `cart_amount` is the sale-level part alone.
+    """
+    line_total = sum((d["amount"] for d in line_discounts if d), Decimal(0))
+    # Goods the shop never discounts (cement) sit outside what the sale discount is
+    # measured on and shared over.
+    never = sum(
+        (
+            money_round(qty * price)
+            for vuom, qty, price, _l in priced_lines
+            if not vuom.variant.product.allow_discount
+        ),
+        Decimal(0),
+    )
+    cart_info = _validated_discount(discount_data, gross=gross - never - line_total)
+    if cart_info is None and line_total == 0:
+        return None
+    cart_amount = cart_info["amount"] if cart_info else Decimal(0)
+    total = line_total + cart_amount
+    reasons = [cart_info["reason"]] if cart_info and cart_info["reason"] else []
+    for d in line_discounts:
+        if d and d["reason"] not in reasons:
+            reasons.append(d["reason"])
+    return {
+        "kind": cart_info["kind"] if cart_info else DISCOUNT_KIND_AMOUNT,
+        "value": cart_info["value"] if cart_info else total,
+        "amount": total,
+        "cart_amount": cart_amount,
+        "percent": (total / gross * 100) if gross > 0 else Decimal(0),
+        "reason": "; ".join(reasons)[:255],
+    }
+
+
+def _cart_discount_shares(priced_lines, line_discounts, cart_amount):
+    """Centavos of the sale discount each line carries, or None without one."""
+    if not cart_amount or cart_amount <= 0:
+        return None
+    lines = [
+        (
+            int(money_round(qty * price) * 100),
+            int((d["amount"] if d else 0) * 100),
+            vuom.variant.product.allow_discount,
+        )
+        for (vuom, qty, price, _l), d in zip(priced_lines, line_discounts)
+    ]
+    wanted = int(cart_amount * 100)
+    # Per-line rounding can leave the lines a centavo short of the gross the discount was
+    # validated on; the largest line absorbs it rather than the sale failing.
+    room = sum(gross - item for gross, item, eligible in lines if eligible)
+    shares = allocate_discounts(lines, min(wanted, room))
+    shares[shares.index(max(shares))] += wanted - sum(shares)
+    return shares
+
+
+def _discount_limit_breach(store, shift, discount_info, gross):
+    """`(limit, percent)` when this discount needs a manager, else None.
+
+    Two limits: the per-sale cap, and the optional per-shift cap on the cashier's
+    CUMULATIVE discount (this sale included), so splitting a purchase into small sales
+    cannot dodge the first. The shift percent is discounts over goods sold in the shift.
+    """
+    if discount_info["amount"] <= 0:
+        return None
+    if discount_info["percent"] > store.discount_cap_percent:
+        return store.discount_cap_percent, discount_info["percent"]
+    shift_cap = store.shift_discount_cap_percent
+    if shift_cap is None:
+        return None
+    earlier = SalesTransaction.objects.filter(
+        shift=shift,
+        status=SalesTransaction.Status.COMPLETED,
+    ).exclude(source=SalesTransaction.Source.RETURN)
+    discounted = earlier.aggregate(total=Sum("discount_amount"))["total"] or Decimal(0)
+    sold = SalesItem.objects.filter(transaction__in=earlier).aggregate(
+        total=Sum("subtotal")
+    )["total"] or Decimal(0)
+    shift_percent = (discounted + discount_info["amount"]) / (sold + gross) * 100
+    if shift_percent > shift_cap:
+        return shift_cap, shift_percent
+    return None
 
 
 def _consume_approval(token, *, percent_needed):
@@ -1292,7 +1403,10 @@ def process_sale(
             Decimal(0),
         )
     )
-    discount_info = _validated_discount(discount_data, gross=gross)
+    line_discounts = _validated_line_discounts(items_data, priced_lines, order_lines)
+    discount_info = _combined_discount(
+        line_discounts, discount_data, priced_lines, gross=gross
+    )
     # Phase 5 task B3: the slip is validated HERE, with the rest of the payload, so a
     # delivery missing its address or carrying a negative charge leaves no sale behind.
     delivery_fields = _validated_delivery(delivery_data)
@@ -1351,11 +1465,10 @@ def process_sale(
         discount_amount = Decimal(0)
         approval = None
         if discount_info is not None:
-            discount_amount = discount_info["amount"]
-            if (
-                discount_amount > 0
-                and discount_info["percent"] > store.discount_cap_percent
-            ):
+            discount_amount = discount_info["amount"]  # line + sale discount together
+            breach = _discount_limit_breach(store, shift, discount_info, gross)
+            if breach is not None:
+                cap_percent, requested_percent = breach
                 # Above the Admin's cap. NO token at all gets `DISCOUNT_OVER_CAP`, which is
                 # the code the till acts on by opening the approval dialog; a token that is
                 # present but unusable gets `DISCOUNT_APPROVAL_INVALID`, which tells the
@@ -1363,11 +1476,9 @@ def process_sale(
                 # row, refuses a token that is forged, expired, spent or too small, and the
                 # row is spent by THIS sale - so a replayed token discounts nothing.
                 if not discount_approval:
-                    raise DiscountOverCap(
-                        store.discount_cap_percent, discount_info["percent"]
-                    )
+                    raise DiscountOverCap(cap_percent, requested_percent)
                 approval = _consume_approval(
-                    discount_approval, percent_needed=discount_info["percent"]
+                    discount_approval, percent_needed=requested_percent
                 )
 
         txn = SalesTransaction.objects.create(
@@ -1395,7 +1506,13 @@ def process_sale(
         # per line.
         affected_variant_ids = set()
 
-        for vuom, qty, unit_price, order_line in priced_lines:
+        # Exact per-line shares of the sale discount (centavos, largest remainder), so a
+        # later return or report can read the allocation instead of re-deriving it.
+        shares = _cart_discount_shares(
+            priced_lines, line_discounts, discount_info and discount_info["cart_amount"]
+        )
+
+        for index, (vuom, qty, unit_price, order_line) in enumerate(priced_lines):
             # Decision 01: the server prices the line - from the catalogue, or (Phase 7 B4)
             # from the order line's agreed price. `item.get('unit_price')` is never read
             # again: a forged or stale price is not an error, it is simply not input.
@@ -1407,6 +1524,12 @@ def process_sale(
                 qty=qty,
                 unit_price=unit_price,
                 subtotal=subtotal,
+                cart_discount_amount=(
+                    None if shares is None else Decimal(shares[index]) / 100
+                ),
+                item_discount_amount=line_discounts[index]["amount"]
+                if line_discounts[index]
+                else None,
                 order_line=order_line,
             )
 
@@ -1801,24 +1924,29 @@ def _restock_returned(*, variant_id, qty_needed, original_id, return_item):
         if rows:
             touched = []
             planned = []
+            # One entry per BATCH: two sale lines can draw from the same batch, and the
+            # returns below are tallied per batch, so counting each line's draw against
+            # the whole batch's returns would make a batch look empty while it is not.
+            drew = {}
             for row in rows:
+                batch, total = drew.get(row.batch_id, (row.batch, Decimal(0)))
+                drew[row.batch_id] = (batch, total + row.qty)
+            for batch_id, (batch, drew_qty) in drew.items():
                 if remaining <= 0:
                     break
                 returned = SalesItemDeduction.objects.filter(
                     sales_item__transaction__original_transaction_id=original_id,
-                    batch_id=row.batch_id,
+                    batch_id=batch_id,
                     qty__lt=0,
                 ).aggregate(total=Sum("qty"))["total"] or Decimal(0)
-                available = row.qty + returned
+                available = drew_qty + returned
                 if available <= 0:
                     continue
                 add = min(available, remaining)
-                row.batch.current_qty += add
-                touched.append(row.batch)
+                batch.current_qty += add
+                touched.append(batch)
                 planned.append(
-                    SalesItemDeduction(
-                        sales_item=return_item, batch=row.batch, qty=-add
-                    )
+                    SalesItemDeduction(sales_item=return_item, batch=batch, qty=-add)
                 )
                 remaining -= add
             if touched:
@@ -2101,7 +2229,41 @@ def _returned_so_far(original, vuom):
     return sold, -returned
 
 
-def _return_net_share(*, original, returned_gross):
+def _stored_share_refund(original, requested):
+    """Refund from each selling unit's OWN stored net on the sale, or None (legacy).
+
+    A sale rung with line/sale discount shares knows what each line actually cost the
+    customer (subtotal less its line discount and its share of the sale discount), so a
+    return refunds that, not an average over a basket that mixed discounted and full-price
+    lines. Rounded cumulatively per unit (net x returned-so-far / sold), so successive
+    partial returns add up to exactly the line's net. Sales without stored shares return
+    None and use the old basket ratio. Several lines of ONE selling unit are pooled.
+    """
+    items = SalesItem.objects.filter(transaction=original)
+    if not (
+        items.filter(cart_discount_amount__isnull=False).exists()
+        or items.filter(item_discount_amount__isnull=False).exists()
+    ):
+        return None
+    refund = Decimal(0)
+    for vuom, want in requested.items():
+        sold, already = _returned_so_far(original, vuom)
+        net = sum(
+            (
+                row.subtotal
+                - (row.item_discount_amount or 0)
+                - (row.cart_discount_amount or 0)
+                for row in items.filter(variant_uom=vuom)
+            ),
+            Decimal(0),
+        )
+        refund += money_round(net * (already + want) / sold) - money_round(
+            net * already / sold
+        )
+    return refund
+
+
+def _return_net_share(*, original, returned_gross, requested=None):
     """What a return actually gives back: its share of what the sale was PAID (B1).
 
     Decision 18: a discounted sale refunds the NET share, so the shop never hands back
@@ -2149,7 +2311,12 @@ def _return_net_share(*, original, returned_gross):
         # paid nothing for the goods coming back.
         return Decimal("0.00")
 
-    share = money_round(returned_gross * sale_net / sale_gross)
+    stored = _stored_share_refund(original, requested) if requested else None
+    share = (
+        stored
+        if stored is not None
+        else money_round(returned_gross * sale_net / sale_gross)
+    )
     # Negative: every completed return against this sale summed. `room` is what is left
     # of the sale after them.
     already = SalesTransaction.objects.filter(
@@ -2395,7 +2562,9 @@ def process_return(
         returned_gross = money_round(
             sum((qty * unit_price for _, qty, unit_price in priced), Decimal(0))
         )
-        refund_net = _return_net_share(original=original, returned_gross=returned_gross)
+        refund_net = _return_net_share(
+            original=original, returned_gross=returned_gross, requested=requested
+        )
 
         for vuom, qty, unit_price in priced:
             item_row = SalesItem.objects.create(

@@ -18,7 +18,8 @@ Decision 18's delivery ruling, enforced on the server because it is money:
   gets the goods back, not the delivery charge (fee refunds are out of scope);
 * ``SCHEDULED -> OUT_FOR_DELIVERY -> DELIVERED`` or ``FAILED`` with a reason, forward
   only, row-locked, audited; Store Manager, Admin and Stock Manager move it, and a
-  cashier may take the delivery order without being able to move it.
+  cashier may take the delivery order AND send it out (owner ruling 2026-11-17) on
+  their OWN slips only - Delivered and Failed stay with the three store-wide roles.
 """
 
 import threading
@@ -588,7 +589,13 @@ class DeliveryTransitionTests(DeliveryTestBase):
 
 
 class DeliveryRoleTests(DeliveryTestBase):
-    """The ruling's matrix: cashier takes the order, three roles move it, CPMS is out."""
+    """The matrix: the cashier sends their own slip out, three roles finish it.
+
+    Owner ruling (2026-11-17, delegated): the cashier who scheduled the trip is standing
+    in the shop when the goods leave, so they make the FIRST move - `start/`
+    (Scheduled -> Out for delivery) - on their OWN slips only. Delivered and Failed stay
+    with the three store-wide roles: closing a trip is the decision that ends it.
+    """
 
     def _scheduled(self, *, auth=None):
         response = self._ring([self._cash(120)], delivery=delivery_body(), auth=auth)
@@ -600,14 +607,67 @@ class DeliveryRoleTests(DeliveryTestBase):
     def test_a_cashier_may_take_a_delivery_order(self):
         self._scheduled()
 
-    def test_a_cashier_may_not_move_a_delivery(self):
+    def test_a_cashier_may_send_their_own_delivery_out(self):
+        # The sale is rung by `POSTestBase`'s cashier, so the slip's `created_by` is them.
         delivery = self._scheduled()
 
         response = self._transition(delivery.id, "start", auth=self.cashier_auth)
 
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["status"], "OUT_FOR_DELIVERY")
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.status, Delivery.Status.OUT_FOR_DELIVERY)
+
+    def test_a_cashier_start_writes_the_audit_row_itself(self):
+        delivery = self._scheduled()
+        rows = AuditLog.objects.filter(action_type=AuditLog.ActionType.DELIVERY)
+        before = rows.count()
+
+        self._transition(delivery.id, "start", auth=self.cashier_auth)
+
+        self.assertEqual(rows.count(), before + 1)
+        row = rows.order_by("-id").first()
+        self.assertEqual(row.user, self.cashier)
+        self.assertEqual(
+            row.description,
+            f"Delivery {delivery.delivery_no} marked OUT_FOR_DELIVERY by "
+            f"{CASHIER_USERNAME}.",
+        )
+
+    def test_a_cashier_may_not_deliver_or_fail_it(self):
+        delivery = self._scheduled()
+        self._transition(delivery.id, "start", auth=self.cashier_auth)
+
+        delivered = self._transition(delivery.id, "deliver", auth=self.cashier_auth)
+        self.assertEqual(delivered.status_code, 403, delivered.content)
+
+        failed = self._transition(
+            delivery.id,
+            "fail",
+            body={"reason": "Buyer refused the load"},
+            auth=self.cashier_auth,
+        )
+        self.assertEqual(failed.status_code, 403, failed.content)
+
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.status, Delivery.Status.OUT_FOR_DELIVERY)
+
+    def test_a_cashier_cannot_fail_a_scheduled_slip_they_took(self):
+        # Refused on a SCHEDULED slip too, so the refusal is the PERMISSION and not the
+        # transition table (which would accept `fail` from SCHEDULED for anyone allowed).
+        delivery = self._scheduled()
+
+        response = self._transition(
+            delivery.id,
+            "fail",
+            body={"reason": "Radial road closed"},
+            auth=self.cashier_auth,
+        )
+
         self.assertEqual(response.status_code, 403, response.content)
         delivery.refresh_from_db()
         self.assertEqual(delivery.status, Delivery.Status.SCHEDULED)
+        self.assertEqual(delivery.failure_reason, "")
 
     def test_a_stock_manager_may_move_a_delivery(self):
         delivery = self._scheduled()
@@ -1134,18 +1194,32 @@ class DeliveryScopeTests(DeliveryTestBase):
         delivery = Delivery.objects.get(sales_order_id=order.json()["id"])
 
         self.assertIn(delivery.id, self._ids(self.cashier_b_auth))
+        own_start = self._transition(delivery.id, "start", auth=self.cashier_b_auth)
+        self.assertEqual(own_start.status_code, 404, own_start.content)
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.status, Delivery.Status.SCHEDULED)
         self.assertNotIn(delivery.id, self._ids(self.cashier_auth))
         foreign = self.client.get(
             f"{DELIVERIES_URL}{delivery.id}/", **self.cashier_auth
         )
         self.assertEqual(foreign.status_code, 404, foreign.content)
 
-    def test_a_foreign_delivery_cannot_be_moved(self):
-        # A cashier may not move ANY delivery (403 from the permission class, which runs
-        # before the row is looked up), and the scope is what keeps the row itself out of
-        # reach for a scoped caller. Either way the trip does not move.
+    def test_a_foreign_delivery_cannot_be_sent_out(self):
+        # Owner ruling (2026-11-17): a cashier MAY start a slip - only their OWN, so the
+        # permission class lets the request through and the ROW SCOPE is what stops it:
+        # another till's slip is a 404 (hidden, not forbidden) and never moves.
         response = self._transition(self.delivery_b.id, "start", auth=self.cashier_auth)
 
-        self.assertIn(response.status_code, (403, 404), response.content)
+        self.assertEqual(response.status_code, 404, response.content)
         self.delivery_b.refresh_from_db()
         self.assertEqual(self.delivery_b.status, Delivery.Status.SCHEDULED)
+        self.assertEqual(
+            AuditLog.objects.filter(
+                action_type=AuditLog.ActionType.DELIVERY,
+                description__contains=(
+                    f"Delivery {self.delivery_b.delivery_no} marked"
+                ),
+            ).count(),
+            0,
+            "a refused move must leave no audit row claiming it happened",
+        )
