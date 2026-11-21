@@ -63,6 +63,14 @@ def _claims_payload(lines):
                 "remaining": line["remaining"],
             }
         )
+    from apps.sms.models import BodegaSmsTicket
+
+    tickets_by_sale = {
+        t.sale_id: t.code
+        for t in BodegaSmsTicket.objects.filter(sale_id__in=grouped.keys()).only(
+            "sale_id", "code"
+        )
+    }
     out = []
     for sale_id, sale_lines in grouped.items():
         sale = sales[sale_id]
@@ -74,6 +82,7 @@ def _claims_payload(lines):
                 "sale": sale.pk,
                 "transaction_no": sale.transaction_no,
                 "or_number": receipt.or_number if receipt else "",
+                "sms_code": tickets_by_sale.get(sale.pk, ""),
                 "customer_name": sale.customer.name if sale.customer_id else "",
                 "sold_at": sale.trans_date,
                 "is_open": remaining > 0,

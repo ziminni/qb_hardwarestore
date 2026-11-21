@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:client/core/sms/offline_sms_sender.dart';
 import 'package:client/data/models/bodega.dart';
 import 'package:client/data/repositories/bodega_repository.dart';
 import 'package:client/data/services/bodega_service.dart';
@@ -392,6 +393,7 @@ class BodegaViewmodel extends ChangeNotifier {
       remainingTotal: nextTotal,
       lines: updatedLines,
       releases: [queuedRelease, ...current.releases],
+      smsCode: current.smsCode,
     );
   }
 
@@ -464,6 +466,26 @@ class BodegaViewmodel extends ChangeNotifier {
                 updated,
           ];
           await _persistClaimsCache([updated]);
+        }
+        // Offline SMS fallback (Option B direct Android SMS -> Option A pre-filled composer):
+        // automatically notifies the store's SIM800C USB modem with zero manual typing.
+        final ref = (current?.orNumber.isNotEmpty ?? false)
+            ? current!.orNumber
+            : (current?.transactionNo ?? withKey.receipt);
+        final smsCode = current?.smsCode ?? '';
+        if (smsCode.isNotEmpty) {
+          final outcome = await OfflineSmsSender.sendReleaseReply(
+            reference: ref,
+            smsCode: smsCode,
+            receivedBy: withKey.receivedBy,
+          );
+          if (outcome == OfflineSmsOutcome.sent) {
+            _outboxNotice =
+                'Offline: sent automatic SMS confirmation ($ref) to store.';
+          } else if (outcome == OfflineSmsOutcome.composer) {
+            _outboxNotice =
+                'Offline: opened SMS app with pre-filled reply — tap Send.';
+          }
         }
         return queued;
       }

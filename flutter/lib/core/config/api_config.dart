@@ -14,11 +14,16 @@ class ApiConfig {
   static const String _gatewayKeyFromEnvironment = String.fromEnvironment(
     'API_GATEWAY_KEY',
   );
+  static const String _storeSmsFromEnvironment = String.fromEnvironment(
+    'STORE_SMS_NUMBER',
+  );
 
   static const savedKey = 'api_base_url';
   static const savedGatewayKeyPref = 'api_gateway_key';
+  static const savedStoreSmsPref = 'store_sms_number';
   static String? _saved;
   static String? _savedGatewayKey;
+  static String? _savedStoreSms;
 
   /// The address saved on this device, or null. Read once at start-up.
   static String? get savedBaseUrl => _saved;
@@ -26,9 +31,16 @@ class ApiConfig {
   /// The optional tunnel gateway key (`X-QB-Gateway-Key`) saved on this device.
   static String? get savedGatewayKey => _savedGatewayKey;
 
+  /// The optional store GSM modem phone number for offline Bodega SMS replies.
+  static String? get savedStoreSmsNumber => _savedStoreSms;
+
   /// Active gateway key to send on requests (saved value overrides compile-time).
   static String get gatewayKey =>
       _savedGatewayKey ?? _gatewayKeyFromEnvironment;
+
+  /// Active store SMS modem phone number (saved value overrides compile-time).
+  static String get storeSmsNumber =>
+      _savedStoreSms ?? _storeSmsFromEnvironment;
 
   static Future<void> loadSaved() async {
     final prefs = await SharedPreferences.getInstance();
@@ -36,6 +48,21 @@ class ApiConfig {
     _saved = (value == null || value.trim().isEmpty) ? null : value.trim();
     final gw = prefs.getString(savedGatewayKeyPref);
     _savedGatewayKey = (gw == null || gw.trim().isEmpty) ? null : gw.trim();
+    final sms = prefs.getString(savedStoreSmsPref);
+    _savedStoreSms = (sms == null || sms.trim().isEmpty) ? null : sms.trim();
+  }
+
+  /// Saves [number] for offline SMS fallback (null/empty clears it).
+  static Future<void> saveStoreSmsNumber(String? number) async {
+    final prefs = await SharedPreferences.getInstance();
+    final cleaned = (number ?? '').trim();
+    if (cleaned.isEmpty) {
+      _savedStoreSms = null;
+      await prefs.remove(savedStoreSmsPref);
+    } else {
+      _savedStoreSms = cleaned;
+      await prefs.setString(savedStoreSmsPref, cleaned);
+    }
   }
 
   /// Saves [key] for this device (null/empty clears it).

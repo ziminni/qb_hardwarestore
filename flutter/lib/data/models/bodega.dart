@@ -133,6 +133,7 @@ class BodegaClaim {
     required this.remainingTotal,
     required this.lines,
     this.releases = const [],
+    this.smsCode = '',
   });
 
   final int saleId;
@@ -147,6 +148,9 @@ class BodegaClaim {
   /// Only the single-receipt lookup carries the hand-over history.
   final List<BodegaRelease> releases;
 
+  /// Optional 4-digit SMS verification code for offline Bodega release replies.
+  final String smsCode;
+
   factory BodegaClaim.fromJson(Map<String, dynamic> json) => BodegaClaim(
     saleId: intField(json, 'sale'),
     transactionNo: stringField(json, 'transaction_no'),
@@ -157,6 +161,7 @@ class BodegaClaim {
     remainingTotal: decimalField(json, 'remaining_total'),
     lines: nestedList(json, 'lines', BodegaClaimLine.fromJson),
     releases: nestedList(json, 'releases', BodegaRelease.fromJson),
+    smsCode: json['sms_code'] as String? ?? '',
   );
 
   Map<String, dynamic> toJson() => {
@@ -169,6 +174,7 @@ class BodegaClaim {
     'remaining_total': remainingTotal.toStringAsFixed(2),
     'lines': [for (final line in lines) line.toJson()],
     'releases': [for (final release in releases) release.toJson()],
+    'sms_code': smsCode,
   };
 }
 
