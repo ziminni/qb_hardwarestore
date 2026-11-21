@@ -96,7 +96,10 @@ class BodegaProfileTab extends StatelessWidget {
                   backgroundColor: AppColors.brandBlack,
                   foregroundImage: avatar.isEmpty
                       ? null
-                      : NetworkImage(mediaUrl(avatar)),
+                      : NetworkImage(
+                          mediaUrl(avatar),
+                          headers: mediaHeaders(),
+                        ),
                   child: Text(
                     initials.isEmpty ? '?' : initials,
                     style: const TextStyle(

@@ -464,6 +464,7 @@ class _PhotoBox extends StatelessWidget {
     } else if (url.isNotEmpty) {
       content = Image.network(
         mediaUrl(url),
+        headers: mediaHeaders(),
         fit: BoxFit.cover,
         errorBuilder: (_, _, _) =>
             const Center(child: Icon(Icons.broken_image_outlined)),

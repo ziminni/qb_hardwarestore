@@ -27,11 +27,26 @@ Future<({List<int> bytes, String name})?> takePhotoWithCamera({
   return (bytes: await picked.readAsBytes(), name: picked.name);
 }
 
-/// A photo URL the phone can load: absolute as the server sent it, or a
-/// server-relative path resolved against the API host.
+/// A photo URL the phone can load: rewrites any `/media/...` URL onto the
+/// active [ApiConfig.baseUrl] so proxy-rewritten `http://` or internal hosts
+/// always load through the phone's configured HTTPS tunnel or LAN address.
 String mediaUrl(String url) {
-  if (url.isEmpty || url.contains('://')) return url;
+  if (url.isEmpty) return url;
+  if (url.contains('://')) {
+    final parsed = Uri.tryParse(url);
+    if (parsed != null && parsed.path.startsWith('/media/')) {
+      return '${ApiConfig.baseUrl}${parsed.path}';
+    }
+    return url;
+  }
   return '${ApiConfig.baseUrl}$url';
+}
+
+/// Optional gateway header required when fetching `/media/*` through the
+/// Cloudflare tunnel (`tunnel/nginx.conf.template`).
+Map<String, String>? mediaHeaders() {
+  final key = ApiConfig.gatewayKey.trim();
+  return key.isEmpty ? null : {'X-QB-Gateway-Key': key};
 }
 
 /// A small red count on an icon; nothing when [count] is 0.
