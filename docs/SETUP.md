@@ -72,6 +72,21 @@ On a brand-new empty database, `docker compose up -d` runs `migrate` and `seed_d
 
 Django Admin: `http://127.0.0.1:8000/admin/`
 
+> **Optional Due Dates (Default: None):** Freshly seeded supplier bills (`terms_days = 0`) and customer utang ledgers are created with **no due date** (`due_date = null`) and are never marked Overdue unless a due date or positive supplier payment term is explicitly set.
+
+### Clean Demo Reseed (Dev / Demo Only)
+To wipe a **dev/demo** database and reseed from scratch with the latest schema and demo data:
+```powershell
+# With tunnel profile:
+docker compose --profile tunnel down -v
+docker compose --profile tunnel up -d --build
+
+# Without tunnel profile:
+docker compose down -v
+docker compose up -d --build backend
+```
+> **Warning:** `-v` deletes the PostgreSQL volume. **Never** run `down -v` on a live store database.
+
 ---
 
 ## 4. Run the Desktop App
@@ -152,13 +167,13 @@ docker compose --profile tunnel down
    docker compose exec -T db pg_dump -U admin -d buildpro_pos -Fc -f /tmp/pre-update.dump
    docker cp buildpro_db:/tmp/pre-update.dump (Join-Path $backupDir "pos-$stamp.dump")
    ```
-2. **Pull & rebuild backend** (migrations apply automatically on startup):
+2. **Pull & apply migrations** (rebuilding `backend` applies migrations automatically on startup):
    ```powershell
    docker compose stop backend
    git pull --ff-only origin master
    docker compose up -d --build backend
    ```
-   *(If you run Django locally outside Docker with `manage.py runserver`, run `python manage.py migrate` manually before starting the server.)*
+   *(If you only need to apply new migrations on an already-running container without rebuilding, run `docker compose exec backend python manage.py migrate`. If you run Django locally outside Docker with `manage.py runserver`, run `python manage.py migrate` before starting the server.)*
 
 ---
 
@@ -166,7 +181,7 @@ docker compose --profile tunnel down
 
 | Issue | Fix |
 |---|---|
-| *Store settings / Product catalogue could not be loaded* after pulling | Database migrations haven't been applied yet. Run `docker compose up -d --build backend` (or `python manage.py migrate` if running locally). |
+| *Held carts / Store settings / Product catalogue could not be loaded* after pulling | New database migrations haven't been applied yet (e.g. `pos.0023` held-cart discounts, `inventory.0024` / `collectibles.0006` optional due dates). Run `docker compose exec backend python manage.py migrate` or `docker compose up -d --build backend`. |
 | `docker compose down` says *Network ... Resource is still in use* | Tunnel containers are still attached. Run `docker compose --profile tunnel down`. |
 | `port 8000` or `5435` already in use | Another stack (e.g. WSL vs Windows Docker Desktop, or local `runserver`) is already running. Stop the duplicate before starting. |
 | `check_pos` returns `403` | `POS_API_GATEWAY_HEADER_VALUE` in CPMS `.env` doesn't match `QB_GATEWAY_KEY` in POS `tunnel/gateway.env`. |

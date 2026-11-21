@@ -54,10 +54,11 @@ See [docs/MOBILE-BODEGA.md](docs/MOBILE-BODEGA.md) for pre-baking your tunnel UR
 ---
 
 ## Key Capabilities
-- **POS Till & Shifts:** Barcode/QR scan, packaging UOMs, per-line & cart centavo discounts with shift/sale approval limits, never-discounted items, utang credit markup, payment-method fees (GCash/Card/Bank), mid-shift cash drawer movements, Z-reading with explicit drawer carry, and ESC/POS thermal receipt printing.
-- **Inventory & Purchasing:** FIFO batch costing, landed cost snapshots (`pos.0022`), Store & Bodega locations, stock transfers, supplier POs/payables/cheques/returns/credit notes, Excel `.xlsx` catalogue round-trip, and per-unit selling-price history.
-- **Analytics & Reports:** Operational Profit Breakdown (Shelf/Utang Price → Discounts → VAT → FIFO COGS → Gross Profit, Margin % & Markup % with legacy cost-coverage indicators) and visual charts across Sales, Valuation, Stock Movements, and Requisitions.
-- **Bodega Warehouse & CPMS Integration:** Remote Bodega mobile app over Cloudflare Named Tunnel (with offline snapshot cache & idempotent outbox sync), offline SMS modem fallback, and CPMS material request / payment receipt workflow.
+- **POS Till & Shifts:** Barcode/QR scan, packaging UOMs, **held carts** (with per-line discounts preserved), per-line & cart centavo discounts with shift/sale approval limits, never-discounted items, utang credit markup, payment-method fees (GCash/Card/Bank), mid-shift cash drawer movements, Z-reading with explicit drawer carry, and ESC/POS thermal receipt printing.
+- **Receivables (Utang) & Payables:** Grouped Utang management (Open / Partial / Paid tabs, per-customer balance summary, and full payment history), supplier POs/payables/cheques/returns/credit notes, and **optional due dates** on both Supplier Payables and Customer Utang (blank by default — never auto-marked Overdue unless a due date or supplier payment term is set).
+- **Inventory & Purchasing:** FIFO batch costing, landed cost snapshots (`pos.0022`), Store & Bodega locations, stock transfers, Excel `.xlsx` catalogue round-trip, and per-unit selling-price history.
+- **Analytics & Reports:** Sales Dashboard 7-day sales/COGS/profit and payment-method charts, Operational Profit Breakdown (Shelf/Utang Price → Discounts → VAT → FIFO COGS → Gross Profit, Margin % & Markup % with legacy cost-coverage indicators), visual charts across all 4 Reports tabs, and one-click **Excel `.xlsx` report exports**.
+- **Bodega Warehouse & CPMS Integration:** Remote Bodega mobile app over Cloudflare Named Tunnel (with offline snapshot cache & idempotent outbox sync), **Waiting / Accomplished pickup queue** synced automatically with POS transaction receiving status, immediate sidebar badge sync, offline SMS modem fallback, and CPMS material request / payment receipt workflow.
 
 ---
 
