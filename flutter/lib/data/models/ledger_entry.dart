@@ -35,7 +35,7 @@ class LedgerEntry {
     required this.transactionNo,
     required this.originalAmount,
     required this.balanceDue,
-    required this.dueDate,
+    this.dueDate,
     required this.isOverdue,
     this.projectName,
     this.paidAt,
@@ -57,7 +57,7 @@ class LedgerEntry {
 
   final double originalAmount;
   final double balanceDue;
-  final DateTime dueDate;
+  final DateTime? dueDate;
   final bool isOverdue;
 
   /// When a settled ledger (`balanceDue <= 0`) was paid in full, if known.
@@ -85,14 +85,17 @@ class LedgerEntry {
     Duration dueSoonWindow = const Duration(days: 7),
   }) {
     if (isPaid) return LedgerStatus.paid;
+    if (isOverdue) return LedgerStatus.overdue;
+    final due = dueDate;
+    if (due == null) return LedgerStatus.current;
     // Compared at DAY granularity, to match the server's `due_date < date.today()`.
     // Comparing raw DateTimes made a receivable due today read Overdue from 00:00, while the
     // server calls it overdue only after midnight - so the two disagreed for a whole day.
     final today = DateTime(now.year, now.month, now.day);
-    if (isOverdue || dueDate.isBefore(today)) {
+    if (due.isBefore(today)) {
       return LedgerStatus.overdue;
     }
-    if (dueDate.difference(now) <= dueSoonWindow) return LedgerStatus.dueSoon;
+    if (due.difference(now) <= dueSoonWindow) return LedgerStatus.dueSoon;
     return LedgerStatus.current;
   }
 
@@ -122,7 +125,7 @@ class LedgerEntry {
       transactionNo: stringField(json, 'transaction_no'),
       originalAmount: decimalField(json, 'original_amount'),
       balanceDue: balanceDue,
-      dueDate: DateTime.parse(stringField(json, 'due_date')),
+      dueDate: nullableDateField(json, 'due_date'),
       isOverdue: json['is_overdue'] == true,
       paidAt: paidAt,
     );

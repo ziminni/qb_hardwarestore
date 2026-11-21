@@ -1749,7 +1749,7 @@ def process_sale(
                 transaction=txn,
                 original_amount=shortfall,
                 balance_due=shortfall,
-                due_date=date.today() + timedelta(days=30),
+                due_date=None,
                 status=CollectibleLedger.Status.OPEN,
             )
             # A pending cheque now knows WHICH utang it answers for, which is what clear/

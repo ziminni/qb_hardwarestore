@@ -868,7 +868,11 @@ class SupplierViewSet(_AdminDeleteUnusedMixin, _AuditedCatalogViewSet):
                 overdue=Coalesce(
                     Sum(
                         "balance_amount",
-                        filter=Q(balance_amount__gt=0, due_date__lt=today),
+                        filter=Q(
+                            balance_amount__gt=0,
+                            due_date__isnull=False,
+                            due_date__lt=today,
+                        ),
                     ),
                     Value(0),
                     output_field=money_field,
@@ -1792,7 +1796,9 @@ class SupplierBillViewSet(viewsets.ReadOnlyModelViewSet):
         overdue = (params.get("overdue") or "").lower()
         if overdue in ("1", "true", "yes"):
             queryset = queryset.filter(
-                balance_amount__gt=0, due_date__lt=timezone.localdate()
+                balance_amount__gt=0,
+                due_date__isnull=False,
+                due_date__lt=timezone.localdate(),
             )
         return queryset
 

@@ -409,8 +409,8 @@ def _finance(today):
     open_bills = SupplierBill.objects.filter(balance_amount__gt=0)
     soon = today + timedelta(days=7)
     month_start = today.replace(day=1)
-    overdue_ledgers = open_ledgers.filter(due_date__lt=today)
-    overdue_bills = open_bills.filter(due_date__lt=today)
+    overdue_ledgers = open_ledgers.filter(due_date__isnull=False, due_date__lt=today)
+    overdue_bills = open_bills.filter(due_date__isnull=False, due_date__lt=today)
     by_supplier = (
         open_bills.values("supplier__company_name")
         .annotate(balance=Sum("balance_amount"), bills=Count("id"))
@@ -451,7 +451,7 @@ def _finance(today):
                 "due_date": row.due_date,
                 "total": _money(row.total_amount),
                 "balance": _money(row.balance_amount),
-                "overdue": row.due_date < today,
+                "overdue": row.due_date is not None and row.due_date < today,
             }
             for row in open_bills.select_related("supplier", "receipt").order_by(
                 "due_date", "id"
@@ -459,7 +459,9 @@ def _finance(today):
         ],
         "payables_due_7d": _money(
             _sum(
-                open_bills.filter(due_date__gte=today, due_date__lte=soon),
+                open_bills.filter(
+                    due_date__isnull=False, due_date__gte=today, due_date__lte=soon
+                ),
                 "balance_amount",
             )
         ),

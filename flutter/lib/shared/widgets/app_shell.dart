@@ -115,10 +115,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   bool _markersStarted = false;
 
-  /// The user's choice from the collapse button. Only consulted on a window
-  /// wide enough to show the full sidebar ([AppBreakpoints.expanded]); a
-  /// narrow window and the drawer ignore it. Defaults to collapsed.
-  bool _collapsedByUser = true;
+  /// The user's choice from the collapse button. Seeded synchronously from
+  /// [SidebarCollapsePreference.cached] so switching routes in full screen
+  /// starts at the exact saved width with zero re-opening animation.
+  bool _collapsedByUser = SidebarCollapsePreference.cached;
 
   @override
   void initState() {
@@ -400,17 +400,25 @@ class SidebarCollapsePreference {
   const SidebarCollapsePreference._();
 
   static const key = 'sidebar_collapsed';
+  static bool? _cached;
+
+  /// Synchronous last-known state so new route shells mount at the right width
+  /// on frame 0 without re-animating open on every tab switch.
+  static bool get cached => _cached ?? true;
 
   static Future<bool> read() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      return prefs.getBool(key) ?? true;
+      final value = prefs.getBool(key) ?? true;
+      _cached = value;
+      return value;
     } catch (_) {
-      return true;
+      return _cached ?? true;
     }
   }
 
   static Future<void> write(bool collapsed) async {
+    _cached = collapsed;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(key, collapsed);

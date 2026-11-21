@@ -22,41 +22,41 @@ class CollectibleLedger(models.Model):
     """An outstanding receivable entry tied to a POS sales transaction."""
 
     class Status(models.TextChoices):
-        OPEN = 'OPEN', 'Open'
-        PARTIAL = 'PARTIAL', 'Partial'
-        PAID = 'PAID', 'Paid'
-        OVERDUE = 'OVERDUE', 'Overdue'
+        OPEN = "OPEN", "Open"
+        PARTIAL = "PARTIAL", "Partial"
+        PAID = "PAID", "Paid"
+        OVERDUE = "OVERDUE", "Overdue"
 
     customer = models.ForeignKey(
-        'pos.Customer',
+        "pos.Customer",
         on_delete=models.PROTECT,
-        related_name='collectible_ledgers',
+        related_name="collectible_ledgers",
     )
     transaction = models.ForeignKey(
-        'pos.SalesTransaction',
+        "pos.SalesTransaction",
         on_delete=models.PROTECT,
-        related_name='collectible_ledgers',
+        related_name="collectible_ledgers",
     )
     # Decision 03: the contractor stays the payer, but the utang has to say WHICH project
     # owes it. Set by `release_materials` only, so walk-in sales carry none.
     project = models.ForeignKey(
-        'requisitions.Project',
+        "requisitions.Project",
         on_delete=models.PROTECT,
-        related_name='ledger_entries',
+        related_name="ledger_entries",
         null=True,
         blank=True,
     )
     original_amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
-        validators=[MinValueValidator(Decimal('0.01'))],
+        validators=[MinValueValidator(Decimal("0.01"))],
     )
     balance_due = models.DecimalField(
         max_digits=12,
         decimal_places=2,
-        validators=[MinValueValidator(Decimal('0.00'))],
+        validators=[MinValueValidator(Decimal("0.00"))],
     )
-    due_date = models.DateField()
+    due_date = models.DateField(null=True, blank=True)
     status = models.CharField(
         max_length=10,
         choices=Status.choices,
@@ -67,26 +67,30 @@ class CollectibleLedger(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'collectibles_ledger'
-        verbose_name = 'collectible ledger'
-        verbose_name_plural = 'collectible ledgers'
-        ordering = ['-due_date']
+        db_table = "collectibles_ledger"
+        verbose_name = "collectible ledger"
+        verbose_name_plural = "collectible ledgers"
+        ordering = ["-due_date"]
         indexes = [
-            models.Index(fields=['status']),
-            models.Index(fields=['customer']),
-            models.Index(fields=['customer', 'status']),
+            models.Index(fields=["status"]),
+            models.Index(fields=["customer"]),
+            models.Index(fields=["customer", "status"]),
         ]
 
     def __str__(self):
         return (
-            f'Ledger #{self.pk} — {self.customer} '
-            f'(Bal: {self.balance_due}, {self.status})'
+            f"Ledger #{self.pk} — {self.customer} "
+            f"(Bal: {self.balance_due}, {self.status})"
         )
 
     @property
     def is_overdue(self) -> bool:
         """Return True when the balance is unpaid past the due date."""
-        return self.balance_due > 0 and self.due_date < date.today()
+        return (
+            self.balance_due > 0
+            and self.due_date is not None
+            and self.due_date < date.today()
+        )
 
 
 class CollectiblePayment(models.Model):
@@ -95,24 +99,24 @@ class CollectiblePayment(models.Model):
     collectible = models.ForeignKey(
         CollectibleLedger,
         on_delete=models.PROTECT,
-        related_name='payments',
+        related_name="payments",
     )
     processed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
-        related_name='+',
+        related_name="+",
     )
     payment_receipt = models.ForeignKey(
-        'ProjectPaymentReceipt',
+        "ProjectPaymentReceipt",
         on_delete=models.PROTECT,
-        related_name='ledger_payments',
+        related_name="ledger_payments",
         null=True,
         blank=True,
     )
     amount_paid = models.DecimalField(
         max_digits=12,
         decimal_places=2,
-        validators=[MinValueValidator(Decimal('0.01'))],
+        validators=[MinValueValidator(Decimal("0.01"))],
     )
     payment_method = models.CharField(
         max_length=50,
@@ -128,22 +132,21 @@ class CollectiblePayment(models.Model):
     official_receipt_no = models.CharField(
         max_length=100,
         blank=True,
-        default='',
+        default="",
     )
 
     class Meta:
-        db_table = 'collectibles_payment'
-        verbose_name = 'collectible payment'
-        verbose_name_plural = 'collectible payments'
-        ordering = ['-payment_date']
+        db_table = "collectibles_payment"
+        verbose_name = "collectible payment"
+        verbose_name_plural = "collectible payments"
+        ordering = ["-payment_date"]
         indexes = [
-            models.Index(fields=['collectible', '-payment_date']),
+            models.Index(fields=["collectible", "-payment_date"]),
         ]
 
     def __str__(self):
         return (
-            f'Payment #{self.pk} — Ledger #{self.collectible_id} '
-            f'({self.amount_paid})'
+            f"Payment #{self.pk} — Ledger #{self.collectible_id} ({self.amount_paid})"
         )
 
 
@@ -156,20 +159,20 @@ class ProjectPaymentReceipt(models.Model):
     """
 
     class Status(models.TextChoices):
-        WAITING = 'WAITING', 'Waiting for Verification'
-        APPROVED = 'APPROVED', 'Approved'
-        DECLINED = 'DECLINED', 'Declined'
+        WAITING = "WAITING", "Waiting for Verification"
+        APPROVED = "APPROVED", "Approved"
+        DECLINED = "DECLINED", "Declined"
 
     project = models.ForeignKey(
-        'requisitions.Project',
+        "requisitions.Project",
         on_delete=models.PROTECT,
-        related_name='payment_receipts',
+        related_name="payment_receipts",
     )
     cpms_payment_id = models.CharField(max_length=100, unique=True)
     amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
-        validators=[MinValueValidator(Decimal('0.01'))],
+        validators=[MinValueValidator(Decimal("0.01"))],
     )
     payment_method = models.CharField(
         max_length=50,
@@ -177,8 +180,8 @@ class ProjectPaymentReceipt(models.Model):
         default=Payment.Method.BANK_TRANSFER,
     )
     reference_no = models.CharField(max_length=100)
-    notes = models.TextField(blank=True, default='')
-    submitted_by_name = models.CharField(max_length=150, blank=True, default='')
+    notes = models.TextField(blank=True, default="")
+    submitted_by_name = models.CharField(max_length=150, blank=True, default="")
     status = models.CharField(
         max_length=16,
         choices=Status.choices,
@@ -191,26 +194,26 @@ class ProjectPaymentReceipt(models.Model):
         null=True,
         blank=True,
     )
-    decline_reason = models.TextField(blank=True, default='')
+    decline_reason = models.TextField(blank=True, default="")
     decided_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         null=True,
         blank=True,
-        related_name='+',
+        related_name="+",
     )
     decided_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'collectibles_project_payment_receipt'
-        verbose_name = 'project payment receipt'
-        verbose_name_plural = 'project payment receipts'
-        ordering = ['-created_at', '-id']
+        db_table = "collectibles_project_payment_receipt"
+        verbose_name = "project payment receipt"
+        verbose_name_plural = "project payment receipts"
+        ordering = ["-created_at", "-id"]
 
     def __str__(self):
         return (
-            f'Receipt {self.reference_no} ({self.project.cpms_project_id}) — '
-            f'{self.amount} [{self.status}]'
+            f"Receipt {self.reference_no} ({self.project.cpms_project_id}) — "
+            f"{self.amount} [{self.status}]"
         )

@@ -509,7 +509,7 @@ def release_materials(*, token_value: str, cashier) -> dict:
             project=req.project,
             original_amount=grand_total,
             balance_due=grand_total,
-            due_date=date.today() + date.resolution * 30,
+            due_date=None,
             status=CollectibleLedger.Status.OPEN,
         )
 

@@ -57,7 +57,9 @@ class SupplierBillDetailsDialog extends StatelessWidget {
           DetailRow(label: 'Terms', value: _terms),
           DetailRow(
             label: 'Due',
-            value: formatDate(bill.dueDate),
+            value: bill.dueDate == null
+                ? 'No due date'
+                : formatDate(bill.dueDate!),
             valueColor: bill.isOverdue ? AppColors.errorText : null,
           ),
           DetailRow(

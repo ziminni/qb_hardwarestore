@@ -204,7 +204,7 @@ class SupplierBill {
     required this.supplierName,
     required this.receivedDate,
     required this.termsDays,
-    required this.dueDate,
+    this.dueDate,
     required this.grossAmount,
     required this.discountAmount,
     required this.netAmount,
@@ -229,7 +229,7 @@ class SupplierBill {
   final String supplierName;
   final DateTime receivedDate;
   final int termsDays;
-  final DateTime dueDate;
+  final DateTime? dueDate;
 
   /// Delivered PACKAGE quantity × package cost — never base quantity × cost.
   final double grossAmount;
@@ -269,7 +269,7 @@ class SupplierBill {
       supplierName: json['supplier_name'] as String? ?? '',
       receivedDate: _date(json, 'received_date'),
       termsDays: intField(json, 'terms_days'),
-      dueDate: _date(json, 'due_date'),
+      dueDate: nullableDateField(json, 'due_date'),
       grossAmount: decimalField(json, 'gross_amount'),
       discountAmount: decimalField(json, 'discount_amount'),
       netAmount: decimalField(json, 'net_amount'),

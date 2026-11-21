@@ -191,7 +191,12 @@ class _SupplierPayDialogState extends State<SupplierPayDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const DialogSectionLabel('This bill'),
-            DetailRow(label: 'Due', value: formatDate(bill.dueDate)),
+            DetailRow(
+              label: 'Due',
+              value: bill.dueDate == null
+                  ? 'No due date'
+                  : formatDate(bill.dueDate!),
+            ),
             DetailRow(label: 'Bill total', value: formatPeso(bill.totalAmount)),
             DetailRow(
               label: 'Left to pay',

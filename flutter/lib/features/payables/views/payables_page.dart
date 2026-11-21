@@ -394,7 +394,7 @@ class _PayablesBodyState extends State<_PayablesBody> {
             label: 'Due',
             flex: 2,
             cell: (bill) => Text(
-              formatDate(bill.dueDate),
+              bill.dueDate == null ? 'No due date' : formatDate(bill.dueDate!),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),

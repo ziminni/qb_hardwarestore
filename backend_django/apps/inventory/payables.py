@@ -191,7 +191,9 @@ def create_bill_for_receipt(*, receipt, delivered):
         purchase_order=po,
         received_date=received_date,
         terms_days=terms_days,
-        due_date=received_date + timedelta(days=terms_days),
+        due_date=(
+            received_date + timedelta(days=terms_days) if terms_days > 0 else None
+        ),
         gross_amount=gross,
         discount_amount=discount,
         net_amount=net,

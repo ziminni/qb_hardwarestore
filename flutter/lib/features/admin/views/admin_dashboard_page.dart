@@ -987,13 +987,17 @@ class _FinanceTab extends StatelessWidget {
     final overdue = row['overdue'] == true;
     final soon = !overdue && due != null && due.difference(today).inDays <= 7;
     final reference = '${row['reference'] ?? ''}';
+    final dueLabel = due == null ? 'No due date' : _day(row['due_date']);
+    final statusText = overdue
+        ? 'Overdue since ${_day(row['due_date'])} · '
+              '${formatPeso(_num(row['balance']))} left'
+        : due == null
+        ? 'No due date · ${formatPeso(_num(row['balance']))} left'
+        : 'Due ${_day(row['due_date'])} · '
+              '${formatPeso(_num(row['balance']))} left';
     return DashboardItem(
       title: '${row['supplier']}',
-      status: overdue
-          ? 'Overdue since ${_day(row['due_date'])} · '
-                '${formatPeso(_num(row['balance']))} left'
-          : 'Due ${_day(row['due_date'])} · '
-                '${formatPeso(_num(row['balance']))} left',
+      status: statusText,
       late: overdue,
       chip: overdue ? 'Overdue' : (soon ? 'Due soon' : 'Open'),
       chipTone: overdue
@@ -1002,7 +1006,7 @@ class _FinanceTab extends StatelessWidget {
       facts: [
         ('Delivery receipt', reference.isEmpty ? '—' : reference),
         ('Received', _day(row['received_date'])),
-        ('Due', _day(row['due_date'])),
+        ('Due', dueLabel),
         ('Bill total', formatPeso(_num(row['total']))),
         ('Balance', formatPeso(_num(row['balance']))),
       ],

@@ -119,8 +119,16 @@ class PayablesViewmodel extends ChangeNotifier {
     ];
     rows.sort((a, b) {
       if (a.isOverdue != b.isOverdue) return a.isOverdue ? -1 : 1;
-      final byDate = a.dueDate.compareTo(b.dueDate);
-      return byDate != 0 ? byDate : a.id.compareTo(b.id);
+      final ad = a.dueDate;
+      final bd = b.dueDate;
+      if (ad != null && bd != null) {
+        final byDate = ad.compareTo(bd);
+        if (byDate != 0) return byDate;
+      } else if (ad != null || bd != null) {
+        return ad != null ? -1 : 1;
+      }
+      final byReceived = b.receivedDate.compareTo(a.receivedDate);
+      return byReceived != 0 ? byReceived : a.id.compareTo(b.id);
     });
     return rows;
   }

@@ -981,7 +981,7 @@ class SupplierBill(models.Model):
     # The supplier's terms AT ISSUANCE: editing the supplier afterwards re-dates no
     # existing bill, which is the same rule the PO's VAT rate snapshot follows.
     terms_days = models.PositiveIntegerField(default=0)
-    due_date = models.DateField(db_index=True)
+    due_date = models.DateField(null=True, blank=True, db_index=True)
     # gross = SUM(delivered PACKAGE qty x the line's PACKAGE cost); discount = this
     # receipt's proportional share of the PO header discount; net = gross - discount;
     # vat/rate = the PO's snapshot split; total = gross - discount [+ VAT when the order
@@ -1027,9 +1027,10 @@ class SupplierBill(models.Model):
         ]
 
     def __str__(self):
+        due_label = f"due {self.due_date}" if self.due_date else "no due date"
         return (
             f"Bill #{self.pk} — {self.supplier.company_name} "
-            f"({self.total_amount}, due {self.due_date})"
+            f"({self.total_amount}, {due_label})"
         )
 
     @property
@@ -1057,10 +1058,14 @@ class SupplierBill(models.Model):
 
     @property
     def is_overdue(self):
-        """Still owed AND past its due date (today inclusive is NOT overdue)."""
+        """Still owed AND past its due date (no due date or today inclusive is NOT overdue)."""
         from django.utils import timezone
 
-        return self.balance_amount > 0 and self.due_date < timezone.localdate()
+        return (
+            self.balance_amount > 0
+            and self.due_date is not None
+            and self.due_date < timezone.localdate()
+        )
 
     def save(self, *args, **kwargs):
         """Insert freely; after that only the balance may move.

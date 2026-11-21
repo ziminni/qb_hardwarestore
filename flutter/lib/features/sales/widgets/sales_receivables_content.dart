@@ -372,7 +372,11 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _text(formatDate(entry.dueDate)),
+              _text(
+                entry.dueDate == null
+                    ? 'No due date'
+                    : formatDate(entry.dueDate!),
+              ),
               const SizedBox(height: AppSpacing.xs),
               StatusBadge(label: status.label, tone: _tone(status)),
             ],
