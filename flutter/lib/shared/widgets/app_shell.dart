@@ -8,6 +8,7 @@ import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/constants/app_text_styles.dart';
 import 'package:client/core/format/format.dart';
+import 'package:client/core/sync/app_sync_bus.dart';
 import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/core/navigation/merged_sidebar.dart';
 import 'package:client/core/theme/app_palette.dart';
@@ -96,7 +97,7 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   Map<int, int> _loadedMarkers = const {};
 
   /// [AppShell.markers] when the caller has its own counts, else whatever the
@@ -122,7 +123,14 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    AppSyncBus.instance.addListener(_refreshMarkers);
     _restoreCollapse();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refreshMarkers();
   }
 
   @override
@@ -140,13 +148,15 @@ class _AppShellState extends State<AppShell> {
   }
 
   /// How often the sidebar badges are read again while the shell is open.
-  static const Duration markerRefreshEvery = Duration(seconds: 15);
+  static const Duration markerRefreshEvery = Duration(seconds: 8);
 
   Timer? _markerTimer;
 
   @override
   void dispose() {
     _markerTimer?.cancel();
+    AppSyncBus.instance.removeListener(_refreshMarkers);
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
@@ -474,128 +484,132 @@ class _SidebarPanel extends StatelessWidget {
                   collapsed: collapsed,
                   onToggleCollapsed: onToggleCollapsed,
                 ),
-              Expanded(
-                child: SharedSidebar(
-                  sections: sections,
-                  selectedIndex: selectedIndex,
-                  selectedId: selectedId,
-                  collapsed: collapsed,
-                  markers: markers,
-                  markersById: markersById,
-                  onDestinationSelected: onSelected == null
-                      ? null
-                      : (index) {
-                          if (closeDrawerOnSelect) Navigator.of(context).pop();
-                          onSelected(index);
-                        },
+                Expanded(
+                  child: SharedSidebar(
+                    sections: sections,
+                    selectedIndex: selectedIndex,
+                    selectedId: selectedId,
+                    collapsed: collapsed,
+                    markers: markers,
+                    markersById: markersById,
+                    onDestinationSelected: onSelected == null
+                        ? null
+                        : (index) {
+                            if (closeDrawerOnSelect) {
+                              Navigator.of(context).pop();
+                            }
+                            onSelected(index);
+                          },
+                  ),
                 ),
-              ),
-              Divider(height: 1, color: p.sidebarBorder),
-              if (collapsed)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-                  child: Column(
-                    children: [
-                      Tooltip(
-                        message: '$name · $role',
-                        child: Container(
-                          padding: const EdgeInsets.all(2),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: p.accent.withValues(alpha: 0.5),
+                Divider(height: 1, color: p.sidebarBorder),
+                if (collapsed)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.md,
+                    ),
+                    child: Column(
+                      children: [
+                        Tooltip(
+                          message: '$name · $role',
+                          child: Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: p.accent.withValues(alpha: 0.5),
+                              ),
+                            ),
+                            child: CircleAvatar(
+                              radius: 16,
+                              backgroundColor: p.sidebarRaised,
+                              foregroundColor: p.sidebarActiveText,
+                              child: Text(
+                                _initials(name),
+                                // Initials are a heading: the brand face, not the
+                                // platform font the bare TextStyle fell back to.
+                                style: const TextStyle(
+                                  fontFamily: AppTextStyles.cinzelFont,
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                             ),
                           ),
-                          child: CircleAvatar(
-                            radius: 16,
-                            backgroundColor: p.sidebarRaised,
-                            foregroundColor: p.sidebarActiveText,
-                            child: Text(
-                              _initials(name),
-                              // Initials are a heading: the brand face, not the
-                              // platform font the bare TextStyle fell back to.
-                              style: const TextStyle(
-                                fontFamily: AppTextStyles.cinzelFont,
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w700,
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        _ChromeIconButton(
+                          tooltip: 'Log out',
+                          icon: Icons.logout_rounded,
+                          onPressed: auth.logout,
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  // The signed-in account on the raised chrome surface. The tile
+                  // paints its own background so ink splashes render properly.
+                  Padding(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    child: ListTile(
+                      leading: ClipPath(
+                        clipper: const HexagonClipper(),
+                        child: ColoredBox(
+                          color: p.accent,
+                          child: SizedBox.square(
+                            dimension: 36,
+                            child: Center(
+                              child: Text(
+                                _initials(name),
+                                style: TextStyle(
+                                  fontFamily: AppTextStyles.outfitFont,
+                                  color: p.onAccent,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                      const SizedBox(height: AppSpacing.sm),
-                      _ChromeIconButton(
+                      horizontalTitleGap: 10,
+                      contentPadding: const EdgeInsets.fromLTRB(10, 2, 6, 2),
+                      tileColor: p.sidebarRaised,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadii.medium),
+                        side: BorderSide(color: p.sidebarBorder),
+                      ),
+                      title: Text(
+                        name,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTextStyles.labelLarge.copyWith(
+                          color: nameColor,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          height: 1.25,
+                        ),
+                      ),
+                      subtitle: Text(
+                        role,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTextStyles.labelSmall.copyWith(
+                          color: p.sidebarSubtitle,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          height: 1.3,
+                        ),
+                      ),
+                      trailing: _ChromeIconButton(
                         tooltip: 'Log out',
                         icon: Icons.logout_rounded,
                         onPressed: auth.logout,
                       ),
-                    ],
-                  ),
-                )
-              else
-                // The signed-in account on the raised chrome surface. The tile
-                // paints its own background so ink splashes render properly.
-                Padding(
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                  child: ListTile(
-                    leading: ClipPath(
-                      clipper: const HexagonClipper(),
-                      child: ColoredBox(
-                        color: p.accent,
-                        child: SizedBox.square(
-                          dimension: 36,
-                          child: Center(
-                            child: Text(
-                              _initials(name),
-                              style: TextStyle(
-                                fontFamily: AppTextStyles.outfitFont,
-                                color: p.onAccent,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    horizontalTitleGap: 10,
-                    contentPadding: const EdgeInsets.fromLTRB(10, 2, 6, 2),
-                    tileColor: p.sidebarRaised,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadii.medium),
-                      side: BorderSide(color: p.sidebarBorder),
-                    ),
-                    title: Text(
-                      name,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTextStyles.labelLarge.copyWith(
-                        color: nameColor,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        height: 1.25,
-                      ),
-                    ),
-                    subtitle: Text(
-                      role,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTextStyles.labelSmall.copyWith(
-                        color: p.sidebarSubtitle,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        height: 1.3,
-                      ),
-                    ),
-                    trailing: _ChromeIconButton(
-                      tooltip: 'Log out',
-                      icon: Icons.logout_rounded,
-                      onPressed: auth.logout,
                     ),
                   ),
-                ),
-            ],
-          ),
-        ],
-      ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -647,10 +661,7 @@ class _SidebarBrandHeader extends StatelessWidget {
     );
 
     final brandContent = Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: collapsed ? 4 : 6,
-        vertical: 4,
-      ),
+      padding: EdgeInsets.symmetric(horizontal: collapsed ? 4 : 6, vertical: 4),
       child: FittedBox(
         fit: BoxFit.scaleDown,
         alignment: collapsed ? Alignment.center : Alignment.centerLeft,
@@ -731,10 +742,7 @@ class _SidebarBrandHeader extends StatelessWidget {
                 horizontal: collapsed ? 8 : AppSpacing.sm + 2,
               ),
               child: collapsed
-                  ? Align(
-                      alignment: Alignment.center,
-                      child: interactiveBrand,
-                    )
+                  ? Align(alignment: Alignment.center, child: interactiveBrand)
                   : Row(
                       children: [
                         Expanded(

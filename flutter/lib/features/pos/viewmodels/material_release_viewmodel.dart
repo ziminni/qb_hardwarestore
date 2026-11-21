@@ -1,3 +1,4 @@
+import 'package:client/core/sync/app_sync_bus.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../data/models/requisition.dart';
@@ -183,6 +184,7 @@ class MaterialReleaseViewmodel extends ChangeNotifier {
     notifyListeners();
     // A fully released request leaves the queue; a partial one stays.
     loadQueue();
+    AppSyncBus.instance.notifyMarkersChanged();
     return true;
   }
 

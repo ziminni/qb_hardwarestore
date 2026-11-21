@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:client/core/sync/app_sync_bus.dart';
 import 'package:client/data/models/requisition.dart';
 import 'package:client/data/repositories/requisition_repository.dart';
 import 'package:client/data/services/requisition_service.dart';
@@ -113,7 +114,7 @@ class ProjectRequestsViewmodel extends ChangeNotifier {
   /// A tick is skipped while any read or decision is still running, and a
   /// failed background read keeps the rows on screen without an error banner
   /// (the manual Refresh still reports errors).
-  void startAutoRefresh({Duration every = const Duration(seconds: 15)}) {
+  void startAutoRefresh({Duration every = const Duration(seconds: 8)}) {
     _autoRefresh?.cancel();
     _autoRefresh = Timer.periodic(every, (_) async {
       if (_disposed ||
@@ -211,6 +212,7 @@ class ProjectRequestsViewmodel extends ChangeNotifier {
       _details[id] = updated;
       _replaceRow(updated);
       _notify();
+      AppSyncBus.instance.notifyMarkersChanged();
 
       final refreshed = await _readList();
       if (!refreshed) {

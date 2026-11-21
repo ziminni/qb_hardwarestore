@@ -41,7 +41,8 @@ class MaterialReleasePage extends StatefulWidget {
   State<MaterialReleasePage> createState() => _MaterialReleasePageState();
 }
 
-class _MaterialReleasePageState extends State<MaterialReleasePage> {
+class _MaterialReleasePageState extends State<MaterialReleasePage>
+    with WidgetsBindingObserver {
   late final MaterialReleaseViewmodel _viewmodel =
       widget.viewmodel ?? MaterialReleaseViewmodel();
   late final bool _ownsViewmodel = widget.viewmodel == null;
@@ -53,17 +54,24 @@ class _MaterialReleasePageState extends State<MaterialReleasePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _viewmodel.loadQueue();
     // New accepted requests appear without leaving the page.
     _queueTimer = Timer.periodic(
-      const Duration(seconds: 15),
+      const Duration(seconds: 8),
       (_) => _viewmodel.loadQueue(),
     );
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _viewmodel.loadQueue();
+  }
+
+  @override
   void dispose() {
     _queueTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _token.dispose();
     if (_ownsViewmodel) _viewmodel.dispose();
     super.dispose();
