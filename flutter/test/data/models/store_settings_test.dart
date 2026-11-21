@@ -57,6 +57,21 @@ void main() {
       expect(settings.updatedAt, isNull);
     });
 
+    // The shift cap is OPTIONAL on the wire: null means "no shift limit".
+    test('reads the shift cap string, and null stays null', () {
+      final capped = StoreSettings.fromJson(const {
+        'shift_discount_cap_percent': '5.00',
+      });
+      final uncapped = StoreSettings.fromJson(const {
+        'shift_discount_cap_percent': null,
+      });
+      final absent = StoreSettings.fromJson(const {});
+
+      expect(capped.shiftDiscountCapPercent, 5);
+      expect(uncapped.shiftDiscountCapPercent, isNull);
+      expect(absent.shiftDiscountCapPercent, isNull);
+    });
+
     test('an unreadable percent falls back instead of throwing', () {
       final settings = StoreSettings.fromJson(const {
         'vat_rate': 'twelve',
@@ -92,7 +107,24 @@ void main() {
         'vat_registered': false,
         'vat_rate': '12.00',
         'discount_cap_percent': '15.50',
+        // null is sent EXPLICITLY: an omitted key would leave the stored
+        // shift cap in place, which is not what "no limit" means.
+        'shift_discount_cap_percent': null,
+        // The fee list rides the same PATCH body (tender-fee work); an empty
+        // list still has to be named so the server clears the table.
+        'tender_fees': <Object?>[],
       });
+    });
+
+    test('sends the shift cap as a 2 dp string when one is set', () {
+      const settings = StoreSettings(
+        vatRegistered: true,
+        vatRate: 12,
+        discountCapPercent: 10,
+        shiftDiscountCapPercent: 5,
+      );
+
+      expect(settings.toPatchJson()['shift_discount_cap_percent'], '5.00');
     });
   });
 

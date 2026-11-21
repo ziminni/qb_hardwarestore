@@ -143,6 +143,8 @@ void main() {
         'description': 'General purpose',
         'image_url': '',
         'stored_at': '9',
+        // The never-discount switch, always stated on a create (its default is on).
+        'allow_discount': 'true',
       });
       final file = _imageFile(product);
       expect(file, isNotNull, reason: 'the picked photo is the `image` part');
@@ -194,6 +196,7 @@ void main() {
         'description': 'General purpose',
         'image_url': '',
         'stored_at': 9,
+        'allow_discount': true,
       });
     });
 

@@ -182,6 +182,43 @@ void main() {
     expect(find.text('Store settings saved.'), findsOneWidget);
   });
 
+  // The shift cap is optional: empty means "no shift limit" and goes out as an
+  // explicit null so the server clears whatever it stored.
+  testWidgets('Save sends a typed shift cap and clears an emptied one', (
+    tester,
+  ) async {
+    final service = _StubService(
+      stored: const StoreSettings(
+        vatRegistered: true,
+        vatRate: 12,
+        discountCapPercent: 10,
+        shiftDiscountCapPercent: 5,
+      ),
+    );
+    await _pump(tester, service);
+
+    expect(_field('Shift discount limit (%)'), findsOneWidget);
+    expect(find.text('5.00'), findsOneWidget);
+    expect(
+      find.text(
+        'Total discounts a cashier can give in one shift before a manager must '
+        'approve. Leave empty for no limit.',
+      ),
+      findsOneWidget,
+    );
+
+    await _type(tester, 'Shift discount limit (%)', '7.50');
+    await _save(tester);
+
+    expect(service.saved.single.shiftDiscountCapPercent, 7.5);
+
+    await _type(tester, 'Shift discount limit (%)', '');
+    await _save(tester);
+
+    expect(service.saved, hasLength(2));
+    expect(service.saved.last.shiftDiscountCapPercent, isNull);
+  });
+
   testWidgets('an out-of-range percent never reaches the server', (
     tester,
   ) async {

@@ -73,6 +73,7 @@ const _tillMenu = <_Row>[
   // Owner 2026-11-18: the receipt printer is the cashier's to choose.
   _Row('Settings', Icons.settings_outlined, AppRoutes.posSettings),
   _Row('Customers', Icons.people_outline_rounded, AppRoutes.posCustomers),
+  _Row('Deliveries', Icons.local_shipping_outlined, AppRoutes.posDeliveries),
 ];
 
 const _storeManagerMenu = <_Row>[
@@ -106,11 +107,7 @@ const _storeManagerMenu = <_Row>[
     AppRoutes.salesReports,
     'Management',
   ),
-  _Row(
-    'Staff',
-    Icons.manage_accounts_outlined,
-    AppRoutes.salesStaff,
-  ),
+  _Row('Staff', Icons.manage_accounts_outlined, AppRoutes.salesStaff),
   _Row(
     'Project requests',
     Icons.fact_check_outlined,
@@ -124,21 +121,9 @@ const _storeManagerMenu = <_Row>[
     AppRoutes.salesPayables,
     'Operations',
   ),
-  _Row(
-    'Deliveries',
-    Icons.local_shipping_outlined,
-    AppRoutes.salesDeliveries,
-  ),
-  _Row(
-    'Transfers',
-    Icons.swap_horiz_rounded,
-    AppRoutes.salesTransfers,
-  ),
-  _Row(
-    'Settings',
-    Icons.settings_outlined,
-    AppRoutes.salesSettings,
-  ),
+  _Row('Deliveries', Icons.local_shipping_outlined, AppRoutes.salesDeliveries),
+  _Row('Transfers', Icons.swap_horiz_rounded, AppRoutes.salesTransfers),
+  _Row('Settings', Icons.settings_outlined, AppRoutes.salesSettings),
 ];
 
 const _stockManagerMenu = <_Row>[
@@ -148,11 +133,7 @@ const _stockManagerMenu = <_Row>[
     AppRoutes.inventoryDashboard,
     'Inventory',
   ),
-  _Row(
-    'Products',
-    Icons.inventory_2_outlined,
-    AppRoutes.inventoryProducts,
-  ),
+  _Row('Products', Icons.inventory_2_outlined, AppRoutes.inventoryProducts),
   _Row('Categories', Icons.category_outlined, AppRoutes.inventoryCategories),
   _Row('Stock', Icons.warehouse_outlined, AppRoutes.inventoryStock),
   _Row(
@@ -199,11 +180,7 @@ const _stockManagerMenu = <_Row>[
     Icons.local_shipping_outlined,
     AppRoutes.inventoryDeliveries,
   ),
-  _Row(
-    'Transfers',
-    Icons.swap_horiz_rounded,
-    AppRoutes.inventoryTransfers,
-  ),
+  _Row('Transfers', Icons.swap_horiz_rounded, AppRoutes.inventoryTransfers),
   _Row(
     'Import & export',
     Icons.import_export_rounded,
@@ -239,11 +216,7 @@ const _adminMenu = <_Row>[
     AppRoutes.adminAuditLogs,
     'Monitoring',
   ),
-  _Row(
-    'Backup & restore',
-    Icons.backup_outlined,
-    AppRoutes.adminBackupRestore,
-  ),
+  _Row('Backup & restore', Icons.backup_outlined, AppRoutes.adminBackupRestore),
   _Row('Security', Icons.security_outlined, AppRoutes.adminSecurity),
 ];
 
@@ -324,13 +297,13 @@ void main() {
     _expectMenu(AppAreas.bodega, _bodegaMenu);
   });
 
-  test('49 menu rows are 45 pages: only the locked set is shared', () {
+  test('50 menu rows are 45 pages: only the locked set is shared', () {
     // Without the counts, an empty or duplicated registry would make every
     // per-area check above pass against nothing.
     expect(
       AppDestinations.all,
-      hasLength(49),
-      reason: '5 menus: Till 9, Sales 13, Stock 17, Admin 6, Bodega 4',
+      hasLength(50),
+      reason: '5 menus: Till 10, Sales 13, Stock 17, Admin 6, Bodega 4',
     );
     expect(
       AppDestinations.all.map((row) => row.id).toSet(),

@@ -22,16 +22,24 @@ class PosCheckoutItem {
     required this.variantUomId,
     required this.quantity,
     required this.unitPrice,
+    this.discount,
   });
 
   final int variantUomId;
   final double quantity;
   final double unitPrice;
 
+  /// The discount the cashier gave on this LINE, or null when it has none.
+  ///
+  /// The server takes it off the line first, then measures the sale-level discount
+  /// on what is left. A fulfilment/order line takes none.
+  final PosDiscount? discount;
+
   Map<String, dynamic> toJson() => {
     'variant_id': variantUomId,
     'qty': quantity,
     'unit_price': unitPrice,
+    if (discount != null) 'discount': discount!.toJson(),
   };
 }
 

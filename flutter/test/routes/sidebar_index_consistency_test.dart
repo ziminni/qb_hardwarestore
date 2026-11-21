@@ -88,11 +88,8 @@ void main() {
     );
     expect(
       tillOrder.length,
-      9,
-      reason:
-          'the POS sidebar has 9 destinations — Returns (decision 05) was '
-          'APPENDED at index 6, Settings (the receipt printer, 2026-11-18) '
-          'at 7, and Customers at 8, so tabs 0-7 keep their numbers',
+      10,
+      reason: 'Cashier Deliveries is appended at 9; no earlier index moves.',
     );
     expect(
       adminOrder.length,
@@ -166,6 +163,7 @@ void main() {
     );
     expect(tillOrder[7], AppRoutes.posSettings);
     expect(tillOrder[8], AppRoutes.posCustomers);
+    expect(tillOrder[9], AppRoutes.posDeliveries);
   });
 
   group('every page highlights its own entry in its own sidebar', () {

@@ -181,6 +181,37 @@ Future<void> save(WidgetTester tester, {String label = 'Add product'}) async {
   await tester.pumpAndSettle();
 }
 
+/// The cement the shop never discounts (owner ruling).
+Product cementNeverDiscounted() => product(
+  id: 8,
+  name: 'Portland Cement',
+  categoryName: 'Cement',
+  brandName: 'Holcim',
+  allowDiscount: false,
+  variants: [
+    variant(
+      id: 8,
+      productId: 8,
+      name: '40 kg bag',
+      baseUomId: 2,
+      baseUomCode: 'BAG',
+      sellingUoms: const [
+        VariantUom(
+          id: 80,
+          variantId: 8,
+          uomId: 2,
+          uomCode: 'BAG',
+          uomName: 'Bag',
+          barcodeQr: '',
+          conversionFactor: 1,
+          defaultSellingPrice: 270,
+          uomIsWhole: true,
+        ),
+      ],
+    ),
+  ],
+);
+
 Product portlandCement() => product(
   id: 7,
   name: 'Portland Cement',
@@ -456,6 +487,65 @@ void main() {
         lastResult,
         isNull,
         reason: 'never PATCH a price onto some other unit instead',
+      );
+    });
+  });
+
+  // Owner ruling: some goods are never discounted (cement). The switch lives on the
+  // product form because it is a property of the GOODS, and it round-trips into the
+  // create and edit payloads the repository posts.
+  group('the Allow discounts switch', () {
+    testWidgets('a new product allows discounts by default', (tester) async {
+      await openForm(tester);
+      await fillBasics(tester);
+
+      expect(find.text('Allow discounts'), findsOneWidget);
+      expect(
+        find.text('Turn off for goods you never discount, like cement.'),
+        findsOneWidget,
+      );
+      await save(tester);
+
+      expect(lastResult!.draft!.allowDiscount, isTrue);
+    });
+
+    testWidgets('turning it off sends allow_discount=false on a create', (
+      tester,
+    ) async {
+      await openForm(tester);
+      await fillBasics(tester);
+      await tapKey(tester, const ValueKey('allow-discount-switch'));
+      await save(tester);
+
+      expect(lastResult!.draft!.allowDiscount, isFalse);
+    });
+
+    testWidgets('an edit shows the stored flag and sends the new one', (
+      tester,
+    ) async {
+      await openForm(tester, product: cementNeverDiscounted());
+
+      final shown = tester.widget<SwitchListTile>(
+        find.byKey(const ValueKey('allow-discount-switch')),
+      );
+      expect(shown.value, isFalse, reason: 'the stored flag, not a default');
+
+      await tapKey(tester, const ValueKey('allow-discount-switch'));
+      await save(tester, label: 'Save changes');
+
+      expect(lastResult!.edit!.allowDiscount, isTrue);
+    });
+
+    testWidgets('an edit that leaves it alone prefills the stored flag', (
+      tester,
+    ) async {
+      await openForm(tester, product: multiUnitCement());
+      await save(tester, label: 'Save changes');
+
+      expect(
+        lastResult!.edit!.allowDiscount,
+        isNull,
+        reason: 'an untouched switch must not PATCH the stored flag',
       );
     });
   });

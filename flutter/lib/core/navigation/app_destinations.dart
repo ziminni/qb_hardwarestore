@@ -137,6 +137,14 @@ class AppDestinations {
       icon: Icons.people_outline_rounded,
       route: AppRoutes.posCustomers,
     ),
+    AppDestination(
+      id: 'deliveries',
+      area: AppAreas.pos,
+      label: 'Deliveries',
+      icon: Icons.local_shipping_outlined,
+      route: AppRoutes.posDeliveries,
+      sharedKey: 'deliveries',
+    ),
 
     // ---- Sales ----------------------------------------------------------------
     AppDestination(

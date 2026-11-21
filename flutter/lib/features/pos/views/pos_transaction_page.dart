@@ -786,6 +786,8 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
         PosDiscountAmounts.forDiscount(
           transaction.total,
           payment.discount,
+          lineDiscountAmount: transaction.lineDiscountTotal,
+          neverDiscountedTotal: transaction.neverDiscountedTotal,
         ).net +
         (payment.delivery?.fee ?? 0) +
         // The order's agreed delivery fee, which the dialog showed and cannot edit.
@@ -870,18 +872,22 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     // other refusal keeps the cart and lets them correct it (decision 06 section 3).
     if (!confirmed &&
         transaction.submitErrorCode == 'DISCOUNT_APPROVAL_INVALID' &&
-        payment.discount != null) {
+        (payment.discount != null || transaction.hasLineDiscount)) {
       if (!context.mounted) return;
+      // The server measures line + sale discounts together, so the till asks again for
+      // the SAME combined percent it was refused.
       final asked = PosDiscountAmounts.forDiscount(
         transaction.total,
         payment.discount,
+        lineDiscountAmount: transaction.lineDiscountTotal,
+        neverDiscountedTotal: transaction.neverDiscountedTotal,
       );
       final token = await showDialog<String>(
         context: context,
         barrierDismissible: false,
         builder: (_) => PosDiscountApprovalDialog(
           percent: asked.percentOfGross,
-          reason: payment.discount!.reason,
+          reason: payment.discount?.reason ?? transaction.lineDiscountReasons,
         ),
       );
       if (!context.mounted) return;

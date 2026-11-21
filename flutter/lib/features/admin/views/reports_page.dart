@@ -333,7 +333,7 @@ class _SalesTab extends StatelessWidget {
       cell: (row) => _cell(formatCount(row.transactions), bold: row.isTotal),
     ),
     DataPanelColumn<_SalesRow>(
-      label: 'Gross',
+      label: 'Invoice total',
       numeric: true,
       cell: (row) => _cell(formatPeso(row.gross), bold: row.isTotal),
     ),
@@ -399,8 +399,9 @@ class _SalesTab extends StatelessWidget {
                 caption: 'Completed sales',
               ),
               MetricTile(
-                label: 'Gross sales',
+                label: 'Invoice total',
                 value: formatPeso(sales.totalGross),
+                caption: 'After discounts and returns; includes tax and fees',
               ),
               MetricTile(
                 label: 'Discounts',
@@ -415,6 +416,7 @@ class _SalesTab extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.md),
+          if (sales.days.isNotEmpty) _InvoiceTrend(days: sales.days),
           DataPanel<_SalesRow>(
             columns: _columnsFor(sales),
             rows: _rows(sales),
@@ -422,6 +424,53 @@ class _SalesTab extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _InvoiceTrend extends StatelessWidget {
+  const _InvoiceTrend({required this.days});
+
+  final List<SalesDay> days;
+
+  @override
+  Widget build(BuildContext context) {
+    // shortcut: show the latest 7 reported dates; the table keeps the full range.
+    final recent = days.reversed.take(7).toList().reversed;
+    final peak = recent.fold(
+      0.0,
+      (peak, day) => day.gross.abs() > peak ? day.gross.abs() : peak,
+    );
+    final colors = Theme.of(context).colorScheme;
+    return ExpansionTile(
+      title: const Text('Daily invoice trend'),
+      subtitle: const Text('Last 7 reported dates in this range'),
+      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      children: [
+        for (final day in recent)
+          Padding(
+            key: ValueKey('invoice-trend-${day.day}'),
+            padding: const EdgeInsets.only(top: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: Text(_dateLabel(day.day))),
+                    Text(formatPeso(day.gross)),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                ExcludeSemantics(
+                  child: LinearProgressIndicator(
+                    value: peak == 0 ? 0 : day.gross.abs() / peak,
+                    color: day.gross < 0 ? colors.error : colors.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }

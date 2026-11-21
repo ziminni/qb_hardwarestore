@@ -11,6 +11,7 @@
 import 'package:client/data/models/catalogue_option.dart';
 import 'package:client/data/models/inventory_batch.dart';
 import 'package:client/data/models/product.dart';
+import 'package:client/data/models/product_writes.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -321,6 +322,97 @@ void main() {
       });
 
       expect(uom.isWhole, isFalse);
+    });
+  });
+
+  // Goods the shop never discounts (owner ruling: cement). The flag lives on the
+  // PRODUCT, because it is a property of the goods, not of one shelf or pack.
+  group('Product.allowDiscount', () {
+    Map<String, dynamic> productJson([Map<String, dynamic> extra = const {}]) =>
+        {
+          'id': 7,
+          'category': 4,
+          'category_name': 'Cement',
+          'brand': 2,
+          'brand_name': 'Holcim',
+          'base_name': 'Portland Cement',
+          'description': '',
+          'image_url': '',
+          'is_active': true,
+          'variants': <dynamic>[],
+          ...extra,
+        };
+
+    test('reads allow_discount=false', () {
+      final product = Product.fromJson(productJson({'allow_discount': false}));
+
+      expect(product.allowDiscount, isFalse);
+    });
+
+    test('a body without the field is discountable (the server default)', () {
+      expect(Product.fromJson(productJson()).allowDiscount, isTrue);
+    });
+
+    test('copyWith carries the flag', () {
+      final cement = Product.fromJson(productJson({'allow_discount': false}));
+
+      expect(cement.copyWith(baseName: 'Cement 40kg').allowDiscount, isFalse);
+      expect(cement.copyWith(allowDiscount: true).allowDiscount, isTrue);
+    });
+  });
+
+  // The two write payloads: a create states the flag the form shows, an edit says
+  // nothing when the clerk never touched the switch (a needless PATCH would bump
+  // the product's updated_at for a save that changed nothing).
+  group('the allow_discount write payload', () {
+    test('a create sends it, defaulting to true', () {
+      const draft = NewProductDraft(
+        categoryId: 4,
+        brandId: 2,
+        baseName: 'Portland Cement',
+        description: '',
+        imageUrl: '',
+        variantName: '40kg',
+        baseUomId: 7,
+        minStockThreshold: 5,
+        maxStockLevel: 0,
+        sellingPrice: 270,
+      );
+
+      expect(draft.productBody()['allow_discount'], isTrue);
+      expect(
+        const NewProductDraft(
+          categoryId: 4,
+          brandId: 2,
+          baseName: 'Portland Cement',
+          description: '',
+          imageUrl: '',
+          variantName: '40kg',
+          baseUomId: 7,
+          minStockThreshold: 5,
+          maxStockLevel: 0,
+          sellingPrice: 270,
+          allowDiscount: false,
+        ).productBody()['allow_discount'],
+        isFalse,
+      );
+    });
+
+    test('an edit sends it only when it was set', () {
+      const untouched = ProductEditDraft(
+        productId: 7,
+        variantId: 8,
+        sellingUnitId: 9,
+      );
+      const turnedOff = ProductEditDraft(
+        productId: 7,
+        variantId: 8,
+        sellingUnitId: 9,
+        allowDiscount: false,
+      );
+
+      expect(untouched.productBody.containsKey('allow_discount'), isFalse);
+      expect(turnedOff.productBody['allow_discount'], isFalse);
     });
   });
 }

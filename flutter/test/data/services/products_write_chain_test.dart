@@ -233,6 +233,9 @@ void main() {
           'base_name': 'Portland Cement',
           'description': 'General purpose',
           'image_url': '',
+          // Owner ruling: a create states the switch the form shows, so goods the
+          // shop never discounts (cement) are created with it off.
+          'allow_discount': true,
         });
 
         // The variant carries the id the product POST returned.

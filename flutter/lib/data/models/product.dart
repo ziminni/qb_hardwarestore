@@ -127,6 +127,7 @@ class Product {
     required this.description,
     required this.imageUrl,
     required this.isActive,
+    this.allowDiscount = true,
     required this.variants,
     this.storedAtId,
     this.storedAtName = '',
@@ -141,6 +142,15 @@ class Product {
   final String description;
   final String imageUrl;
   final bool isActive;
+
+  /// Whether a LINE discount may be given on this product (owner ruling).
+  ///
+  /// Some goods are never discounted (cement, a sari-sari staple): the server
+  /// refuses a line discount on them with 400 `INVALID_DISCOUNT` and leaves them
+  /// out of what a sale-level discount is measured on. True when the body omits
+  /// the field, which is the server's own default.
+  final bool allowDiscount;
+
   final List<ProductVariant> variants;
 
   /// Where the shop keeps this product: a SERVER fact (Phase 5 B4, decision 18).
@@ -163,6 +173,7 @@ class Product {
     String? description,
     String? imageUrl,
     bool? isActive,
+    bool? allowDiscount,
     List<ProductVariant>? variants,
     int? storedAtId,
     String? storedAtName,
@@ -177,6 +188,7 @@ class Product {
       description: description ?? this.description,
       imageUrl: imageUrl ?? this.imageUrl,
       isActive: isActive ?? this.isActive,
+      allowDiscount: allowDiscount ?? this.allowDiscount,
       variants: variants ?? this.variants,
       storedAtId: storedAtId ?? this.storedAtId,
       storedAtName: storedAtName ?? this.storedAtName,
@@ -194,6 +206,9 @@ class Product {
       description: json['description'] as String? ?? '',
       imageUrl: json['image_url'] as String? ?? '',
       isActive: json['is_active'] as bool? ?? true,
+      // The server's default is true, and a body from before the field existed
+      // must read as "discountable" — never as a shop that stopped discounting.
+      allowDiscount: boolFieldOr(json, 'allow_discount', or: true),
       // Phase 5 B4: the pick-up point, read-only on the wire. Absent on a body
       // from before the feature, which is a real state and must not be guessed.
       storedAtId: json['stored_at'] is int ? json['stored_at'] as int : null,

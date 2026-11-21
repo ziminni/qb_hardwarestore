@@ -216,6 +216,15 @@ class PosPaymentDialog extends StatefulWidget {
   /// The goods' gross, live from [cart] when there is one.
   double get currentTotal => cart?.total ?? total;
 
+  /// What the cart's LINE discounts already took off [currentTotal]. Zero for a
+  /// caller with no cart. The sale discount here is measured on what is left, and
+  /// the cap is compared against the combined share of the gross (server math).
+  double get lineDiscountTotal => cart?.lineDiscountTotal ?? 0;
+
+  /// What the cart holds of goods the shop never discounts (cement), which the sale
+  /// discount is not measured on. Zero for a caller with no cart.
+  double get neverDiscountedTotal => cart?.neverDiscountedTotal ?? 0;
+
   @override
   State<PosPaymentDialog> createState() => _PosPaymentDialogState();
 }
@@ -505,8 +514,12 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
     );
   }
 
-  PosDiscountAmounts get _amounts =>
-      PosDiscountAmounts.forDiscount(widget.currentTotal, _discount);
+  PosDiscountAmounts get _amounts => PosDiscountAmounts.forDiscount(
+    widget.currentTotal,
+    _discount,
+    lineDiscountAmount: widget.lineDiscountTotal,
+    neverDiscountedTotal: widget.neverDiscountedTotal,
+  );
 
   /// The delivery charge as typed, or 0 while the sale is not a delivery.
   double get _fee =>
@@ -1431,10 +1444,10 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
             const Divider(height: 16),
           ],
           _textSummaryRow('Gross', formatPeso(amounts.gross), bold: false),
-          if (amounts.discountAmount > 0)
+          if (amounts.totalDiscountAmount > 0)
             _textSummaryRow(
               'Discount',
-              formatPeso(-amounts.discountAmount),
+              formatPeso(-amounts.totalDiscountAmount),
               bold: false,
             ),
           if (_deliveryCharge > 0)
@@ -1992,9 +2005,11 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
     final discount = widget.allowDiscount ? _discount : null;
 
     if (amounts.needsApproval(widget.discountCapPercent)) {
+      // A LINE discount can push the combined discount over the cap with no sale
+      // discount typed at all, so the reason falls back to the one the line carries.
       final token = await _askApproval(
         amounts.percentOfGross,
-        discount!.reason,
+        discount?.reason ?? (widget.cart?.lineDiscountReasons ?? ''),
       );
       if (!mounted || token == null) return;
       _approvalToken = token;
