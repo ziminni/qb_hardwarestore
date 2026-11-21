@@ -44,6 +44,10 @@ class ApiClient {
           if (_accessToken case final token? when token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
           }
+          final gatewayKey = ApiConfig.gatewayKey;
+          if (gatewayKey.isNotEmpty) {
+            options.headers['X-QB-Gateway-Key'] = gatewayKey;
+          }
           handler.next(options);
         },
         onError: (error, handler) async {

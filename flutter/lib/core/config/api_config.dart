@@ -11,16 +11,44 @@ class ApiConfig {
   ApiConfig._();
 
   static const String _fromEnvironment = String.fromEnvironment('API_BASE_URL');
+  static const String _gatewayKeyFromEnvironment = String.fromEnvironment(
+    'API_GATEWAY_KEY',
+  );
 
   static const savedKey = 'api_base_url';
+  static const savedGatewayKeyPref = 'api_gateway_key';
   static String? _saved;
+  static String? _savedGatewayKey;
 
   /// The address saved on this device, or null. Read once at start-up.
   static String? get savedBaseUrl => _saved;
 
+  /// The optional tunnel gateway key (`X-QB-Gateway-Key`) saved on this device.
+  static String? get savedGatewayKey => _savedGatewayKey;
+
+  /// Active gateway key to send on requests (saved value overrides compile-time).
+  static String get gatewayKey =>
+      _savedGatewayKey ?? _gatewayKeyFromEnvironment;
+
   static Future<void> loadSaved() async {
-    final value = (await SharedPreferences.getInstance()).getString(savedKey);
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString(savedKey);
     _saved = (value == null || value.trim().isEmpty) ? null : value.trim();
+    final gw = prefs.getString(savedGatewayKeyPref);
+    _savedGatewayKey = (gw == null || gw.trim().isEmpty) ? null : gw.trim();
+  }
+
+  /// Saves [key] for this device (null/empty clears it).
+  static Future<void> saveGatewayKey(String? key) async {
+    final prefs = await SharedPreferences.getInstance();
+    final cleaned = (key ?? '').trim();
+    if (cleaned.isEmpty) {
+      _savedGatewayKey = null;
+      await prefs.remove(savedGatewayKeyPref);
+    } else {
+      _savedGatewayKey = cleaned;
+      await prefs.setString(savedGatewayKeyPref, cleaned);
+    }
   }
 
   /// Saves [url] for this device (null clears it); the caller re-points the
