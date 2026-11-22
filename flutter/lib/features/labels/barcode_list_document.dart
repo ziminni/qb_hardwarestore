@@ -65,6 +65,7 @@ class BarcodeListRow {
     required this.unitCode,
     required this.price,
     required this.code,
+    this.categoryName = '',
   });
 
   final String productName;
@@ -72,6 +73,12 @@ class BarcodeListRow {
   final String unitCode;
   final double price;
   final String code;
+  final String categoryName;
+
+  String get displayCategory {
+    final trimmed = categoryName.trim();
+    return trimmed.isEmpty ? 'Uncategorized' : trimmed;
+  }
 
   BarcodeSymbology get symbology => barcodeSymbologyFor(code);
 }
@@ -104,29 +111,182 @@ const barcodeListColumns = <String>[
   'Barcode',
 ];
 
-/// Booklet layout geometry for A4 counter scan sheets: 2 columns × 5 rows = 10
-/// spaced cards per page so a handheld scanner never accidentally reads an
-/// adjacent item.
+/// Booklet layout geometry for A4 counter scan sheets: 2 columns × up to 5 rows
+/// = up to 10 spaced cards per page so a handheld scanner never accidentally
+/// reads an adjacent item.
 const barcodeBookletColumns = 2;
 const barcodeBookletRowsPerPage = 5;
 const barcodeBookletItemsPerPage =
     barcodeBookletColumns * barcodeBookletRowsPerPage;
 
-/// Splits [rows] into fixed-size booklet pages of [barcodeBookletItemsPerPage].
+const _bookletCardHeightMm = 39.0;
+const _bookletRowGapMm = 7.5;
+const _bookletBannerHeightMm = 9.0;
+const _bookletSectionGapMm = 5.5;
+const _bookletMaxBodyHeightMm = 238.0;
+
+/// Sorts masterlist rows alphabetically: named categories A–Z (uncategorized
+/// last), then product name A–Z, then variant name A–Z, preserving each
+/// variant's natural selling-unit order on ties.
+List<BarcodeListRow> sortBarcodeListRows(Iterable<BarcodeListRow> rows) {
+  final indexed = rows.toList().indexed.toList();
+  indexed.sort((a, b) {
+    final ra = a.$2;
+    final rb = b.$2;
+    final ca = ra.categoryName.trim();
+    final cb = rb.categoryName.trim();
+    final aUncat = ca.isEmpty ? 1 : 0;
+    final bUncat = cb.isEmpty ? 1 : 0;
+    if (aUncat != bUncat) return aUncat.compareTo(bUncat);
+    final byCategory = ca.toLowerCase().compareTo(cb.toLowerCase());
+    if (byCategory != 0) return byCategory;
+    final byProduct = ra.productName.trim().toLowerCase().compareTo(
+      rb.productName.trim().toLowerCase(),
+    );
+    if (byProduct != 0) return byProduct;
+    final byVariant = ra.variantName.trim().toLowerCase().compareTo(
+      rb.variantName.trim().toLowerCase(),
+    );
+    if (byVariant != 0) return byVariant;
+    return a.$1.compareTo(b.$1);
+  });
+  return [for (final entry in indexed) entry.$2];
+}
+
+/// One category section placed onto a single booklet page.
+class BarcodeBookletSection {
+  const BarcodeBookletSection({
+    required this.categoryName,
+    required this.totalInCategory,
+    required this.isContinuation,
+    required this.showHeader,
+    required this.rows,
+  });
+
+  final String categoryName;
+  final int totalInCategory;
+  final bool isContinuation;
+  final bool showHeader;
+  final List<BarcodeListRow> rows;
+}
+
+/// Splits [rows] into fixed-size booklet pages of [barcodeBookletItemsPerPage]
+/// after sorting alphabetically by category → product → variant.
 ///
 /// An empty list still yields one empty page so the PDF always prints the
 /// header, filter summary, and empty-state note.
 List<List<BarcodeListRow>> barcodeBookletPages(List<BarcodeListRow> rows) {
-  if (rows.isEmpty) return const [[]];
+  final sorted = sortBarcodeListRows(rows);
+  if (sorted.isEmpty) return const [[]];
   return [
-    for (var start = 0; start < rows.length; start += barcodeBookletItemsPerPage)
-      rows.sublist(
+    for (
+      var start = 0;
+      start < sorted.length;
+      start += barcodeBookletItemsPerPage
+    )
+      sorted.sublist(
         start,
-        start + barcodeBookletItemsPerPage > rows.length
-            ? rows.length
+        start + barcodeBookletItemsPerPage > sorted.length
+            ? sorted.length
             : start + barcodeBookletItemsPerPage,
       ),
   ];
+}
+
+/// Groups [data.rows] by category (A–Z) and sorts items alphabetically within
+/// every category, packing sections cleanly onto A4 booklet pages without
+/// orphaning a category banner at the bottom of a page.
+List<List<BarcodeBookletSection>> barcodeBookletLayoutPages(
+  BarcodeListData data,
+) {
+  final sorted = sortBarcodeListRows(data.rows);
+  if (sorted.isEmpty) return const [[]];
+
+  final groups = <({String category, List<BarcodeListRow> rows})>[];
+  for (final row in sorted) {
+    final category = row.displayCategory;
+    if (groups.isEmpty || groups.last.category != category) {
+      groups.add((category: category, rows: [row]));
+    } else {
+      groups.last.rows.add(row);
+    }
+  }
+
+  final showHeaders =
+      data.categoryLabel == 'All categories' || groups.length > 1;
+
+  final pages = <List<BarcodeBookletSection>>[];
+  var currentPage = <BarcodeBookletSection>[];
+  var usedMm = 0.0;
+
+  void finishPage() {
+    if (currentPage.isNotEmpty) {
+      pages.add(currentPage);
+      currentPage = <BarcodeBookletSection>[];
+      usedMm = 0.0;
+    }
+  }
+
+  for (final group in groups) {
+    final pairs = <List<BarcodeListRow>>[
+      for (var i = 0; i < group.rows.length; i += barcodeBookletColumns)
+        group.rows.sublist(
+          i,
+          i + barcodeBookletColumns > group.rows.length
+              ? group.rows.length
+              : i + barcodeBookletColumns,
+        ),
+    ];
+
+    var sectionRows = <BarcodeListRow>[];
+    var isContinuation = false;
+
+    void flushSection() {
+      if (sectionRows.isEmpty) return;
+      currentPage.add(
+        BarcodeBookletSection(
+          categoryName: group.category,
+          totalInCategory: group.rows.length,
+          isContinuation: isContinuation,
+          showHeader: showHeaders,
+          rows: sectionRows,
+        ),
+      );
+      sectionRows = <BarcodeListRow>[];
+    }
+
+    for (final pair in pairs) {
+      if (sectionRows.isEmpty) {
+        final gapBefore = currentPage.isEmpty ? 0.0 : _bookletSectionGapMm;
+        final headerMm = showHeaders ? _bookletBannerHeightMm : 0.0;
+        final needed = gapBefore + headerMm + _bookletCardHeightMm;
+        if (currentPage.isNotEmpty &&
+            usedMm + needed > _bookletMaxBodyHeightMm) {
+          finishPage();
+        }
+        final actualGap = currentPage.isEmpty ? 0.0 : _bookletSectionGapMm;
+        usedMm += actualGap + headerMm + _bookletCardHeightMm;
+        sectionRows.addAll(pair);
+      } else {
+        final needed = _bookletRowGapMm + _bookletCardHeightMm;
+        if (usedMm + needed > _bookletMaxBodyHeightMm) {
+          flushSection();
+          finishPage();
+          isContinuation = true;
+          final headerMm = showHeaders ? _bookletBannerHeightMm : 0.0;
+          usedMm += headerMm + _bookletCardHeightMm;
+          sectionRows.addAll(pair);
+        } else {
+          usedMm += needed;
+          sectionRows.addAll(pair);
+        }
+      }
+    }
+    flushSection();
+  }
+
+  finishPage();
+  return pages;
 }
 
 /// The rows of ONE product, one per selling unit.
@@ -152,6 +312,7 @@ List<BarcodeListRow> barcodeListRowsForProduct(
           unitCode: unit.uomCode,
           price: unit.defaultSellingPrice,
           code: code,
+          categoryName: product.categoryName.trim(),
         ),
       );
     }
@@ -159,14 +320,15 @@ List<BarcodeListRow> barcodeListRowsForProduct(
   return rows;
 }
 
-/// The whole list, in catalogue order.
+/// The whole list, grouped by category (A–Z) and sorted alphabetically within
+/// each category.
 List<BarcodeListRow> barcodeListRows(
   Iterable<Product> products, {
   List<VariantUom> Function(ProductVariant variant)? unitsOf,
-}) => [
+}) => sortBarcodeListRows([
   for (final product in products)
     ...barcodeListRowsForProduct(product, unitsOf: unitsOf),
-];
+]);
 
 /// The heading block printed at the top of every page.
 ///
@@ -186,9 +348,10 @@ List<String> barcodeListHeaderLines(BarcodeListData data) => [
 String barcodeListPageLabel(int page, int total) => 'Page $page of $total';
 
 /// Renders the masterlist as a printable A4 counter scan booklet: 2 columns ×
-/// 5 spaced cards per page, generous white quiet zones around each barcode,
-/// a wider left margin for stapling/punch-binding, and a header + page number
-/// on every page.
+/// up to 5 spaced cards per page, grouped by category (A–Z) when viewing all
+/// categories and sorted alphabetically within every category, with generous
+/// white quiet zones around each barcode, a wider left binding margin, and a
+/// header + page number on every page.
 ///
 /// [font]/[bold] are parameters so a test can render with the PDF built-ins while
 /// the app passes the bundled OpenSans (see [buildBarcodeListPdfWithOpenSans]).
@@ -201,11 +364,11 @@ Future<Uint8List> buildBarcodeListPdf(
   final body = font ?? pw.Font.helvetica();
   final strong = bold ?? font ?? pw.Font.helveticaBold();
   final heading = barcodeListHeaderLines(data);
-  final pages = barcodeBookletPages(data.rows);
+  final pages = barcodeBookletLayoutPages(data);
   final totalPages = pages.length;
 
   for (var pageIndex = 0; pageIndex < totalPages; pageIndex++) {
-    final pageRows = pages[pageIndex];
+    final pageSections = pages[pageIndex];
     final pageNumber = pageIndex + 1;
     document.addPage(
       pw.Page(
@@ -214,17 +377,17 @@ Future<Uint8List> buildBarcodeListPdf(
         // into a flip-through counter booklet without clipping cards.
         margin: const pw.EdgeInsets.fromLTRB(
           18 * PdfPageFormat.mm,
+          11 * PdfPageFormat.mm,
           12 * PdfPageFormat.mm,
-          12 * PdfPageFormat.mm,
-          12 * PdfPageFormat.mm,
+          11 * PdfPageFormat.mm,
         ),
         build: (context) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.stretch,
           children: [
             _bookletHeader(heading, body, strong),
-            pw.SizedBox(height: 5 * PdfPageFormat.mm),
+            pw.SizedBox(height: 4 * PdfPageFormat.mm),
             pw.Expanded(
-              child: pageRows.isEmpty
+              child: pageSections.isEmpty
                   ? pw.Align(
                       alignment: pw.Alignment.topLeft,
                       child: pw.Text(
@@ -232,7 +395,7 @@ Future<Uint8List> buildBarcodeListPdf(
                         style: pw.TextStyle(font: body, fontSize: 10),
                       ),
                     )
-                  : _bookletGrid(pageRows, body, strong),
+                  : _bookletPageBody(pageSections, body, strong),
             ),
             _bookletFooter(pageNumber, totalPages, body),
           ],
@@ -254,7 +417,7 @@ Future<Uint8List> buildBarcodeListPdfWithOpenSans(BarcodeListData data) async {
 
 pw.Widget _bookletHeader(List<String> heading, pw.Font body, pw.Font strong) {
   return pw.Container(
-    padding: const pw.EdgeInsets.only(bottom: 2.5 * PdfPageFormat.mm),
+    padding: const pw.EdgeInsets.only(bottom: 2 * PdfPageFormat.mm),
     decoration: const pw.BoxDecoration(
       border: pw.Border(
         bottom: pw.BorderSide(color: PdfColors.grey400, width: 0.6),
@@ -282,7 +445,7 @@ pw.Widget _bookletHeader(List<String> heading, pw.Font body, pw.Font strong) {
 
 pw.Widget _bookletFooter(int pageNumber, int totalPages, pw.Font body) {
   return pw.Container(
-    margin: const pw.EdgeInsets.only(top: 3 * PdfPageFormat.mm),
+    margin: const pw.EdgeInsets.only(top: 2.5 * PdfPageFormat.mm),
     padding: const pw.EdgeInsets.only(top: 1.5 * PdfPageFormat.mm),
     decoration: const pw.BoxDecoration(
       border: pw.Border(
@@ -313,19 +476,97 @@ pw.Widget _bookletFooter(int pageNumber, int totalPages, pw.Font body) {
   );
 }
 
-/// 2-column × up-to-5-row booklet card grid with generous horizontal (10 mm)
-/// and vertical (8 mm) gaps between cards so scanners stay isolated on one code.
+/// Renders one booklet page's category sections in order with clean section
+/// spacing between categories.
+pw.Widget _bookletPageBody(
+  List<BarcodeBookletSection> sections,
+  pw.Font body,
+  pw.Font strong,
+) {
+  final children = <pw.Widget>[];
+  for (final (index, section) in sections.indexed) {
+    if (index > 0) {
+      children.add(pw.SizedBox(height: _bookletSectionGapMm * PdfPageFormat.mm));
+    }
+    if (section.showHeader) {
+      children.add(_bookletCategoryBanner(section, body, strong));
+      children.add(pw.SizedBox(height: 2.5 * PdfPageFormat.mm));
+    }
+    children.add(_bookletGrid(section.rows, body, strong));
+  }
+  return pw.Column(
+    crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+    children: children,
+  );
+}
+
+/// Sleek, low-toner category section header bar (`6.5 mm` tall + `2.5 mm` gap
+/// = `9.0 mm` budget).
+pw.Widget _bookletCategoryBanner(
+  BarcodeBookletSection section,
+  pw.Font body,
+  pw.Font strong,
+) {
+  final title = section.isContinuation
+      ? '${section.categoryName.toUpperCase()} (CONT.)'
+      : section.categoryName.toUpperCase();
+  final countLabel =
+      '${formatCount(section.totalInCategory)} '
+      '${section.totalInCategory == 1 ? 'code' : 'codes'}';
+  return pw.Container(
+    height: 6.5 * PdfPageFormat.mm,
+    padding: const pw.EdgeInsets.symmetric(horizontal: 7),
+    decoration: const pw.BoxDecoration(
+      color: PdfColors.grey200,
+      border: pw.Border(
+        left: pw.BorderSide(color: PdfColors.grey900, width: 2.5),
+      ),
+    ),
+    child: pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: pw.CrossAxisAlignment.center,
+      children: [
+        pw.Expanded(
+          child: pw.Text(
+            title,
+            style: pw.TextStyle(
+              font: strong,
+              fontSize: 8.5,
+              letterSpacing: 0.4,
+              color: PdfColors.grey900,
+            ),
+            maxLines: 1,
+            overflow: pw.TextOverflow.clip,
+          ),
+        ),
+        pw.SizedBox(width: 6),
+        pw.Text(
+          countLabel,
+          style: pw.TextStyle(
+            font: body,
+            fontSize: 7.5,
+            color: PdfColors.grey700,
+          ),
+          maxLines: 1,
+        ),
+      ],
+    ),
+  );
+}
+
+/// 2-column booklet card grid with generous horizontal (`10 mm`) and vertical
+/// (`7.5 mm`) gaps between cards so scanners stay isolated on one code.
 pw.Widget _bookletGrid(
-  List<BarcodeListRow> pageRows,
+  List<BarcodeListRow> sectionRows,
   pw.Font body,
   pw.Font strong,
 ) {
   final rowPairs = <pw.Widget>[];
-  for (var i = 0; i < pageRows.length; i += barcodeBookletColumns) {
-    final left = pageRows[i];
-    final right = i + 1 < pageRows.length ? pageRows[i + 1] : null;
+  for (var i = 0; i < sectionRows.length; i += barcodeBookletColumns) {
+    final left = sectionRows[i];
+    final right = i + 1 < sectionRows.length ? sectionRows[i + 1] : null;
     if (rowPairs.isNotEmpty) {
-      rowPairs.add(pw.SizedBox(height: 8 * PdfPageFormat.mm));
+      rowPairs.add(pw.SizedBox(height: _bookletRowGapMm * PdfPageFormat.mm));
     }
     rowPairs.add(
       pw.Row(
@@ -348,12 +589,12 @@ pw.Widget _bookletGrid(
   );
 }
 
-/// One booklet card (85 mm × 40 mm): tinted item header on top, wide white
+/// One booklet card (`85 mm × 39 mm`): tinted item header on top, wide white
 /// quiet-zone barcode pad and human-readable code underneath.
 pw.Widget _bookletCard(BarcodeListRow row, pw.Font body, pw.Font strong) {
   final variantLabel = row.variantName.trim();
   return pw.Container(
-    height: 40 * PdfPageFormat.mm,
+    height: _bookletCardHeightMm * PdfPageFormat.mm,
     decoration: pw.BoxDecoration(
       color: PdfColors.white,
       border: pw.Border.all(color: PdfColors.grey400, width: 0.6),
@@ -363,7 +604,7 @@ pw.Widget _bookletCard(BarcodeListRow row, pw.Font body, pw.Font strong) {
       crossAxisAlignment: pw.CrossAxisAlignment.stretch,
       children: [
         pw.Container(
-          padding: const pw.EdgeInsets.fromLTRB(8, 5, 8, 4.5),
+          padding: const pw.EdgeInsets.fromLTRB(8, 4.5, 8, 4),
           decoration: const pw.BoxDecoration(
             color: PdfColors.grey100,
             borderRadius: pw.BorderRadius.only(
@@ -456,14 +697,14 @@ pw.Widget _bookletCard(BarcodeListRow row, pw.Font body, pw.Font strong) {
           child: pw.Padding(
             padding: const pw.EdgeInsets.symmetric(
               horizontal: 6 * PdfPageFormat.mm,
-              vertical: 2 * PdfPageFormat.mm,
+              vertical: 1.8 * PdfPageFormat.mm,
             ),
             child: pw.Column(
               mainAxisAlignment: pw.MainAxisAlignment.center,
               crossAxisAlignment: pw.CrossAxisAlignment.center,
               children: [
                 _barcode(row),
-                pw.SizedBox(height: 3),
+                pw.SizedBox(height: 2.5),
                 pw.Text(
                   row.code,
                   style: pw.TextStyle(
@@ -485,7 +726,7 @@ pw.Widget _bookletCard(BarcodeListRow row, pw.Font body, pw.Font strong) {
 }
 
 /// The scannable bars of a booklet card: EAN when the code verifies, Code 128
-/// otherwise. Sized wide (56 mm × 12.5 mm) with surrounding white quiet zone
+/// otherwise. Sized wide (`56 mm × 12 mm`) with surrounding white quiet zone
 /// for quick, mis-scan-free counter scanning.
 pw.Widget _barcode(BarcodeListRow row) {
   final barcode = switch (row.symbology) {
@@ -498,6 +739,6 @@ pw.Widget _barcode(BarcodeListRow row) {
     data: row.code,
     drawText: false,
     width: 56 * PdfPageFormat.mm,
-    height: 12.5 * PdfPageFormat.mm,
+    height: 12 * PdfPageFormat.mm,
   );
 }

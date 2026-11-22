@@ -201,6 +201,92 @@ void main() {
 
       expect(rows, isEmpty);
     });
+
+    test(
+      'groups by category alphabetically and sorts items alphabetically inside each category',
+      () {
+        final unsorted = [
+          product(
+            id: 10,
+            name: 'PVC Elbow',
+            category: 'Plumbing',
+            variants: [
+              variant(
+                id: 100,
+                productId: 10,
+                name: '1 inch',
+                sellingUoms: [unit(id: 1, variantId: 100, code: 'QB000100-1')],
+              ),
+            ],
+          ),
+          product(
+            id: 11,
+            name: 'Angle Valve',
+            category: 'Plumbing',
+            variants: [
+              variant(
+                id: 101,
+                productId: 11,
+                name: '1/2 inch',
+                sellingUoms: [unit(id: 2, variantId: 101, code: 'QB000101-1')],
+              ),
+            ],
+          ),
+          product(
+            id: 12,
+            name: 'THHN Wire',
+            category: 'Electrical',
+            variants: [
+              variant(
+                id: 102,
+                productId: 12,
+                name: '#12 Red',
+                sellingUoms: [unit(id: 3, variantId: 102, code: 'QB000102-1')],
+              ),
+            ],
+          ),
+          product(
+            id: 13,
+            name: 'Breaker Box',
+            category: 'Electrical',
+            variants: [
+              variant(
+                id: 103,
+                productId: 13,
+                name: '4-Branch',
+                sellingUoms: [unit(id: 4, variantId: 103, code: 'QB000103-1')],
+              ),
+            ],
+          ),
+          product(
+            id: 14,
+            name: 'Loose Bolts',
+            category: '',
+            variants: [
+              variant(
+                id: 104,
+                productId: 14,
+                name: 'M8',
+                sellingUoms: [unit(id: 5, variantId: 104, code: 'QB000104-1')],
+              ),
+            ],
+          ),
+        ];
+
+        final rows = barcodeListRows(unsorted);
+
+        expect(
+          rows.map((r) => '${r.displayCategory}:${r.productName}').toList(),
+          [
+            'Electrical:Breaker Box',
+            'Electrical:THHN Wire',
+            'Plumbing:Angle Valve',
+            'Plumbing:PVC Elbow',
+            'Uncategorized:Loose Bolts',
+          ],
+        );
+      },
+    );
   });
 
   group('barcodeListHeaderLines', () {
@@ -259,6 +345,133 @@ void main() {
       final pages = barcodeBookletPages(const []);
       expect(pages, hasLength(1));
       expect(pages.single, isEmpty);
+    });
+  });
+
+  group('barcodeBookletLayoutPages', () {
+    test('groups All categories into A-Z category sections with banners', () {
+      final data = BarcodeListData(
+        rows: const [
+          BarcodeListRow(
+            productName: 'PVC Pipe',
+            variantName: '1/2 inch',
+            unitCode: 'PC',
+            price: 95,
+            code: 'QB000001-1',
+            categoryName: 'Plumbing',
+          ),
+          BarcodeListRow(
+            productName: 'Wire',
+            variantName: '#14',
+            unitCode: 'M',
+            price: 25,
+            code: 'QB000002-1',
+            categoryName: 'Electrical',
+          ),
+          BarcodeListRow(
+            productName: 'Adapter',
+            variantName: '20A',
+            unitCode: 'PC',
+            price: 45,
+            code: 'QB000003-1',
+            categoryName: 'Electrical',
+          ),
+        ],
+        generatedAt: DateTime(2026, 11, 11, 9),
+        categoryLabel: 'All categories',
+        activeOnly: true,
+      );
+
+      final pages = barcodeBookletLayoutPages(data);
+
+      expect(pages, hasLength(1));
+      final sections = pages.single;
+      expect(sections.map((s) => s.categoryName).toList(), [
+        'Electrical',
+        'Plumbing',
+      ]);
+      expect(sections.every((s) => s.showHeader), isTrue);
+      expect(sections.first.rows.map((r) => r.productName).toList(), [
+        'Adapter',
+        'Wire',
+      ]);
+    });
+
+    test('continues a large category across pages with a continuation banner', () {
+      final data = BarcodeListData(
+        rows: [
+          for (var i = 0; i < 12; i++)
+            BarcodeListRow(
+              productName: 'Item ${i.toString().padLeft(2, '0')}',
+              variantName: 'Std',
+              unitCode: 'PC',
+              price: 50,
+              code: 'QB0000${i.toString().padLeft(2, '0')}-1',
+              categoryName: 'Electrical',
+            ),
+          const BarcodeListRow(
+            productName: 'Elbow',
+            variantName: '1/2 inch',
+            unitCode: 'PC',
+            price: 20,
+            code: 'QB000099-1',
+            categoryName: 'Plumbing',
+          ),
+        ],
+        generatedAt: DateTime(2026, 11, 11, 9),
+        categoryLabel: 'All categories',
+        activeOnly: true,
+      );
+
+      final pages = barcodeBookletLayoutPages(data);
+
+      expect(pages, hasLength(2));
+      expect(pages[0].single.categoryName, 'Electrical');
+      expect(pages[0].single.isContinuation, isFalse);
+      expect(pages[0].single.rows, hasLength(10));
+      expect(pages[1].map((s) => s.categoryName).toList(), [
+        'Electrical',
+        'Plumbing',
+      ]);
+      expect(pages[1][0].isContinuation, isTrue);
+      expect(pages[1][0].rows, hasLength(2));
+      expect(pages[1][1].isContinuation, isFalse);
+      expect(pages[1][1].rows, hasLength(1));
+    });
+
+    test('specific category omits redundant category banners and sorts A-Z', () {
+      final data = BarcodeListData(
+        rows: const [
+          BarcodeListRow(
+            productName: 'Switch',
+            variantName: '1-gang',
+            unitCode: 'PC',
+            price: 60,
+            code: 'QB000002-1',
+            categoryName: 'Electrical',
+          ),
+          BarcodeListRow(
+            productName: 'Breaker',
+            variantName: '20A',
+            unitCode: 'PC',
+            price: 315,
+            code: 'QB000001-1',
+            categoryName: 'Electrical',
+          ),
+        ],
+        generatedAt: DateTime(2026, 11, 11, 9),
+        categoryLabel: 'Electrical',
+        activeOnly: true,
+      );
+
+      final pages = barcodeBookletLayoutPages(data);
+
+      expect(pages, hasLength(1));
+      expect(pages.single.single.showHeader, isFalse);
+      expect(pages.single.single.rows.map((r) => r.productName).toList(), [
+        'Breaker',
+        'Switch',
+      ]);
     });
   });
 
@@ -344,30 +557,36 @@ void main() {
       expect(_pdfPageCount(await buildBarcodeListPdf(data)), 1);
     });
 
-    test('renders 10 long-name cards on one page with bundled OpenSans', () async {
-      TestWidgetsFlutterBinding.ensureInitialized();
-      final data = BarcodeListData(
-        rows: [
-          for (var i = 0; i < barcodeBookletItemsPerPage; i++)
-            BarcodeListRow(
-              productName:
-                  'Industrial Heavy Duty Galvanized Steel Pipe Coupling #$i',
-              variantName: '25mm Schedule 40 Threaded',
-              unitCode: i.isEven ? 'PC' : 'BOX',
-              price: 1245.75,
-              code: i == 0 ? '4800016123450' : 'QB000${i.toString().padLeft(3, '0')}-1',
-            ),
-        ],
-        generatedAt: DateTime(2026, 11, 11, 9),
-        categoryLabel: 'Plumbing',
-        activeOnly: true,
-      );
+    test(
+      'renders 10 long-name cards on one page with bundled OpenSans (all categories grouped)',
+      () async {
+        TestWidgetsFlutterBinding.ensureInitialized();
+        final data = BarcodeListData(
+          rows: [
+            for (var i = 0; i < barcodeBookletItemsPerPage; i++)
+              BarcodeListRow(
+                productName:
+                    'Industrial Heavy Duty Galvanized Steel Pipe Coupling #$i',
+                variantName: '25mm Schedule 40 Threaded',
+                unitCode: i.isEven ? 'PC' : 'BOX',
+                price: 1245.75,
+                code: i == 0
+                    ? '4800016123450'
+                    : 'QB000${i.toString().padLeft(3, '0')}-1',
+                categoryName: 'Plumbing',
+              ),
+          ],
+          generatedAt: DateTime(2026, 11, 11, 9),
+          categoryLabel: 'All categories',
+          activeOnly: true,
+        );
 
-      final bytes = await buildBarcodeListPdfWithOpenSans(data);
+        final bytes = await buildBarcodeListPdfWithOpenSans(data);
 
-      expect(bytes, isNotEmpty);
-      expect(_pdfPageCount(bytes), 1);
-    });
+        expect(bytes, isNotEmpty);
+        expect(_pdfPageCount(bytes), 1);
+      },
+    );
   });
 
   group('barcodeListPageLabel', () {

@@ -145,7 +145,7 @@ class _BarcodeListDialogState extends State<BarcodeListDialog> {
       products++;
       rows.addAll(productRows);
     }
-    return (rows: rows, products: products);
+    return (rows: sortBarcodeListRows(rows), products: products);
   }
 
   BarcodeListData _data(List<BarcodeListRow> rows) => BarcodeListData(

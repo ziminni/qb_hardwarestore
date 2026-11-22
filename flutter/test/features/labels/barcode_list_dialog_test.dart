@@ -283,6 +283,116 @@ void main() {
     expect(find.byType(AppDialog), findsOneWidget);
   });
 
+  testWidgets('exports are grouped by category A-Z and alphabetical inside', (
+    tester,
+  ) async {
+    final exporter = RecordingExporter();
+    final unsortedProducts = [
+      Product(
+        id: 20,
+        categoryId: 2,
+        categoryName: 'Plumbing',
+        brandId: 2,
+        brandName: 'Neltex',
+        baseName: 'Teflon Tape',
+        description: '',
+        imageUrl: '',
+        isActive: true,
+        variants: [
+          variant(
+            id: 200,
+            productId: 20,
+            sellingUoms: [unit(id: 201, variantId: 200, code: 'QB000201-1')],
+          ),
+        ],
+      ),
+      Product(
+        id: 21,
+        categoryId: 2,
+        categoryName: 'Plumbing',
+        brandId: 2,
+        brandName: 'Neltex',
+        baseName: 'Angle Valve',
+        description: '',
+        imageUrl: '',
+        isActive: true,
+        variants: [
+          variant(
+            id: 202,
+            productId: 21,
+            sellingUoms: [unit(id: 203, variantId: 202, code: 'QB000203-1')],
+          ),
+        ],
+      ),
+      Product(
+        id: 22,
+        categoryId: 1,
+        categoryName: 'Electrical',
+        brandId: 1,
+        brandName: 'Omni',
+        baseName: 'Switch',
+        description: '',
+        imageUrl: '',
+        isActive: true,
+        variants: [
+          variant(
+            id: 204,
+            productId: 22,
+            sellingUoms: [unit(id: 205, variantId: 204, code: 'QB000205-1')],
+          ),
+        ],
+      ),
+      Product(
+        id: 23,
+        categoryId: 1,
+        categoryName: 'Electrical',
+        brandId: 1,
+        brandName: 'Omni',
+        baseName: 'Breaker',
+        description: '',
+        imageUrl: '',
+        isActive: true,
+        variants: [
+          variant(
+            id: 206,
+            productId: 23,
+            sellingUoms: [unit(id: 207, variantId: 206, code: 'QB000207-1')],
+          ),
+        ],
+      ),
+    ];
+
+    await pumpDialog(tester, exporter, products: unsortedProducts);
+    await tester.tap(find.text('Save PDF'));
+    await tester.pumpAndSettle();
+
+    expect(
+      exporter.pdfs.single.rows
+          .map((r) => '${r.categoryName}:${r.productName}')
+          .toList(),
+      [
+        'Electrical:Breaker',
+        'Electrical:Switch',
+        'Plumbing:Angle Valve',
+        'Plumbing:Teflon Tape',
+      ],
+    );
+
+    // Narrow to Plumbing: still alphabetical A-Z inside the specific category.
+    await pumpDialog(tester, exporter, products: unsortedProducts);
+    await tester.tap(find.text('All categories'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Plumbing').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save PDF'));
+    await tester.pumpAndSettle();
+
+    expect(
+      exporter.pdfs.last.rows.map((r) => r.productName).toList(),
+      ['Angle Valve', 'Teflon Tape'],
+    );
+  });
+
   testWidgets('an empty filter result refuses to export anything', (
     tester,
   ) async {
