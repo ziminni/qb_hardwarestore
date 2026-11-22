@@ -553,6 +553,8 @@ class HeldCart(models.Model):
         related_name="held_carts",
     )
     notes = models.TextField(blank=True, default="")
+    # Phase 4 (2026-11-22): active holds reserve stock until this timestamp.
+    expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -748,6 +750,8 @@ class StoreSettings(models.Model):
     shift_discount_cap_percent = models.DecimalField(
         max_digits=5, decimal_places=2, null=True, blank=True, default=None
     )
+    # Phase 4 (2026-11-22): how long a held cart reserves stock before expiring (default 2 h).
+    held_cart_expiry_minutes = models.PositiveIntegerField(default=120)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

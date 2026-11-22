@@ -318,6 +318,7 @@ class StoreSettingsView(APIView):
                 if row.shift_discount_cap_percent is None
                 else f"{row.shift_discount_cap_percent:.2f}"
             ),
+            "held_cart_expiry_minutes": row.held_cart_expiry_minutes,
             # Owner ruling (payment-method fees): these belong on THIS endpoint and not on
             # a collection of their own, because they are shop policy exactly like the VAT
             # rate and the discount cap - one row of decisions the Admin sets and every
@@ -529,6 +530,22 @@ class StoreSettingsView(APIView):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 row.shift_discount_cap_percent = value.quantize(Decimal("0.01"))
+
+        if "held_cart_expiry_minutes" in data:
+            raw = data["held_cart_expiry_minutes"]
+            try:
+                minutes = int(raw)
+            except (TypeError, ValueError):
+                minutes = -1
+            if not 5 <= minutes <= 1440:
+                return Response(
+                    {
+                        "code": "INVALID_SETTINGS",
+                        "detail": "Held cart expiry must be between 5 and 1440 minutes.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            row.held_cart_expiry_minutes = minutes
 
         after = self._body(row)
         # The fee table is written below, so `after` cannot show it yet: compare the list
@@ -1852,6 +1869,7 @@ class HeldCartViewSet(BaseViewSet):
                     credit_sale=BooleanField().run_validation(
                         request.data.get("credit_sale", False)
                     ),
+                    exclude_held_cart_id=cart.id,
                 )
                 cart.delete()
                 # Inside THIS block (decision 07): the sale, the deleted cart and the

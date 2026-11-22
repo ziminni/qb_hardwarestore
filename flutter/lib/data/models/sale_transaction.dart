@@ -7,6 +7,34 @@ import 'package:client/data/models/pick_up.dart';
 /// Shapes verified against `backend_django/apps/pos/serializers.py`
 /// (`SalesTransactionSerializer` + nested item/payment serializers).
 /// `customer_name` rides the row, so no per-row customer fetch is needed.
+/// One FIFO batch deduction recorded on a sale line (`items[].fifo_batches`).
+class FifoBatchDeduction {
+  const FifoBatchDeduction({
+    required this.batchId,
+    required this.qty,
+    required this.unitCost,
+    this.locationName = '',
+    this.receivedAt,
+  });
+
+  final int batchId;
+  final double qty;
+  final double unitCost;
+  final String locationName;
+  final DateTime? receivedAt;
+
+  factory FifoBatchDeduction.fromJson(Map<String, dynamic> json) =>
+      FifoBatchDeduction(
+        batchId: intField(json, 'batch_id'),
+        qty: decimalField(json, 'qty'),
+        unitCost: decimalField(json, 'unit_cost'),
+        locationName: json['location_name'] is String
+            ? json['location_name'] as String
+            : '',
+        receivedAt: nullableDateField(json, 'received_at'),
+      );
+}
+
 class TransactionLineItem {
   const TransactionLineItem({
     required this.variantUomId,
@@ -16,6 +44,7 @@ class TransactionLineItem {
     required this.subtotal,
     this.storedAtName = '',
     this.pickUp = const [],
+    this.fifoBatches = const [],
   });
 
   final int variantUomId;
@@ -33,6 +62,9 @@ class TransactionLineItem {
   /// and the line then falls back to [storedAtName] — see `pickUpCaption`.
   final List<PickUpPart> pickUp;
 
+  /// Exact FIFO batches deducted for this sale line (oldest first).
+  final List<FifoBatchDeduction> fifoBatches;
+
   factory TransactionLineItem.fromJson(Map<String, dynamic> json) =>
       TransactionLineItem(
         variantUomId: intField(json, 'variant_uom'),
@@ -44,6 +76,11 @@ class TransactionLineItem {
             ? json['stored_at_name'] as String
             : '',
         pickUp: nestedList(json, 'pick_up', PickUpPart.fromJson),
+        fifoBatches: nestedList(
+          json,
+          'fifo_batches',
+          FifoBatchDeduction.fromJson,
+        ),
       );
 }
 

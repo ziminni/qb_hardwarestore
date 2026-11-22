@@ -1311,6 +1311,7 @@ def process_sale(
     order_lines=None,
     delivery_link=None,
     credit_sale=False,
+    exclude_held_cart_id=None,
 ):
     """Process a complete walk-in sale or requisition release.
 
@@ -1539,7 +1540,11 @@ def process_sale(
             # receipt - the two numbers answer different questions.
             base_qty = qty * vuom.conversion_factor
             # Raises InsufficientStock on short stock → whole sale rolls back.
-            allocations = allocate_fifo(variant_id=vuom.variant_id, qty_needed=base_qty)
+            allocations = allocate_fifo(
+                variant_id=vuom.variant_id,
+                qty_needed=base_qty,
+                exclude_held_cart_id=exclude_held_cart_id,
+            )
             # Task 6A.4: persist which batches this item drew from. Without these
             # rows a linked return cannot know "the original batch it left from".
             from .models import SalesItemDeduction
