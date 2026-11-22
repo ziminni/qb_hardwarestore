@@ -116,6 +116,47 @@ class InventorySale {
   /// What the customer actually owed: the lines less the discount plus any payment fee.
   /// The sheet's total bar shows this, so a discounted or fee-bearing sale reconciles.
   double get amountDue => total - discountAmount + paymentFee;
+
+  String? get _normalizedBodegaStatus => bodegaStatus?.trim().toUpperCase();
+
+  /// True once all Bodega pickup lines for this sale have been released.
+  bool get isBodegaReleased =>
+      _normalizedBodegaStatus == 'RELEASED' ||
+      _normalizedBodegaStatus == 'ACCOMPLISHED';
+
+  /// True when some (but not all) Bodega pickup lines have been released.
+  bool get isBodegaPartial => _normalizedBodegaStatus == 'PARTIAL';
+
+  /// True when the sale is paid at the till but still waiting on Bodega pickup.
+  bool get isAwaitingBodega =>
+      status == InventorySaleStatus.completed &&
+      _normalizedBodegaStatus != null &&
+      !isBodegaReleased;
+
+  /// Unified general status shown on transaction tables, dashboard, and details sheet.
+  String get displayStatusLabel {
+    if (status == InventorySaleStatus.completed) {
+      if (isBodegaPartial) return 'Partial Pickup';
+      if (isAwaitingBodega) return 'Pending Pickup';
+    }
+    return status.label;
+  }
+
+  /// Short Bodega badge label for table rows, or null when no Bodega shelf was involved.
+  String? get bodegaBadgeLabel {
+    if (_normalizedBodegaStatus == null) return null;
+    if (isBodegaReleased) return 'Bodega: Released';
+    if (isBodegaPartial) return 'Bodega: Partial';
+    return 'Awaiting Bodega';
+  }
+
+  /// Full Bodega pickup status sentence for the transaction details sheet.
+  String? get bodegaDetailLabel {
+    if (_normalizedBodegaStatus == null) return null;
+    if (isBodegaReleased) return 'Released (Picked up)';
+    if (isBodegaPartial) return 'Partially picked up';
+    return 'Awaiting Bodega pickup';
+  }
 }
 
 class InventoryReturn {

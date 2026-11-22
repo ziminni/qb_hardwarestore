@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
@@ -16,12 +18,26 @@ class InventorySalesPage extends StatefulWidget {
 }
 
 class _InventorySalesPageState extends State<InventorySalesPage> {
+  Timer? _pollTimer;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<InventorySalesViewmodel>().load();
+      if (!mounted) return;
+      context.read<InventorySalesViewmodel>().load();
+      _pollTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+        if (mounted) {
+          context.read<InventorySalesViewmodel>().load(silent: true);
+        }
+      });
     });
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
   }
 
   @override

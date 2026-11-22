@@ -3,6 +3,7 @@ import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/data/models/tender_method.dart';
+import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/widgets/sales_document_sheet.dart';
 import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/data_panel.dart';
@@ -10,6 +11,7 @@ import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 /// Which role is reading the transaction list. The three screens that show it
 /// (cashier history, store manager transactions, stock manager sales) were three
@@ -80,6 +82,7 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
   static const List<String> _statusChips = [
     _anyStatus,
     'Completed',
+    'Pending Pickup',
     'Refunded',
     'Void',
   ];
@@ -144,7 +147,9 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
   }
 
   bool _matchesStatus(InventorySale sale) => switch (_status) {
-    'Completed' => sale.status == InventorySaleStatus.completed,
+    'Completed' =>
+      sale.status == InventorySaleStatus.completed && !sale.isAwaitingBodega,
+    'Pending Pickup' => sale.isAwaitingBodega,
     'Refunded' => sale.status == InventorySaleStatus.refunded,
     'Void' => sale.status == InventorySaleStatus.voided,
     _ => true,
@@ -349,18 +354,16 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
             spacing: 4,
             runSpacing: 4,
             children: [
-              StatusBadge(label: sale.status.label, tone: _tone(sale.status)),
-              if (sale.bodegaStatus != null)
+              StatusBadge(
+                label: sale.displayStatusLabel,
+                tone: _displayTone(sale),
+              ),
+              if (sale.bodegaBadgeLabel != null)
                 StatusBadge(
-                  label: switch (sale.bodegaStatus) {
-                    'ACCOMPLISHED' => 'Bodega: Accomplished',
-                    'PARTIAL' => 'Bodega: Partial',
-                    _ => 'Awaiting Bodega',
-                  },
-                  tone: switch (sale.bodegaStatus) {
-                    'ACCOMPLISHED' => StatusTone.success,
-                    _ => StatusTone.warning,
-                  },
+                  label: sale.bodegaBadgeLabel!,
+                  tone: sale.isBodegaReleased
+                      ? StatusTone.success
+                      : StatusTone.warning,
                 ),
             ],
           ),
@@ -450,11 +453,14 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
     );
   }
 
-  StatusTone _tone(InventorySaleStatus status) => switch (status) {
-    InventorySaleStatus.completed => StatusTone.success,
-    InventorySaleStatus.refunded => StatusTone.warning,
-    InventorySaleStatus.voided => StatusTone.error,
-  };
+  StatusTone _displayTone(InventorySale sale) {
+    if (sale.isAwaitingBodega) return StatusTone.warning;
+    return switch (sale.status) {
+      InventorySaleStatus.completed => StatusTone.success,
+      InventorySaleStatus.refunded => StatusTone.warning,
+      InventorySaleStatus.voided => StatusTone.error,
+    };
+  }
 
   /// Quantities come from exact batch arithmetic, so a whole number drops its
   /// ".0" and gains thousands separators; a fractional one keeps its decimals.
@@ -464,60 +470,75 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
   /// The whole document, read-only. Every role gets the same sheet: the lines,
   /// how it was paid, who rang it and the total. Only the manager also needs
   /// where the sale came from, which the cashier's page omits.
-  void _openDocument(BuildContext context, InventorySale sale) {
-    showSalesDocumentSheet(
-      context,
-      title: sale.transactionNo,
-      fields: [
-        ('Date', formatDateTime(sale.date)),
-        ('Customer', sale.customer),
-        ('Cashier', sale.cashier),
-        if (widget.role == SalesTransactionsRole.storeManager)
-          ('Source', sale.source),
-        ('Items', formatCount(sale.lines.length)),
-        ('Units out', _quantity(sale.totalQuantity)),
-        for (final payment in sale.payments)
-          (
-            'Payment (${TenderMethod.labelFor(payment.method)})',
-            formatPeso(payment.amount),
-          ),
-        if (sale.creditSale) ('Pricing', 'Credit price (utang)'),
-        if (sale.bodegaStatus != null)
-          (
-            'Bodega pickup',
-            switch (sale.bodegaStatus) {
-              'RELEASED' => 'Accomplished (picked up)',
-              'PARTIAL' => 'Partially picked up',
-              _ => 'Waiting for pickup at Bodega',
-            },
-          ),
-        // Phase 4 F4: the discount and its reason, then the VAT split the server
-        // computed. A non-VAT store says so instead of printing two zeroes.
-        if (sale.discountAmount > 0)
-          (
-            sale.discountReason.trim().isEmpty
-                ? 'Discount'
-                : 'Discount (${sale.discountReason})',
-            formatPeso(sale.discountAmount),
-          ),
-        if (sale.paymentFee > 0) ('Payment fee', formatPeso(sale.paymentFee)),
-        if (sale.vatRegistered) ...[
-          ('Vatable sales', formatPeso(sale.vatableSales)),
-          ('VAT', formatPeso(sale.vatAmount)),
-        ] else
-          ('VAT', 'Non-VAT'),
-        ('Status', sale.status.label),
-      ],
-      lines: [
-        for (final line in sale.lines)
-          SalesDocumentLine(
-            name: line.productName,
-            qty: line.quantity,
-            unitPrice: line.unitPrice,
-          ),
-      ],
-      // The total bar is what the customer owed: the lines less the discount.
-      total: sale.amountDue,
+  ///
+  /// Watches [InventorySalesViewmodel] when present so an open sheet stays
+  /// live-synced if Bodega releases the pickup while the cashier is viewing it.
+  void _openDocument(BuildContext context, InventorySale initialSale) {
+    showModalBottomSheet<SalesDocumentAction>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        InventorySalesViewmodel? vm;
+        try {
+          vm = Provider.of<InventorySalesViewmodel>(sheetContext);
+        } on ProviderNotFoundException {
+          vm = null;
+        }
+        final sale =
+            vm?.sales
+                .where((s) => s.transactionNo == initialSale.transactionNo)
+                .firstOrNull ??
+            initialSale;
+        return SalesDocumentSheet(
+          title: sale.transactionNo,
+          fields: [
+            if (sale.orNumber.isNotEmpty) ('OR Number', sale.orNumber),
+            ('Date', formatDateTime(sale.date)),
+            ('Customer', sale.customer),
+            ('Cashier', sale.cashier),
+            if (widget.role == SalesTransactionsRole.storeManager)
+              ('Source', sale.source),
+            ('Items', formatCount(sale.lines.length)),
+            ('Units out', _quantity(sale.totalQuantity)),
+            for (final payment in sale.payments)
+              (
+                'Payment (${TenderMethod.labelFor(payment.method)})',
+                formatPeso(payment.amount),
+              ),
+            if (sale.creditSale) ('Pricing', 'Credit price (utang)'),
+            if (sale.bodegaDetailLabel != null)
+              ('Bodega pickup', sale.bodegaDetailLabel!),
+            // Phase 4 F4: the discount and its reason, then the VAT split the server
+            // computed. A non-VAT store says so instead of printing two zeroes.
+            if (sale.discountAmount > 0)
+              (
+                sale.discountReason.trim().isEmpty
+                    ? 'Discount'
+                    : 'Discount (${sale.discountReason})',
+                formatPeso(sale.discountAmount),
+              ),
+            if (sale.paymentFee > 0)
+              ('Payment fee', formatPeso(sale.paymentFee)),
+            if (sale.vatRegistered) ...[
+              ('Vatable sales', formatPeso(sale.vatableSales)),
+              ('VAT', formatPeso(sale.vatAmount)),
+            ] else
+              ('VAT', 'Non-VAT'),
+            ('Status', sale.displayStatusLabel),
+          ],
+          lines: [
+            for (final line in sale.lines)
+              SalesDocumentLine(
+                name: line.productName,
+                qty: line.quantity,
+                unitPrice: line.unitPrice,
+              ),
+          ],
+          // The total bar is what the customer owed: the lines less the discount.
+          total: sale.amountDue,
+        );
+      },
     );
   }
 }

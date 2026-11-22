@@ -1,8 +1,8 @@
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/sales.dart';
-import 'package:client/features/sales/widgets/inventory_sales_status_badge.dart';
 import 'package:client/shared/widgets/data_panel.dart';
+import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
 
 /// The dashboard's short list of the newest sales: five rows, then "View all".
@@ -88,8 +88,16 @@ class SalesRecentTransactions extends StatelessWidget {
             ),
             DataPanelColumn(
               label: 'Status',
-              cell: (sale) =>
-                  InventorySalesStatusBadge.sale(status: sale.status),
+              cell: (sale) => StatusBadge(
+                label: sale.displayStatusLabel,
+                tone: sale.isAwaitingBodega
+                    ? StatusTone.warning
+                    : switch (sale.status) {
+                        InventorySaleStatus.completed => StatusTone.success,
+                        InventorySaleStatus.refunded => StatusTone.warning,
+                        InventorySaleStatus.voided => StatusTone.error,
+                      },
+              ),
             ),
           ],
         ),
