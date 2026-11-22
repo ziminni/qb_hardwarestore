@@ -381,16 +381,15 @@ void main() {
     });
 
     test(
-      'a product homed at Store but stocked in the Bodega matches Bodega, not '
-      'Store',
+      'a product stored at Store matches Store (not Bodega) even if some units were transferred to Bodega',
       () async {
         await seed();
 
         locationVm.setStockLocation(1);
-        expect(ids(), [2]);
+        expect(ids(), [1]);
 
         locationVm.setStockLocation(2);
-        expect(ids(), [1, 4]);
+        expect(ids(), [2, 4]);
       },
     );
 
@@ -435,32 +434,32 @@ void main() {
       expect(ids(), [5]);
     });
 
-    test('batches are never the quantity source', () async {
+    test('batches are never the quantity source for legacy unassigned products', () async {
       await seed(
-        // The old derivation would call this 500 on hand. The server's on-hand
-        // rows say the Store holds none, and they are the authority.
-        batches: [batch(id: 90, variantId: 2, qty: 500)],
+        // Product 4 has storedAtId == null (legacy): falls back to on-hand rows,
+        // never batch sums.
+        batches: [batch(id: 90, variantId: 44, qty: 500)],
         stockOnHand: [
-          onHand(variantId: 2, locationId: 1, locationName: 'Store', qty: 0),
+          onHand(variantId: 44, locationId: 1, locationName: 'Store', qty: 0),
         ],
       );
 
       locationVm.setStockLocation(1);
 
-      expect(locationVm.filteredProducts, isEmpty);
+      expect(ids(), isNot(contains(4)));
     });
 
     test('it combines with search, category and brand', () async {
       await seed();
 
-      locationVm.setStockLocation(2);
+      locationVm.setStockLocation(1);
       locationVm.setCategory('Cement');
       expect(ids(), [
         1,
-      ], reason: 'Shop Rags is Cement but its stock is elsewhere');
+      ], reason: 'Shop Rags is Cement but its stock is in Old Shed');
 
       locationVm.setCategory(null);
-      locationVm.setStockLocation(1);
+      locationVm.setStockLocation(2);
       locationVm.setBrand('Neltex');
       expect(ids(), [2]);
 
@@ -495,24 +494,25 @@ void main() {
 
       expect(locationVm.currentPage, 1);
       expect(locationVm.selectedProductIds, isEmpty);
-      expect(locationVm.visibleProducts.map((p) => p.id), [1]);
+      expect(locationVm.visibleProducts.map((p) => p.id), [2]);
     });
 
-    test('a reload re-reads the filter from the new on-hand rows', () async {
+    test('a reload re-reads the filter from the new on-hand rows for unassigned products', () async {
       await seed();
       locationVm.setStockLocation(1);
-      expect(ids(), [2]);
+      expect(ids(), [1]);
 
       storeRepo.setSnapshot(
         products: locationProducts(),
         stockOnHand: [
-          onHand(variantId: 1, locationId: 1, locationName: 'Store', qty: 12),
+          onHand(variantId: 44, locationId: 1, locationName: 'Store', qty: 12),
         ],
       );
       await store.load();
 
       expect(ids(), [
         1,
+        4,
       ], reason: 'the filter must read the store live, not a snapshot');
     });
   });

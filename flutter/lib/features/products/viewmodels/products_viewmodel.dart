@@ -101,7 +101,7 @@ class ProductsViewmodel extends ChangeNotifier {
           return matchesSearch &&
               matchesCategory &&
               matchesBrand &&
-              _hasStockAt(product, _selectedStockLocationId) &&
+              _matchesLocation(product, _selectedStockLocationId) &&
               product.isActive;
         })
         .toList(growable: false);
@@ -170,16 +170,18 @@ class ProductsViewmodel extends ChangeNotifier {
     return List.unmodifiable(options);
   }
 
-  /// True when ANY variant of [product] holds a positive quantity on the chosen
-  /// shelf, read from the server's `/stock-on-hand/` rows.
+  /// Matches [product] against the selected storage location filter.
   ///
-  /// `null` means "All locations" and matches everything, so a product with no
-  /// stock row at all stays visible there. The product's `stored_at` home is a
-  /// pick DEFAULT, never a location, so it is not consulted here — and the rows
-  /// are the quantity authority, never the batch sums: a variant without a row
-  /// holds nothing on that shelf.
-  bool _hasStockAt(Product product, int? locationId) {
+  /// Uses the product's assigned `storedAtId` (matching the Store / Bodega
+  /// badge shown on each product row, the Stock view, and the POS till).
+  /// For legacy products with no `storedAtId`, falls back to physical
+  /// `/stock-on-hand/` rows so stock on deactivated/unassigned shelves stays
+  /// reachable.
+  bool _matchesLocation(Product product, int? locationId) {
     if (locationId == null) return true;
+    if (product.storedAtId != null) {
+      return product.storedAtId == locationId;
+    }
     return product.variants.any(
       (variant) => _inventory
           .stockByLocationFor(variant.id)

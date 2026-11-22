@@ -240,12 +240,8 @@ class _ProductsToolbarState extends State<ProductsToolbar> {
             },
           ),
           const SizedBox(height: AppSpacing.sm),
-          // Say what the filter means: it narrows by WHERE stock is, and the
-          // quantities on screen stay totals, so nobody reads them as this
-          // shelf's count.
           const Text(
-            'Shows products with stock available at the chosen location. '
-            'Quantities shown are still totals across every location.',
+            'Filters products by their assigned storage location (Store or Bodega).',
             style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
           ),
           Align(
