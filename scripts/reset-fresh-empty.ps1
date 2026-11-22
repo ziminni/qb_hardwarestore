@@ -81,6 +81,10 @@ for un, role, is_admin in roles:
     user.save()
     user.groups.add(grp)
 
+Customer.objects.get_or_create(
+    name="Walk-in Customer",
+    defaults={"customer_type": "WALK_IN"},
+)
 payer = Customer.objects.create(
     name="BuildRight Construction",
     customer_type="CONSTRUCTION_FIRM",
