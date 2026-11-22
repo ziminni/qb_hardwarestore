@@ -212,6 +212,8 @@ class HeldCartService {
     'DISCOUNT_APPROVAL_INVALID':
         'That discount approval is not valid or has expired. Ask the manager to '
         'approve the discount again.',
+    'DISCOUNT_MODE_CONFLICT':
+        'Use either per-product discounts or a whole-sale discount, not both.',
     'INVALID_DISCOUNT':
         'That discount cannot be applied. Check the amount against the sale total '
         'and try again.',

@@ -1,14 +1,7 @@
-// Goods the shop never discounts (owner ruling: cement, "Turn off for goods you
-// never discount").
-//
-// The server refuses a line discount on such a product with 400 INVALID_DISCOUNT and
-// leaves the line out of the sale discount's base. The till must therefore:
-//  1. carry the flag from the catalogue onto the cart line (like the name and the
-//     pick-up point, which use the same route);
-//  2. not OFFER the line-discount control on that line, and say why;
-//  3. refuse a line discount set on it through the viewmodel, not only through the UI;
-//  4. measure a sale discount on the discountable lines only, so the preview matches
-//     what the server charges.
+// Phase 2 (2026-11-22): discount exclusions are chosen by the cashier at the till
+// rather than blocked by a product-level flag. Any line can take a per-product
+// discount, and when a whole-sale discount is used, unticking a line leaves it out
+// of the measured base (`neverDiscountedTotal`).
 
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/data/models/sale_discount.dart';
@@ -27,7 +20,7 @@ class _StubPosRepository extends PosRepository {
   _StubPosRepository() : super(PosService());
 }
 
-/// Cement (id 1, never discounted) beside pipe (id 2, discountable).
+/// Cement (id 1, legacy allowDiscount=false) beside pipe (id 2).
 PosTransactionViewmodel _till() {
   final products = [
     product(
@@ -117,22 +110,7 @@ PosCatalogItem _row(PosTransactionViewmodel cart, String name) =>
     cart.filteredProducts.singleWhere((item) => item.productName == name);
 
 void main() {
-  test('the catalogue row carries the product\'s allow_discount', () {
-    final cart = _till();
-
-    expect(_row(cart, 'Portland Cement').allowDiscount, isFalse);
-    expect(_row(cart, 'PVC Pipe').allowDiscount, isTrue);
-  });
-
-  test('the cart line carries the flag, like the name and the location', () {
-    final cart = _till();
-    expect(cart.addLine(_row(cart, 'Portland Cement'), 2), isNull);
-
-    expect(cart.lines.single.productName, 'Portland Cement');
-    expect(cart.lines.single.allowDiscount, isFalse);
-  });
-
-  test('the viewmodel refuses a line discount on a never-discounted line', () {
+  test('a line discount is allowed even when legacy allowDiscount is false', () {
     final cart = _till();
     expect(cart.addLine(_row(cart, 'Portland Cement'), 2), isNull);
 
@@ -145,86 +123,49 @@ void main() {
       ),
     );
 
-    expect(cart.lines.single.discount, isNull);
-    expect(cart.lineDiscountTotal, 0);
-    expect(cart.total, 540);
+    expect(cart.lines.single.discount, isNotNull);
+    expect(cart.lineDiscountTotal, 40);
+    expect(cart.total, 500);
   });
 
-  test('a discountable line beside it still takes one', () {
-    final cart = _till();
-    expect(cart.addLine(_row(cart, 'Portland Cement'), 2), isNull);
-    expect(cart.addLine(_row(cart, 'PVC Pipe'), 1), isNull);
-
-    cart.setLineDiscount(
-      1,
-      const PosDiscount(
-        kind: DiscountKind.amount,
-        value: 5,
-        reason: 'bulk',
-      ),
-    );
-
-    expect(cart.lines.last.discount, isNotNull);
-    expect(cart.lineDiscountTotal, 5);
-  });
-
-  test('the sale-discount base leaves the never-discounted lines out', () {
+  test('unticking a line leaves it out of the whole-sale discount base', () {
     final cart = _till();
     expect(cart.addLine(_row(cart, 'Portland Cement'), 2), isNull);
     expect(cart.addLine(_row(cart, 'PVC Pipe'), 2), isNull);
 
-    // 540 of cement is never discounted; only 190 of pipe is.
+    // By default all lines are included in a whole-sale discount.
+    expect(cart.neverDiscountedTotal, 0);
+
+    // Cashier unticks Portland Cement (540); only PVC Pipe (190) is included.
+    cart.setLineIncludedInDiscount(0, false);
     expect(cart.neverDiscountedTotal, 540);
     expect(cart.total, 730);
 
     final amounts = PosDiscountAmounts.forDiscount(
       cart.total,
-      const PosDiscount(
-        kind: DiscountKind.percent,
-        value: 10,
-        reason: 'loyal',
-      ),
-      lineDiscountAmount: cart.lineDiscountTotal,
+      const PosDiscount(kind: DiscountKind.percent, value: 10, reason: 'bulk'),
       neverDiscountedTotal: cart.neverDiscountedTotal,
     );
-
-    expect(amounts.discountAmount, 19, reason: '10% of the discountable 190');
-    expect(amounts.gross, 730);
+    expect(amounts.discountAmount, 19);
     expect(amounts.net, 711);
   });
 
-  testWidgets('the cart does not offer a line discount on that line', (
-    tester,
-  ) async {
-    final cart = _till();
-    expect(cart.addLine(_row(cart, 'Portland Cement'), 2), isNull);
-    await _pumpCart(tester, cart);
-
-    final button = tester.widget<IconButton>(
-      find.byKey(const ValueKey('pos-line-discount-open-0')),
-    );
-
-    expect(button.onPressed, isNull, reason: 'nothing to press');
-    expect(button.tooltip, 'This product is never discounted');
-  });
-
-  testWidgets('a discountable line beside it keeps its control', (
+  testWidgets('cart offers line discount on every line by default', (
     tester,
   ) async {
     final cart = _till();
     expect(cart.addLine(_row(cart, 'Portland Cement'), 2), isNull);
     expect(cart.addLine(_row(cart, 'PVC Pipe'), 1), isNull);
+
     await _pumpCart(tester, cart);
 
-    final cement = tester.widget<IconButton>(
+    final cementBtn = tester.widget<IconButton>(
       find.byKey(const ValueKey('pos-line-discount-open-0')),
     );
-    final pipe = tester.widget<IconButton>(
+    final pipeBtn = tester.widget<IconButton>(
       find.byKey(const ValueKey('pos-line-discount-open-1')),
     );
-
-    expect(cement.onPressed, isNull);
-    expect(pipe.onPressed, isNotNull);
-    expect(pipe.tooltip, 'Discount PVC Pipe');
+    expect(cementBtn.onPressed, isNotNull);
+    expect(pipeBtn.onPressed, isNotNull);
   });
 }

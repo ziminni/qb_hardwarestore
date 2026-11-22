@@ -252,24 +252,18 @@ class LineDiscountTests(DiscountVATBase):
             sale.items.order_by("id")[0].item_discount_amount, Decimal("1.00")
         )
 
-    def test_sale_discount_is_shared_over_balances_after_line_discounts(self):
+    def test_combining_line_and_sale_discount_is_refused(self):
         response = self._ring_lines(
             first_discount=self._line("AMOUNT", "2.00"),
             sale_discount={"kind": "AMOUNT", "value": "1.00", "reason": "Promo"},
         )
-        self.assertEqual(response.status_code, 201, response.content)
-        sale = SalesTransaction.objects.get(pk=response.json()["id"])
-        self.assertEqual(sale.discount_amount, Decimal("3.00"))
-        self.assertEqual(sale.grand_total, Decimal("27.00"))
-        first, second = sale.items.order_by("id")
-        # Balances after the line discount: 18.00 and 10.00, so 1.00 splits 0.64 / 0.36.
-        self.assertEqual(first.cart_discount_amount, Decimal("0.64"))
-        self.assertEqual(second.cart_discount_amount, Decimal("0.36"))
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()["code"], "DISCOUNT_MODE_CONFLICT")
+        self.assertEqual(SalesTransaction.objects.count(), 0)
 
-    def test_the_cap_measures_the_combined_discount(self):
+    def test_the_cap_measures_all_line_discounts_together(self):
         response = self._ring_lines(
-            first_discount=self._line("AMOUNT", "2.00"),  # 6.67 percent alone
-            sale_discount={"kind": "AMOUNT", "value": "1.50", "reason": "Promo"},
+            first_discount=self._line("AMOUNT", "3.50"),  # 11.67% of 30.00
         )
         self.assertEqual(response.status_code, 400, response.content)
         self.assertEqual(response.json()["code"], "DISCOUNT_OVER_CAP")
@@ -422,8 +416,18 @@ class NonDiscountableProductTests(DiscountVATBase):
         )
         self._settings(discount_cap_percent=10, vat_registered=False)
 
-    def _ring_mix(self, sale_discount=None, cement_line_discount=None):
-        cement = {"variant_id": self.vuom.id, "qty": 2}  # 20.00, never discounted
+    def _ring_mix(
+        self,
+        sale_discount=None,
+        cement_line_discount=None,
+        *,
+        include_cement=False,
+    ):
+        cement = {
+            "variant_id": self.vuom.id,
+            "qty": 2,
+            "include_in_discount": include_cement,
+        }
         if cement_line_discount is not None:
             cement["discount"] = cement_line_discount
         body = self._sale_body(discount=sale_discount)
@@ -433,9 +437,10 @@ class NonDiscountableProductTests(DiscountVATBase):
             TRANSACTIONS_URL, body, format="json", **self.cashier_auth
         )
 
-    def test_the_sale_discount_is_shared_over_discountable_lines_only(self):
+    def test_the_sale_discount_is_shared_over_included_lines_only(self):
         response = self._ring_mix(
-            sale_discount={"kind": "AMOUNT", "value": "1.00", "reason": "Promo"}
+            sale_discount={"kind": "AMOUNT", "value": "1.00", "reason": "Promo"},
+            include_cement=False,
         )
         self.assertEqual(response.status_code, 201, response.content)
         sale = SalesTransaction.objects.get(pk=response.json()["id"])
@@ -444,9 +449,10 @@ class NonDiscountableProductTests(DiscountVATBase):
         self.assertEqual(tool.cart_discount_amount, Decimal("1.00"))
         self.assertEqual(sale.grand_total, Decimal("29.00"))
 
-    def test_a_percentage_is_measured_on_the_discountable_lines(self):
+    def test_a_percentage_is_measured_on_the_included_lines(self):
         response = self._ring_mix(
-            sale_discount={"kind": "PERCENT", "value": "10", "reason": "Promo"}
+            sale_discount={"kind": "PERCENT", "value": "10", "reason": "Promo"},
+            include_cement=False,
         )
         self.assertEqual(response.status_code, 201, response.content)
         sale = SalesTransaction.objects.get(pk=response.json()["id"])
@@ -454,16 +460,22 @@ class NonDiscountableProductTests(DiscountVATBase):
             sale.discount_amount, Decimal("1.00")
         )  # 10% of 10.00, not 30.00
 
-    def test_a_line_discount_on_it_is_refused(self):
+    def test_a_line_discount_is_allowed_at_the_till(self):
         response = self._ring_mix(
             cement_line_discount={"kind": "AMOUNT", "value": "1.00", "reason": "x"}
         )
-        self.assertEqual(response.status_code, 400, response.content)
-        self.assertEqual(response.json()["code"], "INVALID_DISCOUNT")
+        self.assertEqual(response.status_code, 201, response.content)
+        sale = SalesTransaction.objects.get(pk=response.json()["id"])
+        self.assertEqual(sale.discount_amount, Decimal("1.00"))
 
-    def test_a_sale_of_only_such_products_takes_no_discount(self):
-        response = self._ring(
+    def test_a_sale_with_all_lines_excluded_takes_no_whole_sale_discount(self):
+        body = self._sale_body(
             discount={"kind": "AMOUNT", "value": "1.00", "reason": "Promo"}
+        )
+        for item in body["items"]:
+            item["include_in_discount"] = False
+        response = self.client.post(
+            TRANSACTIONS_URL, body, format="json", **self.cashier_auth
         )
         self.assertEqual(response.status_code, 400, response.content)
         self.assertEqual(response.json()["code"], "INVALID_DISCOUNT")

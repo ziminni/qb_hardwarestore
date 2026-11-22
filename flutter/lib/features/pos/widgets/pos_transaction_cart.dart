@@ -567,21 +567,17 @@ class PosTransactionCart extends StatelessWidget {
                     height: 36,
                     child: IconButton(
                       key: ValueKey('pos-line-discount-open-$index'),
-                      // The server refuses a line discount on goods the shop never
-                      // discounts, so the control is DISABLED with the reason rather
-                      // than hidden: a vanished button reads as a bug, and the
-                      // cashier needs to know why cement cannot be marked down.
-                      tooltip: line.allowDiscount
-                          ? 'Discount ${line.productName}'
-                          : 'This product is never discounted',
+                      tooltip: state.hasWholeSaleDiscount
+                          ? 'Clear whole-sale discount to discount individual lines'
+                          : 'Discount ${line.productName}',
                       padding: EdgeInsets.zero,
                       iconSize: 18,
                       color: line.discount == null
                           ? null
                           : AppColors.successText,
-                      onPressed: line.allowDiscount
-                          ? () => _editLineDiscount(context, state, index)
-                          : null,
+                      onPressed: state.hasWholeSaleDiscount
+                          ? null
+                          : () => _editLineDiscount(context, state, index),
                       icon: const Icon(Icons.percent),
                     ),
                   ),
@@ -600,6 +596,79 @@ class PosTransactionCart extends StatelessWidget {
                   ),
                 ],
               ),
+              if (state.hasWholeSaleDiscount)
+                Builder(
+                  builder: (context) {
+                    final wholeSale = state.wholeSaleDiscount!;
+                    final amounts = PosDiscountAmounts.forDiscount(
+                      state.total,
+                      wholeSale,
+                      neverDiscountedTotal: state.neverDiscountedTotal,
+                    );
+                    final shares = allocateWholeSaleDiscountShares(
+                      [
+                        for (final item in state.lines)
+                          (
+                            amount: state.creditSale
+                                ? item.creditTotal
+                                : item.total,
+                            included: item.includeInDiscount,
+                          ),
+                      ],
+                      amounts.discountAmount,
+                    );
+                    final share = index < shares.length ? shares[index] : 0.0;
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: Checkbox(
+                              key: ValueKey('pos-cart-discount-include-$index'),
+                              value: line.includeInDiscount,
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                              onChanged: (checked) {
+                                if (checked != null) {
+                                  state.setLineIncludedInDiscount(
+                                    index,
+                                    checked,
+                                  );
+                                }
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              line.includeInDiscount
+                                  ? 'Included in whole-sale discount'
+                                  : 'Excluded from discount',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: line.includeInDiscount
+                                    ? AppColors.textSecondary
+                                    : AppColors.warningText,
+                              ),
+                            ),
+                          ),
+                          if (line.includeInDiscount && share > 0)
+                            Text(
+                              '-${formatPeso(share)}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.successText,
+                                fontFeatures: [FontFeature.tabularFigures()],
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
               if (line.discount case final discount?)
                 Padding(
                   key: ValueKey('pos-line-discount-label-$index'),

@@ -415,6 +415,18 @@ class DiscountApprovalInvalid(DiscountError):
     code = "DISCOUNT_APPROVAL_INVALID"
 
 
+class DiscountModeConflict(DiscountError):
+    """Both per-product and whole-sale discounts were submitted on the same sale."""
+
+    code = "DISCOUNT_MODE_CONFLICT"
+
+    def __init__(
+        self,
+        message="Use either per-product discounts or a whole-sale discount, not both.",
+    ):
+        super().__init__(message)
+
+
 class ChequeError(ValueError):
     """A cheque the server refuses to record or decide (B2, decision 18).
 

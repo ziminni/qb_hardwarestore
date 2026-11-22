@@ -163,6 +163,8 @@ String? discountRefusalSentence(
     case 'DISCOUNT_APPROVAL_INVALID':
       return 'That discount approval is not valid or has expired. Ask the manager '
           'to approve the discount again.';
+    case 'DISCOUNT_MODE_CONFLICT':
+      return 'Use either per-product discounts or a whole-sale discount, not both.';
     case 'INVALID_DISCOUNT':
       return 'That discount cannot be applied. Check the amount against the sale '
           'total and try again.';
@@ -243,3 +245,60 @@ String _percent(double value) {
 
 /// The larger of two amounts, kept here so callers do not import dart:math.
 double largerOf(double a, double b) => math.max(a, b);
+
+/// Splits [discountAmount] proportionally across the included [lines] using centavo
+/// largest-remainder rounding, matching the server's `allocate_discounts`.
+List<double> allocateWholeSaleDiscountShares(
+  List<({double amount, bool included})> lines,
+  double discountAmount,
+) {
+  final count = lines.length;
+  if (count == 0 || discountAmount <= 0) {
+    return List<double>.filled(count, 0);
+  }
+  final totalCents = (discountAmount * 100).round();
+  if (totalCents <= 0) {
+    return List<double>.filled(count, 0);
+  }
+  final lineCents = [
+    for (final line in lines)
+      line.included ? math.max(0, (line.amount * 100).round()) : 0,
+  ];
+  final eligibleTotal = lineCents.fold<int>(0, (sum, c) => sum + c);
+  if (eligibleTotal <= 0) {
+    return List<double>.filled(count, 0);
+  }
+  final cappedTotal = math.min(totalCents, eligibleTotal);
+  final floors = List<int>.filled(count, 0);
+  final remainders = List<int>.filled(count, 0);
+  var assigned = 0;
+  for (var i = 0; i < count; i++) {
+    final base = lineCents[i];
+    if (base <= 0) continue;
+    final num = cappedTotal * base;
+    floors[i] = num ~/ eligibleTotal;
+    remainders[i] = num % eligibleTotal;
+    assigned += floors[i];
+  }
+  var leftover = cappedTotal - assigned;
+  if (leftover > 0) {
+    final order = [
+      for (var i = 0; i < count; i++)
+        if (lineCents[i] > 0) i,
+    ]..sort((a, b) {
+        final byRem = remainders[b].compareTo(remainders[a]);
+        if (byRem != 0) return byRem;
+        final byBase = lineCents[b].compareTo(lineCents[a]);
+        if (byBase != 0) return byBase;
+        return a.compareTo(b);
+      });
+    for (var i = 0; i < order.length && leftover > 0; i++) {
+      final idx = order[i];
+      if (floors[idx] < lineCents[idx]) {
+        floors[idx] += 1;
+        leftover -= 1;
+      }
+    }
+  }
+  return [for (final cents in floors) cents / 100];
+}
