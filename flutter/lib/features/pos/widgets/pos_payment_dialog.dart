@@ -296,6 +296,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
   bool get _isLastStep => _inline || _stepIndex == _steps.length - 1;
 
   void _cancel() {
+    widget.cart?.setWholeSaleDiscount(null);
     final cancel = widget.onCancel;
     if (cancel != null) {
       cancel();
@@ -342,6 +343,13 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
       _tenderError = 'A discount needs a reason.';
       return _PayStep.discount;
     }
+    if (_discountOn &&
+        _discount != null &&
+        widget.currentLines.isNotEmpty &&
+        widget.currentLines.every((line) => !line.includeInDiscount)) {
+      _tenderError = 'Select at least one item to apply a whole-sale discount.';
+      return _PayStep.discount;
+    }
     return null;
   }
 
@@ -380,6 +388,9 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
   CustomerProfile? get _activeProfile =>
       CustomerProfileStore.instance.resolveFor(widget.currentCustomer);
 
+  bool get _hasLineDiscount =>
+      (widget.cart?.hasLineDiscount ?? false) || widget.lineDiscountTotal > 0;
+
   /// Pre-populates Discount, Utang, and Delivery fields from the selected
   /// customer's saved profile while leaving every field editable.
   void _applyCustomerPrefill() {
@@ -390,13 +401,14 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
     _prefillUtangFields(buyer, profile);
     _prefillDeliveryFields(buyer, profile);
 
-    if (widget.allowDiscount) {
+    if (widget.allowDiscount && !_hasLineDiscount) {
       final preset = profile?.toPosDiscount;
       if (preset != null) {
         _discountOn = true;
         _kind = preset.kind;
         _discountValue.text = formatQuantity(preset.value);
         _discountReason.text = preset.reason;
+        widget.cart?.setWholeSaleDiscount(_discount);
       }
     }
   }
@@ -634,17 +646,21 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
 
   /// Turning the discount off clears it, so a hidden value is never applied.
   void _setDiscountOn(bool value) {
+    if (value && _hasLineDiscount) return;
     setState(() => _discountOn = value);
     if (!value) {
       _discountValue.clear();
       _discountReason.clear();
       _onDiscountChanged();
+    } else {
+      widget.cart?.setWholeSaleDiscount(_discount);
     }
   }
 
   void _onDiscountChanged() {
     _approvalToken = null;
     _approvedPercent = 0;
+    widget.cart?.setWholeSaleDiscount(_discountOn ? _discount : null);
     setState(() {
       _syncFollowingRows();
       _tenderError = null;
@@ -935,26 +951,49 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                         child: Center(
                           child: ConstrainedBox(
                             constraints: const BoxConstraints(maxWidth: 400),
-                            child: Row(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                Expanded(
-                                  child: _squareButton(
-                                    key: const ValueKey('pos-discount-toggle'),
-                                    icon: Icons.sell_outlined,
-                                    label: 'Apply discount',
-                                    onTap: () => _setDiscountOn(true),
-                                  ),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _squareButton(
+                                        key: const ValueKey(
+                                          'pos-discount-toggle',
+                                        ),
+                                        icon: Icons.sell_outlined,
+                                        label: 'Apply discount',
+                                        onTap: _hasLineDiscount
+                                            ? null
+                                            : () => _setDiscountOn(true),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: _squareButton(
+                                        key: const ValueKey('pos-payment-next'),
+                                        icon: Icons.arrow_forward,
+                                        label: 'Continue',
+                                        dark: true,
+                                        onTap: _next,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _squareButton(
-                                    key: const ValueKey('pos-payment-next'),
-                                    icon: Icons.arrow_forward,
-                                    label: 'Continue',
-                                    dark: true,
-                                    onTap: _next,
+                                if (_hasLineDiscount)
+                                  const Padding(
+                                    padding: EdgeInsets.only(top: 12),
+                                    child: Text(
+                                      'Per-product discounts are active. Clear '
+                                      'line discounts to use a whole-sale discount.',
+                                      key: ValueKey('pos-discount-mode-notice'),
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 12.5,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
                                   ),
-                                ),
                               ],
                             ),
                           ),
@@ -972,9 +1011,12 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                         trailing: Switch(
                           key: const ValueKey('pos-discount-toggle'),
                           value: _discountOn,
-                          onChanged: _setDiscountOn,
+                          onChanged: _hasLineDiscount ? null : _setDiscountOn,
                         ),
-                        note: needsApproval
+                        note: _hasLineDiscount
+                            ? 'Per-product discounts are active. Clear line '
+                                  'discounts to use a whole-sale discount.'
+                            : needsApproval
                             ? 'Needs manager approval: '
                                   '${amounts.percentOfGross.toStringAsFixed(2)}% '
                                   'is above the '
@@ -1062,6 +1104,12 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                                 ),
                               ],
                             ),
+                            if (_discountOn &&
+                                widget.cart != null &&
+                                widget.currentLines.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              _wholeSaleLineInclusionList(amounts),
+                            ],
                             // The over-cap sentence is the section's note.
                           ],
                         ),
@@ -1554,22 +1602,135 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
     );
   }
 
+  Widget _wholeSaleLineInclusionList(PosDiscountAmounts amounts) {
+    final cart = widget.cart!;
+    final lines = widget.currentLines;
+    final shares = allocateWholeSaleDiscountShares(
+      [
+        for (final line in lines)
+          (
+            amount: cart.creditSale ? line.creditTotal : line.total,
+            included: line.includeInDiscount,
+          ),
+      ],
+      amounts.discountAmount,
+    );
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceSunken,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Items included in whole-sale discount',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          for (var i = 0; i < lines.length; i++)
+            InkWell(
+              onTap: () {
+                cart.setLineIncludedInDiscount(i, !lines[i].includeInDiscount);
+                _onDiscountChanged();
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: Checkbox(
+                        key: ValueKey('pos-discount-include-$i'),
+                        value: lines[i].includeInDiscount,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        onChanged: (checked) {
+                          if (checked == null) return;
+                          cart.setLineIncludedInDiscount(i, checked);
+                          _onDiscountChanged();
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        lines[i].variantName.isEmpty
+                            ? lines[i].productName
+                            : '${lines[i].productName} · ${lines[i].variantName}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: lines[i].includeInDiscount
+                              ? AppColors.brandBlack
+                              : AppColors.textSecondary,
+                          decoration: lines[i].includeInDiscount
+                              ? null
+                              : TextDecoration.lineThrough,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      lines[i].includeInDiscount
+                          ? (shares[i] > 0
+                                ? '-${formatPeso(shares[i])}'
+                                : formatPeso(
+                                    cart.creditSale
+                                        ? lines[i].creditTotal
+                                        : lines[i].total,
+                                  ))
+                          : 'Excluded',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: lines[i].includeInDiscount
+                            ? (shares[i] > 0
+                                  ? AppColors.successText
+                                  : AppColors.textSecondary)
+                            : AppColors.warningText,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   /// A big square choice on the Discount step: an icon over a label. Gold
   /// when [selected]; black for the step's forward choice.
   Widget _squareButton({
     required Key key,
     required IconData icon,
     required String label,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
     bool selected = false,
     bool dark = false,
   }) {
-    final background = dark
+    final disabled = onTap == null;
+    final background = disabled
+        ? AppColors.surfaceSunken
+        : dark
         ? AppColors.brandBlack
         : selected
         ? AppColors.brandGoldLight
         : AppColors.cardBackground;
-    final foreground = dark ? AppColors.brandWhite : AppColors.brandBlack;
+    final foreground = disabled
+        ? AppColors.textSecondary
+        : dark
+        ? AppColors.brandWhite
+        : AppColors.brandBlack;
     return AspectRatio(
       aspectRatio: 1.25,
       child: Material(
@@ -1578,7 +1739,11 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
           side: BorderSide(
-            color: selected || dark ? AppColors.brandGold : AppColors.border,
+            color: disabled
+                ? AppColors.border
+                : selected || dark
+                ? AppColors.brandGold
+                : AppColors.border,
             width: selected ? 2 : 1,
           ),
         ),
@@ -1591,7 +1756,11 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
               Icon(
                 selected ? Icons.check_circle : icon,
                 size: 34,
-                color: dark ? AppColors.brandGold : foreground,
+                color: disabled
+                    ? AppColors.textSecondary
+                    : dark
+                    ? AppColors.brandGold
+                    : foreground,
               ),
               const SizedBox(height: 10),
               Text(

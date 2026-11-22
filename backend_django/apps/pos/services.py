@@ -41,6 +41,7 @@ from .exceptions import (
     DeliveryReasonRequired,
     DeliveryTransitionInvalid,
     DiscountApprovalInvalid,
+    DiscountModeConflict,
     DiscountOverCap,
     DiscountReasonRequired,
     IdempotencyKeyReused,
@@ -308,32 +309,69 @@ def _validated_line_discounts(items_data, priced_lines, order_lines):
             raise InvalidDiscount(
                 "A fulfilment bills the agreed prices and takes no line discount."
             )
-        if not vuom.variant.product.allow_discount:
-            raise InvalidDiscount(f"{vuom.variant.product} is never discounted.")
         info = _validated_discount(data, gross=money_round(qty * unit_price))
         found.append(info if info and info["amount"] > 0 else None)
     return found
 
 
-def _combined_discount(line_discounts, discount_data, priced_lines, *, gross):
-    """The sale's whole discount: line discounts plus the sale discount, or None.
+def _validated_line_inclusions(items_data):
+    """One boolean per cart line: whether the cashier included it in a whole-sale discount.
 
-    The sale discount (a percentage included) is measured on what the line discounts
-    left over. `percent` is the COMBINED share of the gross, which is what the cap and a
-    manager's approval are compared against; `cart_amount` is the sale-level part alone.
+    Omitted or None defaults to True so existing callers and whole-sale discounts with
+    no exclusions work unchanged.
+    """
+    inclusions = []
+    for raw in items_data:
+        value = raw.get("include_in_discount") if isinstance(raw, dict) else None
+        if value is None:
+            inclusions.append(True)
+        elif isinstance(value, bool):
+            inclusions.append(value)
+        else:
+            raise InvalidDiscount("Line discount inclusion must be true or false.")
+    return inclusions
+
+
+def _combined_discount(
+    line_discounts, discount_data, priced_lines, *, gross, line_inclusions=None
+):
+    """The sale's discount: either per-product discounts OR a whole-sale discount, never both.
+
+    A whole-sale discount is measured on and shared proportionally across the lines the
+    cashier left included (`line_inclusions`). `percent` is the share of the gross, which
+    is what the cap and a manager's approval are compared against.
     """
     line_total = sum((d["amount"] for d in line_discounts if d), Decimal(0))
-    # Goods the shop never discounts (cement) sit outside what the sale discount is
-    # measured on and shared over.
-    never = sum(
+    has_cart_discount = False
+    if isinstance(discount_data, dict):
+        raw_val = discount_data.get("value")
+        try:
+            has_cart_discount = raw_val not in (None, "") and Decimal(str(raw_val)) > 0
+        except (InvalidOperation, ValueError, TypeError):
+            has_cart_discount = True
+    elif discount_data not in (None, "", {}):
+        has_cart_discount = True
+
+    if line_total > 0 and has_cart_discount:
+        raise DiscountModeConflict()
+
+    inclusions = (
+        line_inclusions
+        if line_inclusions is not None
+        else [True] * len(priced_lines)
+    )
+    excluded = sum(
         (
             money_round(qty * price)
-            for vuom, qty, price, _l in priced_lines
-            if not vuom.variant.product.allow_discount
+            for (_vuom, qty, price, _l), included in zip(priced_lines, inclusions)
+            if not included
         ),
         Decimal(0),
     )
-    cart_info = _validated_discount(discount_data, gross=gross - never - line_total)
+    if has_cart_discount and gross - excluded <= 0:
+        raise InvalidDiscount("Select at least one item to apply a whole-sale discount.")
+
+    cart_info = _validated_discount(discount_data, gross=gross - excluded - line_total)
     if cart_info is None and line_total == 0:
         return None
     cart_amount = cart_info["amount"] if cart_info else Decimal(0)
@@ -352,17 +390,26 @@ def _combined_discount(line_discounts, discount_data, priced_lines, *, gross):
     }
 
 
-def _cart_discount_shares(priced_lines, line_discounts, cart_amount):
+def _cart_discount_shares(
+    priced_lines, line_discounts, cart_amount, line_inclusions=None
+):
     """Centavos of the sale discount each line carries, or None without one."""
     if not cart_amount or cart_amount <= 0:
         return None
+    inclusions = (
+        line_inclusions
+        if line_inclusions is not None
+        else [True] * len(priced_lines)
+    )
     lines = [
         (
             int(money_round(qty * price) * 100),
             int((d["amount"] if d else 0) * 100),
-            vuom.variant.product.allow_discount,
+            included,
         )
-        for (vuom, qty, price, _l), d in zip(priced_lines, line_discounts)
+        for (_vuom, qty, price, _l), d, included in zip(
+            priced_lines, line_discounts, inclusions
+        )
     ]
     wanted = int(cart_amount * 100)
     # Per-line rounding can leave the lines a centavo short of the gross the discount was
@@ -1405,8 +1452,13 @@ def process_sale(
         )
     )
     line_discounts = _validated_line_discounts(items_data, priced_lines, order_lines)
+    line_inclusions = _validated_line_inclusions(items_data)
     discount_info = _combined_discount(
-        line_discounts, discount_data, priced_lines, gross=gross
+        line_discounts,
+        discount_data,
+        priced_lines,
+        gross=gross,
+        line_inclusions=line_inclusions,
     )
     # Phase 5 task B3: the slip is validated HERE, with the rest of the payload, so a
     # delivery missing its address or carrying a negative charge leaves no sale behind.
@@ -1510,7 +1562,10 @@ def process_sale(
         # Exact per-line shares of the sale discount (centavos, largest remainder), so a
         # later return or report can read the allocation instead of re-deriving it.
         shares = _cart_discount_shares(
-            priced_lines, line_discounts, discount_info and discount_info["cart_amount"]
+            priced_lines,
+            line_discounts,
+            discount_info and discount_info["cart_amount"],
+            line_inclusions=line_inclusions,
         )
 
         for index, (vuom, qty, unit_price, order_line) in enumerate(priced_lines):

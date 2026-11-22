@@ -142,16 +142,39 @@ class PosTransactionViewmodel extends ChangeNotifier {
   double get lineDiscountTotal =>
       _lines.fold(0, (sum, line) => sum + line.discountAmount);
 
-  /// What the cart holds of goods the shop NEVER discounts (cement).
+  /// Lines the cashier unticked from sharing in a whole-sale discount.
   ///
-  /// The server leaves these lines out of the figure a sale-level discount is
-  /// measured on and shared over, so the till's preview has to as well or the
-  /// cashier reads a discount the server will charge differently.
-  /// Priced on the SAME basis as [total]: credit prices while the utang switch is
-  /// on, or the base would not subtract from the figure the discount is measured on.
+  /// The server leaves excluded lines out of the figure a sale-level discount is
+  /// measured on and shared over, so the till's preview matches the server.
   double get neverDiscountedTotal => _lines
-      .where((line) => !line.allowDiscount)
+      .where((line) => !line.includeInDiscount)
       .fold(0, (sum, line) => sum + (_creditSale ? line.creditTotal : line.total));
+
+  /// The active whole-sale discount entered in checkout, if any.
+  /// Mutually exclusive with per-line discounts.
+  PosDiscount? _wholeSaleDiscount;
+  PosDiscount? get wholeSaleDiscount => _wholeSaleDiscount;
+  bool get hasWholeSaleDiscount =>
+      _wholeSaleDiscount != null && _wholeSaleDiscount!.value > 0;
+
+  /// Sets or clears the active whole-sale discount. Refuses a positive whole-sale
+  /// discount while any line carries a per-product discount.
+  void setWholeSaleDiscount(PosDiscount? discount) {
+    final active = discount != null && discount.value > 0 ? discount : null;
+    if (active != null && hasLineDiscount) return;
+    if (_wholeSaleDiscount == active) return;
+    _wholeSaleDiscount = active;
+    _dropAttemptKey();
+    notifyListeners();
+  }
+
+  /// Toggles whether cart line [index] is included in a whole-sale discount.
+  void setLineIncludedInDiscount(int index, bool included) {
+    if (_lines[index].includeInDiscount == included) return;
+    _lines[index] = _lines[index].copyWith(includeInDiscount: included);
+    _dropAttemptKey();
+    notifyListeners();
+  }
 
   /// True when any line carries a discount. A parkable basket cannot keep one (the
   /// held-cart wire takes ids, quantities and prices only), so the till stops the
@@ -170,11 +193,10 @@ class PosTransactionViewmodel extends ChangeNotifier {
   ///
   /// The payload changed, so a pending attempt key is dropped, exactly as a quantity
   /// edit does: the same key with a different body is a 409, not a sale.
-  /// A line the shop never discounts REFUSES one, whatever the caller does: the
-  /// server answers 400 `INVALID_DISCOUNT`, so the till must not build a cart it
-  /// cannot ring. Clearing a discount is always allowed.
+  /// Per-product and whole-sale discounts are mutually exclusive: a line discount
+  /// cannot be added while a whole-sale discount is active.
   void setLineDiscount(int index, PosDiscount? discount) {
-    if (discount != null && !_lines[index].allowDiscount) return;
+    if (discount != null && hasWholeSaleDiscount) return;
     _lines[index] = _lines[index].withDiscount(discount);
     _dropAttemptKey();
     notifyListeners();
@@ -245,7 +267,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
   String _basketSignature() => [
     for (final line in _lines)
       '${line.variantUomId}:${line.quantity}:${line.unitPrice}'
-          '${line.discount == null ? '' : ':d${line.discount!.kind.code}${line.discount!.value}'}',
+          '${line.discount == null ? '' : ':d${line.discount!.kind.code}${line.discount!.value}'}'
+          '${line.includeInDiscount ? '' : ':ex'}',
     'customer:${_selectedCustomer?.id}',
   ].join('|');
 
@@ -1065,6 +1088,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
 
   void clear() {
     _lines.clear();
+    _wholeSaleDiscount = null;
     // The till no longer holds the parked basket, so a later sale must not try to
     // complete (or void) a cart this basket came from.
     _forgetResumedCart();
@@ -1078,6 +1102,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
   /// switches, so the next cashier never inherits an unfinished cart.
   void resetSession() {
     _lines.clear();
+    _wholeSaleDiscount = null;
     _selectedCustomer = null;
     _ledgerSummary = null;
     _ledgerError = null;
@@ -1362,6 +1387,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
                 quantity: line.quantity,
                 unitPrice: line.unitPrice,
                 discount: line.discount,
+                includeInDiscount: line.includeInDiscount,
               ),
           ],
           payments: payments,
@@ -1419,6 +1445,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
         ),
       );
       _lines.clear();
+      _wholeSaleDiscount = null;
       // The basket is sold, so it is no longer a resumed cart: a second sale must not
       // try to complete the same parked cart again.
       _forgetResumedCart();

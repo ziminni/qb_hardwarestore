@@ -23,6 +23,7 @@ class PosCheckoutItem {
     required this.quantity,
     required this.unitPrice,
     this.discount,
+    this.includeInDiscount = true,
   });
 
   final int variantUomId;
@@ -31,15 +32,18 @@ class PosCheckoutItem {
 
   /// The discount the cashier gave on this LINE, or null when it has none.
   ///
-  /// The server takes it off the line first, then measures the sale-level discount
-  /// on what is left. A fulfilment/order line takes none.
+  /// Mutually exclusive with a whole-sale discount. A fulfilment/order line takes none.
   final PosDiscount? discount;
+
+  /// Whether this line is included when splitting a whole-sale discount.
+  final bool includeInDiscount;
 
   Map<String, dynamic> toJson() => {
     'variant_id': variantUomId,
     'qty': quantity,
     'unit_price': unitPrice,
     if (discount != null) 'discount': discount!.toJson(),
+    if (!includeInDiscount) 'include_in_discount': false,
   };
 }
 

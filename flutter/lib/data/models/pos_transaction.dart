@@ -96,6 +96,7 @@ class PosCartLine {
     this.pickUp = const [],
     this.discount,
     this.allowDiscount = true,
+    this.includeInDiscount = true,
   });
   final int variantUomId;
   final String productName;
@@ -130,6 +131,10 @@ class PosCartLine {
   /// so the cart can hide the control instead of letting the server refuse the sale.
   final bool allowDiscount;
 
+  /// Whether this line is ticked to share in a whole-sale discount.
+  /// Defaults to true; the cashier can untick individual lines at checkout.
+  final bool includeInDiscount;
+
   /// The discount the cashier gave on THIS line, or null when it has none.
   ///
   /// The server takes it off the line before it measures the sale-level discount,
@@ -146,20 +151,22 @@ class PosCartLine {
   // credit sale; upgrade if utang sales with line discounts become common.
   double get netTotal => roundMoney(total - discountAmount);
 
-  PosCartLine copyWith({double? quantity}) => PosCartLine(
-    variantUomId: variantUomId,
-    productName: productName,
-    variantName: variantName,
-    quantity: quantity ?? this.quantity,
-    unit: unit,
-    unitPrice: unitPrice,
-    availableQuantity: availableQuantity,
-    creditUnitPrice: creditUnitPrice,
-    storedAtName: storedAtName,
-    pickUp: pickUp,
-    discount: discount,
-    allowDiscount: allowDiscount,
-  );
+  PosCartLine copyWith({double? quantity, bool? includeInDiscount}) =>
+      PosCartLine(
+        variantUomId: variantUomId,
+        productName: productName,
+        variantName: variantName,
+        quantity: quantity ?? this.quantity,
+        unit: unit,
+        unitPrice: unitPrice,
+        availableQuantity: availableQuantity,
+        creditUnitPrice: creditUnitPrice,
+        storedAtName: storedAtName,
+        pickUp: pickUp,
+        discount: discount,
+        allowDiscount: allowDiscount,
+        includeInDiscount: includeInDiscount ?? this.includeInDiscount,
+      );
 
   /// This line with [discount] (null clears it).
   PosCartLine withDiscount(PosDiscount? discount) => PosCartLine(
@@ -175,6 +182,7 @@ class PosCartLine {
     pickUp: pickUp,
     discount: discount,
     allowDiscount: allowDiscount,
+    includeInDiscount: includeInDiscount,
   );
 
   Map<String, dynamic> toCheckoutJson() => {

@@ -479,61 +479,34 @@ void main() {
     );
   });
 
-  // Owner ruling: some goods are never discounted (cement). The switch lives on the
-  // product form because it is a property of the GOODS, and it round-trips into the
-  // create and edit payloads the repository posts.
+  // Phase 2 (2026-11-22): discount exclusions are chosen by the cashier at the till,
+  // so the product form no longer shows the Allow discounts switch.
   group('the Allow discounts switch', () {
-    testWidgets('a new product allows discounts by default', (tester) async {
+    testWidgets('is hidden on a new product and defaults allowDiscount to true', (
+      tester,
+    ) async {
       await openForm(tester);
       await fillBasics(tester);
 
-      expect(find.text('Allow discounts'), findsOneWidget);
-      expect(
-        find.text('Turn off for goods you never discount, like cement.'),
-        findsOneWidget,
-      );
+      expect(find.byKey(const ValueKey('allow-discount-switch')), findsNothing);
+      expect(find.text('Allow discounts'), findsNothing);
       await save(tester);
 
       expect(lastResult!.draft!.allowDiscount, isTrue);
     });
 
-    testWidgets('turning it off sends allow_discount=false on a create', (
-      tester,
-    ) async {
-      await openForm(tester);
-      await fillBasics(tester);
-      await tapKey(tester, const ValueKey('allow-discount-switch'));
-      await save(tester);
-
-      expect(lastResult!.draft!.allowDiscount, isFalse);
-    });
-
-    testWidgets('an edit shows the stored flag and sends the new one', (
+    testWidgets('is hidden on edit and leaves allowDiscount untouched', (
       tester,
     ) async {
       await openForm(tester, product: cementNeverDiscounted());
 
-      final shown = tester.widget<SwitchListTile>(
-        find.byKey(const ValueKey('allow-discount-switch')),
-      );
-      expect(shown.value, isFalse, reason: 'the stored flag, not a default');
-
-      await tapKey(tester, const ValueKey('allow-discount-switch'));
-      await save(tester, label: 'Save changes');
-
-      expect(lastResult!.edit!.allowDiscount, isTrue);
-    });
-
-    testWidgets('an edit that leaves it alone prefills the stored flag', (
-      tester,
-    ) async {
-      await openForm(tester, product: multiUnitCement());
+      expect(find.byKey(const ValueKey('allow-discount-switch')), findsNothing);
       await save(tester, label: 'Save changes');
 
       expect(
         lastResult!.edit!.allowDiscount,
         isNull,
-        reason: 'an untouched switch must not PATCH the stored flag',
+        reason: 'product edits must not PATCH the legacy allow_discount flag',
       );
     });
   });
