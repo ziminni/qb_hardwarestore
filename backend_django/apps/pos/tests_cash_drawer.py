@@ -70,6 +70,22 @@ class CashDrawerPhase5Tests(DiscountVATBase):
         self.assertEqual(day_data["cash_out_by_category"]["LUNCH"], "150.00")
         self.assertEqual(day_data["cash_out_by_category"]["FUEL"], "200.00")
 
+    def test_custom_cash_out_category_is_accepted(self):
+        r = self.client.post(
+            f"{SHIFTS_URL}{self.shift.id}/cash-movements/",
+            {
+                "kind": "CASH_OUT",
+                "category": "Parking",
+                "amount": "75.00",
+                "reason": "Delivery van parking fee",
+            },
+            format="json",
+            **self.cashier_auth,
+        )
+        self.assertEqual(r.status_code, 201, r.content)
+        z = r.json()["z_reading"]
+        self.assertEqual(z["cash_out_by_category"]["Parking"], "75.00")
+
     def test_invalid_denomination_is_refused(self):
         bad = self.client.post(
             f"{SHIFTS_URL}{self.shift.id}/close/",

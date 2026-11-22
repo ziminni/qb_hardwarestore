@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:client/core/constants/app_colors.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
+import 'package:client/features/pos/widgets/pos_attach_or_dialog.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/widgets/sales_transactions_content.dart';
@@ -53,11 +55,36 @@ class _PosTransactionHistoryPageState extends State<PosTransactionHistoryPage> {
 
     return DashboardShell(
       title: 'Transaction History',
-      subtitle: 'Review completed, refunded, and voided sales.',
+      subtitle:
+          'Review completed, exchanged, refunded, and voided sales — or attach a BIR OR.',
       selectedNavigationIndex: 1,
       navigationItems: posNavigationItems,
       onNavigationSelected: (i) => navigatePos(context, i),
       actions: [
+        Tooltip(
+          message: 'Tag a past sale with the paper OR invoice no.',
+          child: TextButton.icon(
+            key: const ValueKey('history-attach-or-button'),
+            onPressed: () async {
+              await openAttachOrDialog(context);
+              if (context.mounted) {
+                unawaited(viewmodel.load(silent: true));
+              }
+            },
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.textPrimary,
+              minimumSize: const Size(44, 40),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: const BorderSide(color: AppColors.border),
+              ),
+            ),
+            icon: const Icon(Icons.receipt_long_outlined, size: 18),
+            label: const Text('Attach OR'),
+          ),
+        ),
+        const SizedBox(width: 8),
         IconButton(
           tooltip: 'Refresh transactions',
           onPressed: viewmodel.isLoading ? null : viewmodel.load,

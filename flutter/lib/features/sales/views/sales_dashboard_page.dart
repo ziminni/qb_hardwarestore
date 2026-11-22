@@ -1,3 +1,5 @@
+import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
@@ -251,6 +253,76 @@ class _DashboardViewState extends State<_DashboardView> {
                 ),
             ],
           ),
+          if (summary?.orVatBreakdown != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            Container(
+              key: const ValueKey('sales-dashboard-vat-split'),
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: AppColors.cardBackground,
+                borderRadius: BorderRadius.circular(AppRadii.large),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.receipt_long_outlined,
+                        size: 18,
+                        color: AppColors.brandGold,
+                      ),
+                      const SizedBox(width: AppSpacing.xs),
+                      Expanded(
+                        child: Text(
+                          'VAT Snapshot — Whole Sales vs. BIR OR Only ($scopeCaption)',
+                          style: const TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () => _selectNavigation(context, 6),
+                        icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                        label: const Text('Full VAT & OR report'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  MetricGrid(
+                    children: [
+                      MetricTile(
+                        label: 'Whole VAT (All Sales)',
+                        value: formatPeso(summary!.orVatBreakdown!.combined.vat),
+                        caption:
+                            '${formatCount(summary.orVatBreakdown!.combined.transactions)} sales · '
+                            '${formatPeso(summary.orVatBreakdown!.combined.grossSales)} gross',
+                      ),
+                      MetricTile(
+                        label: 'BIR OR Only VAT',
+                        value: formatPeso(summary.orVatBreakdown!.orBacked.vat),
+                        caption:
+                            '${formatCount(summary.orVatBreakdown!.orBacked.transactions)} OR-tagged · '
+                            '${formatPeso(summary.orVatBreakdown!.orBacked.grossSales)} gross',
+                      ),
+                      MetricTile(
+                        label: 'Untagged OS VAT',
+                        value: formatPeso(
+                          summary.orVatBreakdown!.untaggedOs.vat,
+                        ),
+                        caption:
+                            '${formatCount(summary.orVatBreakdown!.untaggedOs.transactions)} untagged OS · '
+                            '${formatPeso(summary.orVatBreakdown!.untaggedOs.grossSales)} gross',
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
           if (summary != null && summary.days.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.lg),
             GroupedBarTrendChart(

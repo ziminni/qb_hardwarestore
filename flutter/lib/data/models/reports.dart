@@ -236,6 +236,7 @@ class SalesSummary {
     this.effectiveMarkupPercent,
     this.costCoverage = const CostCoverage(),
     this.categories = const [],
+    this.orVatBreakdown,
   });
 
   final String from;
@@ -256,6 +257,7 @@ class SalesSummary {
   final CostCoverage costCoverage;
   final List<SalesDay> days;
   final List<SalesCategoryBreakdown> categories;
+  final OrVatSplit? orVatBreakdown;
 
   bool get hasPaymentFees =>
       totalPaymentFees > 0 || days.any((day) => day.paymentFees > 0);
@@ -278,6 +280,7 @@ class SalesSummary {
     }
     final coverageRaw = json['cost_coverage'];
     final categoriesRaw = json['by_category'];
+    final orVatRaw = json['or_vat_breakdown'];
     return SalesSummary(
       from: stringField(json, 'from'),
       to: stringField(json, 'to'),
@@ -315,6 +318,9 @@ class SalesSummary {
                 )
                 .toList()
           : const [],
+      orVatBreakdown: orVatRaw is Map<String, dynamic>
+          ? OrVatSplit.fromJson(orVatRaw)
+          : null,
     );
   }
 }

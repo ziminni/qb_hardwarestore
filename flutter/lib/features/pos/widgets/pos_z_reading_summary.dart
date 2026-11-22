@@ -151,7 +151,14 @@ class PosZReadingSummary extends StatelessWidget {
           ],
           if (cashMovements.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.md),
-            _CashMovementsList(movements: cashMovements),
+            _CashMovementsList(
+              movements: cashMovements,
+              cashOutByCategory: reading.cashOutByCategory,
+            ),
+          ],
+          if (reading.denominationCounts.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            _DenominationBreakdown(counts: reading.denominationCounts),
           ],
           if (variance != null) ...[
             const SizedBox(height: AppSpacing.md),
@@ -212,9 +219,13 @@ class PosZReadingSummary extends StatelessWidget {
 }
 
 class _CashMovementsList extends StatelessWidget {
-  const _CashMovementsList({required this.movements});
+  const _CashMovementsList({
+    required this.movements,
+    this.cashOutByCategory = const {},
+  });
 
   final List<ShiftCashMovement> movements;
+  final Map<String, double> cashOutByCategory;
 
   @override
   Widget build(BuildContext context) {
@@ -236,12 +247,64 @@ class _CashMovementsList extends StatelessWidget {
               color: AppColors.textSecondary,
             ),
           ),
+          if (cashOutByCategory.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final entry in cashOutByCategory.entries)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.cardBackground,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Text(
+                      '${ShiftCashMovement.displayCategory(entry.key)}: ${formatPeso(entry.value)}',
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
           const SizedBox(height: 6),
           for (final movement in movements)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 3),
               child: Row(
                 children: [
+                  if (movement.isCashOut) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceSunken,
+                        borderRadius: BorderRadius.circular(AppRadii.small),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Text(
+                        ShiftCashMovement.displayCategory(movement.category),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
                   Expanded(
                     child: Text(
                       '${movement.isCashOut ? "Cash out" : "Cash in"} · ${movement.reason}',
@@ -263,6 +326,78 @@ class _CashMovementsList extends StatelessWidget {
                 ],
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DenominationBreakdown extends StatelessWidget {
+  const _DenominationBreakdown({required this.counts});
+
+  final Map<String, int> counts;
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = <({String label, int qty, double subtotal})>[
+      for (final d in ShiftCashMovement.phpDenominations)
+        if ((counts[d.key] ?? 0) > 0)
+          (
+            label: d.label,
+            qty: counts[d.key]!,
+            subtotal: d.value * counts[d.key]!,
+          ),
+    ];
+    if (entries.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      key: const ValueKey('z-reading-denominations'),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceSunken,
+        borderRadius: BorderRadius.circular(AppRadii.medium),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Counted PHP bills & coins',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              for (final e in entries)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.cardBackground,
+                    borderRadius: BorderRadius.circular(AppRadii.small),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Text(
+                    '${e.label} × ${e.qty} = ${formatPeso(e.subtotal)}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ],
       ),
     );

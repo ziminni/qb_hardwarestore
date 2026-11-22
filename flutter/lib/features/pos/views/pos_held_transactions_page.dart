@@ -101,7 +101,8 @@ class _PosHeldTransactionsView extends StatelessWidget {
 
     return DashboardShell(
       title: 'Held Transactions',
-      subtitle: 'Parked baskets waiting to be resumed or discarded.',
+      subtitle:
+          'Stock-reserved baskets waiting to be resumed or discarded before expiry.',
       selectedNavigationIndex: DashboardShell.heldTransactionsIndex,
       navigationItems: posNavigationItems,
       onNavigationSelected: (i) => navigatePos(context, i),

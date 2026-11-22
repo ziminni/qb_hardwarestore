@@ -358,6 +358,11 @@ class _SystemTab extends StatelessWidget {
                 'Cashier discount cap',
                 '${s.text('discount_cap_percent')}%',
               ),
+              if (s.has('held_cart_expiry_minutes'))
+                FactLine(
+                  'Held cart expiry',
+                  '${s.count('held_cart_expiry_minutes')} min',
+                ),
               for (final row in s.rows('locations'))
                 FactLine(
                   row['is_bodega'] == true
@@ -410,6 +415,15 @@ class _SalesTab extends StatelessWidget {
           icon: Icons.schedule,
           value: _count(s, 'open_shifts'),
         ),
+        if (s.has('month_vat_total'))
+          DashboardStat(
+            label: 'VAT this month (All)',
+            icon: Icons.receipt_long_outlined,
+            value: _whole(s, 'month_vat_total'),
+            caption:
+                'BIR OR only: ${_whole(s, 'month_or_vat')} · '
+                '${_plural(s.count('month_or_count'), 'OR')}',
+          ),
         if (s.has('month_gross_profit'))
           DashboardStat(
             label: 'Gross profit (month)',

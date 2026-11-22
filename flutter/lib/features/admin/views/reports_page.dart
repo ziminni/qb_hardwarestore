@@ -35,7 +35,13 @@ import 'package:provider/provider.dart';
 class ReportsContent extends StatefulWidget {
   const ReportsContent({super.key});
 
-  static const tabs = ['Sales', 'Valuation', 'Movements', 'Requisitions'];
+  static const tabs = [
+    'Sales',
+    'Valuation',
+    'Movements',
+    'Requisitions',
+    'VAT & OR',
+  ];
 
   @override
   State<ReportsContent> createState() => _ReportsContentState();
@@ -144,29 +150,42 @@ class _ReportsContentState extends State<ReportsContent> {
 
     return DefaultTabController(
       length: ReportsContent.tabs.length,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TabBar(
-            isScrollable: true,
-            onTap: (index) => viewmodel.selectTab(index),
-            tabs: [for (final tab in ReportsContent.tabs) Tab(text: tab)],
-          ),
-          const SizedBox(height: AppSpacing.md),
-          // No TabBarView: it demands a height of its own, and both shells hand
-          // the page an unbounded column inside their scroll view. The old
-          // fixed 900 px box was the answer to that, and it clipped the short
-          // reports. Only the selected tab is built, exactly like TabBarView.
-          switch (viewmodel.selectedTab) {
-            1 => _ValuationTab(viewmodel: viewmodel),
-            2 => _MovementsTab(
-              viewmodel: viewmodel,
-              periodControl: periodControl,
+      child: Builder(
+        builder: (tabContext) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TabBar(
+              isScrollable: true,
+              onTap: (index) => viewmodel.selectTab(index),
+              tabs: [for (final tab in ReportsContent.tabs) Tab(text: tab)],
             ),
-            3 => _RequisitionsTab(viewmodel: viewmodel),
-            _ => _SalesTab(viewmodel: viewmodel, periodControl: periodControl),
-          },
-        ],
+            const SizedBox(height: AppSpacing.md),
+            // No TabBarView: it demands a height of its own, and both shells hand
+            // the page an unbounded column inside their scroll view. The old
+            // fixed 900 px box was the answer to that, and it clipped the short
+            // reports. Only the selected tab is built, exactly like TabBarView.
+            switch (viewmodel.selectedTab) {
+              1 => _ValuationTab(viewmodel: viewmodel),
+              2 => _MovementsTab(
+                viewmodel: viewmodel,
+                periodControl: periodControl,
+              ),
+              3 => _RequisitionsTab(viewmodel: viewmodel),
+              4 => _VatOrTab(
+                viewmodel: viewmodel,
+                periodControl: periodControl,
+              ),
+              _ => _SalesTab(
+                viewmodel: viewmodel,
+                periodControl: periodControl,
+                onOpenVatTab: () {
+                  DefaultTabController.of(tabContext).animateTo(4);
+                  viewmodel.selectTab(4);
+                },
+              ),
+            },
+          ],
+        ),
       ),
     );
   }
@@ -321,10 +340,15 @@ typedef _SalesRow = ({
 });
 
 class _SalesTab extends StatelessWidget {
-  const _SalesTab({required this.viewmodel, required this.periodControl});
+  const _SalesTab({
+    required this.viewmodel,
+    required this.periodControl,
+    required this.onOpenVatTab,
+  });
 
   final AdminReportsViewmodel viewmodel;
   final Widget periodControl;
+  final VoidCallback onOpenVatTab;
 
   List<DataPanelColumn<_SalesRow>> _columnsFor(SalesSummary sales) => [
     DataPanelColumn<_SalesRow>(
@@ -446,6 +470,13 @@ class _SalesTab extends StatelessWidget {
                 ),
             ],
           ),
+          if (sales.orVatBreakdown != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            _OrVatComparisonPanel(
+              split: sales.orVatBreakdown!,
+              onOpenDetail: onOpenVatTab,
+            ),
+          ],
           if (sales.hasProfitBreakdown) ...[
             const SizedBox(height: AppSpacing.md),
             ProfitBreakdownCard(sales: sales),
@@ -1214,3 +1245,400 @@ StatusTone _statusTone(RequisitionStatus status) => switch (status) {
   RequisitionStatus.draft ||
   RequisitionStatus.unknown => StatusTone.neutral,
 };
+
+typedef _VatPeriodTableRow = ({
+  String label,
+  int orTx,
+  double orSales,
+  double orVat,
+  int untaggedTx,
+  double untaggedSales,
+  double untaggedVat,
+  double totalVat,
+  bool isTotal,
+});
+
+/// Executive summary card comparing Whole VAT (all sales) against BIR OR-only
+/// VAT and untagged Order Slips (OS). Shown on the Sales tab and at the top of
+/// the dedicated VAT & OR tab.
+class _OrVatComparisonPanel extends StatelessWidget {
+  const _OrVatComparisonPanel({
+    required this.split,
+    this.onOpenDetail,
+  });
+
+  final OrVatSplit split;
+  final VoidCallback? onOpenDetail;
+
+  @override
+  Widget build(BuildContext context) {
+    final totalTx = split.combined.transactions;
+    final orPct = totalTx > 0
+        ? ((split.orBacked.transactions / totalTx) * 100).round()
+        : 0;
+
+    return Container(
+      key: const ValueKey('or-vat-comparison-panel'),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.cardBackground,
+        borderRadius: BorderRadius.circular(AppRadii.large),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.receipt_long_outlined,
+                size: 18,
+                color: AppColors.brandGold,
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              const Expanded(
+                child: Text(
+                  'VAT Breakdown — Whole Sales vs. BIR OR Only',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              if (onOpenDetail != null)
+                TextButton.icon(
+                  key: const ValueKey('open-vat-or-tab-button'),
+                  onPressed: onOpenDetail,
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                  label: const Text('Open VAT & OR tab'),
+                ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final cards = [
+                _VatBucketCard(
+                  key: const ValueKey('vat-bucket-whole'),
+                  title: 'Whole VAT (All Sales)',
+                  badge: '${formatCount(split.combined.transactions)} sales',
+                  vat: split.combined.vat,
+                  grossSales: split.combined.grossSales,
+                  vatableSales: split.combined.vatableSales,
+                  highlighted: false,
+                ),
+                _VatBucketCard(
+                  key: const ValueKey('vat-bucket-or'),
+                  title: 'BIR OR Only (Official Receipt)',
+                  badge:
+                      '${formatCount(split.orBacked.transactions)} OR · $orPct%',
+                  vat: split.orBacked.vat,
+                  grossSales: split.orBacked.grossSales,
+                  vatableSales: split.orBacked.vatableSales,
+                  highlighted: true,
+                ),
+                _VatBucketCard(
+                  key: const ValueKey('vat-bucket-untagged'),
+                  title: 'Untagged Order Slips (OS)',
+                  badge: '${formatCount(split.untaggedOs.transactions)} OS',
+                  vat: split.untaggedOs.vat,
+                  grossSales: split.untaggedOs.grossSales,
+                  vatableSales: split.untaggedOs.vatableSales,
+                  highlighted: false,
+                ),
+              ];
+              if (constraints.maxWidth >= 760) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (var i = 0; i < cards.length; i++) ...[
+                      if (i > 0) const SizedBox(width: AppSpacing.sm),
+                      Expanded(child: cards[i]),
+                    ],
+                  ],
+                );
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < cards.length; i++) ...[
+                    if (i > 0) const SizedBox(height: AppSpacing.sm),
+                    cards[i],
+                  ],
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VatBucketCard extends StatelessWidget {
+  const _VatBucketCard({
+    super.key,
+    required this.title,
+    required this.badge,
+    required this.vat,
+    required this.grossSales,
+    required this.vatableSales,
+    required this.highlighted,
+  });
+
+  final String title;
+  final String badge;
+  final double vat;
+  final double grossSales;
+  final double vatableSales;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: highlighted
+            ? AppColors.brandGold.withValues(alpha: 0.08)
+            : AppColors.surfaceSunken,
+        borderRadius: BorderRadius.circular(AppRadii.medium),
+        border: Border.all(
+          color: highlighted ? AppColors.brandGold : AppColors.border,
+          width: highlighted ? 1.5 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: highlighted
+                        ? AppColors.brandBlack
+                        : AppColors.textSecondary,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: highlighted
+                      ? AppColors.brandBlack
+                      : AppColors.cardBackground,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: highlighted ? AppColors.brandGold : AppColors.border,
+                  ),
+                ),
+                child: Text(
+                  badge,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: highlighted
+                        ? AppColors.brandWhite
+                        : AppColors.textSecondary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            formatPeso(vat),
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
+          ),
+          const SizedBox(height: 2),
+          const Text(
+            'VAT amount',
+            style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Gross sales',
+                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+              ),
+              Text(
+                formatPeso(grossSales),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Vatable sales',
+                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+              ),
+              Text(
+                formatPeso(vatableSales),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VatOrTab extends StatelessWidget {
+  const _VatOrTab({required this.viewmodel, required this.periodControl});
+
+  final AdminReportsViewmodel viewmodel;
+  final Widget periodControl;
+
+  List<DataPanelColumn<_VatPeriodTableRow>> get _columns => [
+    DataPanelColumn<_VatPeriodTableRow>(
+      label: 'Period',
+      flex: 3,
+      cell: (row) => _cell(row.label, bold: row.isTotal),
+    ),
+    DataPanelColumn<_VatPeriodTableRow>(
+      label: 'OR Sales',
+      numeric: true,
+      flex: 2,
+      cell: (row) => _cell(
+        '${formatPeso(row.orSales)} (${formatCount(row.orTx)})',
+        bold: row.isTotal,
+      ),
+    ),
+    DataPanelColumn<_VatPeriodTableRow>(
+      label: 'OR VAT',
+      numeric: true,
+      flex: 2,
+      cell: (row) => _cell(formatPeso(row.orVat), bold: true),
+    ),
+    DataPanelColumn<_VatPeriodTableRow>(
+      label: 'Untagged OS',
+      numeric: true,
+      flex: 2,
+      cell: (row) => _cell(
+        '${formatPeso(row.untaggedSales)} (${formatCount(row.untaggedTx)})',
+        bold: row.isTotal,
+      ),
+    ),
+    DataPanelColumn<_VatPeriodTableRow>(
+      label: 'Untagged VAT',
+      numeric: true,
+      flex: 2,
+      cell: (row) => _cell(formatPeso(row.untaggedVat), bold: row.isTotal),
+    ),
+    DataPanelColumn<_VatPeriodTableRow>(
+      label: 'Whole VAT',
+      numeric: true,
+      flex: 2,
+      cell: (row) => _cell(formatPeso(row.totalVat), bold: true),
+    ),
+  ];
+
+  List<_VatPeriodTableRow> _rows(VatReportSummary report) => [
+    for (final p in report.periods)
+      (
+        label: _dateLabel(p.period),
+        orTx: p.orBackedTransactions,
+        orSales: p.orBackedSales,
+        orVat: p.orBackedVat,
+        untaggedTx: p.untaggedTransactions,
+        untaggedSales: p.untaggedSales,
+        untaggedVat: p.untaggedVat,
+        totalVat: p.vat,
+        isTotal: false,
+      ),
+    if (report.periods.isNotEmpty)
+      (
+        label: 'Total',
+        orTx: report.totals.orBacked.transactions,
+        orSales: report.totals.orBacked.grossSales,
+        orVat: report.totals.orBacked.vat,
+        untaggedTx: report.totals.untaggedOs.transactions,
+        untaggedSales: report.totals.untaggedOs.grossSales,
+        untaggedVat: report.totals.untaggedOs.vat,
+        totalVat: report.totals.combined.vat,
+        isTotal: true,
+      ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return _ReportTab<VatReportSummary>(
+      value: viewmodel.vatSummary,
+      error: viewmodel.errorFor(4),
+      onRetry: viewmodel.reload,
+      builder: (context, report) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            spacing: AppSpacing.md,
+            runSpacing: AppSpacing.sm,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              periodControl,
+              SegmentedButton<String>(
+                key: const ValueKey('vat-granularity-toggle'),
+                segments: const [
+                  ButtonSegment<String>(value: 'day', label: Text('Daily')),
+                  ButtonSegment<String>(value: 'week', label: Text('Weekly')),
+                  ButtonSegment<String>(value: 'month', label: Text('Monthly')),
+                ],
+                selected: {viewmodel.vatGranularity},
+                onSelectionChanged: (selection) =>
+                    viewmodel.setVatGranularity(selection.first),
+              ),
+              _ExportExcelButton(
+                suggestedName:
+                    'vat-or-report-${report.granularity}-${report.from}-to-${report.to}.xlsx',
+                buildBytes: () => buildVatReportXlsx(report),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          const _ReportExplainer(
+            icon: Icons.receipt_long_outlined,
+            title: 'Whole VAT vs. BIR OR-Only VAT',
+            body:
+                'Whole VAT includes every completed sale in this range. '
+                'BIR OR Only totals only sales tagged with a paper Official Receipt '
+                '(at checkout or later via Attach OR). Untagged OS tracks Order Slips '
+                'without an OR number.',
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _OrVatComparisonPanel(split: report.totals),
+          const SizedBox(height: AppSpacing.md),
+          DataPanel<_VatPeriodTableRow>(
+            columns: _columns,
+            rows: _rows(report),
+            emptyMessage: 'No sales recorded in this period.',
+          ),
+        ],
+      ),
+    );
+  }
+}

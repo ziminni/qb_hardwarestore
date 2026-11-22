@@ -38,7 +38,8 @@ class _SalesReportsView extends StatelessWidget {
   Widget build(BuildContext context) {
     return SalesSkeletonLayout(
       title: 'Reports',
-      subtitle: 'Managerial reports over live operations data.',
+      subtitle:
+          'Sales, inventory valuation, stock movements, and BIR OR vs. whole VAT.',
       selectedNavigationIndex: 6,
       onNavigationSelected: (index) => navigateSales(context, index),
       child: const ReportsContent(),

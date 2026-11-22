@@ -102,4 +102,61 @@ void main() {
 
     expect(decoded.tables.keys, containsAll(['By Category', 'By Location']));
   });
+
+  test('buildVatReportXlsx writes VAT Summary and By Period sheets', () {
+    const report = VatReportSummary(
+      from: '2026-11-01',
+      to: '2026-11-22',
+      granularity: 'month',
+      totals: OrVatSplit(
+        orBacked: VatBucketTotals(
+          transactions: 2,
+          grossSales: 224,
+          vatableSales: 200,
+          vat: 24,
+        ),
+        untaggedOs: VatBucketTotals(
+          transactions: 5,
+          grossSales: 560,
+          vatableSales: 500,
+          vat: 60,
+        ),
+        combined: VatBucketTotals(
+          transactions: 7,
+          grossSales: 784,
+          vatableSales: 700,
+          vat: 84,
+        ),
+      ),
+      periods: [
+        VatPeriodRow(
+          period: '2026-11',
+          transactions: 7,
+          grossSales: 784,
+          vat: 84,
+          orBackedTransactions: 2,
+          orBackedSales: 224,
+          orBackedVatable: 200,
+          orBackedVat: 24,
+          untaggedTransactions: 5,
+          untaggedSales: 560,
+          untaggedVatable: 500,
+          untaggedVat: 60,
+        ),
+      ],
+    );
+
+    final bytes = buildVatReportXlsx(report);
+    final decoded = Excel.decodeBytes(bytes);
+
+    expect(decoded.tables.keys, containsAll(['VAT Summary', 'By Period']));
+    final summary = decoded.tables['VAT Summary']!;
+    final cells = [
+      for (final row in summary.rows)
+        for (final cell in row) cell?.value?.toString() ?? '',
+    ];
+    expect(cells, contains('BIR OR Only (Official Receipt)'));
+    expect(cells, contains('24'));
+    expect(cells, contains('84'));
+  });
 }

@@ -15,7 +15,7 @@ class AdminReportsViewmodel extends ChangeNotifier {
 
   final ReportsRepository _repository;
 
-  /// Tab order: 0 Sales, 1 Valuation, 2 Movements, 3 Requisitions.
+  /// Tab order: 0 Sales, 1 Valuation, 2 Movements, 3 Requisitions, 4 VAT & OR.
   int _selectedTab = 0;
   int get selectedTab => _selectedTab;
 
@@ -31,9 +31,12 @@ class AdminReportsViewmodel extends ChangeNotifier {
   InventoryValuation? valuation;
   StockMovements? movements;
   RequisitionHistory? history;
+  VatReportSummary? vatSummary;
 
   String? _from;
   String? _to;
+  String _vatGranularity = 'day';
+  String get vatGranularity => _vatGranularity;
 
   bool isLoadingTab(int tab) => _loading.contains(tab);
 
@@ -50,14 +53,25 @@ class AdminReportsViewmodel extends ChangeNotifier {
     await _loadTab(tab);
   }
 
-  /// A range change reloads the two ranged tabs; the others have no range.
+  /// A range change reloads the ranged tabs; the others have no range.
   Future<void> setRange(String? from, String? to) async {
     _from = from;
     _to = to;
     _generation++;
-    _loaded.removeAll({0, 2});
+    _loaded.removeAll({0, 2, 4});
     await _loadTab(0);
     if (_selectedTab == 2) await _loadTab(2);
+    if (_selectedTab == 4) await _loadTab(4);
+  }
+
+  /// Changes the VAT & OR period grouping (`day`, `week`, `month`).
+  Future<void> setVatGranularity(String granularity) async {
+    if (_vatGranularity == granularity) return;
+    _vatGranularity = granularity;
+    _generation++;
+    _loaded.remove(4);
+    notifyListeners();
+    await _loadTab(4);
   }
 
   Future<void> reload() async {
@@ -85,6 +99,12 @@ class AdminReportsViewmodel extends ChangeNotifier {
           );
         case 3:
           history = await _repository.fetchRequisitionHistory();
+        case 4:
+          vatSummary = await _repository.fetchVatSummary(
+            from: _from,
+            to: _to,
+            granularity: _vatGranularity,
+          );
       }
       if (generation != _generation) {
         // A newer range arrived mid-flight: this data belongs to the old

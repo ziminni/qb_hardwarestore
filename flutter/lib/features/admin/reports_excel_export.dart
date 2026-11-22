@@ -232,3 +232,78 @@ Uint8List buildRequisitionsReportXlsx(RequisitionHistory history) {
 
   return _encode(excel);
 }
+
+/// Whole VAT vs. BIR OR-Only VAT workbook (2 sheets: VAT Summary & By Period).
+Uint8List buildVatReportXlsx(VatReportSummary report) {
+  final excel = Excel.createExcel();
+  excel.rename('Sheet1', 'VAT Summary');
+
+  final summary = excel['VAT Summary'];
+  summary.appendRow([
+    _text('Bucket'),
+    _text('Transactions'),
+    _text('Gross sales'),
+    _text('Vatable sales'),
+    _text('VAT amount'),
+  ]);
+  summary.appendRow([
+    _text('Whole VAT (All Sales)'),
+    _int(report.totals.combined.transactions),
+    _num(report.totals.combined.grossSales),
+    _num(report.totals.combined.vatableSales),
+    _num(report.totals.combined.vat),
+  ]);
+  summary.appendRow([
+    _text('BIR OR Only (Official Receipt)'),
+    _int(report.totals.orBacked.transactions),
+    _num(report.totals.orBacked.grossSales),
+    _num(report.totals.orBacked.vatableSales),
+    _num(report.totals.orBacked.vat),
+  ]);
+  summary.appendRow([
+    _text('Untagged Order Slips (OS)'),
+    _int(report.totals.untaggedOs.transactions),
+    _num(report.totals.untaggedOs.grossSales),
+    _num(report.totals.untaggedOs.vatableSales),
+    _num(report.totals.untaggedOs.vat),
+  ]);
+
+  final periods = excel['By Period'];
+  periods.appendRow([
+    _text('Period (${report.granularity})'),
+    _text('OR Transactions'),
+    _text('OR Gross Sales'),
+    _text('OR Vatable Sales'),
+    _text('OR VAT'),
+    _text('Untagged OS Transactions'),
+    _text('Untagged OS Sales'),
+    _text('Untagged OS VAT'),
+    _text('Whole VAT'),
+  ]);
+  for (final row in report.periods) {
+    periods.appendRow([
+      _text(row.period),
+      _int(row.orBackedTransactions),
+      _num(row.orBackedSales),
+      _num(row.orBackedVatable),
+      _num(row.orBackedVat),
+      _int(row.untaggedTransactions),
+      _num(row.untaggedSales),
+      _num(row.untaggedVat),
+      _num(row.vat),
+    ]);
+  }
+  periods.appendRow([
+    _text('Total'),
+    _int(report.totals.orBacked.transactions),
+    _num(report.totals.orBacked.grossSales),
+    _num(report.totals.orBacked.vatableSales),
+    _num(report.totals.orBacked.vat),
+    _int(report.totals.untaggedOs.transactions),
+    _num(report.totals.untaggedOs.grossSales),
+    _num(report.totals.untaggedOs.vat),
+    _num(report.totals.combined.vat),
+  ]);
+
+  return _encode(excel);
+}

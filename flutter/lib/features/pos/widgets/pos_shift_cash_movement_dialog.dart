@@ -65,13 +65,23 @@ class _ShiftCashMovementDialog extends StatefulWidget {
 
 class _ShiftCashMovementDialogState extends State<_ShiftCashMovementDialog> {
   String _kind = ShiftCashMovement.cashOutKind;
-  String _category = ShiftCashMovement.otherCategory;
   final _amountController = TextEditingController();
+  final _categoryController = TextEditingController();
   final _reasonController = TextEditingController();
+
+  static const List<({String key, String label})> _categorySuggestions = [
+    (key: ShiftCashMovement.lunchCategory, label: 'Lunch'),
+    (key: ShiftCashMovement.fuelCategory, label: 'Fuel'),
+    (key: ShiftCashMovement.suppliesCategory, label: 'Supplies'),
+    (key: ShiftCashMovement.safeDropCategory, label: 'Safe drop'),
+    (key: 'UTILITIES', label: 'Utilities'),
+    (key: 'DELIVERY', label: 'Delivery'),
+  ];
 
   @override
   void dispose() {
     _amountController.dispose();
+    _categoryController.dispose();
     _reasonController.dispose();
     super.dispose();
   }
@@ -84,31 +94,37 @@ class _ShiftCashMovementDialogState extends State<_ShiftCashMovementDialog> {
 
   String get _reason => _reasonController.text.trim();
 
-  bool get _canSubmit => _amount != null && _reason.isNotEmpty;
+  String get _resolvedCategory {
+    if (_kind != ShiftCashMovement.cashOutKind) {
+      return ShiftCashMovement.changeFloatCategory;
+    }
+    final raw = _categoryController.text.trim();
+    if (raw.isEmpty) return ShiftCashMovement.otherCategory;
+    final normalized = raw.toUpperCase().replaceAll(' ', '_');
+    if (ShiftCashMovement.cashOutCategories.containsKey(normalized)) {
+      return normalized;
+    }
+    return raw;
+  }
 
-  static IconData _categoryIcon(String key) => switch (key) {
-    ShiftCashMovement.lunchCategory => Icons.restaurant_outlined,
-    ShiftCashMovement.fuelCategory => Icons.local_gas_station_outlined,
-    ShiftCashMovement.suppliesCategory => Icons.inventory_2_outlined,
-    ShiftCashMovement.safeDropCategory => Icons.savings_outlined,
-    _ => Icons.more_horiz_rounded,
-  };
+  bool get _canSubmit => _amount != null && _reason.isNotEmpty;
 
   String get _reasonHint {
     if (_kind != ShiftCashMovement.cashOutKind) {
       return 'e.g. Added change coins to drawer';
     }
-    return switch (_category) {
+    return switch (_resolvedCategory) {
       ShiftCashMovement.lunchCategory => 'e.g. Staff lunch allowance',
       ShiftCashMovement.fuelCategory => 'e.g. Delivery truck diesel',
       ShiftCashMovement.suppliesCategory => 'e.g. Receipt paper rolls, tape',
       ShiftCashMovement.safeDropCategory => 'e.g. Mid-day owner safe drop',
-      _ => 'e.g. Petty cash expense',
+      _ => 'e.g. Petty cash expense or receipt note',
     };
   }
 
   @override
   Widget build(BuildContext context) {
+    final currentCategoryText = _categoryController.text.trim().toLowerCase();
     return AlertDialog(
       title: const Text('Record drawer cash in / out'),
       content: SingleChildScrollView(
@@ -142,36 +158,9 @@ class _ShiftCashMovementDialogState extends State<_ShiftCashMovementDialog> {
                   setState(() => _kind = selection.first);
                 },
               ),
-              if (_kind == ShiftCashMovement.cashOutKind) ...[
-                const SizedBox(height: AppSpacing.md),
-                const Text(
-                  'Category',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Wrap(
-                  key: const ValueKey('cash-movement-category'),
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final entry
-                        in ShiftCashMovement.cashOutCategories.entries)
-                      _CategoryTile(
-                        key: ValueKey('cash-movement-cat-${entry.key}'),
-                        icon: _categoryIcon(entry.key),
-                        label: entry.value,
-                        selected: _category == entry.key,
-                        onTap: () => setState(() => _category = entry.key),
-                      ),
-                  ],
-                ),
-              ],
               const SizedBox(height: AppSpacing.md),
               TextField(
+                key: const ValueKey('cash-movement-amount'),
                 controller: _amountController,
                 autofocus: true,
                 keyboardType: const TextInputType.numberWithOptions(
@@ -184,8 +173,49 @@ class _ShiftCashMovementDialogState extends State<_ShiftCashMovementDialog> {
                 ),
                 onChanged: (_) => setState(() {}),
               ),
+              if (_kind == ShiftCashMovement.cashOutKind) ...[
+                const SizedBox(height: AppSpacing.md),
+                TextField(
+                  key: const ValueKey('cash-movement-category-input'),
+                  controller: _categoryController,
+                  maxLength: 20,
+                  decoration: const InputDecoration(
+                    labelText: 'Category (optional)',
+                    hintText: 'Type any label or tap a suggestion below',
+                    border: OutlineInputBorder(),
+                    counterText: '',
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  key: const ValueKey('cash-movement-category'),
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final item in _categorySuggestions)
+                      _CategorySuggestionChip(
+                        key: ValueKey('cash-movement-cat-${item.key}'),
+                        label: item.label,
+                        selected:
+                            currentCategoryText == item.label.toLowerCase() ||
+                            currentCategoryText == item.key.toLowerCase(),
+                        onTap: () {
+                          setState(() {
+                            _categoryController.text = item.label;
+                            _categoryController.selection =
+                                TextSelection.collapsed(
+                                  offset: item.label.length,
+                                );
+                          });
+                        },
+                      ),
+                  ],
+                ),
+              ],
               const SizedBox(height: AppSpacing.md),
               TextField(
+                key: const ValueKey('cash-movement-reason'),
                 controller: _reasonController,
                 decoration: InputDecoration(
                   labelText: 'Reason (required)',
@@ -210,9 +240,7 @@ class _ShiftCashMovementDialogState extends State<_ShiftCashMovementDialog> {
               : () => Navigator.of(context).pop(
                   _CashMovementInput(
                     kind: _kind,
-                    category: _kind == ShiftCashMovement.cashOutKind
-                        ? _category
-                        : ShiftCashMovement.changeFloatCategory,
+                    category: _resolvedCategory,
                     amount: _amount!,
                     reason: _reason,
                   ),
@@ -224,16 +252,14 @@ class _ShiftCashMovementDialogState extends State<_ShiftCashMovementDialog> {
   }
 }
 
-class _CategoryTile extends StatelessWidget {
-  const _CategoryTile({
+class _CategorySuggestionChip extends StatelessWidget {
+  const _CategorySuggestionChip({
     super.key,
-    required this.icon,
     required this.label,
     required this.selected,
     required this.onTap,
   });
 
-  final IconData icon;
   final String label;
   final bool selected;
   final VoidCallback onTap;
@@ -243,37 +269,24 @@ class _CategoryTile extends StatelessWidget {
     return Material(
       color: selected ? AppColors.brandBlack : AppColors.surfaceSunken,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadii.medium),
+        borderRadius: BorderRadius.circular(AppRadii.small),
         side: BorderSide(
           color: selected ? AppColors.brandGold : AppColors.border,
-          width: selected ? 1.5 : 1,
+          width: selected ? 1.25 : 1,
         ),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: 16,
-                color: selected ? AppColors.brandGold : AppColors.textSecondary,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: selected
-                      ? AppColors.brandWhite
-                      : AppColors.textPrimary,
-                ),
-              ),
-            ],
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: selected ? AppColors.brandWhite : AppColors.textSecondary,
+            ),
           ),
         ),
       ),

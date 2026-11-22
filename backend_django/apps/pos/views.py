@@ -1470,17 +1470,15 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
         if len(reason) > 255:
             reason = reason[:255]
 
-        category = str(
-            request.data.get("category") or ShiftCashMovement.Category.OTHER
-        ).strip().upper()
-        if category not in ShiftCashMovement.Category.values:
-            return Response(
-                {
-                    "code": "INVALID_CASH_MOVEMENT_CATEGORY",
-                    "detail": f"Unknown cash movement category: {category}.",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        raw_category = str(request.data.get("category") or "").strip()
+        if not raw_category:
+            category = ShiftCashMovement.Category.OTHER
+        else:
+            preset = raw_category.upper().replace(" ", "_")
+            if preset in ShiftCashMovement.Category.values:
+                category = preset
+            else:
+                category = raw_category[:20]
 
         action_word = (
             "cash out" if kind == ShiftCashMovement.Kind.CASH_OUT else "cash in"

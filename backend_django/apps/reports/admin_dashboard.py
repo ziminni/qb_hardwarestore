@@ -83,6 +83,9 @@ def _system(today):
         "discount_cap_percent": (
             f"{settings.discount_cap_percent:.2f}" if settings else "0.00"
         ),
+        "held_cart_expiry_minutes": (
+            settings.held_cart_expiry_minutes if settings else 120
+        ),
     }
 
 
@@ -221,11 +224,25 @@ def _sales(today):
             if month_vatable > ZERO
             else None
         )
+    month_or_all = month_all.exclude(invoice_no="")
+    month_untagged_all = month_all.filter(invoice_no="")
+    month_vat_total = _sum(month_all, "vat_amount")
+    month_or_vat = _sum(month_or_all, "vat_amount")
+    month_untagged_vat = _sum(month_untagged_all, "vat_amount")
+    month_or_count = month_sales.exclude(invoice_no="").count()
+    month_exchanges_count = month_sales.filter(
+        source=SalesTransaction.Source.EXCHANGE
+    ).count()
     return {
         "today_total": _money(_sum(today_sales, "grand_total")),
         "today_transactions": today_sales.count(),
         "month_total": _money(_sum(month_sales, "grand_total")),
         "month_transactions": month_sales.count(),
+        "month_vat_total": _money(month_vat_total),
+        "month_or_vat": _money(month_or_vat),
+        "month_untagged_vat": _money(month_untagged_vat),
+        "month_or_count": month_or_count,
+        "month_exchanges_count": month_exchanges_count,
         "month_discounts": _money(month_discounts),
         "month_cogs": month_cogs,
         "month_gross_profit": month_gross_profit,

@@ -135,6 +135,15 @@ class ShiftCashMovement {
     otherCategory: 'Other',
   };
 
+  /// Human-readable label for a preset or custom cash-movement category.
+  static String displayCategory(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return 'Other';
+    final upper = trimmed.toUpperCase().replaceAll(' ', '_');
+    if (upper == changeFloatCategory) return 'Change float';
+    return cashOutCategories[upper] ?? trimmed;
+  }
+
   /// Standard PHP bills and coins supported by the shift-close denomination counter.
   static const List<({String key, String label, double value})> phpDenominations = [
     (key: '1000', label: '₱1,000', value: 1000),
@@ -178,9 +187,35 @@ class ZReading {
     this.heldCartCount = 0,
     this.cashTakenOut,
     this.openingDifference,
+    this.denominationCounts = const {},
+    this.cashOutByCategory = const {},
   });
 
   factory ZReading.fromJson(Map<String, dynamic> json) {
+    final rawDenoms = json['denomination_counts'];
+    final denoms = <String, int>{};
+    if (rawDenoms is Map) {
+      for (final entry in rawDenoms.entries) {
+        final count = entry.value is num
+            ? (entry.value as num).toInt()
+            : int.tryParse('${entry.value}');
+        if (count != null && count > 0) {
+          denoms['${entry.key}'] = count;
+        }
+      }
+    }
+    final rawCats = json['cash_out_by_category'];
+    final cats = <String, double>{};
+    if (rawCats is Map) {
+      for (final entry in rawCats.entries) {
+        final amt = entry.value is num
+            ? (entry.value as num).toDouble()
+            : double.tryParse('${entry.value}');
+        if (amt != null && amt > 0) {
+          cats['${entry.key}'] = amt;
+        }
+      }
+    }
     // `variance` is null while the shift is still OPEN: there is no closing
     // count to compare the drawer against yet. Every other field is always sent.
     return ZReading(
@@ -205,6 +240,8 @@ class ZReading {
       // previous close said it left. Null when there was nothing to compare.
       cashTakenOut: _nullableMoney(json, 'cash_taken_out'),
       openingDifference: _nullableMoney(json, 'opening_difference'),
+      denominationCounts: denoms,
+      cashOutByCategory: cats,
     );
   }
 
@@ -216,6 +253,8 @@ class ZReading {
   final double expectedDrawer;
   final double cashIn;
   final double cashOut;
+  final Map<String, int> denominationCounts;
+  final Map<String, double> cashOutByCategory;
 
   /// Counted minus expected. Null until the shift is closed; non-zero is
   /// recorded and warned about, never blocked (decision 06, ruling 3).

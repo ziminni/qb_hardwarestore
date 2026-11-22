@@ -23,4 +23,14 @@ class ReportsRepository {
 
   Future<RequisitionHistory> fetchRequisitionHistory() =>
       _service.fetchRequisitionHistory();
+
+  Future<VatReportSummary> fetchVatSummary({
+    String? from,
+    String? to,
+    String granularity = 'day',
+  }) => _service.fetchVatSummary(
+    from: from,
+    to: to,
+    granularity: granularity,
+  );
 }
