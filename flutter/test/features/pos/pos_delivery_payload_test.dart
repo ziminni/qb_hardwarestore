@@ -134,6 +134,7 @@ class _RecordingPosRepository extends PosRepository {
     String? discountApproval,
     DeliveryDraft? delivery,
     bool creditSale = false,
+    String? invoiceNo,
   }) async {
     lastDelivery = delivery;
     return PosCheckoutResult(

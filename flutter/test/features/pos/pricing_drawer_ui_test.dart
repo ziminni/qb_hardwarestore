@@ -31,7 +31,12 @@ class _FakeShiftService extends ShiftService {
   Future<Shift> openShift(double openingFloat) async => _openShift();
 
   @override
-  Future<Shift> closeShift(int shiftId, double closingCount, {double? cashLeft}) async {
+  Future<Shift> closeShift(
+    int shiftId,
+    double closingCount, {
+    double? cashLeft,
+    Map<String, int>? denominations,
+  }) async {
     onClose?.call(closingCount, cashLeft);
     return _closedShift(cashLeft: cashLeft);
   }

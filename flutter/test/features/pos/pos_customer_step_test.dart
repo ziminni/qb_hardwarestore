@@ -48,6 +48,7 @@ class _StubPosRepository extends PosRepository {
     String? discountApproval,
     DeliveryDraft? delivery,
     bool creditSale = false,
+    String? invoiceNo,
   }) async {
     final boom = failure;
     if (boom != null) throw boom;

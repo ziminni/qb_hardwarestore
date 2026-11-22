@@ -279,6 +279,7 @@ class _StubShifts extends ShiftService {
     int shiftId,
     double closingCount, {
     double? cashLeft,
+    Map<String, int>? denominations,
   }) async => _shift(
     id: shiftId,
     status: Shift.closedStatus,

@@ -68,6 +68,7 @@ class _StubShifts extends ShiftService {
     int shiftId,
     double closingCount, {
     double? cashLeft,
+    Map<String, int>? denominations,
   }) async {
     closeCalls++;
     this.closingCount = closingCount;

@@ -60,6 +60,7 @@ class _FakePosRepository extends PosRepository {
     String? discountApproval,
     DeliveryDraft? delivery,
     bool creditSale = false,
+    String? invoiceNo,
   }) async {
     calls++;
     sentPayments = payments;
@@ -95,6 +96,7 @@ class _FakeHeldCartService extends HeldCartService {
     String? discountApproval,
     DeliveryDraft? delivery,
     bool creditSale = false,
+    String? invoiceNo,
   }) async {
     completes.add((cartId: cartId, payments: payments, key: idempotencyKey));
     final boom = failComplete;

@@ -44,6 +44,7 @@ class _FakePosRepository extends PosRepository {
     String? discountApproval,
     DeliveryDraft? delivery,
     bool creditSale = false,
+    String? invoiceNo,
   }) async {
     calls++;
     sentCustomerId = customerId;

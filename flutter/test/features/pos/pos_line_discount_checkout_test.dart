@@ -39,6 +39,7 @@ class _RecordingPosRepository extends PosRepository {
     String? discountApproval,
     DeliveryDraft? delivery,
     bool creditSale = false,
+    String? invoiceNo,
   }) async {
     lastItems = items;
     lastDiscount = discount;
@@ -65,6 +66,7 @@ class _RecordingHeldCarts extends HeldCartService {
     String? discountApproval,
     DeliveryDraft? delivery,
     bool creditSale = false,
+    String? invoiceNo,
   }) async {
     completes.add(cartId);
     return {

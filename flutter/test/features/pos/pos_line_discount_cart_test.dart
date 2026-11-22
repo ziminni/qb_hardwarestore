@@ -37,6 +37,7 @@ class _StubPosRepository extends PosRepository {
     String? discountApproval,
     dynamic delivery,
     bool creditSale = false,
+    String? invoiceNo,
   }) async => PosCheckoutResult(
     id: 1,
     transactionNo: 'TRX-1',

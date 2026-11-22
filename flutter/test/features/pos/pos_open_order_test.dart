@@ -127,6 +127,7 @@ class _StubPosRepository extends PosRepository {
     String? discountApproval,
     DeliveryDraft? delivery,
     bool creditSale = false,
+    String? invoiceNo,
   }) async => throw StateError('a fulfilment must not be rung as a checkout');
 }
 

@@ -74,6 +74,7 @@ class _StubShifts extends ShiftService {
     required String kind,
     required double amount,
     required String reason,
+    String category = ShiftCashMovement.otherCategory,
   }) async {
     final existing = current ?? _shift(id: shiftId);
     final movement = ShiftCashMovement(

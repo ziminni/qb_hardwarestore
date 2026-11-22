@@ -55,6 +55,7 @@ class _StubPosRepository extends PosRepository {
     String? discountApproval,
     DeliveryDraft? delivery,
     bool creditSale = false,
+    String? invoiceNo,
   }) async {
     calls++;
     return PosCheckoutResult(

@@ -30,6 +30,7 @@ class _CapturingPosRepository extends PosRepository {
     String? discountApproval,
     dynamic delivery,
     bool creditSale = false,
+    String? invoiceNo,
   }) async {
     capturedItems = items;
     capturedDiscount = discount;
