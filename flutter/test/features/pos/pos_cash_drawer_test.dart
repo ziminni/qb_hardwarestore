@@ -122,9 +122,7 @@ void main() {
     await tester.tap(find.text('Open cash out'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('cash-movement-category')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Fuel').last);
+    await tester.tap(find.byKey(const ValueKey('cash-movement-cat-FUEL')));
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField).first, '250');

@@ -92,7 +92,7 @@ class PosHeldCartCard extends StatelessWidget {
             ),
           ),
           if (cart.expiresAt case final expiresAt?) ...[
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Builder(
               builder: (context) {
                 final remaining = expiresAt.difference(DateTime.now());
@@ -103,14 +103,44 @@ class PosHeldCartCard extends StatelessWidget {
                     ? 'Stock reserved · ${remaining.inHours}h '
                           '${remaining.inMinutes % 60}m left'
                     : 'Stock reserved · ${remaining.inMinutes}m left';
-                return Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                    color: expired
-                        ? AppColors.warningText
-                        : AppColors.successText,
+                return Align(
+                  alignment: Alignment.centerLeft,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: expired
+                          ? AppColors.warningTint
+                          : AppColors.successTint,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          expired
+                              ? Icons.timer_off_outlined
+                              : Icons.lock_clock_outlined,
+                          size: 13,
+                          color: expired
+                              ? AppColors.warningText
+                              : AppColors.successText,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          label,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: expired
+                                ? AppColors.warningText
+                                : AppColors.successText,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 );
               },

@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/shift.dart';
@@ -197,59 +198,121 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
             ),
           ),
           if (_showDenominations)
-            SizedBox(
-              width: 360,
-              height: 180,
-              child: ListView(
-                shrinkWrap: true,
+            Container(
+              width: 420,
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceSunken,
+                borderRadius: BorderRadius.circular(AppRadii.medium),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  for (final d in ShiftCashMovement.phpDenominations)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(
-                        children: [
-                          SizedBox(
-                            width: 72,
-                            child: Text(
-                              d.label,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Bills & Coins',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary,
                           ),
-                          SizedBox(
-                            width: 90,
-                            child: TextField(
-                              key: ValueKey('denom-${d.key}'),
-                              controller: _denomControllers[d.key],
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                isDense: true,
-                                hintText: '0',
-                                border: OutlineInputBorder(),
-                              ),
-                              onChanged: (_) => _syncFromDenominations(),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              formatPeso(
-                                (int.tryParse(
-                                          _denomControllers[d.key]!.text.trim(),
-                                        ) ??
-                                        0) *
-                                    d.value,
-                              ),
-                              textAlign: TextAlign.right,
-                              style: const TextStyle(
-                                fontFeatures: [FontFeature.tabularFigures()],
-                              ),
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
+                      if (_denominations.isNotEmpty)
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                          onPressed: () {
+                            for (final c in _denomControllers.values) {
+                              c.clear();
+                            }
+                            _syncFromDenominations();
+                          },
+                          child: const Text('Clear'),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 8,
+                    children: [
+                      for (final d in ShiftCashMovement.phpDenominations)
+                        SizedBox(
+                          width: 186,
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 58,
+                                child: Text(
+                                  d.label,
+                                  style: const TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(
+                                width: 58,
+                                child: TextField(
+                                  key: ValueKey('denom-${d.key}'),
+                                  controller: _denomControllers[d.key],
+                                  keyboardType: TextInputType.number,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontFeatures: [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                  ),
+                                  decoration: const InputDecoration(
+                                    isDense: true,
+                                    filled: true,
+                                    fillColor: AppColors.cardBackground,
+                                    contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 7,
+                                    ),
+                                    hintText: '0',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  onChanged: (_) => _syncFromDenominations(),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  formatPeso(
+                                    (int.tryParse(
+                                              _denomControllers[d.key]!.text
+                                                  .trim(),
+                                            ) ??
+                                            0) *
+                                        d.value,
+                                  ),
+                                  textAlign: TextAlign.right,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    color: AppColors.textSecondary,
+                                    fontFeatures: [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
               ),
             ),
