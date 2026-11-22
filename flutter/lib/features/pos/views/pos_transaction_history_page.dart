@@ -56,7 +56,7 @@ class _PosTransactionHistoryPageState extends State<PosTransactionHistoryPage> {
     return DashboardShell(
       title: 'Transaction History',
       subtitle:
-          'Review completed, exchanged, refunded, and voided sales — or attach a BIR OR.',
+          'Review completed, exchanged, refunded, and voided sales — or attach an OR.',
       selectedNavigationIndex: 1,
       navigationItems: posNavigationItems,
       onNavigationSelected: (i) => navigatePos(context, i),

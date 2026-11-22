@@ -90,6 +90,8 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
   /// The date range that filters nothing.
   static const String _anyDate = 'All dates';
 
+  static const String _customDate = 'Custom range';
+
   /// The manager's date range, over the rows already loaded (the plan's answer
   /// to "review one day or one refund"). "All dates" rather than a second "All"
   /// next to the status chips: two chips with the same word, one above the
@@ -100,6 +102,7 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
     'Yesterday',
     'This week',
     'This month',
+    _customDate,
   ];
 
   /// Says out loud that a range is a client filter, not a fresh fetch.
@@ -109,8 +112,32 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
   String _query = '';
   String _status = _anyStatus;
   String _date = _anyDate;
+  DateTimeRange? _customRange;
 
   bool get _dateFiltered => _date != _anyDate;
+
+  Future<void> _pickCustomDateRange() async {
+    final now = widget.now?.call() ?? appClock.now();
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 2),
+      lastDate: DateTime(now.year + 1),
+      currentDate: now,
+      initialDateRange:
+          _customRange ??
+          DateTimeRange(
+            start: DateTime(now.year, now.month, now.day).subtract(
+              const Duration(days: 7),
+            ),
+            end: DateTime(now.year, now.month, now.day),
+          ),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _customRange = picked;
+      _date = _customDate;
+    });
+  }
 
   /// True once the reader has narrowed the list, which changes what "nothing to
   /// show" means: an empty system and an empty filter are different facts.
@@ -165,8 +192,22 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
     ),
     'This week' => _inWeekOf(sale.date, now),
     'This month' => sale.date.year == now.year && sale.date.month == now.month,
+    _customDate => _inCustomRange(sale.date),
     _ => true,
   };
+
+  bool _inCustomRange(DateTime date) {
+    final range = _customRange;
+    if (range == null) return true;
+    final day = DateTime(date.year, date.month, date.day);
+    final start = DateTime(
+      range.start.year,
+      range.start.month,
+      range.start.day,
+    );
+    final end = DateTime(range.end.year, range.end.month, range.end.day);
+    return !day.isBefore(start) && !day.isAfter(end);
+  }
 
   static bool _sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
@@ -194,21 +235,51 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
               'Transaction, OS #, customer, or SKU',
             SalesTransactionsRole.cashier ||
             SalesTransactionsRole.storeManager =>
-              'Transaction, OS #, customer, or payment',
+              'Transaction, OS #, OR #, customer, or payment',
           },
           onSearchChanged: (value) => setState(() => _query = value),
+          optionsLabel: 'Status',
           options: _statusChips,
           selected: _status,
           onSelected: (chip) => setState(() => _status = chip),
+          extraOptionsLabel: showDateFilters ? 'Date' : null,
           extraOptions: showDateFilters ? _dateChips : const <String>[],
           extraSelected: _date,
-          onExtraSelected: (chip) => setState(() => _date = chip),
+          onExtraSelected: (chip) {
+            if (chip == _customDate) {
+              _pickCustomDateRange();
+            } else {
+              setState(() => _date = chip);
+            }
+          },
         ),
         if (showDateFilters) ...[
           const SizedBox(height: AppSpacing.sm),
-          const Text(
-            _dateCaption,
-            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                _date == _customDate && _customRange != null
+                    ? 'Showing ${formatDate(_customRange!.start)} to ${formatDate(_customRange!.end)} · $_dateCaption'
+                    : _dateCaption,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              if (_date == _customDate && _customRange != null)
+                TextButton(
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 28),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: _pickCustomDateRange,
+                  child: const Text('Change dates'),
+                ),
+            ],
           ),
         ],
         const SizedBox(height: AppSpacing.lg),
@@ -361,6 +432,11 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
                 label: sale.displayStatusLabel,
                 tone: _displayTone(sale),
               ),
+              if (sale.invoiceNo != null && sale.invoiceNo!.isNotEmpty)
+                StatusBadge(
+                  label: 'OR ${sale.invoiceNo}',
+                  tone: StatusTone.info,
+                ),
               if (sale.bodegaBadgeLabel != null)
                 StatusBadge(
                   label: sale.bodegaBadgeLabel!,
@@ -400,6 +476,13 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _text(sale.customer, maxLines: 2),
+          if (!withSource && sale.lines.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            _caption(
+              '${formatCount(sale.lines.length)} item${sale.lines.length == 1 ? '' : 's'}'
+              '${sale.cashier.isNotEmpty ? ' · ${sale.cashier}' : ''}',
+            ),
+          ],
           if (withSource) ...[const SizedBox(height: 2), _caption(sale.source)],
           if (withPayment) ...[
             const SizedBox(height: 2),
@@ -414,7 +497,20 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
     return DataPanelColumn<InventorySale>(
       label: 'Payment',
       flex: flex,
-      cell: (sale) => _text(_paymentOf(sale)),
+      cell: (sale) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _text(_paymentOf(sale)),
+          if (sale.discountAmount > 0) ...[
+            const SizedBox(height: 2),
+            _caption('Discount -${formatPeso(sale.discountAmount)}'),
+          ] else if (sale.creditSale) ...[
+            const SizedBox(height: 2),
+            _caption('Utang / credit price'),
+          ],
+        ],
+      ),
     );
   }
 

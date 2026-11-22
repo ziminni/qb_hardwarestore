@@ -150,12 +150,30 @@ class _PosShiftView extends StatelessWidget {
   /// amount without ellipsizing at 1100 px.
   static final List<DataPanelColumn<Shift>> _historyColumns = [
     DataPanelColumn<Shift>(
-      label: 'Opened',
-      flex: 2,
-      cell: (shift) => Text(
-        formatDate(shift.openedAt),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
+      label: 'Shift time',
+      flex: 3,
+      cell: (shift) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            formatDateTime(shift.openedAt.toLocal()),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+          Text(
+            shift.closedAt == null
+                ? 'Still open'
+                : 'Closed ${formatDateTime(shift.closedAt!.toLocal())}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 11.5,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
       ),
     ),
     DataPanelColumn<Shift>(

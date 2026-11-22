@@ -16,10 +16,12 @@ class PosTransactionCart extends StatelessWidget {
     required this.onClear,
     required this.onChangeCustomer,
     this.onHold,
+    this.isPaying = false,
   });
 
   final VoidCallback onPayment;
   final VoidCallback onClear;
+  final bool isPaying;
 
   /// Parks the basket without taking money (Phase 3 held sale).
   ///
@@ -370,24 +372,59 @@ class PosTransactionCart extends StatelessWidget {
           PosOfficialReceiptToggle(),
           const SizedBox(height: 14),
           // The one action the till exists for: the biggest target on screen.
-          FilledButton.icon(
-            onPressed: state.lines.isEmpty ? null : onPayment,
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(56),
-              shape: RoundedRectangleBorder(
+          // When the inline payment panel is already open on the left, replace
+          // the button with a clear cue so the cashier clicks "Complete
+          // transaction" instead of wondering why "Proceed to payment" is still
+          // active.
+          if (isPaying)
+            Container(
+              key: const ValueKey('pos-cart-paying-banner'),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppColors.brandGold.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.brandGold, width: 1.5),
               ),
-              // NOT a bare TextStyle: that replaces the labelLarge the button
-              // inherits from the theme, dropping the label to the platform font
-              // (the goldens drew it as boxes). Derived from the theme instead.
-              textStyle: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
+              child: const Row(
+                children: [
+                  Icon(
+                    Icons.arrow_back_rounded,
+                    size: 20,
+                    color: AppColors.brandBlack,
+                  ),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Payment panel is open. Review payment on the left and click "Complete transaction" to finish.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.brandBlack,
+                      ),
+                    ),
+                  ),
+                ],
               ),
+            )
+          else
+            FilledButton.icon(
+              onPressed: state.lines.isEmpty ? null : onPayment,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(56),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                // NOT a bare TextStyle: that replaces the labelLarge the button
+                // inherits from the theme, dropping the label to the platform font
+                // (the goldens drew it as boxes). Derived from the theme instead.
+                textStyle: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              icon: const Icon(Icons.payments_outlined),
+              label: const Text('Proceed to payment'),
             ),
-            icon: const Icon(Icons.payments_outlined),
-            label: const Text('Proceed to payment'),
-          ),
           const SizedBox(height: 10),
           // Decision 03: a cashier must be able to park a half-rung basket when
           // the customer walks away. Disabled on an empty cart for the same
@@ -670,18 +707,32 @@ class PosTransactionCart extends StatelessWidget {
                   },
                 ),
               if (line.discount case final discount?)
-                Padding(
+                Container(
                   key: ValueKey('pos-line-discount-label-$index'),
-                  padding: const EdgeInsets.only(top: 4),
+                  margin: const EdgeInsets.only(top: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.successTint,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                   child: Row(
                     children: [
+                      const Icon(
+                        Icons.local_offer_outlined,
+                        size: 14,
+                        color: AppColors.successText,
+                      ),
+                      const SizedBox(width: 6),
                       Expanded(
                         child: Text(
                           'Discount · ${discount.reason}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            fontSize: 12.5,
+                            fontSize: 12,
                             fontWeight: FontWeight.w600,
                             color: AppColors.successText,
                           ),

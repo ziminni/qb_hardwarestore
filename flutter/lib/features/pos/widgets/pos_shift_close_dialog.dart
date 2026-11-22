@@ -156,17 +156,74 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
   Widget build(BuildContext context) {
     final count = _count;
     final cashLeft = _cashLeft;
+    final expected = widget.shift.zReading?.expectedDrawer;
     return AlertDialog(
       title: const Text('Close shift'),
       content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-          Text(
-            'Opening float ${formatPeso(widget.shift.openingFloat)}. '
-            'Count the drawer and enter the total cash.',
-          ),
+        child: SizedBox(
+          width: 460,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceSunken,
+                  borderRadius: BorderRadius.circular(AppRadii.medium),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Opening float',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                          Text(
+                            formatPeso(widget.shift.openingFloat),
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              fontFeatures: [FontFeature.tabularFigures()],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (expected != null)
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            const Text(
+                              'Expected in drawer',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            Text(
+                              formatPeso(expected),
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.textPrimary,
+                                fontFeatures: [FontFeature.tabularFigures()],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
           // Decision 06 / Phase 3 Task 3: record-and-WARN, never block. The
           // carts are not deleted by the close and can still be resumed, so the
           // cashier is told the count and may close anyway. A warning on every
@@ -322,12 +379,15 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
             autofocus: true,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(
-              labelText: 'Cash counted',
+              labelText: 'Actual cash counted in drawer',
+              helperText:
+                  'Total physical cash inside the register right now (or use the bill & coin counter above).',
               prefixText: '₱ ',
+              border: OutlineInputBorder(),
             ),
             onChanged: (_) => setState(() {}),
           ),
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: AppSpacing.md),
           // Owner ruling (drawer carry): what stays behind for the next shift.
           // Optional on purpose - an unanswered question is stored as "not
           // recorded", which is a different fact from a cleared drawer.
@@ -336,11 +396,12 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
             enabled: !_cleared,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: InputDecoration(
-              labelText: 'Cash left in drawer',
+              labelText: 'Keep in drawer (Next shift float)',
               prefixText: '₱ ',
+              border: const OutlineInputBorder(),
               helperText: count == null
-                  ? 'Count the drawer first.'
-                  : 'Stays for the next shift; the rest is the deposit.',
+                  ? 'Enter actual cash counted first.'
+                  : 'Stays in the register for the next cashier; the rest goes to Safe Deposit.',
               errorText: _cashLeftValid
                   ? null
                   : 'Enter 0 or more, up to the counted cash.',
@@ -351,16 +412,43 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
             value: _cleared,
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
-            title: const Text('Drawer cleared'),
-            subtitle: const Text('Leaves ₱0.00 in the drawer.'),
+            title: const Text('Drawer cleared (take all cash out)'),
+            subtitle: const Text('Leaves ₱0.00 in the drawer for the next shift.'),
             onChanged: (value) => setState(() => _cleared = value ?? false),
           ),
           if (cashLeft != null && count != null)
-            Text(
-              'Deposit: ${formatPeso(count - cashLeft)}',
-              style: const TextStyle(fontSize: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.brandGold.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(AppRadii.small),
+                border: Border.all(color: AppColors.brandGold),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Safe deposit (cash to hand over)',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  Text(
+                    formatPeso(count - cashLeft),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+              ),
             ),
         ],
+        ),
         ),
       ),
       actions: [

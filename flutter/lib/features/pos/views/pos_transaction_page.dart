@@ -386,6 +386,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
                   onClear: () => _confirmClear(context),
                   onHold: () => _hold(context),
                   onChangeCustomer: () => _changeCustomer(context),
+                  isPaying: paying,
                 ),
               ),
             ],

@@ -34,7 +34,8 @@ class _PosReceivablesView extends StatelessWidget {
   Widget build(BuildContext context) {
     return DashboardShell(
       title: 'Record Payment',
-      subtitle: 'Track unpaid balances and record customer payments.',
+      subtitle:
+          'Track customer utang and project receivables, record payments, and view payment history.',
       selectedNavigationIndex: 3,
       navigationItems: posNavigationItems,
       onNavigationSelected: (i) => navigatePos(context, i),

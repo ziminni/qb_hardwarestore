@@ -138,9 +138,16 @@ class _MaterialReleasePageState extends State<MaterialReleasePage>
   }
 
   Widget _body(BuildContext context) {
+    final step = _viewmodel.isReleased
+        ? 3
+        : _viewmodel.hasVerified
+        ? 2
+        : 1;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        _ReleaseProgressHeader(currentStep: step),
+        const SizedBox(height: AppSpacing.md),
         if (_errorBanner() case final banner?) ...[
           banner,
           const SizedBox(height: AppSpacing.lg),
@@ -314,9 +321,49 @@ class _MaterialReleasePageState extends State<MaterialReleasePage>
                       ),
                     )
                   else ...[
+                    if (_viewmodel.leavesLinesOpen) ...[
+                      Container(
+                        key: const ValueKey('release-partial-warning'),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.warningTint,
+                          borderRadius: BorderRadius.circular(AppRadii.medium),
+                          border: Border.all(
+                            color: AppColors.warning.withValues(alpha: 0.45),
+                          ),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(
+                              Icons.inventory_2_outlined,
+                              size: 18,
+                              color: AppColors.warningText,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Partial release due to stock: '
+                                '${_viewmodel.releasableLineCount} of '
+                                '${_viewmodel.totalLineCount} lines will be '
+                                'handed over now. Short or out-of-stock '
+                                'balances stay open on this same request so '
+                                'the project can claim the rest once restocked.',
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.warningText,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                    ],
                     // One large button, like the till's Pay: this is the
                     // irreversible press and it should not look like a form.
-                    FilledButton(
+                    FilledButton.icon(
                       onPressed: _viewmodel.isBusy ? null : _viewmodel.release,
                       style: FilledButton.styleFrom(
                         minimumSize: const Size(0, 56),
@@ -326,7 +373,12 @@ class _MaterialReleasePageState extends State<MaterialReleasePage>
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      child: const Text('Release materials'),
+                      icon: const Icon(Icons.check_circle_outline),
+                      label: Text(
+                        _viewmodel.leavesLinesOpen
+                            ? 'Release available materials (Partial)'
+                            : 'Release materials',
+                      ),
                     ),
                     const SizedBox(height: AppSpacing.xs),
                     // What goes now against what stays behind, before the press:
@@ -456,6 +508,88 @@ class _MaterialReleasePageState extends State<MaterialReleasePage>
 /// One line, in words a clerk can repeat: how many lines the request still owes.
 String _openLines(ReleaseResult result) =>
     result.openLineCount == 1 ? '1 line' : '${result.openLineCount} lines';
+
+class _ReleaseProgressHeader extends StatelessWidget {
+  const _ReleaseProgressHeader({required this.currentStep});
+
+  final int currentStep;
+
+  static const _steps = [
+    (step: 1, title: 'Select Request / Token'),
+    (step: 2, title: 'Check Stock & Release'),
+    (step: 3, title: 'Release Receipt'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.cardBackground,
+        borderRadius: BorderRadius.circular(AppRadii.medium),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          for (var i = 0; i < _steps.length; i++) ...[
+            if (i > 0)
+              Expanded(
+                child: Container(
+                  height: 2,
+                  margin: const EdgeInsets.symmetric(horizontal: 8),
+                  color: _steps[i].step <= currentStep
+                      ? AppColors.brandGold
+                      : AppColors.border,
+                ),
+              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircleAvatar(
+                  radius: 13,
+                  backgroundColor: _steps[i].step < currentStep
+                      ? AppColors.successText
+                      : _steps[i].step == currentStep
+                      ? AppColors.brandBlack
+                      : AppColors.surfaceSunken,
+                  child: _steps[i].step < currentStep
+                      ? const Icon(
+                          Icons.check,
+                          size: 14,
+                          color: AppColors.brandWhite,
+                        )
+                      : Text(
+                          '${_steps[i].step}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: _steps[i].step == currentStep
+                                ? AppColors.brandGold
+                                : AppColors.textSecondary,
+                          ),
+                        ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _steps[i].title,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: _steps[i].step == currentStep
+                        ? FontWeight.w700
+                        : FontWeight.w500,
+                    color: _steps[i].step <= currentStep
+                        ? AppColors.textPrimary
+                        : AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
 
 /// The verified requisition's lines: item, how many were ordered, how many are still to
 /// hand over, how many go NOW on this release, and the line's status.

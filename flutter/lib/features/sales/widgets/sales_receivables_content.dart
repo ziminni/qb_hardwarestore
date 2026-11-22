@@ -108,7 +108,18 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
   /// claim a failed load cannot make.
   static const String _notLoaded = 'Not loaded';
 
+  static const String _allAccounts = 'All accounts';
+  static const String _customersOnly = 'Customers';
+  static const String _projectsOnly = 'Projects';
+  static const List<String> _accountTypeChips = [
+    _allAccounts,
+    _customersOnly,
+    _projectsOnly,
+  ];
+
   bool _partPaidOnly = false;
+  String _accountType = _allAccounts;
+  String _paymentsAccountType = _allAccounts;
   String _query = '';
   String _paymentsQuery = '';
   String _receiptsQuery = '';
@@ -119,14 +130,26 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
   /// CPMS receipts and Cheques, while cashier sees Receivables and Payment history.
   _ReceivablesTab _tab = _ReceivablesTab.ledger;
 
-  /// Rows the status chip left visible, then narrowed by the search text. The
-  /// chip goes through the viewmodel so the tiles and the list stay one dataset.
+  bool _matchesAccountType(String? projectName, String filter) {
+    final isProject = projectName != null && projectName.trim().isNotEmpty;
+    return switch (filter) {
+      _customersOnly => !isProject,
+      _projectsOnly => isProject,
+      _ => true,
+    };
+  }
+
+  /// Rows the status chip left visible, then narrowed by account type and search text.
   List<LedgerEntry> _visibleRows(SalesReceivablesViewmodel viewmodel) {
-    final rows = _partPaidOnly
+    final statusRows = _partPaidOnly
         ? viewmodel.filteredEntries
               .where((entry) => !entry.isPaid && !entry.isUnpaid)
               .toList()
         : viewmodel.filteredEntries;
+    final rows = [
+      for (final entry in statusRows)
+        if (_matchesAccountType(entry.projectName, _accountType)) entry,
+    ];
     final query = _query.trim().toLowerCase();
     if (query.isEmpty) return rows;
     return [
@@ -312,6 +335,7 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
         FilterBar(
           searchHint: 'Customer, invoice or project',
           onSearchChanged: (value) => setState(() => _query = value),
+          optionsLabel: 'Status',
           options: _statusChips,
           selected: _partPaidOnly
               ? _partPaidStatus
@@ -320,6 +344,10 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
             setState(() => _partPaidOnly = chip == _partPaidStatus);
             viewmodel.setStatusFilter(_statusFor(chip));
           },
+          extraOptionsLabel: 'Account',
+          extraOptions: _accountTypeChips,
+          extraSelected: _accountType,
+          onExtraSelected: (chip) => setState(() => _accountType = chip),
         ),
         // A refresh that fails keeps the rows it already had, so the failure
         // needs to be said out loud above them.
@@ -367,32 +395,41 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
   }) {
     return [
       DataPanelColumn<LedgerEntry>(
-        label: 'Customer',
+        label: 'Account',
         flex: 3,
-        // The invoice number rides under the customer rather than in a column
-        // of its own: it is how the same customer's debts are told apart, and a
-        // fifth column cost the money column its last digits at 1100 px.
-        cell: (entry) => Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _text(entry.customerName, maxLines: 2),
-            // Decision 03: the contractor pays, the project is what the counter is
-            // told, so it rides under the payer - the same caption the manager's
-            // sales table uses for the source and the payment. A counter sale has
-            // no project, and then the line is simply not there.
-            if (entry.projectName case final project?) ...[
+        // Segregate regular customer utang from project accounts with a clear badge.
+        cell: (entry) {
+          final hasProject =
+              entry.projectName != null && entry.projectName!.trim().isNotEmpty;
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  _text(entry.customerName, maxLines: 2),
+                  StatusBadge(
+                    label: hasProject ? 'Project' : 'Customer',
+                    tone: hasProject ? StatusTone.info : StatusTone.neutral,
+                  ),
+                ],
+              ),
+              if (hasProject) ...[
+                const SizedBox(height: 2),
+                _caption('Project: ${entry.projectName!}'),
+              ],
               const SizedBox(height: 2),
-              _caption(project),
+              _caption(
+                entry.createdAt == null
+                    ? entry.transactionNo
+                    : '${entry.transactionNo} · ${formatDateTime(entry.createdAt!)}',
+              ),
             ],
-            const SizedBox(height: 2),
-            _caption(
-              entry.createdAt == null
-                  ? entry.transactionNo
-                  : '${entry.transactionNo} · ${formatDateTime(entry.createdAt!)}',
-            ),
-          ],
-        ),
+          );
+        },
       ),
       DataPanelColumn<LedgerEntry>(
         label: 'Due',
@@ -432,14 +469,27 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
         label: 'Balance',
         numeric: true,
         flex: 3,
-        // The number the reader came for: bold, right aligned, tabular.
-        cell: (entry) => _text(
-          formatPeso(entry.balanceDue),
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-            color: AppColors.textPrimary,
-          ),
+        // The number the reader came for: bold, right aligned, tabular, with
+        // original & paid totals right underneath for quick verification.
+        cell: (entry) => Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            _text(
+              formatPeso(entry.balanceDue),
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            if (!cards) ...[
+              const SizedBox(height: 2),
+              _caption(
+                'Total ${formatPeso(entry.originalAmount)} · Paid ${formatPeso(entry.paidAmount)}',
+              ),
+            ],
+          ],
         ),
       ),
       DataPanelColumn<LedgerEntry>(
@@ -704,7 +754,11 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
   };
 
   List<LedgerPayment> _visiblePayments(SalesReceivablesViewmodel viewmodel) {
-    final rows = viewmodel.payments;
+    final rows = [
+      for (final payment in viewmodel.payments)
+        if (_matchesAccountType(payment.projectName, _paymentsAccountType))
+          payment,
+    ];
     final query = _paymentsQuery.trim().toLowerCase();
     if (query.isEmpty) return rows;
     return [
@@ -765,6 +819,10 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
         FilterBar(
           searchHint: 'Customer, project, sale or reference',
           onSearchChanged: (value) => setState(() => _paymentsQuery = value),
+          optionsLabel: 'Account',
+          options: _accountTypeChips,
+          selected: _paymentsAccountType,
+          onSelected: (chip) => setState(() => _paymentsAccountType = chip),
         ),
         if (failure != null) ...[
           const SizedBox(height: AppSpacing.md),

@@ -298,7 +298,20 @@ class _DeliveriesBodyState extends State<_DeliveriesBody> {
         Wrap(
           spacing: AppSpacing.xs,
           runSpacing: AppSpacing.xs,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
+            const Padding(
+              padding: EdgeInsets.only(right: 4),
+              child: Text(
+                'STATUS',
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.1,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
             for (var i = 0; i < chips.length; i++)
               ChoiceChip(
                 label: Text(chips[i]),
@@ -373,14 +386,49 @@ class _DeliveriesBodyState extends State<_DeliveriesBody> {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 12),
                 ),
+              if (delivery.address.isNotEmpty)
+                Text(
+                  delivery.address,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
             ],
           ),
         ),
         DataPanelColumn<Delivery>(
           label: 'Date',
           flex: 2,
-          cell: (delivery) =>
+          cell: (delivery) => Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Text(formatDate(delivery.scheduledDate), maxLines: 2),
+              if (delivery.createdAt != null)
+                Text(
+                  'Logged ${formatDateTime(delivery.createdAt!.toLocal())}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              if (delivery.createdByName.trim().isNotEmpty)
+                Text(
+                  'by ${delivery.createdByName.trim()}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+            ],
+          ),
         ),
         DataPanelColumn<Delivery>(
           label: 'Status',
@@ -416,7 +464,47 @@ class _DeliveriesBodyState extends State<_DeliveriesBody> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(delivery.documentNo),
+            Text(
+              delivery.documentNo,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            if (delivery.createdAt != null ||
+                delivery.createdByName.trim().isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  [
+                    if (delivery.createdAt != null)
+                      'Logged ${formatDateTime(delivery.createdAt!.toLocal())}',
+                    if (delivery.createdByName.trim().isNotEmpty)
+                      'by ${delivery.createdByName.trim()}',
+                  ].join(' · '),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ),
+            if (delivery.address.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Address: ${delivery.address}',
+                  style: const TextStyle(fontSize: 12.5),
+                ),
+              ),
+            if (delivery.failureReason.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Failure reason: ${delivery.failureReason}',
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: AppColors.errorText,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
             if (delivery.saleId == null)
               const Text(
                 'Suggested locations only. Stock has not been allocated.',

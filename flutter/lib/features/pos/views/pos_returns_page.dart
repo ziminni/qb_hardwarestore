@@ -307,6 +307,15 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    _ReturnsProgressStepper(
+                      currentStep: !refundable
+                          ? 1
+                          : returns.hasQuantity
+                          ? 3
+                          : 2,
+                      isExchange: returns.mode == ReturnMode.exchange,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
                     // ONE failure, above the steps: the refund's refusal must not
                     // hide under the pinned bar where the cashier tapped.
                     if (returns.submitError case final error?) ...[
@@ -502,8 +511,8 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            'Step the quantities that are coming back. The stepper stops at '
-            'what the sale still has.',
+            'Type a quantity, tap All for bulk returns, or use − / +. '
+            'Quantities stop at what the sale still has.',
             style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
           ),
           for (final line in preflight.lines)
@@ -512,6 +521,8 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
               quantity: returns.quantityFor(line.variantUomId),
               onIncrement: () => returns.increment(line.variantUomId),
               onDecrement: () => returns.decrement(line.variantUomId),
+              onQuantityChanged: (qty) =>
+                  returns.setQuantity(line.variantUomId, qty),
             ),
         ],
       ),
@@ -1081,6 +1092,98 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
 
 /// No open shift: the refund cannot be posted, and the way out is the Shifts
 /// tab, not a retry that cannot work.
+class _ReturnsProgressStepper extends StatelessWidget {
+  const _ReturnsProgressStepper({
+    required this.currentStep,
+    required this.isExchange,
+  });
+
+  final int currentStep;
+  final bool isExchange;
+
+  @override
+  Widget build(BuildContext context) {
+    final steps = [
+      (step: 1, title: 'Find Sale'),
+      (step: 2, title: 'Choose Items & Qty'),
+      (step: 3, title: isExchange ? 'Exchange Item' : 'Refund'),
+    ];
+    return Container(
+      key: const ValueKey('returns-progress-stepper'),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.cardBackground,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          for (var i = 0; i < steps.length; i++) ...[
+            if (i > 0)
+              Expanded(
+                child: Container(
+                  height: 2,
+                  margin: const EdgeInsets.symmetric(horizontal: 8),
+                  color: steps[i].step <= currentStep
+                      ? AppColors.brandGold
+                      : AppColors.border,
+                ),
+              ),
+            Flexible(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircleAvatar(
+                    radius: 13,
+                    backgroundColor: steps[i].step < currentStep
+                        ? AppColors.successText
+                        : steps[i].step == currentStep
+                        ? AppColors.brandBlack
+                        : AppColors.surfaceSunken,
+                    child: steps[i].step < currentStep
+                        ? const Icon(
+                            Icons.check,
+                            size: 14,
+                            color: AppColors.brandWhite,
+                          )
+                        : Text(
+                            '${steps[i].step}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: steps[i].step == currentStep
+                                  ? AppColors.brandGold
+                                  : AppColors.textSecondary,
+                            ),
+                          ),
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      steps[i].title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: steps[i].step == currentStep
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                        color: steps[i].step <= currentStep
+                            ? AppColors.textPrimary
+                            : AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _NoShiftGate extends StatelessWidget {
   const _NoShiftGate();
 

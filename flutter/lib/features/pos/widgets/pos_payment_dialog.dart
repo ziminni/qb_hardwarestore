@@ -908,17 +908,32 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                     if (_inline || _current == _PayStep.payment) ...[
                       _section(
                         icon: Icons.payments_outlined,
-                        title: 'Payment',
-                        trailing: TextButton.icon(
-                          key: const ValueKey('pos-add-tender'),
-                          // Off once every method has a row.
-                          onPressed: _unusedChoices.isEmpty ? null : _addRow,
-                          icon: const Icon(Icons.add, size: 18),
-                          label: const Text('Add tender'),
+                        title: 'Payment method',
+                        trailing: Tooltip(
+                          message:
+                              'Use when the customer pays with 2 or more methods (e.g. Cash + GCash)',
+                          child: TextButton.icon(
+                            key: const ValueKey('pos-add-tender'),
+                            // Off once every method has a row.
+                            onPressed: _unusedChoices.isEmpty ? null : _addRow,
+                            icon: const Icon(Icons.call_split_rounded, size: 17),
+                            label: const Text('Split payment (Add method)'),
+                          ),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            if (_rows.length == 1)
+                              const Padding(
+                                padding: EdgeInsets.only(bottom: 10),
+                                child: Text(
+                                  'Paying with two methods (e.g. Cash + GCash)? Click "Split payment (Add method)" above.',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ),
                             for (final row in _rows) _tenderRow(row),
                             if (_hasUtang) _utangFields(),
                           ],
@@ -1225,13 +1240,25 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                               ),
                             ),
                           ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
+                        if (_isLastStep)
+                          const Padding(
+                            padding: EdgeInsets.only(bottom: 8),
+                            child: Text(
+                              'Final step: Check the total and click "Complete transaction" below to finish this sale.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ),
                         Row(
                           children: [
                             Expanded(
                               child: OutlinedButton(
                                 style: OutlinedButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(48),
+                                  minimumSize: const Size.fromHeight(50),
                                 ),
                                 onPressed: _inline || _stepIndex == 0
                                     ? _cancel
@@ -1248,16 +1275,29 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                               flex: 2,
                               child: FilledButton.icon(
                                 style: FilledButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(48),
+                                  minimumSize: const Size.fromHeight(50),
                                   backgroundColor: AppColors.brandBlack,
                                   foregroundColor: AppColors.brandWhite,
+                                  side: _isLastStep
+                                      ? const BorderSide(
+                                          color: AppColors.brandGold,
+                                          width: 1.5,
+                                        )
+                                      : null,
+                                  textStyle: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                                 key: const ValueKey('pos-payment-next'),
                                 onPressed: _isLastStep ? _complete : _next,
                                 icon: Icon(
                                   _isLastStep
-                                      ? Icons.check_circle_outline
+                                      ? Icons.check_circle_rounded
                                       : Icons.arrow_forward,
+                                  color: _isLastStep
+                                      ? AppColors.brandGold
+                                      : AppColors.brandWhite,
                                 ),
                                 label: Text(
                                   _isLastStep ? 'Complete transaction' : 'Next',

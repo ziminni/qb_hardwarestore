@@ -249,8 +249,8 @@ class _PosAttachOrDialogState extends State<PosAttachOrDialog> {
           controller: _invoice,
           textCapitalization: TextCapitalization.characters,
           decoration: const InputDecoration(
-            labelText: 'OR invoice no.',
-            helperText: 'The Invoice number written on the paper BIR OR.',
+            labelText: 'OR / Invoice no.',
+            helperText: 'The number written on the paper Official Receipt (OR).',
           ),
         ),
         if (conflict && widget.canReplace) ...[

@@ -125,21 +125,16 @@ class _ShiftCashMovementDialogState extends State<_ShiftCashMovementDialog> {
   @override
   Widget build(BuildContext context) {
     final currentCategoryText = _categoryController.text.trim().toLowerCase();
+    final isCashOut = _kind == ShiftCashMovement.cashOutKind;
     return AlertDialog(
       title: const Text('Record drawer cash in / out'),
       content: SingleChildScrollView(
         child: SizedBox(
-          width: 440,
+          width: 460,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                'Log cash taken out of the register or added to the drawer so '
-                'your closing count matches expected cash.',
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-              ),
-              const SizedBox(height: AppSpacing.md),
               SegmentedButton<String>(
                 segments: const [
                   ButtonSegment<String>(
@@ -157,6 +152,47 @@ class _ShiftCashMovementDialogState extends State<_ShiftCashMovementDialog> {
                 onSelectionChanged: (selection) {
                   setState(() => _kind = selection.first);
                 },
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 9,
+                ),
+                decoration: BoxDecoration(
+                  color: isCashOut
+                      ? AppColors.errorTint
+                      : AppColors.successTint,
+                  borderRadius: BorderRadius.circular(AppRadii.medium),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      isCashOut
+                          ? Icons.remove_circle_outline
+                          : Icons.add_circle_outline,
+                      size: 16,
+                      color: isCashOut
+                          ? AppColors.errorText
+                          : AppColors.successText,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        isCashOut
+                            ? 'Cash Out (Expense / Drop): subtracts from expected drawer cash.'
+                            : 'Cash In (Change / Top-up): adds to expected drawer cash.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: isCashOut
+                              ? AppColors.errorText
+                              : AppColors.successText,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: AppSpacing.md),
               TextField(

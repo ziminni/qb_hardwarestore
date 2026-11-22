@@ -306,9 +306,26 @@ class _CashMovementsList extends StatelessWidget {
                     const SizedBox(width: 8),
                   ],
                   Expanded(
-                    child: Text(
-                      '${movement.isCashOut ? "Cash out" : "Cash in"} · ${movement.reason}',
-                      style: const TextStyle(fontSize: 13),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${movement.isCashOut ? "Cash out" : "Cash in"} · ${movement.reason}',
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                        Text(
+                          [
+                            formatDateTime(movement.createdAt.toLocal()),
+                            if (movement.recordedByName.trim().isNotEmpty)
+                              'by ${movement.recordedByName.trim()}',
+                          ].join(' · '),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(width: AppSpacing.sm),

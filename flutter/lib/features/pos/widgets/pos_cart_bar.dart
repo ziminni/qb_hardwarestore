@@ -183,15 +183,15 @@ class _PosOfficialReceiptToggleState extends State<PosOfficialReceiptToggle> {
       children: [
         Tooltip(
           message:
-              'Customer wants an Official Receipt (BIR). Write the paper OR, '
-              'then type its Invoice number.',
+              'Customer wants an Official Receipt (OR). Write the paper OR, '
+              'then type its OR / Invoice number.',
           child: Switch(
             key: PosOfficialReceiptToggle.switchKey,
             value: _enabled,
             onChanged: _setEnabled,
           ),
         ),
-        Text('OR (BIR)', style: TextStyle(color: color, fontSize: 13)),
+        Text('Attach OR?', style: TextStyle(color: color, fontSize: 13)),
         if (_enabled) ...[
           const SizedBox(width: AppSpacing.sm),
           SizedBox(
@@ -205,7 +205,7 @@ class _PosOfficialReceiptToggleState extends State<PosOfficialReceiptToggle> {
               style: TextStyle(color: color, fontSize: 13),
               decoration: InputDecoration(
                 isDense: true,
-                labelText: 'OR invoice no.',
+                labelText: 'OR / Invoice no.',
                 labelStyle: TextStyle(color: color, fontSize: 12),
                 border: const OutlineInputBorder(),
               ),
