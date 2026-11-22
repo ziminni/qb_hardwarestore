@@ -729,7 +729,9 @@ class CustomerViewSet(BaseViewSet):
 
 class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
     queryset = (
-        SalesTransaction.objects.select_related("customer", "cashier")
+        SalesTransaction.objects.select_related(
+            "customer", "cashier", "invoice_tagged_by"
+        )
         .prefetch_related(
             # Phase 5 B4 fix: each line reports `stored_at_name`, so the sale list/detail
             # must join the line's location (and its unit code, which the serializer also
@@ -782,7 +784,12 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
         query = (self.request.query_params.get("q") or "").strip()
         if query:
             qs = qs.filter(
-                Q(transaction_no__iexact=query) | Q(receipt__or_number__iexact=query)
+                Q(transaction_no__iexact=query)
+                | Q(receipt__or_number__iexact=query)
+                # pyright: ignore[reportOperatorIssue] - django-stubs types `Q | Q` as
+                # `Node`, so the THIRD `|` in the chain reads as unsupported. The SQL it
+                # builds is the three-way OR the tests pin.
+                | Q(invoice_no__iexact=query)  # pyright: ignore[reportOperatorIssue]
             )
         return qs
 
@@ -880,6 +887,18 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
                         request.data.get("credit_sale", False)
                     ),
                 )
+                # Store-ops Phase 1: the customer asked for a paper BIR Official Receipt
+                # at the till, so the invoice no. from it rides this sale. Tagged INSIDE
+                # the same atomic block as the sale, so a refused tag (a duplicate
+                # number, say) rolls the whole sale back instead of leaving a slip that
+                # claims a BIR invoice it does not have. Deliberately NOT inside
+                # `process_sale`: that function already carries every checkout guard,
+                # and this rule knows nothing about ringing a sale.
+                invoice_no = (request.data.get("invoice_no") or "").strip()
+                if invoice_no:
+                    from .services import tag_invoice
+
+                    tag_invoice(txn, invoice_no, request.user)
                 audit_request(
                     request,
                     AuditLog.ActionType.SALE,
@@ -935,6 +954,81 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
                 "total_sales": total,
             }
         )
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="attach-invoice",
+        url_name="attach-invoice",
+    )
+    def attach_invoice(self, request):
+        """POST /transactions/attach-invoice/ - tag a sale with the paper OR's number.
+
+        The customer may come back DAYS later holding the Order Slip. The cashier types
+        the OS number (or scans its QR code with a keyboard-wedge scanner, which is the
+        same thing) and the invoice no. written on the paper BIR Official Receipt.
+
+        The lookup is EXACT (case-insensitive) on `transaction_no` or the receipt's OS
+        number, and deliberately NOT through `OwnSalesScopeMixin`: a returning customer's
+        sale may have been rung by another cashier, or by a till that has long closed its
+        shift. The customer holds the slip, so knowing the exact number is the authority -
+        unlike the returns page, which must stay scoped because its lookup walks a
+        cashier INTO another drawer's money. A mistyped number is a 404 either way.
+
+        `replace: true` overwrites a DIFFERENT invoice no. already on the sale. That is a
+        manager's authority (`IsManagerRole`), because the tag decides which VAT bucket
+        the money lands in on a later report, and every replace is audited with both the
+        old and the new number.
+
+        Answers 200 with the FULL serialized sale, so the client can reprint the slip
+        with the invoice no. on it without a second round trip.
+        """
+        from .exceptions import InvoiceReplaceForbidden
+        from .services import tag_invoice
+
+        number = str(request.data.get("number") or "").strip()
+        invoice_no = request.data.get("invoice_no") or ""
+        replace = bool(
+            BooleanField().run_validation(request.data.get("replace", False))
+        )
+        if not number:
+            raise ValidationError(
+                {
+                    "number": "Send the OS number (or the transaction number) on the slip."
+                }
+            )
+        if replace and not has_role(request.user, IsManagerRole.required_roles):
+            raise InvoiceReplaceForbidden()
+
+        # `self.queryset`, not `self.get_queryset()`: the point of this endpoint is to
+        # reach a sale the caller did not ring.
+        txn = (
+            self.queryset.filter(
+                Q(transaction_no__iexact=number) | Q(receipt__or_number__iexact=number)
+            )
+            .order_by("id")
+            .first()
+        )
+        if txn is None:
+            raise NotFound(f"No sale matches {number!r}.")
+
+        previous = txn.invoice_no
+        tag_invoice(txn, invoice_no, request.user, allow_change=replace)
+        os_number = txn.receipt.or_number if hasattr(txn, "receipt") else number
+        detail = (
+            f"OS {os_number} ({txn.transaction_no}) tagged with OR invoice no. "
+            f"{txn.invoice_no}"
+        )
+        if previous and previous != txn.invoice_no:
+            detail += f", replacing {previous}"
+        audit_request(
+            request,
+            AuditLog.ActionType.UPDATE,
+            f"{detail} by {request.user.username}.",
+        )
+        # Re-read through the viewset's own prefetching queryset so the response carries
+        # the items, payments and receipt the client prints from.
+        return Response(self.get_serializer(self.queryset.get(pk=txn.pk)).data)
 
     @action(detail=True, methods=["get"])
     def returnable(self, request, pk=None):

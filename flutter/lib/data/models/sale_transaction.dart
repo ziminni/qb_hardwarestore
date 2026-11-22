@@ -89,6 +89,8 @@ class TransactionRecord {
     this.creditSale = false,
     this.bodegaStatus,
     this.orNumber = '',
+    this.invoiceNo,
+    this.invoiceTaggedAt,
   });
 
   final int id;
@@ -120,6 +122,17 @@ class TransactionRecord {
   final bool creditSale;
   final String? bodegaStatus;
   final String orNumber;
+
+  /// The Invoice number written on the PAPER BIR Official Receipt the customer
+  /// asked for (store-ops Phase 1), upper-cased by the server.
+  ///
+  /// Null when nothing was tagged, which is the ordinary Order-Slip-only sale;
+  /// the blank string the wire uses is read as null so a screen can ask
+  /// `invoiceNo != null` instead of trimming on every build.
+  final String? invoiceNo;
+
+  /// When that number was typed in. Null on an untagged sale.
+  final DateTime? invoiceTaggedAt;
 
   factory TransactionRecord.fromJson(Map<String, dynamic> json) {
     final items = json['items'];
@@ -160,6 +173,14 @@ class TransactionRecord {
       orNumber: json['receipt'] is Map && json['receipt']['or_number'] is String
           ? (json['receipt']['or_number'] as String).trim()
           : '',
+      invoiceNo:
+          json['invoice_no'] is String &&
+              (json['invoice_no'] as String).trim().isNotEmpty
+          ? (json['invoice_no'] as String).trim()
+          : null,
+      invoiceTaggedAt: json['invoice_tagged_at'] is String
+          ? DateTime.tryParse(json['invoice_tagged_at'] as String)
+          : null,
       items: items
           .map((i) => TransactionLineItem.fromJson(i as Map<String, dynamic>))
           .toList(),

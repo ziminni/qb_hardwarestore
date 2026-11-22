@@ -19,7 +19,7 @@ from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from django.core import signing
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Sum
 from django.utils import timezone
 
@@ -1760,6 +1760,88 @@ def process_sale(
                 row.ledger = ledger
                 row.save(update_fields=["ledger"])
 
+    return txn
+
+
+def tag_invoice(txn, invoice_no, user, *, allow_change=False):
+    """Attach the paper BIR Official Receipt's Invoice number to one sale (store-ops P1).
+
+    One paper invoice is one sale, so the number is stored ON the transaction and the
+    database refuses a second sale claiming it (the conditional unique constraint).
+    The number is normalised here - stripped and upper-cased - because "bir-000123" and
+    "BIR-000123" are the same hand-writing on the same booklet and must not become two
+    different rows.
+
+    Refused, each for its own reason:
+
+    * blank or over 50 characters -> `InvoiceTagError` (the column's width);
+    * a RETURN - the invoice belongs to the sale the customer was billed for, and a
+      reversal is not a sale;
+    * a sale that is not COMPLETED - a voided/refunded row is not what the paper says;
+    * a DIFFERENT number already on the row, without `allow_change` ->
+      `InvoiceAlreadyTagged` (409), because re-labelling money is a manager's call;
+    * that number on ANOTHER sale -> `InvoiceNoInUse` (409).
+
+    The SAME number re-sent is a no-op success: a cashier who submits twice, or a client
+    that retried, must not be told off for it. That is also what makes the attach
+    endpoint idempotent without a separate replay store.
+
+    `allow_change` is the manager's authority, decided by the VIEW (`has_role` with
+    `IsManagerRole.required_roles`), never by the client's own claim.
+
+    Raised before any write - or inside a savepoint that rolls back - so a refusal always
+    means "nothing changed".
+    """
+    from .exceptions import (
+        InvoiceAlreadyTagged,
+        InvoiceNoInUse,
+        InvoiceTagError,
+    )
+
+    number = (invoice_no or "").strip().upper()
+    if not number:
+        raise InvoiceTagError("An invoice number is required.")
+    if len(number) > SalesTransaction._meta.get_field("invoice_no").max_length:
+        raise InvoiceTagError(
+            "An invoice number may be at most 50 characters - check the paper receipt."
+        )
+    if txn.source == SalesTransaction.Source.RETURN:
+        raise InvoiceTagError(
+            "A return cannot be tagged with an OR invoice number. Tag the sale the "
+            "customer was billed for."
+        )
+    if txn.status != SalesTransaction.Status.COMPLETED:
+        raise InvoiceTagError(
+            f"{txn.transaction_no} is {txn.status.lower()}, so it cannot be tagged with "
+            "an OR invoice number."
+        )
+
+    previous = txn.invoice_no
+    if previous and previous != number and not allow_change:
+        raise InvoiceAlreadyTagged(previous)
+    if previous == number:
+        # The same tag again: nothing to write, and the row already says what the caller
+        # asked it to say.
+        return txn
+
+    # A named sale for this number is a refusal the caller can act on, so it is answered
+    # BEFORE writing. The unique constraint still guards the race two tills can lose.
+    if SalesTransaction.objects.filter(invoice_no=number).exclude(pk=txn.pk).exists():
+        raise InvoiceNoInUse(number)
+
+    txn.invoice_no = number
+    txn.invoice_tagged_at = timezone.now()
+    txn.invoice_tagged_by = user if getattr(user, "pk", None) else None
+    try:
+        # Its own savepoint: the IntegrityError below is only catchable once the
+        # connection has been rolled back to a clean state, and the caller's atomic block
+        # (the checkout, or nothing at all) must survive the refusal.
+        with transaction.atomic():
+            txn.save(
+                update_fields=["invoice_no", "invoice_tagged_at", "invoice_tagged_by"]
+            )
+    except IntegrityError:
+        raise InvoiceNoInUse(number) from None
     return txn
 
 

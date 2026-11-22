@@ -50,6 +50,11 @@ class ReceiptContent {
   ReceiptContent(PosReceipt receipt)
     : header = [
         'Order Slip: ${receipt.officialReceiptNumber}',
+        // Store-ops Phase 1: the Invoice number from the PAPER BIR Official Receipt,
+        // printed under the OS number when the customer asked for one. An untagged
+        // sale prints nothing here - the slip stays what it always was.
+        if (receipt.invoiceNo.isNotEmpty)
+          'OR Invoice No.: ${receipt.invoiceNo}',
         'Reference: ${receipt.reference}',
         formatDateTime(receipt.createdAt),
         'Payment: ${TenderMethod.labelFor(receipt.paymentMethod)}',
@@ -229,9 +234,7 @@ Future<Uint8List> buildReceiptPdf(
             ),
             pw.SizedBox(height: 6),
           ],
-          pw.Center(
-            child: pw.Text('Not an Official Receipt', style: body),
-          ),
+          pw.Center(child: pw.Text('Not an Official Receipt', style: body)),
           pw.Center(child: pw.Text('Thank you!', style: body)),
         ],
       ),

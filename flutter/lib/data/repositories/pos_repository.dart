@@ -28,6 +28,7 @@ class PosRepository {
     String? discountApproval,
     DeliveryDraft? delivery,
     bool creditSale = false,
+    String? invoiceNo,
   }) => service.checkout(
     customerId: customerId,
     items: items,
@@ -38,6 +39,19 @@ class PosRepository {
     discountApproval: discountApproval,
     delivery: delivery,
     creditSale: creditSale,
+    invoiceNo: invoiceNo,
+  );
+
+  /// Attaches the paper OR's invoice number to a sale the customer brought back
+  /// (store-ops Phase 1). Answers the full sale so the caller can reprint the slip.
+  Future<PosCheckoutResult> attachInvoice({
+    required String number,
+    required String invoiceNo,
+    bool replace = false,
+  }) => service.attachInvoice(
+    number: number,
+    invoiceNo: invoiceNo,
+    replace: replace,
   );
 
   /// The customer id an anonymous sale must still send (decision 06 section 2).

@@ -164,6 +164,22 @@ class SalesTransaction(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Store-ops Phase 1: the Invoice number written on the PAPER BIR Official Receipt the
+    # customer asked for. Empty on the ordinary sale that only ever got an Order Slip, so
+    # the VAT report can split OR-backed sales from the rest. `db_index` because that
+    # report groups by it, and the checkout and attach flows both look a number up.
+    invoice_no = models.CharField(max_length=50, blank=True, default="", db_index=True)
+    # NULL = never tagged, which is what every row written before this column reads. The
+    # timestamp and the actor are stored, not derived: a later report has to answer "who
+    # typed this BIR number, and when" without guessing from the audit trail.
+    invoice_tagged_at = models.DateTimeField(null=True, blank=True)
+    invoice_tagged_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
 
     class Meta:
         db_table = "pos_transaction"
@@ -181,6 +197,17 @@ class SalesTransaction(models.Model):
                 fields=["cashier", "idempotency_key"],
                 condition=models.Q(idempotency_key__isnull=False),
                 name="uniq_pos_transaction_cashier_idempotency_key",
+            ),
+            # One paper invoice tags ONE sale (store-ops Phase 1). Enforced by the DATABASE
+            # for the same reason as the retry key above: two cashiers typing the same
+            # number at the same moment both read "nobody has it" and both save, and only
+            # this index makes the loser raise IntegrityError - which `tag_invoice` turns
+            # into `INVOICE_NO_IN_USE`. Conditional because "" (no OR asked for) is the
+            # ordinary case and must never collide with itself.
+            models.UniqueConstraint(
+                fields=["invoice_no"],
+                condition=~models.Q(invoice_no=""),
+                name="uniq_pos_transaction_invoice_no",
             ),
         ]
 

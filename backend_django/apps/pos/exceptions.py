@@ -777,6 +777,91 @@ class SalesOrderReasonRequired(SalesOrderError):
         )
 
 
+class InvoiceTagError(ValueError):
+    """A tag of the paper BIR Official Receipt's invoice no. the server refuses.
+
+    The shop prints an Order Slip for every sale; the BIR Official Receipt book is paper
+    and its Invoice number is written by hand. Typing that number into the system is what
+    lets a later VAT report tell OR-backed sales from the rest, so the number has to name
+    exactly one sale and nothing may overwrite it silently.
+
+    Same ``{code, detail, **extra}`` shape as `ChequeError` and `DeliveryError`, so the
+    till branches on a stable code instead of English prose. Raised BEFORE the write on
+    every path, so a refusal always means "nothing changed".
+
+    ``http_status`` is a class attribute because not all of these are bad requests: a slip
+    that already carries a DIFFERENT invoice no. is a CONFLICT (409) - the caller asked for
+    a second tag on a fact that is already settled - and replacing one is a manager's
+    authority (403).
+    """
+
+    code = "INVALID_INVOICE_TAG"
+    http_status = status.HTTP_400_BAD_REQUEST
+    # Same reason as `DiscountError.extra`: immutable default, per-instance override.
+    extra: Mapping[str, object] = MappingProxyType({})
+
+    def __init__(self, detail, **extra):
+        self.extra = extra
+        super().__init__(detail)
+
+
+class InvoiceAlreadyTagged(InvoiceTagError):
+    """The sale already carries a different invoice no. and no replace was asked for.
+
+    Carries the number already on the slip so the till can show it: the cashier has to
+    read the old tag out to the customer before a manager replaces it.
+    """
+
+    code = "INVOICE_ALREADY_TAGGED"
+    http_status = status.HTTP_409_CONFLICT
+
+    def __init__(self, invoice_no):
+        self.invoice_no = invoice_no
+        super().__init__(
+            f"This sale is already tagged with OR invoice no. {invoice_no}. Ask a Store "
+            "Manager or Admin to replace it.",
+            invoice_no=invoice_no,
+        )
+
+
+class InvoiceNoInUse(InvoiceTagError):
+    """That invoice no. already tags another sale.
+
+    One paper invoice is one sale, so two sales cannot claim the same number: the VAT
+    report would then count the same official receipt twice. 409 for the same reason as
+    `InvoiceAlreadyTagged` - the number is a fact another row already holds.
+    """
+
+    code = "INVOICE_NO_IN_USE"
+    http_status = status.HTTP_409_CONFLICT
+
+    def __init__(self, invoice_no):
+        self.invoice_no = invoice_no
+        super().__init__(
+            f"OR invoice no. {invoice_no} is already attached to another sale. Check the "
+            "paper receipt and type the number again.",
+            invoice_no=invoice_no,
+        )
+
+
+class InvoiceReplaceForbidden(InvoiceTagError):
+    """A non-manager asked to REPLACE an invoice no. the sale already carries.
+
+    403, not 400: the caller may use the endpoint, just not this authority. Overwriting a
+    tag moves money into a different VAT bucket on a later report, which is a manager's
+    decision and is audited.
+    """
+
+    code = "INVOICE_REPLACE_FORBIDDEN"
+    http_status = status.HTTP_403_FORBIDDEN
+
+    def __init__(self):
+        super().__init__(
+            "Only a Store Manager or an Admin may replace an invoice no. that is already "
+            "attached to a sale."
+        )
+
+
 def handler(exc, context):
     """Return DRF's own response, except for a short-stock sale.
 
@@ -970,6 +1055,15 @@ def handler(exc, context):
         # shape and with the same guarantee. Ordered AFTER `DeliveryError` because the
         # two families are unrelated classes; the status is the exception's own, since
         # an order that has moved on or whose goods have left is a CONFLICT.
+        payload: dict[str, object] = {"code": exc.code, "detail": str(exc)}
+        payload.update(exc.extra)
+        return Response(payload, status=exc.http_status)
+    if isinstance(exc, InvoiceTagError):
+        # Store-ops Phase 1: the OR invoice-no. refusals. Same {code, detail, **extra}
+        # shape as the cheque and delivery families, with the status on the exception
+        # itself: a slip already carrying a different number is a CONFLICT, and replacing
+        # one is a manager's authority. Raised before the write, so a refusal changed
+        # nothing.
         payload: dict[str, object] = {"code": exc.code, "detail": str(exc)}
         payload.update(exc.extra)
         return Response(payload, status=exc.http_status)

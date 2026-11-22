@@ -267,6 +267,13 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
             "payments",
             "receipt",
             "bodega_status",
+            # Store-ops Phase 1: the paper BIR Official Receipt's invoice no. and who typed
+            # it. All three are READ-ONLY and are written only by `tag_invoice` (from the
+            # checkout body or the attach-invoice action), which is the one place the
+            # one-sale-per-invoice rule is enforced.
+            "invoice_no",
+            "invoice_tagged_at",
+            "invoice_tagged_by_name",
             "created_at",
             "updated_at",
         ]
@@ -304,12 +311,26 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
             "payment_fee",
             "credit_sale",
             "bodega_status",
+            "invoice_no",
+            "invoice_tagged_at",
+            "invoice_tagged_by_name",
         ]
 
     bodega_status = serializers.SerializerMethodField()
+    invoice_tagged_by_name = serializers.SerializerMethodField()
+
+    def get_invoice_tagged_by_name(self, obj):
+        # A SerializerMethodField, not `CharField(source='invoice_tagged_by.full_name')`:
+        # the FK is NULL on every untagged sale, and a source chain through None makes
+        # DRF raise SkipField, which would drop the key from the payload instead of
+        # sending null - the client reads a fixed shape.
+        return obj.invoice_tagged_by.full_name if obj.invoice_tagged_by_id else None
 
     def get_bodega_status(self, obj):
-        if obj.status != SalesTransaction.Status.COMPLETED or obj.source == SalesTransaction.Source.RETURN:
+        if (
+            obj.status != SalesTransaction.Status.COMPLETED
+            or obj.source == SalesTransaction.Source.RETURN
+        ):
             return None
         from apps.bodega import services as bodega_services
 

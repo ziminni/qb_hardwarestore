@@ -497,6 +497,10 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
           title: sale.transactionNo,
           fields: [
             if (sale.orNumber.isNotEmpty) ('Order Slip (OS)', sale.orNumber),
+            // Store-ops Phase 1: the paper BIR OR's invoice no., when one was
+            // attached. An untagged sale shows no row rather than a blank one.
+            if (sale.invoiceNo != null && sale.invoiceNo!.isNotEmpty)
+              ('OR Invoice No.', sale.invoiceNo!),
             ('Date', formatDateTime(sale.date)),
             ('Customer', sale.customer),
             ('Cashier', sale.cashier),
