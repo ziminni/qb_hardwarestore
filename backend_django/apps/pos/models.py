@@ -45,6 +45,13 @@ class Customer(models.Model):
         default=None,
         help_text="NULL = unlimited, 0 = no credit allowed.",
     )
+    # Phase 3 (2026-11-22): store credit issued from cheaper exchanges when there is no
+    # open utang to reduce. Never paid back as cash.
+    store_credit_balance = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
     is_active = models.BooleanField(default=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -64,6 +71,8 @@ class SalesTransaction(models.Model):
         # Decision 15: a customer return is a transaction with NEGATIVE amounts, so it nets
         # out of every total that already sums grand_total. The reports need no change for it.
         RETURN = "RETURN", "Return"
+        # Phase 3 (2026-11-22): item exchange (returned goods + replacement goods in one atomic txn).
+        EXCHANGE = "EXCHANGE", "Exchange"
 
     class Status(models.TextChoices):
         COMPLETED = "COMPLETED", "Completed"

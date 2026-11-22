@@ -31,9 +31,18 @@ import 'package:flutter/foundation.dart';
 /// searched [TransactionRecord] — the `returnable/` payload names the customer
 /// but carries no id, and refunding against the wrong person would settle the
 /// wrong utang.
+/// Whether the cashier is swapping returned goods for replacements (the store's
+/// primary flow) or issuing a cash refund because no replacement is available.
+enum ReturnMode { exchange, refund }
+
 class PosReturnsViewmodel extends ChangeNotifier {
-  PosReturnsViewmodel({ReturnsRepository? repository})
-    : _repository = repository ?? ReturnsRepository();
+  PosReturnsViewmodel({
+    ReturnsRepository? repository,
+    ReturnMode initialMode = ReturnMode.exchange,
+    bool initialNoReplacementConfirmed = false,
+  }) : _repository = repository ?? ReturnsRepository(),
+       _mode = initialMode,
+       _noReplacementConfirmed = initialNoReplacementConfirmed;
 
   final ReturnsRepository _repository;
 
@@ -41,6 +50,20 @@ class PosReturnsViewmodel extends ChangeNotifier {
   /// ([TenderMethod.refundTenders]). Cash first, and the default: only cash moves the
   /// expected drawer.
   static const List<TenderMethod> refundMethods = TenderMethod.refundTenders;
+
+  ReturnMode _mode;
+  ReturnMode get mode => _mode;
+
+  /// Required before posting a cash refund: confirms no replacement is available.
+  bool _noReplacementConfirmed;
+  bool get noReplacementConfirmed => _noReplacementConfirmed;
+
+  final List<ExchangeReplacementLine> _replacements = [];
+  List<ExchangeReplacementLine> get replacements =>
+      List.unmodifiable(_replacements);
+
+  double? _exchangeAmountTendered;
+  double? get exchangeAmountTendered => _exchangeAmountTendered;
 
   // ---- search state -------------------------------------------------------
 
@@ -91,6 +114,11 @@ class PosReturnsViewmodel extends ChangeNotifier {
   /// The posted return, once the server accepted it.
   ReturnResult? result;
 
+  /// The posted exchange, once the server accepted it.
+  ExchangeResult? exchangeResult;
+
+  bool get hasResult => result != null || exchangeResult != null;
+
   // ---- derived ------------------------------------------------------------
 
   /// How much of [variantUomId] the cashier chose.
@@ -124,6 +152,23 @@ class PosReturnsViewmodel extends ChangeNotifier {
   /// What would actually leave the drawer: only the excess.
   double get cashRefundEstimate => returnValue - debtReducedEstimate;
 
+  /// Total value of chosen replacement items in Exchange mode.
+  double get replacementTotal =>
+      _replacements.fold(0.0, (sum, line) => sum + line.subtotal);
+
+  /// `> 0`: customer pays extra; `== 0`: even swap; `< 0`: cheaper swap (utang / store credit).
+  double get exchangeDifference => replacementTotal - returnValue;
+
+  double get exchangeExtraDue => math.max(0.0, exchangeDifference);
+
+  double get exchangeDebtReducedEstimate => exchangeDifference < 0
+      ? math.min(-exchangeDifference, preflight?.openDebt ?? 0)
+      : 0.0;
+
+  double get exchangeStoreCreditEstimate => exchangeDifference < 0
+      ? math.max(0.0, -exchangeDifference - exchangeDebtReducedEstimate)
+      : 0.0;
+
   /// The server already said this sale cannot be returned (`RETURN_OF_RETURN`,
   /// `RELEASE_NOT_RETURNABLE`, `ORIGINAL_NOT_COMPLETED`).
   bool get isRefusedByServer => preflight != null && !preflight!.returnable;
@@ -133,15 +178,21 @@ class PosReturnsViewmodel extends ChangeNotifier {
       preflight?.notReturnableMessage ??
       (preflight?.reasonIfNot ?? 'This sale cannot be returned at the till.');
 
-  /// True only when a POST would be a real, complete return: the server said
-  /// yes, some quantity is chosen, and a reason is written.
-  bool get canSubmit =>
-      !isSubmitting &&
-      result == null &&
-      preflight != null &&
-      preflight!.returnable &&
-      hasQuantity &&
-      _reason.trim().isNotEmpty;
+  /// True only when a POST would be a real, complete exchange or return.
+  bool get canSubmit {
+    if (isSubmitting ||
+        hasResult ||
+        preflight == null ||
+        !preflight!.returnable ||
+        !hasQuantity ||
+        _reason.trim().isEmpty) {
+      return false;
+    }
+    if (_mode == ReturnMode.exchange) {
+      return _replacements.isNotEmpty;
+    }
+    return _noReplacementConfirmed;
+  }
 
   // ---- actions ------------------------------------------------------------
 
@@ -236,6 +287,57 @@ class PosReturnsViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setMode(ReturnMode value) {
+    if (_mode == value) return;
+    _mode = value;
+    submitError = null;
+    notifyListeners();
+  }
+
+  void setNoReplacementConfirmed(bool value) {
+    if (_noReplacementConfirmed == value) return;
+    _noReplacementConfirmed = value;
+    notifyListeners();
+  }
+
+  void setExchangeAmountTendered(double? value) {
+    _exchangeAmountTendered = value;
+    notifyListeners();
+  }
+
+  void addReplacement(ExchangeReplacementLine line) {
+    if (line.qty <= 0) return;
+    final idx = _replacements.indexWhere(
+      (existing) => existing.variantUomId == line.variantUomId,
+    );
+    if (idx >= 0) {
+      _replacements[idx] = _replacements[idx].copyWith(
+        qty: _replacements[idx].qty + line.qty,
+      );
+    } else {
+      _replacements.add(line);
+    }
+    notifyListeners();
+  }
+
+  void setReplacementQty(int variantUomId, double qty) {
+    final idx = _replacements.indexWhere(
+      (existing) => existing.variantUomId == variantUomId,
+    );
+    if (idx < 0) return;
+    if (qty <= 0) {
+      _replacements.removeAt(idx);
+    } else {
+      _replacements[idx] = _replacements[idx].copyWith(qty: qty);
+    }
+    notifyListeners();
+  }
+
+  void removeReplacement(int variantUomId) {
+    _replacements.removeWhere((line) => line.variantUomId == variantUomId);
+    notifyListeners();
+  }
+
   /// Posts the return. Returns true only when the server accepted it.
   ///
   /// Every client-side refusal sets [submitError] and sends NOTHING: a return is
@@ -268,18 +370,46 @@ class PosReturnsViewmodel extends ChangeNotifier {
       return false;
     }
 
+    if (_mode == ReturnMode.exchange && _replacements.isEmpty) {
+      submitError = 'Choose at least one replacement item for the exchange.';
+      notifyListeners();
+      return false;
+    }
+    if (_mode == ReturnMode.refund && !_noReplacementConfirmed) {
+      submitError =
+          'Confirm that no replacement item is available before issuing a cash refund.';
+      notifyListeners();
+      return false;
+    }
+
     isSubmitting = true;
     needsOpenShift = false;
     notifyListeners();
     try {
-      result = await _repository.postReturn(
-        customerId: found.customerId,
-        originalTransactionId: found.id,
-        reason: _reason,
-        // The wire takes the CODE; the dropdown showed the label (C1).
-        paymentMethod: _refundMethod.code,
-        lines: lines,
-      );
+      if (_mode == ReturnMode.exchange) {
+        exchangeResult = await _repository.postExchange(
+          customerId: found.customerId,
+          originalTransactionId: found.id,
+          reason: _reason,
+          returnLines: lines,
+          replacementLines: [
+            for (final line in _replacements) line.toRequestLine(),
+          ],
+          paymentMethod: _refundMethod.code,
+          amountTendered: exchangeExtraDue > 0
+              ? (_exchangeAmountTendered ?? exchangeExtraDue)
+              : null,
+        );
+      } else {
+        result = await _repository.postReturn(
+          customerId: found.customerId,
+          originalTransactionId: found.id,
+          reason: _reason,
+          // The wire takes the CODE; the dropdown showed the label (C1).
+          paymentMethod: _refundMethod.code,
+          lines: lines,
+        );
+      }
       return true;
     } on ReturnsServiceException catch (failure) {
       submitError = failure.message;
@@ -296,6 +426,8 @@ class PosReturnsViewmodel extends ChangeNotifier {
     _resetSelection();
     _reason = '';
     _refundMethod = refundMethods.first;
+    _noReplacementConfirmed = false;
+    _exchangeAmountTendered = null;
     submitError = null;
     needsOpenShift = false;
     notifyListeners();
@@ -308,9 +440,11 @@ class PosReturnsViewmodel extends ChangeNotifier {
     searchError = null;
     searchedMiss = false;
     result = null;
+    exchangeResult = null;
     submitError = null;
     needsOpenShift = false;
     _quantities.clear();
+    _replacements.clear();
   }
 
   ReturnableLine? _lineFor(int variantUomId) {

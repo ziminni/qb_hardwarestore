@@ -136,7 +136,11 @@ _PosReturnsHarness _harness() {
   final repository = _StubReturns();
   return _PosReturnsHarness(
     repository,
-    PosReturnsViewmodel(repository: repository),
+    PosReturnsViewmodel(
+      repository: repository,
+      initialMode: ReturnMode.refund,
+      initialNoReplacementConfirmed: true,
+    ),
   );
 }
 

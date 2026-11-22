@@ -2232,9 +2232,13 @@ def _returned_so_far(original, vuom):
     returned = _sum(
         SalesItem.objects.filter(
             transaction__original_transaction=original,
-            transaction__source=SalesTransaction.Source.RETURN,
+            transaction__source__in=(
+                SalesTransaction.Source.RETURN,
+                SalesTransaction.Source.EXCHANGE,
+            ),
             transaction__status=SalesTransaction.Status.COMPLETED,
             variant_uom=vuom,
+            qty__lt=0,
         )
     )
     return sold, -returned
@@ -2643,6 +2647,281 @@ def process_return(
             or_number=generate_or_number(),
             terminal_no="POS-01",
         )
+    return txn
+
+
+def process_exchange(
+    *,
+    customer_id,
+    cashier,
+    original_transaction_id,
+    return_items_data,
+    replacement_items_data,
+    payment_method="CASH",
+    amount_tendered=None,
+    reason="",
+):
+    """Post a customer item exchange: returned goods + replacement goods in one atomic txn.
+
+    Owner ruling (2026-11-22):
+    * Exchanges are the primary flow; cash refunds are only when no replacement exists.
+    * Replacement costs MORE -> customer pays the difference (cash/GCash/card/bank).
+    * Even swap -> zero money moves.
+    * Replacement costs LESS -> NO cash back! Reduce the sale's open utang first, and
+      put any remaining excess into `Customer.store_credit_balance`.
+    """
+    from apps.collectibles.models import CollectiblePayment
+    from apps.collectibles.services import apply_payment_to_ledger
+
+    from .exceptions import (
+        NoOpenShift,
+        OriginalNotCompleted,
+        ReleaseNotReturnable,
+        ReturnError,
+        ReturnOfReturn,
+        ReturnQtyExceeded,
+        ReturnReasonRequired,
+    )
+    from .models import SalesItemDeduction, Shift
+
+    if not original_transaction_id:
+        raise ReturnError("An exchange must reference the original sale.")
+    if not replacement_items_data:
+        raise ReturnError("Choose at least one replacement item for an exchange.")
+
+    return_lines = _validated_sale_lines(return_items_data)
+    replacement_lines = _validated_sale_lines(replacement_items_data)
+
+    if payment_method not in dict(Payment.Method.choices):
+        raise ReturnError(f"Unknown payment method: {payment_method}.")
+    if payment_method == Payment.Method.CHEQUE:
+        raise ReturnError(
+            "An exchange balance cannot be paid by cheque at the counter. "
+            "Choose cash, card, GCash or bank transfer."
+        )
+
+    reason = reason.strip() if isinstance(reason, str) else ""
+
+    with transaction.atomic():
+        try:
+            shift = Shift.objects.get(cashier=cashier, status=Shift.Status.OPEN)
+        except Shift.DoesNotExist:
+            raise NoOpenShift(
+                "You have no open shift. Open a shift before posting an exchange."
+            ) from None
+
+        if not reason or len(reason) > MAX_RETURN_REASON_LENGTH:
+            raise ReturnReasonRequired(
+                "An exchange needs a reason of 1 to "
+                f"{MAX_RETURN_REASON_LENGTH} characters."
+            )
+
+        lock_selling_unit_lines(return_lines + replacement_lines, document="exchange")
+
+        original = SalesTransaction.objects.select_for_update().get(
+            pk=original_transaction_id
+        )
+        if original.source == SalesTransaction.Source.RETURN:
+            raise ReturnOfReturn("A return cannot be exchanged.")
+        if original.source == SalesTransaction.Source.REQUISITION:
+            raise ReleaseNotReturnable(
+                "A material release is not a sale and cannot be exchanged at the till."
+            )
+        if original.status != SalesTransaction.Status.COMPLETED:
+            raise OriginalNotCompleted("Only a completed sale can be exchanged.")
+
+        requested_returns = _requested_by_selling_unit(return_lines)
+        for vuom, want in requested_returns.items():
+            sold, already_returned = _returned_so_far(original, vuom)
+            if already_returned + want > sold:
+                raise ReturnQtyExceeded(
+                    variant_uom=vuom.id,
+                    sold=sold,
+                    already_returned=already_returned,
+                    requested=want,
+                )
+
+        # Price returned lines from the original sale (never handing back discounts).
+        priced_returns = [
+            (vuom, qty, _return_unit_price(original=original, vuom=vuom))
+            for vuom, qty in return_lines
+        ]
+        returned_gross = money_round(
+            sum((qty * unit_price for _, qty, unit_price in priced_returns), Decimal(0))
+        )
+        return_credit = _return_net_share(
+            original=original,
+            returned_gross=returned_gross,
+            requested=requested_returns,
+        )
+
+        # Price replacement lines from live catalogue prices.
+        priced_replacements = [
+            (vuom, qty, money_round(vuom.default_selling_price))
+            for vuom, qty in replacement_lines
+        ]
+        replacement_total = money_round(
+            sum((qty * price for _, qty, price in priced_replacements), Decimal(0))
+        )
+        net_difference = money_round(replacement_total - return_credit)
+
+        # Validate extra payment up front before writing anything.
+        extra_paid = Decimal("0.00")
+        change_given = Decimal("0.00")
+        if net_difference > 0:
+            if amount_tendered is None or str(amount_tendered).strip() == "":
+                extra_paid = net_difference
+            else:
+                try:
+                    extra_paid = money_round(Decimal(str(amount_tendered)))
+                except (InvalidOperation, ValueError, TypeError):
+                    raise ReturnError("Enter a valid payment amount.") from None
+            if extra_paid < net_difference:
+                raise ReturnError(
+                    f"Customer must pay at least {net_difference:.2f} for the "
+                    "exchange difference."
+                )
+            if payment_method != Payment.Method.CASH and extra_paid > net_difference:
+                raise ReturnError(
+                    "Non-cash payment cannot exceed the exchange difference."
+                )
+            change_given = money_round(extra_paid - net_difference)
+
+        store = StoreSettings.load()
+        registered = store.vat_registered
+        rate = store.vat_rate
+        vatable_sales, vat_amount = vat_split(
+            net_difference, rate=rate, registered=registered
+        )
+
+        txn = SalesTransaction.objects.create(
+            customer_id=customer_id,
+            cashier=cashier,
+            shift=shift,
+            transaction_no=generate_transaction_no(),
+            source=SalesTransaction.Source.EXCHANGE,
+            original_transaction=original,
+            vat_registered=registered,
+            vat_rate=rate,
+            vatable_sales=vatable_sales,
+            vat_amount=vat_amount,
+            discount_amount=Decimal("0.00"),
+            grand_total=net_difference,
+            change_given=change_given,
+            notes=reason,
+        )
+
+        # 1. Restock returned items (negative qty SalesItem rows).
+        for vuom, qty, unit_price in priced_returns:
+            item_row = SalesItem.objects.create(
+                transaction=txn,
+                variant_uom=vuom,
+                qty=-qty,
+                unit_price=unit_price,
+                subtotal=-(qty * unit_price),
+            )
+            _restock_returned(
+                variant_id=vuom.variant_id,
+                qty_needed=qty * vuom.conversion_factor,
+                original_id=original.id,
+                return_item=item_row,
+            )
+
+        # 2. Deduct replacement items via FIFO (positive qty SalesItem rows).
+        affected_variant_ids = set()
+        for vuom, qty, unit_price in priced_replacements:
+            item_row = SalesItem.objects.create(
+                transaction=txn,
+                variant_uom=vuom,
+                qty=qty,
+                unit_price=unit_price,
+                subtotal=qty * unit_price,
+            )
+            base_qty = qty * vuom.conversion_factor
+            allocations = allocate_fifo(variant_id=vuom.variant_id, qty_needed=base_qty)
+            SalesItemDeduction.objects.bulk_create(
+                [
+                    SalesItemDeduction(
+                        sales_item=item_row,
+                        batch=batch,
+                        qty=take,
+                        unit_cost=batch.unit_cost_landed,
+                    )
+                    for batch, take in allocations
+                ]
+            )
+            affected_variant_ids.add(vuom.variant_id)
+
+        check_low_stock_after_stock_out(variant_ids=affected_variant_ids)
+
+        # 3. Settle money: extra payment if > 0; utang reduction then store credit if < 0.
+        debt_reduced = Decimal("0.00")
+        store_credit_issued = Decimal("0.00")
+        ledger = None
+        customer_credit_balance = Decimal("0.00")
+
+        if net_difference > 0:
+            Payment.objects.create(
+                transaction=txn,
+                method=payment_method,
+                amount_tendered=extra_paid,
+                reference_no="",
+            )
+            customer = Customer.objects.get(pk=customer_id)
+            customer_credit_balance = customer.store_credit_balance
+        elif net_difference < 0:
+            excess = -net_difference
+            ledger = (
+                CollectibleLedger.objects.select_for_update()
+                .filter(
+                    transaction=original,
+                    status__in=OUTSTANDING_LEDGER_STATUSES,
+                    balance_due__gt=0,
+                )
+                .order_by("due_date", "id")
+                .first()
+            )
+            if ledger is not None:
+                debt_reduced = min(excess, ledger.balance_due)
+                apply_payment_to_ledger(ledger, debt_reduced)
+                CollectiblePayment.objects.create(
+                    collectible=ledger,
+                    processed_by=cashier,
+                    amount_paid=debt_reduced,
+                    payment_method="RETURN_CREDIT",
+                    official_receipt_no=txn.transaction_no,
+                )
+            store_credit_issued = money_round(excess - debt_reduced)
+            customer = Customer.objects.select_for_update().get(pk=customer_id)
+            if store_credit_issued > 0:
+                customer.store_credit_balance = money_round(
+                    customer.store_credit_balance + store_credit_issued
+                )
+                customer.save(update_fields=["store_credit_balance"])
+            customer_credit_balance = customer.store_credit_balance
+        else:
+            customer = Customer.objects.get(pk=customer_id)
+            customer_credit_balance = customer.store_credit_balance
+
+        OfficialReceipt.objects.create(
+            transaction=txn,
+            or_number=generate_or_number(),
+            terminal_no="POS-01",
+        )
+
+        txn.exchange_summary = {
+            "return_credit": _money(return_credit),
+            "replacement_total": _money(replacement_total),
+            "net_difference": _money(net_difference),
+            "extra_paid": _money(extra_paid),
+            "change_given": _money(change_given),
+            "payment_method": payment_method if net_difference > 0 else "",
+            "debt_reduced": _money(debt_reduced),
+            "store_credit_issued": _money(store_credit_issued),
+            "customer_store_credit_balance": _money(customer_credit_balance),
+            "ledger_id": None if ledger is None else ledger.id,
+            "ledger_balance": None if ledger is None else _money(ledger.balance_due),
+        }
     return txn
 
 

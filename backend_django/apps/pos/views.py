@@ -952,6 +952,52 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
         """
         return Response(returnable_payload(self.get_object()))
 
+    @action(detail=False, methods=["post"], url_path="exchange")
+    def exchange(self, request):
+        """POST /transactions/exchange/ -> swap returned items for replacement items."""
+        original_id = request.data.get("original_transaction")
+        _refuse_foreign_original_for_cashier(self, original_id)
+        from .services import process_exchange
+
+        customer_id = request.data.get("customer")
+        if not customer_id and original_id:
+            orig = SalesTransaction.objects.filter(pk=original_id).only("customer_id").first()
+            if orig is not None:
+                customer_id = orig.customer_id
+        if not customer_id:
+            return Response(
+                {"code": "INVALID_EXCHANGE", "detail": "Customer is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with db_transaction.atomic():
+            txn = process_exchange(
+                customer_id=customer_id,
+                cashier=request.user,
+                original_transaction_id=original_id,
+                return_items_data=request.data.get("return_items", []),
+                replacement_items_data=request.data.get("replacement_items", []),
+                payment_method=request.data.get("payment_method", "CASH"),
+                amount_tendered=request.data.get("amount_tendered"),
+                reason=request.data.get("reason", ""),
+            )
+            summary = txn.exchange_summary
+            original_no = txn.original_transaction.transaction_no
+            audit_request(
+                request,
+                AuditLog.ActionType.RETURN,
+                f"Exchange {txn.transaction_no} against {original_no}: "
+                f"return credit {summary['return_credit']}, "
+                f"replacement {summary['replacement_total']}, "
+                f"extra paid {summary['extra_paid']}, "
+                f"debt reduced {summary['debt_reduced']}, "
+                f"store credit {summary['store_credit_issued']} "
+                f"by {request.user.username}.",
+            )
+        body = self.get_serializer(txn).data
+        body["exchange_summary"] = txn.exchange_summary
+        return Response(body, status=status.HTTP_201_CREATED)
+
 
 class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
     """Cashier shifts and their Z-readings (Phase 4, decision 06).

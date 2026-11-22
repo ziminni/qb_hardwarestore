@@ -152,7 +152,11 @@ Future<void> _pump(
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
 
-  final returnsViewmodel = PosReturnsViewmodel(repository: returns);
+  final returnsViewmodel = PosReturnsViewmodel(
+    repository: returns,
+    initialMode: ReturnMode.refund,
+    initialNoReplacementConfirmed: true,
+  );
   final shiftViewmodel = ShiftViewmodel(
     service: _StubShifts(openShift ? _openShift() : null),
   );
@@ -580,8 +584,8 @@ void main() {
 
       expect(
         find.text(
-          'Return goods against the original sale. Utang is cleared '
-          'first, then cash.',
+          'Swap returned items for replacements. Cash refunds only when '
+          'no replacement is available.',
         ),
         findsOneWidget,
       );

@@ -49,6 +49,7 @@ class ReturnsService {
   final ApiClient _client;
 
   static const String transactionsPath = '/api/v1/transactions/';
+  static const String exchangePath = '/api/v1/transactions/exchange/';
 
   /// Finds the sale the customer is holding a slip for.
   ///
@@ -137,6 +138,52 @@ class ReturnsService {
       // cashier re-posting it and refunding twice.
       throw const ReturnsServiceException(
         'The return was sent but its refund summary could not be read. Check '
+        'the transaction history before trying again.',
+      );
+    }
+  }
+
+  /// Posts an item exchange (`POST /api/v1/transactions/exchange/`).
+  ///
+  /// The server restocks [returnLines], FIFO-deducts [replacementLines], charges
+  /// any positive difference, or settles utang / store credit for cheaper swaps.
+  Future<ExchangeResult> postExchange({
+    required int customerId,
+    required int originalTransactionId,
+    required String reason,
+    required List<ReturnRequestLine> returnLines,
+    required List<ReturnRequestLine> replacementLines,
+    String paymentMethod = 'CASH',
+    double? amountTendered,
+  }) async {
+    try {
+      final response = await _client.post<Map<String, dynamic>>(
+        exchangePath,
+        data: {
+          'customer': customerId,
+          'original_transaction': originalTransactionId,
+          'reason': reason.trim(),
+          'return_items': [for (final line in returnLines) line.toJson()],
+          'replacement_items': [
+            for (final line in replacementLines) line.toJson(),
+          ],
+          'payment_method': paymentMethod,
+          if (amountTendered != null)
+            'amount_tendered': amountTendered.toStringAsFixed(2),
+        },
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const ReturnsServiceException(
+          'The server did not return the exchange summary.',
+        );
+      }
+      return ExchangeResult.fromJson(data);
+    } on DioException catch (error) {
+      throw _failureFor(error);
+    } on FormatException {
+      throw const ReturnsServiceException(
+        'The exchange was sent but its summary could not be read. Check '
         'the transaction history before trying again.',
       );
     }

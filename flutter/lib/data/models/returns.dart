@@ -244,3 +244,106 @@ class ReturnRequestLine {
   /// [ReturnableLine.variantUomId]).
   Map<String, dynamic> toJson() => {'variant_id': variantUomId, 'qty': qty};
 }
+
+/// One replacement line chosen by the cashier during an item exchange.
+class ExchangeReplacementLine {
+  const ExchangeReplacementLine({
+    required this.variantUomId,
+    required this.name,
+    required this.uom,
+    required this.unitPrice,
+    required this.qty,
+  });
+
+  final int variantUomId;
+  final String name;
+  final String uom;
+  final double unitPrice;
+  final double qty;
+
+  double get subtotal => unitPrice * qty;
+
+  ExchangeReplacementLine copyWith({double? qty}) => ExchangeReplacementLine(
+    variantUomId: variantUomId,
+    name: name,
+    uom: uom,
+    unitPrice: unitPrice,
+    qty: qty ?? this.qty,
+  );
+
+  ReturnRequestLine toRequestLine() =>
+      ReturnRequestLine(variantUomId: variantUomId, qty: qty);
+}
+
+/// The `exchange_summary` block of a 201 exchange (Phase 3, 2026-11-22).
+class ExchangeSummary {
+  const ExchangeSummary({
+    required this.returnCredit,
+    required this.replacementTotal,
+    required this.netDifference,
+    required this.extraPaid,
+    required this.changeGiven,
+    required this.paymentMethod,
+    required this.debtReduced,
+    required this.storeCreditIssued,
+    required this.customerStoreCreditBalance,
+    required this.ledgerId,
+    required this.ledgerBalance,
+  });
+
+  factory ExchangeSummary.fromJson(Map<String, dynamic> json) {
+    final ledgerId = json['ledger_id'];
+    final ledgerBalance = json['ledger_balance'];
+    return ExchangeSummary(
+      returnCredit: decimalField(json, 'return_credit'),
+      replacementTotal: decimalField(json, 'replacement_total'),
+      netDifference: decimalField(json, 'net_difference'),
+      extraPaid: decimalField(json, 'extra_paid'),
+      changeGiven: decimalField(json, 'change_given'),
+      paymentMethod: (json['payment_method'] as String?) ?? '',
+      debtReduced: decimalField(json, 'debt_reduced'),
+      storeCreditIssued: decimalField(json, 'store_credit_issued'),
+      customerStoreCreditBalance: decimalField(
+        json,
+        'customer_store_credit_balance',
+      ),
+      ledgerId: ledgerId is int ? ledgerId : null,
+      ledgerBalance: ledgerBalance == null
+          ? null
+          : decimalField(json, 'ledger_balance'),
+    );
+  }
+
+  final double returnCredit;
+  final double replacementTotal;
+  final double netDifference;
+  final double extraPaid;
+  final double changeGiven;
+  final String paymentMethod;
+  final double debtReduced;
+  final double storeCreditIssued;
+  final double customerStoreCreditBalance;
+  final int? ledgerId;
+  final double? ledgerBalance;
+}
+
+/// A posted item exchange: its transaction number plus the server's settlement summary.
+class ExchangeResult {
+  const ExchangeResult({required this.exchangeNo, required this.summary});
+
+  factory ExchangeResult.fromJson(Map<String, dynamic> json) {
+    final summary = json['exchange_summary'];
+    if (summary is! Map<String, dynamic>) {
+      throw const FormatException(
+        'Missing required object field "exchange_summary"',
+      );
+    }
+    return ExchangeResult(
+      exchangeNo: stringField(json, 'transaction_no'),
+      summary: ExchangeSummary.fromJson(summary),
+    );
+  }
+
+  final String exchangeNo;
+  final ExchangeSummary summary;
+}
