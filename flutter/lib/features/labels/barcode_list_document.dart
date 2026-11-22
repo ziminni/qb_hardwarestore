@@ -94,7 +94,7 @@ class BarcodeListData {
   final bool activeOnly;
 }
 
-/// The table's column headings, in PDF and CSV order.
+/// The table's column headings, in CSV/reference order.
 const barcodeListColumns = <String>[
   'Product',
   'Variant',
@@ -103,6 +103,31 @@ const barcodeListColumns = <String>[
   'Code',
   'Barcode',
 ];
+
+/// Booklet layout geometry for A4 counter scan sheets: 2 columns × 5 rows = 10
+/// spaced cards per page so a handheld scanner never accidentally reads an
+/// adjacent item.
+const barcodeBookletColumns = 2;
+const barcodeBookletRowsPerPage = 5;
+const barcodeBookletItemsPerPage =
+    barcodeBookletColumns * barcodeBookletRowsPerPage;
+
+/// Splits [rows] into fixed-size booklet pages of [barcodeBookletItemsPerPage].
+///
+/// An empty list still yields one empty page so the PDF always prints the
+/// header, filter summary, and empty-state note.
+List<List<BarcodeListRow>> barcodeBookletPages(List<BarcodeListRow> rows) {
+  if (rows.isEmpty) return const [[]];
+  return [
+    for (var start = 0; start < rows.length; start += barcodeBookletItemsPerPage)
+      rows.sublist(
+        start,
+        start + barcodeBookletItemsPerPage > rows.length
+            ? rows.length
+            : start + barcodeBookletItemsPerPage,
+      ),
+  ];
+}
 
 /// The rows of ONE product, one per selling unit.
 ///
@@ -160,8 +185,10 @@ List<String> barcodeListHeaderLines(BarcodeListData data) => [
 /// `Page 2 of 5`, for the footer of every page.
 String barcodeListPageLabel(int page, int total) => 'Page $page of $total';
 
-/// Renders the masterlist as an A4 PDF: a repeating table header, a scannable
-/// barcode per row and a page number on every page.
+/// Renders the masterlist as a printable A4 counter scan booklet: 2 columns ×
+/// 5 spaced cards per page, generous white quiet zones around each barcode,
+/// a wider left margin for stapling/punch-binding, and a header + page number
+/// on every page.
 ///
 /// [font]/[bold] are parameters so a test can render with the PDF built-ins while
 /// the app passes the bundled OpenSans (see [buildBarcodeListPdfWithOpenSans]).
@@ -174,84 +201,45 @@ Future<Uint8List> buildBarcodeListPdf(
   final body = font ?? pw.Font.helvetica();
   final strong = bold ?? font ?? pw.Font.helveticaBold();
   final heading = barcodeListHeaderLines(data);
+  final pages = barcodeBookletPages(data.rows);
+  final totalPages = pages.length;
 
-  document.addPage(
-    pw.MultiPage(
-      pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.fromLTRB(
-        12 * PdfPageFormat.mm,
-        12 * PdfPageFormat.mm,
-        12 * PdfPageFormat.mm,
-        14 * PdfPageFormat.mm,
-      ),
-      header: (context) => pw.Container(
-        margin: const pw.EdgeInsets.only(bottom: 6),
-        child: pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
+  for (var pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+    final pageRows = pages[pageIndex];
+    final pageNumber = pageIndex + 1;
+    document.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        // Extra left gutter (18 mm) leaves room to staple or ring-bind sheets
+        // into a flip-through counter booklet without clipping cards.
+        margin: const pw.EdgeInsets.fromLTRB(
+          18 * PdfPageFormat.mm,
+          12 * PdfPageFormat.mm,
+          12 * PdfPageFormat.mm,
+          12 * PdfPageFormat.mm,
+        ),
+        build: (context) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
           children: [
-            for (final (index, line) in heading.indexed)
-              pw.Text(
-                line,
-                style: pw.TextStyle(
-                  font: index == 0 ? strong : body,
-                  fontSize: index == 0 ? 14 : 8,
-                ),
-              ),
+            _bookletHeader(heading, body, strong),
+            pw.SizedBox(height: 5 * PdfPageFormat.mm),
+            pw.Expanded(
+              child: pageRows.isEmpty
+                  ? pw.Align(
+                      alignment: pw.Alignment.topLeft,
+                      child: pw.Text(
+                        'No codes match these filters.',
+                        style: pw.TextStyle(font: body, fontSize: 10),
+                      ),
+                    )
+                  : _bookletGrid(pageRows, body, strong),
+            ),
+            _bookletFooter(pageNumber, totalPages, body),
           ],
         ),
       ),
-      footer: (context) => pw.Container(
-        alignment: pw.Alignment.centerRight,
-        child: pw.Text(
-          // `pagesCount` is only known once layout has run, which is why the
-          // "of y" half cannot be written by hand.
-          barcodeListPageLabel(context.pageNumber, context.pagesCount),
-          style: pw.TextStyle(font: body, fontSize: 8),
-        ),
-      ),
-      build: (context) => [
-        if (data.rows.isEmpty)
-          pw.Text(
-            'No codes match these filters.',
-            style: pw.TextStyle(font: body, fontSize: 10),
-          )
-        else
-          pw.TableHelper.fromTextArray(
-            headers: barcodeListColumns,
-            data: [
-              for (final row in data.rows)
-                [
-                  row.productName,
-                  row.variantName,
-                  row.unitCode,
-                  // The bundled fonts have no ₱ glyph (see formatPesoForPrint), so
-                  // the paper says PHP the way a Philippine receipt does.
-                  formatPesoForPrint(row.price),
-                  row.code,
-                  _barcode(row, strong),
-                ],
-            ],
-            cellStyle: pw.TextStyle(font: body, fontSize: 8),
-            headerStyle: pw.TextStyle(font: strong, fontSize: 8),
-            headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
-            headerAlignment: pw.Alignment.centerLeft,
-            cellAlignments: const {
-              3: pw.Alignment.centerRight,
-              5: pw.Alignment.center,
-            },
-            columnWidths: const {
-              0: pw.FlexColumnWidth(3),
-              1: pw.FlexColumnWidth(2),
-              2: pw.FlexColumnWidth(1),
-              3: pw.FlexColumnWidth(1.6),
-              4: pw.FlexColumnWidth(2.2),
-              5: pw.FlexColumnWidth(2.8),
-            },
-            border: pw.TableBorder.all(width: 0.3, color: PdfColors.grey600),
-          ),
-      ],
-    ),
-  );
+    );
+  }
   return document.save();
 }
 
@@ -264,8 +252,242 @@ Future<Uint8List> buildBarcodeListPdfWithOpenSans(BarcodeListData data) async {
   );
 }
 
-/// The scannable half of a row: EAN when the code verifies, Code 128 otherwise.
-pw.Widget _barcode(BarcodeListRow row, pw.Font font) {
+pw.Widget _bookletHeader(List<String> heading, pw.Font body, pw.Font strong) {
+  return pw.Container(
+    padding: const pw.EdgeInsets.only(bottom: 2.5 * PdfPageFormat.mm),
+    decoration: const pw.BoxDecoration(
+      border: pw.Border(
+        bottom: pw.BorderSide(color: PdfColors.grey400, width: 0.6),
+      ),
+    ),
+    child: pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        for (final (index, line) in heading.indexed)
+          pw.Padding(
+            padding: pw.EdgeInsets.only(bottom: index == 0 ? 1.5 : 0.5),
+            child: pw.Text(
+              line,
+              style: pw.TextStyle(
+                font: index == 0 ? strong : body,
+                fontSize: index == 0 ? 13 : 8,
+                color: index == 0 ? PdfColors.black : PdfColors.grey700,
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
+}
+
+pw.Widget _bookletFooter(int pageNumber, int totalPages, pw.Font body) {
+  return pw.Container(
+    margin: const pw.EdgeInsets.only(top: 3 * PdfPageFormat.mm),
+    padding: const pw.EdgeInsets.only(top: 1.5 * PdfPageFormat.mm),
+    decoration: const pw.BoxDecoration(
+      border: pw.Border(
+        top: pw.BorderSide(color: PdfColors.grey300, width: 0.5),
+      ),
+    ),
+    child: pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(
+          'Barcode scan booklet',
+          style: pw.TextStyle(
+            font: body,
+            fontSize: 7.5,
+            color: PdfColors.grey600,
+          ),
+        ),
+        pw.Text(
+          barcodeListPageLabel(pageNumber, totalPages),
+          style: pw.TextStyle(
+            font: body,
+            fontSize: 8,
+            color: PdfColors.grey700,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// 2-column × up-to-5-row booklet card grid with generous horizontal (10 mm)
+/// and vertical (8 mm) gaps between cards so scanners stay isolated on one code.
+pw.Widget _bookletGrid(
+  List<BarcodeListRow> pageRows,
+  pw.Font body,
+  pw.Font strong,
+) {
+  final rowPairs = <pw.Widget>[];
+  for (var i = 0; i < pageRows.length; i += barcodeBookletColumns) {
+    final left = pageRows[i];
+    final right = i + 1 < pageRows.length ? pageRows[i + 1] : null;
+    if (rowPairs.isNotEmpty) {
+      rowPairs.add(pw.SizedBox(height: 8 * PdfPageFormat.mm));
+    }
+    rowPairs.add(
+      pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Expanded(child: _bookletCard(left, body, strong)),
+          pw.SizedBox(width: 10 * PdfPageFormat.mm),
+          pw.Expanded(
+            child: right != null
+                ? _bookletCard(right, body, strong)
+                : pw.SizedBox(),
+          ),
+        ],
+      ),
+    );
+  }
+  return pw.Column(
+    crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+    children: rowPairs,
+  );
+}
+
+/// One booklet card (85 mm × 40 mm): tinted item header on top, wide white
+/// quiet-zone barcode pad and human-readable code underneath.
+pw.Widget _bookletCard(BarcodeListRow row, pw.Font body, pw.Font strong) {
+  final variantLabel = row.variantName.trim();
+  return pw.Container(
+    height: 40 * PdfPageFormat.mm,
+    decoration: pw.BoxDecoration(
+      color: PdfColors.white,
+      border: pw.Border.all(color: PdfColors.grey400, width: 0.6),
+      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+    ),
+    child: pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+      children: [
+        pw.Container(
+          padding: const pw.EdgeInsets.fromLTRB(8, 5, 8, 4.5),
+          decoration: const pw.BoxDecoration(
+            color: PdfColors.grey100,
+            borderRadius: pw.BorderRadius.only(
+              topLeft: pw.Radius.circular(3.4),
+              topRight: pw.Radius.circular(3.4),
+            ),
+          ),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Expanded(
+                    child: pw.Text(
+                      row.productName,
+                      style: pw.TextStyle(
+                        font: strong,
+                        fontSize: 8.5,
+                        color: PdfColors.black,
+                      ),
+                      maxLines: 2,
+                      overflow: pw.TextOverflow.clip,
+                    ),
+                  ),
+                  pw.SizedBox(width: 6),
+                  pw.Text(
+                    // The bundled fonts have no ₱ glyph (see formatPesoForPrint),
+                    // so the paper says PHP the way a Philippine receipt does.
+                    formatPesoForPrint(row.price),
+                    style: pw.TextStyle(
+                      font: strong,
+                      fontSize: 8.5,
+                      color: PdfColors.grey900,
+                    ),
+                    maxLines: 1,
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 2),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                children: [
+                  pw.Expanded(
+                    child: pw.Text(
+                      variantLabel.isEmpty ? 'Standard' : variantLabel,
+                      style: pw.TextStyle(
+                        font: body,
+                        fontSize: 7.5,
+                        color: PdfColors.grey700,
+                      ),
+                      maxLines: 1,
+                      overflow: pw.TextOverflow.clip,
+                    ),
+                  ),
+                  pw.SizedBox(width: 6),
+                  pw.Container(
+                    padding: const pw.EdgeInsets.symmetric(
+                      horizontal: 4.5,
+                      vertical: 1,
+                    ),
+                    decoration: pw.BoxDecoration(
+                      color: PdfColors.white,
+                      border: pw.Border.all(
+                        color: PdfColors.grey400,
+                        width: 0.4,
+                      ),
+                      borderRadius: const pw.BorderRadius.all(
+                        pw.Radius.circular(2.5),
+                      ),
+                    ),
+                    child: pw.Text(
+                      row.unitCode,
+                      style: pw.TextStyle(
+                        font: strong,
+                        fontSize: 6.8,
+                        color: PdfColors.grey800,
+                      ),
+                      maxLines: 1,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        pw.Container(height: 0.4, color: PdfColors.grey300),
+        pw.Expanded(
+          child: pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(
+              horizontal: 6 * PdfPageFormat.mm,
+              vertical: 2 * PdfPageFormat.mm,
+            ),
+            child: pw.Column(
+              mainAxisAlignment: pw.MainAxisAlignment.center,
+              crossAxisAlignment: pw.CrossAxisAlignment.center,
+              children: [
+                _barcode(row),
+                pw.SizedBox(height: 3),
+                pw.Text(
+                  row.code,
+                  style: pw.TextStyle(
+                    font: strong,
+                    fontSize: 8,
+                    letterSpacing: 0.6,
+                    color: PdfColors.grey900,
+                  ),
+                  maxLines: 1,
+                  overflow: pw.TextOverflow.clip,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// The scannable bars of a booklet card: EAN when the code verifies, Code 128
+/// otherwise. Sized wide (56 mm × 12.5 mm) with surrounding white quiet zone
+/// for quick, mis-scan-free counter scanning.
+pw.Widget _barcode(BarcodeListRow row) {
   final barcode = switch (row.symbology) {
     BarcodeSymbology.ean13 => pw.Barcode.ean13(),
     BarcodeSymbology.ean8 => pw.Barcode.ean8(),
@@ -275,7 +497,7 @@ pw.Widget _barcode(BarcodeListRow row, pw.Font font) {
     barcode: barcode,
     data: row.code,
     drawText: false,
-    width: 34 * PdfPageFormat.mm,
-    height: 9 * PdfPageFormat.mm,
+    width: 56 * PdfPageFormat.mm,
+    height: 12.5 * PdfPageFormat.mm,
   );
 }

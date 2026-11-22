@@ -183,7 +183,8 @@ class _BarcodeListDialogState extends State<BarcodeListDialog> {
     return AppDialog(
       icon: Icons.qr_code_2_rounded,
       title: 'Barcode list',
-      subtitle: 'Every selling unit with its own scannable code.',
+      subtitle:
+          'Every selling unit with its own scannable code, spaced into a printable scan booklet PDF.',
       width: 640,
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

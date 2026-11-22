@@ -234,6 +234,34 @@ void main() {
     });
   });
 
+  group('barcodeBookletPages', () {
+    test('splits rows into 10-card (2x5) booklet pages', () {
+      final rows = [
+        for (var i = 0; i < 23; i++)
+          BarcodeListRow(
+            productName: 'Item $i',
+            variantName: 'Standard',
+            unitCode: 'PC',
+            price: 100,
+            code: 'QB0000${i.toString().padLeft(2, '0')}-1',
+          ),
+      ];
+
+      final pages = barcodeBookletPages(rows);
+
+      expect(pages, hasLength(3));
+      expect(pages[0], hasLength(barcodeBookletItemsPerPage));
+      expect(pages[1], hasLength(barcodeBookletItemsPerPage));
+      expect(pages[2], hasLength(3));
+    });
+
+    test('an empty list still yields one booklet page for the header', () {
+      final pages = barcodeBookletPages(const []);
+      expect(pages, hasLength(1));
+      expect(pages.single, isEmpty);
+    });
+  });
+
   group('buildBarcodeListPdf', () {
     test('renders one page for a short list', () async {
       final data = BarcodeListData(
@@ -249,7 +277,40 @@ void main() {
       expect(_pdfPageCount(bytes), 1);
     });
 
-    test('a long list spans pages', () async {
+    test('fits 10 booklet cards on one page and rolls the 11th to page 2', () async {
+      List<BarcodeListRow> makeRows(int count) => [
+        for (var i = 0; i < count; i++)
+          BarcodeListRow(
+            productName: 'Heavy Duty Electrical Conduit Pipe $i',
+            variantName: '20mm x 3m Schedule 40',
+            unitCode: 'PC',
+            price: 185.5,
+            code: 'QB000${i.toString().padLeft(3, '0')}-1',
+          ),
+      ];
+
+      final tenBytes = await buildBarcodeListPdf(
+        BarcodeListData(
+          rows: makeRows(barcodeBookletItemsPerPage),
+          generatedAt: DateTime(2026, 11, 11, 9),
+          categoryLabel: 'Electrical',
+          activeOnly: true,
+        ),
+      );
+      final elevenBytes = await buildBarcodeListPdf(
+        BarcodeListData(
+          rows: makeRows(barcodeBookletItemsPerPage + 1),
+          generatedAt: DateTime(2026, 11, 11, 9),
+          categoryLabel: 'Electrical',
+          activeOnly: true,
+        ),
+      );
+
+      expect(_pdfPageCount(tenBytes), 1);
+      expect(_pdfPageCount(elevenBytes), 2);
+    });
+
+    test('a long list spans pages at 10 cards per booklet page', () async {
       final rows = [
         for (var index = 0; index < 240; index++)
           BarcodeListRow(
@@ -269,7 +330,7 @@ void main() {
 
       final bytes = await buildBarcodeListPdf(data);
 
-      expect(_pdfPageCount(bytes), greaterThan(1));
+      expect(_pdfPageCount(bytes), 24);
     });
 
     test('an empty list still renders one page with the header', () async {
@@ -281,6 +342,31 @@ void main() {
       );
 
       expect(_pdfPageCount(await buildBarcodeListPdf(data)), 1);
+    });
+
+    test('renders 10 long-name cards on one page with bundled OpenSans', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final data = BarcodeListData(
+        rows: [
+          for (var i = 0; i < barcodeBookletItemsPerPage; i++)
+            BarcodeListRow(
+              productName:
+                  'Industrial Heavy Duty Galvanized Steel Pipe Coupling #$i',
+              variantName: '25mm Schedule 40 Threaded',
+              unitCode: i.isEven ? 'PC' : 'BOX',
+              price: 1245.75,
+              code: i == 0 ? '4800016123450' : 'QB000${i.toString().padLeft(3, '0')}-1',
+            ),
+        ],
+        generatedAt: DateTime(2026, 11, 11, 9),
+        categoryLabel: 'Plumbing',
+        activeOnly: true,
+      );
+
+      final bytes = await buildBarcodeListPdfWithOpenSans(data);
+
+      expect(bytes, isNotEmpty);
+      expect(_pdfPageCount(bytes), 1);
     });
   });
 
