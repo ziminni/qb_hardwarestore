@@ -387,6 +387,7 @@ class ShiftCashMovementSerializer(serializers.ModelSerializer):
             "id",
             "shift",
             "kind",
+            "category",
             "amount",
             "reason",
             "recorded_by",
@@ -428,6 +429,7 @@ class ShiftSerializer(serializers.ModelSerializer):
             "status",
             "opening_float",
             "closing_count",
+            "denomination_counts",
             # Owner ruling (opening cash carried forward): what the previous close said it
             # left, and what THIS close leaves behind. Read-only - the open and close
             # ACTIONS are the only writers, and `expected_opening` is never the client's to

@@ -98,12 +98,16 @@ class ShiftCashMovement {
     required this.reason,
     required this.recordedByName,
     required this.createdAt,
+    this.category = otherCategory,
   });
 
   factory ShiftCashMovement.fromJson(Map<String, dynamic> json) {
     return ShiftCashMovement(
       id: intField(json, 'id'),
       kind: stringField(json, 'kind'),
+      category: json['category'] is String && (json['category'] as String).isNotEmpty
+          ? json['category'] as String
+          : otherCategory,
       amount: decimalField(json, 'amount'),
       reason: stringField(json, 'reason'),
       recordedByName: json['recorded_by_name'] is String
@@ -116,8 +120,38 @@ class ShiftCashMovement {
   static const cashOutKind = 'CASH_OUT';
   static const cashInKind = 'CASH_IN';
 
+  static const lunchCategory = 'LUNCH';
+  static const fuelCategory = 'FUEL';
+  static const suppliesCategory = 'SUPPLIES';
+  static const safeDropCategory = 'SAFE_DROP';
+  static const changeFloatCategory = 'CHANGE_FLOAT';
+  static const otherCategory = 'OTHER';
+
+  static const Map<String, String> cashOutCategories = {
+    lunchCategory: 'Lunch',
+    fuelCategory: 'Fuel',
+    suppliesCategory: 'Supplies',
+    safeDropCategory: 'Safe drop',
+    otherCategory: 'Other',
+  };
+
+  /// Standard PHP bills and coins supported by the shift-close denomination counter.
+  static const List<({String key, String label, double value})> phpDenominations = [
+    (key: '1000', label: '₱1,000', value: 1000),
+    (key: '500', label: '₱500', value: 500),
+    (key: '200', label: '₱200', value: 200),
+    (key: '100', label: '₱100', value: 100),
+    (key: '50', label: '₱50', value: 50),
+    (key: '20', label: '₱20', value: 20),
+    (key: '10', label: '₱10', value: 10),
+    (key: '5', label: '₱5', value: 5),
+    (key: '1', label: '₱1', value: 1),
+    (key: '0.25', label: '₱0.25', value: 0.25),
+  ];
+
   final int id;
   final String kind;
+  final String category;
   final double amount;
   final String reason;
   final String recordedByName;

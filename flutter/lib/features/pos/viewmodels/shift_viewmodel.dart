@@ -141,7 +141,11 @@ class ShiftViewmodel extends ChangeNotifier {
   /// — or null after setting [actionError]. [currentShift] is cleared only on
   /// success: a failed close leaves the shift open on the server, so the till
   /// must keep showing it open.
-  Future<Shift?> closeShift(double closingCount, {double? cashLeft}) async {
+  Future<Shift?> closeShift(
+    double closingCount, {
+    double? cashLeft,
+    Map<String, int>? denominations,
+  }) async {
     final shift = _currentShift;
     if (shift == null) return null;
 
@@ -151,6 +155,7 @@ class ShiftViewmodel extends ChangeNotifier {
         shift.id,
         closingCount,
         cashLeft: cashLeft,
+        denominations: denominations,
       );
       _currentShift = null;
       _history = [closed, ..._history.where((other) => other.id != closed.id)];
@@ -169,6 +174,7 @@ class ShiftViewmodel extends ChangeNotifier {
     required String kind,
     required double amount,
     required String reason,
+    String category = ShiftCashMovement.otherCategory,
   }) async {
     final shift = _currentShift;
     if (shift == null) return null;
@@ -180,6 +186,7 @@ class ShiftViewmodel extends ChangeNotifier {
         kind: kind,
         amount: amount,
         reason: reason,
+        category: category,
       );
       _currentShift = updated;
       _history = [

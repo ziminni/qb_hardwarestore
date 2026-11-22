@@ -6,11 +6,13 @@ import 'package:flutter/material.dart';
 class _CashMovementInput {
   const _CashMovementInput({
     required this.kind,
+    required this.category,
     required this.amount,
     required this.reason,
   });
 
   final String kind;
+  final String category;
   final double amount;
   final String reason;
 }
@@ -33,6 +35,7 @@ Future<Shift?> showShiftCashMovementDialog(
 
   final updated = await viewmodel.recordCashMovement(
     kind: input.kind,
+    category: input.category,
     amount: input.amount,
     reason: input.reason,
   );
@@ -60,6 +63,7 @@ class _ShiftCashMovementDialog extends StatefulWidget {
 
 class _ShiftCashMovementDialogState extends State<_ShiftCashMovementDialog> {
   String _kind = ShiftCashMovement.cashOutKind;
+  String _category = ShiftCashMovement.otherCategory;
   final _amountController = TextEditingController();
   final _reasonController = TextEditingController();
 
@@ -113,6 +117,28 @@ class _ShiftCashMovementDialogState extends State<_ShiftCashMovementDialog> {
                 setState(() => _kind = selection.first);
               },
             ),
+            if (_kind == ShiftCashMovement.cashOutKind) ...[
+              const SizedBox(height: AppSpacing.md),
+              DropdownButtonFormField<String>(
+                key: const ValueKey('cash-movement-category'),
+                initialValue: _category,
+                decoration: const InputDecoration(
+                  labelText: 'Category',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  for (final entry
+                      in ShiftCashMovement.cashOutCategories.entries)
+                    DropdownMenuItem(
+                      value: entry.key,
+                      child: Text(entry.value),
+                    ),
+                ],
+                onChanged: (value) {
+                  if (value != null) setState(() => _category = value);
+                },
+              ),
+            ],
             const SizedBox(height: AppSpacing.md),
             TextField(
               controller: _amountController,
@@ -152,6 +178,9 @@ class _ShiftCashMovementDialogState extends State<_ShiftCashMovementDialog> {
               : () => Navigator.of(context).pop(
                   _CashMovementInput(
                     kind: _kind,
+                    category: _kind == ShiftCashMovement.cashOutKind
+                        ? _category
+                        : ShiftCashMovement.changeFloatCategory,
                     amount: _amount!,
                     reason: _reason,
                   ),

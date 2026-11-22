@@ -126,6 +126,7 @@ class ShiftService {
     int shiftId,
     double closingCount, {
     double? cashLeft,
+    Map<String, int>? denominations,
   }) async {
     try {
       final response = await _client.post<Map<String, dynamic>>(
@@ -133,6 +134,8 @@ class ShiftService {
         data: {
           'closing_count': closingCount.toStringAsFixed(2),
           if (cashLeft != null) 'cash_left': cashLeft.toStringAsFixed(2),
+          if (denominations != null && denominations.isNotEmpty)
+            'denominations': denominations,
         },
       );
       final data = response.data;
@@ -159,12 +162,14 @@ class ShiftService {
     required String kind,
     required double amount,
     required String reason,
+    String category = ShiftCashMovement.otherCategory,
   }) async {
     try {
       final response = await _client.post<Map<String, dynamic>>(
         '$shiftsPath$shiftId/cash-movements/',
         data: {
           'kind': kind,
+          'category': category,
           'amount': amount.toStringAsFixed(2),
           'reason': reason.trim(),
         },

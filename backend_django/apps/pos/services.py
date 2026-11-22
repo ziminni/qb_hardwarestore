@@ -2265,6 +2265,14 @@ def compute_z_reading(shift):
     cash_out = shift.cash_movements.filter(kind="CASH_OUT").aggregate(
         total=Sum("amount")
     )["total"] or Decimal(0)
+    cash_out_by_category = {
+        row["category"]: _money(row["total"])
+        for row in (
+            shift.cash_movements.filter(kind="CASH_OUT")
+            .values("category")
+            .annotate(total=Sum("amount"))
+        )
+    }
     expected_drawer = (
         shift.opening_float + cash_sales - abs(cash_refunds) + cash_in - cash_out
     )
@@ -2289,9 +2297,12 @@ def compute_z_reading(shift):
         "card_sales": _money(by_method.get(Payment.Method.CARD)),
         "gcash_sales": _money(by_method.get(Payment.Method.GCASH)),
         "bank_sales": _money(by_method.get(Payment.Method.BANK_TRANSFER)),
+        "cheque_sales": _money(by_method.get(Payment.Method.CHEQUE)),
         "cash_refunds": _money(abs(cash_refunds)),
         "cash_in": _money(cash_in),
         "cash_out": _money(cash_out),
+        "cash_out_by_category": cash_out_by_category,
+        "denomination_counts": shift.denomination_counts or {},
         "expected_drawer": _money(expected_drawer),
         "variance": None if variance is None else _money(variance),
         # Owner ruling (opening cash carried forward): the drawer the PREVIOUS close said
@@ -2321,6 +2332,59 @@ def compute_z_reading(shift):
         ),
         # Advisory, not a blocker: `close_shift` records the count and closes anyway.
         "held_cart_count": held_cart_count(shift),
+    }
+
+
+def store_day_summary(target_date=None):
+    """Aggregate all shifts opened on `target_date` (local date, default today)."""
+    from .models import Shift
+
+    day = target_date or timezone.localdate()
+    shifts = list(
+        Shift.objects.select_related("cashier")
+        .prefetch_related("cash_movements")
+        .filter(opened_at__date=day)
+        .order_by("opened_at", "id")
+    )
+    readings = [compute_z_reading(s) for s in shifts]
+    sum_field = lambda key: sum((Decimal(r[key]) for r in readings), Decimal("0.00"))
+    cash_out_cats = {}
+    for r in readings:
+        for cat, amt in r.get("cash_out_by_category", {}).items():
+            cash_out_cats[cat] = cash_out_cats.get(cat, Decimal("0.00")) + Decimal(amt)
+
+    return {
+        "date": day.isoformat(),
+        "shift_count": len(shifts),
+        "open_shift_count": sum(1 for s in shifts if s.status == Shift.Status.OPEN),
+        "closed_shift_count": sum(1 for s in shifts if s.status == Shift.Status.CLOSED),
+        "gross_sales": _money(sum_field("gross_sales")),
+        "cash_sales": _money(sum_field("cash_sales")),
+        "gcash_sales": _money(sum_field("gcash_sales")),
+        "card_sales": _money(sum_field("card_sales")),
+        "bank_sales": _money(sum_field("bank_sales")),
+        "cheque_sales": _money(sum_field("cheque_sales")),
+        "cash_in": _money(sum_field("cash_in")),
+        "cash_out": _money(sum_field("cash_out")),
+        "cash_out_by_category": {k: _money(v) for k, v in cash_out_cats.items()},
+        "expected_drawer_total": _money(sum_field("expected_drawer")),
+        "counted_drawer_total": _money(
+            sum(
+                (s.closing_count for s in shifts if s.closing_count is not None),
+                Decimal("0.00"),
+            )
+        ),
+        "shifts": [
+            {
+                "id": s.id,
+                "cashier_name": s.cashier.full_name,
+                "status": s.status,
+                "opened_at": s.opened_at.isoformat(),
+                "closed_at": s.closed_at.isoformat() if s.closed_at else None,
+                "z_reading": r,
+            }
+            for s, r in zip(shifts, readings)
+        ],
     }
 
 

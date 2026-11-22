@@ -30,6 +30,7 @@ Future<Shift?> showShiftCloseDialog(
   final closed = await viewmodel.closeShift(
     result.count,
     cashLeft: result.cashLeft,
+    denominations: result.denominations,
   );
   if (!context.mounted) return closed;
   if (closed == null) {
@@ -81,6 +82,11 @@ class _CloseShiftDialog extends StatefulWidget {
 class _CloseShiftDialogState extends State<_CloseShiftDialog> {
   final _controller = TextEditingController();
   final _leftController = TextEditingController();
+  final Map<String, TextEditingController> _denomControllers = {
+    for (final d in ShiftCashMovement.phpDenominations)
+      d.key: TextEditingController(),
+  };
+  bool _showDenominations = false;
 
   /// "The drawer was cleared": sends `cash_left: 0.00`, which the server records
   /// as a REAL number (different from omitting the field).
@@ -90,7 +96,29 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
   void dispose() {
     _controller.dispose();
     _leftController.dispose();
+    for (final c in _denomControllers.values) {
+      c.dispose();
+    }
     super.dispose();
+  }
+
+  Map<String, int> get _denominations {
+    final out = <String, int>{};
+    for (final d in ShiftCashMovement.phpDenominations) {
+      final cnt = int.tryParse(_denomControllers[d.key]!.text.trim()) ?? 0;
+      if (cnt > 0) out[d.key] = cnt;
+    }
+    return out;
+  }
+
+  void _syncFromDenominations() {
+    var sum = 0.0;
+    for (final d in ShiftCashMovement.phpDenominations) {
+      final cnt = int.tryParse(_denomControllers[d.key]!.text.trim()) ?? 0;
+      if (cnt > 0) sum += d.value * cnt;
+    }
+    _controller.text = sum.toStringAsFixed(2);
+    setState(() {});
   }
 
   /// A negative count is refused here as well as on the server: money that
@@ -129,10 +157,11 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
     final cashLeft = _cashLeft;
     return AlertDialog(
       title: const Text('Close shift'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           Text(
             'Opening float ${formatPeso(widget.shift.openingFloat)}. '
             'Count the drawer and enter the total cash.',
@@ -152,6 +181,78 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
               ),
             ),
           ],
+          const SizedBox(height: AppSpacing.sm),
+          TextButton.icon(
+            key: const ValueKey('shift-close-denoms-toggle'),
+            onPressed: () =>
+                setState(() => _showDenominations = !_showDenominations),
+            icon: Icon(
+              _showDenominations ? Icons.expand_less : Icons.payments_outlined,
+              size: 18,
+            ),
+            label: Text(
+              _showDenominations
+                  ? 'Hide bill & coin counter'
+                  : 'Count by bills & coins',
+            ),
+          ),
+          if (_showDenominations)
+            SizedBox(
+              width: 360,
+              height: 180,
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final d in ShiftCashMovement.phpDenominations)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 72,
+                            child: Text(
+                              d.label,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: 90,
+                            child: TextField(
+                              key: ValueKey('denom-${d.key}'),
+                              controller: _denomControllers[d.key],
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                isDense: true,
+                                hintText: '0',
+                                border: OutlineInputBorder(),
+                              ),
+                              onChanged: (_) => _syncFromDenominations(),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              formatPeso(
+                                (int.tryParse(
+                                          _denomControllers[d.key]!.text.trim(),
+                                        ) ??
+                                        0) *
+                                    d.value,
+                              ),
+                              textAlign: TextAlign.right,
+                              style: const TextStyle(
+                                fontFeatures: [FontFeature.tabularFigures()],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
           const SizedBox(height: AppSpacing.sm),
           TextField(
             controller: _controller,
@@ -197,6 +298,7 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
               style: const TextStyle(fontSize: 12),
             ),
         ],
+        ),
       ),
       actions: [
         TextButton(
@@ -206,9 +308,13 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
         FilledButton(
           onPressed: count == null || !_cashLeftValid
               ? null
-              : () => Navigator.of(
-                  context,
-                ).pop(_CloseResult(count: count, cashLeft: cashLeft)),
+              : () => Navigator.of(context).pop(
+                  _CloseResult(
+                    count: count,
+                    cashLeft: cashLeft,
+                    denominations: _denominations,
+                  ),
+                ),
           child: const Text('Close shift'),
         ),
       ],
@@ -219,8 +325,13 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
 /// What the close form collected: the counted cash, and what stays in the
 /// drawer (`null` = the question was not answered).
 class _CloseResult {
-  const _CloseResult({required this.count, this.cashLeft});
+  const _CloseResult({
+    required this.count,
+    this.cashLeft,
+    this.denominations = const {},
+  });
 
   final double count;
   final double? cashLeft;
+  final Map<String, int> denominations;
 }
