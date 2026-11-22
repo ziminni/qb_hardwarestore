@@ -90,7 +90,7 @@ class _BodegaPickupsTabState extends State<BodegaPickupsTab> {
                             ),
                           ),
                           Text(
-                            'Scan the customer receipt QR (or enter OR number) '
+                            'Scan the customer Order Slip QR (or enter OS number) '
                             'to hand over Bodega items.',
                             style: TextStyle(color: AppColors.textSecondary),
                           ),
@@ -140,7 +140,7 @@ class _BodegaPickupsTabState extends State<BodegaPickupsTab> {
                     textInputAction: TextInputAction.search,
                     onSubmitted: (_) => _search(viewmodel),
                     decoration: const InputDecoration(
-                      hintText: 'Search by OR number or customer',
+                      hintText: 'Search by OS number or customer',
                       prefixIcon: Icon(Icons.search),
                       border: OutlineInputBorder(),
                       isDense: true,

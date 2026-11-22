@@ -49,7 +49,7 @@ String receiptVatLabel(double rate) {
 class ReceiptContent {
   ReceiptContent(PosReceipt receipt)
     : header = [
-        'Receipt: ${receipt.officialReceiptNumber}',
+        'Order Slip: ${receipt.officialReceiptNumber}',
         'Reference: ${receipt.reference}',
         formatDateTime(receipt.createdAt),
         'Payment: ${TenderMethod.labelFor(receipt.paymentMethod)}',
@@ -180,6 +180,7 @@ Future<Uint8List> buildReceiptPdf(
             ),
           ),
           pw.Center(child: pw.Text('Hardware store', style: body)),
+          pw.Center(child: pw.Text('ORDER SLIP', style: strong)),
           pw.SizedBox(height: 6),
           for (final text in content.header) pw.Text(text, style: body),
           pw.Divider(thickness: 0.5),
@@ -228,6 +229,9 @@ Future<Uint8List> buildReceiptPdf(
             ),
             pw.SizedBox(height: 6),
           ],
+          pw.Center(
+            child: pw.Text('Not an Official Receipt', style: body),
+          ),
           pw.Center(child: pw.Text('Thank you!', style: body)),
         ],
       ),
@@ -255,6 +259,7 @@ Uint8List buildReceiptEscPos(PosReceipt receipt) {
   final job = EscPosJob()
     ..text('QUEEN BUILDERS', bold: true, center: true, large: true)
     ..text('Hardware store', center: true)
+    ..text('ORDER SLIP', bold: true, center: true)
     ..feed(1);
   for (final text in content.header) {
     job.text(text);
@@ -279,6 +284,8 @@ Uint8List buildReceiptEscPos(PosReceipt receipt) {
       ..text(receipt.officialReceiptNumber, center: true)
       ..feed(1);
   }
-  job.text('Thank you!', center: true);
+  job
+    ..text('Not an Official Receipt', center: true)
+    ..text('Thank you!', center: true);
   return job.finish();
 }

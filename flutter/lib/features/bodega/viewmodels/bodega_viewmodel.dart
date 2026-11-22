@@ -342,7 +342,8 @@ class BodegaViewmodel extends ChangeNotifier {
     final wanted = receipt.trim();
     _lastLookupWasOfflineMiss = false;
     if (wanted.isEmpty) {
-      _actionError = 'Scan the QR code on the receipt, or type its OR number.';
+      _actionError =
+          'Scan the QR code on the Order Slip, or type its OS number.';
       notifyListeners();
       return false;
     }

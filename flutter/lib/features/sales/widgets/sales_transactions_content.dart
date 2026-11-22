@@ -191,10 +191,10 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
         FilterBar(
           searchHint: switch (widget.role) {
             SalesTransactionsRole.stockManager =>
-              'Transaction, OR #, customer, or SKU',
+              'Transaction, OS #, customer, or SKU',
             SalesTransactionsRole.cashier ||
             SalesTransactionsRole.storeManager =>
-              'Transaction, OR #, customer, or payment',
+              'Transaction, OS #, customer, or payment',
           },
           onSearchChanged: (value) => setState(() => _query = value),
           options: _statusChips,
@@ -339,7 +339,10 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
           if (sale.orNumber.isNotEmpty) ...[
             const SizedBox(height: 2),
             Text(
-              'OR ${sale.orNumber}',
+              sale.orNumber.toUpperCase().startsWith('OS') ||
+                      sale.orNumber.toUpperCase().startsWith('OR')
+                  ? sale.orNumber
+                  : 'OS ${sale.orNumber}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
@@ -493,7 +496,7 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
         return SalesDocumentSheet(
           title: sale.transactionNo,
           fields: [
-            if (sale.orNumber.isNotEmpty) ('OR Number', sale.orNumber),
+            if (sale.orNumber.isNotEmpty) ('Order Slip (OS)', sale.orNumber),
             ('Date', formatDateTime(sale.date)),
             ('Customer', sale.customer),
             ('Cashier', sale.cashier),

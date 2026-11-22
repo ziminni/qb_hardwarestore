@@ -87,7 +87,7 @@ class _PosReceiptDialogState extends State<PosReceiptDialog> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text('Reference: ${receipt.reference}'),
-              Text('Receipt: ${receipt.officialReceiptNumber}'),
+              Text('Order Slip: ${receipt.officialReceiptNumber}'),
               // The receipt carries the wire CODE; the cashier reads the label.
               // A legacy row holds the label already, and labelFor returns it as-is.
               Text(
@@ -119,7 +119,8 @@ class _PosReceiptDialogState extends State<PosReceiptDialog> {
                             children: [
                               Expanded(
                                 child: Text(
-                                  line.discount?.reason.trim().isNotEmpty == true
+                                  line.discount?.reason.trim().isNotEmpty ==
+                                          true
                                       ? '  Line discount (${line.discount!.reason.trim()})'
                                       : '  Line discount',
                                   style: Theme.of(context).textTheme.bodySmall,
@@ -215,7 +216,7 @@ class _PosReceiptDialogState extends State<PosReceiptDialog> {
         OutlinedButton.icon(
           onPressed: _printing ? null : _print,
           icon: const Icon(Icons.print_outlined, size: 18),
-          label: const Text('Print receipt'),
+          label: const Text('Print order slip'),
         ),
         FilledButton(
           onPressed: () => Navigator.pop(context),
@@ -252,7 +253,7 @@ class _PosReceiptDialogState extends State<PosReceiptDialog> {
     } catch (error) {
       // A refused print keeps the dialog: the cashier retries or moves on.
       if (mounted) {
-        setState(() => _error = 'Could not print the receipt: $error');
+        setState(() => _error = 'Could not print the order slip: $error');
       }
     } finally {
       if (printingRoute.isActive) navigator.removeRoute(printingRoute);
@@ -311,7 +312,7 @@ class _PrintingReceiptDialog extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               const Text(
-                'Printing receipt…',
+                'Printing order slip…',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
               ),
               if (printerName.isNotEmpty) ...[

@@ -330,13 +330,13 @@ Future<String?> _typeOrNumber(BuildContext context) {
   return showDialog<String>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('Type the OR number'),
+      title: const Text('Type the Order Slip (OS) number'),
       content: TextField(
         controller: number,
         autofocus: true,
         textCapitalization: TextCapitalization.characters,
         onSubmitted: (value) => Navigator.pop(context, value.trim()),
-        decoration: const InputDecoration(hintText: 'OR-20261118-0001'),
+        decoration: const InputDecoration(hintText: 'OS-20261122-0001'),
       ),
       actions: [
         TextButton(

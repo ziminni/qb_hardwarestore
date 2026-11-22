@@ -94,7 +94,7 @@ class _ReceiptScannerScreenState extends State<_ReceiptScannerScreen> {
                 child: Text(
                   'The camera could not start (${error.errorCode.name}). '
                   'Allow camera access for this app, or go back and type the '
-                  'OR number.',
+                  'Order Slip (OS) number.',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.white),
                 ),
@@ -132,7 +132,7 @@ class _ReceiptScannerScreenState extends State<_ReceiptScannerScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         const Text(
-          'Point the camera at the QR code on the receipt',
+          'Point the camera at the QR code on the Order Slip',
           textAlign: TextAlign.center,
           style: TextStyle(color: Colors.white, fontSize: 16),
         ),
@@ -147,7 +147,7 @@ class _ReceiptScannerScreenState extends State<_ReceiptScannerScreen> {
               children: [
                 Icon(Icons.keyboard_arrow_up, color: Colors.white, size: 34),
                 Text(
-                  'QR damaged? Type the OR number',
+                  'QR damaged? Type the OS number',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w600,
@@ -185,8 +185,8 @@ class _ReceiptScannerScreenState extends State<_ReceiptScannerScreen> {
           textInputAction: TextInputAction.search,
           onSubmitted: (_) => _submitTyped(),
           decoration: const InputDecoration(
-            labelText: 'OR number',
-            hintText: 'OR-20261118-0001',
+            labelText: 'Order Slip (OS) number',
+            hintText: 'OS-20261122-0001',
             prefixIcon: Icon(Icons.receipt_long_outlined),
             border: OutlineInputBorder(),
           ),
@@ -196,7 +196,7 @@ class _ReceiptScannerScreenState extends State<_ReceiptScannerScreen> {
           key: const ValueKey('scanner-or-find'),
           style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
           onPressed: _submitTyped,
-          child: const Text('Find the receipt'),
+          child: const Text('Find the order slip'),
         ),
       ],
     ),

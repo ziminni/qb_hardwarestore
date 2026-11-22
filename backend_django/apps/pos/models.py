@@ -343,7 +343,7 @@ class OfficialReceipt(models.Model):
         ordering = ["-printed_at"]
 
     def __str__(self):
-        return f"OR #{self.or_number}"
+        return f"OS #{self.or_number}"
 
 
 # ---------------------------------------------------------------------------

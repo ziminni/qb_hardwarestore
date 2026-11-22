@@ -40,8 +40,8 @@ class _ReceiptNumberingSettingsPanelState
     extends State<ReceiptNumberingSettingsPanel> {
   final List<_SeriesDraft> _series = [
     _SeriesDraft(
-      name: 'Official Receipt',
-      prefix: 'OR-',
+      name: 'Order Slip',
+      prefix: 'OS-',
       nextNumber: 1001,
       digits: 6,
     ),
@@ -226,7 +226,7 @@ class _ReceiptNumberingSettingsPanelState
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Keep off for continuous BIR-style OR numbering.',
+                          'Keep off for continuous Order Slip (OS) numbering.',
                           style: TextStyle(
                             fontSize: 12,
                             color: p.textSecondary,
@@ -455,7 +455,7 @@ class _SeriesEditDialogState extends State<_SeriesEditDialog> {
             textCapitalization: TextCapitalization.characters,
             decoration: const InputDecoration(
               labelText: 'Prefix',
-              hintText: 'e.g. OR-, TRX-',
+              hintText: 'e.g. OS-, TRX-',
             ),
           ),
           const SizedBox(height: AppSpacing.md),

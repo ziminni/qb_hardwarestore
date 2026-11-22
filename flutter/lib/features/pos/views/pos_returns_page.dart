@@ -295,8 +295,8 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            'Type the transaction number on the slip or the OR number on the '
-            'receipt. Only your own sales can be returned.',
+            'Type the transaction number or the Order Slip (OS) number. '
+            'Only your own sales can be returned.',
           ),
           const SizedBox(height: AppSpacing.md),
           Row(
@@ -305,7 +305,7 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
                 child: TextField(
                   controller: _search,
                   decoration: const InputDecoration(
-                    labelText: 'Transaction or receipt number',
+                    labelText: 'Transaction or Order Slip (OS) number',
                     border: OutlineInputBorder(),
                   ),
                   onSubmitted: (_) => returns.search(_search.text),

@@ -207,8 +207,8 @@ class _PickupsBodyState extends State<_PickupsBody> {
                 textInputAction: TextInputAction.search,
                 onSubmitted: (_) => _find(),
                 decoration: const InputDecoration(
-                  labelText: 'OR or receipt number',
-                  hintText: 'OR-…',
+                  labelText: 'Order Slip (OS) or transaction number',
+                  hintText: 'OS-…',
                 ),
               ),
             ),
