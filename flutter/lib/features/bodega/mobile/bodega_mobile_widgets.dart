@@ -1,10 +1,12 @@
 import 'package:client/core/config/api_config.dart';
 import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/sms/offline_sms_sender.dart';
 import 'package:client/data/models/bodega.dart';
 import 'package:client/features/bodega/viewmodels/bodega_viewmodel.dart';
 import 'package:client/features/bodega/views/bodega_pages.dart';
 import 'package:client/features/bodega/widgets/receipt_scanner.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -133,7 +135,8 @@ class EmptyNote extends StatelessWidget {
   );
 }
 
-/// Finds [receipt]'s claim and opens it full screen, or says why not.
+/// Finds [receipt]'s claim and opens it full screen, or offers direct offline
+/// SMS release when the phone has no connection and the receipt is not cached.
 Future<void> openClaim(
   BuildContext context,
   BodegaViewmodel viewmodel,
@@ -142,6 +145,10 @@ Future<void> openClaim(
   final found = await viewmodel.lookup(receipt);
   if (!context.mounted) return;
   if (!found || viewmodel.claim == null) {
+    if (viewmodel.lastLookupWasOfflineMiss && receipt.trim().isNotEmpty) {
+      await _showOfflineSmsReleaseDialog(context, viewmodel, receipt.trim());
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(viewmodel.actionError ?? 'Receipt not found.')),
     );
@@ -156,6 +163,152 @@ Future<void> openClaim(
     ),
   );
   viewmodel.closeClaim();
+}
+
+/// Offline fallback when a checker scans a new receipt QR while already
+/// offline (so it wasn't synced to the phone yet): collects the 4-digit code
+/// from the Store's SMS and sends `DONE <OR> <code>` via Dual-SIM SMS.
+Future<void> _showOfflineSmsReleaseDialog(
+  BuildContext context,
+  BodegaViewmodel viewmodel,
+  String receipt,
+) async {
+  final result = await showDialog<({String code, String receivedBy})>(
+    context: context,
+    builder: (_) => _OfflineSmsReleaseDialog(receipt: receipt),
+  );
+  if (result == null || !context.mounted) return;
+  final outcome = await viewmodel.sendOfflineSmsRelease(
+    receipt: receipt,
+    smsCode: result.code,
+    receivedBy: result.receivedBy,
+  );
+  if (!context.mounted) return;
+  final message =
+      viewmodel.outboxNotice ??
+      switch (outcome) {
+        OfflineSmsOutcome.sent => 'Offline SMS sent to store for $receipt.',
+        OfflineSmsOutcome.composer =>
+          'Opened SMS app with pre-filled reply for $receipt — tap Send.',
+        _ =>
+          'Could not send SMS automatically. Reply manually: '
+              '${OfflineSmsSender.buildReleaseBody(reference: receipt, smsCode: result.code, receivedBy: result.receivedBy)}',
+      };
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+}
+
+class _OfflineSmsReleaseDialog extends StatefulWidget {
+  const _OfflineSmsReleaseDialog({required this.receipt});
+
+  final String receipt;
+
+  @override
+  State<_OfflineSmsReleaseDialog> createState() =>
+      _OfflineSmsReleaseDialogState();
+}
+
+class _OfflineSmsReleaseDialogState extends State<_OfflineSmsReleaseDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _smsCode = TextEditingController();
+  final _receivedBy = TextEditingController();
+
+  @override
+  void dispose() {
+    _smsCode.dispose();
+    _receivedBy.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (!_formKey.currentState!.validate()) return;
+    Navigator.of(context).pop((
+      code: _smsCode.text.trim(),
+      receivedBy: _receivedBy.text.trim(),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      key: const ValueKey('offline-sms-release-dialog'),
+      title: const Row(
+        children: [
+          Icon(Icons.sms_outlined, color: AppColors.warningText),
+          SizedBox(width: 8),
+          Expanded(child: Text('Offline SMS Release')),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Receipt: ${widget.receipt}',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'No internet connection and this receipt was not synced yet. '
+                'Enter the 4-digit code from the Store SMS to confirm release '
+                'via offline SMS.',
+                style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                key: const ValueKey('offline-sms-code-field'),
+                controller: _smsCode,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                maxLength: 4,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(
+                  labelText: '4-digit Store SMS code',
+                  hintText: 'e.g. 4821',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  final digits = (value ?? '').trim();
+                  if (!RegExp(r'^\d{4}$').hasMatch(digits)) {
+                    return 'Enter the 4-digit code from the Store SMS.';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                key: const ValueKey('offline-sms-receiver-field'),
+                controller: _receivedBy,
+                textCapitalization: TextCapitalization.words,
+                textInputAction: TextInputAction.done,
+                onFieldSubmitted: (_) => _submit(),
+                decoration: const InputDecoration(
+                  labelText: 'Received by (optional)',
+                  hintText: 'Customer or driver name',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.icon(
+          key: const ValueKey('offline-sms-send-button'),
+          onPressed: _submit,
+          icon: const Icon(Icons.send, size: 18),
+          label: const Text('Send Offline SMS'),
+        ),
+      ],
+    );
+  }
 }
 
 /// The Scan button: the camera, then the receipt's claim.

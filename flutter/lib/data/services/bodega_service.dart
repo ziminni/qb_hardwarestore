@@ -140,11 +140,15 @@ class BodegaService {
   }
 
   static BodegaServiceException _failure(DioException error, String fallback) {
-    if (error.type == DioExceptionType.connectionError ||
-        error.type == DioExceptionType.connectionTimeout ||
-        error.type == DioExceptionType.receiveTimeout) {
+    if (error.response == null &&
+        (error.type == DioExceptionType.connectionError ||
+            error.type == DioExceptionType.connectionTimeout ||
+            error.type == DioExceptionType.sendTimeout ||
+            error.type == DioExceptionType.receiveTimeout ||
+            error.type == DioExceptionType.unknown)) {
       return const BodegaServiceException(
         'Cannot connect to the BuildPro server.',
+        code: 'OFFLINE',
       );
     }
     final status = error.response?.statusCode;

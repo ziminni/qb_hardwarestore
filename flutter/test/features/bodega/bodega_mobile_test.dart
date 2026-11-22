@@ -10,6 +10,7 @@
 import 'dart:convert';
 
 import 'package:client/core/format/format.dart';
+import 'package:client/core/sms/offline_sms_sender.dart';
 import 'package:client/core/theme/app_theme.dart';
 import 'package:client/data/models/bodega.dart';
 import 'package:client/data/models/role.dart';
@@ -228,6 +229,7 @@ Future<({AuthViewmodel auth, _FakeRepository repo, _Alerts alerts})> _pump(
   int claims = 5,
   List<int> deliveries = const [1, 2],
   Future<String?> Function(BuildContext)? scanner,
+  BodegaViewmodel? viewmodel,
 }) async {
   SharedPreferences.setMockInitialValues({});
   tester.view.physicalSize = const Size(390, 844);
@@ -243,7 +245,7 @@ Future<({AuthViewmodel auth, _FakeRepository repo, _Alerts alerts})> _pump(
       child: MaterialApp(
         theme: AppTheme.lightTheme,
         home: BodegaMobileShell(
-          viewmodel: BodegaViewmodel(repository: repo),
+          viewmodel: viewmodel ?? BodegaViewmodel(repository: repo),
           alerts: ArrivalAlerts(sender: alerts),
           scanner: scanner,
           takePhoto: ({bool fromGallery = false}) async =>
@@ -571,6 +573,66 @@ void main() {
       expect(repo.releasedRequests, hasLength(1));
       expect(repo.releasedRequests.single.idempotencyKey, isNotEmpty);
       expect(repo.releasedRequests.single.receivedBy, 'Pedro Driver');
+    },
+  );
+
+  testWidgets(
+    'scanning an uncached receipt QR while offline opens Offline SMS Release dialog and sends SMS',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final repo = _FakeRepository(claimCount: 1)..offline = true;
+      ({String reference, String smsCode, String receivedBy})? sentSms;
+      final vm = BodegaViewmodel(
+        repository: repo,
+        smsSender: ({
+          required String reference,
+          required String smsCode,
+          String receivedBy = '',
+        }) async {
+          sentSms = (
+            reference: reference,
+            smsCode: smsCode,
+            receivedBy: receivedBy,
+          );
+          return OfflineSmsOutcome.sent;
+        },
+      );
+
+      await _pump(
+        tester,
+        viewmodel: vm,
+        scanner: (_) async => 'OR-20261122-0099',
+      );
+
+      await tester.tap(find.byKey(const ValueKey('bodega-tab-scan')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('offline-sms-release-dialog')),
+        findsOneWidget,
+      );
+      expect(find.text('Receipt: OR-20261122-0099'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('offline-sms-code-field')),
+        '4821',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('offline-sms-receiver-field')),
+        'Juan Cruz',
+      );
+      await tester.tap(find.byKey(const ValueKey('offline-sms-send-button')));
+      await tester.pumpAndSettle();
+
+      expect(sentSms, (
+        reference: 'OR-20261122-0099',
+        smsCode: '4821',
+        receivedBy: 'Juan Cruz',
+      ));
+      expect(
+        find.textContaining('sent automatic SMS confirmation'),
+        findsOneWidget,
+      );
     },
   );
 }

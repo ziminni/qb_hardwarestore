@@ -7,19 +7,31 @@ import 'package:client/data/services/bodega_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Callback signature for sending an offline release SMS reply.
+typedef OfflineSmsReleaseSender =
+    Future<OfflineSmsOutcome> Function({
+      required String reference,
+      required String smsCode,
+      String receivedBy,
+    });
+
 /// The Bodega Checker's data (decision 25), with local snapshot caching and an
 /// offline release outbox queue (`docs/offline-sync-design.md`).
 ///
 /// The checker reads and confirms; it never moves stock itself. Screen-scoped:
 /// each page provides its own and loads only what it shows.
 class BodegaViewmodel extends ChangeNotifier {
-  BodegaViewmodel({BodegaRepository? repository})
-    : _repository = repository ?? BodegaRepository();
+  BodegaViewmodel({
+    BodegaRepository? repository,
+    OfflineSmsReleaseSender? smsSender,
+  }) : _repository = repository ?? BodegaRepository(),
+       _smsSender = smsSender ?? OfflineSmsSender.sendReleaseReply;
 
   static const cachedClaimsKey = 'bodega_offline_claims_v1';
   static const outboxKey = 'bodega_offline_outbox_v1';
 
   final BodegaRepository _repository;
+  final OfflineSmsReleaseSender _smsSender;
 
   List<BodegaStockRow> _stock = const [];
   List<BodegaClaim> _openClaims = const [];
@@ -33,6 +45,7 @@ class BodegaViewmodel extends ChangeNotifier {
   bool _isLoading = false;
   bool _isSaving = false;
   bool _usingOfflineSnapshot = false;
+  bool _lastLookupWasOfflineMiss = false;
   bool _cacheHydrated = false;
   int _keySequence = 0;
   String? _loadError;
@@ -48,6 +61,11 @@ class BodegaViewmodel extends ChangeNotifier {
       List.unmodifiable(_queuedReleases);
   int get queuedReleaseCount => _queuedReleases.length;
   bool get usingOfflineSnapshot => _usingOfflineSnapshot;
+
+  /// True when the last [lookup] failed because the phone is offline AND the
+  /// scanned/typed receipt was not yet cached locally (e.g. rung after the
+  /// phone went offline), so the UI can offer direct Offline SMS release.
+  bool get lastLookupWasOfflineMiss => _lastLookupWasOfflineMiss;
   String? get outboxNotice => _outboxNotice;
 
   List<BodegaDelivery> get pendingDeliveries => [
@@ -101,9 +119,13 @@ class BodegaViewmodel extends ChangeNotifier {
   }
 
   void _storeClaimInMemory(BodegaClaim claim) {
-    _cachedClaims[claim.transactionNo.toUpperCase()] = claim;
-    if (claim.orNumber.isNotEmpty) {
-      _cachedClaims[claim.orNumber.toUpperCase()] = claim;
+    final txnKey = claim.transactionNo.trim().toUpperCase();
+    if (txnKey.isNotEmpty) {
+      _cachedClaims[txnKey] = claim;
+    }
+    final orKey = claim.orNumber.trim().toUpperCase();
+    if (orKey.isNotEmpty) {
+      _cachedClaims[orKey] = claim;
     }
   }
 
@@ -111,9 +133,9 @@ class BodegaViewmodel extends ChangeNotifier {
     final key = receipt.trim().toUpperCase();
     final direct = _cachedClaims[key];
     if (direct != null) return direct;
-    for (final item in _openClaims) {
-      if (item.transactionNo.toUpperCase() == key ||
-          item.orNumber.toUpperCase() == key) {
+    for (final item in [..._openClaims, ..._completedClaims]) {
+      if (item.transactionNo.trim().toUpperCase() == key ||
+          item.orNumber.trim().toUpperCase() == key) {
         return item;
       }
     }
@@ -318,6 +340,7 @@ class BodegaViewmodel extends ChangeNotifier {
   /// Falls back to the cached pick-up snapshot when the phone is in a Wi-Fi dead zone.
   Future<bool> lookup(String receipt) async {
     final wanted = receipt.trim();
+    _lastLookupWasOfflineMiss = false;
     if (wanted.isEmpty) {
       _actionError = 'Scan the QR code on the receipt, or type its OR number.';
       notifyListeners();
@@ -342,6 +365,8 @@ class BodegaViewmodel extends ChangeNotifier {
           _usingOfflineSnapshot = true;
           return true;
         }
+        _usingOfflineSnapshot = true;
+        _lastLookupWasOfflineMiss = true;
       }
       _actionError = error.message;
       return false;
@@ -349,6 +374,35 @@ class BodegaViewmodel extends ChangeNotifier {
       _isSaving = false;
       notifyListeners();
     }
+  }
+
+  /// Sends a direct offline SMS release reply (`DONE <receipt> <4-digit-code>`)
+  /// for a scanned/typed receipt that was created while the phone was already
+  /// offline (not yet in local cache).
+  Future<OfflineSmsOutcome> sendOfflineSmsRelease({
+    required String receipt,
+    required String smsCode,
+    String receivedBy = '',
+  }) async {
+    final outcome = await _smsSender(
+      reference: receipt.trim(),
+      smsCode: smsCode.trim(),
+      receivedBy: receivedBy.trim(),
+    );
+    _outboxNotice = switch (outcome) {
+      OfflineSmsOutcome.sent =>
+        'Offline: sent automatic SMS confirmation (${receipt.trim()}) to store.',
+      OfflineSmsOutcome.composer =>
+        'Offline: opened SMS app with pre-filled reply — tap Send.',
+      OfflineSmsOutcome.skipped =>
+        'Store SMS number is not configured on this build. Reply manually: '
+            '${OfflineSmsSender.buildReleaseBody(reference: receipt, smsCode: smsCode, receivedBy: receivedBy)}',
+      OfflineSmsOutcome.failed =>
+        'Could not send SMS automatically. Reply manually: '
+            '${OfflineSmsSender.buildReleaseBody(reference: receipt, smsCode: smsCode, receivedBy: receivedBy)}',
+    };
+    notifyListeners();
+    return outcome;
   }
 
   BodegaClaim _applyOptimisticRelease(
@@ -474,7 +528,7 @@ class BodegaViewmodel extends ChangeNotifier {
             : (current?.transactionNo ?? withKey.receipt);
         final smsCode = current?.smsCode ?? '';
         if (smsCode.isNotEmpty) {
-          final outcome = await OfflineSmsSender.sendReleaseReply(
+          final outcome = await _smsSender(
             reference: ref,
             smsCode: smsCode,
             receivedBy: withKey.receivedBy,
