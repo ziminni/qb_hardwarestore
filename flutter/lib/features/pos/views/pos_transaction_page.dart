@@ -33,6 +33,7 @@ import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:client/routes/routes.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -68,6 +69,7 @@ class PosTransactionPage extends StatefulWidget {
 
 class _PosTransactionPageState extends State<PosTransactionPage> {
   bool _showInlinePayment = false;
+  bool _initialScannerFocused = false;
   final _scanFocusNode = FocusNode(debugLabel: 'POS barcode scanner');
   late final ShiftViewmodel _shiftViewmodel =
       widget.shiftViewmodel ?? ShiftViewmodel();
@@ -120,6 +122,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
   @override
   void initState() {
     super.initState();
+    HardwareKeyboard.instance.addHandler(_onHardwareKey);
     // The catalogue boots as bundled rows (see InventoryViewmodel); the till
     // must replace them with live data on open, or the cashier sells at stale
     // prices. Found by the 6D live pass (mock 270 vs live 260 on Portland).
@@ -130,6 +133,43 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
       _resumePendingCart();
       _loadStoreSettings();
     });
+  }
+
+  /// Routes USB barcode scanner bursts into the till search/scan field even if
+  /// the cashier previously clicked a chip, cart button, or empty area.
+  bool _onHardwareKey(KeyEvent event) {
+    if (!mounted || event is! KeyDownEvent) return false;
+    if (_showInlinePayment || !_shiftViewmodel.hasOpenShift) return false;
+    if (_scanFocusNode.hasFocus || _scanFocusNode.context == null) return false;
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) return false;
+
+    final primary = FocusManager.instance.primaryFocus;
+    final primaryCtx = primary?.context;
+    if (primaryCtx != null &&
+        (primaryCtx.widget is EditableText ||
+            primaryCtx.findAncestorWidgetOfExactType<EditableText>() != null)) {
+      return false;
+    }
+
+    final kb = HardwareKeyboard.instance;
+    if (kb.isControlPressed || kb.isMetaPressed || kb.isAltPressed) {
+      return false;
+    }
+
+    final char = event.character;
+    if (char == null || char.isEmpty || char.codeUnitAt(0) < 32) {
+      return false;
+    }
+
+    final nextText = '${_scanController.text}$char';
+    _scanController.value = TextEditingValue(
+      text: nextText,
+      selection: TextSelection.collapsed(offset: nextText.length),
+    );
+    _transaction.setQuery(nextText);
+    _scanFocusNode.requestFocus();
+    return true;
   }
 
   /// Reads the store's VAT rate and discount cap on till entry.
@@ -178,6 +218,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onHardwareKey);
     _scanController.dispose();
     _scanFocusNode.dispose();
     // Only dispose the ones we own; an injected or app-provided viewmodel
@@ -303,6 +344,11 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     // what the cashier expects) but says what actually happened.
     final catalogueEmpty =
         inventory.loadError != null && inventory.products.isEmpty;
+
+    if (!_initialScannerFocused && !_showInlinePayment) {
+      _initialScannerFocused = true;
+      _restoreScannerFocus();
+    }
 
     final browser = PosProductBrowser(
       products: products,
@@ -439,9 +485,13 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
         ],
       ),
     );
-    if (!mounted || confirmed != true) return;
+    if (!mounted || confirmed != true) {
+      _restoreScannerFocus();
+      return;
+    }
     _transaction.clear();
     onConfirmed?.call();
+    _restoreScannerFocus();
   }
 
   /// The header's shift chip and Close shift button.

@@ -5,6 +5,7 @@ import 'package:client/core/format/format.dart';
 import 'package:client/data/models/returns.dart';
 import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/models/tender_method.dart';
+import 'package:client/features/bodega/widgets/receipt_scanner.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/viewmodels/pos_returns_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
@@ -19,6 +20,7 @@ import 'package:client/shared/widgets/empty_state.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -42,10 +44,19 @@ import 'package:provider/provider.dart';
 /// [viewmodel] and [shiftViewmodel] are injectable so a test can drive the whole
 /// flow without a server; production passes nothing.
 class PosReturnsPage extends StatefulWidget {
-  const PosReturnsPage({super.key, this.viewmodel, this.shiftViewmodel});
+  const PosReturnsPage({
+    super.key,
+    this.viewmodel,
+    this.shiftViewmodel,
+    this.scanReceipt,
+  });
 
   final PosReturnsViewmodel? viewmodel;
   final ShiftViewmodel? shiftViewmodel;
+
+  /// Optional Order Slip QR scanner override (used in tests; production uses
+  /// camera scanning on mobile and USB 2D scanner focus on desktop).
+  final Future<String?> Function(BuildContext context)? scanReceipt;
 
   @override
   State<PosReturnsPage> createState() => _PosReturnsPageState();
@@ -56,7 +67,9 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
       widget.viewmodel ?? PosReturnsViewmodel();
   late final ShiftViewmodel _shift = widget.shiftViewmodel ?? ShiftViewmodel();
   final _search = TextEditingController();
+  final _searchFocus = FocusNode(debugLabel: 'POS returns OS scanner');
   final _reason = TextEditingController();
+  bool _initialSearchFocused = false;
 
   /// The one scroll region the page owns, so a failed refund can bring the
   /// reason it failed to the top of the screen instead of leaving it below the
@@ -74,14 +87,86 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
   @override
   void initState() {
     super.initState();
+    HardwareKeyboard.instance.addHandler(_onHardwareKey);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _shift.loadCurrent();
     });
   }
 
+  /// Captures a USB 2D QR scanner burst on the Returns page even if the cursor
+  /// is not currently inside the Order Slip search field (unless another text
+  /// box like Return Reason is focused).
+  bool _onHardwareKey(KeyEvent event) {
+    if (!mounted || event is! KeyDownEvent) return false;
+    if (!_shift.hasOpenShift || _returns.result != null) return false;
+    if (_searchFocus.hasFocus || _searchFocus.context == null) return false;
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) return false;
+
+    final primary = FocusManager.instance.primaryFocus;
+    final primaryCtx = primary?.context;
+    if (primaryCtx != null &&
+        (primaryCtx.widget is EditableText ||
+            primaryCtx.findAncestorWidgetOfExactType<EditableText>() != null)) {
+      return false;
+    }
+
+    final kb = HardwareKeyboard.instance;
+    if (kb.isControlPressed || kb.isMetaPressed || kb.isAltPressed) {
+      return false;
+    }
+
+    final char = event.character;
+    if (char == null || char.isEmpty || char.codeUnitAt(0) < 32) {
+      return false;
+    }
+
+    _search.value = TextEditingValue(
+      text: char,
+      selection: TextSelection.collapsed(offset: char.length),
+    );
+    _searchFocus.requestFocus();
+    return true;
+  }
+
+  void _restoreSearchFocus() {
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _searchFocus.context != null) {
+        _searchFocus.requestFocus();
+      }
+    });
+  }
+
+  Future<void> _scanOrderSlipQr(
+    BuildContext context,
+    PosReturnsViewmodel returns,
+  ) async {
+    if (widget.scanReceipt != null || cameraScanAvailable) {
+      final scanned = await (widget.scanReceipt ?? scanReceiptWithCamera)(
+        context,
+      );
+      if (!mounted || scanned == null) return;
+      final cleaned = scanned.trim();
+      if (cleaned.isEmpty) return;
+      _search.text = cleaned;
+      await returns.search(cleaned);
+      return;
+    }
+    _search.clear();
+    _searchFocus.requestFocus();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Scanner ready — scan the Order Slip (OS) QR code now.'),
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onHardwareKey);
     _search.dispose();
+    _searchFocus.dispose();
     _reason.dispose();
     _scroll.dispose();
     // Only dispose the ones we own; an injected viewmodel belongs to the caller.
@@ -164,6 +249,11 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
           ),
         ),
       );
+    }
+
+    if (!_initialSearchFocused) {
+      _initialSearchFocused = true;
+      _restoreSearchFocus();
     }
 
     final preflight = returns.preflight;
@@ -295,23 +385,42 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            'Type the transaction number or the Order Slip (OS) number. '
-            'Only your own sales can be returned.',
+            'Scan the Order Slip (OS) QR code, or type the transaction / OS '
+            'number. Only your own sales can be returned.',
           ),
           const SizedBox(height: AppSpacing.md),
-          Row(
+          Wrap(
+            spacing: AppSpacing.md,
+            runSpacing: AppSpacing.sm,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Expanded(
+              ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 260, maxWidth: 440),
                 child: TextField(
+                  key: const ValueKey('returns-search-field'),
                   controller: _search,
+                  focusNode: _searchFocus,
+                  autofocus: true,
                   decoration: const InputDecoration(
                     labelText: 'Transaction or Order Slip (OS) number',
+                    hintText: 'Scan OS QR or type OS-20261122-0001',
+                    prefixIcon: Icon(Icons.qr_code_scanner_rounded),
                     border: OutlineInputBorder(),
                   ),
                   onSubmitted: (_) => returns.search(_search.text),
                 ),
               ),
-              const SizedBox(width: AppSpacing.md),
+              OutlinedButton.icon(
+                key: const ValueKey('returns-scan-qr'),
+                onPressed: returns.isSearching
+                    ? null
+                    : () => _scanOrderSlipQr(context, returns),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 48),
+                ),
+                icon: const Icon(Icons.qr_code_scanner_rounded),
+                label: const Text('Scan OS QR'),
+              ),
               FilledButton.icon(
                 onPressed: returns.isSearching
                     ? null
@@ -561,6 +670,7 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
     _search.clear();
     _reason.clear();
     returns.reset();
+    _restoreSearchFocus();
   }
 
   Future<void> _confirmAndSubmit(

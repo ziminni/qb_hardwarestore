@@ -146,6 +146,7 @@ Future<void> _pump(
   bool openShift = true,
   List<String>? visits,
   Size window = const Size(1600, 1400),
+  Future<String?> Function(BuildContext)? scanReceipt,
 }) async {
   tester.view.physicalSize = window;
   tester.view.devicePixelRatio = 1.0;
@@ -164,6 +165,7 @@ Future<void> _pump(
         builder: (context, state) => PosReturnsPage(
           viewmodel: returnsViewmodel,
           shiftViewmodel: shiftViewmodel,
+          scanReceipt: scanReceipt,
         ),
       ),
       GoRoute(
@@ -584,5 +586,37 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets(
+      'Scan OS QR populates the field and loads the returnable sale immediately',
+      (tester) async {
+        String? searchedQuery;
+        final returns = _StubReturns(found: _sale(), preflight: _preflight());
+        await _pump(
+          tester,
+          returns: returns,
+          scanReceipt: (_) async {
+            searchedQuery = 'OS-20261122-0007';
+            return searchedQuery;
+          },
+        );
+
+        final searchField = tester.widget<TextField>(
+          find.byKey(const ValueKey('returns-search-field')),
+        );
+        expect(
+          searchField.focusNode?.hasFocus,
+          isTrue,
+          reason: 'Order Slip search box starts focused for USB 2D scanners',
+        );
+
+        await tester.tap(find.byKey(const ValueKey('returns-scan-qr')));
+        await tester.pumpAndSettle();
+
+        expect(searchField.controller?.text, 'OS-20261122-0007');
+        expect(find.textContaining('Maria Santos'), findsOneWidget);
+        expect(find.textContaining('Portland Cement'), findsOneWidget);
+      },
+    );
   });
 }

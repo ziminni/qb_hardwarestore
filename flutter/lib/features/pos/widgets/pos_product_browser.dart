@@ -98,17 +98,26 @@ class _PosProductBrowserState extends State<PosProductBrowser> {
                       _CategoryChip(
                         label: 'All locations',
                         selected: _locationFilter == null,
-                        onTap: () => setState(() => _locationFilter = null),
+                        onTap: () {
+                          setState(() => _locationFilter = null);
+                          widget.searchFocusNode.requestFocus();
+                        },
                       ),
                       _CategoryChip(
                         label: 'Store',
                         selected: _locationFilter == 'store',
-                        onTap: () => setState(() => _locationFilter = 'store'),
+                        onTap: () {
+                          setState(() => _locationFilter = 'store');
+                          widget.searchFocusNode.requestFocus();
+                        },
                       ),
                       _CategoryChip(
                         label: 'Bodega',
                         selected: _locationFilter == 'bodega',
-                        onTap: () => setState(() => _locationFilter = 'bodega'),
+                        onTap: () {
+                          setState(() => _locationFilter = 'bodega');
+                          widget.searchFocusNode.requestFocus();
+                        },
                       ),
                       if (showChips)
                         Padding(
@@ -123,13 +132,19 @@ class _PosProductBrowserState extends State<PosProductBrowser> {
                       _CategoryChip(
                         label: 'All',
                         selected: widget.selectedCategory == null,
-                        onTap: () => widget.onCategorySelected!(null),
+                        onTap: () {
+                          widget.onCategorySelected!(null);
+                          widget.searchFocusNode.requestFocus();
+                        },
                       ),
                       for (final category in widget.categories)
                         _CategoryChip(
                           label: category,
                           selected: widget.selectedCategory == category,
-                          onTap: () => widget.onCategorySelected!(category),
+                          onTap: () {
+                            widget.onCategorySelected!(category);
+                            widget.searchFocusNode.requestFocus();
+                          },
                         ),
                     ],
                   ],
@@ -175,7 +190,8 @@ class _PosProductBrowserState extends State<PosProductBrowser> {
                           itemCount: visibleProducts.length,
                           itemBuilder: (context, index) => _ProductCard(
                             product: visibleProducts[index],
-                            onAdd: () => widget.onSelect(visibleProducts[index]),
+                            onAdd: () =>
+                                widget.onSelect(visibleProducts[index]),
                           ),
                         );
                       },

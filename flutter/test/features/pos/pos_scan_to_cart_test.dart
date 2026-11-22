@@ -24,6 +24,7 @@ import 'package:client/features/pos/viewmodels/pos_transaction_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
@@ -874,5 +875,33 @@ void main() {
         reason: 'a manual pick keeps today\'s behaviour (decision 17)',
       );
     });
+
+    testWidgets(
+      'scan field starts focused on open and captures hardware scanner keys if unfocused',
+      (tester) async {
+        await pumpTill(tester, inventory: inventory, cart: cart);
+
+        final field = tester.widget<TextField>(scanField());
+        expect(
+          field.focusNode?.hasFocus,
+          isTrue,
+          reason: 'cursor must start in the search/scan bar on till open',
+        );
+
+        // Simulate focus leaving the scan field (e.g. clicking empty space).
+        field.focusNode?.unfocus();
+        await tester.pumpAndSettle();
+        expect(field.focusNode?.hasFocus, isFalse);
+
+        // First hardware keystroke from a USB scanner recaptures focus and
+        // lands in the search/scan bar without losing the first character.
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.keyQ, character: 'Q');
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.keyQ);
+        await tester.pumpAndSettle();
+
+        expect(field.focusNode?.hasFocus, isTrue);
+        expect(field.controller?.text, 'Q');
+      },
+    );
   });
 }
