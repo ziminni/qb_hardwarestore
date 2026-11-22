@@ -101,6 +101,7 @@ class NewProductDraft {
     'description': description,
     'image_url': imageUrl,
     if (storedAtId != null) 'stored_at': storedAtId,
+    'is_active': true,
     'allow_discount': allowDiscount,
   };
 

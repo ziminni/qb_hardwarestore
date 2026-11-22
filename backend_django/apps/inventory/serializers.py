@@ -685,6 +685,17 @@ class ProductSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
+    def to_internal_value(self, data):
+        ret = super().to_internal_value(data)
+        # DRF's BooleanField treats an omitted key in multipart/form-data (QueryDict)
+        # as an unchecked HTML checkbox (= False), which would silently archive a
+        # product or disable discounts whenever a photo is uploaded without sending
+        # those flags explicitly.
+        for flag in ("is_active", "allow_discount"):
+            if flag not in data:
+                ret.pop(flag, None)
+        return ret
+
     def validate(self, attrs):
         """The location the write LEAVES the product at must be active (decision 18).
 
