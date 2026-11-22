@@ -622,6 +622,8 @@ class Shift(models.Model):
     closing_count = models.DecimalField(
         max_digits=12, decimal_places=2, null=True, blank=True
     )
+    # Phase 5 (2026-11-22): optional PHP bill & coin breakdown counted at shift close.
+    denomination_counts = models.JSONField(default=dict, blank=True)
     opened_at = models.DateTimeField(auto_now_add=True, db_index=True)
     closed_at = models.DateTimeField(null=True, blank=True)
     notes = models.TextField(blank=True, default="")
@@ -655,10 +657,21 @@ class ShiftCashMovement(models.Model):
         CASH_OUT = "CASH_OUT", "Cash Out"
         CASH_IN = "CASH_IN", "Cash In"
 
+    class Category(models.TextChoices):
+        LUNCH = "LUNCH", "Lunch"
+        FUEL = "FUEL", "Fuel"
+        SUPPLIES = "SUPPLIES", "Supplies"
+        SAFE_DROP = "SAFE_DROP", "Safe Drop"
+        CHANGE_FLOAT = "CHANGE_FLOAT", "Change Float"
+        OTHER = "OTHER", "Other"
+
     shift = models.ForeignKey(
         Shift, on_delete=models.CASCADE, related_name="cash_movements"
     )
     kind = models.CharField(max_length=10, choices=Kind.choices)
+    category = models.CharField(
+        max_length=20, choices=Category.choices, default=Category.OTHER
+    )
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     reason = models.CharField(max_length=255)
     recorded_by = models.ForeignKey(

@@ -1153,7 +1153,52 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+        # Phase 5 (2026-11-22): optional PHP bill & coin breakdown counted at close.
+        raw_denoms = request.data.get("denominations")
+        clean_denoms = {}
+        if raw_denoms is not None:
+            if not isinstance(raw_denoms, dict):
+                return Response(
+                    {
+                        "code": "INVALID_DENOMINATIONS",
+                        "detail": "denominations must be an object mapping peso value to count.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            allowed_denoms = {
+                "1000", "500", "200", "100", "50", "20", "10", "5", "1", "0.25"
+            }
+            denom_total = Decimal("0.00")
+            for k, v in raw_denoms.items():
+                key = str(k).strip()
+                if key not in allowed_denoms:
+                    return Response(
+                        {
+                            "code": "INVALID_DENOMINATIONS",
+                            "detail": f"Unsupported PHP denomination: {key}.",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                try:
+                    cnt = int(v)
+                except (TypeError, ValueError):
+                    cnt = -1
+                if isinstance(v, bool) or cnt < 0:
+                    return Response(
+                        {
+                            "code": "INVALID_DENOMINATIONS",
+                            "detail": f"Count for ₱{key} must be a non-negative integer.",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                if cnt > 0:
+                    clean_denoms[key] = cnt
+                    denom_total += Decimal(key) * cnt
+            if request.data.get("closing_count") in (None, ""):
+                closing_count = denom_total.quantize(Decimal("0.01"))
+
         shift.closing_count = closing_count
+        shift.denomination_counts = clean_denoms
         shift.cash_left_in_drawer = cash_left
         shift.status = Shift.Status.CLOSED
         shift.closed_at = timezone.now()
@@ -1164,6 +1209,7 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
             shift.save(
                 update_fields=[
                     "closing_count",
+                    "denomination_counts",
                     "cash_left_in_drawer",
                     "status",
                     "closed_at",
@@ -1267,6 +1313,18 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
         if len(reason) > 255:
             reason = reason[:255]
 
+        category = str(
+            request.data.get("category") or ShiftCashMovement.Category.OTHER
+        ).strip().upper()
+        if category not in ShiftCashMovement.Category.values:
+            return Response(
+                {
+                    "code": "INVALID_CASH_MOVEMENT_CATEGORY",
+                    "detail": f"Unknown cash movement category: {category}.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         action_word = (
             "cash out" if kind == ShiftCashMovement.Kind.CASH_OUT else "cash in"
         )
@@ -1296,6 +1354,7 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
             ShiftCashMovement.objects.create(
                 shift=shift,
                 kind=kind,
+                category=category,
                 amount=amount,
                 reason=reason,
                 recorded_by=request.user,
@@ -1324,6 +1383,27 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
         if shift is None:
             raise NotFound("No open shift for this cashier.")
         return Response(self.get_serializer(shift).data)
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="store-day",
+        permission_classes=[IsPOSRole],
+    )
+    def store_day(self, request):
+        """GET /shifts/store-day/?date=YYYY-MM-DD -> aggregated day drawer summary."""
+        from django.utils.dateparse import parse_date
+
+        from .services import store_day_summary
+
+        raw_date = request.query_params.get("date")
+        target = parse_date(raw_date) if raw_date else None
+        if raw_date and target is None:
+            return Response(
+                {"code": "INVALID_DATE", "detail": "Use YYYY-MM-DD for date."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(store_day_summary(target))
 
 
 class PaymentViewSet(OwnSalesScopeMixin, viewsets.ReadOnlyModelViewSet):
