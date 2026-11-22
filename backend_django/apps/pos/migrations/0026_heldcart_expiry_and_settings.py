@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("pos", "0023_heldcartitem_discount_fields"),
+        ("pos", "0025_customer_store_credit_and_exchange"),
     ]
 
     operations = [
