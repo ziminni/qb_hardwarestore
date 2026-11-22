@@ -2,6 +2,7 @@ import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
 import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/product.dart';
+import 'package:client/features/catalogue_io/import_export_actions.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_adjust_stock_dialog.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
@@ -225,6 +226,17 @@ class _InventoryStockPageState extends State<InventoryStockPage> {
                   onPressed: () => setState(() => _ascending = !_ascending),
                   icon: const Icon(Icons.sort_by_alpha, size: 18),
                   label: Text(_ascending ? 'Name A to Z' : 'Name Z to A'),
+                ),
+              ),
+              SizedBox(
+                height: 44,
+                child: OutlinedButton.icon(
+                  key: const ValueKey('export-stock-excel'),
+                  onPressed: pending
+                      ? null
+                      : () => exportStockRecordsToExcel(context),
+                  icon: const Icon(Icons.table_view_outlined, size: 18),
+                  label: const Text('Export Excel'),
                 ),
               ),
             ],

@@ -80,7 +80,6 @@ class _ProductsPageState extends State<ProductsPage> {
         units: inventory.units,
         onCreateUnit: inventory.createUnit,
         onAddVariant: inventory.addVariant,
-        onAddSellingUnit: inventory.addSellingUnit,
         // Device-local knowledge (decision 15): the server has no location field,
         // so the form opens with whatever THIS device remembered.
         locationHint: variant == null

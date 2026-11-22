@@ -71,10 +71,22 @@ class _InventoryImportExportPageState extends State<InventoryImportExportPage> {
                 icon: Icons.table_view_outlined,
                 title: 'Export catalogue to Excel',
                 body:
-                    'Every product with its units, prices, category and where '
-                    'it is kept. Stock quantities are not in the file.',
+                    'Every product and variant with its unit, price, category '
+                    'and where it is kept. Stock quantities are not in the file.',
                 action: 'Export',
                 onPressed: ready ? () => openCatalogueExport(context) : null,
+              ),
+              _ActionCard(
+                key: const ValueKey('io-export-stock-records'),
+                icon: Icons.inventory_outlined,
+                title: 'Export stock records to Excel',
+                body:
+                    'Live on-hand quantities, low-stock thresholds, unit cost, '
+                    'stock value, selling price, SKU and barcode per variant.',
+                action: 'Export stock',
+                onPressed: ready
+                    ? () => exportStockRecordsToExcel(context)
+                    : null,
               ),
               _ActionCard(
                 key: const ValueKey('io-template'),

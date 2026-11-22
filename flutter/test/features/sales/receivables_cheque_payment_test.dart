@@ -167,7 +167,14 @@ void main() {
     // pending cheque does not move the server's balance either.
     expect(find.text('Pending clearance'), findsOneWidget);
     expect(find.textContaining('pending clearance'), findsOneWidget);
-    expect(find.textContaining('paid'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.textContaining('paid'),
+      ),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('print-cheque-slip')), findsOneWidget);
     expect(viewmodel.entries.single.balanceDue, balanceBefore);
     expect(repository.fetchCalls, 1, reason: 'no debt moved, so no reload');
     expect(find.text('Close'), findsOneWidget);

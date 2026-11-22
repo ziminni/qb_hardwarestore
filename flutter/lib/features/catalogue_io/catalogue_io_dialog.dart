@@ -130,13 +130,13 @@ class _CatalogueIoDialogState extends State<CatalogueIoDialog> {
           ),
           const SizedBox(height: 8),
           const Text(
-            'One row per selling unit, archived products included. The second '
+            'One row per product variant, archived products included. The second '
             'sheet lists the categories, unit codes, locations and brands the '
             'file accepts. Stock is never part of the file.',
           ),
           if (rows.isEmpty) ...[
             const SizedBox(height: 12),
-            const Text('The catalogue has no selling units to export yet.'),
+            const Text('The catalogue has no product variants to export yet.'),
           ],
           if (_error case final message?) ...[
             const SizedBox(height: 12),

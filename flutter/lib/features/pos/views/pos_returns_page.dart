@@ -49,6 +49,7 @@ class PosReturnsPage extends StatefulWidget {
     this.viewmodel,
     this.shiftViewmodel,
     this.scanReceipt,
+    this.returnSlipPrinter,
   });
 
   final PosReturnsViewmodel? viewmodel;
@@ -57,6 +58,10 @@ class PosReturnsPage extends StatefulWidget {
   /// Optional Order Slip QR scanner override (used in tests; production uses
   /// camera scanning on mobile and USB 2D scanner focus on desktop).
   final Future<String?> Function(BuildContext context)? scanReceipt;
+
+  /// Optional Return Slip printer override (used in tests; production uses
+  /// [RollReturnSlipPrinter]).
+  final ReturnSlipPrinter? returnSlipPrinter;
 
   @override
   State<PosReturnsPage> createState() => _PosReturnsPageState();
@@ -243,7 +248,11 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
             child: PosReturnReceipt(
               result: posted,
               transactionNo: returns.sale?.transactionNo,
+              customerName: returns.sale?.customerName,
+              cashierName: returns.sale?.cashierName,
+              reason: returns.reason,
               lines: _returnedLines(returns),
+              printer: widget.returnSlipPrinter,
               onStartAnother: () => _startAnother(returns),
             ),
           ),

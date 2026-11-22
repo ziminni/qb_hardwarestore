@@ -59,7 +59,6 @@ class ProductsFormDialog extends StatefulWidget {
     this.onCreateBrand,
     this.onCreateUnit,
     this.onAddVariant,
-    this.onAddSellingUnit,
     this.imageFileService = const ImageFileService(),
   });
 
@@ -86,11 +85,6 @@ class ProductsFormDialog extends StatefulWidget {
   /// price).
   final Future<String?> Function(NewVariantDraft draft)? onAddVariant;
 
-  /// Optional inline selling-unit creation callback in Edit Product mode so
-  /// extra selling units (e.g. PC inside a BOX) can be added right from Edit.
-  final Future<String?> Function(int variantId, NewSellingUnit unit)?
-      onAddSellingUnit;
-
   /// Where this device says the stock sits. Blank on a product nobody recorded.
   final String locationHint;
 
@@ -113,23 +107,6 @@ class ProductsFormDialog extends StatefulWidget {
   State<ProductsFormDialog> createState() => _ProductsFormDialogState();
 }
 
-/// How a measured product's stock is held (teammate form, owner 2026-11-18).
-///
-/// `packaged` / `standardLengths` add ONE real selling unit ("Bag = 40 kg"),
-/// priced at the base price times its size; `direct` / `continuous` sell the
-/// base unit only.
-enum _StockForm {
-  direct('Bulk / Measured'),
-  packaged('Packaged'),
-  continuous('Continuous / Measured Length'),
-  standardLengths('Individual Standard Lengths');
-
-  const _StockForm(this.label);
-  final String label;
-
-  bool get hasPackage => this == packaged || this == standardLengths;
-}
-
 class _ProductsFormDialogState extends State<ProductsFormDialog> {
   static final _decimalFormatter = FilteringTextInputFormatter.allow(
     RegExp(r'^-?\d*\.?\d{0,2}'),
@@ -139,7 +116,6 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   late List<Brand> _brands;
   late List<UnitOfMeasure> _units;
   late List<ProductVariant> _editVariants;
-  late List<VariantUom> _editSellingUnits;
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
   late final TextEditingController _variantController;
@@ -155,12 +131,9 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   String _creditKind = 'NONE';
   late final TextEditingController _costController;
   late final TextEditingController _initialController;
-  late final TextEditingController _packageSizeController;
   int? _categoryId;
   int? _brandId;
   int? _baseUomId;
-  int? _packageUomId;
-  _StockForm _stockForm = _StockForm.direct;
 
   /// The product's STORED photo URL (the server's, or a legacy one). Never a path
   /// this device invented.
@@ -217,24 +190,6 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     return unit == null ? TrackingKind.quantity : TrackingKind.of(unit);
   }
 
-  List<_StockForm> get _stockOptions => switch (_kind) {
-    TrackingKind.quantity => const [_StockForm.direct],
-    TrackingKind.length => const [
-      _StockForm.continuous,
-      _StockForm.standardLengths,
-    ],
-    _ => const [_StockForm.direct, _StockForm.packaged],
-  };
-
-  /// Whole, counted units a package can be: Bag, Box, Pack, Roll, Piece...
-  List<UnitOfMeasure> get _packageUnits => [
-    for (final unit in _units)
-      if (unit.isWhole &&
-          TrackingKind.of(unit) == TrackingKind.quantity &&
-          unit.id != _baseUomId)
-        unit,
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -266,19 +221,14 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     );
     _costController = TextEditingController(text: '0');
     _initialController = TextEditingController(text: '0');
-    _packageSizeController = TextEditingController(text: '40');
     _brands = List<Brand>.of(widget.brands);
     _units = List<UnitOfMeasure>.of(widget.units);
     _editVariants = List<ProductVariant>.of(
       product?.variants ?? const <ProductVariant>[],
     );
-    _editSellingUnits = List<VariantUom>.of(
-      variant?.sellingUoms ?? const <VariantUom>[],
-    );
     _categoryId = product?.categoryId ?? widget.categories.firstOrNull?.id;
     _brandId = product?.brandId ?? _brands.firstOrNull?.id;
     _baseUomId = variant?.baseUomId ?? _units.firstOrNull?.id;
-    _packageUomId = _packageUnits.firstOrNull?.id;
     _imageUrl = product?.imageUrl ?? '';
     _storedAtId = product?.storedAtId ?? _defaultStoredAtId();
     _allowDiscount = product?.allowDiscount ?? true;
@@ -345,7 +295,6 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
       _creditValueController,
       _costController,
       _initialController,
-      _packageSizeController,
     ]) {
       controller.dispose();
     }
@@ -517,10 +466,6 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
         _units.add(created);
       }
       _baseUomId = created.id;
-      _stockForm = _stockOptions.first;
-      if (_packageUomId == _baseUomId || _packageUomId == null) {
-        _packageUomId = _packageUnits.firstOrNull?.id;
-      }
     });
   }
 
@@ -569,22 +514,14 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   double _num(TextEditingController controller) =>
       double.tryParse(controller.text.trim().replaceAll(',', '')) ?? 0;
 
-  bool get _packaged => !_editing && _stockForm.hasPackage;
-
-  /// Opening stock in BASE units: packages x size when packaged.
-  double get _openingBaseQty => _packaged
-      ? _num(_initialController) * _num(_packageSizeController)
-      : _num(_initialController);
+  /// Opening stock in BASE units.
+  double get _openingBaseQty => _num(_initialController);
 
   void _pickKind(TrackingKind kind) {
     final options = kind.unitsIn(_units);
     if (options.isEmpty) return;
     setState(() {
       _baseUomId = options.first.id;
-      _stockForm = _stockOptions.first;
-      if (_packageUomId == _baseUomId) {
-        _packageUomId = _packageUnits.firstOrNull?.id;
-      }
     });
   }
 
@@ -612,10 +549,6 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   String? _validateInitial(String? raw) {
     final error = _nonNegative(raw);
     if (error != null) return error;
-    final value = _num(_initialController);
-    if (_packaged && value != value.roundToDouble()) {
-      return 'Count whole packages.';
-    }
     final base = _openingBaseQty;
     final unit = _shownBaseUnit;
     if (unit != null && unit.isWhole && base != base.roundToDouble()) {
@@ -635,8 +568,6 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
 
     final existing = widget.product;
     if (existing == null) {
-      final size = _num(_packageSizeController);
-      final package = _unitWithId(_packageUomId);
       Navigator.of(context).pop(
         ProductFormResult.create(
           NewProductDraft(
@@ -658,16 +589,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
             locationHint: widget.locationHint,
             storedAtId: _storedAtId,
             allowDiscount: _allowDiscount,
-            extraSellingUnits: [
-              if (_packaged && package != null)
-                NewSellingUnit(
-                  uomId: package.id,
-                  uomCode: package.code,
-                  conversionFactor: size,
-                  sellingPrice: double.parse((price * size).toStringAsFixed(2)),
-                  barcodeQr: '',
-                ),
-            ],
+            extraSellingUnits: const [],
             openingQty: _openingBaseQty,
             openingUnitCost: _num(_costController),
           ),
@@ -988,74 +910,6 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
           ],
         ],
       ),
-      if (kind != TrackingKind.quantity) ...[
-        const SizedBox(height: AppSpacing.md),
-        SegmentedButton<_StockForm>(
-          key: const ValueKey('stock-form'),
-          segments: [
-            for (final form in _stockOptions)
-              ButtonSegment(value: form, label: Text(form.label)),
-          ],
-          selected: {
-            _stockOptions.contains(_stockForm)
-                ? _stockForm
-                : _stockOptions.first,
-          },
-          onSelectionChanged: (values) =>
-              setState(() => _stockForm = values.first),
-        ),
-      ],
-      if (_stockForm.hasPackage && kind != TrackingKind.quantity) ...[
-        const SizedBox(height: AppSpacing.md),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: DropdownButtonFormField<int>(
-                key: const ValueKey('package-unit-picker'),
-                isExpanded: true,
-                initialValue: _packageUomId,
-                decoration: InputDecoration(
-                  labelText: _stockForm == _StockForm.standardLengths
-                      ? 'Physical unit'
-                      : 'Package type',
-                ),
-                items: [
-                  for (final option in _packageUnits)
-                    DropdownMenuItem(
-                      value: option.id,
-                      child: Text(option.name, overflow: TextOverflow.ellipsis),
-                    ),
-                ],
-                validator: (value) =>
-                    value == null ? 'Choose the package.' : null,
-                onChanged: (value) => setState(() => _packageUomId = value),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: TextFormField(
-                key: const ValueKey('package-size'),
-                controller: _packageSizeController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                inputFormatters: [_decimalFormatter],
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  labelText: _stockForm == _StockForm.standardLengths
-                      ? 'Standard length per piece'
-                      : 'Quantity per package',
-                  hintText: 'Number (e.g. 40)',
-                  suffixText: _baseCode,
-                ),
-                validator: (raw) =>
-                    sellingUnitFactorError(raw, baseCode: _baseCode),
-              ),
-            ),
-          ],
-        ),
-      ],
       if (unit != null) _fractionSwitch(unit),
     ];
   }
@@ -1156,8 +1010,6 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   );
 
   List<Widget> _pricingAndInitialStock() {
-    final initialIsPackages = _packaged;
-    final packageName = _unitWithId(_packageUomId)?.name.toLowerCase() ?? '';
     return [
       Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1215,11 +1067,9 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
               inputFormatters: [_decimalFormatter],
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
-                labelText: initialIsPackages
-                    ? 'Initial packages / pieces'
-                    : 'Initial quantity',
+                labelText: 'Initial quantity',
                 hintText: '0',
-                suffixText: initialIsPackages ? packageName : _baseCode,
+                suffixText: _baseCode,
               ),
               validator: _validateInitial,
             ),
@@ -1375,50 +1225,12 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     });
   }
 
-  Future<void> _addSellingUnitInline() async {
-    final variant = _variant;
-    final adder = widget.onAddSellingUnit;
-    if (variant == null || adder == null) return;
-    final liveVariant = variant.copyWith(sellingUoms: _editSellingUnits);
-    final added = await showDialog<NewSellingUnit>(
-      context: context,
-      builder: (_) => AddSellingUnitDialog(
-        productName: _nameController.text.trim().isEmpty
-            ? widget.product!.baseName
-            : _nameController.text.trim(),
-        variant: liveVariant,
-        units: _units,
-        onCreateUnit: widget.onCreateUnit == null ? null : _handleCreateUnit,
-        onSubmit: (unit) => adder(variant.id, unit),
-      ),
-    );
-    if (!mounted || added == null) return;
-    setState(() {
-      final matchedUnit = _unitWithId(added.uomId);
-      _editSellingUnits.add(
-        VariantUom(
-          id: -_editSellingUnits.length - 1,
-          variantId: variant.id,
-          uomId: added.uomId,
-          uomCode: added.uomCode,
-          uomName: matchedUnit?.name ?? added.uomCode,
-          barcodeQr: added.barcodeQr.isEmpty ? 'Auto-generated' : added.barcodeQr,
-          conversionFactor: added.conversionFactor,
-          defaultSellingPrice: added.sellingPrice,
-          creditMarkupKind: added.creditMarkupKind,
-          creditMarkupValue: added.creditMarkupValue,
-          uomIsWhole: matchedUnit?.isWhole ?? false,
-        ),
-      );
-    });
-  }
-
-  Widget _editSellingUnitsCard(BuildContext context) {
+  Widget _editVariantsCard(BuildContext context) {
     final variant = _variant;
     if (variant == null) return const SizedBox.shrink();
     final theme = Theme.of(context);
     return Container(
-      key: const ValueKey('edit-selling-units-section'),
+      key: const ValueKey('edit-variants-section'),
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
         color: AppColors.surfaceSunken,
@@ -1435,7 +1247,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Selling units (${_editSellingUnits.length})',
+                      'Variants (${_editVariants.length})',
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
@@ -1447,40 +1259,18 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                   ],
                 ),
               ),
-              if (widget.onAddVariant != null || widget.onAddSellingUnit != null)
-                Wrap(
-                  spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.xs,
-                  children: [
-                    if (widget.onAddVariant != null)
-                      OutlinedButton.icon(
-                        key: const ValueKey('edit-add-variant'),
-                        onPressed: _addVariantInline,
-                        icon: const Icon(Icons.layers_outlined, size: 18),
-                        label: const Text('Add variant'),
-                      ),
-                    if (widget.onAddSellingUnit != null)
-                      OutlinedButton.icon(
-                        key: const ValueKey('edit-add-selling-unit'),
-                        onPressed: _addSellingUnitInline,
-                        icon: const Icon(Icons.add, size: 18),
-                        label: const Text('Add selling unit'),
-                      ),
-                  ],
+              if (widget.onAddVariant != null)
+                OutlinedButton.icon(
+                  key: const ValueKey('edit-add-variant'),
+                  onPressed: _addVariantInline,
+                  icon: const Icon(Icons.layers_outlined, size: 18),
+                  label: const Text('Add variant'),
                 ),
             ],
           ),
-          if (_editVariants.length > 1) ...[
+          if (_editVariants.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.sm),
-            Text(
-              'Variants (${_editVariants.length}): '
-              '${_editVariants.map((v) => '${v.variantName} (${v.baseUomCode})').join(' · ')}',
-              style: theme.textTheme.bodySmall,
-            ),
-          ],
-          if (_editSellingUnits.isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.sm),
-            for (final unit in _editSellingUnits)
+            for (final v in _editVariants)
               Padding(
                 padding: const EdgeInsets.only(top: AppSpacing.xs),
                 child: Container(
@@ -1500,17 +1290,17 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '${unit.uomCode} · '
-                              '${unit.uomId == variant.baseUomId && unit.conversionFactor == 1 ? 'Base (×1)' : unit.conversionFactor < 1 ? '1 ${unit.uomCode} = ${formatQuantity(unit.conversionFactor)} $_baseCode (${formatQuantity(1 / unit.conversionFactor)} ${unit.uomCode}/$_baseCode)' : '1 ${unit.uomCode} = ${formatQuantity(unit.conversionFactor)} $_baseCode'}',
+                              '${v.variantName} · ${v.baseUomCode}',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
-                            Text(
-                              '${formatPeso(unit.defaultSellingPrice)} / ${unit.uomCode}'
-                              '${unit.barcodeQr.isEmpty ? '' : ' · ${unit.barcodeQr}'}',
-                              style: theme.textTheme.bodySmall,
-                            ),
+                            if (_baseSellingUnit(v) case final base?)
+                              Text(
+                                '${formatPeso(base.defaultSellingPrice)} / ${base.uomCode}'
+                                '${base.barcodeQr.isEmpty ? '' : ' · ${base.barcodeQr}'}',
+                                style: theme.textTheme.bodySmall,
+                              ),
                           ],
                         ),
                       ),
@@ -1562,7 +1352,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     const SizedBox(height: AppSpacing.md),
     _utangMarkupFields(),
     const SizedBox(height: AppSpacing.md),
-    _editSellingUnitsCard(context),
+    _editVariantsCard(context),
     const SizedBox(height: AppSpacing.md),
     _storedAtField(),
     const SizedBox(height: AppSpacing.sm),
@@ -1579,8 +1369,6 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     final name = _nameController.text.trim();
     final unit = _shownBaseUnit;
     final price = _num(_sellingController);
-    final size = _num(_packageSizeController);
-    final package = _unitWithId(_packageUomId);
     final base = _openingBaseQty;
     return Container(
       key: const ValueKey('stock-preview'),
@@ -1604,21 +1392,12 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
           const SizedBox(height: AppSpacing.sm),
           Text(name.isEmpty ? 'Unnamed product' : name),
           Text('Tracking: ${_kind.label}'),
-          if (_packaged && package != null)
-            Text(
-              'Physical inventory: ${formatQuantity(_num(_initialController))} '
-              '${package.name.toLowerCase()} × ${formatQuantity(size)} $_baseCode',
-            ),
           Text('Total available: ${formatQuantity(base)} $_baseCode'),
           Text(
             'Smaller amount sales: '
             '${unit != null && !unit.isWhole ? 'Allowed' : 'Not allowed'}',
           ),
           Text('Selling: ${formatPeso(price)} / $_baseCode'),
-          if (_packaged && package != null)
-            Text(
-              'Selling: ${formatPeso(price * size)} / ${package.name.toLowerCase()}',
-            ),
           Text(
             'Stored at: ${_storedAtName.isEmpty ? 'not chosen' : _storedAtName}',
           ),

@@ -93,6 +93,8 @@ Future<SalesDocumentAction?> showSalesDocumentSheet(
   required num total,
   bool canEdit = false,
   bool canCancel = false,
+  Future<void> Function()? onPrint,
+  String printLabel = 'Print slip',
 }) {
   return showModalBottomSheet<SalesDocumentAction>(
     context: context,
@@ -105,6 +107,8 @@ Future<SalesDocumentAction?> showSalesDocumentSheet(
       total: total,
       canEdit: canEdit,
       canCancel: canCancel,
+      onPrint: onPrint,
+      printLabel: printLabel,
     ),
   );
 }
@@ -129,6 +133,8 @@ class SalesDocumentSheet extends StatelessWidget {
     required this.total,
     this.canEdit = false,
     this.canCancel = false,
+    this.onPrint,
+    this.printLabel = 'Print slip',
   });
 
   final String title;
@@ -137,6 +143,8 @@ class SalesDocumentSheet extends StatelessWidget {
   final num total;
   final bool canEdit;
   final bool canCancel;
+  final Future<void> Function()? onPrint;
+  final String printLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -204,19 +212,44 @@ class SalesDocumentSheet extends StatelessWidget {
                   for (final line in lines) _line(line),
                 const SizedBox(height: AppSpacing.xl),
                 TotalBar(label: 'Total', amount: total),
-                if (canEdit || canCancel) ...[
+                if (canEdit || canCancel || onPrint != null) ...[
                   const SizedBox(height: AppSpacing.md),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
+                      if (onPrint != null)
+                        OutlinedButton.icon(
+                          key: const ValueKey('sales-sheet-print'),
+                          onPressed: () async {
+                            try {
+                              await onPrint!();
+                            } catch (error) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Could not print slip: $error',
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.print_outlined, size: 18),
+                          label: Text(printLabel),
+                        ),
                       if (canCancel)
-                        TextButton(
-                          key: const ValueKey('so-sheet-cancel'),
-                          onPressed: () => Navigator.pop(
-                            context,
-                            SalesDocumentAction.cancel,
+                        Padding(
+                          padding: EdgeInsets.only(
+                            left: onPrint != null ? AppSpacing.sm : 0,
                           ),
-                          child: const Text('Cancel'),
+                          child: TextButton(
+                            key: const ValueKey('so-sheet-cancel'),
+                            onPressed: () => Navigator.pop(
+                              context,
+                              SalesDocumentAction.cancel,
+                            ),
+                            child: const Text('Cancel'),
+                          ),
                         ),
                       if (canEdit)
                         Padding(

@@ -185,7 +185,7 @@ void main() {
     expect(find.text('Edit code'), findsNothing);
   });
 
-  testWidgets('Remove is offered only for an unused NON-base unit', (
+  testWidgets('Remove is offered only for an unused NON-base unit and Add selling unit is gone', (
     tester,
   ) async {
     await openDetails(tester, 'inventory');
@@ -201,96 +201,9 @@ void main() {
       findsNothing,
       reason: 'a unit already sold stays, its price and code editable',
     );
-    expect(find.byKey(const ValueKey('add-selling-unit-210')), findsOneWidget);
-  });
-
-  testWidgets('Add selling unit posts the same row fields and reloads', (
-    tester,
-  ) async {
-    await openDetails(tester, 'inventory');
-    final loadsBefore = repository.loadCount;
-
-    await tapVisible(
-      tester,
-      find.byKey(const ValueKey('add-selling-unit-210')),
-    );
-    await tapVisible(tester, find.byKey(const ValueKey('add-unit-0')));
-    await tester.tap(find.text('Pack (PACK)').last);
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const ValueKey('add-factor-0')), '5');
-    await tester.enterText(find.byKey(const ValueKey('add-price-0')), '30');
-    await tapVisible(tester, find.text('Add unit'));
-
-    final created = repository.createdUnits.single;
-    expect(created.variantId, 210);
-    expect(created.unit.uomId, 5);
-    expect(created.unit.conversionFactor, 5);
-    expect(created.unit.sellingPrice, 30);
-    expect(repository.loadCount, loadsBefore + 1);
-    expect(
-      find.byKey(const ValueKey('add-factor-0')),
-      findsNothing,
-      reason: 'a saved unit closes the dialog',
-    );
-  });
-
-  testWidgets(
-    'Add selling unit supports sub-unit entry (1 base = N sub-units) with dynamic labels',
-    (tester) async {
-      await openDetails(tester, 'inventory');
-
-      await tapVisible(
-        tester,
-        find.byKey(const ValueKey('add-selling-unit-210')),
-      );
-      expect(find.textContaining('Base unit: KG (×1)'), findsOneWidget);
-
-      await tapVisible(tester, find.byKey(const ValueKey('add-unit-0')));
-      await tester.tap(find.text('Pack (PACK)').last);
-      await tester.pumpAndSettle();
-
-      // Dynamic labels match the selected unit just like Add/Edit Product.
-      expect(find.text('Selling price per PACK'), findsOneWidget);
-      expect(find.text('How many KG per PACK'), findsOneWidget);
-
-      // Flip to sub-unit mode ("1 KG = ? PACK") and enter 20 -> auto-fills 0.05.
-      await tapVisible(tester, find.text('1 KG = ? PACK'));
-      await tester.enterText(
-        find.byKey(const ValueKey('add-subcount-0')),
-        '20',
-      );
-      await tester.enterText(find.byKey(const ValueKey('add-price-0')), '1.5');
-      await tester.pumpAndSettle();
-
-      expect(find.textContaining('20 PACK = 1 KG'), findsOneWidget);
-      await tapVisible(tester, find.text('Add unit'));
-
-      final created = repository.createdUnits.single;
-      expect(created.unit.uomId, 5);
-      expect(created.unit.conversionFactor, 0.05);
-      expect(created.unit.sellingPrice, 1.5);
-    },
-  );
-
-  testWidgets('the add form mirrors the server: no base unit, no duplicate, '
-      'no fractional-factor typo, no negative price', (tester) async {
-    await openDetails(tester, 'inventory');
-    await tapVisible(
-      tester,
-      find.byKey(const ValueKey('add-selling-unit-210')),
-    );
-
-    await tapVisible(tester, find.byKey(const ValueKey('add-unit-0')));
-    await tester.tap(find.text('Kilogram (KG)').last);
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const ValueKey('add-factor-0')), '1');
-    await tester.enterText(find.byKey(const ValueKey('add-price-0')), '-5');
-    await tapVisible(tester, find.text('Add unit'));
-
-    expect(find.text('This unit is already used.'), findsOneWidget);
-    expect(find.text('A unit of 1 KG is the base unit.'), findsOneWidget);
-    expect(find.text('The price cannot be negative.'), findsOneWidget);
-    expect(repository.createdUnits, isEmpty);
+    expect(find.byKey(const ValueKey('add-selling-unit-210')), findsNothing);
+    expect(find.text('Add selling unit'), findsNothing);
+    expect(find.byKey(const ValueKey('add-variant-21')), findsOneWidget);
   });
 
   testWidgets('removing asks first, names the unit and says it cannot be '
@@ -409,35 +322,4 @@ void main() {
       expect(find.text('Per Tray'), findsOneWidget);
     },
   );
-
-  testWidgets('Add selling unit supports creating a custom unit inline (+ New)', (
-    tester,
-  ) async {
-    await openDetails(tester, 'inventory');
-
-    await tapVisible(
-      tester,
-      find.byKey(const ValueKey('add-selling-unit-210')),
-    );
-    await tapVisible(tester, find.byKey(const ValueKey('add-new-unit-0')));
-    await tester.enterText(
-      find.byKey(const ValueKey('custom-uom-code')),
-      'SACK',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('custom-uom-name')),
-      'Sack',
-    );
-    await tapVisible(tester, find.byKey(const ValueKey('custom-uom-create')));
-
-    await tester.enterText(find.byKey(const ValueKey('add-factor-0')), '25');
-    await tester.enterText(find.byKey(const ValueKey('add-price-0')), '160');
-    await tapVisible(tester, find.text('Add unit'));
-
-    expect(catalogueLists.createdUoms, [(code: 'SACK', name: 'Sack')]);
-    final created = repository.createdUnits.single;
-    expect(created.unit.uomCode, 'SACK');
-    expect(created.unit.conversionFactor, 25);
-    expect(created.unit.sellingPrice, 160);
-  });
 }

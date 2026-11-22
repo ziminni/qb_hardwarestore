@@ -1,8 +1,10 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
+import 'package:client/core/printing/roll_printer.dart';
 import 'package:client/data/models/ledger_entry.dart';
 import 'package:client/data/models/tender_method.dart';
+import 'package:client/features/pos/widgets/receipt_document.dart';
 import 'package:client/features/sales/viewmodels/cheque_queue_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/sales_receivables_viewmodel.dart';
 import 'package:client/features/sales/widgets/cheque_queue_content.dart';
@@ -17,6 +19,23 @@ import 'package:client/shared/widgets/status_badge.dart';
 import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+/// Hands an Utang Payment Slip (or Pending Cheque Slip) to the thermal printer.
+/// Injectable for widget tests.
+abstract class UtangPaymentSlipPrinter {
+  Future<void> print(UtangPaymentSlipData slip);
+}
+
+/// Real 58 mm ESC/POS printer implementation for Utang Payment Slips.
+class RollUtangPaymentSlipPrinter implements UtangPaymentSlipPrinter {
+  const RollUtangPaymentSlipPrinter();
+
+  @override
+  Future<void> print(UtangPaymentSlipData slip) => RollPrinter().print(
+    buildUtangPaymentSlipEscPos(slip),
+    job: slip.jobName,
+  );
+}
 
 /// The one receivables list, shared by the cashier's Record payment screen and
 /// the Store Manager's Receivables screen (card S2).
@@ -39,11 +58,19 @@ import 'package:provider/provider.dart';
 /// because the cashier's Record payment shell shows this same body and must not
 /// reach the decision queue: a cashier TAKES a cheque, a manager decides it.
 class SalesReceivablesContent extends StatefulWidget {
-  const SalesReceivablesContent({super.key, this.showCheques = false});
+  const SalesReceivablesContent({
+    super.key,
+    this.showCheques = false,
+    this.slipPrinter,
+  });
 
   /// True only on the manager's Receivables screen, which also provides a
   /// [ChequeQueueViewmodel] above this widget.
   final bool showCheques;
+
+  /// Optional printer override for tests; production uses
+  /// [RollUtangPaymentSlipPrinter].
+  final UtangPaymentSlipPrinter? slipPrinter;
 
   @override
   State<SalesReceivablesContent> createState() =>
@@ -460,7 +487,12 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
           // holds the same guard for the dialog's own Record button.
           onPressed: paying
               ? null
-              : () => _openPaymentDialog(context, viewmodel, entry),
+              : () => _openPaymentDialog(
+                  context,
+                  viewmodel,
+                  entry,
+                  slipPrinter: widget.slipPrinter,
+                ),
           style: FilledButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 10),
             minimumSize: const Size(44, 36),
@@ -623,6 +655,17 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
                               fontSize: 14,
                             ),
                           ),
+                          const SizedBox(width: 4),
+                          IconButton(
+                            key: ValueKey('history-print-payment-${payment.id}'),
+                            tooltip: 'Print payment slip',
+                            icon: const Icon(Icons.print_outlined, size: 18),
+                            onPressed: () => _printRecordedPayment(
+                              context,
+                              payment,
+                              remainingBalance: entry.balanceDue,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -639,7 +682,12 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
             FilledButton(
               onPressed: () {
                 Navigator.of(dialogContext).pop();
-                _openPaymentDialog(context, viewmodel, entry);
+                _openPaymentDialog(
+                  context,
+                  viewmodel,
+                  entry,
+                  slipPrinter: widget.slipPrinter,
+                );
               },
               child: const Text('Record payment'),
             ),
@@ -679,6 +727,33 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
     return 'No payments recorded yet.';
   }
 
+  Future<void> _printRecordedPayment(
+    BuildContext context,
+    LedgerPayment payment, {
+    double? remainingBalance,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final slip = _slipFromPayment(payment, remainingBalance: remainingBalance);
+    try {
+      await (widget.slipPrinter ?? const RollUtangPaymentSlipPrinter()).print(
+        slip,
+      );
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Payment slip sent to printer for ${payment.customerName}.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not print payment slip: $error')),
+      );
+    }
+  }
+
   Widget _paymentHistorySection(SalesReceivablesViewmodel viewmodel) {
     final failure = viewmodel.paymentsError;
     final firstLoadFailed = failure != null && viewmodel.payments.isEmpty;
@@ -700,7 +775,7 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
           child: firstLoadFailed
               ? const SizedBox.shrink()
               : DataPanel<LedgerPayment>(
-                  columns: _paymentColumns(),
+                  columns: _paymentColumns(context, viewmodel),
                   rows: rows,
                   emptyMessage: _paymentEmptyMessage(),
                   isLoading: viewmodel.isLoading && viewmodel.payments.isEmpty,
@@ -711,7 +786,10 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
     );
   }
 
-  List<DataPanelColumn<LedgerPayment>> _paymentColumns() {
+  List<DataPanelColumn<LedgerPayment>> _paymentColumns(
+    BuildContext context,
+    SalesReceivablesViewmodel viewmodel,
+  ) {
     return [
       DataPanelColumn<LedgerPayment>(
         label: 'Date & time',
@@ -769,11 +847,11 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
                     cpmsRef != null &&
                     orRef != cpmsRef) ...[
                   const SizedBox(height: 2),
-                  _caption('OR/Ref: $orRef'),
+                  _caption('Ref: $orRef'),
                 ],
               ] else if (orRef.isNotEmpty) ...[
                 const SizedBox(height: 2),
-                _caption('OR/Ref: $orRef'),
+                _caption('Ref: $orRef'),
               ],
             ],
           );
@@ -786,6 +864,28 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
           payment.processedByName.isEmpty ? 'Staff' : payment.processedByName,
           maxLines: 2,
         ),
+      ),
+      DataPanelColumn<LedgerPayment>(
+        label: 'Slip',
+        flex: 1,
+        cell: (payment) {
+          final matched = viewmodel.entries
+              .where((e) => e.id == payment.collectibleId)
+              .firstOrNull;
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: IconButton(
+              key: ValueKey('print-payment-${payment.id}'),
+              tooltip: 'Print payment slip',
+              icon: const Icon(Icons.print_outlined, size: 18),
+              onPressed: () => _printRecordedPayment(
+                context,
+                payment,
+                remainingBalance: matched?.balanceDue,
+              ),
+            ),
+          );
+        },
       ),
     ];
   }
@@ -1085,17 +1185,45 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
   }
 }
 
+UtangPaymentSlipData _slipFromPayment(
+  LedgerPayment payment, {
+  double? previousBalance,
+  double? remainingBalance,
+}) {
+  final ref = payment.officialReceiptNo.isNotEmpty
+      ? payment.officialReceiptNo
+      : (payment.cpmsReceiptRef ?? '');
+  return UtangPaymentSlipData(
+    customerName: payment.customerName,
+    projectName: payment.projectName,
+    transactionNo: payment.transactionNo,
+    paymentId: payment.id,
+    referenceNo: ref,
+    paymentMethod: payment.paymentMethod,
+    amountPaid: payment.amountPaid,
+    previousBalance: previousBalance,
+    remainingBalance: remainingBalance,
+    recordedBy: payment.processedByName,
+    paymentDate: payment.paymentDate,
+  );
+}
+
 Future<void> _openPaymentDialog(
   BuildContext context,
   SalesReceivablesViewmodel viewmodel,
-  LedgerEntry entry,
-) {
+  LedgerEntry entry, {
+  UtangPaymentSlipPrinter? slipPrinter,
+}) {
   // The dialog route builds ABOVE this page's provider, so the viewmodel
   // travels as a constructor argument: a dialog-local context.read would throw
   // ProviderNotFoundException instead of opening anything.
   return showDialog<void>(
     context: context,
-    builder: (_) => _RecordPaymentDialog(viewmodel: viewmodel, entry: entry),
+    builder: (_) => _RecordPaymentDialog(
+      viewmodel: viewmodel,
+      entry: entry,
+      slipPrinter: slipPrinter,
+    ),
   );
 }
 
@@ -1378,10 +1506,15 @@ class _CpmsReceiptsDialogState extends State<_CpmsReceiptsDialog> {
 /// and over-balance amounts before anything posts, and the dialog stays open on
 /// any refusal so the message and the amounts stay on screen together.
 class _RecordPaymentDialog extends StatefulWidget {
-  const _RecordPaymentDialog({required this.viewmodel, required this.entry});
+  const _RecordPaymentDialog({
+    required this.viewmodel,
+    required this.entry,
+    this.slipPrinter,
+  });
 
   final SalesReceivablesViewmodel viewmodel;
   final LedgerEntry entry;
+  final UtangPaymentSlipPrinter? slipPrinter;
 
   @override
   State<_RecordPaymentDialog> createState() => _RecordPaymentDialogState();
@@ -1398,6 +1531,9 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
   String? _error;
   String? _notice;
   bool _posting = false;
+  UtangPaymentSlipData? _recordedSlip;
+  bool _printingSlip = false;
+  String? _printError;
 
   @override
   void dispose() {
@@ -1422,6 +1558,66 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
     setState(() => _chequeDate = picked);
   }
 
+  Future<void> _autoPrintSlip(UtangPaymentSlipData slip) async {
+    if (widget.slipPrinter != null) return;
+    try {
+      if (!await RollPrinter.autoPrint()) return;
+      if (await RollPrinter.saved() == null) return;
+    } catch (_) {
+      return;
+    }
+    if (mounted) await _printSlip(slip);
+  }
+
+  Future<void> _printSlip(UtangPaymentSlipData slip) async {
+    setState(() {
+      _printingSlip = true;
+      _printError = null;
+    });
+    try {
+      await (widget.slipPrinter ?? const RollUtangPaymentSlipPrinter()).print(
+        slip,
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _printError = 'Could not print the payment slip: $error',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _printingSlip = false);
+    }
+  }
+
+  UtangPaymentSlipData _buildCashSlip(double paidAmount) {
+    final refreshedEntry = widget.viewmodel.entries
+        .where((e) => e.id == widget.entry.id)
+        .firstOrNull;
+    final remaining =
+        refreshedEntry?.balanceDue ??
+        (widget.entry.balanceDue - paidAmount).clamp(0.0, double.infinity);
+    final latestPayment = widget.viewmodel.payments
+        .where((p) => p.collectibleId == widget.entry.id)
+        .firstOrNull;
+    if (latestPayment != null) {
+      return _slipFromPayment(
+        latestPayment,
+        previousBalance: widget.entry.balanceDue,
+        remainingBalance: remaining,
+      );
+    }
+    return UtangPaymentSlipData(
+      customerName: widget.entry.customerName,
+      projectName: widget.entry.projectName,
+      transactionNo: widget.entry.transactionNo,
+      paymentMethod: TenderMethod.cash.code,
+      amountPaid: paidAmount,
+      previousBalance: widget.entry.balanceDue,
+      remainingBalance: remaining,
+      paymentDate: appClock.now(),
+    );
+  }
+
   Future<void> _submit() async {
     final parsed = double.tryParse(_amount.text.trim());
     if (parsed == null) {
@@ -1432,9 +1628,6 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
       setState(() => _error = 'Pick the date written on the cheque.');
       return;
     }
-    // Captured before the await: the lint forbids carrying a BuildContext
-    // across the async gap on a State.mounted guard.
-    final navigator = Navigator.of(context);
     setState(() {
       _posting = true;
       _error = null;
@@ -1449,10 +1642,26 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
       );
       if (!mounted) return;
       if (cheque != null) {
+        final chequeSlip = UtangPaymentSlipData(
+          customerName: widget.entry.customerName,
+          projectName: widget.entry.projectName,
+          transactionNo: widget.entry.transactionNo,
+          referenceNo: cheque.referenceNo,
+          paymentMethod: TenderMethod.cheque.code,
+          amountPaid: cheque.amount,
+          previousBalance: widget.entry.balanceDue,
+          remainingBalance: widget.entry.balanceDue,
+          paymentDate: cheque.receivedAt ?? appClock.now(),
+          isPendingCheque: true,
+          chequeNumber: cheque.chequeNumber,
+          bank: cheque.bank,
+          chequeDate: cheque.chequeDate,
+        );
         // NOT "paid": the bank has not honoured it yet, so the dialog says what
         // actually happened and the balance on the row stays as it was.
         setState(() {
           _posting = false;
+          _recordedSlip = chequeSlip;
           _notice =
               'Cheque ${cheque.chequeNumber} is recorded as pending clearance. '
               'The ${formatPeso(widget.entry.balanceDue)} still stands until the '
@@ -1473,7 +1682,12 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
     );
     if (!mounted) return;
     if (ok) {
-      navigator.pop();
+      final slip = _buildCashSlip(parsed);
+      setState(() {
+        _posting = false;
+        _recordedSlip = slip;
+      });
+      await _autoPrintSlip(slip);
       return;
     }
     setState(() {
@@ -1483,8 +1697,119 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
     });
   }
 
+  Widget _buildCashConfirmation(BuildContext context, UtangPaymentSlipData slip) {
+    final remaining = slip.remainingBalance ?? 0;
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.check_circle_outline, color: AppColors.successText),
+          SizedBox(width: 8),
+          Expanded(child: Text('Payment recorded')),
+        ],
+      ),
+      content: SizedBox(
+        width: 400,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                slip.customerName,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
+              ),
+              if (slip.projectName case final project?)
+                Text(
+                  'Project: $project',
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              Text(
+                'Sale / OS: ${slip.transactionNo}',
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const Divider(height: 20),
+              if (slip.previousBalance case final prev?)
+                _slipRow('Previous balance', formatPeso(prev)),
+              _slipRow('Amount paid', formatPeso(slip.amountPaid), bold: true),
+              _slipRow(
+                'Method',
+                TenderMethod.labelFor(slip.paymentMethod),
+              ),
+              _slipRow(
+                'Remaining balance',
+                remaining <= 0.005 ? '₱0.00 (Paid in full)' : formatPeso(remaining),
+                bold: true,
+              ),
+              if (slip.referenceNo.isNotEmpty)
+                _slipRow('Reference', slip.referenceNo)
+              else if (slip.paymentId != null)
+                _slipRow('Payment #', '#${slip.paymentId}'),
+              if (_printError case final err?) ...[
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  err,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.errorText,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        OutlinedButton.icon(
+          key: const ValueKey('print-utang-payment-slip'),
+          onPressed: _printingSlip ? null : () => _printSlip(slip),
+          icon: _printingSlip
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.print_outlined, size: 18),
+          label: Text(_printingSlip ? 'Printing…' : 'Print payment slip'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Done'),
+        ),
+      ],
+    );
+  }
+
+  Widget _slipRow(String label, String value, {bool bold = false}) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Row(
+      children: [
+        Expanded(child: Text(label)),
+        Text(
+          value,
+          style: TextStyle(
+            fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+      ],
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
+    final recorded = _recordedSlip;
+    if (recorded != null && !recorded.isPendingCheque) {
+      return _buildCashConfirmation(context, recorded);
+    }
     final failure = _error;
     final notice = _notice;
     final typedAmount = double.tryParse(_amount.text.trim()) ?? 0;
@@ -1660,6 +1985,16 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
               const SizedBox(height: AppSpacing.md),
               InfoBanner(title: 'Pending clearance', message: notice),
             ],
+            if (_printError case final err?) ...[
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                err,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.errorText,
+                ),
+              ),
+            ],
             if (failure != null) ...[
               const SizedBox(height: AppSpacing.md),
               Text(
@@ -1675,6 +2010,13 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
         ),
       ),
       actions: [
+        if (notice != null && recorded != null)
+          OutlinedButton.icon(
+            key: const ValueKey('print-cheque-slip'),
+            onPressed: _printingSlip ? null : () => _printSlip(recorded),
+            icon: const Icon(Icons.print_outlined, size: 18),
+            label: Text(_printingSlip ? 'Printing…' : 'Print cheque slip'),
+          ),
         TextButton(
           onPressed: _posting ? null : () => Navigator.of(context).pop(),
           child: Text(notice == null ? 'Cancel' : 'Close'),

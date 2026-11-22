@@ -231,21 +231,12 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: AppSpacing.lg),
-            const DialogSectionLabel('Selling units'),
+            const DialogSectionLabel('Pricing & barcode'),
             if (variant.sellingUoms.isEmpty)
-              const Text('No selling units yet.')
+              const Text('No pricing configured yet.')
             else
               for (final unit in variant.sellingUoms)
                 _unitRow(context, variant, unit, canEdit: canEdit),
-            if (canEdit) ...[
-              const SizedBox(height: AppSpacing.sm),
-              OutlinedButton.icon(
-                key: ValueKey('add-selling-unit-${variant.id}'),
-                onPressed: () => _addUnit(context, variant),
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Add selling unit'),
-              ),
-            ],
           ],
         ),
       ),
@@ -282,8 +273,10 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
             children: [
               Expanded(
                 child: Text(
-                  '${unit.uomCode} · ×${formatQuantity(unit.conversionFactor)} · '
-                  '${formatPeso(unit.defaultSellingPrice)}',
+                  isBase
+                      ? '${unit.uomCode} · ${formatPeso(unit.defaultSellingPrice)}'
+                      : '${unit.uomCode} · ×${formatQuantity(unit.conversionFactor)} · '
+                            '${formatPeso(unit.defaultSellingPrice)}',
                   style: Theme.of(
                     context,
                   ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
@@ -386,21 +379,6 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
         units: inventory.units,
         onCreateUnit: inventory.createUnit,
         onSubmit: inventory.addVariant,
-      ),
-    );
-  }
-
-  Future<void> _addUnit(BuildContext context, ProductVariant variant) {
-    final inventory = context.read<InventoryViewmodel>();
-    return showDialog<void>(
-      context: context,
-      builder: (_) => AddSellingUnitDialog(
-        productName: widget.product.baseName,
-        variant: variant,
-        units: inventory.units,
-        onCreateUnit: inventory.createUnit,
-        // The same store path every catalog write uses; it writes and reloads.
-        onSubmit: (unit) => inventory.addSellingUnit(variant.id, unit),
       ),
     );
   }

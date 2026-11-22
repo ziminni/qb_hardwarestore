@@ -289,3 +289,213 @@ Uint8List buildReceiptEscPos(PosReceipt receipt) {
     ..text('Thank you!', center: true);
   return job.finish();
 }
+
+/// Server-backed return details for a 58 mm thermal Return Slip.
+///
+/// Mirrors the exact posted return record seen in Store Manager -> Returns &
+/// Refunds so the customer slip, cashier summary, and manager record always
+/// match.
+class ReturnSlipData {
+  const ReturnSlipData({
+    required this.returnNo,
+    this.transactionNo,
+    this.customerName,
+    this.cashierName,
+    this.reason,
+    required this.printedAt,
+    required this.lines,
+    required this.returnValue,
+    required this.debtReduced,
+    required this.cashRefund,
+    required this.refundMethod,
+    this.ledgerId,
+    this.ledgerBalance = 0,
+  });
+
+  final String returnNo;
+  final String? transactionNo;
+  final String? customerName;
+  final String? cashierName;
+  final String? reason;
+  final DateTime printedAt;
+  final List<({String name, String uom, double qty})> lines;
+  final double returnValue;
+  final double debtReduced;
+  final double cashRefund;
+  final String refundMethod;
+  final int? ledgerId;
+  final double ledgerBalance;
+}
+
+/// Builds a 58 mm ESC/POS Return Slip from server-posted return figures.
+Uint8List buildReturnSlipEscPos(ReturnSlipData slip) {
+  final job = EscPosJob()
+    ..text('QUEEN BUILDERS', bold: true, center: true, large: true)
+    ..text('Hardware store', center: true)
+    ..text('RETURN SLIP', bold: true, center: true)
+    ..feed(1)
+    ..text('Return No: ${slip.returnNo}');
+  final txNo = slip.transactionNo?.trim() ?? '';
+  if (txNo.isNotEmpty) {
+    job.text('Orig Sale: $txNo');
+  }
+  final customer = slip.customerName?.trim() ?? '';
+  if (customer.isNotEmpty) {
+    job.text('Customer: $customer');
+  }
+  final cashier = slip.cashierName?.trim() ?? '';
+  if (cashier.isNotEmpty) {
+    job.text('Cashier: $cashier');
+  }
+  job.text('Date: ${formatDateTime(slip.printedAt.toLocal())}');
+  final reason = slip.reason?.trim() ?? '';
+  if (reason.isNotEmpty) {
+    job.text('Reason: $reason');
+  }
+  if (slip.lines.isNotEmpty) {
+    job.divider();
+    for (final line in slip.lines) {
+      final qtyLabel = line.uom.trim().isEmpty
+          ? formatQuantity(line.qty)
+          : '${formatQuantity(line.qty)} ${line.uom.trim()}';
+      job
+        ..text(line.name)
+        ..row('Qty returned', qtyLabel);
+    }
+  }
+  job
+    ..divider()
+    ..row('Return value', formatPesoForPrint(slip.returnValue), bold: true);
+  if (slip.debtReduced > 0 || slip.ledgerId != null) {
+    job.row('Utang reduced', formatPesoForPrint(slip.debtReduced), bold: true);
+  }
+  job
+    ..row('Cash refunded', formatPesoForPrint(slip.cashRefund), bold: true)
+    ..row('Refund method', TenderMethod.labelFor(slip.refundMethod));
+  if (slip.ledgerId != null) {
+    job.row(
+      'Ledger balance',
+      formatPesoForPrint(slip.ledgerBalance),
+      bold: true,
+    );
+  }
+  job
+    ..feed(1)
+    ..text('Not an Official Receipt', center: true)
+    ..text('Thank you!', center: true);
+  return job.finish();
+}
+
+/// Server-backed utang payment details for a 58 mm thermal Payment Slip.
+///
+/// Built from the recorded [LedgerPayment] / [LedgerEntry] (or pending cheque)
+/// so the cashier's printed slip matches Store Manager -> Receivables & Payment
+/// history.
+class UtangPaymentSlipData {
+  const UtangPaymentSlipData({
+    required this.customerName,
+    this.projectName,
+    required this.transactionNo,
+    this.paymentId,
+    this.referenceNo = '',
+    required this.paymentMethod,
+    required this.amountPaid,
+    this.previousBalance,
+    this.remainingBalance,
+    this.recordedBy = '',
+    required this.paymentDate,
+    this.isPendingCheque = false,
+    this.chequeNumber,
+    this.bank,
+    this.chequeDate,
+  });
+
+  final String customerName;
+  final String? projectName;
+  final String transactionNo;
+  final int? paymentId;
+  final String referenceNo;
+  final String paymentMethod;
+  final double amountPaid;
+  final double? previousBalance;
+  final double? remainingBalance;
+  final String recordedBy;
+  final DateTime paymentDate;
+  final bool isPendingCheque;
+  final String? chequeNumber;
+  final String? bank;
+  final DateTime? chequeDate;
+
+  String get jobName {
+    final ref = referenceNo.trim();
+    if (ref.isNotEmpty) return 'PAY-$ref';
+    if (paymentId != null) return 'PAY-$paymentId';
+    return 'PAY-$transactionNo';
+  }
+}
+
+/// Builds a 58 mm ESC/POS Utang Payment Slip (or Pending Cheque Receipt Slip).
+Uint8List buildUtangPaymentSlipEscPos(UtangPaymentSlipData slip) {
+  final job = EscPosJob()
+    ..text('QUEEN BUILDERS', bold: true, center: true, large: true)
+    ..text('Hardware store', center: true)
+    ..text(
+      slip.isPendingCheque ? 'CHEQUE RECEIPT SLIP' : 'UTANG PAYMENT SLIP',
+      bold: true,
+      center: true,
+    )
+    ..feed(1)
+    ..text('Sale / OS: ${slip.transactionNo}')
+    ..text('Customer: ${slip.customerName}');
+  final project = slip.projectName?.trim() ?? '';
+  if (project.isNotEmpty) {
+    job.text('Project: $project');
+  }
+  final ref = slip.referenceNo.trim();
+  if (ref.isNotEmpty) {
+    job.text('Ref: $ref');
+  } else if (slip.paymentId != null) {
+    job.text('Payment #: ${slip.paymentId}');
+  }
+  job.text('Date: ${formatDateTime(slip.paymentDate.toLocal())}');
+  final staff = slip.recordedBy.trim();
+  if (staff.isNotEmpty) {
+    job.text('Received by: $staff');
+  }
+  job.text('Method: ${TenderMethod.labelFor(slip.paymentMethod)}');
+  if (slip.isPendingCheque) {
+    final chequeNo = slip.chequeNumber?.trim() ?? '';
+    final bankName = slip.bank?.trim() ?? '';
+    if (chequeNo.isNotEmpty) job.text('Cheque #: $chequeNo');
+    if (bankName.isNotEmpty) job.text('Bank: $bankName');
+    if (slip.chequeDate case final date?) {
+      job.text('Cheque date: ${formatDate(date.toLocal())}');
+    }
+  }
+  job.divider();
+  if (slip.previousBalance case final prev?) {
+    job.row('Previous bal', formatPesoForPrint(prev));
+  }
+  job.row(
+    slip.isPendingCheque ? 'Cheque amount' : 'Amount paid',
+    formatPesoForPrint(slip.amountPaid),
+    bold: true,
+  );
+  if (slip.isPendingCheque) {
+    job.row('Status', 'PENDING CLEARANCE', bold: true);
+    if (slip.remainingBalance case final rem?) {
+      job.row('Balance stands', formatPesoForPrint(rem), bold: true);
+    }
+  } else if (slip.remainingBalance case final rem?) {
+    job.row(
+      'Remaining bal',
+      rem <= 0.005 ? 'PHP 0.00 (PAID)' : formatPesoForPrint(rem),
+      bold: true,
+    );
+  }
+  job
+    ..feed(1)
+    ..text('Not an Official Receipt', center: true)
+    ..text('Thank you!', center: true);
+  return job.finish();
+}

@@ -1,9 +1,10 @@
 import 'package:client/features/catalogue_io/catalogue_import_dialog.dart';
 import 'package:client/features/catalogue_io/catalogue_io_dialog.dart';
 import 'package:client/features/catalogue_io/catalogue_sheet.dart';
+import 'package:client/features/catalogue_io/catalogue_xlsx.dart';
+import 'package:client/features/catalogue_io/stock_records_xlsx.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/labels/barcode_list_dialog.dart';
-import 'package:client/features/catalogue_io/catalogue_xlsx.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -102,6 +103,58 @@ Future<void> downloadImportTemplate(
         'Template saved. Replace the example rows, then use Import catalogue '
         'from Excel.',
       ),
+    ),
+  );
+}
+
+/// Exports the live stock records (quantities, cost, stock value, status,
+/// selling price, storage location, SKU, barcode) as an Excel workbook.
+Future<void> exportStockRecordsToExcel(
+  BuildContext context, {
+  Future<String?> Function(String suggestedName)? pickLocation,
+}) async {
+  final inventory = context.read<InventoryViewmodel>();
+  final messenger = ScaffoldMessenger.of(context);
+  final rows = stockRecordSheetRows(
+    records: [
+      for (final record in inventory.stockRecords)
+        (product: record.product, variant: record.variant),
+    ],
+    stockOnHandFor: inventory.stockOnHandFor,
+    costFor: inventory.costFor,
+    statusForVariant: inventory.statusForVariant,
+    unitsOf: (variant) =>
+        inventory.variantFor(variant.id)?.sellingUoms ?? variant.sellingUoms,
+  );
+  if (rows.isEmpty) {
+    messenger.showSnackBar(
+      const SnackBar(content: Text('No stock records available to export.')),
+    );
+    return;
+  }
+  const name = 'stock-records.xlsx';
+  try {
+    final pick =
+        pickLocation ??
+        (String suggested) async =>
+            (await getSaveLocation(suggestedName: suggested))?.path;
+    final path = await pick(name);
+    if (path == null) return;
+    await XFile.fromData(
+      stockRecordsXlsxBytes(rows),
+      mimeType:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      name: name,
+    ).saveTo(path);
+  } catch (error) {
+    messenger.showSnackBar(
+      SnackBar(content: Text('Could not save stock records: $error')),
+    );
+    return;
+  }
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text('Saved ${rows.length} stock record(s) to $name.'),
     ),
   );
 }

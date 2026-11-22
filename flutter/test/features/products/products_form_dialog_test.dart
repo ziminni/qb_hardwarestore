@@ -340,57 +340,29 @@ void main() {
       expect(lastResult!.draft!.sku, 'CEM-40');
     });
 
-    testWidgets('packaged adds ONE real selling unit at price x size', (
+    testWidgets('initial stock and cost save directly in the base unit without hidden extra selling units', (
       tester,
     ) async {
       await openForm(tester);
       await fillBasics(tester);
-      await choosePackagedBag(tester);
-      await tester.enterText(find.byKey(const ValueKey('base-price')), '6.75');
-      await save(tester);
-
-      final draft = lastResult!.draft!;
-      expect(draft.baseUomId, 1, reason: 'KG');
-      expect(draft.sellingPrice, 6.75);
-      expect(draft.extraSellingUnits, hasLength(1));
-      final bag = draft.extraSellingUnits.single;
-      expect(
-        (bag.uomCode, bag.conversionFactor, bag.sellingPrice),
-        ('BAG', 40.0, 270.0),
-      );
-    });
-
-    testWidgets('initial packages become base opening stock at the cost', (
-      tester,
-    ) async {
-      await openForm(tester);
-      await fillBasics(tester);
-      await choosePackagedBag(tester);
+      await tapKey(tester, const ValueKey('tracking-weight'));
+      expect(find.byKey(const ValueKey('stock-form')), findsNothing);
       await tester.enterText(find.byKey(const ValueKey('cost-field')), '5.50');
+      await tester.enterText(find.byKey(const ValueKey('base-price')), '6.75');
       await tester.enterText(find.byKey(const ValueKey('initial-field')), '20');
       await tester.pumpAndSettle();
       expect(
-        find.textContaining('Total available: ${formatQuantity(800)} KG'),
+        find.textContaining('Total available: ${formatQuantity(20)} KG'),
         findsOneWidget,
       );
       await save(tester);
 
       final draft = lastResult!.draft!;
-      expect(draft.openingQty, 800);
+      expect(draft.baseUomId, 1, reason: 'KG');
+      expect(draft.sellingPrice, 6.75);
+      expect(draft.extraSellingUnits, isEmpty);
+      expect(draft.openingQty, 20);
       expect(draft.openingUnitCost, 5.5);
-    });
-
-    testWidgets('a part of a package is refused before saving', (tester) async {
-      await openForm(tester);
-      await fillBasics(tester);
-      await choosePackagedBag(tester);
-      await tester.enterText(
-        find.byKey(const ValueKey('initial-field')),
-        '2.5',
-      );
-      await save(tester);
-      expect(find.text('Count whole packages.'), findsOneWidget);
-      expect(lastResult, isNull);
     });
 
     testWidgets('no initial stock means no opening stock', (tester) async {
@@ -491,17 +463,18 @@ void main() {
     });
 
     testWidgets(
-      'edit mode shows Utang markup controls and Selling units summary',
+      'edit mode shows Utang markup controls and Variants summary without Add selling unit',
       (tester) async {
         await openForm(tester, product: multiUnitCement());
 
         expect(find.byKey(const ValueKey('credit-markup-kind')), findsOneWidget);
         expect(
-          find.byKey(const ValueKey('edit-selling-units-section')),
+          find.byKey(const ValueKey('edit-variants-section')),
           findsOneWidget,
         );
-        expect(find.textContaining('Selling units (2)'), findsOneWidget);
+        expect(find.textContaining('Variants (1)'), findsOneWidget);
         expect(find.textContaining('Base unit: KG'), findsOneWidget);
+        expect(find.text('Add selling unit'), findsNothing);
       },
     );
   });
@@ -647,7 +620,7 @@ void main() {
         'nothing overflows at 1.3x text in a ${size.width.toInt()} px window',
         (tester) async {
           await openForm(tester, size: size, textScale: 1.3);
-          await choosePackagedBag(tester);
+          await tapKey(tester, const ValueKey('tracking-weight'));
 
           expect(tester.takeException(), isNull);
 

@@ -7,6 +7,8 @@ import 'package:client/data/services/customer_service.dart';
 import 'package:client/data/services/products_service.dart';
 import 'package:client/data/services/returns_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
+import 'package:client/features/pos/widgets/pos_return_receipt.dart';
+import 'package:client/features/pos/widgets/receipt_document.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/widgets/sales_document_sheet.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
@@ -182,6 +184,26 @@ class _SalesReturnsPageState extends State<SalesReturnsPage> {
           ),
       ],
       total: item.total,
+      printLabel: 'Print return slip',
+      onPrint: () => const RollReturnSlipPrinter().print(
+        ReturnSlipData(
+          returnNo: item.reference,
+          transactionNo: item.relatedReference.isEmpty
+              ? null
+              : item.relatedReference,
+          cashierName: item.processedBy,
+          reason: item.reason,
+          printedAt: item.date,
+          lines: [
+            for (final line in item.lines)
+              (name: line.productName, uom: '', qty: line.quantity),
+          ],
+          returnValue: item.total,
+          debtReduced: 0,
+          cashRefund: item.total,
+          refundMethod: 'CASH',
+        ),
+      ),
     );
   }
 
