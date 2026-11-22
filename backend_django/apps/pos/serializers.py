@@ -38,11 +38,12 @@ class CustomerSerializer(serializers.ModelSerializer):
             "contact_details",
             "tin_no",
             "total_credit_limit",
+            "store_credit_balance",
             "is_active",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "store_credit_balance", "created_at", "updated_at"]
 
 
 class PaymentSerializer(serializers.ModelSerializer):

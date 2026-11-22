@@ -7,6 +7,7 @@ import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/models/tender_method.dart';
 import 'package:client/features/bodega/widgets/receipt_scanner.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
+import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/pos_returns_viewmodel.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
@@ -74,6 +75,7 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
   final _search = TextEditingController();
   final _searchFocus = FocusNode(debugLabel: 'POS returns OS scanner');
   final _reason = TextEditingController();
+  final _tendered = TextEditingController();
   bool _initialSearchFocused = false;
 
   /// The one scroll region the page owns, so a failed refund can bring the
@@ -173,6 +175,7 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
     _search.dispose();
     _searchFocus.dispose();
     _reason.dispose();
+    _tendered.dispose();
     _scroll.dispose();
     // Only dispose the ones we own; an injected viewmodel belongs to the caller.
     if (widget.viewmodel == null) _returns.dispose();
@@ -191,10 +194,10 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
         builder: (context) {
           final shift = context.watch<ShiftViewmodel>();
           return DashboardShell(
-            title: 'Returns',
+            title: 'Returns & Exchanges',
             subtitle:
-                'Return goods against the original sale. Utang is cleared '
-                'first, then cash.',
+                'Swap returned items for replacements. Cash refunds only when '
+                'no replacement is available.',
             selectedNavigationIndex: 6,
             navigationItems: posNavigationItems,
             onNavigationSelected: (i) => navigatePos(context, i),
@@ -239,7 +242,23 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
   Widget _returnsFlow(BuildContext context) {
     final returns = context.watch<PosReturnsViewmodel>();
 
-    // Done: the server's own numbers, and the only way out is another return.
+    // Done: the server's own numbers, and the only way out is another return/exchange.
+    if (returns.exchangeResult case final postedExchange?) {
+      return SingleChildScrollView(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: _ExchangeReceiptCard(
+              result: postedExchange,
+              originalTransactionNo: returns.sale?.transactionNo,
+              customerName: returns.sale?.customerName,
+              reason: returns.reason,
+              onStartAnother: () => _startAnother(returns),
+            ),
+          ),
+        ),
+      );
+    }
     if (returns.result case final posted?) {
       return SingleChildScrollView(
         child: Center(
@@ -499,36 +518,334 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
     );
   }
 
-  /// Step 3: why, how the excess is paid, and the live split between the utang
-  /// and the drawer.
+  /// Step 3: exchange (primary) or cash refund (only when no replacement exists).
   Widget _refundPanel(
     BuildContext context,
     PosReturnsViewmodel returns, {
     required bool showConfirm,
   }) {
+    final isExchange = returns.mode == ReturnMode.exchange;
     return AppPanel(
-      title: '3 Refund',
+      title: isExchange ? '3 Exchange' : '3 Refund',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          SegmentedButton<ReturnMode>(
+            key: const ValueKey('returns-mode-selector'),
+            segments: const [
+              ButtonSegment<ReturnMode>(
+                value: ReturnMode.exchange,
+                icon: Icon(Icons.swap_horiz_rounded),
+                label: Text('Exchange item'),
+              ),
+              ButtonSegment<ReturnMode>(
+                value: ReturnMode.refund,
+                icon: Icon(Icons.payments_outlined),
+                label: Text('Refund'),
+              ),
+            ],
+            selected: {returns.mode},
+            onSelectionChanged: (selection) => returns.setMode(selection.first),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          if (isExchange) ...[
+            _replacementPickerSection(context, returns),
+            const SizedBox(height: AppSpacing.md),
+          ] else ...[
+            InkWell(
+              onTap: () => returns.setNoReplacementConfirmed(
+                !returns.noReplacementConfirmed,
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Checkbox(
+                    key: const ValueKey('returns-no-replacement-check'),
+                    value: returns.noReplacementConfirmed,
+                    onChanged: (checked) =>
+                        returns.setNoReplacementConfirmed(checked ?? false),
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'No replacement item is available in store',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Cash refunds are only given when no suitable '
+                          'replacement exists.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ],
           _reasonField(returns),
           const SizedBox(height: AppSpacing.md),
-          _refundMethodField(returns),
-          const SizedBox(height: AppSpacing.md),
-          _summary(context, returns),
+          if (!isExchange || returns.exchangeExtraDue > 0) ...[
+            _refundMethodField(returns),
+            const SizedBox(height: AppSpacing.md),
+          ],
+          if (isExchange && returns.exchangeExtraDue > 0) ...[
+            TextField(
+              key: const ValueKey('exchange-tendered-field'),
+              controller: _tendered,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: InputDecoration(
+                labelText:
+                    'Amount tendered (min ${formatPeso(returns.exchangeExtraDue)})',
+                border: const OutlineInputBorder(),
+              ),
+              onChanged: (raw) =>
+                  returns.setExchangeAmountTendered(double.tryParse(raw.trim())),
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
+          isExchange
+              ? _exchangeSummary(context, returns)
+              : _summary(context, returns),
           if (showConfirm) ...[
             const SizedBox(height: AppSpacing.lg),
             FilledButton.icon(
+              key: const ValueKey('returns-confirm-button'),
               onPressed: returns.canSubmit
                   ? () => _confirmAndSubmit(context, returns)
                   : null,
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(56),
               ),
-              icon: const Icon(Icons.assignment_return_outlined),
-              label: const Text('Confirm return'),
+              icon: Icon(
+                isExchange
+                    ? Icons.swap_horiz_rounded
+                    : Icons.assignment_return_outlined,
+              ),
+              label: Text(isExchange ? 'Confirm exchange' : 'Confirm return'),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _replacementPickerSection(
+    BuildContext context,
+    PosReturnsViewmodel returns,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Replacement items',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            OutlinedButton.icon(
+              key: const ValueKey('exchange-add-replacement'),
+              onPressed: () => _pickReplacementItem(context, returns),
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Add item'),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        if (returns.replacements.isEmpty)
+          const Text(
+            'Pick at least one replacement item to swap for the returned goods.',
+            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          )
+        else
+          for (final item in returns.replacements)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.xs),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${item.name} (${item.uom}) · ${formatPeso(item.unitPrice)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.remove_circle_outline, size: 18),
+                    onPressed: () => returns.setReplacementQty(
+                      item.variantUomId,
+                      item.qty - 1,
+                    ),
+                  ),
+                  Text(
+                    item.qty == item.qty.roundToDouble()
+                        ? item.qty.toStringAsFixed(0)
+                        : item.qty.toStringAsFixed(2),
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.add_circle_outline, size: 18),
+                    onPressed: () => returns.setReplacementQty(
+                      item.variantUomId,
+                      item.qty + 1,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+      ],
+    );
+  }
+
+  Future<void> _pickReplacementItem(
+    BuildContext context,
+    PosReturnsViewmodel returns,
+  ) async {
+    InventoryViewmodel? inventory;
+    try {
+      inventory = context.read<InventoryViewmodel>();
+    } catch (_) {
+      inventory = null;
+    }
+    if (inventory == null) return;
+    if (inventory.products.isEmpty) {
+      await inventory.load();
+    }
+    if (!context.mounted) return;
+    final options = <ExchangeReplacementLine>[];
+    for (final product in inventory.products) {
+      for (final variant in product.variants) {
+        for (final vuom in variant.sellingUoms) {
+          options.add(
+            ExchangeReplacementLine(
+              variantUomId: vuom.id,
+              name: variant.variantName.isEmpty
+                  ? product.baseName
+                  : '${product.baseName} · ${variant.variantName}',
+              uom: vuom.uomCode,
+              unitPrice: vuom.defaultSellingPrice,
+              qty: 1,
+            ),
+          );
+        }
+      }
+    }
+    final picked = await showDialog<ExchangeReplacementLine>(
+      context: context,
+      builder: (dialogContext) {
+        var query = '';
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final filtered = options.where((opt) {
+              if (query.trim().isEmpty) return true;
+              return opt.name.toLowerCase().contains(query.trim().toLowerCase());
+            }).toList();
+            return AlertDialog(
+              title: const Text('Choose replacement item'),
+              content: SizedBox(
+                width: 440,
+                height: 360,
+                child: Column(
+                  children: [
+                    TextField(
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Search product',
+                        prefixIcon: Icon(Icons.search),
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (value) => setDialogState(() => query = value),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: filtered.length,
+                        itemBuilder: (_, index) {
+                          final opt = filtered[index];
+                          return ListTile(
+                            dense: true,
+                            title: Text(opt.name),
+                            subtitle: Text(opt.uom),
+                            trailing: Text(
+                              formatPeso(opt.unitPrice),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            onTap: () => Navigator.of(dialogContext).pop(opt),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    if (picked != null) {
+      returns.addReplacement(picked);
+    }
+  }
+
+  Widget _exchangeSummary(BuildContext context, PosReturnsViewmodel returns) {
+    final diff = returns.exchangeDifference;
+    final headline = returns.replacements.isEmpty
+        ? 'Add replacement item(s) to calculate the exchange balance.'
+        : diff > 0
+        ? 'Customer pays extra ${formatPeso(diff)}.'
+        : diff < 0
+        ? 'Cheaper swap — no cash back. Settles utang first, then store credit.'
+        : 'Even swap — ₱0.00 balance.';
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.selected,
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(AppRadii.medium),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(headline, style: const TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: AppSpacing.sm),
+          _totalLine('Returned item credit', returns.returnValue),
+          _totalLine('Replacement items', returns.replacementTotal),
+          if (diff > 0)
+            _totalLine('Customer pays extra', diff, emphasise: true)
+          else if (diff < 0) ...[
+            _totalLine('Reduces utang', returns.exchangeDebtReducedEstimate),
+            _totalLine(
+              'Store credit issued',
+              returns.exchangeStoreCreditEstimate,
+              emphasise: true,
+            ),
+          ] else
+            _totalLine('Balance due', 0, emphasise: true),
         ],
       ),
     );
@@ -678,6 +995,7 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
   void _startAnother(PosReturnsViewmodel returns) {
     _search.clear();
     _reason.clear();
+    _tendered.clear();
     returns.reset();
     _restoreSearchFocus();
   }
@@ -690,29 +1008,50 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
     // a failed refund is not out-scrolled by the reason field taking focus back
     // and Flutter scrolling it into view again.
     FocusScope.of(context).unfocus();
+    final isExchange = returns.mode == ReturnMode.exchange;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Confirm the return'),
+        title: Text(isExchange ? 'Confirm the exchange' : 'Confirm the return'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('${returns.lines.length} line(s) coming back.'),
             const SizedBox(height: AppSpacing.sm),
-            Text(
-              'Return value ${formatPeso(returns.returnValue)} '
-              '(at the original prices)',
-            ),
-            Text('Settles utang ${formatPeso(returns.debtReducedEstimate)}'),
-            Text(
-              'Cash refund ${formatPeso(returns.cashRefundEstimate)} '
-              '(${returns.refundMethod})',
-            ),
+            if (isExchange) ...[
+              Text('${returns.replacements.length} replacement line(s).'),
+              Text('Return credit ${formatPeso(returns.returnValue)}'),
+              Text('Replacement total ${formatPeso(returns.replacementTotal)}'),
+              if (returns.exchangeExtraDue > 0)
+                Text(
+                  'Customer pays extra ${formatPeso(returns.exchangeExtraDue)} '
+                  '(${returns.refundMethod.label})',
+                )
+              else if (returns.exchangeDifference < 0)
+                Text(
+                  'No cash back: reduces utang '
+                  '${formatPeso(returns.exchangeDebtReducedEstimate)}, '
+                  'store credit '
+                  '${formatPeso(returns.exchangeStoreCreditEstimate)}.',
+                )
+              else
+                const Text('Even swap — ₱0.00 balance.'),
+            ] else ...[
+              Text(
+                'Return value ${formatPeso(returns.returnValue)} '
+                '(at the original prices)',
+              ),
+              Text('Settles utang ${formatPeso(returns.debtReducedEstimate)}'),
+              Text(
+                'Cash refund ${formatPeso(returns.cashRefundEstimate)} '
+                '(${returns.refundMethod})',
+              ),
+            ],
             const SizedBox(height: AppSpacing.sm),
             const Text(
-              'A discounted sale refunds its net share, which the server works '
-              'out. The refund summary afterwards is the final figure.',
+              'The server works out the final net figures. The summary '
+              'afterwards is the final record.',
             ),
           ],
         ),
@@ -723,7 +1062,7 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Post return'),
+            child: Text(isExchange ? 'Post exchange' : 'Post return'),
           ),
         ],
       ),
@@ -839,4 +1178,79 @@ class _SaleHeader extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Server-confirmed summary of a completed item exchange.
+class _ExchangeReceiptCard extends StatelessWidget {
+  const _ExchangeReceiptCard({
+    required this.result,
+    required this.onStartAnother,
+    this.originalTransactionNo,
+    this.customerName,
+    this.reason,
+  });
+
+  final ExchangeResult result;
+  final String? originalTransactionNo;
+  final String? customerName;
+  final String? reason;
+  final VoidCallback onStartAnother;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = result.summary;
+    return AppPanel(
+      title: 'Exchange completed · ${result.exchangeNo}',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (originalTransactionNo != null)
+            Text('Original sale: $originalTransactionNo'),
+          if (customerName != null) Text('Customer: $customerName'),
+          if (reason != null && reason!.trim().isNotEmpty)
+            Text('Reason: ${reason!.trim()}'),
+          const SizedBox(height: AppSpacing.md),
+          _row('Return credit', formatPeso(s.returnCredit)),
+          _row('Replacement total', formatPeso(s.replacementTotal)),
+          if (s.netDifference > 0) ...[
+            _row('Extra paid (${s.paymentMethod})', formatPeso(s.extraPaid)),
+            if (s.changeGiven > 0)
+              _row('Change given', formatPeso(s.changeGiven)),
+          ] else if (s.netDifference < 0) ...[
+            if (s.debtReduced > 0)
+              _row('Utang reduced', formatPeso(s.debtReduced)),
+            if (s.storeCreditIssued > 0)
+              _row('Store credit issued', formatPeso(s.storeCreditIssued)),
+            _row(
+              'Customer store credit balance',
+              formatPeso(s.customerStoreCreditBalance),
+            ),
+          ] else
+            _row('Balance', formatPeso(0)),
+          const SizedBox(height: AppSpacing.lg),
+          FilledButton.icon(
+            onPressed: onStartAnother,
+            icon: const Icon(Icons.add),
+            label: const Text('Start another return or exchange'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _row(String label, String value) => Padding(
+    padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+    child: Row(
+      children: [
+        Expanded(child: Text(label)),
+        Text(
+          value,
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            fontFeatures: [FontFeature.tabularFigures()],
+          ),
+        ),
+      ],
+    ),
+  );
 }

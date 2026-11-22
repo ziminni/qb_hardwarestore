@@ -37,4 +37,22 @@ class ReturnsRepository {
     paymentMethod: paymentMethod,
     lines: lines,
   );
+
+  Future<ExchangeResult> postExchange({
+    required int customerId,
+    required int originalTransactionId,
+    required String reason,
+    required List<ReturnRequestLine> returnLines,
+    required List<ReturnRequestLine> replacementLines,
+    String paymentMethod = 'CASH',
+    double? amountTendered,
+  }) => _service.postExchange(
+    customerId: customerId,
+    originalTransactionId: originalTransactionId,
+    reason: reason,
+    returnLines: returnLines,
+    replacementLines: replacementLines,
+    paymentMethod: paymentMethod,
+    amountTendered: amountTendered,
+  );
 }
