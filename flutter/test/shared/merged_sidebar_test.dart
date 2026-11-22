@@ -168,7 +168,7 @@ List<String> _markedRows(WidgetTester tester) => [
 ];
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() => SharedPreferences.setMockInitialValues({'sidebar_collapsed': false}));
 
   group('the held area list', () {
     test('drops unknown codes and duplicates, in heading order', () {
@@ -191,7 +191,7 @@ void main() {
     test('Cashier + Store Manager: Till then Sales, every row kept', () {
       final rows = MergedSidebar.rows(const ['pos', 'sales']);
 
-      expect(rows.length, 23, reason: '9 Till rows + 13 Sales rows + landing');
+      expect(rows.length, 24, reason: '10 Till rows + 14 Sales rows - 1 shared + landing');
       expect(
         [for (final section in MergedSidebar.sectionsFor(rows)) section.label],
         ['', 'Till', 'Sales'],
@@ -201,15 +201,15 @@ void main() {
         rows.where((row) => row.id == 'pos.new-transaction').single.id,
         'pos.new-transaction',
       );
-      expect(rows.last.id, 'sales.settings');
+      expect(rows.last.id, 'price-list');
       expect(rows.last.area, AppAreas.sales);
     });
 
     test('Stock + Store Manager: shared pages once, under Sales', () {
       final rows = MergedSidebar.rows(const ['inventory', 'sales']);
 
-      expect(rows.length, 28, reason: '17 Stock + 13 Sales - 3 shared + 1');
-      for (final sharedKey in const ['payables', 'deliveries', 'transfers']) {
+      expect(rows.length, 29, reason: '18 Stock + 14 Sales - 4 shared + 1');
+      for (final sharedKey in const ['payables', 'deliveries', 'transfers', 'price-list']) {
         final owned = rows.where((row) => row.sharedKey == sharedKey).toList();
         expect(owned.length, 1, reason: '$sharedKey appears once');
         expect(owned.single.area, AppAreas.sales, reason: '$sharedKey: widest');
@@ -223,20 +223,19 @@ void main() {
     test('Admin + Cashier: the till adds no shared page to the admin menu', () {
       final rows = MergedSidebar.rows(const ['admin', 'pos']);
 
-      expect(rows.length, 16, reason: '9 Till + 6 Admin rows + landing');
+      expect(rows.length, 17, reason: '10 Till + 6 Admin rows + landing');
       expect(
         [for (final section in MergedSidebar.sectionsFor(rows)) section.label],
         ['', 'Till', 'Admin'],
       );
     });
 
-    test('all five areas: 50 rows become 46, every identity once', () {
+    test('all five areas: 52 rows become 47, every identity once', () {
       final rows = MergedSidebar.rows(AppAreas.codes);
 
-      // 49 area rows + the landing; Payables, Deliveries and Transfers are
-      // shared by Sales and Stock only since the Admin lost them (2026-11-18).
-      expect(rows.length, 46);
-      expect(rows.map((row) => row.id).toSet().length, 46);
+      // 52 area rows - 6 duplicates + 1 landing = 47.
+      expect(rows.length, 47);
+      expect(rows.map((row) => row.id).toSet().length, 47);
       for (final sharedKey in AppDestinations.sharedIds) {
         expect(
           rows.where((row) => row.sharedKey == sharedKey).length,

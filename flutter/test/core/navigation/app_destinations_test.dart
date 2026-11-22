@@ -124,6 +124,7 @@ const _storeManagerMenu = <_Row>[
   _Row('Deliveries', Icons.local_shipping_outlined, AppRoutes.salesDeliveries),
   _Row('Transfers', Icons.swap_horiz_rounded, AppRoutes.salesTransfers),
   _Row('Settings', Icons.settings_outlined, AppRoutes.salesSettings),
+  _Row('Price list', Icons.price_change_outlined, AppRoutes.salesPriceList),
 ];
 
 const _stockManagerMenu = <_Row>[
@@ -186,6 +187,7 @@ const _stockManagerMenu = <_Row>[
     Icons.import_export_rounded,
     AppRoutes.inventoryImportExport,
   ),
+  _Row('Price list', Icons.price_change_outlined, AppRoutes.inventoryPriceList),
 ];
 
 // Owner 2026-11-18: the Admin sees everything (the Dashboard's tabs) and acts
@@ -297,20 +299,20 @@ void main() {
     _expectMenu(AppAreas.bodega, _bodegaMenu);
   });
 
-  test('50 menu rows are 45 pages: only the locked set is shared', () {
+  test('52 menu rows are 46 pages: only the locked set is shared', () {
     // Without the counts, an empty or duplicated registry would make every
     // per-area check above pass against nothing.
     expect(
       AppDestinations.all,
-      hasLength(50),
-      reason: '5 menus: Till 10, Sales 13, Stock 17, Admin 6, Bodega 4',
+      hasLength(52),
+      reason: '5 menus: Till 10, Sales 14, Stock 18, Admin 6, Bodega 4',
     );
     expect(
       AppDestinations.all.map((row) => row.id).toSet(),
-      hasLength(45),
+      hasLength(46),
       reason:
-          'Payables, Deliveries, Reports, Project requests, Staff and Transfers '
-          'appear in more than one menu; every other row is one page',
+          'Payables, Deliveries, Reports, Project requests, Staff, Transfers '
+          'and Price list appear in more than one menu; every other row is one page',
     );
     expect(
       AppDestinations.all

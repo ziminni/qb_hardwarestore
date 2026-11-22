@@ -22,6 +22,9 @@ const stockRecordsSheetHeaders = <String>[
   'Stock value',
   'Selling price',
   'Barcode',
+  'Pack unit',
+  'Units per pack',
+  'On hand in packs',
 ];
 
 const stockRecordsSheetName = 'Stock Records';
@@ -42,6 +45,9 @@ class StockRecordSheetRow {
     required this.stockValue,
     required this.sellingPrice,
     required this.barcode,
+    this.packUnitCode = '',
+    this.unitsPerPack,
+    this.onHandInPacks,
   });
 
   final String productName;
@@ -58,6 +64,9 @@ class StockRecordSheetRow {
   final double stockValue;
   final double sellingPrice;
   final String barcode;
+  final String packUnitCode;
+  final double? unitsPerPack;
+  final double? onHandInPacks;
 }
 
 /// Builds one spreadsheet row per product variant from live stock records.
@@ -74,16 +83,24 @@ List<StockRecordSheetRow> stockRecordSheetRows({
     final variant = record.variant;
     final units = unitsOf?.call(variant) ?? variant.sellingUoms;
     VariantUom? baseUnit;
+    VariantUom? largestPack;
     for (final unit in units) {
       if (unit.uomId == variant.baseUomId && unit.conversionFactor == 1) {
-        baseUnit = unit;
-        break;
+        baseUnit ??= unit;
+      } else if (unit.conversionFactor > 1 &&
+          (largestPack == null ||
+              unit.conversionFactor > largestPack.conversionFactor)) {
+        largestPack = unit;
       }
     }
     baseUnit ??= units.firstOrNull;
     final onHand = stockOnHandFor(variant.id);
     final cost = costFor(variant.id) ?? 0;
     final status = statusForVariant(variant.id);
+    final packFactor = largestPack?.conversionFactor;
+    final onHandPacks = packFactor == null
+        ? null
+        : double.parse((onHand / packFactor).toStringAsFixed(2));
     rows.add(
       StockRecordSheetRow(
         productName: product.baseName,
@@ -100,6 +117,9 @@ List<StockRecordSheetRow> stockRecordSheetRows({
         stockValue: double.parse((onHand * cost).toStringAsFixed(2)),
         sellingPrice: baseUnit?.defaultSellingPrice ?? 0,
         barcode: baseUnit?.barcodeQr ?? variant.barcode,
+        packUnitCode: largestPack?.uomCode ?? '',
+        unitsPerPack: packFactor,
+        onHandInPacks: onHandPacks,
       ),
     );
   }
@@ -113,7 +133,7 @@ Uint8List stockRecordsXlsxBytes(List<StockRecordSheetRow> rows) {
   final sheet = excel[stockRecordsSheetName];
 
   const widths = <double>[
-    28, 18, 16, 18, 16, 14, 10, 12, 18, 14, 12, 14, 14, 18,
+    28, 18, 16, 18, 16, 14, 10, 12, 18, 14, 12, 14, 14, 18, 12, 14, 16,
   ];
   final headerStyle = CellStyle(
     bold: true,
@@ -145,6 +165,9 @@ Uint8List stockRecordsXlsxBytes(List<StockRecordSheetRow> rows) {
       _number(row.stockValue),
       _number(row.sellingPrice),
       _text(row.barcode),
+      _text(row.packUnitCode),
+      row.unitsPerPack == null ? _text('') : _number(row.unitsPerPack!),
+      row.onHandInPacks == null ? _text('') : _number(row.onHandInPacks!),
     ]);
   }
 

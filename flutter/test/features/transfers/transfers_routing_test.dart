@@ -94,7 +94,7 @@ void main() {
   group('every transfers entry is APPENDED', () {
     test('the inventory sidebar gains Transfers at 15, moving nothing', () {
       final order = _areaOrder(AppAreas.inventory);
-      expect(order, hasLength(17));
+      expect(order, hasLength(18));
       expect(order[8], 'inventoryReceiving');
       expect(order[13], 'inventoryPayables');
       expect(order[14], 'inventoryDeliveries');
@@ -103,7 +103,7 @@ void main() {
 
     test('the sales sidebar gains Transfers at 11, moving nothing', () {
       final order = _areaOrder(AppAreas.sales);
-      expect(order, hasLength(13));
+      expect(order, hasLength(14));
       expect(order[6], 'salesReports');
       expect(order[9], 'salesPayables');
       expect(order[10], 'salesDeliveries');
@@ -125,7 +125,7 @@ void main() {
 
     test('the inventory and sales layouts render the entry they advertise', () {
       final inventoryLabels = AppDestinations.labelsFor(AppAreas.inventory);
-      expect(inventoryLabels, hasLength(17));
+      expect(inventoryLabels, hasLength(18));
       expect(inventoryLabels[14], 'Deliveries');
       expect(inventoryLabels[15], 'Transfers');
 
@@ -133,7 +133,7 @@ void main() {
           .expand((section) => section.destinations)
           .map((destination) => destination.label)
           .toList();
-      expect(salesLabels, hasLength(13));
+      expect(salesLabels, hasLength(14));
       expect(salesLabels[10], 'Deliveries');
       expect(salesLabels[11], 'Transfers');
       expect(salesLabels[12], 'Settings');

@@ -242,8 +242,8 @@ Uint8List _withDropdowns(Uint8List bytes, CatalogueSheetLists lists) {
       operator: 'greaterThan',
       formula: '0',
       title: 'Units per base',
-      tip: 'Type 1 for each product variant.',
-      error: 'Units per base must be more than 0. Type 1 for each variant.',
+      tip: '1 on the base row; pack rows: how many base units they hold, e.g. 10 or 40.',
+      error: 'Units per base must be more than 0. Type 1 on the base row.',
     ),
     _rule(
       column: 9,

@@ -174,18 +174,18 @@ void main() {
     expect(find.textContaining('QB000210-2'), findsOneWidget);
   });
 
-  testWidgets('a cashier gets no Add selling unit, Add variant, or Remove', (
+  testWidgets('a cashier gets no Add pack unit, Add variant, or Remove', (
     tester,
   ) async {
     await openDetails(tester, 'pos');
 
     expect(find.text('Add variant'), findsNothing);
-    expect(find.text('Add selling unit'), findsNothing);
+    expect(find.text('Add pack unit'), findsNothing);
     expect(find.text('Remove'), findsNothing);
     expect(find.text('Edit code'), findsNothing);
   });
 
-  testWidgets('Remove is offered only for an unused NON-base unit and Add selling unit is gone', (
+  testWidgets('Remove is offered only for an unused NON-base unit and Add pack unit is shown', (
     tester,
   ) async {
     await openDetails(tester, 'inventory');
@@ -201,9 +201,40 @@ void main() {
       findsNothing,
       reason: 'a unit already sold stays, its price and code editable',
     );
-    expect(find.byKey(const ValueKey('add-selling-unit-210')), findsNothing);
-    expect(find.text('Add selling unit'), findsNothing);
+    expect(find.byKey(const ValueKey('add-pack-unit-210')), findsOneWidget);
+    expect(find.text('Add pack unit'), findsOneWidget);
     expect(find.byKey(const ValueKey('add-variant-21')), findsOneWidget);
+  });
+
+  testWidgets('Add pack unit posts flexible decimal factor, shows live comparison hint, and reloads', (
+    tester,
+  ) async {
+    await openDetails(tester, 'inventory');
+    final loadsBefore = repository.loadCount;
+
+    await tapVisible(tester, find.byKey(const ValueKey('add-pack-unit-210')));
+    expect(find.text('Add pack / bulk unit'), findsOneWidget);
+
+    await tapVisible(tester, find.byKey(const ValueKey('add-unit-0')));
+    await tester.tap(find.text('Pack (PACK)').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('add-factor-0')), '2.5');
+    await tester.enterText(find.byKey(const ValueKey('add-price-0')), '15');
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('1 PACK = 2.5 KG · per-KG equivalent ₱6.00 vs your KG price ₱6.75'),
+      findsOneWidget,
+    );
+
+    await tapVisible(tester, find.text('Add pack unit').last);
+
+    final created = repository.createdUnits.single;
+    expect(created.variantId, 210);
+    expect(created.unit.uomId, 5);
+    expect(created.unit.conversionFactor, 2.5);
+    expect(created.unit.sellingPrice, 15);
+    expect(repository.loadCount, loadsBefore + 1);
   });
 
   testWidgets('removing asks first, names the unit and says it cannot be '

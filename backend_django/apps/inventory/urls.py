@@ -8,6 +8,7 @@ from .views import (
     CategoryViewSet,
     GoodsReceiptViewSet,
     InventoryBatchViewSet,
+    PriceChangeListView,
     ProductVariantViewSet,
     ProductViewSet,
     PurchaseOrderViewSet,
@@ -67,6 +68,7 @@ urlpatterns = [
     # Phase 9 B1 (decision 21 §5): the per-location on-hand read. A plain view, not a
     # viewset: it answers one grouped query and has no detail route.
     path("stock-on-hand/", stock_on_hand_view, name="stock-on-hand"),
+    path("price-changes/", PriceChangeListView.as_view(), name="price-changes"),
     # Phase 3 B1 (decision 23): the Excel catalogue round trip's server boundary. The
     # server stays file-free - Flutter parses the .xlsx and posts the rows - so this is a
     # plain view that writes nothing; B2 adds the apply/ that writes in one transaction.

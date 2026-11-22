@@ -53,6 +53,8 @@ const _salesPaths = [
   '/sales/transfers',
   // Store Manager Settings (store info + local System settings) at 12.
   '/sales/settings',
+  // Phase 8 Price list at 13.
+  '/sales/price-list',
 ];
 
 Widget _app(Widget child) => ChangeNotifierProvider<AuthViewmodel>.value(
@@ -151,18 +153,18 @@ void main() {
     expect(AppRoutes.salesReports, '/sales/reports');
   });
 
-  test('the sales sidebar has thirteen destinations', () {
+  test('the sales sidebar has fourteen destinations', () {
     expect(
       SalesSkeletonLayout.navigationSections
           .expand((section) => section.destinations)
           .length,
-      13,
+      14,
       reason:
           'index 6 (Reports) is only reachable if the sidebar renders it; '
           '7 is Staff and 8 is Project requests (Phase 1b); 9 Payables (Phase 5 '
-          'F2), 10 Deliveries (F3), 11 Transfers (Phase 9 F3), and 12 Settings '
-          'were appended, so 0-8 keep their numbers. Approvals was removed by '
-          'decision 01',
+          'F2), 10 Deliveries (F3), 11 Transfers (Phase 9 F3), 12 Settings, '
+          'and 13 Price list were appended, so 0-8 keep their numbers. Approvals '
+          'was removed by decision 01',
     );
   });
 

@@ -11,15 +11,17 @@
 """Inventory app — ViewSets for catalog, purchasing & stock."""
 
 import contextlib
+from datetime import date
 from typing import cast
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count, F, Prefetch, Sum
+from django.db.models import Count, F, Prefetch, Q, Sum
 from django.db.models.deletion import ProtectedError
 from django.http import Http404
 from django.utils import timezone
-from rest_framework import mixins, status, viewsets
+from rest_framework import generics, mixins, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -94,6 +96,7 @@ from .serializers import (
     StockTransferCreateSerializer,
     StockTransferSerializer,
     StorageLocationSerializer,
+    StorePriceChangeSerializer,
     SupplierBillSerializer,
     SupplierCreditNoteSerializer,
     SupplierPaymentSerializer,
@@ -2186,3 +2189,70 @@ class StockTransferViewSet(
         return Response(
             self.get_serializer(transfer).data, status=status.HTTP_201_CREATED
         )
+
+
+class PriceChangeListView(generics.ListAPIView):
+    """Store-wide paginated list of selling-unit price changes (`GET /price-changes/`).
+
+    Permissions match `VariantUOMViewSet.price_history` (`IsInventoryRole`: Stock
+    Manager, Store Manager, Admin). Supports `?product=<id>`, `?since=YYYY-MM-DD`,
+    `?until=YYYY-MM-DD`, and `?q=<search>` (product name or barcode icontains).
+    """
+
+    serializer_class = StorePriceChangeSerializer
+    permission_classes = [IsInventoryRole]  # noqa: RUF012 - declarative, never mutated
+
+    def get_queryset(self):
+        queryset = SellingUnitPriceChange.objects.select_related(
+            "variant_uom__variant__product",
+            "variant_uom__uom",
+            "actor",
+        ).order_by("-changed_at", "-id")
+        params = self.request.query_params
+
+        product_raw = (params.get("product") or "").strip()
+        if product_raw:
+            try:
+                product_id = int(product_raw)
+            except ValueError as exc:
+                raise ValidationError(
+                    {
+                        "code": "INVALID_PRODUCT",
+                        "detail": f"?product= must be a product id, got {product_raw!r}.",
+                    }
+                ) from exc
+            queryset = queryset.filter(variant_uom__variant__product_id=product_id)
+
+        since_raw = (params.get("since") or "").strip()
+        if since_raw:
+            try:
+                since_date = date.fromisoformat(since_raw)
+            except ValueError as exc:
+                raise ValidationError(
+                    {
+                        "code": "INVALID_DATE",
+                        "detail": f"?since= must be YYYY-MM-DD, got {since_raw!r}.",
+                    }
+                ) from exc
+            queryset = queryset.filter(changed_at__date__gte=since_date)
+
+        until_raw = (params.get("until") or "").strip()
+        if until_raw:
+            try:
+                until_date = date.fromisoformat(until_raw)
+            except ValueError as exc:
+                raise ValidationError(
+                    {
+                        "code": "INVALID_DATE",
+                        "detail": f"?until= must be YYYY-MM-DD, got {until_raw!r}.",
+                    }
+                ) from exc
+            queryset = queryset.filter(changed_at__date__lte=until_date)
+
+        query = (params.get("q") or "").strip()
+        if query:
+            queryset = queryset.filter(
+                Q(variant_uom__variant__product__base_name__icontains=query)
+                | Q(variant_uom__barcode_qr__icontains=query)
+            )
+        return queryset

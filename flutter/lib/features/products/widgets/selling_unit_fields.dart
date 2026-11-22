@@ -349,7 +349,6 @@ class _SellingUnitFieldsState extends State<SellingUnitFields> {
   @override
   Widget build(BuildContext context) {
     final selectedCode = _selectedCode;
-    final hasPickedUnit = draft.uomId != null;
     return Container(
       key: ValueKey('$keyPrefix-row-$index'),
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -404,8 +403,8 @@ class _SellingUnitFieldsState extends State<SellingUnitFields> {
                     isExpanded: true,
                     initialValue: draft.uomId,
                     decoration: const InputDecoration(
-                      labelText: 'Selling unit',
-                      helperText: 'e.g. PC, BOX, BAG, PACK, KG',
+                      labelText: 'Unit (Box, Bag, Roll…)',
+                      helperText: 'e.g. BOX, BAG, ROLL, PACK, PC',
                     ),
                     items: units
                         .map(
@@ -494,10 +493,10 @@ class _SellingUnitFieldsState extends State<SellingUnitFields> {
                   ),
                   inputFormatters: [_decimalFormatter],
                   decoration: InputDecoration(
-                    labelText: hasPickedUnit
-                        ? 'How many $baseCode per $selectedCode'
-                        : 'How many $baseCode',
-                    hintText: _mode == _ConversionMode.subUnit ? '0.05' : '40',
+                    labelText: 'Contains how many $baseCode?',
+                    hintText: _mode == _ConversionMode.subUnit
+                        ? '0.05'
+                        : 'e.g. 40 or 2.5',
                     suffixText: baseCode,
                   ),
                   validator: widget.validateFactor,
@@ -512,10 +511,8 @@ class _SellingUnitFieldsState extends State<SellingUnitFields> {
                     decimal: true,
                   ),
                   inputFormatters: [_decimalFormatter],
-                  decoration: InputDecoration(
-                    labelText: hasPickedUnit
-                        ? 'Selling price per $selectedCode'
-                        : 'Selling price per unit',
+                  decoration: const InputDecoration(
+                    labelText: 'Selling price for the whole pack',
                     hintText: '0.00',
                     prefixText: '₱ ',
                   ),
@@ -665,7 +662,8 @@ class SellingUnitHelper extends StatelessWidget {
             children: [
               Text(
                 '1 $unitCode = ${formatQuantity(factor)} $baseCode · '
-                '${formatPeso(price / factor)} per $baseCode',
+                'per-$baseCode equivalent ${formatPeso(price / factor)}'
+                '${basePrice != null ? ' vs your $baseCode price ${formatPeso(basePrice!)}' : ''}',
                 style: Theme.of(
                   context,
                 ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
@@ -794,7 +792,7 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
   Widget build(BuildContext context) {
     return AppDialog(
       icon: Icons.add_box_outlined,
-      title: 'Add selling unit',
+      title: 'Add pack / bulk unit',
       subtitle: '${widget.productName} · ${widget.variant.variantName}',
       width: 560,
       content: Form(
@@ -841,7 +839,7 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
         ),
         FilledButton(
           onPressed: _saving ? null : _save,
-          child: Text(_saving ? 'Adding…' : 'Add unit'),
+          child: Text(_saving ? 'Adding…' : 'Add pack unit'),
         ),
       ],
     );

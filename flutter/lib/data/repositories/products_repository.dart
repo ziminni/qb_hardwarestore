@@ -1,3 +1,5 @@
+import 'package:client/core/network/paged.dart';
+import 'package:client/data/models/price_change.dart';
 import 'package:client/data/models/product_writes.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/data/services/products_service.dart';
@@ -80,6 +82,20 @@ class ProductsRepository {
   /// till explains why a code cannot be sold. Read-only, so no [ProductWriteStep].
   Future<List<VariantUom>> lookupByBarcode(String code) =>
       service.lookupByBarcode(code);
+
+  Future<Paged<StorePriceChange>> fetchPriceChanges({
+    int? productId,
+    String? since,
+    String? until,
+    String? query,
+    int page = 1,
+  }) => service.fetchPriceChanges(
+    productId: productId,
+    since: since,
+    until: until,
+    query: query,
+    page: page,
+  );
 
   /// Creates the catalog item: product, its first variant, and that variant's
   /// factor-1 selling unit carrying the price and the optional barcode.

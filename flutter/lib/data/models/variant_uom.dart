@@ -26,6 +26,7 @@ class VariantUom {
     this.storedAtId,
     this.storedAtName = '',
     this.inUse = false,
+    this.lastPriceChangedAt,
   }) : creditSellingPrice = creditSellingPrice ?? defaultSellingPrice;
 
   final int id;
@@ -86,6 +87,9 @@ class VariantUom {
   /// request line already references this unit, so it cannot be removed.
   final bool inUse;
 
+  /// Server timestamp of the most recent recorded price change for this unit.
+  final DateTime? lastPriceChangedAt;
+
   /// Where the unit's PRODUCT is kept (Phase 5 B4, decision 18), so the till can
   /// badge a scanned line without holding the product list. Null/empty when the
   /// server did not send it.
@@ -134,6 +138,9 @@ class VariantUom {
           ? json['stored_at_name'] as String
           : '',
       inUse: boolFieldOr(json, 'in_use', or: false),
+      lastPriceChangedAt: json['last_price_changed_at'] is String
+          ? DateTime.tryParse(json['last_price_changed_at'] as String)
+          : null,
     );
   }
 }

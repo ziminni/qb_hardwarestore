@@ -92,6 +92,8 @@ const _inventoryPaths = <String>[
   AppRoutes.inventoryTransfers,
   // Owner 2026-11-18 APPENDED Import & export at 16.
   AppRoutes.inventoryImportExport,
+  // Phase 8 APPENDED Price list at 17.
+  AppRoutes.inventoryPriceList,
 ];
 
 Widget _probeApp() {
@@ -129,15 +131,15 @@ void main() {
     // below trivially true. 17 = the 13 pre-Phase-5 destinations plus the
     // APPENDED Payables (13), Deliveries (14), Transfers (15) and Import &
     // export (16).
-    expect(_sidebarLabels().length, 17);
-    expect(_navOrder().length, 17);
+    expect(_sidebarLabels().length, 18);
+    expect(_navOrder().length, 18);
     expect(_sidebarLabels().first, 'Dashboard');
     // Settings still ends the original block; the two Phase 5 sections follow it.
     expect(
       _sidebarLabels()[_sidebarLabels().indexOf('Settings') + 1],
       'Payables',
     );
-    expect(_sidebarLabels().last, 'Import & export');
+    expect(_sidebarLabels().last, 'Price list');
     expect(_inventoryPaths.length, _sidebarLabels().length);
   });
 

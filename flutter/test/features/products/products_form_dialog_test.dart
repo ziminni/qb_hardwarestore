@@ -365,6 +365,48 @@ void main() {
       expect(draft.openingUnitCost, 5.5);
     });
 
+    testWidgets('Also sold / bought as a pack adds flexible decimal pack unit with live hint', (
+      tester,
+    ) async {
+      await openForm(tester);
+      await fillBasics(tester);
+      await tester.enterText(find.byKey(const ValueKey('base-price')), '15');
+      await tapKey(tester, const ValueKey('also-sold-as-pack'));
+
+      await tester.enterText(
+        find.byKey(const ValueKey('pack-factor-field')),
+        '10',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('pack-price-field')),
+        '100',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('pack-live-hint')), findsOneWidget);
+      expect(
+        find.textContaining('per-KG equivalent ₱10.00 vs your KG price ₱15.00'),
+        findsOneWidget,
+      );
+
+      // Flexible decimal factor e.g. 2.5
+      await tester.enterText(
+        find.byKey(const ValueKey('pack-factor-field')),
+        '2.5',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('pack-price-field')),
+        '30',
+      );
+      await tester.pumpAndSettle();
+
+      await save(tester);
+      final draft = lastResult!.draft!;
+      expect(draft.extraSellingUnits, hasLength(1));
+      expect(draft.extraSellingUnits.single.conversionFactor, 2.5);
+      expect(draft.extraSellingUnits.single.sellingPrice, 30);
+    });
+
     testWidgets('no initial stock means no opening stock', (tester) async {
       await openForm(tester);
       await fillBasics(tester);
@@ -463,9 +505,13 @@ void main() {
     });
 
     testWidgets(
-      'edit mode shows Utang markup controls and Variants summary without Add selling unit',
+      'edit mode shows Utang markup controls, Variants summary, and Pack / bulk units',
       (tester) async {
-        await openForm(tester, product: multiUnitCement());
+        await openForm(
+          tester,
+          product: multiUnitCement(),
+          // Pass an empty callback or test without it; let's verify section presence
+        );
 
         expect(find.byKey(const ValueKey('credit-markup-kind')), findsOneWidget);
         expect(
@@ -473,8 +519,8 @@ void main() {
           findsOneWidget,
         );
         expect(find.textContaining('Variants (1)'), findsOneWidget);
+        expect(find.textContaining('Pack / bulk units (2)'), findsOneWidget);
         expect(find.textContaining('Base unit: KG'), findsOneWidget);
-        expect(find.text('Add selling unit'), findsNothing);
       },
     );
   });

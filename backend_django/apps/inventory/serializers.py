@@ -7,7 +7,7 @@
 # `manage.py check` plus the test run remain the authority on what this file does.
 """Inventory app — serializers for product catalog (Sprint 1)."""
 
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import uuid4
 
 from django.db import transaction
@@ -77,6 +77,63 @@ class SellingUnitPriceChangeSerializer(serializers.ModelSerializer):
         model = SellingUnitPriceChange
         fields = ("id", "old_price", "new_price", "changed_at", "actor", "source")
         read_only_fields = fields
+
+
+class StorePriceChangeSerializer(serializers.ModelSerializer):
+    """Store-wide price-change row for `GET /api/v1/price-changes/` (Phase 8)."""
+
+    product_id = serializers.IntegerField(
+        source="variant_uom.variant.product_id", read_only=True
+    )
+    product_name = serializers.CharField(
+        source="variant_uom.variant.product.base_name", read_only=True
+    )
+    variant_name = serializers.CharField(
+        source="variant_uom.variant.variant_name", read_only=True
+    )
+    unit_code = serializers.CharField(source="variant_uom.uom.code", read_only=True)
+    barcode_qr = serializers.CharField(
+        source="variant_uom.barcode_qr", read_only=True
+    )
+    change_amount = serializers.SerializerMethodField()
+    change_percent = serializers.SerializerMethodField()
+    changed_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SellingUnitPriceChange
+        fields = (
+            "id",
+            "variant_uom",
+            "product_id",
+            "product_name",
+            "variant_name",
+            "unit_code",
+            "barcode_qr",
+            "old_price",
+            "new_price",
+            "change_amount",
+            "change_percent",
+            "changed_at",
+            "changed_by_name",
+            "source",
+        )
+        read_only_fields = fields
+
+    def get_change_amount(self, obj):
+        if obj.old_price is None:
+            return None
+        return f"{(obj.new_price - obj.old_price):.2f}"
+
+    def get_change_percent(self, obj):
+        if obj.old_price is None or obj.old_price == 0:
+            return None
+        pct = ((obj.new_price - obj.old_price) / obj.old_price) * Decimal("100")
+        return f"{pct.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}"
+
+    def get_changed_by_name(self, obj):
+        if obj.actor is None:
+            return None
+        return obj.actor.full_name or obj.actor.username
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -175,12 +232,8 @@ def unit_in_use(unit) -> bool:
 
 
 def annotate_unit_in_use(queryset):
-    """Attach `in_use` to every row of a `VariantUOM` queryset — one query, no N+1.
-
-    Six `EXISTS` subqueries ride along with the list the view was already fetching, so a
-    catalog screen can show the flag on every row without asking per unit.
-    """
-    from django.db.models import Exists, OuterRef
+    """Attach `in_use` and `last_price_changed_at` to a `VariantUOM` queryset."""
+    from django.db.models import Exists, OuterRef, Subquery
 
     from apps.pos.models import HeldCartItem, QuotationItem, SalesItem, SalesOrderItem
     from apps.requisitions.models import RequisitionItem
@@ -196,7 +249,12 @@ def annotate_unit_in_use(queryset):
     ):
         exists = Exists(model.objects.filter(variant_uom=OuterRef("pk")))
         reference = exists if reference is None else reference | exists
-    return queryset.annotate(in_use=reference)
+    last_changed = Subquery(
+        SellingUnitPriceChange.objects.filter(variant_uom=OuterRef("pk"))
+        .order_by("-changed_at", "-id")
+        .values("changed_at")[:1]
+    )
+    return queryset.annotate(in_use=reference, last_price_changed_at=last_changed)
 
 
 def selling_unit_freeze_reason(unit) -> str:
@@ -292,6 +350,7 @@ class VariantUOMSerializer(serializers.ModelSerializer):
         source="variant.product.stored_at.name", read_only=True
     )
     in_use = serializers.SerializerMethodField()
+    last_price_changed_at = serializers.SerializerMethodField()
 
     # Frozen once the unit has been sold or requested: they decide what a past or pending
     # document MEANT. The price is deliberately absent — a shop reprices all the time and
@@ -331,6 +390,7 @@ class VariantUOMSerializer(serializers.ModelSerializer):
             "stored_at",
             "stored_at_name",
             "in_use",
+            "last_price_changed_at",
         ]
         read_only_fields = ["id"]
 
@@ -356,6 +416,17 @@ class VariantUOMSerializer(serializers.ModelSerializer):
         if annotated is not None:
             return annotated
         return unit_in_use(obj)
+
+    def get_last_price_changed_at(self, obj):
+        if hasattr(obj, "last_price_changed_at"):
+            value = obj.last_price_changed_at
+        else:
+            value = (
+                obj.price_changes.order_by("-changed_at", "-id")
+                .values_list("changed_at", flat=True)
+                .first()
+            )
+        return serializers.DateTimeField().to_representation(value) if value else None
 
     def validate_barcode_qr(self, value):
         """One normalised, check-digit-valid, unclaimed code per selling unit.

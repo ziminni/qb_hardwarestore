@@ -197,8 +197,22 @@ List<CatalogueSheetRow> catalogueTemplateRows(CatalogueSheetLists lists) {
   final store = pick(lists.locations, const ['Store']);
   final brand = pick(lists.brands, const ['Local Supply']);
   final measured = pick(lists.unitCodes, const ['CU.M', 'KG', 'M', 'L']);
+  final kg = pick(lists.unitCodes, const ['KG', 'CU.M', 'M', 'L']);
   final piece = pick(lists.unitCodes, const ['PC']);
-  final bag = pick(lists.unitCodes, const ['BAG', 'PC']);
+  final pack = pick(
+    [
+      for (final code in lists.unitCodes)
+        if (code != piece) code,
+    ],
+    const ['BOX', 'PACK', 'BUNDLE', 'BAG'],
+  );
+  final bag = pick(
+    [
+      for (final code in lists.unitCodes)
+        if (code != kg) code,
+    ],
+    const ['BAG', 'PACK', 'BOX'],
+  );
 
   CatalogueSheetRow row({
     required String category,
@@ -266,29 +280,61 @@ List<CatalogueSheetRow> catalogueTemplateRows(CatalogueSheetLists lists) {
       storedAt: bodega,
     ),
     row(
-      category: pick(lists.categories, const ['Cement']),
-      name: 'Portland Cement (example)',
-      variant: '40kg',
-      unit: bag,
+      category: pick(lists.categories, const ['Paint', 'Hardware']),
+      name: 'Paint (example)',
+      variant: '1 Liter',
+      unit: piece,
       perBase: 1,
-      price: 260,
+      price: 15,
       threshold: 20,
       storedAt: store,
     ),
+    if (pack.isNotEmpty && pack != piece)
+      row(
+        category: pick(lists.categories, const ['Paint', 'Hardware']),
+        name: 'Paint (example)',
+        variant: '1 Liter',
+        unit: pack,
+        perBase: 10,
+        price: 100,
+        threshold: 20,
+        storedAt: store,
+      ),
+    row(
+      category: pick(lists.categories, const ['Cement']),
+      name: 'Portland Cement (example)',
+      variant: '40kg',
+      unit: kg,
+      perBase: 1,
+      price: 7,
+      threshold: 200,
+      storedAt: store,
+    ),
+    if (bag.isNotEmpty && bag != kg)
+      row(
+        category: pick(lists.categories, const ['Cement']),
+        name: 'Portland Cement (example)',
+        variant: '40kg',
+        unit: bag,
+        perBase: 40,
+        price: 260,
+        threshold: 200,
+        storedAt: store,
+      ),
   ];
 }
 
 /// The "How to fill" sheet of the import template, one line per row.
 const catalogueTemplateInstructions = <String>[
   'HOW TO FILL THIS TEMPLATE',
-  'One row per product variant. Replace the example rows with your products before importing.',
-  'Product ID, Variant ID, Unit ID: leave BLANK for new products or new variants. Rows with IDs update existing items (use an export for that).',
+  'One row per selling unit (base unit and any pack units). Replace the example rows with your products before importing.',
+  'Product ID, Variant ID, Unit ID: leave BLANK for new products, new variants, or new pack units. Rows with IDs update existing items (use an export for that).',
   'Category, Brand, Unit code, Stored at: copy the exact names from the Lists sheet. They must already exist.',
-  'Product name and Variant: required. Repeat the same Product name with a different Variant (e.g. "Per Box", "Per Piece", "4 inch", "6 inch") to add variants.',
-  'Units per base: type 1 on every variant row (no conversion math needed when using separate variants).',
-  'Price: the selling price of that variant.',
+  'Product name and Variant: required. Repeat the same Product name and Variant with a different Unit code to add a pack unit (e.g. PC + BOX); use a different Variant (e.g. "4 inch", "6 inch") for separate variants.',
+  'Units per base: type 1 on exactly ONE row per variant (the base unit stock is counted in). On pack rows, type how many base units the pack holds (e.g. 10 for a box of 10 PC, 40 for a 40 KG bag, or decimals like 2.5).',
+  'Price: the selling price of THAT unit (per piece/kilo on the base row, or for the whole pack on a pack row).',
   'Barcode: optional. Leave blank and the system generates one automatically.',
-  'Low-stock threshold, Stored at, Active: Stored at and Active are product-level. Active is Yes or No.',
+  'Low-stock threshold, Stored at, Active: Stored at and Active are product-level; Low-stock threshold is variant-level. Active is Yes or No.',
   'Import never adds stock. Add stock with a purchase order and Receiving; Bodega deliveries go to the checker first.',
   'Import shows a preview of every change and every error, and saves only when there are no errors.',
 ];

@@ -113,7 +113,7 @@ void main() {
     // Phase 5 F2 appended Payables at 9, F3 appended Deliveries at 10,
     // Phase 9 F3 appended Transfers at 11, and Configuration Settings at 12.
     // Neither earlier index moved.
-    expect(labels, hasLength(13));
+    expect(labels, hasLength(14));
     expect(labels[9], 'Payables');
     expect(labels[10], 'Deliveries');
     expect(

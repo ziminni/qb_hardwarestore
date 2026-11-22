@@ -90,7 +90,7 @@ void main() {
       'the inventory sidebar keeps 13 Payables and gains Deliveries at 14',
       () {
         final order = _areaOrder(AppAreas.inventory);
-        expect(order, hasLength(17));
+        expect(order, hasLength(18));
         expect(order[8], 'inventoryReceiving');
         expect(order[13], 'inventoryPayables');
         expect(order[14], 'inventoryDeliveries');
@@ -104,7 +104,7 @@ void main() {
 
     test('the sales sidebar keeps 9 Payables and gains Deliveries at 10', () {
       final order = _areaOrder(AppAreas.sales);
-      expect(order, hasLength(13));
+      expect(order, hasLength(14));
       expect(order[6], 'salesReports');
       expect(order[9], 'salesPayables');
       expect(order[10], 'salesDeliveries');

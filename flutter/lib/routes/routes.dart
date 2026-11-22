@@ -43,6 +43,7 @@ import 'package:client/features/inventory/views/inventory_settings_page.dart';
 import 'package:client/features/deliveries/views/deliveries_page.dart';
 import 'package:client/features/payables/views/payables_page.dart';
 import 'package:client/features/transfers/views/transfers_page.dart';
+import 'package:client/features/products/views/price_list_page.dart';
 import 'package:client/features/products/views/products_page.dart';
 import 'package:client/features/suppliers/views/purchases_page.dart';
 import 'package:client/features/suppliers/views/suppliers_page.dart';
@@ -143,6 +144,7 @@ class AppRoutes {
   /// Every import and export the stocker has (owner 2026-11-18), APPENDED to the
   /// Stock menu.
   static const String inventoryImportExport = '/inventory/import-export';
+  static const String inventoryPriceList = '/inventory/price-list';
 
   /// The Bodega Checker's area (decision 25). `/bodega/` is fenced like every
   /// other area prefix: only an account holding `bodega` opens it.
@@ -213,6 +215,7 @@ class AppRoutes {
   /// The Store Manager's settings screen (sales sidebar index 12): store
   /// details and local-device theme settings.
   static const String salesSettings = '/sales/settings';
+  static const String salesPriceList = '/sales/price-list';
 
   /// The sales-shell twin of an admin screen the Store Manager may use, or null
   /// when [location] has no twin.
@@ -694,6 +697,12 @@ class AppRoutes {
               _transitionPage(state, const InventoryImportExportPage()),
         ),
         GoRoute(
+          path: inventoryPriceList,
+          name: 'inventory_price_list',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const InventoryPriceListPage()),
+        ),
+        GoRoute(
           path: inventorySettings,
           name: 'inventory_settings',
           pageBuilder: (context, state) =>
@@ -840,6 +849,12 @@ class AppRoutes {
           name: 'sales_settings',
           pageBuilder: (context, state) =>
               _transitionPage(state, const SalesSettingsPage()),
+        ),
+        GoRoute(
+          path: salesPriceList,
+          name: 'sales_price_list',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const SalesPriceListPage()),
         ),
       ],
     );

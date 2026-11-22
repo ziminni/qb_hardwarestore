@@ -94,13 +94,14 @@ void main() {
     // renumbering.
     expect(labels.indexOf('Transfers'), 11);
     expect(labels.indexOf('Settings'), 12);
+    expect(labels.indexOf('Price list'), 13);
     expect(
       labels,
-      hasLength(13),
+      hasLength(14),
       reason:
-          '13 destinations: 0-8 unchanged, Payables (F2) at 9, Deliveries (F3) '
-          'at 10, Transfers (9 F3) at 11, and Settings at 12. `navigateSales` '
-          'maps the same 13.',
+          '14 destinations: 0-8 unchanged, Payables (F2) at 9, Deliveries (F3) '
+          'at 10, Transfers (9 F3) at 11, Settings at 12, and Price list at 13. '
+          '`navigateSales` maps the same 14.',
     );
   });
 

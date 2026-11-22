@@ -1,5 +1,7 @@
 import 'package:client/core/network/api_client.dart';
+import 'package:client/core/network/paged.dart';
 import 'package:client/data/models/inventory_batch.dart';
+import 'package:client/data/models/price_change.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/product_image_upload.dart';
 import 'package:client/data/models/stock_on_hand.dart';
@@ -57,6 +59,7 @@ class ProductsService {
   static const productsPath = '/api/v1/products/';
   static const batchesPath = '/api/v1/batches/';
   static const stockOnHandPath = '/api/v1/stock-on-hand/';
+  static const priceChangesPath = '/api/v1/price-changes/';
 
   /// Loads the catalogue and its stock together.
   ///
@@ -150,6 +153,26 @@ class ProductsService {
       )).items,
     );
   }
+
+  /// Store-wide paginated price changes (`GET /api/v1/price-changes/`).
+  Future<Paged<StorePriceChange>> fetchPriceChanges({
+    int? productId,
+    String? since,
+    String? until,
+    String? query,
+    int page = 1,
+  }) => _read(() async {
+    final params = <String, dynamic>{'page': page};
+    if (productId != null) params['product'] = productId;
+    if (since != null && since.trim().isNotEmpty) params['since'] = since.trim();
+    if (until != null && until.trim().isNotEmpty) params['until'] = until.trim();
+    if (query != null && query.trim().isNotEmpty) params['q'] = query.trim();
+    return _client.getList<StorePriceChange>(
+      priceChangesPath,
+      StorePriceChange.fromJson,
+      queryParameters: params,
+    );
+  });
 
   /// Runs a read, turning every way it can fail into a [ProductsServiceException]
   /// the screen can show. The three failures deserve three messages: a transport

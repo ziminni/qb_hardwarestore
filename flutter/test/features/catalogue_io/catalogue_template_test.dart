@@ -96,7 +96,7 @@ void main() {
     expect(sheet, contains('type="decimal" operator="greaterThan"'));
     expect(sheet, contains('state="frozen"'));
     // The tips and checks change nothing the import reads.
-    expect(parseCatalogueSheet(bytes), hasLength(4));
+    expect(parseCatalogueSheet(bytes), hasLength(7));
   });
 
   test('an export still writes its ids', () {

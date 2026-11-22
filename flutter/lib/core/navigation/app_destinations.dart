@@ -254,6 +254,14 @@ class AppDestinations {
       icon: Icons.settings_outlined,
       route: AppRoutes.salesSettings,
     ),
+    AppDestination(
+      id: 'price-list',
+      area: AppAreas.sales,
+      label: 'Price list',
+      icon: Icons.price_change_outlined,
+      route: AppRoutes.salesPriceList,
+      sharedKey: 'price-list',
+    ),
 
     // ---- Stock ----------------------------------------------------------------
     AppDestination(
@@ -392,6 +400,14 @@ class AppDestinations {
       icon: Icons.import_export_rounded,
       route: AppRoutes.inventoryImportExport,
     ),
+    AppDestination(
+      id: 'price-list',
+      area: AppAreas.inventory,
+      label: 'Price list',
+      icon: Icons.price_change_outlined,
+      route: AppRoutes.inventoryPriceList,
+      sharedKey: 'price-list',
+    ),
 
     // ---- Admin ----------------------------------------------------------------
     // Owner 2026-11-18: the Admin sees everything and acts on nothing. The
@@ -485,6 +501,7 @@ class AppDestinations {
   static const String projectRequestsId = 'project-requests';
   static const String lowStockId = 'inventory.low-stock';
   static const String heldTransactionsId = 'pos.held';
+  static const String priceListId = 'price-list';
 
   /// Ids of the pages that exist in more than one area. Merged de-duplication
   /// keys off these, never off a label; locked by decision 24 and Phase 2 F0.
@@ -495,6 +512,7 @@ class AppDestinations {
     'payables',
     'deliveries',
     'transfers',
+    'price-list',
   };
 
   /// The rows of [area]'s menu, in flat index order (index = position).

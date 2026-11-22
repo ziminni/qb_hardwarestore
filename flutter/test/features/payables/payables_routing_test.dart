@@ -84,7 +84,7 @@ void main() {
   group('every payables entry is APPENDED', () {
     test('the inventory sidebar keeps 13 and gains Payables at 13', () {
       final order = _areaOrder(AppAreas.inventory);
-      expect(order, hasLength(17));
+      expect(order, hasLength(18));
       expect(order[12], 'inventorySettings');
       expect(order[13], 'inventoryPayables');
       expect(
@@ -101,7 +101,7 @@ void main() {
 
     test('the sales sidebar keeps 9 and gains Payables at 9', () {
       final order = _areaOrder(AppAreas.sales);
-      expect(order, hasLength(13));
+      expect(order, hasLength(14));
       expect(order[8], 'salesProjectRequests');
       expect(order[9], 'salesPayables');
       expect(
@@ -129,7 +129,7 @@ void main() {
     test('the inventory shell declares 13', () {
       // Phase 2 F1: the stock menu is a slice of the registry production renders.
       final labels = AppDestinations.labelsFor(AppAreas.inventory);
-      expect(labels, hasLength(17));
+      expect(labels, hasLength(18));
       expect(labels[12], 'Settings');
       expect(labels[13], 'Payables');
       expect(labels[14], 'Deliveries');

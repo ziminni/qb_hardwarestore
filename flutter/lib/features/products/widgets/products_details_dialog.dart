@@ -231,12 +231,21 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: AppSpacing.lg),
-            const DialogSectionLabel('Pricing & barcode'),
+            const DialogSectionLabel('Pack / bulk units & pricing'),
             if (variant.sellingUoms.isEmpty)
               const Text('No pricing configured yet.')
             else
               for (final unit in variant.sellingUoms)
                 _unitRow(context, variant, unit, canEdit: canEdit),
+            if (canEdit) ...[
+              const SizedBox(height: AppSpacing.sm),
+              OutlinedButton.icon(
+                key: ValueKey('add-pack-unit-${variant.id}'),
+                onPressed: () => _addUnit(context, variant),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add pack unit'),
+              ),
+            ],
           ],
         ),
       ),
@@ -360,11 +369,25 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
   ) {
     return showDialog<void>(
       context: context,
-      builder: (_) => _PriceHistoryDialog(
+      builder: (_) => PriceHistoryDialog(
         title: '${widget.product.baseName} · ${variant.variantName}',
         unitLabel:
             '${unit.uomCode} (×${formatQuantity(unit.conversionFactor)})',
         variantUomId: unit.id,
+      ),
+    );
+  }
+
+  Future<void> _addUnit(BuildContext context, ProductVariant variant) {
+    final inventory = context.read<InventoryViewmodel>();
+    return showDialog<void>(
+      context: context,
+      builder: (_) => AddSellingUnitDialog(
+        productName: widget.product.baseName,
+        variant: variant,
+        units: inventory.units,
+        onCreateUnit: inventory.createUnit,
+        onSubmit: (unit) => inventory.addSellingUnit(variant.id, unit),
       ),
     );
   }
@@ -461,8 +484,8 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
   }
 }
 
-class _PriceHistoryEntry {
-  const _PriceHistoryEntry({
+class PriceHistoryEntry {
+  const PriceHistoryEntry({
     required this.oldPrice,
     required this.newPrice,
     required this.changedAt,
@@ -476,7 +499,7 @@ class _PriceHistoryEntry {
   final String? actor;
   final String source;
 
-  factory _PriceHistoryEntry.fromJson(Map<String, dynamic> json) {
+  factory PriceHistoryEntry.fromJson(Map<String, dynamic> json) {
     double? parseOpt(Object? v) {
       if (v == null) return null;
       if (v is num) return v.toDouble();
@@ -484,7 +507,7 @@ class _PriceHistoryEntry {
       return null;
     }
 
-    return _PriceHistoryEntry(
+    return PriceHistoryEntry(
       oldPrice: parseOpt(json['old_price']),
       newPrice: parseOpt(json['new_price']) ?? 0,
       changedAt: json['changed_at'] is String
@@ -496,23 +519,26 @@ class _PriceHistoryEntry {
   }
 }
 
-class _PriceHistoryDialog extends StatefulWidget {
-  const _PriceHistoryDialog({
+class PriceHistoryDialog extends StatefulWidget {
+  const PriceHistoryDialog({
+    super.key,
     required this.title,
     required this.unitLabel,
     required this.variantUomId,
+    this.loader,
   });
 
   final String title;
   final String unitLabel;
   final int variantUomId;
+  final Future<List<PriceHistoryEntry>> Function(int variantUomId)? loader;
 
   @override
-  State<_PriceHistoryDialog> createState() => _PriceHistoryDialogState();
+  State<PriceHistoryDialog> createState() => _PriceHistoryDialogState();
 }
 
-class _PriceHistoryDialogState extends State<_PriceHistoryDialog> {
-  late Future<List<_PriceHistoryEntry>> _future;
+class _PriceHistoryDialogState extends State<PriceHistoryDialog> {
+  late Future<List<PriceHistoryEntry>> _future;
 
   @override
   void initState() {
@@ -520,7 +546,11 @@ class _PriceHistoryDialogState extends State<_PriceHistoryDialog> {
     _future = _load();
   }
 
-  Future<List<_PriceHistoryEntry>> _load() async {
+  Future<List<PriceHistoryEntry>> _load() async {
+    final customLoader = widget.loader;
+    if (customLoader != null) {
+      return customLoader(widget.variantUomId);
+    }
     final response = await ApiClient.instance.dio.get<dynamic>(
       '/api/v1/variant-uoms/${widget.variantUomId}/price-history/',
     );
@@ -530,7 +560,7 @@ class _PriceHistoryDialogState extends State<_PriceHistoryDialog> {
         : (data is List ? data : const <dynamic>[]);
     return [
       for (final row in rows)
-        if (row is Map<String, dynamic>) _PriceHistoryEntry.fromJson(row),
+        if (row is Map<String, dynamic>) PriceHistoryEntry.fromJson(row),
     ];
   }
 
@@ -548,7 +578,7 @@ class _PriceHistoryDialogState extends State<_PriceHistoryDialog> {
       title: 'Price History',
       subtitle: '${widget.title} · ${widget.unitLabel}',
       width: 560,
-      content: FutureBuilder<List<_PriceHistoryEntry>>(
+      content: FutureBuilder<List<PriceHistoryEntry>>(
         future: _future,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {

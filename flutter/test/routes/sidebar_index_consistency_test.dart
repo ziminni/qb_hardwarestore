@@ -70,21 +70,21 @@ void main() {
     );
     expect(
       salesOrder.length,
-      13,
+      14,
       reason:
-          'the sales sidebar has 13 destinations — Reports (index 6) was added by '
+          'the sales sidebar has 14 destinations — Reports (index 6) was added by '
           'decision D-01 so the manager can reach live reports inside their own shell; '
           'Staff (7), Project requests (8) and Payables (9) were APPENDED the same '
           'way, Deliveries (10) by Phase 5 F3 (decision 18), Transfers (11) by '
-          'Phase 9 F3, and Settings (12). Approvals is gone (decision 01: CPMS approves)',
+          'Phase 9 F3, Settings (12), and Price list (13). Approvals is gone (decision 01: CPMS approves)',
     );
     expect(
       inventoryOrder.length,
-      17,
+      18,
       reason:
-          'the inventory sidebar has 16 destinations — Phase 5 F2 APPENDED '
-          'Payables at 13, F3 APPENDED Deliveries at 14 (decision 18) and Phase 9 '
-          'F3 APPENDED Transfers at 15',
+          'the inventory sidebar has 18 destinations — Phase 5 F2 APPENDED '
+          'Payables at 13, F3 APPENDED Deliveries at 14 (decision 18), Phase 9 '
+          'F3 APPENDED Transfers at 15, Import & export at 16, and Price list at 17',
     );
     expect(
       tillOrder.length,
