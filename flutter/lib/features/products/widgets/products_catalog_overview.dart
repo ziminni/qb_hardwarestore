@@ -21,6 +21,7 @@ class ProductsCatalogOverview extends StatelessWidget {
     required this.outOfStockVariants,
     required this.onShowAll,
     required this.onShowLowStock,
+    this.onShowArchived,
   });
 
   final int totalProducts;
@@ -37,6 +38,10 @@ class ProductsCatalogOverview extends StatelessWidget {
   /// Opens the low stock screen. The two stock numbers are the only ones with a
   /// place to go.
   final VoidCallback onShowLowStock;
+
+  /// Opens the archived products dialog so the user can inspect and restore
+  /// archived items directly from the ARCHIVED tile.
+  final VoidCallback? onShowArchived;
 
   @override
   Widget build(BuildContext context) {
@@ -70,13 +75,13 @@ class ProductsCatalogOverview extends StatelessWidget {
         ),
       ),
       _tappable(
-        onTap: onShowAll,
+        onTap: onShowArchived ?? onShowAll,
         child: MetricTile(
           label: 'ARCHIVED',
           value: formatCount(archivedProducts),
           caption: archivedProducts == 0
               ? 'Archive is empty'
-              : 'Not shown in the catalogue',
+              : 'Click to view or restore',
         ),
       ),
     ];
@@ -97,6 +102,9 @@ class ProductsCatalogOverview extends StatelessWidget {
   /// A tile is a number first; the tap only adds the way to the records behind
   /// it, so the tile keeps no button and no ripple of its own.
   Widget _tappable({required VoidCallback onTap, required Widget child}) {
-    return GestureDetector(onTap: onTap, child: child);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(onTap: onTap, child: child),
+    );
   }
 }

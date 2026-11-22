@@ -296,6 +296,8 @@ class _ProductsPageState extends State<ProductsPage> {
                         .length,
                     onShowAll: viewModel.clearFilters,
                     onShowLowStock: () => navigateInventory(context, 5),
+                    onShowArchived: () =>
+                        _showArchivedProducts(context, viewModel),
                   ),
                   const SizedBox(height: AppSpacing.xl),
                   ProductsToolbar(
@@ -339,6 +341,19 @@ class _ProductsPageState extends State<ProductsPage> {
                           ),
                           label: const Text('Import from Excel'),
                         ),
+                        if (viewModel.archivedProducts > 0)
+                          OutlinedButton.icon(
+                            key: const ValueKey('view-archived-products'),
+                            onPressed: () =>
+                                _showArchivedProducts(context, viewModel),
+                            icon: const Icon(
+                              Icons.inventory_2_outlined,
+                              size: 18,
+                            ),
+                            label: Text(
+                              'Archived (${viewModel.archivedProducts})',
+                            ),
+                          ),
                       ],
                     ),
                   ],
