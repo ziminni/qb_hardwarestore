@@ -540,6 +540,75 @@ class InventoryViewmodel extends ChangeNotifier {
     return null;
   }
 
+  /// PATCHes one selling unit's cash selling price and optional Utang markup,
+  /// then reloads the catalogue so every screen and till sees the new price.
+  Future<String?> updateSellingUnitPrice({
+    required int unitId,
+    required double sellingPrice,
+    required String creditMarkupKind,
+    required double creditMarkupValue,
+    bool reload = true,
+  }) async {
+    final normalizedValue = creditMarkupKind == 'NONE' ? 0.0 : creditMarkupValue;
+    try {
+      await _catalogue.patchSellingUnit(unitId, {
+        'default_selling_price': sellingPrice.toStringAsFixed(2),
+        'credit_markup_kind': creditMarkupKind,
+        'credit_markup_value': normalizedValue.toStringAsFixed(2),
+      });
+    } on ProductWriteException catch (error) {
+      return error.message;
+    }
+    if (reload) await load();
+    return null;
+  }
+
+  /// Batch-updates multiple selling unit prices from the Price Table, returning
+  /// any per-unit error messages and reloading the catalogue once at the end.
+  Future<Map<int, String>> updateSellingUnitPrices(
+    List<
+      ({
+        int unitId,
+        double sellingPrice,
+        String creditMarkupKind,
+        double creditMarkupValue,
+      })
+    >
+    updates,
+  ) async {
+    final errors = <int, String>{};
+    var anySaved = false;
+    for (final item in updates) {
+      final err = await updateSellingUnitPrice(
+        unitId: item.unitId,
+        sellingPrice: item.sellingPrice,
+        creditMarkupKind: item.creditMarkupKind,
+        creditMarkupValue: item.creditMarkupValue,
+        reload: false,
+      );
+      if (err != null) {
+        errors[item.unitId] = err;
+      } else {
+        anySaved = true;
+      }
+    }
+    if (anySaved) await load();
+    return errors;
+  }
+
+  /// Adds a new standalone variant (with its own unit, price, barcode, and
+  /// optional opening stock) to an existing product, then reloads.
+  Future<String?> addVariant(NewVariantDraft draft) async {
+    try {
+      await _catalogue.createVariantChain(draft);
+    } on ProductWriteException catch (error) {
+      await load();
+      return 'The ${error.step.label} could not be created: ${error.message}';
+    }
+    await load();
+    return null;
+  }
+
   /// Adds one selling unit to an existing variant, then reloads.
   ///
   /// Returns null on success, or the server's message. A refusal reloads too:

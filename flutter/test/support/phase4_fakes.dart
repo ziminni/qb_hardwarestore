@@ -254,15 +254,20 @@ class FakeProductsRepository extends ProductsRepository {
   /// Every selling-unit code PATCH, in order (Phase 6 decision 18).
   final List<({int unitId, String barcode})> barcodePatches = [];
 
+  /// Every selling-unit PATCH body, in order (price, utang markup, barcode).
+  final List<({int unitId, Map<String, dynamic> body})> sellingUnitPatches = [];
+
   /// Units removed through the details dialog, and units added to a variant
   /// (Phase 1d Task 9). The snapshot is really mutated, so a reload after a
   /// success shows the row gone or present.
   final List<int> deletedUnitIds = [];
   final List<({int variantId, NewSellingUnit unit})> createdUnits = [];
+  final List<NewVariantDraft> createdVariants = [];
 
-  /// Set to refuse a removal or an added unit with this message.
+  /// Set to refuse a removal, an added unit, or a new variant with this message.
   String? deleteError;
   String? createUnitError;
+  String? createVariantError;
 
   /// Set to refuse a code PATCH with this message (e.g. a 400 `BARCODE_TAKEN`).
   String? barcodeError;
@@ -307,6 +312,56 @@ class FakeProductsRepository extends ProductsRepository {
   }
 
   @override
+  Future<int> createVariantChain(NewVariantDraft draft) async {
+    final error = createVariantError;
+    if (error != null) {
+      throw ProductWriteException(
+        step: ProductWriteStep.variant,
+        message: error,
+      );
+    }
+    createdVariants.add(draft);
+    final newVariantId = 700 + createdVariants.length;
+    final newUnitId = 7000 + createdVariants.length;
+    final addedVariant = ProductVariant(
+      id: newVariantId,
+      productId: draft.productId,
+      baseUomId: draft.baseUomId,
+      minStockThreshold: draft.minStockThreshold,
+      maxStockLevel: 0,
+      variantName: draft.variantName,
+      sku: draft.sku,
+      baseUomCode: draft.baseUomCode,
+      isActive: true,
+      sellingUoms: [
+        VariantUom(
+          id: newUnitId,
+          variantId: newVariantId,
+          uomId: draft.baseUomId,
+          uomCode: draft.baseUomCode,
+          uomName: draft.baseUomCode,
+          barcodeQr: draft.barcodeQr,
+          conversionFactor: 1,
+          defaultSellingPrice: draft.sellingPrice,
+          creditMarkupKind: draft.creditMarkupKind,
+          creditMarkupValue: draft.creditMarkupValue,
+        ),
+      ],
+    );
+    _snapshot = ProductsSnapshot(
+      products: [
+        for (final product in _snapshot.products)
+          product.id == draft.productId
+              ? product.copyWith(variants: [...product.variants, addedVariant])
+              : product,
+      ],
+      batches: _snapshot.batches,
+      stockOnHand: _snapshot.stockOnHand,
+    );
+    return newVariantId;
+  }
+
+  @override
   Future<void> patchSellingUnit(int id, Map<String, dynamic> body) async {
     final error = barcodeError;
     if (error != null) {
@@ -315,7 +370,74 @@ class FakeProductsRepository extends ProductsRepository {
         message: error,
       );
     }
-    barcodePatches.add((unitId: id, barcode: '${body['barcode_qr']}'));
+    sellingUnitPatches.add((unitId: id, body: Map<String, dynamic>.from(body)));
+    if (body.containsKey('barcode_qr')) {
+      barcodePatches.add((unitId: id, barcode: '${body['barcode_qr']}'));
+    }
+    _snapshot = ProductsSnapshot(
+      products: [
+        for (final product in _snapshot.products)
+          product.copyWith(
+            variants: [
+              for (final variant in product.variants)
+                variant.copyWith(
+                  sellingUoms: [
+                    for (final unit in variant.sellingUoms)
+                      if (unit.id == id)
+                        _applySellingUnitPatch(unit, body)
+                      else
+                        unit,
+                  ],
+                ),
+            ],
+          ),
+      ],
+      batches: _snapshot.batches,
+      stockOnHand: _snapshot.stockOnHand,
+    );
+  }
+
+  VariantUom _applySellingUnitPatch(VariantUom unit, Map<String, dynamic> body) {
+    final price = body.containsKey('default_selling_price')
+        ? double.tryParse('${body['default_selling_price']}') ??
+              unit.defaultSellingPrice
+        : unit.defaultSellingPrice;
+    final creditKind = body.containsKey('credit_markup_kind')
+        ? '${body['credit_markup_kind']}'
+        : unit.creditMarkupKind;
+    final creditVal = body.containsKey('credit_markup_value')
+        ? double.tryParse('${body['credit_markup_value']}') ??
+              unit.creditMarkupValue
+        : unit.creditMarkupValue;
+    final barcode = body.containsKey('barcode_qr')
+        ? '${body['barcode_qr']}'
+        : unit.barcodeQr;
+    final computedCredit = switch (creditKind) {
+      'AMOUNT' when creditVal > 0 => price + creditVal,
+      'PERCENT' when creditVal > 0 => price * (1 + creditVal / 100),
+      _ => price,
+    };
+    return VariantUom(
+      id: unit.id,
+      variantId: unit.variantId,
+      uomId: unit.uomId,
+      uomCode: unit.uomCode,
+      uomName: unit.uomName,
+      barcodeQr: barcode,
+      conversionFactor: unit.conversionFactor,
+      defaultSellingPrice: price,
+      creditMarkupKind: creditKind,
+      creditMarkupValue: creditVal,
+      creditSellingPrice: computedCredit,
+      productName: unit.productName,
+      variantName: unit.variantName,
+      productIsActive: unit.productIsActive,
+      variantIsActive: unit.variantIsActive,
+      uomIsWhole: unit.uomIsWhole,
+      storedAtId: unit.storedAtId,
+      storedAtName: unit.storedAtName,
+      inUse: unit.inUse,
+    );
   }
 
   @override
@@ -484,9 +606,10 @@ class FakeCatalogueRepository extends CatalogueRepository {
 
   List<Category> _categories;
   final List<Brand> _brands;
-  final List<UnitOfMeasure> _units;
+  List<UnitOfMeasure> _units;
 
   final List<String> createdCategories = [];
+  final List<({String code, String name})> createdUoms = [];
   final List<({int id, String? name, bool? isActive})> categoryPatches = [];
   String? writeError;
 
@@ -520,6 +643,20 @@ class FakeCatalogueRepository extends CatalogueRepository {
       for (final item in _categories)
         item.id == id ? item.copyWith(name: name, isActive: isActive) : item,
     ];
+  }
+
+  @override
+  Future<int> createUnit({required String code, required String name}) async {
+    final error = writeError;
+    if (error != null) throw CatalogueServiceException(error);
+    createdUoms.add((code: code, name: name));
+    final created = UnitOfMeasure(
+      id: 800 + createdUoms.length,
+      code: code,
+      name: name,
+    );
+    _units = [..._units, created];
+    return created.id;
   }
 }
 

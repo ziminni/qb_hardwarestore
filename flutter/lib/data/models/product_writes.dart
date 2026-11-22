@@ -165,6 +165,58 @@ class NewSellingUnit {
   };
 }
 
+/// A new standalone variant added directly to an existing product (with its own
+/// base selling unit, price, optional utang markup, barcode, reorder level, and
+/// optional opening stock — no conversion factor needed).
+class NewVariantDraft {
+  const NewVariantDraft({
+    required this.productId,
+    required this.variantName,
+    required this.baseUomId,
+    required this.baseUomCode,
+    required this.sellingPrice,
+    required this.minStockThreshold,
+    this.sku = '',
+    this.barcodeQr = '',
+    this.creditMarkupKind = 'NONE',
+    this.creditMarkupValue = 0,
+    this.openingQty = 0,
+    this.openingUnitCost = 0,
+  });
+
+  final int productId;
+  final String variantName;
+  final String sku;
+  final int baseUomId;
+  final String baseUomCode;
+  final double sellingPrice;
+  final double minStockThreshold;
+  final String barcodeQr;
+  final String creditMarkupKind;
+  final double creditMarkupValue;
+  final double openingQty;
+  final double openingUnitCost;
+
+  Map<String, dynamic> variantBody() => {
+    'product': productId,
+    'variant_name': variantName,
+    'sku': sku,
+    'base_uom': baseUomId,
+    'min_stock_threshold': minStockThreshold,
+    'max_stock_level': 0,
+  };
+
+  Map<String, dynamic> sellingUnitBody(int variantId) => {
+    'variant': variantId,
+    'uom': baseUomId,
+    'conversion_factor': 1,
+    'default_selling_price': sellingPrice,
+    'barcode_qr': barcodeQr,
+    'credit_markup_kind': creditMarkupKind,
+    'credit_markup_value': creditMarkupValue,
+  };
+}
+
 /// An edit of an existing product: name, description, category, brand,
 /// threshold, max level, price and barcode, and the archive flag.
 ///

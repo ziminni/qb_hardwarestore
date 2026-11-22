@@ -181,6 +181,30 @@ class ProductsRepository {
     () => service.patchSellingUnit(id, body),
   );
 
+  /// Adds a standalone variant + its factor-1 selling unit (and optional
+  /// opening stock) to an EXISTING product without conversion math.
+  Future<int> createVariantChain(NewVariantDraft draft) async {
+    final variantId = await _step(
+      ProductWriteStep.variant,
+      () => service.createVariant(draft.variantBody()),
+    );
+    await _step(
+      ProductWriteStep.sellingUnit,
+      () => service.createSellingUnit(draft.sellingUnitBody(variantId)),
+    );
+    if (draft.openingQty > 0) {
+      await _step(
+        ProductWriteStep.sellingUnit,
+        () => service.createOpeningStock(
+          variantId,
+          qty: draft.openingQty,
+          unitCost: draft.openingUnitCost,
+        ),
+      );
+    }
+    return variantId;
+  }
+
   /// Adds one selling unit to an EXISTING variant (decision 16).
   ///
   /// The product already exists, so there is no partial result to report: a

@@ -10,6 +10,118 @@ import 'package:client/shared/widgets/error_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+/// Callback for creating a custom Unit of Measure inline without leaving a
+/// product / variant / selling-unit dialog.
+typedef InlineUnitCreator =
+    Future<({UnitOfMeasure? unit, String? error})> Function({
+      required String code,
+      required String name,
+    });
+
+/// Opens a compact dialog to create a custom Unit of Measure (e.g. PC, BOX,
+/// SACK, TRAY, DOZEN) inline and returns the created unit, or null if cancelled.
+Future<UnitOfMeasure?> showCreateCustomUnitDialog(
+  BuildContext context,
+  InlineUnitCreator onCreateUnit,
+) {
+  return showDialog<UnitOfMeasure>(
+    context: context,
+    builder: (_) => _CreateCustomUnitDialog(onCreateUnit: onCreateUnit),
+  );
+}
+
+class _CreateCustomUnitDialog extends StatefulWidget {
+  const _CreateCustomUnitDialog({required this.onCreateUnit});
+
+  final InlineUnitCreator onCreateUnit;
+
+  @override
+  State<_CreateCustomUnitDialog> createState() =>
+      _CreateCustomUnitDialogState();
+}
+
+class _CreateCustomUnitDialogState extends State<_CreateCustomUnitDialog> {
+  final _codeController = TextEditingController();
+  final _nameController = TextEditingController();
+  String? _errorText;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _codeController.dispose();
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_saving) return;
+    setState(() {
+      _saving = true;
+      _errorText = null;
+    });
+    final res = await widget.onCreateUnit(
+      code: _codeController.text,
+      name: _nameController.text,
+    );
+    if (!mounted) return;
+    if (res.unit != null) {
+      Navigator.of(context).pop(res.unit);
+    } else {
+      setState(() {
+        _saving = false;
+        _errorText = res.error ?? 'Could not create unit.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('New custom unit'),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              key: const ValueKey('custom-uom-code'),
+              controller: _codeController,
+              autofocus: true,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                labelText: 'Unit code',
+                hintText: 'e.g. PC, BOX, SACK, TRAY, KG',
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            TextField(
+              key: const ValueKey('custom-uom-name'),
+              controller: _nameController,
+              decoration: InputDecoration(
+                labelText: 'Unit name',
+                hintText: 'e.g. Piece, Box, Sack, Tray, Kilogram',
+                errorText: _errorText,
+              ),
+              onSubmitted: (_) => _submit(),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey('custom-uom-create'),
+          onPressed: _saving ? null : _submit,
+          child: Text(_saving ? 'Saving…' : 'Create'),
+        ),
+      ],
+    );
+  }
+}
+
 /// One extra selling unit being typed: "1 Bag = 40 kg at ₱270", or a sub-unit
 /// like "1 PC = 0.05 BOX (20 PC = 1 BOX) at ₱30".
 ///
@@ -100,6 +212,7 @@ class SellingUnitFields extends StatefulWidget {
     required this.baseCode,
     required this.units,
     this.basePrice,
+    this.onCreateUnit,
     this.validateUnit,
     this.validateFactor,
     this.validatePrice,
@@ -116,6 +229,9 @@ class SellingUnitFields extends StatefulWidget {
   /// Optional base-unit cash selling price shown in the reference banner and
   /// live comparison preview (e.g. "Base unit: BOX · ₱500.00 / BOX").
   final double? basePrice;
+
+  /// Optional inline "+ New" custom unit creator shown next to the dropdown.
+  final InlineUnitCreator? onCreateUnit;
   final String? Function(int?)? validateUnit;
   final String? Function(String?)? validateFactor;
   final String? Function(String?)? validatePrice;
@@ -132,6 +248,7 @@ class _SellingUnitFieldsState extends State<SellingUnitFields> {
   );
 
   final _unitsPerBaseController = TextEditingController();
+  late List<UnitOfMeasure> _units = List<UnitOfMeasure>.of(widget.units);
   _ConversionMode _mode = _ConversionMode.direct;
   String? _subUnitHintError;
 
@@ -139,7 +256,28 @@ class _SellingUnitFieldsState extends State<SellingUnitFields> {
   int get index => widget.index;
   String get keyPrefix => widget.keyPrefix;
   String get baseCode => widget.baseCode;
-  List<UnitOfMeasure> get units => widget.units;
+  List<UnitOfMeasure> get units => _units;
+
+  @override
+  void didUpdateWidget(covariant SellingUnitFields oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.units != widget.units) {
+      _units = List<UnitOfMeasure>.of(widget.units);
+    }
+  }
+
+  Future<void> _createCustomUnit() async {
+    final creator = widget.onCreateUnit;
+    if (creator == null) return;
+    final created = await showCreateCustomUnitDialog(context, creator);
+    if (!mounted || created == null) return;
+    setState(() {
+      if (!_units.any((u) => u.id == created.id)) {
+        _units.add(created);
+      }
+      draft.uomId = created.id;
+    });
+  }
 
   String get _selectedCode {
     for (final unit in units) {
@@ -259,29 +397,44 @@ class _SellingUnitFieldsState extends State<SellingUnitFields> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: DropdownButtonFormField<int>(
-                  key: ValueKey('$keyPrefix-unit-$index'),
-                  isExpanded: true,
-                  initialValue: draft.uomId,
-                  decoration: const InputDecoration(
-                    labelText: 'Selling unit',
-                    helperText: 'e.g. PC, BOX, BAG, PACK, KG',
-                  ),
-                  items: units
-                      .map(
-                        (unit) => DropdownMenuItem(
-                          value: unit.id,
-                          child: Text(
-                            unit.label,
-                            overflow: TextOverflow.ellipsis,
+                child: KeyedSubtree(
+                  key: ValueKey('$keyPrefix-unit-list-${units.length}-${draft.uomId}'),
+                  child: DropdownButtonFormField<int>(
+                    key: ValueKey('$keyPrefix-unit-$index'),
+                    isExpanded: true,
+                    initialValue: draft.uomId,
+                    decoration: const InputDecoration(
+                      labelText: 'Selling unit',
+                      helperText: 'e.g. PC, BOX, BAG, PACK, KG',
+                    ),
+                    items: units
+                        .map(
+                          (unit) => DropdownMenuItem(
+                            value: unit.id,
+                            child: Text(
+                              unit.label,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                        ),
-                      )
-                      .toList(),
-                  validator: widget.validateUnit,
-                  onChanged: (value) => setState(() => draft.uomId = value),
+                        )
+                        .toList(),
+                    validator: widget.validateUnit,
+                    onChanged: (value) => setState(() => draft.uomId = value),
+                  ),
                 ),
               ),
+              if (widget.onCreateUnit != null) ...[
+                const SizedBox(width: AppSpacing.sm),
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: OutlinedButton.icon(
+                    key: ValueKey('$keyPrefix-new-unit-$index'),
+                    onPressed: _createCustomUnit,
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('New'),
+                  ),
+                ),
+              ],
               if (widget.onRemove != null)
                 IconButton(
                   key: ValueKey('remove-$keyPrefix-$index'),
@@ -554,12 +707,14 @@ class AddSellingUnitDialog extends StatefulWidget {
     required this.variant,
     required this.units,
     required this.onSubmit,
+    this.onCreateUnit,
   });
 
   final String productName;
   final ProductVariant variant;
   final List<UnitOfMeasure> units;
   final Future<String?> Function(NewSellingUnit unit) onSubmit;
+  final InlineUnitCreator? onCreateUnit;
 
   @override
   State<AddSellingUnitDialog> createState() => _AddSellingUnitDialogState();
@@ -568,8 +723,22 @@ class AddSellingUnitDialog extends StatefulWidget {
 class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
   final _formKey = GlobalKey<FormState>();
   final _draft = SellingUnitDraft();
+  late final List<UnitOfMeasure> _units = List<UnitOfMeasure>.of(widget.units);
   String? _error;
   bool _saving = false;
+
+  Future<({UnitOfMeasure? unit, String? error})> _handleCreateUnit({
+    required String code,
+    required String name,
+  }) async {
+    final creator = widget.onCreateUnit;
+    if (creator == null) return (unit: null, error: 'Cannot create unit.');
+    final res = await creator(code: code, name: name);
+    if (mounted && res.unit != null && !_units.any((u) => u.id == res.unit!.id)) {
+      setState(() => _units.add(res.unit!));
+    }
+    return res;
+  }
 
   double? get _basePrice {
     for (final unit in widget.variant.sellingUoms) {
@@ -615,7 +784,7 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
   }
 
   String _codeFor(int? uomId) {
-    for (final unit in widget.units) {
+    for (final unit in _units) {
       if (unit.id == uomId) return unit.code;
     }
     return '';
@@ -645,7 +814,10 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
               keyPrefix: 'add',
               baseCode: widget.variant.baseUomCode,
               basePrice: _basePrice,
-              units: widget.units,
+              units: _units,
+              onCreateUnit: widget.onCreateUnit == null
+                  ? null
+                  : _handleCreateUnit,
               validateUnit: (value) => sellingUnitUnitError(
                 value,
                 baseUomId: widget.variant.baseUomId,
@@ -670,6 +842,398 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
         FilledButton(
           onPressed: _saving ? null : _save,
           child: Text(_saving ? 'Adding…' : 'Add unit'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Directly adds a brand-new standalone variant to an existing product (e.g.
+/// Nails → "Per Piece", "Per Kilo", "2 inch") with its own unit (including
+/// inline custom unit creation), price, utang markup, barcode, initial stock,
+/// and reorder level — zero conversion math or decimal limits.
+class AddVariantDialog extends StatefulWidget {
+  const AddVariantDialog({
+    super.key,
+    required this.productId,
+    required this.productName,
+    required this.units,
+    required this.onSubmit,
+    this.onCreateUnit,
+  });
+
+  final int productId;
+  final String productName;
+  final List<UnitOfMeasure> units;
+  final Future<String?> Function(NewVariantDraft draft) onSubmit;
+  final InlineUnitCreator? onCreateUnit;
+
+  @override
+  State<AddVariantDialog> createState() => _AddVariantDialogState();
+}
+
+class _AddVariantDialogState extends State<AddVariantDialog> {
+  static final _decimalFormatter = FilteringTextInputFormatter.allow(
+    RegExp(r'^-?\d*\.?\d{0,2}'),
+  );
+
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _skuController = TextEditingController();
+  final _barcodeController = TextEditingController();
+  final _costController = TextEditingController(text: '0');
+  final _priceController = TextEditingController();
+  final _creditValueController = TextEditingController();
+  final _initialController = TextEditingController(text: '0');
+  final _reorderController = TextEditingController(text: '10');
+  late final List<UnitOfMeasure> _units = List<UnitOfMeasure>.of(widget.units);
+  late int? _baseUomId = _units.firstOrNull?.id;
+  String _creditKind = 'NONE';
+  String? _error;
+  bool _saving = false;
+
+  UnitOfMeasure? get _selectedUnit {
+    for (final u in _units) {
+      if (u.id == _baseUomId) return u;
+    }
+    return null;
+  }
+
+  String get _unitCode => _selectedUnit?.code ?? 'unit';
+
+  @override
+  void dispose() {
+    for (final c in [
+      _nameController,
+      _skuController,
+      _barcodeController,
+      _costController,
+      _priceController,
+      _creditValueController,
+      _initialController,
+      _reorderController,
+    ]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  double _num(TextEditingController c) =>
+      double.tryParse(c.text.trim().replaceAll(',', '')) ?? 0;
+
+  Future<void> _createCustomUnit() async {
+    final creator = widget.onCreateUnit;
+    if (creator == null) return;
+    final created = await showCreateCustomUnitDialog(context, creator);
+    if (!mounted || created == null) return;
+    setState(() {
+      if (!_units.any((u) => u.id == created.id)) {
+        _units.add(created);
+      }
+      _baseUomId = created.id;
+    });
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    final unit = _selectedUnit;
+    if (unit == null) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    final draft = NewVariantDraft(
+      productId: widget.productId,
+      variantName: _nameController.text.trim(),
+      sku: _skuController.text.trim(),
+      baseUomId: unit.id,
+      baseUomCode: unit.code,
+      sellingPrice: _num(_priceController),
+      minStockThreshold: _num(_reorderController),
+      barcodeQr: _barcodeController.text.trim(),
+      creditMarkupKind: _creditKind,
+      creditMarkupValue: _creditKind == 'NONE'
+          ? 0
+          : _num(_creditValueController),
+      openingQty: _num(_initialController),
+      openingUnitCost: _num(_costController),
+    );
+    final message = await widget.onSubmit(draft);
+    if (!mounted) return;
+    if (message != null) {
+      setState(() {
+        _error = message;
+        _saving = false;
+      });
+      return;
+    }
+    Navigator.pop(context, draft);
+  }
+
+  static String? _nonNegative(String? raw) {
+    final value = double.tryParse((raw ?? '').trim().replaceAll(',', ''));
+    if (value == null) return 'Enter a number.';
+    if (value < 0) return 'Cannot be negative.';
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final unit = _selectedUnit;
+    return AppDialog(
+      icon: Icons.layers_outlined,
+      title: 'Add variant',
+      subtitle: widget.productName,
+      width: 560,
+      content: Form(
+        key: _formKey,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (_error != null) ...[
+              ErrorBanner(message: _error!),
+              const SizedBox(height: AppSpacing.md),
+            ],
+            TextFormField(
+              key: const ValueKey('new-variant-name'),
+              controller: _nameController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Variant name',
+                hintText: 'e.g. Per Piece, Per Box, 2 inch, 50kg',
+              ),
+              validator: (v) => v == null || v.trim().isEmpty
+                  ? 'Enter a variant name.'
+                  : null,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            TextFormField(
+              key: const ValueKey('new-variant-sku'),
+              controller: _skuController,
+              decoration: const InputDecoration(
+                labelText: 'SKU (optional)',
+                hintText: 'e.g. NAIL-PC-1IN',
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: KeyedSubtree(
+                    key: ValueKey('new-variant-uom-${_units.length}-$_baseUomId'),
+                    child: DropdownButtonFormField<int>(
+                      key: const ValueKey('new-variant-unit-picker'),
+                      isExpanded: true,
+                      initialValue: _baseUomId,
+                      decoration: const InputDecoration(
+                        labelText: 'Selling unit',
+                        helperText: 'Standalone unit for this variant (no conversion needed).',
+                      ),
+                      items: [
+                        for (final option in _units)
+                          DropdownMenuItem(
+                            value: option.id,
+                            child: Text(
+                              option.label,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      validator: (v) =>
+                          v == null ? 'Choose or create a selling unit.' : null,
+                      onChanged: (v) => setState(() => _baseUomId = v),
+                    ),
+                  ),
+                ),
+                if (widget.onCreateUnit != null) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: OutlinedButton.icon(
+                      key: const ValueKey('new-variant-custom-unit'),
+                      onPressed: _createCustomUnit,
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('New'),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    key: const ValueKey('new-variant-cost'),
+                    controller: _costController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    inputFormatters: [_decimalFormatter],
+                    decoration: InputDecoration(
+                      labelText: 'Cost per $_unitCode',
+                      hintText: '0.00',
+                      prefixText: '₱ ',
+                    ),
+                    validator: _nonNegative,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: TextFormField(
+                    key: const ValueKey('new-variant-price'),
+                    controller: _priceController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    inputFormatters: [_decimalFormatter],
+                    decoration: InputDecoration(
+                      labelText: 'Selling price per $_unitCode',
+                      hintText: '0.00',
+                      prefixText: '₱ ',
+                    ),
+                    validator: sellingUnitPriceError,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: DropdownButtonFormField<String>(
+                    key: const ValueKey('new-variant-credit-kind'),
+                    initialValue: _creditKind,
+                    decoration: const InputDecoration(
+                      labelText: 'Utang markup',
+                      helperText: 'Cash price is unchanged.',
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'NONE', child: Text('None')),
+                      DropdownMenuItem(
+                        value: 'AMOUNT',
+                        child: Text('Peso amount'),
+                      ),
+                      DropdownMenuItem(value: 'PERCENT', child: Text('Percent')),
+                    ],
+                    onChanged: (v) =>
+                        setState(() => _creditKind = v ?? 'NONE'),
+                  ),
+                ),
+                if (_creditKind != 'NONE') ...[
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    flex: 2,
+                    child: TextFormField(
+                      key: const ValueKey('new-variant-credit-value'),
+                      controller: _creditValueController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      inputFormatters: [_decimalFormatter],
+                      decoration: InputDecoration(
+                        labelText: _creditKind == 'PERCENT'
+                            ? 'Percent'
+                            : 'Peso amount',
+                        hintText: '0.00',
+                        suffixText: _creditKind == 'PERCENT' ? '%' : null,
+                        prefixText: _creditKind == 'AMOUNT' ? '₱ ' : null,
+                      ),
+                      validator: (raw) {
+                        final text = (raw ?? '').trim();
+                        if (text.isEmpty) return 'Enter the utang markup.';
+                        final value = double.tryParse(text);
+                        if (value == null || !value.isFinite || value < 0) {
+                          return 'Enter 0 or more.';
+                        }
+                        if (_creditKind == 'PERCENT' && value > 1000) {
+                          return 'At most 1000%.';
+                        }
+                        return null;
+                      },
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    key: const ValueKey('new-variant-initial'),
+                    controller: _initialController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    inputFormatters: [_decimalFormatter],
+                    decoration: InputDecoration(
+                      labelText: 'Initial quantity',
+                      hintText: '0',
+                      suffixText: _unitCode,
+                    ),
+                    validator: (raw) {
+                      final err = _nonNegative(raw);
+                      if (err != null) return err;
+                      final qty = _num(_initialController);
+                      if (unit != null &&
+                          unit.isWhole &&
+                          qty != qty.roundToDouble()) {
+                        return '${unit.code} is counted in whole numbers.';
+                      }
+                      return null;
+                    },
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: TextFormField(
+                    key: const ValueKey('new-variant-reorder'),
+                    controller: _reorderController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    inputFormatters: [_decimalFormatter],
+                    decoration: InputDecoration(
+                      labelText: 'Reorder level',
+                      hintText: '10',
+                      suffixText: _unitCode,
+                    ),
+                    validator: _nonNegative,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            TextFormField(
+              key: const ValueKey('new-variant-barcode'),
+              controller: _barcodeController,
+              inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
+              decoration: const InputDecoration(
+                labelText: 'Factory barcode (leave blank to auto-generate)',
+                hintText: 'Scan or type the barcode for this variant',
+                prefixIcon: Icon(Icons.barcode_reader),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey('new-variant-submit'),
+          onPressed: _saving ? null : _save,
+          child: Text(_saving ? 'Adding…' : 'Add variant'),
         ),
       ],
     );

@@ -9,6 +9,7 @@ import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_stock_status_badge.dart';
 import 'package:client/features/products/widgets/edit_unit_code_dialog.dart';
+import 'package:client/features/products/widgets/price_table_dialog.dart';
 import 'package:client/features/products/widgets/products_image.dart';
 import 'package:client/features/products/widgets/selling_unit_fields.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
@@ -45,8 +46,14 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final product = widget.product;
     final inventory = context.watch<InventoryViewmodel>();
+    // Re-read the live product from the store so newly added variants appear
+    // immediately without closing and reopening the details dialog.
+    final product =
+        inventory.products
+            .where((p) => p.id == widget.product.id)
+            .firstOrNull ??
+        widget.product;
     // Code writes are `IsInventoryRole` on the server (decision 18), so the
     // buttons only exist for those role CODES. Phase 2 F3: the gate asks the
     // areas the account HOLDS, so a merged account keeps them.
@@ -104,9 +111,22 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
                 if (product.storedAtName.trim().isNotEmpty)
                   DetailRow(label: 'Stored at', value: product.storedAtName),
                 const SizedBox(height: AppSpacing.xl),
-                Text(
-                  'Variants (${product.variants.length})',
-                  style: Theme.of(context).textTheme.titleSmall,
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Variants (${product.variants.length})',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ),
+                    if (canEdit)
+                      OutlinedButton.icon(
+                        key: ValueKey('add-variant-${product.id}'),
+                        onPressed: () => _addVariant(context, product),
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('Add variant'),
+                      ),
+                  ],
                 ),
                 const Divider(),
                 if (product.variants.isEmpty)
@@ -312,6 +332,12 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
               children: [
                 if (canEdit)
                   TextButton(
+                    key: ValueKey('edit-price-unit-${unit.id}'),
+                    onPressed: () => _editPrice(context, variant, unit),
+                    child: const Text('Edit price'),
+                  ),
+                if (canEdit)
+                  TextButton(
                     onPressed: () => _editCode(context, unit),
                     child: const Text('Edit code'),
                   ),
@@ -350,6 +376,20 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
     );
   }
 
+  Future<void> _addVariant(BuildContext context, Product product) {
+    final inventory = context.read<InventoryViewmodel>();
+    return showDialog<void>(
+      context: context,
+      builder: (_) => AddVariantDialog(
+        productId: product.id,
+        productName: product.baseName,
+        units: inventory.units,
+        onCreateUnit: inventory.createUnit,
+        onSubmit: inventory.addVariant,
+      ),
+    );
+  }
+
   Future<void> _addUnit(BuildContext context, ProductVariant variant) {
     final inventory = context.read<InventoryViewmodel>();
     return showDialog<void>(
@@ -358,6 +398,7 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
         productName: widget.product.baseName,
         variant: variant,
         units: inventory.units,
+        onCreateUnit: inventory.createUnit,
         // The same store path every catalog write uses; it writes and reloads.
         onSubmit: (unit) => inventory.addSellingUnit(variant.id, unit),
       ),
@@ -399,6 +440,32 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
     // A refusal reloaded the list (the server disagreed with this snapshot); on
     // success the reloaded list simply no longer holds the unit.
     setState(() => _actionError = error);
+  }
+
+  Future<void> _editPrice(
+    BuildContext context,
+    ProductVariant variant,
+    VariantUom unit,
+  ) async {
+    final inventory = context.read<InventoryViewmodel>();
+    await showDialog<void>(
+      context: context,
+      builder: (_) => EditSellingPriceDialog(
+        productName: widget.product.baseName,
+        variantName: variant.variantName,
+        unit: unit,
+        onSubmit: ({
+          required double sellingPrice,
+          required String creditMarkupKind,
+          required double creditMarkupValue,
+        }) => inventory.updateSellingUnitPrice(
+          unitId: unit.id,
+          sellingPrice: sellingPrice,
+          creditMarkupKind: creditMarkupKind,
+          creditMarkupValue: creditMarkupValue,
+        ),
+      ),
+    );
   }
 
   Future<void> _editCode(BuildContext context, VariantUom unit) async {

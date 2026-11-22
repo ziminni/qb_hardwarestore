@@ -93,6 +93,7 @@ AuthViewmodel authWithRole(String roleCode) {
 
 void main() {
   late FakeProductsRepository repository;
+  late FakeCatalogueRepository catalogueLists;
   late InventoryViewmodel inventory;
 
   setUp(() {
@@ -102,10 +103,11 @@ void main() {
       products: [product],
       batches: [batch(id: 1, variantId: 210, qty: 40)],
     );
+    catalogueLists = FakeCatalogueRepository(units: units);
     inventory = InventoryViewmodel.seeded(
       catalogue: repository,
       inventory: FakeInventoryRepository(),
-      catalogueLists: FakeCatalogueRepository(units: units),
+      catalogueLists: catalogueLists,
       products: [product],
       batches: [batch(id: 1, variantId: 210, qty: 40)],
       units: units,
@@ -172,11 +174,12 @@ void main() {
     expect(find.textContaining('QB000210-2'), findsOneWidget);
   });
 
-  testWidgets('a cashier gets no Add selling unit and no Remove', (
+  testWidgets('a cashier gets no Add selling unit, Add variant, or Remove', (
     tester,
   ) async {
     await openDetails(tester, 'pos');
 
+    expect(find.text('Add variant'), findsNothing);
     expect(find.text('Add selling unit'), findsNothing);
     expect(find.text('Remove'), findsNothing);
     expect(find.text('Edit code'), findsNothing);
@@ -351,5 +354,90 @@ void main() {
 
     expect(find.textContaining('Rack A-01'), findsOneWidget);
     expect(find.text('Saved on this device only'), findsOneWidget);
+  });
+
+  testWidgets(
+    'Add variant creates a standalone variant with inline custom unit and reloads',
+    (tester) async {
+      await openDetails(tester, 'inventory');
+      final loadsBefore = repository.loadCount;
+
+      await tapVisible(tester, find.byKey(const ValueKey('add-variant-21')));
+      await tapVisible(
+        tester,
+        find.byKey(const ValueKey('new-variant-custom-unit')),
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('custom-uom-code')),
+        'TRAY',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('custom-uom-name')),
+        'Tray',
+      );
+      await tapVisible(
+        tester,
+        find.byKey(const ValueKey('custom-uom-create')),
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey('new-variant-name')),
+        'Per Tray',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('new-variant-price')),
+        '150',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('new-variant-initial')),
+        '10',
+      );
+      await tapVisible(
+        tester,
+        find.byKey(const ValueKey('new-variant-submit')),
+      );
+
+      expect(catalogueLists.createdUoms, [(code: 'TRAY', name: 'Tray')]);
+      final created = repository.createdVariants.single;
+      expect(created.productId, 21);
+      expect(created.variantName, 'Per Tray');
+      expect(created.baseUomCode, 'TRAY');
+      expect(created.sellingPrice, 150);
+      expect(created.openingQty, 10);
+      expect(repository.loadCount, loadsBefore + 1);
+      expect(find.text('Variants (2)'), findsOneWidget);
+      expect(find.text('Per Tray'), findsOneWidget);
+    },
+  );
+
+  testWidgets('Add selling unit supports creating a custom unit inline (+ New)', (
+    tester,
+  ) async {
+    await openDetails(tester, 'inventory');
+
+    await tapVisible(
+      tester,
+      find.byKey(const ValueKey('add-selling-unit-210')),
+    );
+    await tapVisible(tester, find.byKey(const ValueKey('add-new-unit-0')));
+    await tester.enterText(
+      find.byKey(const ValueKey('custom-uom-code')),
+      'SACK',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('custom-uom-name')),
+      'Sack',
+    );
+    await tapVisible(tester, find.byKey(const ValueKey('custom-uom-create')));
+
+    await tester.enterText(find.byKey(const ValueKey('add-factor-0')), '25');
+    await tester.enterText(find.byKey(const ValueKey('add-price-0')), '160');
+    await tapVisible(tester, find.text('Add unit'));
+
+    expect(catalogueLists.createdUoms, [(code: 'SACK', name: 'Sack')]);
+    final created = repository.createdUnits.single;
+    expect(created.unit.uomCode, 'SACK');
+    expect(created.unit.conversionFactor, 25);
+    expect(created.unit.sellingPrice, 160);
   });
 }

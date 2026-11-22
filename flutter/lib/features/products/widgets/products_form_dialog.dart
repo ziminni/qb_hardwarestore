@@ -58,6 +58,7 @@ class ProductsFormDialog extends StatefulWidget {
     this.storageLocationError,
     this.onCreateBrand,
     this.onCreateUnit,
+    this.onAddVariant,
     this.onAddSellingUnit,
     this.imageFileService = const ImageFileService(),
   });
@@ -79,6 +80,11 @@ class ProductsFormDialog extends StatefulWidget {
     required String code,
     required String name,
   })? onCreateUnit;
+
+  /// Optional inline standalone-variant creator in Edit Product mode (no
+  /// conversion math required — directly adds a variant with its own unit &
+  /// price).
+  final Future<String?> Function(NewVariantDraft draft)? onAddVariant;
 
   /// Optional inline selling-unit creation callback in Edit Product mode so
   /// extra selling units (e.g. PC inside a BOX) can be added right from Edit.
@@ -132,6 +138,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   final _formKey = GlobalKey<FormState>();
   late List<Brand> _brands;
   late List<UnitOfMeasure> _units;
+  late List<ProductVariant> _editVariants;
   late List<VariantUom> _editSellingUnits;
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
@@ -262,6 +269,9 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     _packageSizeController = TextEditingController(text: '40');
     _brands = List<Brand>.of(widget.brands);
     _units = List<UnitOfMeasure>.of(widget.units);
+    _editVariants = List<ProductVariant>.of(
+      product?.variants ?? const <ProductVariant>[],
+    );
     _editSellingUnits = List<VariantUom>.of(
       variant?.sellingUoms ?? const <VariantUom>[],
     );
@@ -1299,6 +1309,72 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     ],
   );
 
+  Future<({UnitOfMeasure? unit, String? error})> _handleCreateUnit({
+    required String code,
+    required String name,
+  }) async {
+    final creator = widget.onCreateUnit;
+    if (creator == null) return (unit: null, error: 'Cannot create unit.');
+    final res = await creator(code: code, name: name);
+    if (mounted && res.unit != null && !_units.any((u) => u.id == res.unit!.id)) {
+      setState(() => _units.add(res.unit!));
+    }
+    return res;
+  }
+
+  Future<void> _addVariantInline() async {
+    final product = widget.product;
+    final adder = widget.onAddVariant;
+    if (product == null || adder == null) return;
+    final added = await showDialog<NewVariantDraft>(
+      context: context,
+      builder: (_) => AddVariantDialog(
+        productId: product.id,
+        productName: _nameController.text.trim().isEmpty
+            ? product.baseName
+            : _nameController.text.trim(),
+        units: _units,
+        onCreateUnit: widget.onCreateUnit == null ? null : _handleCreateUnit,
+        onSubmit: adder,
+      ),
+    );
+    if (!mounted || added == null) return;
+    setState(() {
+      final matchedUnit = _unitWithId(added.baseUomId);
+      final tempId = -_editVariants.length - 1;
+      _editVariants.add(
+        ProductVariant(
+          id: tempId,
+          productId: product.id,
+          variantName: added.variantName,
+          sku: added.sku,
+          baseUomId: added.baseUomId,
+          baseUomCode: added.baseUomCode,
+          minStockThreshold: added.minStockThreshold,
+          maxStockLevel: 0,
+          isActive: true,
+          sellingUoms: [
+            VariantUom(
+              id: tempId,
+              variantId: tempId,
+              uomId: added.baseUomId,
+              uomCode: added.baseUomCode,
+              uomName: matchedUnit?.name ?? added.baseUomCode,
+              barcodeQr: added.barcodeQr.isEmpty
+                  ? 'Auto-generated'
+                  : added.barcodeQr,
+              conversionFactor: 1,
+              defaultSellingPrice: added.sellingPrice,
+              creditMarkupKind: added.creditMarkupKind,
+              creditMarkupValue: added.creditMarkupValue,
+              uomIsWhole: matchedUnit?.isWhole ?? false,
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
   Future<void> _addSellingUnitInline() async {
     final variant = _variant;
     final adder = widget.onAddSellingUnit;
@@ -1312,6 +1388,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
             : _nameController.text.trim(),
         variant: liveVariant,
         units: _units,
+        onCreateUnit: widget.onCreateUnit == null ? null : _handleCreateUnit,
         onSubmit: (unit) => adder(variant.id, unit),
       ),
     );
@@ -1370,15 +1447,37 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                   ],
                 ),
               ),
-              if (widget.onAddSellingUnit != null)
-                OutlinedButton.icon(
-                  key: const ValueKey('edit-add-selling-unit'),
-                  onPressed: _addSellingUnitInline,
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Add selling unit'),
+              if (widget.onAddVariant != null || widget.onAddSellingUnit != null)
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.xs,
+                  children: [
+                    if (widget.onAddVariant != null)
+                      OutlinedButton.icon(
+                        key: const ValueKey('edit-add-variant'),
+                        onPressed: _addVariantInline,
+                        icon: const Icon(Icons.layers_outlined, size: 18),
+                        label: const Text('Add variant'),
+                      ),
+                    if (widget.onAddSellingUnit != null)
+                      OutlinedButton.icon(
+                        key: const ValueKey('edit-add-selling-unit'),
+                        onPressed: _addSellingUnitInline,
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('Add selling unit'),
+                      ),
+                  ],
                 ),
             ],
           ),
+          if (_editVariants.length > 1) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Variants (${_editVariants.length}): '
+              '${_editVariants.map((v) => '${v.variantName} (${v.baseUomCode})').join(' · ')}',
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
           if (_editSellingUnits.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.sm),
             for (final unit in _editSellingUnits)

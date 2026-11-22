@@ -6,6 +6,7 @@ import 'package:client/data/models/product.dart';
 import 'package:client/features/products/viewmodels/products_viewmodel.dart';
 import 'package:client/features/products/widgets/products_bulk_actions.dart';
 import 'package:client/features/products/widgets/products_archived_dialog.dart';
+import 'package:client/features/products/widgets/price_table_dialog.dart';
 import 'package:client/features/products/widgets/products_details_dialog.dart';
 import 'package:client/features/products/widgets/products_form_dialog.dart';
 import 'package:client/features/products/widgets/products_catalog_overview.dart';
@@ -78,6 +79,7 @@ class _ProductsPageState extends State<ProductsPage> {
         onCreateBrand: inventory.createBrand,
         units: inventory.units,
         onCreateUnit: inventory.createUnit,
+        onAddVariant: inventory.addVariant,
         onAddSellingUnit: inventory.addSellingUnit,
         // Device-local knowledge (decision 15): the server has no location field,
         // so the form opens with whatever THIS device remembered.
@@ -324,6 +326,18 @@ class _ProductsPageState extends State<ProductsPage> {
                       spacing: AppSpacing.sm,
                       runSpacing: AppSpacing.sm,
                       children: [
+                        OutlinedButton.icon(
+                          key: const ValueKey('open-price-table'),
+                          onPressed: () => showDialog<void>(
+                            context: context,
+                            builder: (_) => const PriceTableDialog(),
+                          ),
+                          icon: const Icon(
+                            Icons.price_change_outlined,
+                            size: 18,
+                          ),
+                          label: const Text('Price table'),
+                        ),
                         OutlinedButton.icon(
                           onPressed: () => openBarcodeList(context),
                           icon: const Icon(Icons.qr_code_2_rounded, size: 18),
