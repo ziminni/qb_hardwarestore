@@ -85,6 +85,8 @@ class HeldCart {
     required this.notes,
     required this.items,
     required this.createdAt,
+    this.expiresAt,
+    this.isExpired = false,
   });
 
   factory HeldCart.fromJson(Map<String, dynamic> json) {
@@ -103,6 +105,8 @@ class HeldCart {
       notes: stringField(json, 'notes'),
       items: nestedList(json, 'items', HeldCartItem.fromJson),
       createdAt: DateTime.parse(stringField(json, 'created_at')),
+      expiresAt: nullableDateField(json, 'expires_at'),
+      isExpired: boolFieldOr(json, 'is_expired', or: false),
     );
   }
 
@@ -113,6 +117,10 @@ class HeldCart {
   final String notes;
   final List<HeldCartItem> items;
   final DateTime createdAt;
+
+  /// When this hold's stock reservation expires (default 2 h, Admin-editable).
+  final DateTime? expiresAt;
+  final bool isExpired;
 
   /// What the list shows the cashier: who the cart is for.
   String get customerLabel => customerName ?? 'Walk-in';

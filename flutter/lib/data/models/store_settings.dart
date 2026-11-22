@@ -16,9 +16,12 @@ class StoreSettings {
     required this.vatRate,
     required this.discountCapPercent,
     this.shiftDiscountCapPercent,
+    this.heldCartExpiryMinutes = defaultHeldCartExpiryMinutes,
     this.tenderFees = const [],
     this.updatedAt,
   });
+
+  static const int defaultHeldCartExpiryMinutes = 120;
 
   /// The server's own defaults, repeated here for the two places a value can be
   /// absent: a payload from a build that predates a field, and the moment
@@ -51,6 +54,9 @@ class StoreSettings {
   /// means no shift limit, which is also the server's own NULL default: there
   /// is no safe number to invent for a value the server left unset.
   final double? shiftDiscountCapPercent;
+
+  /// Minutes a held cart reserves stock before expiring (default 120 = 2 hours).
+  final int heldCartExpiryMinutes;
 
   /// Per-tender fees the shop charges on CARD / GCASH / BANK_TRANSFER (owner
   /// ruling). EMPTY on a fresh shop: no rate is invented here, ever.
@@ -93,6 +99,9 @@ class StoreSettings {
         json,
         'shift_discount_cap_percent',
       ),
+      heldCartExpiryMinutes: json['held_cart_expiry_minutes'] is int
+          ? json['held_cart_expiry_minutes'] as int
+          : defaultHeldCartExpiryMinutes,
       tenderFees: nestedList(json, 'tender_fees', TenderFee.fromJson),
       updatedAt: nullableDateField(json, 'updated_at'),
     );
@@ -106,6 +115,7 @@ class StoreSettings {
     // Sent even when null: the key IS the instruction to clear the stored
     // shift cap, and an omitted key would leave the old limit in place.
     'shift_discount_cap_percent': shiftDiscountCapPercent?.toStringAsFixed(2),
+    'held_cart_expiry_minutes': heldCartExpiryMinutes,
     // The list REPLACES the server's table: a method left out ends up with no
     // fee, which is the only reading of a list a client can reason about.
     'tender_fees': [for (final fee in tenderFees) fee.toJson()],

@@ -91,6 +91,31 @@ class PosHeldCartCard extends StatelessWidget {
               color: AppColors.textSecondary,
             ),
           ),
+          if (cart.expiresAt case final expiresAt?) ...[
+            const SizedBox(height: 4),
+            Builder(
+              builder: (context) {
+                final remaining = expiresAt.difference(DateTime.now());
+                final expired = cart.isExpired || remaining.isNegative;
+                final label = expired
+                    ? 'Reservation expired · stock released'
+                    : remaining.inMinutes >= 60
+                    ? 'Stock reserved · ${remaining.inHours}h '
+                          '${remaining.inMinutes % 60}m left'
+                    : 'Stock reserved · ${remaining.inMinutes}m left';
+                return Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: expired
+                        ? AppColors.warningText
+                        : AppColors.successText,
+                  ),
+                );
+              },
+            ),
+          ],
           // No placeholder when there is no note: a lone dash says nothing a
           // missing line does not, and dashes are out app-wide (D18).
           if (note.isNotEmpty) ...[

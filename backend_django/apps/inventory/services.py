@@ -497,8 +497,39 @@ def _create_batch(
     return batch
 
 
+def reserved_base_qty_for_variant(
+    *, variant_id: int, exclude_held_cart_id: int | None = None
+) -> Decimal:
+    """Base-unit stock currently reserved by active (unexpired) held carts."""
+    from django.db.models import ExpressionWrapper, F, Q, Sum
+    from django.db.models.fields import DecimalField
+    from django.utils import timezone
+
+    from apps.pos.models import HeldCartItem
+
+    now = timezone.now()
+    qs = HeldCartItem.objects.filter(
+        variant_uom__variant_id=variant_id,
+    ).filter(Q(cart__expires_at__isnull=True) | Q(cart__expires_at__gt=now))
+    if exclude_held_cart_id is not None:
+        qs = qs.exclude(cart_id=exclude_held_cart_id)
+    total = qs.aggregate(
+        reserved=Sum(
+            ExpressionWrapper(
+                F("qty") * F("variant_uom__conversion_factor"),
+                output_field=DecimalField(max_digits=14, decimal_places=4),
+            )
+        )
+    )["reserved"]
+    return total or Decimal("0")
+
+
 def allocate_fifo(
-    *, variant_id: int, qty_needed: Decimal, location_id: int | None = None
+    *,
+    variant_id: int,
+    qty_needed: Decimal,
+    location_id: int | None = None,
+    exclude_held_cart_id: int | None = None,
 ):
     """FIFO stock allocator, shelf by shelf (decision 21 §2, plan Design 3).
 
@@ -556,10 +587,29 @@ def allocate_fifo(
     if location_id is not None:
         batches = batches.filter(location_id=location_id)
 
+    batch_list = list(batches)
+    if location_id is None:
+        on_hand = sum((b.current_qty for b in batch_list), Decimal("0"))
+        reserved = reserved_base_qty_for_variant(
+            variant_id=variant_id,
+            exclude_held_cart_id=exclude_held_cart_id,
+        )
+        available = max(on_hand - reserved, Decimal("0"))
+        if available < qty_needed:
+            variant = ProductVariant.objects.get(pk=variant_id)
+            note = (
+                f" ({reserved:.2f} reserved in held carts)" if reserved > 0 else ""
+            )
+            raise InsufficientStock(
+                f"Insufficient stock for {variant}{note}.",
+                shortfall=qty_needed - available,
+                variant_id=variant_id,
+            )
+
     allocations = []
     remaining = qty_needed
 
-    for batch in batches:
+    for batch in batch_list:
         if remaining <= 0:
             break
         take = min(batch.current_qty, remaining)

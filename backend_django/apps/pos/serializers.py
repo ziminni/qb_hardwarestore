@@ -172,6 +172,7 @@ class SalesItemSerializer(serializers.ModelSerializer):
     )
     stored_at_name = serializers.SerializerMethodField()
     pick_up = serializers.SerializerMethodField()
+    fifo_batches = serializers.SerializerMethodField()
 
     class Meta:
         model = SalesItem
@@ -188,8 +189,34 @@ class SalesItemSerializer(serializers.ModelSerializer):
             "stored_at",
             "stored_at_name",
             "pick_up",
+            "fifo_batches",
         ]
         read_only_fields = ["id", "subtotal"]
+
+    def get_fifo_batches(self, obj):
+        rows = obj.deductions.select_related(
+            "batch__receipt", "batch__location"
+        ).order_by("id")
+        return [
+            {
+                "batch_id": row.batch_id,
+                "received_at": (
+                    row.batch.receipt.receive_date.isoformat()
+                    if row.batch.receipt_id and row.batch.receipt.receive_date
+                    else None
+                ),
+                "location_name": (
+                    row.batch.location.name if row.batch.location_id else ""
+                ),
+                "qty": f"{row.qty:.2f}",
+                "unit_cost": (
+                    f"{row.unit_cost:.2f}"
+                    if row.unit_cost is not None
+                    else f"{row.batch.unit_cost_landed:.2f}"
+                ),
+            }
+            for row in rows
+        ]
 
     def get_stored_at_name(self, obj):
         annotated = getattr(obj, "stored_at_name", None)
@@ -846,6 +873,7 @@ class HeldCartSerializer(serializers.ModelSerializer):
         source="customer.name", read_only=True, default=None
     )
     cashier_name = serializers.CharField(source="cashier.full_name", read_only=True)
+    is_expired = serializers.SerializerMethodField()
 
     class Meta:
         model = HeldCart
@@ -857,11 +885,29 @@ class HeldCartSerializer(serializers.ModelSerializer):
             "customer_name",
             "notes",
             "items",
+            "expires_at",
+            "is_expired",
             "created_at",
         ]
-        read_only_fields = ["id", "cashier", "created_at"]
+        read_only_fields = ["id", "cashier", "expires_at", "is_expired", "created_at"]
+
+    def get_is_expired(self, obj):
+        from django.utils import timezone
+
+        return obj.expires_at is not None and obj.expires_at <= timezone.now()
 
     def create(self, validated_data):
+        from datetime import timedelta
+        from decimal import Decimal
+
+        from django.db.models import Sum
+        from django.utils import timezone
+
+        from apps.inventory.exceptions import InsufficientStock
+        from apps.inventory.models import InventoryBatch, ProductVariant
+        from apps.inventory.services import reserved_base_qty_for_variant
+        from apps.pos.models import StoreSettings
+
         items_data = validated_data.pop("items", [])
         # Phase 1d Task 2 (decision 16): the same whole-unit rule as the till, checked
         # BEFORE the cart row exists, so a refused hold leaves nothing behind.
@@ -872,17 +918,35 @@ class HeldCartSerializer(serializers.ModelSerializer):
                 qty=item["qty"],
                 what=f"Line {index} ({vuom.variant}, {vuom.uom.code})",
             )
-        # Phase 1d Task 3: take the SAME row lock the removal action takes
-        # (`VariantUOMViewSet.destroy`), before writing any line. A held-cart line
-        # PROTECTs its selling unit, so the removal refuses a unit that is already held;
-        # this lock is what makes "already held" true for a hold that is still being
-        # saved. Without it the removal could delete the row between this cart's
-        # validation and its INSERT, and the foreign key would answer a 500 instead of a
-        # refusal the till can act on.
         with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
             lock_selling_unit_lines(
                 ((item["variant_uom"], item) for item in items_data),
                 document="held cart",
+            )
+            # Phase 4 (2026-11-22): ensure unreserved stock covers the new hold.
+            needed_by_variant = {}
+            for item in items_data:
+                vuom = item["variant_uom"]
+                base_qty = Decimal(item["qty"]) * vuom.conversion_factor
+                needed_by_variant[vuom.variant_id] = (
+                    needed_by_variant.get(vuom.variant_id, Decimal("0")) + base_qty
+                )
+            for variant_id, needed in needed_by_variant.items():
+                on_hand = InventoryBatch.objects.select_for_update().filter(
+                    variant_id=variant_id, current_qty__gt=0
+                ).aggregate(total=Sum("current_qty"))["total"] or Decimal("0")
+                reserved = reserved_base_qty_for_variant(variant_id=variant_id)
+                available = max(on_hand - reserved, Decimal("0"))
+                if available < needed:
+                    variant = ProductVariant.objects.get(pk=variant_id)
+                    raise InsufficientStock(
+                        f"Insufficient available stock to hold {variant}.",
+                        shortfall=needed - available,
+                        variant_id=variant_id,
+                    )
+            expiry_minutes = StoreSettings.load().held_cart_expiry_minutes
+            validated_data["expires_at"] = timezone.now() + timedelta(
+                minutes=expiry_minutes
             )
             cart = HeldCart.objects.create(**validated_data)
             for item in items_data:
