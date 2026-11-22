@@ -46,6 +46,30 @@ class SmsContactSerializer(serializers.ModelSerializer):
         if not phone:
             attrs["phone"] = phone = self.instance.phone if self.instance else ""
         user = attrs.get("user", getattr(self.instance, "user", None))
+        if user is None and self.instance is None:
+            # Auto-link a newly registered phone to an active Bodega Checker (or the
+            # creating Manager/Admin) so a contact created without an explicit `user`
+            # never silently drops outbound alerts or rejects inbound DONE replies.
+            from django.contrib.auth import get_user_model
+
+            from apps.users.permissions import ROLE_BODEGA_CHECKER
+
+            User = get_user_model()
+            bodega_user = (
+                User.objects.filter(
+                    is_active=True, groups__name=ROLE_BODEGA_CHECKER
+                )
+                .order_by("id")
+                .first()
+            )
+            request = self.context.get("request")
+            request_user = getattr(request, "user", None)
+            if bodega_user is not None:
+                user = bodega_user
+            elif services.holds_bodega_role(request_user):
+                user = request_user
+            if user is not None:
+                attrs["user"] = user
         if user is not None and not services.holds_bodega_role(user):
             raise serializers.ValidationError(
                 {

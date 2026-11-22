@@ -608,9 +608,17 @@ def drain_inbox(driver, backend):
             continue
         driver.ack(message)
         handled += 1
-        log(
-            f"inbound from {message.phone}: {answer.get('status')} {answer.get('reply', '')}"
-        )
+        status = answer.get("status", "")
+        reply = (answer.get("reply") or "").strip()
+        if status == "REJECTED" and not reply:
+            log(
+                f"inbound from {message.phone}: IGNORED "
+                "(unregistered/carrier number; no reply sent)"
+            )
+        elif reply:
+            log(f"inbound from {message.phone}: {status} -> {reply}")
+        else:
+            log(f"inbound from {message.phone}: {status}")
     return handled
 
 
@@ -623,16 +631,26 @@ def run(
     sleep=time.sleep,
 ):
     """One heartbeat/outbox/inbox cycle every `interval` seconds, reconnect on failure."""
-    last_heartbeat = 0.0
+    last_heartbeat = -HEARTBEAT_SECONDS
     backoff = 1.0
     while True:
         try:
             driver.open()
             backoff = 1.0
+            connected_logged = False
             while True:
                 if clock() - last_heartbeat >= HEARTBEAT_SECONDS:
                     try:
-                        backend.heartbeat(driver.info())
+                        info = driver.info()
+                        backend.heartbeat(info)
+                        if not connected_logged:
+                            op = info.get("operator") or "unknown"
+                            sig = info.get("signal", 0)
+                            log(
+                                f"backend connected: operator={op} "
+                                f"signal={sig}/31 registered={info.get('registered', True)}"
+                            )
+                            connected_logged = True
                     except Exception as error:  # noqa: BLE001
                         log(f"heartbeat failed: {error}")
                     last_heartbeat = clock()
