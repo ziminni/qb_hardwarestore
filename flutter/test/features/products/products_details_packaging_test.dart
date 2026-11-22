@@ -231,6 +231,44 @@ void main() {
     );
   });
 
+  testWidgets(
+    'Add selling unit supports sub-unit entry (1 base = N sub-units) with dynamic labels',
+    (tester) async {
+      await openDetails(tester, 'inventory');
+
+      await tapVisible(
+        tester,
+        find.byKey(const ValueKey('add-selling-unit-210')),
+      );
+      expect(find.textContaining('Base unit: KG (×1)'), findsOneWidget);
+
+      await tapVisible(tester, find.byKey(const ValueKey('add-unit-0')));
+      await tester.tap(find.text('Pack (PACK)').last);
+      await tester.pumpAndSettle();
+
+      // Dynamic labels match the selected unit just like Add/Edit Product.
+      expect(find.text('Selling price per PACK'), findsOneWidget);
+      expect(find.text('How many KG per PACK'), findsOneWidget);
+
+      // Flip to sub-unit mode ("1 KG = ? PACK") and enter 20 -> auto-fills 0.05.
+      await tapVisible(tester, find.text('1 KG = ? PACK'));
+      await tester.enterText(
+        find.byKey(const ValueKey('add-subcount-0')),
+        '20',
+      );
+      await tester.enterText(find.byKey(const ValueKey('add-price-0')), '1.5');
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('20 PACK = 1 KG'), findsOneWidget);
+      await tapVisible(tester, find.text('Add unit'));
+
+      final created = repository.createdUnits.single;
+      expect(created.unit.uomId, 5);
+      expect(created.unit.conversionFactor, 0.05);
+      expect(created.unit.sellingPrice, 1.5);
+    },
+  );
+
   testWidgets('the add form mirrors the server: no base unit, no duplicate, '
       'no fractional-factor typo, no negative price', (tester) async {
     await openDetails(tester, 'inventory');

@@ -489,6 +489,21 @@ void main() {
         reason: 'never PATCH a price onto some other unit instead',
       );
     });
+
+    testWidgets(
+      'edit mode shows Utang markup controls and Selling units summary',
+      (tester) async {
+        await openForm(tester, product: multiUnitCement());
+
+        expect(find.byKey(const ValueKey('credit-markup-kind')), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('edit-selling-units-section')),
+          findsOneWidget,
+        );
+        expect(find.textContaining('Selling units (2)'), findsOneWidget);
+        expect(find.textContaining('Base unit: KG'), findsOneWidget);
+      },
+    );
   });
 
   // Owner ruling: some goods are never discounted (cement). The switch lives on the

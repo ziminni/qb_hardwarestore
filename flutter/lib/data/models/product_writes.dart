@@ -138,6 +138,8 @@ class NewSellingUnit {
     required this.conversionFactor,
     required this.sellingPrice,
     this.barcodeQr = '',
+    this.creditMarkupKind = 'NONE',
+    this.creditMarkupValue = 0,
   });
 
   final int uomId;
@@ -147,6 +149,8 @@ class NewSellingUnit {
 
   /// Blank asks the server for this unit's own `QB` code.
   final String barcodeQr;
+  final String creditMarkupKind;
+  final double creditMarkupValue;
 
   Map<String, dynamic> body(int variantId) => {
     'variant': variantId,
@@ -154,6 +158,10 @@ class NewSellingUnit {
     'conversion_factor': conversionFactor,
     'default_selling_price': sellingPrice,
     'barcode_qr': barcodeQr,
+    if (creditMarkupKind != 'NONE' && creditMarkupValue > 0) ...{
+      'credit_markup_kind': creditMarkupKind,
+      'credit_markup_value': creditMarkupValue,
+    },
   };
 }
 

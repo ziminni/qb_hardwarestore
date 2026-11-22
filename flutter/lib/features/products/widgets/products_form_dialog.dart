@@ -58,6 +58,7 @@ class ProductsFormDialog extends StatefulWidget {
     this.storageLocationError,
     this.onCreateBrand,
     this.onCreateUnit,
+    this.onAddSellingUnit,
     this.imageFileService = const ImageFileService(),
   });
 
@@ -78,6 +79,11 @@ class ProductsFormDialog extends StatefulWidget {
     required String code,
     required String name,
   })? onCreateUnit;
+
+  /// Optional inline selling-unit creation callback in Edit Product mode so
+  /// extra selling units (e.g. PC inside a BOX) can be added right from Edit.
+  final Future<String?> Function(int variantId, NewSellingUnit unit)?
+      onAddSellingUnit;
 
   /// Where this device says the stock sits. Blank on a product nobody recorded.
   final String locationHint;
@@ -126,6 +132,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   final _formKey = GlobalKey<FormState>();
   late List<Brand> _brands;
   late List<UnitOfMeasure> _units;
+  late List<VariantUom> _editSellingUnits;
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
   late final TextEditingController _variantController;
@@ -255,6 +262,9 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     _packageSizeController = TextEditingController(text: '40');
     _brands = List<Brand>.of(widget.brands);
     _units = List<UnitOfMeasure>.of(widget.units);
+    _editSellingUnits = List<VariantUom>.of(
+      variant?.sellingUoms ?? const <VariantUom>[],
+    );
     _categoryId = product?.categoryId ?? widget.categories.firstOrNull?.id;
     _brandId = product?.brandId ?? _brands.firstOrNull?.id;
     _baseUomId = variant?.baseUomId ?? _units.firstOrNull?.id;
@@ -322,6 +332,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
       _barcodeController,
       _reorderController,
       _sellingController,
+      _creditValueController,
       _costController,
       _initialController,
       _packageSizeController,
@@ -1179,69 +1190,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
         ],
       ),
       const SizedBox(height: AppSpacing.md),
-      // Owner ruling (utang markup): how much MORE this unit costs when bought
-      // on utang. Two compact controls beside the selling price, because the
-      // credit price is a property of the price, not a second price to type.
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            flex: 3,
-            child: DropdownButtonFormField<String>(
-              key: const ValueKey('credit-markup-kind'),
-              initialValue: _creditKind,
-              decoration: const InputDecoration(
-                labelText: 'Utang markup',
-                helperText: 'Cash price is unchanged.',
-              ),
-              items: const [
-                DropdownMenuItem(value: 'NONE', child: Text('None')),
-                DropdownMenuItem(value: 'AMOUNT', child: Text('Peso amount')),
-                DropdownMenuItem(value: 'PERCENT', child: Text('Percent')),
-              ],
-              onChanged: (value) => setState(() {
-                _creditKind = value ?? 'NONE';
-                _creditMarkupChanged = true;
-              }),
-            ),
-          ),
-          if (_creditKind != 'NONE') ...[
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              flex: 2,
-              child: TextFormField(
-                key: const ValueKey('credit-markup-value'),
-                controller: _creditValueController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                inputFormatters: [_decimalFormatter],
-                onChanged: (_) => setState(() => _creditMarkupChanged = true),
-                decoration: InputDecoration(
-                  labelText: _creditKind == 'PERCENT'
-                      ? 'Percent'
-                      : 'Peso amount',
-                  hintText: '0.00',
-                  suffixText: _creditKind == 'PERCENT' ? '%' : null,
-                  prefixText: _creditKind == 'AMOUNT' ? '₱ ' : null,
-                ),
-                validator: (raw) {
-                  final text = (raw ?? '').trim();
-                  if (text.isEmpty) return 'Enter the utang markup.';
-                  final value = double.tryParse(text);
-                  if (value == null || !value.isFinite || value < 0) {
-                    return 'Enter 0 or more.';
-                  }
-                  if (_creditKind == 'PERCENT' && value > 1000) {
-                    return 'At most 1000%.';
-                  }
-                  return null;
-                },
-              ),
-            ),
-          ],
-        ],
-      ),
+      _utangMarkupFields(),
       const SizedBox(height: AppSpacing.md),
       Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1291,6 +1240,191 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     ];
   }
 
+  /// Shared utang markup controls used in both Add Product and Edit Product so
+  /// base-unit pricing fields stay consistent across modes.
+  Widget _utangMarkupFields() => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Expanded(
+        flex: 3,
+        child: DropdownButtonFormField<String>(
+          key: const ValueKey('credit-markup-kind'),
+          initialValue: _creditKind,
+          decoration: const InputDecoration(
+            labelText: 'Utang markup',
+            helperText: 'Cash price is unchanged.',
+          ),
+          items: const [
+            DropdownMenuItem(value: 'NONE', child: Text('None')),
+            DropdownMenuItem(value: 'AMOUNT', child: Text('Peso amount')),
+            DropdownMenuItem(value: 'PERCENT', child: Text('Percent')),
+          ],
+          onChanged: (value) => setState(() {
+            _creditKind = value ?? 'NONE';
+            _creditMarkupChanged = true;
+          }),
+        ),
+      ),
+      if (_creditKind != 'NONE') ...[
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          flex: 2,
+          child: TextFormField(
+            key: const ValueKey('credit-markup-value'),
+            controller: _creditValueController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [_decimalFormatter],
+            onChanged: (_) => setState(() => _creditMarkupChanged = true),
+            decoration: InputDecoration(
+              labelText: _creditKind == 'PERCENT' ? 'Percent' : 'Peso amount',
+              hintText: '0.00',
+              suffixText: _creditKind == 'PERCENT' ? '%' : null,
+              prefixText: _creditKind == 'AMOUNT' ? '₱ ' : null,
+            ),
+            validator: (raw) {
+              final text = (raw ?? '').trim();
+              if (text.isEmpty) return 'Enter the utang markup.';
+              final value = double.tryParse(text);
+              if (value == null || !value.isFinite || value < 0) {
+                return 'Enter 0 or more.';
+              }
+              if (_creditKind == 'PERCENT' && value > 1000) {
+                return 'At most 1000%.';
+              }
+              return null;
+            },
+          ),
+        ),
+      ],
+    ],
+  );
+
+  Future<void> _addSellingUnitInline() async {
+    final variant = _variant;
+    final adder = widget.onAddSellingUnit;
+    if (variant == null || adder == null) return;
+    final liveVariant = variant.copyWith(sellingUoms: _editSellingUnits);
+    final added = await showDialog<NewSellingUnit>(
+      context: context,
+      builder: (_) => AddSellingUnitDialog(
+        productName: _nameController.text.trim().isEmpty
+            ? widget.product!.baseName
+            : _nameController.text.trim(),
+        variant: liveVariant,
+        units: _units,
+        onSubmit: (unit) => adder(variant.id, unit),
+      ),
+    );
+    if (!mounted || added == null) return;
+    setState(() {
+      final matchedUnit = _unitWithId(added.uomId);
+      _editSellingUnits.add(
+        VariantUom(
+          id: -_editSellingUnits.length - 1,
+          variantId: variant.id,
+          uomId: added.uomId,
+          uomCode: added.uomCode,
+          uomName: matchedUnit?.name ?? added.uomCode,
+          barcodeQr: added.barcodeQr.isEmpty ? 'Auto-generated' : added.barcodeQr,
+          conversionFactor: added.conversionFactor,
+          defaultSellingPrice: added.sellingPrice,
+          creditMarkupKind: added.creditMarkupKind,
+          creditMarkupValue: added.creditMarkupValue,
+          uomIsWhole: matchedUnit?.isWhole ?? false,
+        ),
+      );
+    });
+  }
+
+  Widget _editSellingUnitsCard(BuildContext context) {
+    final variant = _variant;
+    if (variant == null) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    return Container(
+      key: const ValueKey('edit-selling-units-section'),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceSunken,
+        borderRadius: BorderRadius.circular(AppRadii.medium),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Selling units (${_editSellingUnits.length})',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      'Base unit: $_baseCode (frozen once created)',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              if (widget.onAddSellingUnit != null)
+                OutlinedButton.icon(
+                  key: const ValueKey('edit-add-selling-unit'),
+                  onPressed: _addSellingUnitInline,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Add selling unit'),
+                ),
+            ],
+          ),
+          if (_editSellingUnits.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            for (final unit in _editSellingUnits)
+              Padding(
+                padding: const EdgeInsets.only(top: AppSpacing.xs),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: AppSpacing.xs,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface,
+                    borderRadius: BorderRadius.circular(AppRadii.small),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${unit.uomCode} · '
+                              '${unit.uomId == variant.baseUomId && unit.conversionFactor == 1 ? 'Base (×1)' : unit.conversionFactor < 1 ? '1 ${unit.uomCode} = ${formatQuantity(unit.conversionFactor)} $_baseCode (${formatQuantity(1 / unit.conversionFactor)} ${unit.uomCode}/$_baseCode)' : '1 ${unit.uomCode} = ${formatQuantity(unit.conversionFactor)} $_baseCode'}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Text(
+                              '${formatPeso(unit.defaultSellingPrice)} / ${unit.uomCode}'
+                              '${unit.barcodeQr.isEmpty ? '' : ' · ${unit.barcodeQr}'}',
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
   List<Widget> _editPricing() => [
     Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1326,6 +1460,10 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
         ),
       ],
     ),
+    const SizedBox(height: AppSpacing.md),
+    _utangMarkupFields(),
+    const SizedBox(height: AppSpacing.md),
+    _editSellingUnitsCard(context),
     const SizedBox(height: AppSpacing.md),
     _storedAtField(),
     const SizedBox(height: AppSpacing.sm),

@@ -2,10 +2,8 @@ import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/network/api_client.dart';
-import 'package:client/data/models/catalogue_option.dart';
 import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/product.dart';
-import 'package:client/data/models/product_writes.dart';
 import 'package:client/data/models/variant_uom.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
@@ -260,18 +258,52 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '${unit.uomCode} · ×${formatQuantity(unit.conversionFactor)} · '
-            '${formatPeso(unit.defaultSellingPrice)}',
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${unit.uomCode} · ×${formatQuantity(unit.conversionFactor)} · '
+                  '${formatPeso(unit.defaultSellingPrice)}',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+              if (isBase)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'Base',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+            ],
           ),
+          if (!isBase) ...[
+            const SizedBox(height: 2),
+            Text(
+              unit.conversionFactor < 1
+                  ? '1 ${unit.uomCode} = ${formatQuantity(unit.conversionFactor)} ${variant.baseUomCode} '
+                        '(${formatQuantity(1 / unit.conversionFactor)} ${unit.uomCode} = 1 ${variant.baseUomCode})'
+                  : '1 ${unit.uomCode} = ${formatQuantity(unit.conversionFactor)} ${variant.baseUomCode}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
           const SizedBox(height: AppSpacing.xs),
           Text(
             // Words, never colour alone: a whole unit takes ones, a measured
             // unit takes fractions (the server enforces it).
-            '${unit.uomIsWhole ? 'Whole' : 'Measured'} · $code',
+            '${unit.uomIsWhole ? 'Whole' : 'Measured'} · $code'
+            '${unit.hasCreditMarkup ? ' · Utang ${formatPeso(unit.creditSellingPrice)}' : ''}',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           if (canEdit || canRemove)
@@ -311,7 +343,8 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
       context: context,
       builder: (_) => _PriceHistoryDialog(
         title: '${widget.product.baseName} · ${variant.variantName}',
-        unitLabel: '${unit.uomCode} (×${formatQuantity(unit.conversionFactor)})',
+        unitLabel:
+            '${unit.uomCode} (×${formatQuantity(unit.conversionFactor)})',
         variantUomId: unit.id,
       ),
     );
@@ -321,7 +354,7 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
     final inventory = context.read<InventoryViewmodel>();
     return showDialog<void>(
       context: context,
-      builder: (_) => _AddSellingUnitDialog(
+      builder: (_) => AddSellingUnitDialog(
         productName: widget.product.baseName,
         variant: variant,
         units: inventory.units,
@@ -379,125 +412,6 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
         // refusal comes back as the sentence the field shows.
         onSubmit: (code) => inventory.setSellingUnitBarcode(unit.id, code),
       ),
-    );
-  }
-}
-
-/// Adds one selling unit to an existing variant, with the SAME fields and rules
-/// as Add product's step 2 (decision 16).
-///
-/// A refused POST keeps the dialog open on the server's sentence, because closing
-/// would leave the clerk with a message and no way to correct the row.
-class _AddSellingUnitDialog extends StatefulWidget {
-  const _AddSellingUnitDialog({
-    required this.productName,
-    required this.variant,
-    required this.units,
-    required this.onSubmit,
-  });
-
-  final String productName;
-  final ProductVariant variant;
-  final List<UnitOfMeasure> units;
-  final Future<String?> Function(NewSellingUnit unit) onSubmit;
-
-  @override
-  State<_AddSellingUnitDialog> createState() => _AddSellingUnitDialogState();
-}
-
-class _AddSellingUnitDialogState extends State<_AddSellingUnitDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final _draft = SellingUnitDraft();
-  String? _error;
-  bool _saving = false;
-
-  @override
-  void dispose() {
-    _draft.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    final unit = NewSellingUnit(
-      uomId: _draft.uomId!,
-      uomCode: _codeFor(_draft.uomId),
-      conversionFactor: double.parse(_draft.factor.text.trim()),
-      sellingPrice: double.parse(_draft.price.text.trim()),
-      barcodeQr: _draft.code.text.trim(),
-    );
-    final message = await widget.onSubmit(unit);
-    if (!mounted) return;
-    if (message != null) {
-      setState(() {
-        _error = message;
-        _saving = false;
-      });
-      return;
-    }
-    Navigator.pop(context);
-  }
-
-  String _codeFor(int? uomId) {
-    for (final unit in widget.units) {
-      if (unit.id == uomId) return unit.code;
-    }
-    return '';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AppDialog(
-      icon: Icons.add_box_outlined,
-      title: 'Add selling unit',
-      subtitle: '${widget.productName} · ${widget.variant.variantName}',
-      width: 520,
-      content: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (_error != null) ...[
-              ErrorBanner(message: _error!),
-              const SizedBox(height: AppSpacing.lg),
-            ],
-            SellingUnitFields(
-              draft: _draft,
-              index: 0,
-              keyPrefix: 'add',
-              baseCode: widget.variant.baseUomCode,
-              units: widget.units,
-              validateUnit: (value) => sellingUnitUnitError(
-                value,
-                baseUomId: widget.variant.baseUomId,
-                usedUomIds: [
-                  for (final unit in widget.variant.sellingUoms) unit.uomId,
-                ],
-              ),
-              validateFactor: (raw) => sellingUnitFactorError(
-                raw,
-                baseCode: widget.variant.baseUomCode,
-              ),
-              validatePrice: sellingUnitPriceError,
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: _saving ? null : _save,
-          child: const Text('Add unit'),
-        ),
-      ],
     );
   }
 }
@@ -608,7 +522,9 @@ class _PriceHistoryDialogState extends State<_PriceHistoryDialog> {
           if (entries.isEmpty) {
             return const Padding(
               padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
-              child: Text('No price changes recorded yet for this selling unit.'),
+              child: Text(
+                'No price changes recorded yet for this selling unit.',
+              ),
             );
           }
           return ConstrainedBox(
