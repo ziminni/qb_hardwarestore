@@ -203,12 +203,21 @@ class PosReceipt {
     this.changeGiven = 0,
     this.deliveryFee = 0,
     this.paymentFee = 0,
+    this.invoiceNo = '',
   });
   final String reference;
   final String officialReceiptNumber;
   final DateTime createdAt;
   final List<PosCartLine> lines;
   final String paymentMethod;
+
+  /// The Invoice number written on the PAPER BIR Official Receipt the customer
+  /// asked for (store-ops Phase 1), printed under the OS number.
+  ///
+  /// Empty on the ordinary Order-Slip-only sale, and the slip then prints
+  /// nothing: an invented or blank invoice number on a BIR document would be a
+  /// number the shop never wrote in its own booklet.
+  final String invoiceNo;
 
   /// The FIRST tender's amount for a body that predates split payment. When
   /// [payments] is present the figures below come from the server's rows.

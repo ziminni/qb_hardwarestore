@@ -155,6 +155,9 @@ class InventorySalesViewmodel extends ChangeNotifier {
     paymentFee: r.paymentFee,
     creditSale: r.creditSale,
     bodegaStatus: r.bodegaStatus,
+    // Store-ops Phase 1: the BIR invoice no. the sale was tagged with, so the
+    // View sheet tells an OR-backed sale from an Order-Slip-only one.
+    invoiceNo: r.invoiceNo,
   );
 
   InventoryReturn _returnOf(

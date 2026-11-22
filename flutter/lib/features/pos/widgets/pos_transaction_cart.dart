@@ -364,6 +364,10 @@ class PosTransactionCart extends StatelessWidget {
                 ),
               ),
           ],
+          // Store-ops Phase 1: the customer asked for a paper BIR Official Receipt.
+          // Offered on every basket (any sale may need one) and it reveals the
+          // Invoice-number field the cashier types off the booklet.
+          PosOfficialReceiptToggle(),
           const SizedBox(height: 14),
           // The one action the till exists for: the biggest target on screen.
           FilledButton.icon(

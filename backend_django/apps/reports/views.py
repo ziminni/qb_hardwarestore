@@ -22,7 +22,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
 from apps.inventory.models import GoodsReceipt, InventoryBatch, StockAdjustment
-from apps.pos.models import SalesItem, SalesItemDeduction, SalesTransaction
+from apps.pos.models import Payment, SalesItem, SalesItemDeduction, SalesTransaction
 from apps.requisitions.models import Requisition
 from apps.users.permissions import IsManagerRole
 
@@ -282,18 +282,196 @@ def sales_summary_view(request):
         )
     by_category.sort(key=lambda r: r["net_merchandise"], reverse=True)
 
+    # Phase 6 (2026-11-22): OR-backed (BIR invoice tagged) vs untagged OS VAT split,
+    # payment-method breakdown, and daily/weekly/monthly period rollup.
+    granularity = (request.query_params.get("granularity") or "day").strip().lower()
+    if granularity not in ("day", "week", "month"):
+        return Response(
+            {"detail": "granularity must be day, week, or month."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    or_vat_breakdown = _or_vat_split(qs)
+    by_payment_method = [
+        {
+            "method": row["method"],
+            "transactions": row["transactions"],
+            "total": _q2(row["total"] or _ZERO),
+        }
+        for row in (
+            Payment.objects.filter(transaction__in=qs)
+            .values("method")
+            .annotate(
+                transactions=Count("transaction_id", distinct=True),
+                total=Sum("amount_tendered"),
+            )
+            .order_by("-total")
+        )
+    ]
+    by_period = _group_transactions_by_period(qs, granularity)
+
     return Response(
         {
             "from": str(frm),
             "to": str(to),
+            "granularity": granularity,
             "totals": totals,
+            "or_vat_breakdown": or_vat_breakdown,
+            "by_payment_method": by_payment_method,
             "cost_coverage": {
                 "costed_deductions": costed_count,
                 "missing_cost_deductions": missing_count,
                 "complete": missing_count == 0,
             },
             "by_day": by_day,
+            "by_period": by_period,
             "by_category": by_category,
+        }
+    )
+
+
+def _period_key(day: date, granularity: str) -> str:
+    if granularity == "month":
+        return f"{day.year:04d}-{day.month:02d}"
+    if granularity == "week":
+        monday = day - timedelta(days=day.weekday())
+        return monday.isoformat()
+    return day.isoformat()
+
+
+def _or_vat_split(qs):
+    def _agg(sub):
+        a = sub.aggregate(
+            transactions=Count("id"),
+            gross_sales=Sum("grand_total"),
+            vatable_sales=Sum("vatable_sales"),
+            vat=Sum("vat_amount"),
+        )
+        return {
+            "transactions": a["transactions"] or 0,
+            "gross_sales": _q2(a["gross_sales"] or _ZERO),
+            "vatable_sales": _q2(a["vatable_sales"] or _ZERO),
+            "vat": _q2(a["vat"] or _ZERO),
+        }
+
+    or_qs = qs.exclude(invoice_no="")
+    untagged_qs = qs.filter(invoice_no="")
+    return {
+        "or_backed": _agg(or_qs),
+        "untagged_os": _agg(untagged_qs),
+        "combined": _agg(qs),
+    }
+
+
+def _group_transactions_by_period(qs, granularity: str):
+    buckets: dict[str, dict] = {}
+    for tx in qs.select_related(None).only(
+        "trans_date",
+        "grand_total",
+        "vatable_sales",
+        "vat_amount",
+        "discount_amount",
+        "invoice_no",
+    ):
+        key = _period_key(tx.trans_date.date(), granularity)
+        b = buckets.setdefault(
+            key,
+            {
+                "period": key,
+                "transactions": 0,
+                "gross_sales": _ZERO,
+                "vatable_sales": _ZERO,
+                "vat": _ZERO,
+                "discounts": _ZERO,
+                "or_backed_transactions": 0,
+                "or_backed_sales": _ZERO,
+                "or_backed_vatable": _ZERO,
+                "or_backed_vat": _ZERO,
+                "untagged_transactions": 0,
+                "untagged_sales": _ZERO,
+                "untagged_vatable": _ZERO,
+                "untagged_vat": _ZERO,
+            },
+        )
+        gross = tx.grand_total or _ZERO
+        vatable = tx.vatable_sales or _ZERO
+        vat = tx.vat_amount or _ZERO
+        disc = tx.discount_amount or _ZERO
+        b["transactions"] += 1
+        b["gross_sales"] += gross
+        b["vatable_sales"] += vatable
+        b["vat"] += vat
+        b["discounts"] += disc
+        if tx.invoice_no:
+            b["or_backed_transactions"] += 1
+            b["or_backed_sales"] += gross
+            b["or_backed_vatable"] += vatable
+            b["or_backed_vat"] += vat
+        else:
+            b["untagged_transactions"] += 1
+            b["untagged_sales"] += gross
+            b["untagged_vatable"] += vatable
+            b["untagged_vat"] += vat
+
+    result = []
+    for key in sorted(buckets.keys()):
+        b = buckets[key]
+        for k, v in list(b.items()):
+            if isinstance(v, Decimal):
+                b[k] = _q2(v)
+        result.append(b)
+    return result
+
+
+@api_view(["GET"])
+@permission_classes([IsManagerRole])
+def vat_summary_view(request):
+    """Daily / weekly / monthly VAT report split into OR-backed vs untagged OS.
+
+    GET /api/v1/reports/vat-summary/?from=YYYY-MM-DD&to=YYYY-MM-DD&granularity=day|week|month
+    """
+    bad = [
+        p
+        for p in ("from", "to")
+        if request.query_params.get(p) and not parse_date(request.query_params[p])
+    ]
+    if bad:
+        return _range_error()
+    granularity = (request.query_params.get("granularity") or "day").strip().lower()
+    if granularity not in ("day", "week", "month"):
+        return Response(
+            {"detail": "granularity must be day, week, or month."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    frm, to = _parse_range(request)
+    qs = SalesTransaction.objects.filter(
+        status=SalesTransaction.Status.COMPLETED,
+        trans_date__date__range=(frm, to),
+    ).select_related("customer", "receipt")
+
+    or_transactions = [
+        {
+            "id": tx.id,
+            "transaction_no": tx.transaction_no,
+            "or_number": tx.receipt.or_number if hasattr(tx, "receipt") else "",
+            "invoice_no": tx.invoice_no,
+            "trans_date": tx.trans_date.isoformat(),
+            "customer_name": tx.customer.name if tx.customer_id else "",
+            "grand_total": _q2(tx.grand_total or _ZERO),
+            "vatable_sales": _q2(tx.vatable_sales or _ZERO),
+            "vat_amount": _q2(tx.vat_amount or _ZERO),
+        }
+        for tx in qs.exclude(invoice_no="").order_by("trans_date", "id")
+    ]
+
+    return Response(
+        {
+            "from": str(frm),
+            "to": str(to),
+            "granularity": granularity,
+            "totals": _or_vat_split(qs),
+            "by_period": _group_transactions_by_period(qs, granularity),
+            "or_transactions": or_transactions,
         }
     )
 

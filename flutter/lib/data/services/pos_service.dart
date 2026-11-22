@@ -5,7 +5,8 @@ import 'package:client/data/models/customer.dart';
 import 'package:client/data/models/delivery.dart';
 import 'package:client/data/models/json_field.dart' show nestedList;
 import 'package:client/data/models/pick_up.dart';
-import 'package:client/data/models/pos_transaction.dart' show PosReceiptPayment;
+import 'package:client/data/models/pos_transaction.dart'
+    show PosCartLine, PosReceipt, PosReceiptPayment;
 import 'package:client/data/models/sale_discount.dart';
 import 'package:dio/dio.dart';
 
@@ -111,6 +112,7 @@ class PosCheckoutResult {
     this.changeGiven = 0,
     this.deliveryFee = 0,
     this.paymentFee = 0,
+    this.invoiceNo = '',
   });
 
   factory PosCheckoutResult.fromJson(Map<String, dynamic> json) {
@@ -155,6 +157,11 @@ class PosCheckoutResult {
       deliveryFee: _moneyOrZero(json['delivery_fee']),
       // Owner ruling (tender fees): the server's own sum, never recomputed.
       paymentFee: _moneyOrZero(json['payment_fee']),
+      // Store-ops Phase 1: the paper BIR Official Receipt's invoice no., when the
+      // customer asked for one. Empty on the ordinary Order-Slip-only sale.
+      invoiceNo: json['invoice_no'] is String
+          ? (json['invoice_no'] as String).trim()
+          : '',
     );
   }
 
@@ -182,6 +189,17 @@ class PosCheckoutResult {
           quantity: double.parse('${item['qty']}'),
           unitPrice: double.parse('${item['unit_price']}'),
           subtotal: double.parse('${item['subtotal']}'),
+          // The name and the unit the sale stored, so a REPRINT (the attach-invoice
+          // flow) can print the line without a cart to read them from.
+          productName: item['product_name'] is String
+              ? item['product_name'] as String
+              : '',
+          variantName: item['variant_name'] is String
+              ? item['variant_name'] as String
+              : '',
+          unit: item['variant_uom_code'] is String
+              ? item['variant_uom_code'] as String
+              : '',
           // Phase 5 B4: the server names the pick-up point on every sale line, so
           // the receipt prints it from the STORED sale rather than from today's
           // catalogue. An older body omits it, and the receipt then says nothing.
@@ -238,6 +256,50 @@ class PosCheckoutResult {
   /// The fees the server charged on this sale's non-cash tenders (owner ruling),
   /// already inside [grandTotal]. Zero when no fee applies.
   final double paymentFee;
+
+  /// The Invoice number written on the PAPER BIR Official Receipt (store-ops
+  /// Phase 1). Empty means the sale was rung on an Order Slip alone.
+  final String invoiceNo;
+
+  /// This sale as something the roll can print, for the REPRINT path.
+  ///
+  /// The checkout response and `attach-invoice/` answer the same full sale, so a
+  /// slip reprinted after the fact prints from the server's own numbers rather
+  /// than from whatever the till happened to hold earlier. [vatRate] is passed
+  /// by the caller because the rate is a store setting, not a fact of the sale.
+  PosReceipt toReceipt({double vatRate = 0}) => PosReceipt(
+    reference: transactionNo,
+    officialReceiptNumber: orNumber,
+    createdAt: transDate,
+    lines: [
+      for (final line in lines)
+        PosCartLine(
+          variantUomId: line.variantUomId,
+          productName: line.productName,
+          variantName: line.variantName,
+          quantity: line.quantity,
+          unit: line.unit,
+          unitPrice: line.unitPrice,
+          availableQuantity: line.quantity,
+          storedAtName: line.storedAtName,
+          pickUp: line.pickUp,
+        ),
+    ],
+    paymentMethod: payments.isEmpty ? 'CASH' : payments.first.method,
+    amountPaid: payments.fold(0.0, (sum, payment) => sum + payment.amount),
+    payments: payments,
+    total: grandTotal,
+    discountAmount: discountAmount,
+    discountReason: discountReason,
+    vatableSales: vatableSales,
+    vatAmount: vatAmount,
+    vatRegistered: vatRegistered,
+    vatRate: vatRate,
+    changeGiven: changeGiven,
+    deliveryFee: deliveryFee,
+    paymentFee: paymentFee,
+    invoiceNo: invoiceNo,
+  );
 }
 
 /// One written sale line, read back from the transaction response.
@@ -247,6 +309,9 @@ class PosCheckoutLine {
     required this.quantity,
     required this.unitPrice,
     required this.subtotal,
+    this.productName = '',
+    this.variantName = '',
+    this.unit = '',
     this.storedAtName = '',
     this.pickUp = const [],
   });
@@ -255,6 +320,12 @@ class PosCheckoutLine {
   final double quantity;
   final double unitPrice;
   final double subtotal;
+
+  /// What the line is CALLED, as the sale stored it. Needed by the reprint path:
+  /// a slip printed from a stored sale has no cart to take a name from.
+  final String productName;
+  final String variantName;
+  final String unit;
 
   /// The product's pick-up point as the SALE recorded it (Phase 5 B4). Empty on
   /// a body written before B4.
@@ -451,6 +522,48 @@ class PosServiceException implements Exception {
 ///   optimistically — it is cleared only after a successful response.
 /// * Insufficient stock is an *expected* outcome, not a crash. It arrives as a 400
 ///   carrying [PosServiceException.isInsufficientStock] and the shortfall.
+/// The `POST /api/v1/transactions/` body for ONE checkout.
+///
+/// A pure function so a test can read the wire shape without a server — the
+/// same reason `ReceiptContent` is split out of the PDF builder.
+Map<String, dynamic> checkoutBody({
+  required int customerId,
+  required List<PosCheckoutItem> items,
+  required List<PosCheckoutPayment> payments,
+  String source = 'WALK_IN',
+  PosDiscount? discount,
+  String? discountApproval,
+  DeliveryDraft? delivery,
+  bool creditSale = false,
+  String? invoiceNo,
+}) => {
+  // `cashier` is deliberately absent: the serializer is read-only for it and the
+  // server assigns the actor from the authenticated request. A client that could
+  // set it could attribute a sale to another cashier.
+  'customer': customerId,
+  'source': source,
+  'items': [for (final item in items) item.toJson()],
+  'payments': [for (final payment in payments) payment.toJson()],
+  // Decision 18: the discount is checked and applied on the server, and a
+  // discount above the cap also needs the manager's one-time approval token.
+  if (discount != null) 'discount': discount.toJson(),
+  if (discountApproval != null && discountApproval.isNotEmpty)
+    'discount_approval': discountApproval,
+  // Phase 5 B3: the delivery object is optional; when it is present the server
+  // writes the slip and adds its fee to `grand_total` AFTER the discount
+  // (ENDPOINTS.md, *Delivery charge*).
+  if (delivery != null) 'delivery': delivery.toJson(),
+  // Owner ruling (utang markup): the till's explicit "charge at credit prices"
+  // choice. The server still prices every line itself and refuses a fully-paid
+  // credit sale / underpaid cash sale with markup.
+  'credit_sale': creditSale,
+  // Store-ops Phase 1: the Invoice number written on the paper BIR Official
+  // Receipt the customer asked for at the till. Omitted when the cashier did not
+  // tick the switch, so an untagged sale looks exactly as it did before.
+  if (invoiceNo != null && invoiceNo.trim().isNotEmpty)
+    'invoice_no': invoiceNo.trim(),
+};
+
 class PosService {
   PosService({ApiClient? client}) : _client = client ?? ApiClient.instance;
 
@@ -502,33 +615,23 @@ class PosService {
     String? discountApproval,
     DeliveryDraft? delivery,
     bool creditSale = false,
+    String? invoiceNo,
   }) async {
     try {
       final response = await _client.post<Map<String, dynamic>>(
         transactionsPath,
         headers: _idempotencyHeaders(idempotencyKey),
-        data: {
-          'customer': customerId,
-          // `cashier` is deliberately absent: the serializer is read-only for it and
-          // the server assigns the actor from the authenticated request. A client
-          // that could set it could attribute a sale to another cashier.
-          'source': source,
-          'items': [for (final item in items) item.toJson()],
-          'payments': [for (final payment in payments) payment.toJson()],
-          // Decision 18: the discount is checked and applied on the server, and a
-          // discount above the cap also needs the manager's one-time approval token.
-          if (discount != null) 'discount': discount.toJson(),
-          if (discountApproval != null && discountApproval.isNotEmpty)
-            'discount_approval': discountApproval,
-          // Phase 5 B3: the delivery object is optional; when it is present the
-          // server writes the slip and adds its fee to `grand_total` AFTER the
-          // discount (ENDPOINTS.md, *Delivery charge*).
-          if (delivery != null) 'delivery': delivery.toJson(),
-          // Owner ruling (utang markup): the till's explicit "charge at credit
-          // prices" choice. The server still prices every line itself and
-          // refuses a fully-paid credit sale / underpaid cash sale with markup.
-          'credit_sale': creditSale,
-        },
+        data: checkoutBody(
+          customerId: customerId,
+          items: items,
+          payments: payments,
+          source: source,
+          discount: discount,
+          discountApproval: discountApproval,
+          delivery: delivery,
+          creditSale: creditSale,
+          invoiceNo: invoiceNo,
+        ),
       );
       final data = response.data;
       if (data == null) {
@@ -621,8 +724,47 @@ class PosService {
     }
   }
 
-  /// 32 hex characters from a CSPRNG: one sale attempt's `Idempotency-Key`.
+  /// Attaches the paper BIR Official Receipt's Invoice number to a sale the
+  /// customer brought back (store-ops Phase 1).
   ///
+  /// [number] is the OS number printed on the slip, or its transaction number;
+  /// the server matches either EXACTLY and case-insensitively, and deliberately
+  /// does NOT scope the lookup to this cashier: the customer is holding the slip,
+  /// so the number on it is the authority, and the sale may have been rung at
+  /// another till days ago.
+  ///
+  /// [replace] overwrites a DIFFERENT number already on the sale and is refused
+  /// by the server (403) unless the caller is a Store Manager or an Admin.
+  ///
+  /// The answer is the FULL sale, so the caller can reprint the slip with the
+  /// invoice number on it without a second round trip.
+  Future<PosCheckoutResult> attachInvoice({
+    required String number,
+    required String invoiceNo,
+    bool replace = false,
+  }) async {
+    try {
+      final response = await _client.post<Map<String, dynamic>>(
+        '${transactionsPath}attach-invoice/',
+        data: {
+          'number': number.trim(),
+          'invoice_no': invoiceNo.trim(),
+          if (replace) 'replace': true,
+        },
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const PosServiceException(
+          'The server did not return the tagged sale.',
+        );
+      }
+      return PosCheckoutResult.fromJson(data);
+    } on DioException catch (error) {
+      throw _failureFor(error);
+    }
+  }
+
+  /// 32 hex characters from a CSPRNG: one sale attempt's `Idempotency-Key`.  ///
   /// Well inside the server's 64-character cap, and NOT a UUID dependency: the
   /// server only requires uniqueness per cashier, and `Random.secure()` gives that
   /// without adding a package.

@@ -133,6 +133,28 @@ class PosTransactionViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The Invoice number the cashier typed off the PAPER BIR Official Receipt
+  /// (store-ops Phase 1), or null when this sale is an Order Slip alone.
+  ///
+  /// It rides the checkout body, so the sale is tagged in the SAME atomic block
+  /// that rings it: a number the server refuses (a duplicate, say) rings no sale
+  /// at all rather than leaving a slip that claims a BIR invoice it has not got.
+  String? _invoiceNo;
+  String? get invoiceNo => _invoiceNo;
+
+  /// Records the number typed for this sale. A blank value clears the tag, so
+  /// switching the OR option off is the same as never having typed one.
+  void setInvoiceNo(String? value) {
+    final cleaned = (value ?? '').trim();
+    final next = cleaned.isEmpty ? null : cleaned;
+    if (_invoiceNo == next) return;
+    _invoiceNo = next;
+    // A different BIR number is a different request body, so this attempt's spent
+    // Idempotency-Key must not replay the previous one.
+    _dropAttemptKey();
+    notifyListeners();
+  }
+
   /// What the cart is worth right now: credit prices when the switch is on, less the
   /// LINE discounts the cashier gave (they come off before the sale discount).
   double get total =>
@@ -151,7 +173,10 @@ class PosTransactionViewmodel extends ChangeNotifier {
   /// on, or the base would not subtract from the figure the discount is measured on.
   double get neverDiscountedTotal => _lines
       .where((line) => !line.allowDiscount)
-      .fold(0, (sum, line) => sum + (_creditSale ? line.creditTotal : line.total));
+      .fold(
+        0,
+        (sum, line) => sum + (_creditSale ? line.creditTotal : line.total),
+      );
 
   /// True when any line carries a discount. A parkable basket cannot keep one (the
   /// held-cart wire takes ids, quantities and prices only), so the till stops the
@@ -1370,6 +1395,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
           discountApproval: discountApprovalToken,
           delivery: delivery,
           creditSale: _creditSale,
+          invoiceNo: _invoiceNo,
         );
         if (resumedCartId != null) {
           // The edited basket is sold, so the parked copy must not survive to be resumed
@@ -1416,6 +1442,9 @@ class PosTransactionViewmodel extends ChangeNotifier {
           // The server's own "Delivery charge" (Phase 5 B3). Zero for a sale the
           // customer carried out, and the receipt then prints no line.
           deliveryFee: result.deliveryFee,
+          // Store-ops Phase 1: the invoice no. printed under the OS number, read
+          // back from the SERVER's row rather than from what was typed.
+          invoiceNo: result.invoiceNo,
         ),
       );
       _lines.clear();

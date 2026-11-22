@@ -62,6 +62,8 @@ class PosCartBar extends StatelessWidget {
               PosCreditPriceToggle(onDark: true),
               const SizedBox(width: AppSpacing.sm),
             ],
+            PosOfficialReceiptToggle(onDark: true),
+            const SizedBox(width: AppSpacing.sm),
             OutlinedButton(
               onPressed: onViewCart,
               style: OutlinedButton.styleFrom(
@@ -126,12 +128,91 @@ class PosCreditPriceToggle extends StatelessWidget {
             value: state.creditSale,
             onChanged: state.lines.isEmpty ? null : state.setCreditSale,
           ),
-          Text(
-            'Utang prices',
-            style: TextStyle(color: color, fontSize: 13),
-          ),
+          Text('Utang prices', style: TextStyle(color: color, fontSize: 13)),
         ],
       ),
+    );
+  }
+}
+
+/// The till's "customer wants an Official Receipt (BIR)" switch, and the field
+/// its Invoice number is typed into (store-ops Phase 1).
+///
+/// The shop prints an Order Slip for every sale; the BIR Official Receipt is a
+/// separate PAPER booklet. When the customer asks for one the cashier writes it
+/// out by hand and types its Invoice number here, so the sale is tagged and can
+/// be reprinted later with `OR Invoice No.` under the OS number.
+class PosOfficialReceiptToggle extends StatefulWidget {
+  const PosOfficialReceiptToggle({super.key, this.onDark = false});
+
+  /// The pinned bar sits on the brand black, the cart on the page background.
+  final bool onDark;
+
+  static const switchKey = ValueKey('official-receipt-switch');
+  static const fieldKey = ValueKey('official-receipt-invoice-field');
+
+  @override
+  State<PosOfficialReceiptToggle> createState() =>
+      _PosOfficialReceiptToggleState();
+}
+
+class _PosOfficialReceiptToggleState extends State<PosOfficialReceiptToggle> {
+  final _controller = TextEditingController();
+  bool _enabled = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _setEnabled(bool value) {
+    setState(() => _enabled = value);
+    if (value) return;
+    // Switching the option off is the same as never having typed a number: both
+    // the field and the sale's tag are cleared.
+    _controller.clear();
+    context.read<PosTransactionViewmodel>().setInvoiceNo(null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = widget.onDark ? AppColors.brandWhite : AppColors.textPrimary;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Tooltip(
+          message:
+              'Customer wants an Official Receipt (BIR). Write the paper OR, '
+              'then type its Invoice number.',
+          child: Switch(
+            key: PosOfficialReceiptToggle.switchKey,
+            value: _enabled,
+            onChanged: _setEnabled,
+          ),
+        ),
+        Text('OR (BIR)', style: TextStyle(color: color, fontSize: 13)),
+        if (_enabled) ...[
+          const SizedBox(width: AppSpacing.sm),
+          SizedBox(
+            width: 150,
+            child: TextField(
+              key: PosOfficialReceiptToggle.fieldKey,
+              controller: _controller,
+              autofocus: true,
+              textCapitalization: TextCapitalization.characters,
+              onChanged: context.read<PosTransactionViewmodel>().setInvoiceNo,
+              style: TextStyle(color: color, fontSize: 13),
+              decoration: InputDecoration(
+                isDense: true,
+                labelText: 'OR invoice no.',
+                labelStyle: TextStyle(color: color, fontSize: 12),
+                border: const OutlineInputBorder(),
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

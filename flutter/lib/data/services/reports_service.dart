@@ -23,18 +23,27 @@ class ReportsService {
   final ApiClient _client;
 
   static const String salesSummaryPath = '/api/v1/reports/sales-summary/';
+  static const String vatSummaryPath = '/api/v1/reports/vat-summary/';
   static const String inventoryValuationPath =
       '/api/v1/reports/inventory-valuation/';
   static const String stockMovementsPath = '/api/v1/reports/stock-movements/';
   static const String requisitionHistoryPath =
       '/api/v1/reports/requisition-history/';
 
-  /// Daily sales totals for the range; the server defaults to the last 30 days.
-  Future<SalesSummary> fetchSalesSummary({String? from, String? to}) async {
+  /// Daily/weekly/monthly sales totals for the range; defaults to last 30 days.
+  Future<SalesSummary> fetchSalesSummary({
+    String? from,
+    String? to,
+    String granularity = 'day',
+  }) async {
     try {
       final response = await _client.get<Map<String, dynamic>>(
         salesSummaryPath,
-        queryParameters: {'from': ?from, 'to': ?to},
+        queryParameters: {
+          'from': ?from,
+          'to': ?to,
+          'granularity': granularity,
+        },
       );
       return SalesSummary.fromJson(response.data!);
     } on DioException catch (error) {
@@ -44,6 +53,31 @@ class ReportsService {
       // a manager an empty, reassuring report over a server they cannot read.
       throw const ReportsServiceException(
         'The sales summary could not be read. Try again.',
+      );
+    }
+  }
+
+  /// Daily / weekly / monthly VAT summary split into OR-backed vs untagged OS.
+  Future<VatReportSummary> fetchVatSummary({
+    String? from,
+    String? to,
+    String granularity = 'day',
+  }) async {
+    try {
+      final response = await _client.get<Map<String, dynamic>>(
+        vatSummaryPath,
+        queryParameters: {
+          'from': ?from,
+          'to': ?to,
+          'granularity': granularity,
+        },
+      );
+      return VatReportSummary.fromJson(response.data!);
+    } on DioException catch (error) {
+      throw ReportsServiceException(_messageFor(error, 'VAT summary'));
+    } on FormatException {
+      throw const ReportsServiceException(
+        'The VAT summary could not be read. Try again.',
       );
     }
   }

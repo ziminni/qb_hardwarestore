@@ -96,6 +96,125 @@ class SalesCategoryBreakdown {
       );
 }
 
+class VatBucketTotals {
+  const VatBucketTotals({
+    this.transactions = 0,
+    this.grossSales = 0,
+    this.vatableSales = 0,
+    this.vat = 0,
+  });
+
+  final int transactions;
+  final double grossSales;
+  final double vatableSales;
+  final double vat;
+
+  factory VatBucketTotals.fromJson(Map<String, dynamic> json) =>
+      VatBucketTotals(
+        transactions: (json['transactions'] as num?)?.toInt() ?? 0,
+        grossSales: optionalDecimalField(json, 'gross_sales'),
+        vatableSales: optionalDecimalField(json, 'vatable_sales'),
+        vat: optionalDecimalField(json, 'vat'),
+      );
+}
+
+class OrVatSplit {
+  const OrVatSplit({
+    this.orBacked = const VatBucketTotals(),
+    this.untaggedOs = const VatBucketTotals(),
+    this.combined = const VatBucketTotals(),
+  });
+
+  final VatBucketTotals orBacked;
+  final VatBucketTotals untaggedOs;
+  final VatBucketTotals combined;
+
+  factory OrVatSplit.fromJson(Map<String, dynamic> json) => OrVatSplit(
+    orBacked: json['or_backed'] is Map<String, dynamic>
+        ? VatBucketTotals.fromJson(json['or_backed'] as Map<String, dynamic>)
+        : const VatBucketTotals(),
+    untaggedOs: json['untagged_os'] is Map<String, dynamic>
+        ? VatBucketTotals.fromJson(json['untagged_os'] as Map<String, dynamic>)
+        : const VatBucketTotals(),
+    combined: json['combined'] is Map<String, dynamic>
+        ? VatBucketTotals.fromJson(json['combined'] as Map<String, dynamic>)
+        : const VatBucketTotals(),
+  );
+}
+
+class VatPeriodRow {
+  const VatPeriodRow({
+    required this.period,
+    required this.transactions,
+    required this.grossSales,
+    required this.vat,
+    required this.orBackedTransactions,
+    required this.orBackedSales,
+    required this.orBackedVatable,
+    required this.orBackedVat,
+    required this.untaggedTransactions,
+    required this.untaggedSales,
+    required this.untaggedVatable,
+    required this.untaggedVat,
+  });
+
+  final String period;
+  final int transactions;
+  final double grossSales;
+  final double vat;
+  final int orBackedTransactions;
+  final double orBackedSales;
+  final double orBackedVatable;
+  final double orBackedVat;
+  final int untaggedTransactions;
+  final double untaggedSales;
+  final double untaggedVatable;
+  final double untaggedVat;
+
+  factory VatPeriodRow.fromJson(Map<String, dynamic> json) => VatPeriodRow(
+    period: stringField(json, 'period'),
+    transactions: (json['transactions'] as num?)?.toInt() ?? 0,
+    grossSales: optionalDecimalField(json, 'gross_sales'),
+    vat: optionalDecimalField(json, 'vat'),
+    orBackedTransactions:
+        (json['or_backed_transactions'] as num?)?.toInt() ?? 0,
+    orBackedSales: optionalDecimalField(json, 'or_backed_sales'),
+    orBackedVatable: optionalDecimalField(json, 'or_backed_vatable'),
+    orBackedVat: optionalDecimalField(json, 'or_backed_vat'),
+    untaggedTransactions: (json['untagged_transactions'] as num?)?.toInt() ?? 0,
+    untaggedSales: optionalDecimalField(json, 'untagged_sales'),
+    untaggedVatable: optionalDecimalField(json, 'untagged_vatable'),
+    untaggedVat: optionalDecimalField(json, 'untagged_vat'),
+  );
+}
+
+class VatReportSummary {
+  const VatReportSummary({
+    required this.from,
+    required this.to,
+    required this.granularity,
+    required this.totals,
+    required this.periods,
+  });
+
+  final String from;
+  final String to;
+  final String granularity;
+  final OrVatSplit totals;
+  final List<VatPeriodRow> periods;
+
+  factory VatReportSummary.fromJson(Map<String, dynamic> json) =>
+      VatReportSummary(
+        from: stringField(json, 'from'),
+        to: stringField(json, 'to'),
+        granularity: (json['granularity'] as String?) ?? 'day',
+        totals: json['totals'] is Map<String, dynamic>
+            ? OrVatSplit.fromJson(json['totals'] as Map<String, dynamic>)
+            : const OrVatSplit(),
+        periods: nestedList(json, 'by_period', VatPeriodRow.fromJson),
+      );
+}
+
 /// GET /api/v1/reports/sales-summary/
 class SalesSummary {
   const SalesSummary({

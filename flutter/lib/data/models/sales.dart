@@ -81,6 +81,7 @@ class InventorySale {
     this.creditSale = false,
     this.bodegaStatus,
     this.orNumber = '',
+    this.invoiceNo,
   });
   final String transactionNo;
   final DateTime date;
@@ -112,6 +113,10 @@ class InventorySale {
   final bool creditSale;
   final String? bodegaStatus;
   final String orNumber;
+
+  /// The Invoice number written on the paper BIR Official Receipt
+  /// (store-ops Phase 1). Null when the sale got an Order Slip only.
+  final String? invoiceNo;
 
   /// What the customer actually owed: the lines less the discount plus any payment fee.
   /// The sheet's total bar shows this, so a discounted or fee-bearing sale reconciles.

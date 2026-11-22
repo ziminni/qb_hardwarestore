@@ -27,6 +27,7 @@ import 'package:client/features/pos/widgets/pos_receipt_dialog.dart';
 import 'package:client/features/pos/widgets/pos_sale_quantity_dialog.dart';
 import 'package:client/data/services/customer_profile_store.dart';
 import 'package:client/data/services/pos_service.dart';
+import 'package:client/features/pos/widgets/pos_attach_or_dialog.dart';
 import 'package:client/features/pos/widgets/pos_cart_bar.dart';
 import 'package:client/features/pos/widgets/pos_transaction_cart.dart';
 import 'package:client/features/sales/widgets/live_load_error_banner.dart';
@@ -503,6 +504,30 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     final narrow = MediaQuery.sizeOf(context).width < AppBreakpoints.rail;
     final float = formatPeso(current.openingFloat);
     return [
+      Tooltip(
+        // Store-ops Phase 1: the customer came back with the slip and wants the
+        // invoice number attached to it. Beside the shift actions because it is a
+        // till errand, not part of ringing a basket.
+        message: narrow
+            ? 'Attach OR invoice'
+            : 'Tag a sale with the paper OR invoice no.',
+        child: TextButton.icon(
+          key: const ValueKey('attach-or-button'),
+          onPressed: () => openAttachOrDialog(context),
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.textPrimary,
+            minimumSize: const Size(44, 44),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+              side: const BorderSide(color: AppColors.border),
+            ),
+          ),
+          icon: const Icon(Icons.receipt_long_outlined, size: 18),
+          label: narrow ? const SizedBox.shrink() : const Text('Attach OR'),
+        ),
+      ),
+      const SizedBox(width: AppSpacing.md),
       Tooltip(
         message: 'Opening float $float',
         child: Container(
