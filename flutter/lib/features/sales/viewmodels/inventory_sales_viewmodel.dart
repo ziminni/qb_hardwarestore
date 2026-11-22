@@ -223,6 +223,8 @@ class InventorySalesViewmodel extends ChangeNotifier {
         return 'Requisition';
       case 'RETURN':
         return 'Return';
+      case 'EXCHANGE':
+        return 'Exchange';
       default:
         throw FormatException('Unknown transaction source: "$api"');
     }
