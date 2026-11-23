@@ -288,10 +288,7 @@ class _AdminUserManagementPageState extends State<AdminUserManagementPage> {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      icon: const Icon(
-                        Icons.filter_alt_off_outlined,
-                        size: 16,
-                      ),
+                      icon: const Icon(Icons.filter_alt_off_outlined, size: 16),
                       label: const Text('Clear filters'),
                     ),
                   SizedBox(
@@ -916,8 +913,7 @@ class _CreateAccountDialogState extends State<_CreateAccountDialog> {
         prefixIcon: const Icon(Icons.lock_outline_rounded, size: 18),
         suffixIcon: IconButton(
           tooltip: _obscurePassword ? 'Show password' : 'Hide password',
-          onPressed: () =>
-              setState(() => _obscurePassword = !_obscurePassword),
+          onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
           icon: Icon(
             _obscurePassword
                 ? Icons.visibility_outlined
@@ -1087,7 +1083,8 @@ class _RolePermissionsPreview extends StatelessWidget {
       _ModulePermission(
         module: 'POS & Till',
         icon: Icons.point_of_sale_outlined,
-        summary: 'New transaction, history, held carts, shifts, returns, printer',
+        summary:
+            'New transaction, history, held carts, shifts, returns, printer',
       ),
       _ModulePermission(
         module: 'Customer Release & Payments',
@@ -1145,7 +1142,8 @@ class _RolePermissionsPreview extends StatelessWidget {
       _ModulePermission(
         module: 'Governance & System',
         icon: Icons.admin_panel_settings_outlined,
-        summary: 'User accounts, store settings, audit logs, backups & security',
+        summary:
+            'User accounts, store settings, audit logs, backups & security',
       ),
     ],
   };
@@ -1201,11 +1199,7 @@ class _RolePermissionsPreview extends StatelessWidget {
                     color: p.selected,
                     borderRadius: BorderRadius.circular(AppRadii.small),
                   ),
-                  child: Icon(
-                    modules[i].icon,
-                    size: 15,
-                    color: p.accentInk,
-                  ),
+                  child: Icon(modules[i].icon, size: 15, color: p.accentInk),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
