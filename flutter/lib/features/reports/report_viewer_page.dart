@@ -290,9 +290,7 @@ class _ReportViewerViewState extends State<ReportViewerView> {
             // (decision 01-export-layout); the rest keep the button off and
             // say when it lands, rather than pressed into a no-op.
             Tooltip(
-              message: view?.pdfBytes == null
-                  ? 'PDF export arrives in P3'
-                  : '',
+              message: view?.pdfBytes == null ? 'PDF export arrives in P3' : '',
               child: OutlinedButton.icon(
                 key: const ValueKey('report-viewer-export-pdf'),
                 onPressed: view?.pdfBytes == null ? null : _exportPdf,

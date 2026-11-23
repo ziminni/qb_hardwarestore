@@ -51,7 +51,7 @@ P1 Sales reports (🤖 backend + viewer, 🧑 KPI tile copy):
 P2 Inventory reports (🤖 backend + UI, 🧑 receiving copy):
 - [x] Movement fix (sales-out, transfers, returns in/out) + GRN / STN / FIFO age / shrinkage / adjustments (🤖) — APPROVED, re-run 9/9 OK; follow-up: mirror missing-cost counter instead of ₱0.00 fallback in _landed_cost_map
 - [x] Reorder (low-stock threshold) / dead stock (03 rule) / fast-slow / cycle count from CORRECTIONs (🤖) — APPROVED, re-run 15/15 OK with batch A
-- [ ] `Product.tracks_expiry` + optional Expires at receiving + expiry report + Near-expiry % (🤖 backend, 🧑 receiving label copy — label: 'Expiry (optional, cement/paint only)')
+- [x] `Product.tracks_expiry` + optional Expires at receiving + expiry report + Near-expiry % (🤖) — APPROVED, re-run 48/48 OK; label 'Expiry (optional, cement/paint only)'; known shortcut: Bodega-shelved lines lose expiry
 - [x] Inventory role gating: all inventory read endpoints under `IsInventoryRole`; stocker catalogue = Inventory section only (🤖) — APPROVED, re-run 19/19 OK
 P3 Export for all (🤖 builder, 🤝 print check):
 - [x] Letterhead PDF builder per 01-export-layout (🤖) — APPROVED, summary wired; other reports keep P3-disabled buttons — re-run 32/32 OK
