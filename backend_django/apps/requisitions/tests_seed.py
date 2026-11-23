@@ -309,9 +309,12 @@ class SeedDemoTests(TestCase):
             [],
             "declining moves no stock and books no money",
         )
+        # Scoped to a RELEASE, not to the selling unit: the seeded sales history also
+        # rings these shelves, so a bare unit match would find a shop receipt.
         self.assertFalse(
             OfficialReceipt.objects.filter(
-                transaction__items__variant_uom__in=declined.items.values("variant_uom")
+                transaction__source=SalesTransaction.Source.REQUISITION,
+                transaction__items__variant_uom__in=declined.items.values("variant_uom"),
             ).exists(),
             "nothing was handed out, so no receipt was printed",
         )
@@ -397,8 +400,8 @@ class SeedDemoTests(TestCase):
     def test_the_original_demo_state_is_unchanged(self):
         self.assertEqual(
             SalesTransaction.objects.count(),
-            7,
-            "five shop sales plus the two seeded releases",
+            33,
+            "five shop sales, the two seeded releases and the 25+1 backdated history",
         )
         self.assertEqual(
             SalesTransaction.objects.filter(
@@ -411,13 +414,13 @@ class SeedDemoTests(TestCase):
         )
         self.assertEqual(
             CollectibleLedger.objects.filter(project__isnull=True).count(),
-            1,
-            "Maria's underpaid shop sale still carries its utang",
+            8,
+            "Maria's underpaid shop sale plus the seven history utang sales",
         )
         self.assertEqual(
             Shift.objects.filter(status=Shift.Status.CLOSED).count(),
-            1,
-            "the demo Z-reading is still closed and short",
+            26,
+            "the demo Z-reading plus one closed shift per backdated cashier-day",
         )
         self.assertEqual(
             Shift.objects.filter(status=Shift.Status.OPEN).count(),

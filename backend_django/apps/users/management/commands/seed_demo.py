@@ -73,6 +73,9 @@ USERS = [
     ("manager", "Mana Ger", "Store Manager", False, False),
     ("stocker", "Stock Er", "Stock Manager", False, False),
     ("cashier", "Cashi Er", "Cashier", False, False),
+    # The demo's second till: a fortnight of trade rang by ONE person is not what a
+    # shop looks like, and the per-cashier reports had nothing to compare.
+    ("cashier2", "Nena Reyes", "Cashier", False, False),
     # Decision 02: the machine account CPMS logs in as. Not staff, not a superuser.
     ("cpms_service", "CPMS Service", "CPMS Service", False, False),
     ("checker", "Bodega Checker", "Bodega Checker", False, False),
@@ -174,6 +177,52 @@ PACKAGING = {
 }
 
 
+# ---------------------------------------------------------------------------
+# A fortnight of demo trade (presentation data, not a shortcut around the services)
+# ---------------------------------------------------------------------------
+# `_seed_sales` rings five sales on the day the seed runs, so every daily report opens
+# as a single bar and every "this week / this month" figure reads as one day. These are
+# ordinary sales over the 13 days BEFORE that day - with today's shift that is 14 days
+# of trade - rung through the same `process_sale` / `process_return` the till calls.
+HISTORY_DAYS = 13
+HISTORY_SALES = 25
+HISTORY_METHODS = ("CASH", "GCASH", "UTANG")
+# Which plan entry (0-based) carries the two special cases.
+HISTORY_DISCOUNT_ENTRY = 8  # one sale at 15% off, approved by the manager
+HISTORY_RETURN_ENTRY = 17  # the cashier-day the one customer return is rung on
+HISTORY_RETURN_ORIGIN = 3  # ... against this earlier sale of the same unit
+HISTORY_DISCOUNT_PERCENT = Decimal(15)  # over the Admin's 10% cap on purpose
+HISTORY_APPROVAL_PERCENT = Decimal(20)  # what the manager's token covers
+# A variant with less shelf than this is left out of the history: the low-stock demo
+# and the requisitions' shelves must not be eaten by presentation data.
+HISTORY_MIN_SHELF = Decimal(15)
+
+# Product photos for the demo catalogue: real hardware/product photographs, linked by
+# URL only (`Product.image_url` is a link field - nothing is downloaded or stored), so
+# the till's product picker, the catalogue screen and the receipt preview show a picture
+# instead of an empty box.
+#
+# PLACEHOLDER CONTENT: these are other people's photographs, used here only to make the
+# demo presentable. Replace them with the shop's OWN photos (Product image upload)
+# before go-live.
+COMMONS_FILE = "https://commons.wikimedia.org/wiki/Special:FilePath/"
+PRODUCT_IMAGES = {
+    "Portland Cement": COMMONS_FILE
+    + "Portland%20cement%20CEM%20I%2042%2C5%20R%20%28bag%29.jpg?width=800",
+    "GI Sheet Plain": COMMONS_FILE
+    + "Corrugated%20iron%2003%20diff%208k%20%28Charlotte%20Baglioni%20via%20Poly"
+    "%20Haven%29.jpg?width=800",
+    "PVC Pipe": COMMONS_FILE + "Orange%20plastic%20pipes.jpg?width=800",
+    "Faucet": COMMONS_FILE + "2010-01-03%20Wasserhahn.jpg?width=800",
+    "Electrical Wire": COMMONS_FILE
+    + "%27Twin%20and%20Earth%27%20electrical%20cable.%20BS%206004%2C%206mm%C2%B2.jpg"
+    "?width=800",
+    "Circuit Breaker": COMMONS_FILE
+    + "Circuit%20breaker%202%20pole%20on%20DIN%20rail.JPG?width=800",
+    "Tile Adhesive": COMMONS_FILE + "Sopro%20Palette%20Produkte.jpg?width=800",
+}
+
+
 class Command(BaseCommand):
     help = "Seed realistic demo data (idempotent)."
 
@@ -199,8 +248,18 @@ class Command(BaseCommand):
         self._seed_customers()
         customers = {c.name: c for c in Customer.objects.all()}
         self._seed_sales(users["cashier"], variants, customers)
+        # Before the requisitions: that step leaves today's shift OPEN for the release
+        # demo, and the one-open-shift-per-cashier constraint is what the backdated
+        # cashier-days below would trip over.
+        self._seed_sales_history(
+            [users["cashier"], users["cashier2"]],
+            variants,
+            customers,
+            users["manager"],
+        )
         self._seed_requisitions(users, variants, customers)
         self._seed_packaging(users["stocker"], variants)
+        self._seed_product_images()
         self._print_review_instructions()
         self._print_summary(users)
 
@@ -657,6 +716,218 @@ class Command(BaseCommand):
             )
         )
 
+    @staticmethod
+    def _at(days_ago, hour, minute=0):
+        """`days_ago` back, at that wall-clock time in the project's timezone."""
+        return (timezone.localtime() - timedelta(days=days_ago)).replace(
+            hour=hour, minute=minute, second=0, microsecond=0
+        )
+
+    @staticmethod
+    def _stamp_sale_date(txn, when):
+        """Backdate the sale's `trans_date`.
+
+        The column is `auto_now_add`, so the service fixes it at creation and only an
+        `update()` can move it. Everything else about the row - receipt, payments, FIFO
+        deductions, ledger - was written by `process_sale` / `process_return`, which is
+        what keeps a backdated sale an ordinary sale.
+        """
+        from apps.pos.models import SalesTransaction
+
+        SalesTransaction.objects.filter(pk=txn.pk).update(trans_date=when)
+        txn.trans_date = when
+
+    def _ring_history_sale(self, entry, index, cashier, manager):
+        """ONE backdated sale, rung through `process_sale` like any other."""
+        from apps.pos.services import issue_discount_approval, process_sale
+
+        unit = entry["unit"]
+        total = unit.default_selling_price * entry["qty"]
+        # An utang sale pays half at the counter and leaves the rest on the ledger;
+        # decision 14 keys that debt on a NAMED customer, which the plan has chosen.
+        tendered = (
+            (total / 2).quantize(Decimal("0.01"))
+            if entry["method"] == "UTANG"
+            else total
+        )
+        approved = {}
+        if index == HISTORY_DISCOUNT_ENTRY:
+            # Over the Admin's cap, so it needs a manager's one-time approval - issued
+            # here exactly the way the till's approval dialog issues it, and spent by
+            # this sale.
+            _row, token = issue_discount_approval(
+                approver=manager,
+                percent=HISTORY_APPROVAL_PERCENT,
+                reason="Sunday promo, approved by the manager.",
+            )
+            approved = {
+                "discount_data": {
+                    "kind": "PERCENT",
+                    "value": HISTORY_DISCOUNT_PERCENT,
+                    "reason": "Sunday promo on selected items.",
+                },
+                "discount_approval": token,
+            }
+        return process_sale(
+            customer_id=entry["customer"].pk,
+            cashier=cashier,
+            items_data=[{"variant_id": unit.pk, "qty": entry["qty"]}],
+            payments_data=[
+                {
+                    # UTANG is not a tender: the money handed over is cash, and the
+                    # shortfall is what the ledger below the sale records.
+                    "method": "CASH" if entry["method"] == "UTANG" else entry["method"],
+                    "amount_tendered": tendered,
+                }
+            ],
+            **approved,
+        )
+
+    def _seed_sales_history(self, cashiers, variants, customers, manager):
+        """~25 backdated sales over the two weeks before today (presentation data).
+
+        The same-day sales above are one day of trade, so every daily-sales, cashier and
+        payment-method report the demo opens starts as a single bar. This rings a
+        fortnight instead - CASH, GCASH and utang, no CARD (hidden in the till), one
+        manager-approved 15% discount and one linked customer return.
+
+        Nobody writes a row by hand: `process_sale` and `process_return` are the writers,
+        so each sale carries its own receipt, payments, FIFO deductions and ledger. The
+        DATE is stamped afterwards (`trans_date` and the shift's stamps are
+        `auto_now_add`); that, and the shift's own two stamps, is the whole of the
+        backdating.
+
+        Its own guard, like every other half of this command: with a backdated sale
+        already stored, a re-run changes nothing.
+        """
+        from django.db.models import Sum
+
+        from apps.pos.models import SalesTransaction, Shift
+        from apps.pos.services import compute_z_reading, process_return
+
+        if SalesTransaction.objects.filter(
+            trans_date__date__lt=timezone.localdate()
+        ).exists():
+            self.stdout.write(
+                self.style.WARNING("Sales history already seeded - skipping")
+            )
+            return
+
+        # The shelves these sales draw from, read once. A variant with less than
+        # HISTORY_MIN_SHELF left is left alone, so neither the low-stock demo nor a
+        # requisition's shelf is eaten by presentation data.
+        pool = []
+        for info in variants.values():
+            variant = info["variant"]
+            unit = self._base_unit(variant)
+            live = InventoryBatch.objects.filter(
+                variant=variant, current_qty__gt=0
+            ).aggregate(total=Sum("current_qty"))["total"] or Decimal(0)
+            if unit is not None and live >= HISTORY_MIN_SHELF:
+                pool.append(unit)
+        if len(pool) < 3:
+            self.stdout.write(
+                self.style.WARNING(
+                    "Too little stock on the shelf for a sales history - skipping"
+                )
+            )
+            return
+
+        walk_in = customers["Walk-in Customer"]
+        debtors = [customers["Maria Santos"], customers["Dela Cruz Construction"]]
+        # (customer, unit, qty, method) chosen by POSITION, not at random, so two runs
+        # of the same seed describe the same fortnight down to the centavo.
+        plan = []
+        for i in range(HISTORY_SALES):
+            method = HISTORY_METHODS[i % len(HISTORY_METHODS)]
+            plan.append(
+                {
+                    "kind": "SALE",
+                    "cashier": cashiers[i % len(cashiers)],
+                    "day": 1 + (i % HISTORY_DAYS),
+                    "hour": 9 + (i % 8),
+                    "minute": 5 * (i % 12),
+                    "unit": pool[i % len(pool)],
+                    "qty": Decimal(1 + (i % 4)),
+                    "method": method,
+                    "customer": (
+                        debtors[i % len(debtors)] if method == "UTANG" else walk_in
+                    ),
+                }
+            )
+        # The discounted sale is an ordinary cash sale with one unusual thing about it:
+        # the manager's approval.
+        plan[HISTORY_DISCOUNT_ENTRY]["method"] = "CASH"
+        plan[HISTORY_DISCOUNT_ENTRY]["customer"] = walk_in
+        # The ONE return rides on the same cashier-day as the sale below it, and reverses
+        # an earlier sale of the same selling unit: a cashier's return must be LINKED to
+        # its original (decision 05), and the plan above guarantees the original exists.
+        anchor = plan[HISTORY_RETURN_ENTRY]
+        plan.append(
+            {
+                "kind": "RETURN",
+                "cashier": anchor["cashier"],
+                "day": anchor["day"],
+                "hour": anchor["hour"],
+                "minute": anchor["minute"] + 5,
+                "unit": plan[HISTORY_RETURN_ORIGIN]["unit"],
+                "qty": Decimal(1),
+                "method": "CASH",
+                "customer": customers["Maria Santos"],
+            }
+        )
+
+        # ONE shift per cashier-day: opened, sold through, closed, then stamped with the
+        # day it belongs to. `dict` keeps the plan's order, so the return always finds
+        # its original sale already written.
+        groups = {}
+        for index, entry in enumerate(plan):
+            key = (entry["day"], entry["cashier"].pk)
+            groups.setdefault(key, []).append((index, entry))
+        written = {}
+        shifts = 0
+        for (day, _cashier_pk), entries in groups.items():
+            cashier = entries[0][1]["cashier"]
+            shift = Shift.objects.create(cashier=cashier, opening_float=Decimal(5000))
+            for index, entry in entries:
+                when = self._at(day, entry["hour"], entry["minute"])
+                if entry["kind"] == "RETURN":
+                    original = written[HISTORY_RETURN_ORIGIN][0]
+                    txn = process_return(
+                        customer_id=original.customer_id,
+                        cashier=cashier,
+                        items_data=[
+                            {"variant_id": entry["unit"].pk, "qty": entry["qty"]}
+                        ],
+                        original_transaction_id=original.pk,
+                        payment_method="CASH",
+                        reason="Customer brought back an unopened item.",
+                    )
+                else:
+                    txn = self._ring_history_sale(entry, index, cashier, manager)
+                self._stamp_sale_date(txn, when)
+                written[index] = (txn, entry["unit"])
+            # Closed at exactly what the drawer should hold: the ONE recorded variance
+            # this demo wants is the same-day shift `_seed_sales` closes 50.00 short, and
+            # fourteen more would make it look like a habit rather than a finding.
+            z = compute_z_reading(shift)
+            shift.closing_count = Decimal(z["expected_drawer"])
+            shift.status = Shift.Status.CLOSED
+            shift.closed_at = self._at(day, 18, 30)
+            shift.notes = "Seeded demo shift (a fortnight of trade)."
+            shift.save(update_fields=["closing_count", "status", "closed_at", "notes"])
+            # `opened_at` is `auto_now_add` too: without this every backdated shift would
+            # still read "opened today" in the shift list.
+            Shift.objects.filter(pk=shift.pk).update(opened_at=self._at(day, 8, 45))
+            shifts += 1
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Sales history seeded: {HISTORY_SALES} sales + 1 return over "
+                f"{HISTORY_DAYS} days, {shifts} cashier shifts"
+            )
+        )
+
     def _seed_requisitions(self, users, variants, customers):
         if Requisition.objects.exists():
             self.stdout.write(
@@ -872,6 +1143,33 @@ class Command(BaseCommand):
                 f"{bag_code} x{PACKAGING['bag_factor']} at {PACKAGING['bag_price']}), "
                 f"{PACKAGING['stock']} {base_code} received on PO {po.pk}"
             )
+        )
+
+    def _seed_product_images(self):
+        """Link a product photo to each catalogue product (presentation data).
+
+        `Product.image_url` is a LINK field: the serializer answers it verbatim and every
+        screen renders it as-is, so nothing is downloaded, resized or stored here. The
+        files are other people's photographs (see `PRODUCT_IMAGES`) - they exist to make
+        the demo look like a shop, and must be replaced with the shop's own photos before
+        go-live.
+
+        Written only where the link is EMPTY, so a photo the shop set itself - a link or
+        an uploaded file, which answers the same wire key - is never overwritten by a
+        re-run.
+        """
+        from apps.inventory.models import Product
+
+        linked = 0
+        for base_name, url in PRODUCT_IMAGES.items():
+            product = Product.objects.filter(base_name=base_name).first()
+            if product is None or product.image_url or product.image:
+                continue
+            product.image_url = url
+            product.save(update_fields=["image_url"])
+            linked += 1
+        self.stdout.write(
+            self.style.SUCCESS(f"{linked} product photos linked (demo placeholders)")
         )
 
     def _print_review_instructions(self):
