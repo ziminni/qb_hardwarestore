@@ -20,6 +20,7 @@ import 'package:client/features/pos/views/pos_returns_page.dart';
 import 'package:client/features/pos/views/pos_settings_page.dart';
 import 'package:client/features/pos/views/pos_shift_page.dart';
 import 'package:client/features/pos/views/pos_held_transactions_page.dart';
+import 'package:client/features/pos/views/pos_or_tagged_page.dart';
 import 'package:client/features/pos/views/pos_transaction_history_page.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
 import 'package:client/features/pos/views/material_release_page.dart';
@@ -167,15 +168,24 @@ class AppRoutes {
   static const String bodegaHistory = '/bodega/history';
   static const String posDashboard = '/pos/dashboard';
   static const String posHistory = '/pos/history';
+
+  /// The till's OR-tagged tab: the slips already tagged with the paper OR
+  /// number, and the ones still to tag.
+  ///
+  /// INSERTED right after [posHistory] at the owner's request — the one
+  /// exception to the append-only rule below. Every till tab after it keeps its
+  /// page and moved its declared index one down; `sidebar_index_consistency_test`
+  /// pins each page to its row.
+  static const String posOrTagged = '/pos/or-tagged';
   static const String posRelease = '/pos/release';
   static const String posReceivables = '/pos/receivables';
   static const String posHeld = '/pos/held';
   static const String posShifts = '/pos/shifts';
 
-  /// The till's Returns tab (index 6, decision 05).
+  /// The till's Returns tab (index 7, decision 05).
   ///
-  /// Appended, never inserted: the POS sidebar is append-only, so tabs 0-5 keep
-  /// the numbers their own pages declare.
+  /// Appended when it landed, so tabs 0-5 kept the numbers their own pages
+  /// declare; the OR-tagged tab later took index 2 and moved this one to 7.
   static const String posReturns = '/pos/returns';
 
   /// The till's Settings tab (the receipt printer), appended after Returns.
@@ -769,6 +779,12 @@ class AppRoutes {
           name: 'pos_history',
           pageBuilder: (context, state) =>
               _transitionPage(state, const PosTransactionHistoryPage()),
+        ),
+        GoRoute(
+          path: posOrTagged,
+          name: 'pos_or_tagged',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const PosOrTaggedPage()),
         ),
         GoRoute(
           path: posRelease,

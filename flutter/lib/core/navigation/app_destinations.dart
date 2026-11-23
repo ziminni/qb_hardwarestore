@@ -59,7 +59,9 @@ class AppDestination {
 ///
 /// Declaration order per area IS the flat sidebar index the pages declare
 /// (`selectedNavigationIndex`), and every block is append-only: a new row goes
-/// last in its area, never in the middle.
+/// last in its area, never in the middle. The till's OR-tagged row is the one
+/// deliberate exception (the owner wanted it beside Transaction history), which
+/// is why every later till page's index moved with it.
 class AppDestinations {
   const AppDestinations._();
 
@@ -83,6 +85,16 @@ class AppDestinations {
       label: 'Transaction history',
       icon: Icons.receipt_long_outlined,
       route: AppRoutes.posHistory,
+    ),
+    // The one row NOT appended: the cashier tags slips right after reviewing
+    // them, so the owner asked for it beside Transaction history. Every till row
+    // below it moved one index down with it.
+    AppDestination(
+      id: 'pos.or-tagged',
+      area: AppAreas.pos,
+      label: 'OR-tagged',
+      icon: Icons.receipt_outlined,
+      route: AppRoutes.posOrTagged,
     ),
     AppDestination(
       id: 'pos.release',
@@ -161,6 +173,17 @@ class AppDestinations {
       label: 'Transactions',
       icon: Icons.receipt_long_outlined,
       route: AppRoutes.salesTransactions,
+    ),
+    // Back in its own seat (2026-11-23): the row was hidden while no
+    // create/convert flow existed, and that flow does now - the manager quotes
+    // bulk-buy prices, negotiates, then raises the order from the quotation.
+    // Every sales row below it moved one index down with it.
+    AppDestination(
+      id: 'sales.quotations',
+      area: AppAreas.sales,
+      label: 'Quotations',
+      icon: Icons.request_quote_outlined,
+      route: AppRoutes.salesQuotations,
     ),
     AppDestination(
       id: 'sales.orders',

@@ -3,6 +3,8 @@ import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
+import 'package:client/core/navigation/app_destinations.dart';
+import 'package:client/core/constants/app_areas.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
@@ -88,6 +90,11 @@ class _DashboardViewState extends State<_DashboardView> {
   void _selectNavigation(BuildContext context, int index) {
     navigateSales(context, index);
   }
+
+  /// The sidebar index of a sales row, looked up instead of written down: a row
+  /// hidden or restored above this page moves it, and a stale number sends the
+  /// manager to the wrong screen.
+  static int _row(String id) => AppDestinations.indexOf(id, AppAreas.sales);
 
   /// Returns already recorded today, counted from the rows the page has.
   /// The server posts a return final, so there is no "pending" state to count.
@@ -208,7 +215,8 @@ class _DashboardViewState extends State<_DashboardView> {
                 // The receivables screen opens unfiltered: its Overdue chip is
                 // that screen's own state, and preset filters would mean
                 // editing a file another card owns.
-                onTap: () => _selectNavigation(context, 3),
+                onTap: () =>
+                    _selectNavigation(context, _row('sales.receivables')),
               ),
               SalesNeedsYouTile(
                 key: const ValueKey('salesDashboard.needsYou.returns'),
@@ -216,7 +224,7 @@ class _DashboardViewState extends State<_DashboardView> {
                 value: _count(returnsToday),
                 caption: 'Refunded or voided today',
                 icon: Icons.assignment_return_outlined,
-                onTap: () => _selectNavigation(context, 4),
+                onTap: () => _selectNavigation(context, _row('sales.returns')),
               ),
             ],
           ),
@@ -285,7 +293,8 @@ class _DashboardViewState extends State<_DashboardView> {
                         ),
                       ),
                       TextButton.icon(
-                        onPressed: () => _selectNavigation(context, 5),
+                        onPressed: () =>
+                            _selectNavigation(context, _row('reports')),
                         icon: const Icon(Icons.arrow_forward_rounded, size: 16),
                         label: const Text('Full VAT & OR report'),
                       ),
@@ -296,7 +305,9 @@ class _DashboardViewState extends State<_DashboardView> {
                     children: [
                       MetricTile(
                         label: 'Whole VAT (All Sales)',
-                        value: formatPeso(summary!.orVatBreakdown!.combined.vat),
+                        value: formatPeso(
+                          summary!.orVatBreakdown!.combined.vat,
+                        ),
                         caption:
                             '${formatCount(summary.orVatBreakdown!.combined.transactions)} sales · '
                             '${formatPeso(summary.orVatBreakdown!.combined.grossSales)} gross',
@@ -331,7 +342,8 @@ class _DashboardViewState extends State<_DashboardView> {
               subtitle: summary.days.any((d) => d.cogs != null)
                   ? 'Bars compare net sales (ex-VAT) vs. landed COGS; line tracks gross profit.'
                   : 'Daily sales totals across reported dates.',
-              primaryLabel: summary.days.any((d) => d.merchandiseNetExVat != null)
+              primaryLabel:
+                  summary.days.any((d) => d.merchandiseNetExVat != null)
                   ? 'Net sales'
                   : 'Invoice total',
               secondaryLabel: 'COGS',
@@ -340,7 +352,9 @@ class _DashboardViewState extends State<_DashboardView> {
               points: [
                 for (final day in summary.days)
                   TrendPoint(
-                    label: day.day.length >= 10 ? day.day.substring(5) : day.day,
+                    label: day.day.length >= 10
+                        ? day.day.substring(5)
+                        : day.day,
                     primary: day.merchandiseNetExVat ?? day.gross,
                     secondary: day.cogs,
                     lineValue: day.grossProfit,
@@ -353,7 +367,8 @@ class _DashboardViewState extends State<_DashboardView> {
             HorizontalComparisonChart(
               key: const ValueKey('sales-dashboard-category-chart'),
               title: 'Sales & Cost by Category ($scopeCaption)',
-              subtitle: 'Top categories by net merchandise sales vs. landed cost.',
+              subtitle:
+                  'Top categories by net merchandise sales vs. landed cost.',
               primaryLabel: 'Net sales',
               secondaryLabel: 'COGS',
               items: [
@@ -407,7 +422,8 @@ class _DashboardViewState extends State<_DashboardView> {
             SalesRecentTransactions(
               sales: salesState.sales,
               isLoading: salesState.isLoading && salesState.sales.isEmpty,
-              onViewAll: () => _selectNavigation(context, 1),
+              onViewAll: () =>
+                  _selectNavigation(context, _row('sales.transactions')),
             ),
           ],
         ],

@@ -90,18 +90,18 @@ void main() {
 
     test('the sales sidebar keeps Payables above Deliveries and Transfers', () {
       final order = _areaOrder(AppAreas.sales);
-      // 13, not 14: the Quotations row is hidden (no create/accept/convert flow
-      // yet), so every row BELOW it moved up one (Payables 9 -> 8).
-      expect(order, hasLength(13));
-      expect(order[7], 'salesProjectRequests');
-      expect(order[8], 'salesPayables');
+      // 14 with Quotations back at 2, so every row BELOW it sits one lower than
+      // it did while the row was hidden (Payables 8 -> 9).
+      expect(order, hasLength(14));
+      expect(order[8], 'salesProjectRequests');
+      expect(order[9], 'salesPayables');
       expect(
-        order[9],
+        order[10],
         'salesDeliveries',
         reason: 'F3 appends Deliveries BELOW Payables; neither index moves',
       );
-      expect(order[10], 'salesTransfers');
-      expect(order[11], 'salesSettings');
+      expect(order[11], 'salesTransfers');
+      expect(order[12], 'salesSettings');
     });
 
     test('the Admin menu has no Payables', () {
@@ -144,8 +144,8 @@ void main() {
         contains('payables'),
         reason:
             'the page must look its index up by registry id: a literal 9 would '
-            'survive hiding Quotations, which shifted its own row to 8, and '
-            'highlight Deliveries instead',
+            'survive a row being hidden or restored, which shifts its own row, '
+            'and highlight the wrong screen',
       );
     });
 

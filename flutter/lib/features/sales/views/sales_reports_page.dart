@@ -1,4 +1,6 @@
+import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
+import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/features/admin/viewmodels/admin_reports_viewmodel.dart';
 import 'package:client/features/admin/views/reports_page.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
@@ -39,8 +41,14 @@ class _SalesReportsView extends StatelessWidget {
     return SalesSkeletonLayout(
       title: 'Reports',
       subtitle:
-          'Sales, inventory valuation, stock movements, and BIR OR vs. whole VAT.',
-      selectedNavigationIndex: 5,
+          'Sales, inventory valuation, stock movements, and OR-tagged vs whole VAT.',
+      // Looked up, never a literal. This URL-only page highlights the Reports
+      // ROW (which opens the catalogue); a stale number would light its
+      // neighbour instead.
+      selectedNavigationIndex: AppDestinations.indexOf(
+        'reports',
+        AppAreas.sales,
+      ),
       onNavigationSelected: (index) => navigateSales(context, index),
       child: const ReportsContent(),
     );

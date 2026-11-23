@@ -237,7 +237,12 @@ class SalesDocumentSheet extends StatelessWidget {
                               if (!context.mounted) return;
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  content: Text('Could not print slip: $error'),
+                                  // The action's own name, so a failed EXPORT
+                                  // does not report itself as a failed print.
+                                  content: Text(
+                                    'Could not ${printLabel.toLowerCase()}: '
+                                    '$error',
+                                  ),
                                 ),
                               );
                             }

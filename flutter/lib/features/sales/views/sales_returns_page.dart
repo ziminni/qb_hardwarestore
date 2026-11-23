@@ -1,7 +1,9 @@
+import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
+import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/data/services/customer_service.dart';
 import 'package:client/data/services/products_service.dart';
@@ -134,10 +136,7 @@ class _SalesReturnsPageState extends State<SalesReturnsPage> {
     // 'admin' stays although [AppRoutes.redirectFor] keeps an admin-only account
     // out of /sales today: the server admits it (`IsManagerRole`), and a role
     // rule change must not silently take the action away. Drop it with the route.
-    return context.watch<AuthViewmodel>().hasAnyArea(const {
-      'sales',
-      'admin',
-    });
+    return context.watch<AuthViewmodel>().hasAnyArea(const {'sales', 'admin'});
   }
 
   void _openUnlinkedDialog(
@@ -217,7 +216,12 @@ class _SalesReturnsPageState extends State<SalesReturnsPage> {
     return SalesSkeletonLayout(
       title: 'Returns & Refunds',
       subtitle: 'Review customer returns, replacements, and refund outcomes.',
-      selectedNavigationIndex: 4,
+      // Looked up, never a literal: a row being hidden or restored above this
+      // one shifts it, and a stale number highlights the neighbour.
+      selectedNavigationIndex: AppDestinations.indexOf(
+        'sales.returns',
+        AppAreas.sales,
+      ),
       // The list owns the scrolling: a bounded slot lets the panel build only
       // the rows on screen, and a store collects returns for years.
       scrollable: false,

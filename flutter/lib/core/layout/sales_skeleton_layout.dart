@@ -39,12 +39,12 @@ class SalesSkeletonLayout extends StatelessWidget {
   /// decision taken on that screen updates the badge immediately.
   final Map<int, int>? markers;
 
-  /// Flat sidebar index of "Project requests" (decision 13). APPENDED in
-  /// its own section after Staff, so no earlier index moves — read by
-  /// [projectRequestsMarkers] and pinned by the routing tests, because marking
-  /// or navigating the wrong row is invisible in a test that only checks "a
-  /// badge appeared".
-  static const int projectRequestsIndex = 7;
+  /// Flat sidebar index of "Project requests" (decision 13). It sits in
+  /// its own section after Staff; it is 8 since the Quotations row was restored
+  /// at 2 - read by [projectRequestsMarkers] and pinned by the routing tests,
+  /// because marking or navigating the wrong row is invisible in a test that
+  /// only checks "a badge appeared".
+  static const int projectRequestsIndex = 8;
 
   /// The store manager's menu as the sidebar renders it, derived from
   /// [AppDestinations] (Phase 2 F1). The flat index is the row's position, and a
@@ -77,9 +77,9 @@ class SalesSkeletonLayout extends StatelessWidget {
             onPressed: lockNow,
           ),
         ],
-      fallbackUserName: 'Sales Staff',
-      fallbackRoleLabel: 'Sales Staff',
-      child: child,
+        fallbackUserName: 'Sales Staff',
+        fallbackRoleLabel: 'Sales Staff',
+        child: child,
       ),
     );
   }

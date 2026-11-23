@@ -79,6 +79,9 @@ class _StubChartRepository extends ReportsRepository {
             discounts: 20,
             paymentFees: 0,
             deliveryFees: 0,
+            merchandiseNetExVat: 450,
+            cogs: 300,
+            grossProfit: 150,
           ),
           SalesDay(
             day: '2026-10-29',
@@ -88,6 +91,25 @@ class _StubChartRepository extends ReportsRepository {
             discounts: 30,
             paymentFees: 0,
             deliveryFees: 0,
+            merchandiseNetExVat: 900,
+            cogs: 600,
+            grossProfit: 300,
+          ),
+        ],
+        categories: [
+          SalesCategoryBreakdown(
+            categoryId: 1,
+            categoryName: 'Drinks',
+            grossMerchandise: 900,
+            discounts: 30,
+            netMerchandise: 870,
+          ),
+          SalesCategoryBreakdown(
+            categoryId: 2,
+            categoryName: 'Snacks',
+            grossMerchandise: 600,
+            discounts: 20,
+            netMerchandise: 580,
           ),
         ],
       );
@@ -1082,12 +1104,16 @@ Future<void> _open(
   await tester.pumpAndSettle();
 }
 
-/// One of the three chart cards the viewer draws.
+/// One of the chart cards the viewer draws.
 final _anyChart = find.byWidgetPredicate(
   (widget) =>
       widget is ShareSplitChart ||
       widget is HorizontalComparisonChart ||
-      widget is GroupedBarTrendChart,
+      widget is GroupedBarTrendChart ||
+      widget is AreaTrendChart ||
+      widget is StackedColumnChart ||
+      widget is DonutChart ||
+      widget is TimeOfDayChart,
 );
 
 void main() {
@@ -1125,6 +1151,39 @@ void main() {
       expect(find.text('Coke · 1.5L'), findsWidgets);
     });
 
+    testWidgets(
+      'the summary trend fills an area and dashes the cost behind it',
+      (tester) async {
+        await _open(tester, 'sales-summary', _StubChartRepository());
+
+        expect(find.byType(AreaTrendChart), findsOneWidget);
+        // The dashed comparison line is the landed cost, named in the legend.
+        expect(find.text('Landed COGS'), findsWidgets);
+        expect(find.text('Net sales (ex-VAT)'), findsWidgets);
+      },
+    );
+
+    testWidgets('the summary splits net sales into a donut by category', (
+      tester,
+    ) async {
+      await _open(tester, 'sales-summary', _StubChartRepository());
+
+      expect(find.byType(DonutChart), findsOneWidget);
+      expect(find.text('Drinks'), findsWidgets);
+      // The total the slices divide sits in the middle of the ring.
+      expect(find.textContaining('₱1,450.00'), findsWidgets);
+    });
+
+    testWidgets('item-wise stacks landed cost under the profit', (
+      tester,
+    ) async {
+      await _open(tester, 'item-wise', _StubChartRepository());
+
+      expect(find.byType(StackedColumnChart), findsOneWidget);
+      expect(find.text('Landed COGS'), findsWidgets);
+      expect(find.text('Gross profit'), findsWidgets);
+    });
+
     testWidgets('cashier-wise draws a bar chart per cashier', (tester) async {
       await _open(tester, 'cashier', _StubChartRepository());
 
@@ -1142,6 +1201,7 @@ void main() {
         find.byKey(const ValueKey('report-viewer-tender-split')),
         findsOneWidget,
       );
+      expect(find.byType(DonutChart), findsOneWidget);
       expect(find.textContaining('Cash'), findsWidgets);
     });
 
@@ -1154,6 +1214,13 @@ void main() {
       );
       // Peak hours are labelled as clocks, not as raw 0-23 numbers.
       expect(find.text('12:00 PM'), findsWidgets);
+    });
+
+    testWidgets('hourly fills the day and marks the peak hour', (tester) async {
+      await _open(tester, 'hourly', _StubChartRepository());
+
+      expect(find.byType(TimeOfDayChart), findsOneWidget);
+      expect(find.textContaining('Peak 12:00 PM'), findsWidgets);
     });
 
     testWidgets('VAT draws the whole-VAT vs OR-tagged split', (tester) async {
@@ -1377,6 +1444,30 @@ void main() {
         expect(tester.takeException(), isNull);
       }
     });
+
+    testWidgets(
+      'the filled, stacked and ringed charts draw nothing when empty',
+      (tester) async {
+        for (final id in [
+          'sales-summary',
+          'item-wise',
+          'bill-wise',
+          'hourly',
+        ]) {
+          await _open(tester, id, _EmptyChartRepository());
+
+          expect(find.byType(AreaTrendChart), findsNothing, reason: id);
+          expect(find.byType(StackedColumnChart), findsNothing, reason: id);
+          expect(find.byType(DonutChart), findsNothing, reason: id);
+          expect(find.byType(TimeOfDayChart), findsNothing, reason: id);
+          expect(
+            find.text('No data for this range'),
+            findsOneWidget,
+            reason: id,
+          );
+        }
+      },
+    );
 
     testWidgets('a plan-only KPI card plots nothing and loads no endpoint', (
       tester,

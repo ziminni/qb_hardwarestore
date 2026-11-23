@@ -127,7 +127,7 @@ class _MaterialReleasePageState extends State<MaterialReleasePage>
       title: 'Release materials',
       subtitle:
           'Choose an accepted request, check the items, then release them',
-      selectedNavigationIndex: 2,
+      selectedNavigationIndex: 3,
       navigationItems: posNavigationItems,
       onNavigationSelected: (i) => navigatePos(context, i),
       child: AnimatedBuilder(

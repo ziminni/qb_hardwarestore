@@ -51,6 +51,8 @@ class SalesTransactionsContent extends StatefulWidget {
     this.loadError,
     this.onRetry,
     this.now,
+    this.orTracking = false,
+    this.onAttachOr,
   });
 
   final SalesTransactionsRole role;
@@ -67,6 +69,15 @@ class SalesTransactionsContent extends StatefulWidget {
   /// instead of following the wall clock into another week. Nullable because a
   /// default value has to be const, so it falls back to `clock.now`.
   final DateTime Function()? now;
+
+  /// Groups the rows by whether the paper OR number is on the slip, and offers
+  /// [onAttachOr] on the rows that have none. Off everywhere except the till's
+  /// OR-tagged tab, which is the screen whose whole job this is.
+  final bool orTracking;
+
+  /// Starts the tagging for one row. The page reloads when it returns, because
+  /// the server stores the number.
+  final VoidCallback? onAttachOr;
 
   @override
   State<SalesTransactionsContent> createState() =>
@@ -86,6 +97,11 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
     'Refunded',
     'Void',
   ];
+
+  /// The OR chips REPLACE the status chips when [SalesTransactionsContent
+  /// .orTracking] is on: two chip groups cannot both carry an "All", and the
+  /// question this tab answers is the OR one.
+  static const List<String> _orChips = [_anyStatus, 'OR-tagged', 'Untagged'];
 
   /// The date range that filters nothing.
   static const String _anyDate = 'All dates';
@@ -111,8 +127,13 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
 
   String _query = '';
   String _status = _anyStatus;
+  String _or = _anyStatus;
   String _date = _anyDate;
   DateTimeRange? _customRange;
+
+  /// True when the paper OR number is on the slip.
+  static bool _isTagged(InventorySale sale) =>
+      sale.invoiceNo != null && sale.invoiceNo!.isNotEmpty;
 
   bool get _dateFiltered => _date != _anyDate;
 
@@ -126,9 +147,11 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
       initialDateRange:
           _customRange ??
           DateTimeRange(
-            start: DateTime(now.year, now.month, now.day).subtract(
-              const Duration(days: 7),
-            ),
+            start: DateTime(
+              now.year,
+              now.month,
+              now.day,
+            ).subtract(const Duration(days: 7)),
             end: DateTime(now.year, now.month, now.day),
           ),
     );
@@ -142,7 +165,10 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
   /// True once the reader has narrowed the list, which changes what "nothing to
   /// show" means: an empty system and an empty filter are different facts.
   bool get _filtered =>
-      _query.isNotEmpty || _status != _anyStatus || _dateFiltered;
+      _query.isNotEmpty ||
+      _status != _anyStatus ||
+      _dateFiltered ||
+      (widget.orTracking && _or != _anyStatus);
 
   List<InventorySale> get _visible {
     // Read once per build: a range computed from a moving clock could narrow
@@ -152,6 +178,7 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
       for (final sale in widget.sales)
         if (_matchesQuery(sale) &&
             _matchesStatus(sale) &&
+            _matchesOr(sale) &&
             _matchesDate(sale, now))
           sale,
     ];
@@ -179,6 +206,12 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
     'Pending Pickup' => sale.isAwaitingBodega,
     'Refunded' => sale.status == InventorySaleStatus.refunded,
     'Void' => sale.status == InventorySaleStatus.voided,
+    _ => true,
+  };
+
+  bool _matchesOr(InventorySale sale) => switch (_or) {
+    'OR-tagged' => _isTagged(sale),
+    'Untagged' => !_isTagged(sale),
     _ => true,
   };
 
@@ -235,6 +268,11 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
     final showDateFilters =
         widget.role == SalesTransactionsRole.storeManager ||
         widget.role == SalesTransactionsRole.cashier;
+    // The OR tab asks its own question, so it swaps the status chips for the OR
+    // ones instead of stacking a second "All" under them.
+    final chipLabel = widget.orTracking ? 'OR' : 'Status';
+    final chips = widget.orTracking ? _orChips : _statusChips;
+    final chipSelected = widget.orTracking ? _or : _status;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -247,10 +285,16 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
               'Transaction, OS #, OR #, customer, or payment',
           },
           onSearchChanged: (value) => setState(() => _query = value),
-          optionsLabel: 'Status',
-          options: _statusChips,
-          selected: _status,
-          onSelected: (chip) => setState(() => _status = chip),
+          optionsLabel: chipLabel,
+          options: chips,
+          selected: chipSelected,
+          onSelected: (chip) => setState(() {
+            if (widget.orTracking) {
+              _or = chip;
+            } else {
+              _status = chip;
+            }
+          }),
           extraOptionsLabel: showDateFilters ? 'Date' : null,
           extraOptions: showDateFilters ? _dateChips : const <String>[],
           extraSelected: _date,
@@ -351,6 +395,25 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
         _customerColumn(),
         _paymentColumn(),
         _totalColumn(),
+        // The OR tab's whole job: tag the slip that has no number yet. On the
+        // card layout too, where the row tap opens the document instead.
+        if (widget.onAttachOr != null)
+          DataPanelColumn<InventorySale>(
+            label: 'Action',
+            flex: 1,
+            cell: (sale) => _isTagged(sale)
+                ? const SizedBox.shrink()
+                : TextButton(
+                    key: ValueKey('attach-or-${sale.transactionNo}'),
+                    onPressed: widget.onAttachOr,
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(44, 44),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text('Attach'),
+                  ),
+          ),
       ],
       SalesTransactionsRole.storeManager => [
         _transactionColumn(),

@@ -54,6 +54,7 @@ const _tillMenu = <_Row>[
     Icons.receipt_long_outlined,
     AppRoutes.posHistory,
   ),
+  _Row('OR-tagged', Icons.receipt_outlined, AppRoutes.posOrTagged),
   _Row(
     'Release materials',
     Icons.inventory_2_outlined,
@@ -88,6 +89,9 @@ const _storeManagerMenu = <_Row>[
     Icons.receipt_long_outlined,
     AppRoutes.salesTransactions,
   ),
+  // Restored 2026-11-23: the row was hidden while no create/convert flow
+  // existed; the flow does now, and the manager quotes before they order.
+  _Row('Quotations', Icons.request_quote_outlined, AppRoutes.salesQuotations),
   _Row('Sales orders', Icons.assignment_outlined, AppRoutes.salesOrders),
   _Row(
     'Receivables',
@@ -291,17 +295,17 @@ void main() {
     _expectMenu(AppAreas.bodega, _bodegaMenu);
   });
 
-  test('49 menu rows are 44 pages: only the locked set is shared', () {
+  test('51 menu rows are 46 pages: only the locked set is shared', () {
     // Without the counts, an empty or duplicated registry would make every
     // per-area check above pass against nothing.
     expect(
       AppDestinations.all,
-      hasLength(49),
-      reason: '5 menus: Till 10, Sales 13, Stock 16, Admin 6, Bodega 4',
+      hasLength(51),
+      reason: '5 menus: Till 11, Sales 14, Stock 16, Admin 6, Bodega 4',
     );
     expect(
       AppDestinations.all.map((row) => row.id).toSet(),
-      hasLength(44),
+      hasLength(46),
       reason:
           'Payables, Deliveries, Reports, Project requests, Staff, Transfers '
           'and Price list appear in more than one menu; every other row is one page',
@@ -351,14 +355,18 @@ void main() {
     const expected = {
       AppAreas.pos: [
         ('Selling', 0),
-        ('Customers and projects', 2),
-        ('Till', 4),
+        // The OR-tagged row was inserted at 2, so both later headings moved
+        // one down with their rows.
+        ('Customers and projects', 3),
+        ('Till', 5),
       ],
       AppAreas.sales: [
         ('Selling', 0),
-        ('Customers', 3),
-        ('Management', 5),
-        ('Operations', 8),
+        // Quotations was restored at 2, so every later heading moved one down
+        // with its rows.
+        ('Customers', 4),
+        ('Management', 6),
+        ('Operations', 9),
       ],
       AppAreas.inventory: [
         ('Inventory', 0),

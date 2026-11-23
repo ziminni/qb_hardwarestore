@@ -57,7 +57,7 @@ const List<ReportDefinition> reportCatalogue = [
     id: 'vat-summary',
     title: 'VAT & OR summary',
     description:
-        'Whole VAT against BIR OR-tagged sales, by day, week or month.',
+        'Whole VAT against OR-tagged sales, by day, week or month.',
     section: ReportSection.sales,
   ),
   ReportDefinition(

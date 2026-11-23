@@ -101,14 +101,14 @@ void main() {
       expect(order[13], 'inventoryTransfers');
     });
 
-    test('the sales sidebar gains Transfers at 10, moving nothing', () {
+    test('the sales sidebar gains Transfers at 11, moving nothing', () {
       final order = _areaOrder(AppAreas.sales);
-      expect(order, hasLength(13));
-      expect(order[5], 'salesReportCatalogue');
-      expect(order[8], 'salesPayables');
-      expect(order[9], 'salesDeliveries');
-      expect(order[10], 'salesTransfers');
-      expect(order[11], 'salesSettings');
+      expect(order, hasLength(14));
+      expect(order[6], 'salesReportCatalogue');
+      expect(order[9], 'salesPayables');
+      expect(order[10], 'salesDeliveries');
+      expect(order[11], 'salesTransfers');
+      expect(order[12], 'salesSettings');
     });
 
     test('the Admin menu has no Transfers and no admin route', () {
@@ -133,17 +133,17 @@ void main() {
           .expand((section) => section.destinations)
           .map((destination) => destination.label)
           .toList();
-      expect(salesLabels, hasLength(13));
-      expect(salesLabels[9], 'Deliveries');
-      expect(salesLabels[10], 'Transfers');
-      expect(salesLabels[11], 'Settings');
+      expect(salesLabels, hasLength(14));
+      expect(salesLabels[10], 'Deliveries');
+      expect(salesLabels[11], 'Transfers');
+      expect(salesLabels[12], 'Settings');
 
       expect(
         InventorySkeletonLayout.lowStockIndex,
         5,
         reason: 'the alert marker points at Low stock, which did not move',
       );
-      expect(SalesSkeletonLayout.projectRequestsIndex, 7);
+      expect(SalesSkeletonLayout.projectRequestsIndex, 8);
     });
 
     test('every transfers page declares its own shell index', () {
@@ -157,8 +157,8 @@ void main() {
         declared,
         contains(AppDestinations.indexOf('transfers', AppAreas.inventory)),
       );
-      // The sales page LOOKS ITS ROW UP: hiding Quotations shifted it 11 -> 10,
-      // so a literal would now highlight Settings.
+      // The sales page LOOKS ITS ROW UP: with Quotations back at 2 the row sits
+      // at 11, so a literal would highlight Settings.
       final ids = RegExp(
         r"indexOf\(\s*'([^']+)',\s*AppAreas\.sales",
       ).allMatches(source).map((match) => match.group(1)!).toList();

@@ -527,46 +527,54 @@ _ReportView _salesView(SalesSummary sales) {
       rows: rows,
     ),
     charts: [
+      // The trend is an area, and the dashed line over it is the landed cost
+      // behind those same days: a fill for the money made, a comparison for
+      // what it cost. The model carries no previous period, so nothing here
+      // pretends to compare against one.
       if (sales.days.isNotEmpty)
-        GroupedBarTrendChart(
+        AreaTrendChart(
           key: const ValueKey('report-viewer-sales-trend'),
-          title: 'Daily sales & profit',
+          title: 'Daily sales & the cost behind them',
           subtitle: sales.days.any((day) => day.cogs != null)
-              ? 'Bars compare net sales (ex-VAT) vs. landed COGS; the line tracks gross profit.'
+              ? 'The area is daily net sales (ex-VAT); the dashed line is the landed cost of what sold.'
               : 'Daily invoice total across the reported dates.',
-          primaryLabel: sales.days.any((d) => d.merchandiseNetExVat != null)
+          valueLabel: sales.days.any((d) => d.merchandiseNetExVat != null)
               ? 'Net sales (ex-VAT)'
               : 'Invoice total',
-          secondaryLabel: 'COGS',
-          lineLabel: 'Gross profit',
+          previousLabel: sales.days.any((day) => day.cogs != null)
+              ? 'Landed COGS'
+              : null,
           height: 190,
           points: [
             for (final day in sales.days)
               TrendPoint(
                 label: day.day.length >= 10 ? day.day.substring(5) : day.day,
                 primary: day.merchandiseNetExVat ?? day.gross,
-                secondary: day.cogs,
-                lineValue: day.grossProfit,
+                previous: day.cogs,
               ),
           ],
         ),
-      if (sales.categories.isNotEmpty)
-        HorizontalComparisonChart(
+      // Categories are parts of one total of net sales, so they read as a ring
+      // rather than as bars: the money each one brought in, and its share.
+      if (sales.categories.any((category) => category.netMerchandise > 0))
+        DonutChart(
           key: const ValueKey('report-viewer-category-chart'),
-          title: 'Sales & cost by category',
-          subtitle: 'Top categories by net merchandise sales vs. landed cost.',
-          primaryLabel: 'Net sales',
-          secondaryLabel: 'COGS',
-          items: [
+          title: 'Net sales by category',
+          subtitle:
+              'How the range’s net merchandise divides across categories.',
+          centerLabel: 'Net sales',
+          centerValue: formatPeso(
+            sales.categories.fold<double>(
+              0,
+              (sum, category) => sum + category.netMerchandise,
+            ),
+          ),
+          slices: [
             for (final category in sales.categories.take(6))
-              ComparisonBarItem(
+              ShareSlice(
                 label: category.categoryName,
-                primaryValue: category.netMerchandise,
-                primaryText: formatPeso(category.netMerchandise),
-                secondaryValue: category.cogs,
-                secondaryText: category.cogs == null
-                    ? null
-                    : 'COGS ${formatPeso(category.cogs!)}',
+                value: category.netMerchandise,
+                amountText: formatPeso(category.netMerchandise),
               ),
           ],
         ),
@@ -833,77 +841,102 @@ _ReportView _requisitionsView(RequisitionHistory history) => _ReportView(
   ],
 );
 
-_ReportView _salesByItemView(SalesByItemReport report) => _ReportView(
-  kpis: [
-    (
-      label: 'Selling units',
-      value: formatCount(report.variantCount),
-      caption: null,
-    ),
-    (
-      label: 'Units sold',
-      value: formatQuantity(report.totalQtyBase),
-      caption: 'Base units',
-    ),
-    (
-      label: 'Net merchandise',
-      value: formatPeso(report.totalNet),
-      caption: 'After discounts',
-    ),
-    if (report.totalGrossProfit != null)
-      (
-        label: 'Gross profit',
-        value: formatPeso(report.totalGrossProfit!),
-        caption: 'Net minus COGS',
-      ),
-  ],
-  columns: const [
-    'Item',
-    'Units sold',
-    'Net merchandise',
-    'COGS',
-    'Gross profit',
-  ],
-  rows: [
+_ReportView _salesByItemView(SalesByItemReport report) {
+  // A column is one item's net sales split into what the goods cost and what
+  // they earned. A loss has no profit segment to stack above its cost, so only
+  // items sold above landed cost are stacked; the rest stay in the table.
+  final stackable = [
     for (final row in report.page.rows)
-      [
-        row.name,
-        formatQuantity(row.qtyBase),
-        formatPeso(row.net),
-        // No costed deduction: the cost is unknown, so it is not shown as ₱0.
-        row.cogs == null ? 'No cost on file' : formatPeso(row.cogs!),
-        row.grossProfit == null
-            ? 'No cost on file'
-            : formatPeso(row.grossProfit!),
-      ],
-  ],
-  emptyMessage: 'No items sold in this range.',
-  excelName: 'item-wise-sales-${report.from}-to-${report.to}.xlsx',
-  excelBytes: () => buildSalesByItemReportXlsx(report),
-  charts: [
-    if (report.page.rows.isNotEmpty)
-      HorizontalComparisonChart(
-        key: const ValueKey('report-viewer-item-chart'),
-        title: 'Net merchandise by item',
-        subtitle: 'Best sellers first, each against its own landed cost.',
-        primaryLabel: 'Net sales',
-        secondaryLabel: 'COGS',
-        items: [
-          for (final row in report.page.rows.take(8))
-            ComparisonBarItem(
-              label: row.name,
-              primaryValue: row.net,
-              primaryText: formatPeso(row.net),
-              secondaryValue: row.cogs,
-              // A missing cost is words, never a ₱0.00 bar.
-              secondaryText: row.cogs == null
-                  ? 'No cost on file'
-                  : 'COGS ${formatPeso(row.cogs!)}',
-            ),
-        ],
+      if (row.cogs != null && (row.grossProfit ?? row.net - row.cogs!) > 0) row,
+  ].take(8).toList();
+  return _ReportView(
+    kpis: [
+      (
+        label: 'Selling units',
+        value: formatCount(report.variantCount),
+        caption: null,
       ),
-  ],
-);
+      (
+        label: 'Units sold',
+        value: formatQuantity(report.totalQtyBase),
+        caption: 'Base units',
+      ),
+      (
+        label: 'Net merchandise',
+        value: formatPeso(report.totalNet),
+        caption: 'After discounts',
+      ),
+      if (report.totalGrossProfit != null)
+        (
+          label: 'Gross profit',
+          value: formatPeso(report.totalGrossProfit!),
+          caption: 'Net minus COGS',
+        ),
+    ],
+    columns: const [
+      'Item',
+      'Units sold',
+      'Net merchandise',
+      'COGS',
+      'Gross profit',
+    ],
+    rows: [
+      for (final row in report.page.rows)
+        [
+          row.name,
+          formatQuantity(row.qtyBase),
+          formatPeso(row.net),
+          // No costed deduction: the cost is unknown, so it is not shown as ₱0.
+          row.cogs == null ? 'No cost on file' : formatPeso(row.cogs!),
+          row.grossProfit == null
+              ? 'No cost on file'
+              : formatPeso(row.grossProfit!),
+        ],
+    ],
+    emptyMessage: 'No items sold in this range.',
+    excelName: 'item-wise-sales-${report.from}-to-${report.to}.xlsx',
+    excelBytes: () => buildSalesByItemReportXlsx(report),
+    charts: [
+      if (stackable.isNotEmpty)
+        StackedColumnChart(
+          key: const ValueKey('report-viewer-item-chart'),
+          title: 'Net sales by item',
+          subtitle:
+              'Each column is an item’s net sales: landed cost at the bottom, the profit it earned on top.',
+          valueLabel: 'Net sales',
+          height: 190,
+          series: const [
+            StackedSeries(label: 'Landed COGS', color: AppColors.secondary),
+            StackedSeries(label: 'Gross profit', color: AppColors.primary),
+          ],
+          points: [
+            for (final row in stackable)
+              StackedColumnPoint(
+                label: row.name,
+                values: [row.cogs!, row.grossProfit ?? row.net - row.cogs!],
+              ),
+          ],
+        )
+      // Nothing in the range carried a cost, so there is no split to stack: the
+      // items still have net sales to compare, and keep the plain bars.
+      else if (report.page.rows.isNotEmpty)
+        HorizontalComparisonChart(
+          key: const ValueKey('report-viewer-item-chart'),
+          title: 'Net merchandise by item',
+          subtitle: 'Best sellers first. No item in this range carried a cost.',
+          primaryLabel: 'Net sales',
+          items: [
+            for (final row in report.page.rows.take(8))
+              ComparisonBarItem(
+                label: row.name,
+                primaryValue: row.net,
+                primaryText: formatPeso(row.net),
+              ),
+          ],
+        ),
+    ],
+  );
+}
 
 _ReportView _salesByHourView(SalesByHour report) => _ReportView(
   kpis: [
@@ -932,17 +965,16 @@ _ReportView _salesByHourView(SalesByHour report) => _ReportView(
   excelBytes: () => buildSalesByHourReportXlsx(report),
   charts: [
     if (report.page.rows.isNotEmpty)
-      GroupedBarTrendChart(
+      TimeOfDayChart(
         key: const ValueKey('report-viewer-hourly-chart'),
         title: 'Sales by hour of day',
         subtitle:
             'Peak shopping hours: invoice total at each store-local hour.',
-        primaryLabel: 'Invoice total',
+        valueLabel: 'Invoice total',
         height: 190,
-        points: [
-          for (final row in report.page.rows)
-            TrendPoint(label: _hourLabel(row.hour), primary: row.invoiceTotal),
-        ],
+        byHour: {
+          for (final row in report.page.rows) row.hour: row.invoiceTotal,
+        },
       ),
   ],
 );
@@ -1050,10 +1082,17 @@ _ReportView _billWiseView(BillWiseReport report) => _ReportView(
     // No tender recorded leaves the list empty, so the viewer says there is no
     // data instead of an empty card.
     if (report.totalMethods.values.any((tendered) => tendered > 0))
-      ShareSplitChart(
+      DonutChart(
         key: const ValueKey('report-viewer-tender-split'),
         title: 'Payment breakdown',
         subtitle: 'How the range’s takings split across tender methods.',
+        centerLabel: 'Tendered',
+        centerValue: formatPeso(
+          report.totalMethods.values.fold<double>(
+            0,
+            (sum, tendered) => sum + tendered,
+          ),
+        ),
         slices: [
           for (final entry in report.totalMethods.entries)
             ShareSlice(

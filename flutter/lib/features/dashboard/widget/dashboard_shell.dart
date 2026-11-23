@@ -58,7 +58,7 @@ class DashboardShell extends StatefulWidget {
   /// count belongs to (0 New transaction, 1 Transaction history,
   /// 2 Release materials, 3 Record payment, 4 Held transactions). Shared by
   /// [cashierMarkers] and pinned by `sidebar_pattern_test.dart`.
-  static const heldTransactionsIndex = 4;
+  static const heldTransactionsIndex = 5;
 
   /// The cashier groups, by the index each item ALREADY has, derived from
   /// [AppDestinations] (Phase 2 F1).

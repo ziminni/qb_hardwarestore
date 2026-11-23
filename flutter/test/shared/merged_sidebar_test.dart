@@ -168,7 +168,9 @@ List<String> _markedRows(WidgetTester tester) => [
 ];
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({'sidebar_collapsed': false}));
+  setUp(
+    () => SharedPreferences.setMockInitialValues({'sidebar_collapsed': false}),
+  );
 
   group('the held area list', () {
     test('drops unknown codes and duplicates, in heading order', () {
@@ -191,7 +193,11 @@ void main() {
     test('Cashier + Store Manager: Till then Sales, every row kept', () {
       final rows = MergedSidebar.rows(const ['pos', 'sales']);
 
-      expect(rows.length, 24, reason: '10 Till rows + 14 Sales rows - 1 shared + landing');
+      expect(
+        rows.length,
+        25,
+        reason: '11 Till rows + 14 Sales rows - 1 shared + landing',
+      );
       expect(
         [for (final section in MergedSidebar.sectionsFor(rows)) section.label],
         ['', 'Till', 'Sales'],
@@ -209,7 +215,12 @@ void main() {
       final rows = MergedSidebar.rows(const ['inventory', 'sales']);
 
       expect(rows.length, 28, reason: '16 Stock + 14 Sales - 3 shared + 1');
-      for (final sharedKey in const ['payables', 'deliveries', 'transfers', 'price-list']) {
+      for (final sharedKey in const [
+        'payables',
+        'deliveries',
+        'transfers',
+        'price-list',
+      ]) {
         final owned = rows.where((row) => row.sharedKey == sharedKey).toList();
         expect(owned.length, 1, reason: '$sharedKey appears once');
         expect(owned.single.area, AppAreas.sales, reason: '$sharedKey: widest');
@@ -223,19 +234,19 @@ void main() {
     test('Admin + Cashier: the till adds no shared page to the admin menu', () {
       final rows = MergedSidebar.rows(const ['admin', 'pos']);
 
-      expect(rows.length, 17, reason: '10 Till + 6 Admin rows + landing');
+      expect(rows.length, 18, reason: '11 Till + 6 Admin rows + landing');
       expect(
         [for (final section in MergedSidebar.sectionsFor(rows)) section.label],
         ['', 'Till', 'Admin'],
       );
     });
 
-    test('all five areas: 50 rows become 46, every identity once', () {
+    test('all five areas: 51 rows become 47, every identity once', () {
       final rows = MergedSidebar.rows(AppAreas.codes);
 
-      // 50 area rows - 5 duplicates + 1 landing = 46.
-      expect(rows.length, 46);
-      expect(rows.map((row) => row.id).toSet().length, 46);
+      // 51 area rows - 5 duplicates + 1 landing = 47.
+      expect(rows.length, 47);
+      expect(rows.map((row) => row.id).toSet().length, 47);
       for (final sharedKey in AppDestinations.sharedIds) {
         expect(
           rows.where((row) => row.sharedKey == sharedKey).length,
@@ -357,7 +368,9 @@ void main() {
       await _pump(
         tester,
         await _auth([_sales, _pos]),
-        _cashierShell(selected: 4),
+        // 5, not 4: the OR-tagged tab was inserted at 2, so Held transactions
+        // sits one index lower than it used to.
+        _cashierShell(selected: 5),
       );
 
       expect(_tile(tester, 'Held transactions').selected, isTrue);

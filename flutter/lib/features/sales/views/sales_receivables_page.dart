@@ -1,4 +1,6 @@
+import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
+import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/features/sales/viewmodels/cheque_queue_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/sales_receivables_viewmodel.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
@@ -51,7 +53,12 @@ class _ReceivablesView extends StatelessWidget {
     return SalesSkeletonLayout(
       title: 'Receivables',
       subtitle: 'Track unpaid, partial, and overdue customer balances.',
-      selectedNavigationIndex: 3,
+      // Looked up, never a literal: a row being hidden or restored above this
+      // one shifts it, and a stale number highlights the neighbour.
+      selectedNavigationIndex: AppDestinations.indexOf(
+        'sales.receivables',
+        AppAreas.sales,
+      ),
       // The list owns the scrolling, so it builds only the rows on screen.
       scrollable: false,
       onNavigationSelected: (index) => navigateSales(context, index),

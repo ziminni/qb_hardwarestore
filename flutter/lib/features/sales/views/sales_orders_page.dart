@@ -1,6 +1,8 @@
+import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
+import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/data/models/sales_module.dart';
 import 'package:client/data/services/discount_approval_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
@@ -197,7 +199,13 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
       title: 'Sales Orders',
       subtitle:
           'Confirmed customer orders awaiting payment and stock release at the POS till.',
-      selectedNavigationIndex: 2,
+      // Looked up, never a literal: the Quotations row was hidden and restored
+      // once already, and each time every row below it moved. A stale number
+      // highlights the neighbour.
+      selectedNavigationIndex: AppDestinations.indexOf(
+        'sales.orders',
+        AppAreas.sales,
+      ),
       // The list owns the scrolling, so it builds only the rows on screen.
       scrollable: false,
       onNavigationSelected: (index) => navigateSales(context, index),

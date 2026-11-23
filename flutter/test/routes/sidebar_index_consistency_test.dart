@@ -60,11 +60,7 @@ const _rowOpens = <String, String>{
   'InventoryReportsPage': AppRoutes.inventoryReportCatalogue,
 };
 
-const _urlOnlyPages = <String>{
-  // Quotations row hidden (no create/accept/convert flow yet): reachable by URL,
-  // highlights nothing.
-  'SalesQuotationsPage',
-};
+const _urlOnlyPages = <String>{};
 
 void main() {
   final routes = _read('lib/routes/routes.dart');
@@ -86,12 +82,13 @@ void main() {
     );
     expect(
       salesOrder.length,
-      13,
+      14,
       reason:
-          'the sales sidebar has 13 destinations — Quotations hidden until its '
-          'create/accept/convert flow exists; Reports (index 5); '
-          'Staff (6), Project requests (7) and Payables (8); '
-          'Deliveries (9), Transfers (10), Settings (11), and Price list (12). Approvals is gone (decision 01: CPMS approves)',
+          'the sales sidebar has 14 destinations — Dashboard, Transactions, '
+          'Quotations (2, restored with its create/convert flow), Sales orders '
+          '(3), Receivables (4), Returns & refunds (5), Reports (6), '
+          'Staff (7), Project requests (8) and Payables (9); '
+          'Deliveries (10), Transfers (11), Settings (12), and Price list (13). Approvals is gone (decision 01: CPMS approves)',
     );
     expect(
       inventoryOrder.length,
@@ -104,8 +101,10 @@ void main() {
     );
     expect(
       tillOrder.length,
-      10,
-      reason: 'Cashier Deliveries is appended at 9; no earlier index moves.',
+      11,
+      reason:
+          'the till has 11 destinations: the OR-tagged tab was INSERTED at 2, '
+          'which moved every later tab (Release 3 … Deliveries 10) one down.',
     );
     expect(
       adminOrder.length,
@@ -118,29 +117,39 @@ void main() {
 
     expect(salesOrder.first, AppRoutes.salesDashboard);
     expect(
-      salesOrder[5],
+      salesOrder[2],
+      AppRoutes.salesQuotations,
+      reason:
+          'Quotations takes its old seat after Transactions: the manager quotes '
+          'a customer, the price is negotiated, then the order is raised from '
+          'it. Every row below moved one down with it',
+    );
+    expect(salesOrder[3], AppRoutes.salesOrders);
+    expect(
+      salesOrder[6],
       AppRoutes.salesReportCatalogue,
       reason:
-          'index 5 is Reports — the tab that used to be a silent no-op; it '
+          'index 6 is Reports — the tab that used to be a silent no-op; it '
           'opens the reports catalogue since the suite landed',
     );
-    expect(salesOrder[6], AppRoutes.salesStaff);
+    expect(salesOrder[7], AppRoutes.salesStaff);
     expect(
-      salesOrder[8],
+      salesOrder[9],
       AppRoutes.salesPayables,
       reason:
           'Phase 5 F2 APPENDED Payables at 8 (decision 18): the Store Manager '
-          'records supplier payments in the sales shell',
+          'records supplier payments in the sales shell. It sits at 9 while '
+          'Quotations is in the menu',
     );
     expect(
-      salesOrder[9],
+      salesOrder[10],
       AppRoutes.salesDeliveries,
       reason:
           'Phase 5 F3 APPENDED Deliveries at 9 (decision 18): the manager runs '
           'the schedule from the sales shell, and no earlier tab moved',
     );
     expect(
-      salesOrder[7],
+      salesOrder[8],
       AppRoutes.salesProjectRequests,
       reason:
           'Phase 1b appended the store-review queue after Staff; renumbering an '
@@ -160,20 +169,25 @@ void main() {
           'Sales and Payables',
     );
     expect(tillOrder[0], AppRoutes.posDashboard);
-    expect(tillOrder[2], AppRoutes.posRelease);
-    expect(tillOrder[4], AppRoutes.posHeld);
-    expect(tillOrder[5], AppRoutes.posShifts);
     expect(
-      tillOrder[6],
+      tillOrder[2],
+      AppRoutes.posOrTagged,
+      reason: 'the owner asked for OR-tagged beside Transaction history',
+    );
+    expect(tillOrder[3], AppRoutes.posRelease);
+    expect(tillOrder[5], AppRoutes.posHeld);
+    expect(tillOrder[6], AppRoutes.posShifts);
+    expect(
+      tillOrder[7],
       AppRoutes.posReturns,
       reason:
-          'Returns is appended at 6 (decision 05). Renumbering an existing tab '
-          'would send a cashier to the wrong screen — the regression this file '
-          'exists for',
+          'Returns was appended at 6 (decision 05) and moved to 7 when the '
+          'OR-tagged tab took 2. Renumbering a tab without its page sends a '
+          'cashier to the wrong screen — the regression this file exists for',
     );
-    expect(tillOrder[7], AppRoutes.posSettings);
-    expect(tillOrder[8], AppRoutes.posCustomers);
-    expect(tillOrder[9], AppRoutes.posDeliveries);
+    expect(tillOrder[8], AppRoutes.posSettings);
+    expect(tillOrder[9], AppRoutes.posCustomers);
+    expect(tillOrder[10], AppRoutes.posDeliveries);
   });
 
   group('every page highlights its own entry in its own sidebar', () {

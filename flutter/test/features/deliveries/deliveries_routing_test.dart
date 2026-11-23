@@ -99,18 +99,18 @@ void main() {
       );
     });
 
-    test('the sales sidebar keeps 8 Payables and gains Deliveries at 9', () {
+    test('the sales sidebar keeps 9 Payables and gains Deliveries at 10', () {
       final order = _areaOrder(AppAreas.sales);
-      expect(order, hasLength(13));
-      expect(order[5], 'salesReportCatalogue');
-      expect(order[8], 'salesPayables');
-      expect(order[9], 'salesDeliveries');
+      expect(order, hasLength(14));
+      expect(order[6], 'salesReportCatalogue');
+      expect(order[9], 'salesPayables');
+      expect(order[10], 'salesDeliveries');
       expect(
-        order[10],
+        order[11],
         'salesTransfers',
         reason: 'Phase 9 F3 APPENDED Transfers at 10; nothing moved',
       );
-      expect(order[11], 'salesSettings');
+      expect(order[12], 'salesSettings');
     });
 
     test('every page declares its own shell index', () {
@@ -129,8 +129,8 @@ void main() {
           AppDestinations.indexOf('deliveries', AppAreas.inventory),
         ]),
       );
-      // The sales page LOOKS ITS ROW UP: hiding Quotations shifted it 10 -> 9,
-      // so a literal would now highlight Transfers.
+      // The sales page LOOKS ITS ROW UP: Quotations back at 2 puts the row at
+      // 10, so a literal would highlight the wrong screen.
       final ids = RegExp(
         r"indexOf\(\s*'([^']+)',\s*AppAreas\.sales",
       ).allMatches(source).map((match) => match.group(1)!).toList();
@@ -139,18 +139,20 @@ void main() {
       expect(source, isNot(contains('AdminSkeletonLayout')));
     });
 
-    test('the till sidebar keeps 8 Customers and gains Deliveries at 9', () {
+    test('the till sidebar keeps Customers and Deliveries, now one down', () {
+      // The OR-tagged tab was inserted at 2, so every row after it moved one
+      // down: Customers 8 -> 9, Deliveries 9 -> 10.
       final order = _areaOrder(AppAreas.pos);
-      expect(order, hasLength(10));
-      expect(order[8], 'posCustomers');
-      expect(order[9], 'posDeliveries');
+      expect(order, hasLength(11));
+      expect(order[9], 'posCustomers');
+      expect(order[10], 'posDeliveries');
     });
 
     test('the till page draws the till shell, not a manager one', () {
       final source = _read(
         'lib/features/deliveries/views/deliveries_page.dart',
       );
-      expect(source, contains('selectedNavigationIndex: 9'));
+      expect(source, contains('selectedNavigationIndex: 10'));
       expect(source, contains('posNavigationItems'));
       expect(source, contains('class PosDeliveriesPage'));
     });

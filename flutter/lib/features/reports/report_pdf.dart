@@ -134,6 +134,11 @@ Future<Uint8List> renderReportPdf({
   List<String> columns = const [],
   List<List<String>> rows = const [],
   bool landscape = false,
+
+  /// Printed in place of the table when there are no rows. A document that can
+  /// legitimately be empty (a quotation with no items) says so in its own
+  /// words instead of borrowing the reports' "no matching records".
+  String emptyMessage = noMatchingRecords,
 }) async {
   final content = ReportPdfContent(
     title: title,
@@ -147,6 +152,7 @@ Future<Uint8List> renderReportPdf({
     kpis: kpis,
     columns: columns,
     rows: rows,
+    emptyMessage: emptyMessage,
   );
   final document = pw.Document(
     theme: pw.ThemeData.withFont(

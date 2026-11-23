@@ -336,6 +336,18 @@ void main() {
     expect(find.textContaining('SO-20261015-0011'), findsOneWidget);
   });
 
+  testWidgets('the sheet offers Export PDF so the requester can be sent it', (
+    tester,
+  ) async {
+    // The quotation exists to be SENT: the manager emails the priced paper
+    // before any order exists. The button is on the sheet, next to the order
+    // action, and hidden from nobody - reading a promise is not a manager task.
+    await pumpPage(tester, role: 'Cashier');
+    await openQuotationSheet(tester);
+
+    expect(find.text('Export PDF'), findsOneWidget);
+  });
+
   testWidgets('cancelling the confirmation posts nothing', (tester) async {
     await pumpPage(tester, role: 'Store Manager');
     await openQuotationSheet(tester);

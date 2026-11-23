@@ -83,7 +83,7 @@ class _PosShiftView extends StatelessWidget {
       title: 'Shifts',
       subtitle:
           'Open float, mid-shift cash in/out, denomination counts, and past Z-readings.',
-      selectedNavigationIndex: 5,
+      selectedNavigationIndex: 6,
       navigationItems: posNavigationItems,
       onNavigationSelected: (i) => navigatePos(context, i),
       child: Column(

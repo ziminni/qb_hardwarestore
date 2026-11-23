@@ -85,7 +85,7 @@ Uint8List buildSalesReportXlsx(SalesSummary sales) {
     _num(sales.totalDiscounts),
   ]);
   summary.appendRow([
-    _text('VAT collected (remitted to BIR)'),
+    _text('VAT collected (remitted to the tax authority)'),
     _num(sales.totalVat),
   ]);
   summary.appendRow([

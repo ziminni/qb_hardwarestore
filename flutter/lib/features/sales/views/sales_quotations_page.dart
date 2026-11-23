@@ -1,6 +1,8 @@
+import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
+import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/models/sales_module.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
@@ -10,9 +12,11 @@ import 'package:client/features/sales/widgets/sales_document_list_content.dart';
 import 'package:client/features/sales/widgets/sales_document_sheet.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
 import 'package:client/features/sales/widgets/sales_quotation_form_dialog.dart';
+import 'package:client/features/sales/widgets/sales_quotation_pdf.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 
 /// The Store Manager's quotations screen: a shell only (card M3). The list, the
@@ -61,6 +65,14 @@ class _SalesQuotationsPageState extends State<SalesQuotationsPage> {
     // A manager turns the promise into the order the till rings. The SERVER still
     // decides: `POST /api/v1/sales-orders/` runs its own guards.
     final canOrder = _mayManage(context);
+    final lines = [
+      for (final line in item.items)
+        SalesDocumentLine(
+          name: variantUomName(inventory, line.variantUomId),
+          qty: line.qty,
+          unitPrice: line.unitPrice,
+        ),
+    ];
     final action = await showSalesDocumentSheet(
       context,
       title: item.number,
@@ -71,19 +83,38 @@ class _SalesQuotationsPageState extends State<SalesQuotationsPage> {
         ('Valid until', formatDate(item.validUntil)),
         if ((item.notes ?? '').isNotEmpty) ('Notes', item.notes!),
       ],
-      lines: [
-        for (final line in item.items)
-          SalesDocumentLine(
-            name: variantUomName(inventory, line.variantUomId),
-            qty: line.qty,
-            unitPrice: line.unitPrice,
-          ),
-      ],
+      lines: lines,
       total: item.total,
       canCreateOrder: canOrder,
+      // The quotation exists to be SENT: the manager emails this paper to the
+      // requester before any order exists. Reading a price promise is not a
+      // manager task, so nobody is refused it.
+      onPrint: () => _exportPdf(item, lines),
+      printLabel: 'Export PDF',
     );
     if (!mounted || action != SalesDocumentAction.createOrder) return;
     await _convertToOrder(item);
+  }
+
+  /// Writes the quotation to a PDF and hands it to the platform's share sheet.
+  ///
+  /// The same lines the sheet shows, at the same prices, so the paper and the
+  /// screen cannot disagree about what the customer was quoted.
+  Future<void> _exportPdf(
+    SalesQuotation item,
+    List<SalesDocumentLine> lines,
+  ) async {
+    final bytes = await renderQuotationPdf(
+      number: item.number,
+      customer: item.customer,
+      validUntil: item.validUntil,
+      lines: lines,
+      total: item.total,
+    );
+    await Printing.sharePdf(
+      bytes: bytes,
+      filename: QuotationPdf.fileName(item.number),
+    );
   }
 
   /// Whether this account may raise an order from a quotation at all.
@@ -190,7 +221,12 @@ class _SalesQuotationsPageState extends State<SalesQuotationsPage> {
       title: 'Quotations',
       subtitle:
           'Formal price estimates for customers (does not reserve or deduct stock).',
-      selectedNavigationIndex: 2,
+      // Looked up, never a literal: the row has been hidden and restored once
+      // already, and a stale number highlights the neighbour instead.
+      selectedNavigationIndex: AppDestinations.indexOf(
+        'sales.quotations',
+        AppAreas.sales,
+      ),
       // The list owns the scrolling, so it builds only the rows on screen.
       scrollable: false,
       onNavigationSelected: (index) => navigateSales(context, index),
