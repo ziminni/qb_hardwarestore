@@ -1150,3 +1150,823 @@ class VoidRow {
     reason: json['reason'] as String?,
   );
 }
+
+// ---------------------------------------------------------------------------
+// P2 inventory detail reports. Same `_paged()` envelope as the P1 sales
+// reports: `totals` (and any `as_of` / `days` context) sits OUTSIDE the page, so
+// a report's own numbers survive paging. The inventory rule on cost is the one
+// that shapes these models: a quantity with no batch history has NO landed cost,
+// so its pesos arrive as null and must never be read as ₱0.00.
+// ---------------------------------------------------------------------------
+
+/// GET /api/v1/reports/grn/
+class GrnReport {
+  const GrnReport({
+    required this.from,
+    required this.to,
+    required this.receipts,
+    required this.items,
+    required this.qty,
+    required this.billed,
+    required this.unbilled,
+    required this.billTotal,
+    required this.page,
+  });
+
+  final String from;
+  final String to;
+  final int receipts;
+  final int items;
+  final double qty;
+  final int billed;
+  final int unbilled;
+  final double billTotal;
+  final ReportPage<GrnRow> page;
+
+  factory GrnReport.fromJson(Map<String, dynamic> json) {
+    final totals = totalsField(json);
+    return GrnReport(
+      from: stringField(json, 'from'),
+      to: stringField(json, 'to'),
+      receipts: (totals['receipts'] as num?)?.toInt() ?? 0,
+      items: (totals['items'] as num?)?.toInt() ?? 0,
+      qty: optionalDecimalField(totals, 'qty'),
+      billed: (totals['billed'] as num?)?.toInt() ?? 0,
+      unbilled: (totals['unbilled'] as num?)?.toInt() ?? 0,
+      billTotal: optionalDecimalField(totals, 'bill_total'),
+      page: ReportPage.fromJson(json, GrnRow.fromJson),
+    );
+  }
+}
+
+class GrnRow {
+  const GrnRow({
+    required this.id,
+    required this.date,
+    required this.supplier,
+    required this.deliveryReceiptNo,
+    required this.items,
+    required this.qty,
+    required this.billTotal,
+    required this.billStatus,
+  });
+
+  final int id;
+  final String date;
+  final String supplier;
+  final String deliveryReceiptNo;
+  final int items;
+  final double qty;
+
+  /// Null for a receipt that was never billed (or billed before bills existed).
+  final double? billTotal;
+  final String? billStatus;
+
+  factory GrnRow.fromJson(Map<String, dynamic> json) => GrnRow(
+    id: (json['id'] as num?)?.toInt() ?? 0,
+    date: stringField(json, 'date'),
+    supplier: stringField(json, 'supplier'),
+    deliveryReceiptNo: json['delivery_receipt_no'] as String? ?? '',
+    items: (json['items'] as num?)?.toInt() ?? 0,
+    qty: optionalDecimalField(json, 'qty'),
+    billTotal: nullableDecimalField(json, 'bill_total'),
+    billStatus: json['bill_status'] as String?,
+  );
+}
+
+/// GET /api/v1/reports/stn/
+class StnReport {
+  const StnReport({
+    required this.from,
+    required this.to,
+    required this.transfers,
+    required this.lines,
+    required this.qty,
+    required this.page,
+  });
+
+  final String from;
+  final String to;
+  final int transfers;
+  final int lines;
+  final double qty;
+  final ReportPage<StnRow> page;
+
+  factory StnReport.fromJson(Map<String, dynamic> json) {
+    final totals = totalsField(json);
+    return StnReport(
+      from: stringField(json, 'from'),
+      to: stringField(json, 'to'),
+      transfers: (totals['transfers'] as num?)?.toInt() ?? 0,
+      lines: (totals['lines'] as num?)?.toInt() ?? 0,
+      qty: optionalDecimalField(totals, 'qty'),
+      page: ReportPage.fromJson(json, StnRow.fromJson),
+    );
+  }
+}
+
+class StnRow {
+  const StnRow({
+    required this.id,
+    required this.number,
+    required this.date,
+    required this.fromLocationName,
+    required this.toLocationName,
+    required this.lines,
+    required this.qty,
+    required this.status,
+  });
+
+  final int id;
+  final String number;
+
+  /// Local ISO timestamp: generated once, the slip's own date is all the range
+  /// ever filters on.
+  final String date;
+  final String fromLocationName;
+  final String toLocationName;
+  final int lines;
+  final double qty;
+
+  /// Always COMPLETED: a transfer is one step, so a refused one writes no slip.
+  final String status;
+
+  factory StnRow.fromJson(Map<String, dynamic> json) => StnRow(
+    id: (json['id'] as num?)?.toInt() ?? 0,
+    number: stringField(json, 'number'),
+    date: stringField(json, 'date'),
+    fromLocationName: json['from_location_name'] as String? ?? '',
+    toLocationName: json['to_location_name'] as String? ?? '',
+    lines: (json['lines'] as num?)?.toInt() ?? 0,
+    qty: optionalDecimalField(json, 'qty'),
+    status: json['status'] as String? ?? '',
+  );
+}
+
+/// GET /api/v1/reports/batch-age/
+class BatchAgeReport {
+  const BatchAgeReport({
+    required this.asOf,
+    required this.variants,
+    required this.qty0to30,
+    required this.qty30to90,
+    required this.qty90plus,
+    required this.totalQty,
+    required this.page,
+  });
+
+  /// The day the ages were measured on; the report takes no date range.
+  final String asOf;
+  final int variants;
+  final double qty0to30;
+  final double qty30to90;
+  final double qty90plus;
+  final double totalQty;
+  final ReportPage<BatchAgeRow> page;
+
+  factory BatchAgeReport.fromJson(Map<String, dynamic> json) {
+    final totals = totalsField(json);
+    return BatchAgeReport(
+      asOf: json['as_of'] as String? ?? '',
+      variants: (totals['variants'] as num?)?.toInt() ?? 0,
+      qty0to30: optionalDecimalField(totals, 'qty_0_30'),
+      qty30to90: optionalDecimalField(totals, 'qty_30_90'),
+      qty90plus: optionalDecimalField(totals, 'qty_90_plus'),
+      totalQty: optionalDecimalField(totals, 'total_qty'),
+      page: ReportPage.fromJson(json, BatchAgeRow.fromJson),
+    );
+  }
+}
+
+class BatchAgeRow {
+  const BatchAgeRow({
+    required this.variantId,
+    required this.sku,
+    required this.product,
+    required this.variant,
+    required this.uom,
+    required this.oldestAgeDays,
+    required this.qty0to30,
+    required this.qty30to90,
+    required this.qty90plus,
+    required this.totalQty,
+  });
+
+  final int variantId;
+  final String sku;
+  final String product;
+  final String variant;
+  final String uom;
+  final int oldestAgeDays;
+  final double qty0to30;
+  final double qty30to90;
+  final double qty90plus;
+  final double totalQty;
+
+  /// What the table calls this item: `Cement · 40kg`.
+  String get name => variant.trim().isEmpty ? product : '$product · $variant';
+
+  factory BatchAgeRow.fromJson(Map<String, dynamic> json) => BatchAgeRow(
+    variantId: (json['variant_id'] as num?)?.toInt() ?? 0,
+    sku: stringField(json, 'sku'),
+    product: stringField(json, 'product'),
+    variant: json['variant'] as String? ?? '',
+    uom: json['uom'] as String? ?? '',
+    oldestAgeDays: (json['oldest_batch_age_days'] as num?)?.toInt() ?? 0,
+    qty0to30: optionalDecimalField(json, 'qty_0_30'),
+    qty30to90: optionalDecimalField(json, 'qty_30_90'),
+    qty90plus: optionalDecimalField(json, 'qty_90_plus'),
+    totalQty: optionalDecimalField(json, 'total_qty'),
+  );
+}
+
+/// GET /api/v1/reports/shrinkage/
+class ShrinkageReport {
+  const ShrinkageReport({
+    required this.from,
+    required this.to,
+    required this.qty,
+    required this.totalValue,
+    required this.missingCostLines,
+    required this.adjustments,
+    required this.openingQty,
+    required this.receivedQty,
+    required this.shrinkagePercent,
+    required this.page,
+  });
+
+  final String from;
+  final String to;
+
+  /// Reported POSITIVE: the loss, not the negative adjustment behind it.
+  final double qty;
+
+  /// Null when nothing in the range could be costed: unknown, never ₱0.00.
+  final double? totalValue;
+  final int missingCostLines;
+  final int adjustments;
+  final double openingQty;
+  final double receivedQty;
+
+  /// Loss ÷ what was available; null when there was nothing to lose from.
+  final double? shrinkagePercent;
+  final ReportPage<ShrinkageRow> page;
+
+  factory ShrinkageReport.fromJson(Map<String, dynamic> json) {
+    final totals = totalsField(json);
+    return ShrinkageReport(
+      from: stringField(json, 'from'),
+      to: stringField(json, 'to'),
+      qty: optionalDecimalField(totals, 'qty'),
+      totalValue: nullableDecimalField(totals, 'value'),
+      missingCostLines: (totals['missing_cost_lines'] as num?)?.toInt() ?? 0,
+      adjustments: (totals['adjustments'] as num?)?.toInt() ?? 0,
+      openingQty: optionalDecimalField(totals, 'opening_qty'),
+      receivedQty: optionalDecimalField(totals, 'received_qty'),
+      shrinkagePercent: nullableDecimalField(totals, 'shrinkage_percent'),
+      page: ReportPage.fromJson(json, ShrinkageRow.fromJson),
+    );
+  }
+}
+
+class ShrinkageRow {
+  const ShrinkageRow({
+    required this.date,
+    required this.qty,
+    required this.value,
+    required this.adjustments,
+  });
+
+  final String date;
+  final double qty;
+
+  /// Null when no line that day carried a landed cost: never a fake 0.00.
+  final double? value;
+  final int adjustments;
+
+  factory ShrinkageRow.fromJson(Map<String, dynamic> json) => ShrinkageRow(
+    date: stringField(json, 'date'),
+    qty: optionalDecimalField(json, 'qty'),
+    value: nullableDecimalField(json, 'value'),
+    adjustments: (json['adjustments'] as num?)?.toInt() ?? 0,
+  );
+}
+
+/// GET /api/v1/reports/adjustments/
+class AdjustmentsReport {
+  const AdjustmentsReport({
+    required this.from,
+    required this.to,
+    required this.adjustments,
+    required this.qty,
+    required this.totalValue,
+    required this.missingCostLines,
+    required this.page,
+  });
+
+  final String from;
+  final String to;
+  final int adjustments;
+
+  /// SIGNED, so the rows add up to the total.
+  final double qty;
+  final double? totalValue;
+  final int missingCostLines;
+  final ReportPage<AdjustmentRow> page;
+
+  factory AdjustmentsReport.fromJson(Map<String, dynamic> json) {
+    final totals = totalsField(json);
+    return AdjustmentsReport(
+      from: stringField(json, 'from'),
+      to: stringField(json, 'to'),
+      adjustments: (totals['adjustments'] as num?)?.toInt() ?? 0,
+      qty: optionalDecimalField(totals, 'qty'),
+      totalValue: nullableDecimalField(totals, 'value'),
+      missingCostLines: (totals['missing_cost_lines'] as num?)?.toInt() ?? 0,
+      page: ReportPage.fromJson(json, AdjustmentRow.fromJson),
+    );
+  }
+}
+
+class AdjustmentRow {
+  const AdjustmentRow({
+    required this.id,
+    required this.date,
+    required this.type,
+    required this.product,
+    required this.variant,
+    required this.locationName,
+    required this.userName,
+    required this.qty,
+    required this.value,
+  });
+
+  final int id;
+  final String date;
+
+  /// CORRECTION or RETURN; the loss types live in the shrinkage report.
+  final String type;
+  final String product;
+  final String variant;
+  final String locationName;
+  final String userName;
+
+  /// SIGNED: a correction adds, a supplier return takes away.
+  final double qty;
+
+  /// Null when the variant has no batch history to cost against.
+  final double? value;
+
+  String get name => variant.trim().isEmpty ? product : '$product · $variant';
+
+  factory AdjustmentRow.fromJson(Map<String, dynamic> json) => AdjustmentRow(
+    id: (json['id'] as num?)?.toInt() ?? 0,
+    date: stringField(json, 'date'),
+    type: stringField(json, 'type'),
+    product: stringField(json, 'product'),
+    variant: json['variant'] as String? ?? '',
+    locationName: json['location_name'] as String? ?? '',
+    userName: json['user'] as String? ?? '',
+    qty: optionalDecimalField(json, 'qty'),
+    value: nullableDecimalField(json, 'value'),
+  );
+}
+
+/// GET /api/v1/reports/reorder/
+class ReorderReport {
+  const ReorderReport({
+    required this.variants,
+    required this.onHand,
+    required this.threshold,
+    required this.gap,
+    required this.page,
+  });
+
+  final int variants;
+  final double onHand;
+  final double threshold;
+
+  /// What has to be bought to reach the threshold: the buying order.
+  final double gap;
+  final ReportPage<ReorderRow> page;
+
+  factory ReorderReport.fromJson(Map<String, dynamic> json) {
+    final totals = totalsField(json);
+    return ReorderReport(
+      variants: (totals['variants'] as num?)?.toInt() ?? 0,
+      onHand: optionalDecimalField(totals, 'on_hand'),
+      threshold: optionalDecimalField(totals, 'threshold'),
+      gap: optionalDecimalField(totals, 'gap'),
+      page: ReportPage.fromJson(json, ReorderRow.fromJson),
+    );
+  }
+}
+
+class ReorderRow {
+  const ReorderRow({
+    required this.variantId,
+    required this.sku,
+    required this.product,
+    required this.variant,
+    required this.uom,
+    required this.onHand,
+    required this.threshold,
+    required this.gap,
+    required this.locations,
+  });
+
+  final int variantId;
+  final String sku;
+  final String product;
+  final String variant;
+  final String uom;
+  final double onHand;
+  final double threshold;
+  final double gap;
+
+  /// Where the little that is left actually sits, biggest shelf first.
+  final List<ReorderShelf> locations;
+
+  String get name => variant.trim().isEmpty ? product : '$product · $variant';
+
+  factory ReorderRow.fromJson(Map<String, dynamic> json) {
+    final shelves = json['locations'];
+    return ReorderRow(
+      variantId: (json['variant_id'] as num?)?.toInt() ?? 0,
+      sku: stringField(json, 'sku'),
+      product: stringField(json, 'product'),
+      variant: json['variant'] as String? ?? '',
+      uom: json['uom'] as String? ?? '',
+      onHand: optionalDecimalField(json, 'on_hand'),
+      threshold: optionalDecimalField(json, 'threshold'),
+      gap: optionalDecimalField(json, 'gap'),
+      locations: shelves is List
+          ? [
+              for (final shelf in shelves)
+                ReorderShelf.fromJson(shelf as Map<String, dynamic>),
+            ]
+          : const [],
+    );
+  }
+}
+
+class ReorderShelf {
+  const ReorderShelf({
+    required this.locationId,
+    required this.locationName,
+    required this.qty,
+  });
+
+  final int? locationId;
+  final String locationName;
+  final double qty;
+
+  factory ReorderShelf.fromJson(Map<String, dynamic> json) => ReorderShelf(
+    locationId: (json['location'] as num?)?.toInt(),
+    locationName: json['location_name'] as String? ?? '',
+    qty: optionalDecimalField(json, 'qty'),
+  );
+}
+
+/// GET /api/v1/reports/dead-stock/
+class DeadStockReport {
+  const DeadStockReport({
+    required this.asOf,
+    required this.days,
+    required this.from,
+    required this.to,
+    required this.variants,
+    required this.onHand,
+    required this.landedValue,
+    required this.page,
+  });
+
+  final String asOf;
+
+  /// The trailing window in days: decision 03's 90 unless the caller asks.
+  final int days;
+  final String from;
+  final String to;
+  final int variants;
+  final double onHand;
+
+  /// The money tied up in stock that sold nothing in the window.
+  final double landedValue;
+  final ReportPage<DeadStockRow> page;
+
+  factory DeadStockReport.fromJson(Map<String, dynamic> json) {
+    final totals = totalsField(json);
+    return DeadStockReport(
+      asOf: json['as_of'] as String? ?? '',
+      days: (json['days'] as num?)?.toInt() ?? 0,
+      from: json['from'] as String? ?? '',
+      to: json['to'] as String? ?? '',
+      variants: (totals['variants'] as num?)?.toInt() ?? 0,
+      onHand: optionalDecimalField(totals, 'on_hand'),
+      landedValue: optionalDecimalField(totals, 'landed_value'),
+      page: ReportPage.fromJson(json, DeadStockRow.fromJson),
+    );
+  }
+}
+
+class DeadStockRow {
+  const DeadStockRow({
+    required this.variantId,
+    required this.sku,
+    required this.product,
+    required this.variant,
+    required this.uom,
+    required this.onHand,
+    required this.daysSinceLastSale,
+    required this.landedValue,
+  });
+
+  final int variantId;
+  final String sku;
+  final String product;
+  final String variant;
+  final String uom;
+  final double onHand;
+
+  /// Null means the variant never sold at all — a different fact from one that
+  /// sold long ago.
+  final int? daysSinceLastSale;
+  final double landedValue;
+
+  String get name => variant.trim().isEmpty ? product : '$product · $variant';
+
+  factory DeadStockRow.fromJson(Map<String, dynamic> json) => DeadStockRow(
+    variantId: (json['variant_id'] as num?)?.toInt() ?? 0,
+    sku: stringField(json, 'sku'),
+    product: stringField(json, 'product'),
+    variant: json['variant'] as String? ?? '',
+    uom: json['uom'] as String? ?? '',
+    onHand: optionalDecimalField(json, 'on_hand'),
+    daysSinceLastSale: (json['days_since_last_sale'] as num?)?.toInt(),
+    landedValue: optionalDecimalField(json, 'landed_value'),
+  );
+}
+
+/// GET /api/v1/reports/fast-slow/
+class FastSlowReport {
+  const FastSlowReport({
+    required this.from,
+    required this.to,
+    required this.skusSold,
+    required this.fast,
+    required this.slow,
+    required this.qtyBase,
+    required this.netMerchandise,
+    required this.page,
+  });
+
+  final String from;
+  final String to;
+  final int skusSold;
+  final int fast;
+  final int slow;
+  final double qtyBase;
+  final double netMerchandise;
+  final ReportPage<FastSlowRow> page;
+
+  factory FastSlowReport.fromJson(Map<String, dynamic> json) {
+    final totals = totalsField(json);
+    return FastSlowReport(
+      from: stringField(json, 'from'),
+      to: stringField(json, 'to'),
+      skusSold: (totals['skus_sold'] as num?)?.toInt() ?? 0,
+      fast: (totals['fast'] as num?)?.toInt() ?? 0,
+      slow: (totals['slow'] as num?)?.toInt() ?? 0,
+      qtyBase: optionalDecimalField(totals, 'qty_base'),
+      netMerchandise: optionalDecimalField(totals, 'net_merchandise'),
+      page: ReportPage.fromJson(json, FastSlowRow.fromJson),
+    );
+  }
+}
+
+class FastSlowRow {
+  const FastSlowRow({
+    required this.variantId,
+    required this.sku,
+    required this.product,
+    required this.variant,
+    required this.uom,
+    required this.band,
+    required this.qtyBase,
+    required this.netMerchandise,
+  });
+
+  final int variantId;
+  final String sku;
+  final String product;
+  final String variant;
+  final String uom;
+
+  /// FAST (top 20% by base units) or SLOW (bottom 20% that still sold).
+  final String band;
+  final double qtyBase;
+  final double netMerchandise;
+
+  String get name => variant.trim().isEmpty ? product : '$product · $variant';
+
+  factory FastSlowRow.fromJson(Map<String, dynamic> json) => FastSlowRow(
+    variantId: (json['variant_id'] as num?)?.toInt() ?? 0,
+    sku: stringField(json, 'sku'),
+    product: stringField(json, 'product'),
+    variant: json['variant'] as String? ?? '',
+    uom: json['uom'] as String? ?? '',
+    band: stringField(json, 'band'),
+    qtyBase: optionalDecimalField(json, 'qty_base'),
+    netMerchandise: optionalDecimalField(json, 'net_merchandise'),
+  );
+}
+
+/// GET /api/v1/reports/cycle-count/
+class CycleCountReport {
+  const CycleCountReport({
+    required this.from,
+    required this.to,
+    required this.adjustments,
+    required this.qty,
+    required this.totalValue,
+    required this.missingCostLines,
+    required this.onHandQty,
+    required this.shrinkagePercent,
+    required this.page,
+  });
+
+  final String from;
+  final String to;
+  final int adjustments;
+
+  /// SIGNED net variance of the count.
+  final double qty;
+  final double? totalValue;
+  final int missingCostLines;
+  final double onHandQty;
+
+  /// Net shortfall ÷ what the count saw; null when there was nothing to divide.
+  final double? shrinkagePercent;
+  final ReportPage<CycleCountRow> page;
+
+  factory CycleCountReport.fromJson(Map<String, dynamic> json) {
+    final totals = totalsField(json);
+    return CycleCountReport(
+      from: stringField(json, 'from'),
+      to: stringField(json, 'to'),
+      adjustments: (totals['adjustments'] as num?)?.toInt() ?? 0,
+      qty: optionalDecimalField(totals, 'qty'),
+      totalValue: nullableDecimalField(totals, 'value'),
+      missingCostLines: (totals['missing_cost_lines'] as num?)?.toInt() ?? 0,
+      onHandQty: optionalDecimalField(totals, 'on_hand_qty'),
+      shrinkagePercent: nullableDecimalField(totals, 'shrinkage_percent'),
+      page: ReportPage.fromJson(json, CycleCountRow.fromJson),
+    );
+  }
+}
+
+class CycleCountRow {
+  const CycleCountRow({
+    required this.id,
+    required this.date,
+    required this.product,
+    required this.variant,
+    required this.locationName,
+    required this.userName,
+    required this.qty,
+    required this.value,
+  });
+
+  final int id;
+  final String date;
+  final String product;
+  final String variant;
+  final String locationName;
+  final String userName;
+
+  /// SIGNED: a count that found extra stock adds, a shortfall takes away.
+  final double qty;
+  final double? value;
+
+  String get name => variant.trim().isEmpty ? product : '$product · $variant';
+
+  factory CycleCountRow.fromJson(Map<String, dynamic> json) => CycleCountRow(
+    id: (json['id'] as num?)?.toInt() ?? 0,
+    date: stringField(json, 'date'),
+    product: stringField(json, 'product'),
+    variant: json['variant'] as String? ?? '',
+    locationName: json['location_name'] as String? ?? '',
+    userName: json['user'] as String? ?? '',
+    qty: optionalDecimalField(json, 'qty'),
+    value: nullableDecimalField(json, 'value'),
+  );
+}
+
+/// GET /api/v1/reports/expiry/
+class ExpiryReport {
+  const ExpiryReport({
+    required this.asOf,
+    required this.days,
+    required this.rowCount,
+    required this.qty,
+    required this.value,
+    required this.valueExpired,
+    required this.value0to30,
+    required this.value31to60,
+    required this.value61to90,
+    required this.nearExpiryValue,
+    required this.onHandValue,
+    required this.nearExpiryPct,
+    required this.page,
+  });
+
+  final String asOf;
+
+  /// The KPI's window, not the row filter: rows reach 90 days out.
+  final int days;
+
+  /// Batches in the report; named apart from [page] so neither reads as the other.
+  final int rowCount;
+  final double qty;
+  final double value;
+  final double valueExpired;
+  final double value0to30;
+  final double value31to60;
+  final double value61to90;
+  final double nearExpiryValue;
+  final double onHandValue;
+
+  /// Near-expiry value ÷ all stock on hand; null with no stock to lose.
+  final double? nearExpiryPct;
+  final ReportPage<ExpiryRow> page;
+
+  factory ExpiryReport.fromJson(Map<String, dynamic> json) {
+    final totals = totalsField(json);
+    return ExpiryReport(
+      asOf: json['as_of'] as String? ?? '',
+      days: (json['days'] as num?)?.toInt() ?? 0,
+      rowCount: (totals['rows'] as num?)?.toInt() ?? 0,
+      qty: optionalDecimalField(totals, 'qty'),
+      value: optionalDecimalField(totals, 'value'),
+      valueExpired: optionalDecimalField(totals, 'value_expired'),
+      value0to30: optionalDecimalField(totals, 'value_0_30'),
+      value31to60: optionalDecimalField(totals, 'value_31_60'),
+      value61to90: optionalDecimalField(totals, 'value_61_90'),
+      nearExpiryValue: optionalDecimalField(totals, 'near_expiry_value'),
+      onHandValue: optionalDecimalField(totals, 'on_hand_value'),
+      nearExpiryPct: nullableDecimalField(totals, 'near_expiry_pct'),
+      page: ReportPage.fromJson(json, ExpiryRow.fromJson),
+    );
+  }
+}
+
+class ExpiryRow {
+  const ExpiryRow({
+    required this.batchId,
+    required this.variantId,
+    required this.sku,
+    required this.product,
+    required this.variant,
+    required this.uom,
+    required this.location,
+    required this.qty,
+    required this.value,
+    required this.expiresOn,
+    required this.daysLeft,
+    required this.bucket,
+  });
+
+  final int batchId;
+  final int variantId;
+  final String sku;
+  final String product;
+  final String variant;
+  final String uom;
+  final String location;
+  final double qty;
+  final double value;
+  final String expiresOn;
+
+  /// Negative once the batch is past its date.
+  final int daysLeft;
+
+  /// `expired`, `0-30`, `31-60` or `61-90`.
+  final String bucket;
+
+  String get name => variant.trim().isEmpty ? product : '$product · $variant';
+
+  factory ExpiryRow.fromJson(Map<String, dynamic> json) => ExpiryRow(
+    batchId: (json['batch_id'] as num?)?.toInt() ?? 0,
+    variantId: (json['variant_id'] as num?)?.toInt() ?? 0,
+    sku: stringField(json, 'sku'),
+    product: stringField(json, 'product'),
+    variant: json['variant'] as String? ?? '',
+    uom: json['uom'] as String? ?? '',
+    location: json['location'] as String? ?? '',
+    qty: optionalDecimalField(json, 'qty'),
+    value: optionalDecimalField(json, 'value'),
+    expiresOn: stringField(json, 'expires_on'),
+    daysLeft: (json['days_left'] as num?)?.toInt() ?? 0,
+    bucket: stringField(json, 'bucket'),
+  );
+}

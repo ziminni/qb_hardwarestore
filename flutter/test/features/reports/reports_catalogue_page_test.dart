@@ -1,10 +1,11 @@
 // Reports suite P1 stage 1: the catalogue home + one shared viewer.
 //
 // The catalogue is the Reports area's front door: cards grouped SALES /
-// INVENTORY / KPIs. The five reports that have an endpoint behind them are
-// live; the P1 sales reports that have no endpoint yet are shown DISABLED with
-// a "P1" tag, because a card that opens an empty screen is the dead control the
-// tree-wide guard bans.
+// INVENTORY / KPIs. Every report with an endpoint behind it is live — the six
+// originals, the seven P1 sales detail reports and the ten P2 inventory reports
+// (that last set is checked in inventory_reports_test.dart). Only the three KPI
+// cards carry no endpoint, so they stay DISABLED with a "P1" tag: a card that
+// opens an empty screen is the dead control the tree-wide guard bans.
 //
 // Decision 02-role-visibility: an inventory-role-only account (the stocker) sees
 // the INVENTORY section only — Sales, VAT and KPI cards are manager-only, and

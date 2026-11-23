@@ -166,6 +166,34 @@ class _ReportViewerViewState extends State<ReportViewerView> {
           );
         case 'voids':
           view = _voidsView(await _repository.fetchVoids(from: from, to: to));
+        case 'grn':
+          view = _grnView(await _repository.fetchGrn(from: from, to: to));
+        case 'stn':
+          view = _stnView(await _repository.fetchStn(from: from, to: to));
+        case 'batch-age':
+          view = _batchAgeView(await _repository.fetchBatchAge());
+        case 'shrinkage':
+          view = _shrinkageView(
+            await _repository.fetchShrinkage(from: from, to: to),
+          );
+        case 'adjustments':
+          view = _adjustmentsView(
+            await _repository.fetchAdjustments(from: from, to: to),
+          );
+        case 'reorder':
+          view = _reorderView(await _repository.fetchReorder());
+        case 'dead-stock':
+          view = _deadStockView(await _repository.fetchDeadStock());
+        case 'fast-slow':
+          view = _fastSlowView(
+            await _repository.fetchFastSlow(from: from, to: to),
+          );
+        case 'cycle-count':
+          view = _cycleCountView(
+            await _repository.fetchCycleCount(from: from, to: to),
+          );
+        case 'expiry':
+          view = _expiryView(await _repository.fetchExpiry());
         default:
           // No endpoint behind this id yet: the catalogue already disables the
           // card, and a typed address gets the same honest sentence.
@@ -674,6 +702,8 @@ _ReportView _salesByItemView(SalesByItemReport report) => _ReportView(
       ],
   ],
   emptyMessage: 'No items sold in this range.',
+  excelName: 'item-wise-sales-${report.from}-to-${report.to}.xlsx',
+  excelBytes: () => buildSalesByItemReportXlsx(report),
 );
 
 _ReportView _salesByHourView(SalesByHour report) => _ReportView(
@@ -699,6 +729,8 @@ _ReportView _salesByHourView(SalesByHour report) => _ReportView(
       ],
   ],
   emptyMessage: 'No sales in this range.',
+  excelName: 'hourly-sales-${report.from}-to-${report.to}.xlsx',
+  excelBytes: () => buildSalesByHourReportXlsx(report),
 );
 
 _ReportView _salesByCashierView(SalesByCashier report) => _ReportView(
@@ -737,6 +769,8 @@ _ReportView _salesByCashierView(SalesByCashier report) => _ReportView(
       ],
   ],
   emptyMessage: 'No sales in this range.',
+  excelName: 'cashier-performance-${report.from}-to-${report.to}.xlsx',
+  excelBytes: () => buildSalesByCashierReportXlsx(report),
 );
 
 _ReportView _billWiseView(BillWiseReport report) => _ReportView(
@@ -776,6 +810,8 @@ _ReportView _billWiseView(BillWiseReport report) => _ReportView(
       ],
   ],
   emptyMessage: 'No bills in this range.',
+  excelName: 'bill-wise-sales-${report.from}-to-${report.to}.xlsx',
+  excelBytes: () => buildBillWiseReportXlsx(report),
 );
 
 _ReportView _returnsExchangesView(ReturnsExchangesReport report) => _ReportView(
@@ -806,6 +842,8 @@ _ReportView _returnsExchangesView(ReturnsExchangesReport report) => _ReportView(
       ],
   ],
   emptyMessage: 'No returns or exchanges in this range.',
+  excelName: 'returns-exchanges-${report.from}-to-${report.to}.xlsx',
+  excelBytes: () => buildReturnsExchangesReportXlsx(report),
 );
 
 _ReportView _discountsView(DiscountsReport report) => _ReportView(
@@ -842,6 +880,8 @@ _ReportView _discountsView(DiscountsReport report) => _ReportView(
       ],
   ],
   emptyMessage: 'No discounts in this range.',
+  excelName: 'discounts-${report.from}-to-${report.to}.xlsx',
+  excelBytes: () => buildDiscountsReportXlsx(report),
 );
 
 _ReportView _voidsView(VoidsReport report) => _ReportView(
@@ -869,7 +909,437 @@ _ReportView _voidsView(VoidsReport report) => _ReportView(
       ],
   ],
   emptyMessage: 'No voided bills in this range.',
+  excelName: 'voids-${report.from}-to-${report.to}.xlsx',
+  excelBytes: () => buildVoidsReportXlsx(report),
 );
+
+// --- P2 inventory reports --------------------------------------------------
+// Every one of them formats a missing peso value as words: an inventory figure
+// with no batch history has no cost, and ₱0.00 would be a claim nobody made.
+
+_ReportView _grnView(GrnReport report) => _ReportView(
+  kpis: [
+    (
+      label: 'Receipts',
+      value: formatCount(report.receipts),
+      caption: 'Deliveries in this range',
+    ),
+    (
+      label: 'Quantity received',
+      value: formatQuantity(report.qty),
+      caption: 'Base units',
+    ),
+    (
+      label: 'Billed',
+      value: formatCount(report.billed),
+      caption: 'Supplier bill raised',
+    ),
+    (
+      label: 'Unbilled',
+      value: formatCount(report.unbilled),
+      caption: 'No bill yet',
+    ),
+  ],
+  columns: const ['Receipt', 'Date', 'Supplier', 'Items', 'Units', 'Bill'],
+  rows: [
+    for (final row in report.page.rows)
+      [
+        row.deliveryReceiptNo.isEmpty
+            ? 'No receipt number'
+            : row.deliveryReceiptNo,
+        _dateLabel(row.date),
+        row.supplier,
+        formatCount(row.items),
+        formatQuantity(row.qty),
+        // A receipt nobody billed has no peso value, so it says that instead of
+        // printing ₱0.00.
+        row.billTotal == null ? 'Not billed' : formatPeso(row.billTotal!),
+      ],
+  ],
+  emptyMessage: 'No goods received in this range.',
+  excelName: 'goods-received-${report.from}-to-${report.to}.xlsx',
+  excelBytes: () => buildGrnReportXlsx(report),
+);
+
+_ReportView _stnView(StnReport report) => _ReportView(
+  kpis: [
+    (
+      label: 'Transfers',
+      value: formatCount(report.transfers),
+      caption: 'Slips in this range',
+    ),
+    (
+      label: 'Units moved',
+      value: formatQuantity(report.qty),
+      caption: 'Base units',
+    ),
+  ],
+  columns: const ['Transfer', 'Date', 'From', 'To', 'Lines', 'Units'],
+  rows: [
+    for (final row in report.page.rows)
+      [
+        row.number,
+        _dateLabel(row.date),
+        row.fromLocationName,
+        row.toLocationName,
+        formatCount(row.lines),
+        formatQuantity(row.qty),
+      ],
+  ],
+  emptyMessage: 'No stock transfers in this range.',
+  excelName: 'stock-transfers-${report.from}-to-${report.to}.xlsx',
+  excelBytes: () => buildStnReportXlsx(report),
+);
+
+_ReportView _batchAgeView(BatchAgeReport report) => _ReportView(
+  kpis: [
+    (
+      label: 'Variants on hand',
+      value: formatCount(report.variants),
+      caption: 'As of ${_dateLabel(report.asOf)}',
+    ),
+    (
+      label: '0-30 days',
+      value: formatQuantity(report.qty0to30),
+      caption: 'Fresh stock',
+    ),
+    (
+      label: '31-90 days',
+      value: formatQuantity(report.qty30to90),
+      caption: 'Sitting a while',
+    ),
+    (
+      label: '90+ days',
+      value: formatQuantity(report.qty90plus),
+      caption: 'Oldest stock first',
+    ),
+  ],
+  columns: const [
+    'Item',
+    'Oldest batch',
+    '0-30 days',
+    '31-90 days',
+    '90+ days',
+    'On hand',
+  ],
+  rows: [
+    for (final row in report.page.rows)
+      [
+        row.name,
+        '${formatCount(row.oldestAgeDays)} days',
+        formatQuantity(row.qty0to30),
+        formatQuantity(row.qty30to90),
+        formatQuantity(row.qty90plus),
+        formatQuantity(row.totalQty),
+      ],
+  ],
+  emptyMessage: 'No stock on hand.',
+  excelName: 'batch-age-${report.asOf}.xlsx',
+  excelBytes: () => buildBatchAgeReportXlsx(report),
+);
+
+_ReportView _shrinkageView(ShrinkageReport report) => _ReportView(
+  kpis: [
+    (
+      label: 'Quantity lost',
+      value: formatQuantity(report.qty),
+      caption: 'Shrinkage and damage',
+    ),
+    (
+      label: 'Value lost',
+      value: _costOrUnknown(report.totalValue),
+      caption: 'At landed cost',
+    ),
+    (
+      label: 'Shrinkage',
+      value: _percentOrUnknown(report.shrinkagePercent, 'No stock to measure'),
+      caption: 'Loss ÷ stock available',
+    ),
+    if (report.missingCostLines > 0)
+      (
+        label: 'Losses with no cost',
+        value: formatCount(report.missingCostLines),
+        caption: 'Left out of the value',
+      ),
+  ],
+  columns: const ['Day', 'Quantity lost', 'Value lost', 'Adjustments'],
+  rows: [
+    for (final row in report.page.rows)
+      [
+        _dateLabel(row.date),
+        formatQuantity(row.qty),
+        _costOrUnknown(row.value),
+        formatCount(row.adjustments),
+      ],
+  ],
+  emptyMessage: 'No shrinkage or damage in this range.',
+  excelName: 'shrinkage-${report.from}-to-${report.to}.xlsx',
+  excelBytes: () => buildShrinkageReportXlsx(report),
+);
+
+_ReportView _adjustmentsView(AdjustmentsReport report) => _ReportView(
+  kpis: [
+    (
+      label: 'Adjustments',
+      value: formatCount(report.adjustments),
+      caption: 'Corrections and returns',
+    ),
+    (
+      label: 'Quantity',
+      value: formatSignedQuantity(report.qty),
+      caption: 'Signed: a return lowers',
+    ),
+    (
+      label: 'Value',
+      value: _costOrUnknown(report.totalValue),
+      caption: 'At landed cost',
+    ),
+    if (report.missingCostLines > 0)
+      (
+        label: 'Rows with no cost',
+        value: formatCount(report.missingCostLines),
+        caption: 'Left out of the value',
+      ),
+  ],
+  columns: const [
+    'Item',
+    'Date',
+    'Type',
+    'Shelf',
+    'Recorded by',
+    'Quantity',
+    'Value',
+  ],
+  rows: [
+    for (final row in report.page.rows)
+      [
+        row.name,
+        _dateLabel(row.date),
+        row.type,
+        row.locationName,
+        row.userName,
+        formatSignedQuantity(row.qty),
+        _costOrUnknown(row.value),
+      ],
+  ],
+  emptyMessage: 'No stock adjustments in this range.',
+  excelName: 'stock-adjustments-${report.from}-to-${report.to}.xlsx',
+  excelBytes: () => buildAdjustmentsReportXlsx(report),
+);
+
+_ReportView _reorderView(ReorderReport report) => _ReportView(
+  kpis: [
+    (
+      label: 'To reorder',
+      value: formatCount(report.variants),
+      caption: 'At or below minimum stock',
+    ),
+    (
+      label: 'On hand',
+      value: formatQuantity(report.onHand),
+      caption: 'Base units',
+    ),
+    (
+      label: 'Shortfall',
+      value: formatQuantity(report.gap),
+      caption: 'What has to be bought',
+    ),
+  ],
+  columns: const ['Item', 'On hand', 'Minimum', 'Shortfall', 'Shelves'],
+  rows: [
+    for (final row in report.page.rows)
+      [
+        row.name,
+        formatQuantity(row.onHand),
+        formatQuantity(row.threshold),
+        formatQuantity(row.gap),
+        _shelfLabel(row.locations),
+      ],
+  ],
+  emptyMessage: 'Nothing is at or below its minimum stock.',
+  excelName: 'reorder-list.xlsx',
+  excelBytes: () => buildReorderReportXlsx(report),
+);
+
+_ReportView _deadStockView(DeadStockReport report) => _ReportView(
+  kpis: [
+    (
+      label: 'Variants with no sales',
+      value: formatCount(report.variants),
+      caption: 'In the last ${formatCount(report.days)} days',
+    ),
+    (
+      label: 'Money tied up',
+      value: formatPeso(report.landedValue),
+      caption: 'At landed cost',
+    ),
+    (
+      label: 'On hand',
+      value: formatQuantity(report.onHand),
+      caption: 'Base units',
+    ),
+  ],
+  columns: const ['Item', 'On hand', 'Idle for', 'Money tied up'],
+  rows: [
+    for (final row in report.page.rows)
+      [
+        row.name,
+        formatQuantity(row.onHand),
+        // Never sold is not the same fact as sold a long time ago.
+        row.daysSinceLastSale == null
+            ? 'Never sold'
+            : '${formatCount(row.daysSinceLastSale!)} days',
+        formatPeso(row.landedValue),
+      ],
+  ],
+  emptyMessage: 'Every stocked item sold in this window.',
+  excelName: 'dead-stock-${report.asOf}.xlsx',
+  excelBytes: () => buildDeadStockReportXlsx(report),
+);
+
+_ReportView _fastSlowView(FastSlowReport report) => _ReportView(
+  kpis: [
+    (
+      label: 'SKUs sold',
+      value: formatCount(report.skusSold),
+      caption: 'Ranked by base units',
+    ),
+    (label: 'Fast movers', value: formatCount(report.fast), caption: 'Top 20%'),
+    (
+      label: 'Slow movers',
+      value: formatCount(report.slow),
+      caption: 'Bottom 20% that still sold',
+    ),
+    (
+      label: 'Units sold',
+      value: formatQuantity(report.qtyBase),
+      caption: 'Base units',
+    ),
+  ],
+  columns: const ['Item', 'Band', 'Units sold', 'Net merchandise'],
+  rows: [
+    for (final row in report.page.rows)
+      [
+        row.name,
+        row.band,
+        formatQuantity(row.qtyBase),
+        formatPeso(row.netMerchandise),
+      ],
+  ],
+  emptyMessage: 'No items sold in this range.',
+  excelName: 'fast-slow-movers-${report.from}-to-${report.to}.xlsx',
+  excelBytes: () => buildFastSlowReportXlsx(report),
+);
+
+_ReportView _cycleCountView(CycleCountReport report) => _ReportView(
+  kpis: [
+    (
+      label: 'Count corrections',
+      value: formatCount(report.adjustments),
+      caption: null,
+    ),
+    (
+      label: 'Net variance',
+      value: formatSignedQuantity(report.qty),
+      caption: 'Signed: a shortfall lowers',
+    ),
+    (
+      label: 'Shrinkage',
+      value: _percentOrUnknown(report.shrinkagePercent, 'No stock to measure'),
+      caption: 'Shortfall ÷ counted stock',
+    ),
+    (
+      label: 'Value of variance',
+      value: _costOrUnknown(report.totalValue),
+      caption: 'At landed cost',
+    ),
+    if (report.missingCostLines > 0)
+      (
+        label: 'Rows with no cost',
+        value: formatCount(report.missingCostLines),
+        caption: 'Left out of the value',
+      ),
+  ],
+  columns: const ['Item', 'Date', 'Shelf', 'Counted by', 'Variance', 'Value'],
+  rows: [
+    for (final row in report.page.rows)
+      [
+        row.name,
+        _dateLabel(row.date),
+        row.locationName,
+        row.userName,
+        formatSignedQuantity(row.qty),
+        _costOrUnknown(row.value),
+      ],
+  ],
+  // A count that matched left no record: the server writes a CORRECTION only
+  // when the shelf disagreed with the count.
+  emptyMessage: 'No count corrections in this range.',
+  excelName: 'cycle-count-${report.from}-to-${report.to}.xlsx',
+  excelBytes: () => buildCycleCountReportXlsx(report),
+);
+
+_ReportView _expiryView(ExpiryReport report) => _ReportView(
+  kpis: [
+    (
+      label: 'Batches expiring',
+      value: formatCount(report.rowCount),
+      caption: 'Expired or within 90 days',
+    ),
+    (
+      label: 'Value at risk',
+      value: formatPeso(report.value),
+      caption: 'Already expired or expiring',
+    ),
+    (
+      label: 'Near-expiry',
+      value: _percentOrUnknown(report.nearExpiryPct, 'No stock on hand'),
+      caption: 'In the next ${formatCount(report.days)} days',
+    ),
+    (
+      label: 'Already expired',
+      value: formatPeso(report.valueExpired),
+      caption: 'Past its date on the shelf',
+    ),
+  ],
+  columns: const ['Item', 'Shelf', 'Expires', 'Time left', 'Quantity', 'Value'],
+  rows: [
+    for (final row in report.page.rows)
+      [
+        row.name,
+        row.location,
+        _dateLabel(row.expiresOn),
+        _expiryLabel(row.daysLeft),
+        formatQuantity(row.qty),
+        formatPeso(row.value),
+      ],
+  ],
+  emptyMessage: 'Nothing is expired or expiring.',
+  excelName: 'expiry-${report.asOf}.xlsx',
+  excelBytes: () => buildExpiryReportXlsx(report),
+);
+
+/// A peso value the server could not cost: words, never ₱0.00.
+String _costOrUnknown(double? value) =>
+    value == null ? 'No cost on file' : formatPeso(value);
+
+/// A percentage the server could not compute, said in the reason's own words
+/// instead of a fake 0%.
+String _percentOrUnknown(double? value, String reason) =>
+    value == null ? reason : '${value.toStringAsFixed(1)}%';
+
+/// The shelves holding what is left of a variant: `Store Floor 2 · Warehouse 1`.
+String _shelfLabel(List<ReorderShelf> shelves) => shelves.isEmpty
+    ? 'None on any shelf'
+    : [
+        for (final shelf in shelves)
+          '${shelf.locationName} ${formatQuantity(shelf.qty)}',
+      ].join(' · ');
+
+/// How long a batch has left: `12 days left`, or `Expired 5 days ago`.
+String _expiryLabel(int daysLeft) => daysLeft < 0
+    ? 'Expired ${formatCount(-daysLeft)} days ago'
+    : '${formatCount(daysLeft)} days left';
 
 /// A store-local hour as a clock label: `14` becomes `2:00 PM`.
 String _hourLabel(int hour) {

@@ -52,4 +52,30 @@ class ReportsRepository {
 
   Future<VoidsReport> fetchVoids({String? from, String? to}) =>
       _service.fetchVoids(from: from, to: to);
+
+  Future<GrnReport> fetchGrn({String? from, String? to}) =>
+      _service.fetchGrn(from: from, to: to);
+
+  Future<StnReport> fetchStn({String? from, String? to}) =>
+      _service.fetchStn(from: from, to: to);
+
+  Future<BatchAgeReport> fetchBatchAge() => _service.fetchBatchAge();
+
+  Future<ShrinkageReport> fetchShrinkage({String? from, String? to}) =>
+      _service.fetchShrinkage(from: from, to: to);
+
+  Future<AdjustmentsReport> fetchAdjustments({String? from, String? to}) =>
+      _service.fetchAdjustments(from: from, to: to);
+
+  Future<ReorderReport> fetchReorder() => _service.fetchReorder();
+
+  Future<DeadStockReport> fetchDeadStock() => _service.fetchDeadStock();
+
+  Future<FastSlowReport> fetchFastSlow({String? from, String? to}) =>
+      _service.fetchFastSlow(from: from, to: to);
+
+  Future<CycleCountReport> fetchCycleCount({String? from, String? to}) =>
+      _service.fetchCycleCount(from: from, to: to);
+
+  Future<ExpiryReport> fetchExpiry() => _service.fetchExpiry();
 }

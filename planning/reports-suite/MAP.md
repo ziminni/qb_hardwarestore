@@ -54,8 +54,8 @@ P2 Inventory reports (🤖 backend + UI, 🧑 receiving copy):
 - [x] `Product.tracks_expiry` + optional Expires at receiving + expiry report + Near-expiry % (🤖) — APPROVED, re-run 48/48 OK; label 'Expiry (optional, cement/paint only)'; known shortcut: Bodega-shelved lines lose expiry
 - [x] Inventory role gating: all inventory read endpoints under `IsInventoryRole`; stocker catalogue = Inventory section only (🤖) — APPROVED, re-run 19/19 OK
 P3 Export for all (🤖 builder, 🤝 print check):
-- [x] Letterhead PDF builder per 01-export-layout (🤖) — APPROVED, summary wired; other reports keep P3-disabled buttons — re-run 32/32 OK
-- [ ] Multi-sheet Excel for the 7 new P1 + new P2 endpoints, extending `reports_excel_export.dart` (🤖)
+- [x] Letterhead PDF builder per 01-export-layout (🤖) — APPROVED, summary wired; other reports keep P3-disabled buttons
+- [x] Multi-sheet Excel for the 7 new P1 + 10 new P2 endpoints, extending `reports_excel_export.dart` (🤖) — APPROVED, re-run 51/51 OK with viewer/PDF neighbours
 - [ ] Empty-result 'No matching records' + 5k/10k truncation notices (🤖)
 
 ## Out of Scope

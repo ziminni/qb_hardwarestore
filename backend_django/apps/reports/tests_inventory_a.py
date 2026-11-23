@@ -163,6 +163,22 @@ class InventoryReportTestBase(TestCase):
             qty_adjusted=Decimal(qty),
         )
 
+    def _uncosted_adjustment(self, qty, adjustment_type):
+        """A correction on a variant that has NO batch history, so its cost is unknown."""
+        variant = ProductVariant.objects.create(
+            product=self.product,
+            variant_name="Bulk",
+            base_uom=self.uom,
+            sku="CEM-BULK",
+        )
+        return StockAdjustment.objects.create(
+            variant=variant,
+            location=self.store,
+            user=self.stocker,
+            adjustment_type=adjustment_type,
+            qty_adjusted=Decimal(qty),
+        )
+
 
 class MovementOutflowsTests(InventoryReportTestBase):
     """The report must say where stock WENT, not only what the count corrections took."""
@@ -391,6 +407,33 @@ class ShrinkageReportTests(InventoryReportTestBase):
         self.assertEqual(rows[0]["date"], str(TODAY))
         self.assertEqual(rows[0]["qty"], Decimal(10))
         self.assertEqual(rows[0]["value"], Decimal("100.00"))
+        self.assertEqual(totals["missing_cost_lines"], 0)
+
+    def test_a_loss_on_a_variant_with_no_batch_history_is_uncosted_not_zero(self):
+        self._batch(self._receipt([10], receive_date=TODAY), "10", cost="10")
+        self._adjustment("-2", StockAdjustment.AdjustmentType.SHRINKAGE)
+        self._uncosted_adjustment("-3", StockAdjustment.AdjustmentType.SHRINKAGE)
+
+        response = self.client.get(f"{SHRINKAGE_URL}?{RANGE}")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        row = response.data["results"][0]
+        # The day's value covers the costed loss only: 2 units at 10.
+        self.assertEqual(row["qty"], Decimal(5))
+        self.assertEqual(row["value"], Decimal("20.00"))
+        totals = response.data["totals"]
+        self.assertEqual(totals["value"], Decimal("20.00"))
+        self.assertEqual(totals["missing_cost_lines"], 1)
+
+    def test_a_day_with_only_uncosted_losses_reports_a_null_value(self):
+        self._uncosted_adjustment("-3", StockAdjustment.AdjustmentType.SHRINKAGE)
+
+        response = self.client.get(f"{SHRINKAGE_URL}?{RANGE}")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertIsNone(response.data["results"][0]["value"])
+        self.assertIsNone(response.data["totals"]["value"])
+        self.assertEqual(response.data["totals"]["missing_cost_lines"], 1)
 
 
 class AdjustmentsReportTests(InventoryReportTestBase):
@@ -419,6 +462,20 @@ class AdjustmentsReportTests(InventoryReportTestBase):
         self.assertEqual(response.data["totals"]["adjustments"], 2)
         self.assertEqual(response.data["totals"]["qty"], Decimal(2))
         self.assertEqual(response.data["totals"]["value"], Decimal("20.00"))
+        self.assertEqual(response.data["totals"]["missing_cost_lines"], 0)
+
+    def test_a_correction_with_no_batch_history_has_no_peso_value(self):
+        self._adjustment("1", StockAdjustment.AdjustmentType.CORRECTION)
+
+        response = self.client.get(f"{ADJUSTMENTS_URL}?{RANGE}")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        row = response.data["results"][0]
+        self.assertEqual(row["qty"], Decimal(1))
+        self.assertIsNone(row["value"])
+        totals = response.data["totals"]
+        self.assertIsNone(totals["value"])
+        self.assertEqual(totals["missing_cost_lines"], 1)
 
 
 class BatchAInventoryReadPermissionTests(InventoryReportTestBase):

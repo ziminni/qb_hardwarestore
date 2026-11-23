@@ -550,7 +550,7 @@ void main() {
     expect(find.text('₱0.00'), findsNothing);
   });
 
-  testWidgets('a detail report keeps Excel off until P3 and says so', (
+  testWidgets('a detail report exports its own workbook and keeps PDF off', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -568,16 +568,14 @@ void main() {
     );
     expect(
       excel.onPressed,
-      isNull,
-      reason: 'no bill-wise workbook builder exists until P3',
+      isNotNull,
+      reason: 'bill-wise owns a workbook builder',
     );
-    final tooltip = tester.widget<Tooltip>(
-      find.ancestor(
-        of: find.text('Export Excel'),
-        matching: find.byType(Tooltip),
-      ),
+    expect(
+      find.byTooltip('Excel lands in P3'),
+      findsNothing,
+      reason: 'a built workbook never advertises a later phase',
     );
-    expect(tooltip.message, 'Excel lands in P3');
 
     // Only the sales summary wired the letterhead PDF builder, so this report
     // keeps its PDF button off and says when it lands (decision 01).

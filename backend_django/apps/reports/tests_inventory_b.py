@@ -315,6 +315,30 @@ class CycleCountReportTests(InventoryReportBTestBase):
         # The count saw 50 (45 left + the 5 the count found missing), so 5/50 = 10%.
         self.assertEqual(totals["on_hand_qty"], Decimal(45))
         self.assertEqual(totals["shrinkage_percent"], Decimal("10.00"))
+        self.assertEqual(totals["missing_cost_lines"], 0)
+
+    def test_a_correction_on_a_variant_with_no_batch_history_is_uncosted(self):
+        self._stock(self.variant, "45", cost="10")
+        self._adjustment("-6", StockAdjustment.AdjustmentType.CORRECTION)
+        # Never delivered, so there is no landed cost to book the variance against.
+        uncosted, _ = self._variant("Bulk", sku="CEM-BULK")
+        StockAdjustment.objects.create(
+            variant=uncosted,
+            location=self.store,
+            user=self.stocker,
+            adjustment_type=StockAdjustment.AdjustmentType.CORRECTION,
+            qty_adjusted=Decimal(-2),
+        )
+
+        response = self.client.get(f"{CYCLE_COUNT_URL}?{RANGE}")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        rows = {row["variant"]: row for row in response.data["results"]}
+        self.assertEqual(rows["40kg"]["value"], Decimal("-60.00"))
+        self.assertIsNone(rows["Bulk"]["value"])
+        totals = response.data["totals"]
+        self.assertEqual(totals["value"], Decimal("-60.00"))
+        self.assertEqual(totals["missing_cost_lines"], 1)
 
 
 class ReportBPermissionTests(InventoryReportBTestBase):

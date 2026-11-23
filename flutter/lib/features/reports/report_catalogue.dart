@@ -40,10 +40,10 @@ class ReportDefinition {
 /// the screen draws them.
 ///
 /// The [available] entries are the endpoints that exist today
-/// (`/api/v1/reports/*`) — the six originals plus the seven P1 sales detail
-/// reports. The three KPI cards stay disabled: their numbers are drawn as tiles
-/// inside the shared sales-summary viewer, where the arithmetic behind them is
-/// on screen, not as separate reports.
+/// (`/api/v1/reports/*`) — the six originals, the seven P1 sales detail reports
+/// and the ten P2 inventory reports. The three KPI cards stay disabled: their
+/// numbers are drawn as tiles inside the shared sales-summary viewer, where the
+/// arithmetic behind them is on screen, not as separate reports.
 const List<ReportDefinition> reportCatalogue = [
   // SALES
   ReportDefinition(
@@ -121,6 +121,70 @@ const List<ReportDefinition> reportCatalogue = [
     id: 'requisition-history',
     title: 'Requisition history',
     description: 'Project requests with their status and approvals.',
+    section: ReportSection.inventory,
+  ),
+
+  // P2 inventory detail reports: every one answers through `_paged()` with its
+  // totals outside the 50-row page.
+  ReportDefinition(
+    id: 'grn',
+    title: 'Goods received',
+    description: 'Every delivery receipt: supplier, items, units and its bill.',
+    section: ReportSection.inventory,
+  ),
+  ReportDefinition(
+    id: 'stn',
+    title: 'Stock transfers',
+    description: 'Stock moved between shelves, with its slip and units.',
+    section: ReportSection.inventory,
+  ),
+  ReportDefinition(
+    id: 'batch-age',
+    title: 'Batch age',
+    description: 'On-hand stock bucketed by how old its batches are (FIFO).',
+    section: ReportSection.inventory,
+  ),
+  ReportDefinition(
+    id: 'shrinkage',
+    title: 'Shrinkage & damage',
+    description: 'Stock lost per day at landed cost, and shrinkage %.',
+    section: ReportSection.inventory,
+  ),
+  ReportDefinition(
+    id: 'adjustments',
+    title: 'Stock adjustments',
+    description: 'Count corrections and supplier returns with their value.',
+    section: ReportSection.inventory,
+  ),
+  ReportDefinition(
+    id: 'reorder',
+    title: 'Reorder list',
+    description: 'What is at or below its minimum stock, and what to buy.',
+    section: ReportSection.inventory,
+  ),
+  ReportDefinition(
+    id: 'dead-stock',
+    title: 'Dead stock',
+    description: 'Stock that sold nothing in the window and the money tied up.',
+    section: ReportSection.inventory,
+  ),
+  ReportDefinition(
+    id: 'fast-slow',
+    title: 'Fast & slow movers',
+    description: 'The range\'s best and worst selling units, in 20% bands.',
+    section: ReportSection.inventory,
+  ),
+  ReportDefinition(
+    id: 'cycle-count',
+    title: 'Cycle count',
+    description:
+        'What each stock count found against what the shelf should hold.',
+    section: ReportSection.inventory,
+  ),
+  ReportDefinition(
+    id: 'expiry',
+    title: 'Expiry',
+    description: 'Expired and expiring batches with the value at risk.',
     section: ReportSection.inventory,
   ),
 

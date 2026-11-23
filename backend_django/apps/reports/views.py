@@ -1274,7 +1274,8 @@ def _landed_cost_map() -> dict:
 
     `StockAdjustment` stores the quantity and never a cost, so a peso figure has to say
     where its cost came from: the newest delivery is the cost the next correction is
-    booked against. A variant with no batch history is absent (callers read 0).
+    booked against. A variant with NO batch history is absent from the map - its cost is
+    unknown, never 0.00, so callers report None and count the line as missing cost.
     """
     costs: dict = {}
     rows = InventoryBatch.objects.order_by(
@@ -1283,6 +1284,16 @@ def _landed_cost_map() -> dict:
     for variant_id, cost in rows:
         costs.setdefault(variant_id, cost)
     return costs
+
+
+def _costed_total(rows: list[dict]) -> Decimal | None:
+    """Sum of the costed `value`s, or None when nothing in the ledger could be costed.
+
+    Missing cost is never folded in as 0.00, the same rule the sales COGS columns follow:
+    a partly costed ledger sums its costed rows, a fully uncosted one answers None.
+    """
+    costed = [row["value"] for row in rows if row["value"] is not None]
+    return None if rows and not costed else _q2(sum(costed, _ZERO))
 
 
 @api_view(["GET"])
@@ -1516,6 +1527,10 @@ def shrinkage_view(request):
     Opening is reconstructed from EXISTING evidence - minted batches before `from`, less
     everything that left, plus count corrections - so it stays computable only while that
     history is intact; a zero denominator reports None rather than a fake 0%.
+
+    `value` is the loss at landed cost. A variant with no batch history has no cost, so a
+    day made only of such losses reports None (not 0.00) and `missing_cost_lines` counts
+    the loss rows the pesos left out.
     """
     if _bad_range(request):
         return _range_error()
@@ -1527,6 +1542,7 @@ def shrinkage_view(request):
         StockAdjustment.AdjustmentType.DAMAGE,
     ]
     by_day: dict = {}
+    missing_lines = 0
     adjustments = StockAdjustment.objects.filter(
         adjustment_type__in=loss_types, timestamp__date__range=(frm, to)
     ).values("timestamp__date", "qty_adjusted", "variant_id")
@@ -1539,15 +1555,25 @@ def shrinkage_view(request):
                 "qty": _ZERO,
                 "value": _ZERO,
                 "adjustments": 0,
+                "costed": 0,
             }
         lost = -adjustment["qty_adjusted"]
+        cost = cost_map.get(adjustment["variant_id"])
         row["qty"] += lost
-        row["value"] += lost * cost_map.get(adjustment["variant_id"], _ZERO)
         row["adjustments"] += 1
-    rows = [by_day[key] for key in sorted(by_day)]
-    for row in rows:
+        if cost is None:
+            missing_lines += 1
+        else:
+            row["value"] += lost * cost
+            row["costed"] += 1
+    rows = []
+    for key in sorted(by_day):
+        row = by_day[key]
+        costed = row.pop("costed")
         row["qty"] = _q2(row["qty"])
-        row["value"] = _q2(row["value"])
+        # No costed loss that day: the peso value is unknown, never a fake 0.00.
+        row["value"] = None if costed == 0 else _q2(row["value"])
+        rows.append(row)
 
     minted_before = (
         InventoryBatch.objects.filter(
@@ -1590,7 +1616,8 @@ def shrinkage_view(request):
     available = opening + received
     totals = {
         "qty": loss_qty,
-        "value": _q2(sum((r["value"] for r in rows), _ZERO)),
+        "value": _costed_total(rows),
+        "missing_cost_lines": missing_lines,
         "adjustments": sum(r["adjustments"] for r in rows),
         "opening_qty": _q2(opening),
         "received_qty": _q2(received),
@@ -1610,6 +1637,8 @@ def adjustments_report_view(request):
 
     Quantities and pesos are SIGNED (a correction adds, a supplier return takes away) so
     the rows add up to the totals; the loss types live in the shrinkage report instead.
+    A variant with no batch history has no landed cost, so its `value` is None and
+    `totals.missing_cost_lines` counts it - never a silent 0.00.
     """
     if _bad_range(request):
         return _range_error()
@@ -1629,6 +1658,7 @@ def adjustments_report_view(request):
         .order_by("-timestamp", "-pk")
     ):
         qty = adjustment.qty_adjusted
+        cost = cost_map.get(adjustment.variant_id)
         rows.append(
             {
                 "id": adjustment.pk,
@@ -1640,13 +1670,15 @@ def adjustments_report_view(request):
                 "location_name": adjustment.location.name,
                 "user": adjustment.user.full_name,
                 "qty": _q2(qty),
-                "value": _q2(qty * cost_map.get(adjustment.variant_id, _ZERO)),
+                # No batch history: the cost is unknown, so the pesos are None, not 0.
+                "value": None if cost is None else _q2(qty * cost),
             }
         )
     totals = {
         "adjustments": len(rows),
         "qty": _q2(sum((r["qty"] for r in rows), _ZERO)),
-        "value": _q2(sum((r["value"] for r in rows), _ZERO)),
+        "value": _costed_total(rows),
+        "missing_cost_lines": sum(1 for r in rows if r["value"] is None),
     }
     return _paged(request, rows, {"from": str(frm), "to": str(to), "totals": totals})
 
@@ -1960,6 +1992,9 @@ def cycle_count_view(request):
     hand now less the variance is the pre-count quantity. That reconstruction assumes
     nothing else moved since the count, which is the same approximation the landed cost
     above makes - a zero or negative denominator reports None, never a fake 0%.
+
+    A variant with no batch history has no cost to book the variance against: its row
+    `value` is None and `totals.missing_cost_lines` counts it, never a silent 0.00.
     """
     if _bad_range(request):
         return _range_error()
@@ -1977,6 +2012,7 @@ def cycle_count_view(request):
         .order_by("-timestamp", "-pk")
     ):
         qty = adjustment.qty_adjusted
+        cost = cost_map.get(adjustment.variant_id)
         corrected_variant_ids.add(adjustment.variant_id)
         rows.append(
             {
@@ -1988,7 +2024,8 @@ def cycle_count_view(request):
                 "location_name": adjustment.location.name,
                 "user": adjustment.user.full_name,
                 "qty": _q2(qty),
-                "value": _q2(qty * cost_map.get(adjustment.variant_id, _ZERO)),
+                # No batch history: the variance has no cost, so its pesos are None.
+                "value": None if cost is None else _q2(qty * cost),
             }
         )
 
@@ -2003,7 +2040,8 @@ def cycle_count_view(request):
     totals = {
         "adjustments": len(rows),
         "qty": variance,
-        "value": _q2(sum((r["value"] for r in rows), _ZERO)),
+        "value": _costed_total(rows),
+        "missing_cost_lines": sum(1 for r in rows if r["value"] is None),
         "on_hand_qty": _q2(on_hand),
         "shrinkage_percent": (
             _q2((-variance / counted) * Decimal(100)) if counted > 0 else None

@@ -38,6 +38,17 @@ class ReportsService {
   static const String discountsPath = '/api/v1/reports/discounts/';
   static const String voidsPath = '/api/v1/reports/voids/';
 
+  static const String grnPath = '/api/v1/reports/grn/';
+  static const String stnPath = '/api/v1/reports/stn/';
+  static const String batchAgePath = '/api/v1/reports/batch-age/';
+  static const String shrinkagePath = '/api/v1/reports/shrinkage/';
+  static const String adjustmentsPath = '/api/v1/reports/adjustments/';
+  static const String reorderPath = '/api/v1/reports/reorder/';
+  static const String deadStockPath = '/api/v1/reports/dead-stock/';
+  static const String fastSlowPath = '/api/v1/reports/fast-slow/';
+  static const String cycleCountPath = '/api/v1/reports/cycle-count/';
+  static const String expiryPath = '/api/v1/reports/expiry/';
+
   /// Daily/weekly/monthly sales totals for the range; defaults to last 30 days.
   Future<SalesSummary> fetchSalesSummary({
     String? from,
@@ -184,8 +195,66 @@ class ReportsService {
   Future<VoidsReport> fetchVoids({String? from, String? to}) =>
       _paged(voidsPath, 'voids', from, to, VoidsReport.fromJson);
 
-  /// The shared shape of the seven paged sales reports: a dated GET whose body
-  /// is the `_paged()` envelope (totals outside the 50-row page).
+  /// One row per goods receipt, with its bill when one was raised.
+  Future<GrnReport> fetchGrn({String? from, String? to}) =>
+      _paged(grnPath, 'goods received', from, to, GrnReport.fromJson);
+
+  /// One row per stock transfer slip: from shelf, to shelf, how many units.
+  Future<StnReport> fetchStn({String? from, String? to}) =>
+      _paged(stnPath, 'stock transfers', from, to, StnReport.fromJson);
+
+  /// On-hand quantity per variant, bucketed by how old its batches are.
+  Future<BatchAgeReport> fetchBatchAge() =>
+      _paged(batchAgePath, 'batch age', null, null, BatchAgeReport.fromJson);
+
+  /// SHRINKAGE + DAMAGE loss per day, at landed cost where that cost is known.
+  Future<ShrinkageReport> fetchShrinkage({String? from, String? to}) =>
+      _paged(shrinkagePath, 'shrinkage', from, to, ShrinkageReport.fromJson);
+
+  /// CORRECTION + RETURN adjustments, with signed quantity and peso value.
+  Future<AdjustmentsReport> fetchAdjustments({String? from, String? to}) =>
+      _paged(
+        adjustmentsPath,
+        'stock adjustments',
+        from,
+        to,
+        AdjustmentsReport.fromJson,
+      );
+
+  /// Variants at or below their own minimum stock threshold.
+  Future<ReorderReport> fetchReorder() =>
+      _paged(reorderPath, 'reorder list', null, null, ReorderReport.fromJson);
+
+  /// Stock that sold nothing in the trailing window and is still on the shelf.
+  Future<DeadStockReport> fetchDeadStock() =>
+      _paged(deadStockPath, 'dead stock', null, null, DeadStockReport.fromJson);
+
+  /// The range's fastest and slowest selling units (decision 03's 20% bands).
+  Future<FastSlowReport> fetchFastSlow({String? from, String? to}) => _paged(
+    fastSlowPath,
+    'fast & slow movers',
+    from,
+    to,
+    FastSlowReport.fromJson,
+  );
+
+  /// The CORRECTION ledger: what a stock count found, and the variance.
+  Future<CycleCountReport> fetchCycleCount({String? from, String? to}) =>
+      _paged(
+        cycleCountPath,
+        'cycle count',
+        from,
+        to,
+        CycleCountReport.fromJson,
+      );
+
+  /// Stocked batches expired or expiring, most urgent first.
+  Future<ExpiryReport> fetchExpiry() =>
+      _paged(expiryPath, 'expiry', null, null, ExpiryReport.fromJson);
+
+  /// The shared shape of every paged report: a dated GET whose body is the
+  /// `_paged()` envelope (totals outside the 50-row page). `from`/`to` are
+  /// omitted entirely when a report takes no range.
   Future<T> _paged<T>(
     String path,
     String report,

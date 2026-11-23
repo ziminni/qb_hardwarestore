@@ -208,7 +208,7 @@ class _DashboardViewState extends State<_DashboardView> {
                 // The receivables screen opens unfiltered: its Overdue chip is
                 // that screen's own state, and preset filters would mean
                 // editing a file another card owns.
-                onTap: () => _selectNavigation(context, 4),
+                onTap: () => _selectNavigation(context, 3),
               ),
               SalesNeedsYouTile(
                 key: const ValueKey('salesDashboard.needsYou.returns'),
@@ -216,7 +216,7 @@ class _DashboardViewState extends State<_DashboardView> {
                 value: _count(returnsToday),
                 caption: 'Refunded or voided today',
                 icon: Icons.assignment_return_outlined,
-                onTap: () => _selectNavigation(context, 5),
+                onTap: () => _selectNavigation(context, 4),
               ),
             ],
           ),
@@ -285,7 +285,7 @@ class _DashboardViewState extends State<_DashboardView> {
                         ),
                       ),
                       TextButton.icon(
-                        onPressed: () => _selectNavigation(context, 6),
+                        onPressed: () => _selectNavigation(context, 5),
                         icon: const Icon(Icons.arrow_forward_rounded, size: 16),
                         label: const Text('Full VAT & OR report'),
                       ),
