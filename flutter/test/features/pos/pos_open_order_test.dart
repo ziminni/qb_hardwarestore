@@ -275,10 +275,13 @@ void main() {
     expect(chosen?.id, 7);
   });
 
-  // Owner 2026-11-20: the till header no longer offers "Open order" (no
-  // sales orders are taken at this store), so the cashier's top bar only
-  // carries the shift actions.
-  testWidgets('the till header has no Open order button', (tester) async {
+  // Owner 2026-11-23: the manager takes sales orders, so the till DOES offer
+  // them - supersedes the 2026-11-20 no-button ruling from when no orders
+  // existed. Cashier taps Orders, picks one, rings the remainder at agreed
+  // prices.
+  testWidgets('the cart bar opens an order and rings it at agreed prices', (
+    tester,
+  ) async {
     final cart = PosTransactionViewmodel(
       inventory,
       pos: _StubPosRepository(),
@@ -287,8 +290,22 @@ void main() {
     );
     await pumpTill(tester, cart);
 
-    expect(find.byKey(const ValueKey('pos-open-order')), findsNothing);
-    expect(find.text('Open order'), findsNothing);
+    expect(find.byKey(const ValueKey('pos-open-order')), findsOneWidget);
+    expect(find.text('Orders'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('pos-open-order')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('ORD-20261113-0001'), findsOneWidget);
+
+    await tester.tap(find.text('Ring this order'));
+    await tester.pumpAndSettle();
+
+    // The remainder lands at the ORDER's prices, not the catalogue's.
+    expect(cart.lines, hasLength(2));
+    expect(cart.lines.first.unitPrice, 250);
+    expect(cart.isFulfillingOrder, isTrue);
+    // The active order reads in the bar (ellipsized column, not the button).
+    expect(find.textContaining('ORD-20261113-0001'), findsWidgets);
   });
 
 }

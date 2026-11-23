@@ -340,72 +340,85 @@ void main() {
       expect(lastResult!.draft!.sku, 'CEM-40');
     });
 
-    testWidgets('initial stock and cost save directly in the base unit without hidden extra selling units', (
-      tester,
-    ) async {
-      await openForm(tester);
-      await fillBasics(tester);
-      await tapKey(tester, const ValueKey('tracking-weight'));
-      expect(find.byKey(const ValueKey('stock-form')), findsNothing);
-      await tester.enterText(find.byKey(const ValueKey('cost-field')), '5.50');
-      await tester.enterText(find.byKey(const ValueKey('base-price')), '6.75');
-      await tester.enterText(find.byKey(const ValueKey('initial-field')), '20');
-      await tester.pumpAndSettle();
-      expect(
-        find.textContaining('Total available: ${formatQuantity(20)} KG'),
-        findsOneWidget,
-      );
-      await save(tester);
+    testWidgets(
+      'initial stock and cost save directly in the base unit without hidden extra selling units',
+      (tester) async {
+        await openForm(tester);
+        await fillBasics(tester);
+        await tapKey(tester, const ValueKey('tracking-weight'));
+        expect(find.byKey(const ValueKey('stock-form')), findsNothing);
+        await tester.enterText(
+          find.byKey(const ValueKey('cost-field')),
+          '5.50',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey('base-price')),
+          '6.75',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey('initial-field')),
+          '20',
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining('Total available: ${formatQuantity(20)} KG'),
+          findsOneWidget,
+        );
+        await save(tester);
 
-      final draft = lastResult!.draft!;
-      expect(draft.baseUomId, 1, reason: 'KG');
-      expect(draft.sellingPrice, 6.75);
-      expect(draft.extraSellingUnits, isEmpty);
-      expect(draft.openingQty, 20);
-      expect(draft.openingUnitCost, 5.5);
-    });
+        final draft = lastResult!.draft!;
+        expect(draft.baseUomId, 1, reason: 'KG');
+        expect(draft.sellingPrice, 6.75);
+        expect(draft.extraSellingUnits, isEmpty);
+        expect(draft.openingQty, 20);
+        expect(draft.openingUnitCost, 5.5);
+      },
+    );
 
-    testWidgets('Also sold / bought as a pack adds flexible decimal pack unit with live hint', (
-      tester,
-    ) async {
-      await openForm(tester);
-      await fillBasics(tester);
-      await tester.enterText(find.byKey(const ValueKey('base-price')), '15');
-      await tapKey(tester, const ValueKey('also-sold-as-pack'));
+    testWidgets(
+      'Also sold / bought as a pack adds flexible decimal pack unit with live hint',
+      (tester) async {
+        await openForm(tester);
+        await fillBasics(tester);
+        await tester.enterText(find.byKey(const ValueKey('base-price')), '15');
+        await tapKey(tester, const ValueKey('also-sold-as-pack'));
 
-      await tester.enterText(
-        find.byKey(const ValueKey('pack-factor-field')),
-        '10',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey('pack-price-field')),
-        '100',
-      );
-      await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const ValueKey('pack-factor-field')),
+          '10',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey('pack-price-field')),
+          '100',
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.byKey(const ValueKey('pack-live-hint')), findsOneWidget);
-      expect(
-        find.textContaining('per-KG equivalent ₱10.00 vs your KG price ₱15.00'),
-        findsOneWidget,
-      );
+        expect(find.byKey(const ValueKey('pack-live-hint')), findsOneWidget);
+        expect(
+          find.textContaining(
+            'per-KG equivalent ₱10.00 vs your KG price ₱15.00',
+          ),
+          findsOneWidget,
+        );
 
-      // Flexible decimal factor e.g. 2.5
-      await tester.enterText(
-        find.byKey(const ValueKey('pack-factor-field')),
-        '2.5',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey('pack-price-field')),
-        '30',
-      );
-      await tester.pumpAndSettle();
+        // Flexible decimal factor e.g. 2.5
+        await tester.enterText(
+          find.byKey(const ValueKey('pack-factor-field')),
+          '2.5',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey('pack-price-field')),
+          '30',
+        );
+        await tester.pumpAndSettle();
 
-      await save(tester);
-      final draft = lastResult!.draft!;
-      expect(draft.extraSellingUnits, hasLength(1));
-      expect(draft.extraSellingUnits.single.conversionFactor, 2.5);
-      expect(draft.extraSellingUnits.single.sellingPrice, 30);
-    });
+        await save(tester);
+        final draft = lastResult!.draft!;
+        expect(draft.extraSellingUnits, hasLength(1));
+        expect(draft.extraSellingUnits.single.conversionFactor, 2.5);
+        expect(draft.extraSellingUnits.single.sellingPrice, 30);
+      },
+    );
 
     testWidgets('no initial stock means no opening stock', (tester) async {
       await openForm(tester);
@@ -532,18 +545,22 @@ void main() {
   // Phase 2 (2026-11-22): discount exclusions are chosen by the cashier at the till,
   // so the product form no longer shows the Allow discounts switch.
   group('the Allow discounts switch', () {
-    testWidgets('is hidden on a new product and defaults allowDiscount to true', (
-      tester,
-    ) async {
-      await openForm(tester);
-      await fillBasics(tester);
+    testWidgets(
+      'is hidden on a new product and defaults allowDiscount to true',
+      (tester) async {
+        await openForm(tester);
+        await fillBasics(tester);
 
-      expect(find.byKey(const ValueKey('allow-discount-switch')), findsNothing);
-      expect(find.text('Allow discounts'), findsNothing);
-      await save(tester);
+        expect(
+          find.byKey(const ValueKey('allow-discount-switch')),
+          findsNothing,
+        );
+        expect(find.text('Allow discounts'), findsNothing);
+        await save(tester);
 
-      expect(lastResult!.draft!.allowDiscount, isTrue);
-    });
+        expect(lastResult!.draft!.allowDiscount, isTrue);
+      },
+    );
 
     testWidgets('is hidden on edit and leaves allowDiscount untouched', (
       tester,

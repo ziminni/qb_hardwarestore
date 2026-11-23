@@ -13,10 +13,12 @@ class PosCartBar extends StatelessWidget {
     super.key,
     required this.onViewCart,
     required this.onPayment,
+    required this.onOpenOrder,
   });
 
   final VoidCallback onViewCart;
   final VoidCallback onPayment;
+  final VoidCallback onOpenOrder;
 
   @override
   Widget build(BuildContext context) {
@@ -55,6 +57,18 @@ class PosCartBar extends StatelessWidget {
                       fontFeatures: [FontFeature.tabularFigures()],
                     ),
                   ),
+                  // The order being rung, if any: lives in the Expanded
+                  // column (which ellipsizes) instead of the button, so a
+                  // long order number cannot overflow a narrow till.
+                  if (state.openOrder case final order?) Text(
+                    'Order ${order.number}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF8FD6A4),
+                      fontSize: 12,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -63,6 +77,17 @@ class PosCartBar extends StatelessWidget {
               const SizedBox(width: AppSpacing.sm),
             ],
             PosOfficialReceiptToggle(onDark: true),
+            const SizedBox(width: AppSpacing.sm),
+            OutlinedButton(
+              key: const ValueKey('pos-open-order'),
+              onPressed: onOpenOrder,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.brandWhite,
+                side: const BorderSide(color: Color(0xFF5A554C)),
+                minimumSize: const Size(0, 48),
+              ),
+              child: const Text('Orders'),
+            ),
             const SizedBox(width: AppSpacing.sm),
             OutlinedButton(
               onPressed: onViewCart,

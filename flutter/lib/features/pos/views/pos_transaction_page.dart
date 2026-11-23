@@ -29,6 +29,7 @@ import 'package:client/data/services/customer_profile_store.dart';
 import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/pos/widgets/pos_attach_or_dialog.dart';
 import 'package:client/features/pos/widgets/pos_cart_bar.dart';
+import 'package:client/features/pos/widgets/pos_open_order_dialog.dart';
 import 'package:client/features/pos/widgets/pos_transaction_cart.dart';
 import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:client/routes/routes.dart';
@@ -403,6 +404,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
             PosCartBar(
               onViewCart: () => _openCartSheet(context),
               onPayment: () => _pay(context),
+              onOpenOrder: () => _openOrderFlow(context),
             ),
           ],
         );
@@ -448,6 +450,66 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
           ),
         );
       },
+    );
+  }
+
+  /// The manager's sales orders, rung at the till: the cashier picks a
+  /// CONFIRMED/PARTIAL order, the till loads what is LEFT of it at the agreed
+  /// prices, and Pay fulfils it into a receipt. Loading REPLACES the cart, so
+  /// a non-empty cart asks first.
+  Future<void> _openOrderFlow(BuildContext context) async {
+    if (_transaction.lines.isNotEmpty && _transaction.openOrder == null) {
+      final replace = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AppDialog(
+          icon: Icons.assignment_outlined,
+          title: 'Open a sales order?',
+          subtitle: 'The current cart is replaced',
+          width: 440,
+          content: const Text(
+            'Opening an order loads its remaining lines and clears what is '
+            'in the cart now.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Keep cart'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Open order'),
+            ),
+          ],
+        ),
+      );
+      if (replace != true || !context.mounted) return;
+    }
+    await _transaction.loadOpenOrders();
+    if (!context.mounted) return;
+    final chosen = await showDialog<PosOpenOrder>(
+      context: context,
+      builder: (_) => PosOpenOrderDialog(
+        orders: _transaction.openOrders,
+        customerName: (id) =>
+            _transaction.customerNameFor(id) ?? 'Order',
+        productName: (id) => _transaction.productNameFor(id) ?? 'Item $id',
+        loadError: _transaction.ordersError,
+        onRetry: () => _transaction.loadOpenOrders(),
+      ),
+    );
+    if (chosen == null || !context.mounted) return;
+    if (!chosen.lines.any((line) => line.remainingQty > 0)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('That order has nothing left to ring.')),
+      );
+      return;
+    }
+    final count = await _transaction.loadOpenOrder(chosen);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Order ${chosen.number}: $count line(s) loaded at agreed prices.'),
+      ),
     );
   }
 

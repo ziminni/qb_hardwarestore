@@ -72,14 +72,15 @@ class ProductsFormDialog extends StatefulWidget {
   /// Optional inline brand creation callback so Stock Manager / Store Manager /
   /// Admin can create a brand without leaving the Add/Edit Product dialog.
   final Future<({Brand? brand, String? error})> Function(String name)?
-      onCreateBrand;
+  onCreateBrand;
 
   /// Optional inline unit-of-measure creation callback so Stock Manager /
   /// Store Manager / Admin can add a UOM without leaving Step 2.
   final Future<({UnitOfMeasure? unit, String? error})> Function({
     required String code,
     required String name,
-  })? onCreateUnit;
+  })?
+  onCreateUnit;
 
   /// Optional inline standalone-variant creator in Edit Product mode (no
   /// conversion math required — directly adds a variant with its own unit &
@@ -88,7 +89,7 @@ class ProductsFormDialog extends StatefulWidget {
 
   /// Optional inline pack / bulk selling-unit creator in Edit Product mode.
   final Future<String?> Function(int variantId, NewSellingUnit unit)?
-      onAddSellingUnit;
+  onAddSellingUnit;
 
   /// Where this device says the stock sits. Blank on a product nobody recorded.
   final String locationHint;
@@ -366,7 +367,9 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
           ),
           actions: [
             TextButton(
-              onPressed: saving ? null : () => Navigator.of(dialogContext).pop(),
+              onPressed: saving
+                  ? null
+                  : () => Navigator.of(dialogContext).pop(),
               child: const Text('Cancel'),
             ),
             FilledButton(
@@ -1388,7 +1391,9 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
     final creator = widget.onCreateUnit;
     if (creator == null) return (unit: null, error: 'Cannot create unit.');
     final res = await creator(code: code, name: name);
-    if (mounted && res.unit != null && !_units.any((u) => u.id == res.unit!.id)) {
+    if (mounted &&
+        res.unit != null &&
+        !_units.any((u) => u.id == res.unit!.id)) {
       setState(() => _units.add(res.unit!));
     }
     return res;
@@ -1521,7 +1526,8 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                   ],
                 ),
               ),
-              if (widget.onAddVariant != null || widget.onAddSellingUnit != null)
+              if (widget.onAddVariant != null ||
+                  widget.onAddSellingUnit != null)
                 Wrap(
                   spacing: AppSpacing.sm,
                   runSpacing: AppSpacing.xs,
