@@ -572,8 +572,13 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        // Scoped to the table: the chart above it repeats the same label, and
+        // this assertion is about the row the API sent.
         expect(
-          find.text(marker[id]!),
+          find.descendant(
+            of: find.byKey(const ValueKey('report-viewer-table')),
+            matching: find.text(marker[id]!),
+          ),
           findsOneWidget,
           reason: '$id draws its API row in the shared table',
         );

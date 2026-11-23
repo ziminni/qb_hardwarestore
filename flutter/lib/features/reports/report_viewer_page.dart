@@ -584,7 +584,7 @@ _ReportView _vatView(VatReportSummary report) => _ReportView(
     (
       label: 'OR-tagged VAT',
       value: formatPeso(report.totals.orBacked.vat),
-      caption: 'BIR official receipts',
+      caption: 'Slips carrying a paper OR number',
     ),
     (
       label: 'Untagged VAT',
@@ -615,6 +615,29 @@ _ReportView _vatView(VatReportSummary report) => _ReportView(
   excelName:
       'vat-or-report-${report.granularity}-${report.from}-to-${report.to}.xlsx',
   excelBytes: () => buildVatReportXlsx(report),
+  charts: [
+    // Two VAT buckets are the whole report: what an OR backs, and what it does
+    // not. Zero in both buckets means the range had no VAT to divide.
+    if (report.totals.orBacked.vat > 0 || report.totals.untaggedOs.vat > 0)
+      ShareSplitChart(
+        key: const ValueKey('report-viewer-vat-split'),
+        title: 'Whole VAT vs OR-tagged',
+        subtitle:
+            'How the period’s VAT divides between OR-tagged slips and untagged order slips.',
+        slices: [
+          ShareSlice(
+            label: 'OR-tagged VAT',
+            value: report.totals.orBacked.vat,
+            amountText: formatPeso(report.totals.orBacked.vat),
+          ),
+          ShareSlice(
+            label: 'Untagged VAT',
+            value: report.totals.untaggedOs.vat,
+            amountText: formatPeso(report.totals.untaggedOs.vat),
+          ),
+        ],
+      ),
+  ],
 );
 
 _ReportView _valuationView(InventoryValuation valuation) => _ReportView(
@@ -658,6 +681,36 @@ _ReportView _valuationView(InventoryValuation valuation) => _ReportView(
   emptyMessage: 'No stock on hand.',
   excelName: 'inventory-valuation.xlsx',
   excelBytes: () => buildValuationReportXlsx(valuation),
+  charts: [
+    if (valuation.categories.isNotEmpty)
+      ShareSplitChart(
+        key: const ValueKey('report-viewer-valuation-category-split'),
+        title: 'Stock value by category',
+        subtitle: 'Value at landed cost, split across the categories on hand.',
+        slices: [
+          for (final category in valuation.categories)
+            ShareSlice(
+              label: category.name,
+              value: category.cost,
+              amountText: formatPeso(category.cost),
+            ),
+        ],
+      ),
+    if (valuation.locations.isNotEmpty)
+      ShareSplitChart(
+        key: const ValueKey('report-viewer-valuation-location-split'),
+        title: 'Stock value by location',
+        subtitle: 'The same value at landed cost, split by where it sits.',
+        slices: [
+          for (final location in valuation.locations)
+            ShareSlice(
+              label: location.locationName,
+              value: location.cost,
+              amountText: formatPeso(location.cost),
+            ),
+        ],
+      ),
+  ],
 );
 
 _ReportView _movementsView(StockMovements movements) => _ReportView(
@@ -696,6 +749,40 @@ _ReportView _movementsView(StockMovements movements) => _ReportView(
   emptyMessage: 'No goods received in this range. Sales are not included.',
   excelName: 'stock-movements-${movements.from}-to-${movements.to}.xlsx',
   excelBytes: () => buildMovementsReportXlsx(movements),
+  charts: [
+    if (movements.receiptsByDay.isNotEmpty)
+      GroupedBarTrendChart(
+        key: const ValueKey('report-viewer-movements-chart'),
+        title: 'Goods received by day',
+        subtitle: 'Base units that came in, day by day.',
+        primaryLabel: 'Units in',
+        isCurrency: false,
+        height: 180,
+        points: _perDayPoints(
+          movements.receiptsByDay,
+          date: (day) => day.date,
+          value: (day) => day.qtyIn,
+        ),
+      ),
+    // The endpoint reports adjustments by reason, not by day: the daily axis
+    // above covers receipts, and this covers what was written off.
+    if (movements.adjustmentsByType.isNotEmpty)
+      HorizontalComparisonChart(
+        key: const ValueKey('report-viewer-movement-types-chart'),
+        title: 'Adjustments by reason',
+        subtitle: 'Units written off or corrected, biggest reason first.',
+        primaryLabel: 'Units out',
+        items: [
+          for (final type in movements.adjustmentsByType)
+            ComparisonBarItem(
+              label: type.type,
+              primaryValue: type.qtyOut,
+              primaryText: formatQuantity(type.qtyOut),
+              badgeText: '${formatCount(type.movements)} movements',
+            ),
+        ],
+      ),
+  ],
 );
 
 _ReportView _requisitionsView(RequisitionHistory history) => _ReportView(
@@ -728,6 +815,22 @@ _ReportView _requisitionsView(RequisitionHistory history) => _ReportView(
   emptyMessage: 'No requisitions in this range.',
   excelName: 'requisition-history.xlsx',
   excelBytes: () => buildRequisitionsReportXlsx(history),
+  charts: [
+    if (history.countByStatus.isNotEmpty)
+      ShareSplitChart(
+        key: const ValueKey('report-viewer-requisition-split'),
+        title: 'Requisitions by status',
+        subtitle: 'Where the range’s requests stand right now.',
+        slices: [
+          for (final entry in history.countByStatus.entries)
+            ShareSlice(
+              label: entry.key,
+              value: entry.value.toDouble(),
+              amountText: '${formatCount(entry.value)} requests',
+            ),
+        ],
+      ),
+  ],
 );
 
 _ReportView _salesByItemView(SalesByItemReport report) => _ReportView(
@@ -827,6 +930,21 @@ _ReportView _salesByHourView(SalesByHour report) => _ReportView(
   emptyMessage: 'No sales in this range.',
   excelName: 'hourly-sales-${report.from}-to-${report.to}.xlsx',
   excelBytes: () => buildSalesByHourReportXlsx(report),
+  charts: [
+    if (report.page.rows.isNotEmpty)
+      GroupedBarTrendChart(
+        key: const ValueKey('report-viewer-hourly-chart'),
+        title: 'Sales by hour of day',
+        subtitle:
+            'Peak shopping hours: invoice total at each store-local hour.',
+        primaryLabel: 'Invoice total',
+        height: 190,
+        points: [
+          for (final row in report.page.rows)
+            TrendPoint(label: _hourLabel(row.hour), primary: row.invoiceTotal),
+        ],
+      ),
+  ],
 );
 
 _ReportView _salesByCashierView(SalesByCashier report) => _ReportView(
@@ -978,6 +1096,29 @@ _ReportView _returnsExchangesView(ReturnsExchangesReport report) => _ReportView(
   emptyMessage: 'No returns or exchanges in this range.',
   excelName: 'returns-exchanges-${report.from}-to-${report.to}.xlsx',
   excelBytes: () => buildReturnsExchangesReportXlsx(report),
+  charts: [
+    // A return hands money back and an exchange swaps goods: the split is by
+    // reversals, and the refunded pesos ride along in the legend.
+    if (report.totalReturns + report.totalExchanges > 0)
+      ShareSplitChart(
+        key: const ValueKey('report-viewer-returns-split'),
+        title: 'Refunds vs exchanges',
+        subtitle: 'Reversals in this range, and the money each kind moved.',
+        slices: [
+          ShareSlice(
+            label: 'Returns (money back)',
+            value: report.totalReturns.toDouble(),
+            amountText:
+                '${formatCount(report.totalReturns)} · ${formatPeso(report.totalRefunded)}',
+          ),
+          ShareSlice(
+            label: 'Exchanges (swap)',
+            value: report.totalExchanges.toDouble(),
+            amountText: '${formatCount(report.totalExchanges)} reversals',
+          ),
+        ],
+      ),
+  ],
 );
 
 _ReportView _discountsView(DiscountsReport report) => _ReportView(
@@ -1016,36 +1157,81 @@ _ReportView _discountsView(DiscountsReport report) => _ReportView(
   emptyMessage: 'No discounts in this range.',
   excelName: 'discounts-${report.from}-to-${report.to}.xlsx',
   excelBytes: () => buildDiscountsReportXlsx(report),
+  charts: [
+    if (report.page.rows.isNotEmpty)
+      HorizontalComparisonChart(
+        key: const ValueKey('report-viewer-discounts-chart'),
+        title: 'Discounts by type',
+        subtitle: 'Where the money came off, and on how many bills.',
+        primaryLabel: 'Discount given',
+        items: [
+          for (final row in report.page.rows)
+            ComparisonBarItem(
+              label: row.type,
+              primaryValue: row.totalDiscount,
+              primaryText: formatPeso(row.totalDiscount),
+              badgeText: '${formatCount(row.transactions)} bills',
+            ),
+        ],
+      ),
+  ],
 );
 
-_ReportView _voidsView(VoidsReport report) => _ReportView(
-  kpis: [
-    (
-      label: 'Voided bills',
-      value: formatCount(report.totalTransactions),
-      caption: null,
-    ),
-    (
-      label: 'Voided total',
-      value: formatPeso(report.totalVoided),
-      caption: 'What the cancelled bills came to',
-    ),
-  ],
-  columns: const ['Bill', 'Date', 'Cashier', 'Amount', 'Reason'],
-  rows: [
-    for (final row in report.page.rows)
-      [
-        row.transactionNo,
-        _dateLabel(row.date),
-        row.cashierName,
-        formatPeso(row.voidedTotal),
-        _reasonLabel(row.reason),
-      ],
-  ],
-  emptyMessage: 'No voided bills in this range.',
-  excelName: 'voids-${report.from}-to-${report.to}.xlsx',
-  excelBytes: () => buildVoidsReportXlsx(report),
-);
+_ReportView _voidsView(VoidsReport report) {
+  final byReason = _totalsByLabel(
+    report.page.rows,
+    label: (row) => _reasonLabel(row.reason),
+    amount: (row) => row.voidedTotal,
+  );
+  final reasons = byReason.entries.toList()
+    ..sort((a, b) => b.value.amount.compareTo(a.value.amount));
+  return _ReportView(
+    kpis: [
+      (
+        label: 'Voided bills',
+        value: formatCount(report.totalTransactions),
+        caption: null,
+      ),
+      (
+        label: 'Voided total',
+        value: formatPeso(report.totalVoided),
+        caption: 'What the cancelled bills came to',
+      ),
+    ],
+    columns: const ['Bill', 'Date', 'Cashier', 'Amount', 'Reason'],
+    rows: [
+      for (final row in report.page.rows)
+        [
+          row.transactionNo,
+          _dateLabel(row.date),
+          row.cashierName,
+          formatPeso(row.voidedTotal),
+          _reasonLabel(row.reason),
+        ],
+    ],
+    emptyMessage: 'No voided bills in this range.',
+    excelName: 'voids-${report.from}-to-${report.to}.xlsx',
+    excelBytes: () => buildVoidsReportXlsx(report),
+    charts: [
+      if (reasons.isNotEmpty)
+        HorizontalComparisonChart(
+          key: const ValueKey('report-viewer-voids-chart'),
+          title: 'Voided value by reason',
+          subtitle: 'Biggest reason first. A blank note is its own reason.',
+          primaryLabel: 'Voided value',
+          items: [
+            for (final reason in reasons)
+              ComparisonBarItem(
+                label: reason.key,
+                primaryValue: reason.value.amount,
+                primaryText: formatPeso(reason.value.amount),
+                badgeText: '${formatCount(reason.value.count)} bills',
+              ),
+          ],
+        ),
+    ],
+  );
+}
 
 // --- P2 inventory reports --------------------------------------------------
 // Every one of them formats a missing peso value as words: an inventory figure
@@ -1093,6 +1279,24 @@ _ReportView _grnView(GrnReport report) => _ReportView(
   emptyMessage: 'No goods received in this range.',
   excelName: 'goods-received-${report.from}-to-${report.to}.xlsx',
   excelBytes: () => buildGrnReportXlsx(report),
+  charts: [
+    // A receipt carries its own date, so the page's rows make a real time axis:
+    // units that came in each delivery day.
+    if (report.page.rows.isNotEmpty)
+      GroupedBarTrendChart(
+        key: const ValueKey('report-viewer-grn-chart'),
+        title: 'Units received by day',
+        subtitle: 'Base units that came through the door, day by day.',
+        primaryLabel: 'Units received',
+        isCurrency: false,
+        height: 180,
+        points: _perDayPoints(
+          report.page.rows,
+          date: (row) => row.date,
+          value: (row) => row.qty,
+        ),
+      ),
+  ],
 );
 
 _ReportView _stnView(StnReport report) => _ReportView(
@@ -1123,6 +1327,22 @@ _ReportView _stnView(StnReport report) => _ReportView(
   emptyMessage: 'No stock transfers in this range.',
   excelName: 'stock-transfers-${report.from}-to-${report.to}.xlsx',
   excelBytes: () => buildStnReportXlsx(report),
+  charts: [
+    if (report.page.rows.isNotEmpty)
+      GroupedBarTrendChart(
+        key: const ValueKey('report-viewer-stn-chart'),
+        title: 'Units moved by day',
+        subtitle: 'Base units transferred between shelves, day by day.',
+        primaryLabel: 'Units moved',
+        isCurrency: false,
+        height: 180,
+        points: _perDayPoints(
+          report.page.rows,
+          date: (row) => row.date,
+          value: (row) => row.qty,
+        ),
+      ),
+  ],
 );
 
 _ReportView _batchAgeView(BatchAgeReport report) => _ReportView(
@@ -1170,6 +1390,33 @@ _ReportView _batchAgeView(BatchAgeReport report) => _ReportView(
   emptyMessage: 'No stock on hand.',
   excelName: 'batch-age-${report.asOf}.xlsx',
   excelBytes: () => buildBatchAgeReportXlsx(report),
+  charts: [
+    // FIFO buckets are already totals on the report: three bars, no arithmetic.
+    if (report.page.rows.isNotEmpty)
+      HorizontalComparisonChart(
+        key: const ValueKey('report-viewer-batch-age-chart'),
+        title: 'On-hand stock by age',
+        subtitle: 'Base units, by how long the batch behind them has sat.',
+        primaryLabel: 'Units on hand',
+        items: [
+          ComparisonBarItem(
+            label: '0-30 days',
+            primaryValue: report.qty0to30,
+            primaryText: formatQuantity(report.qty0to30),
+          ),
+          ComparisonBarItem(
+            label: '31-90 days',
+            primaryValue: report.qty30to90,
+            primaryText: formatQuantity(report.qty30to90),
+          ),
+          ComparisonBarItem(
+            label: '90+ days',
+            primaryValue: report.qty90plus,
+            primaryText: formatQuantity(report.qty90plus),
+          ),
+        ],
+      ),
+  ],
 );
 
 _ReportView _shrinkageView(ShrinkageReport report) => _ReportView(
@@ -1209,6 +1456,24 @@ _ReportView _shrinkageView(ShrinkageReport report) => _ReportView(
   emptyMessage: 'No shrinkage or damage in this range.',
   excelName: 'shrinkage-${report.from}-to-${report.to}.xlsx',
   excelBytes: () => buildShrinkageReportXlsx(report),
+  charts: [
+    // The endpoint buckets losses by day, not by reason: the days plot, and the
+    // shrinkage % already sits in a tile above.
+    if (report.page.rows.isNotEmpty)
+      GroupedBarTrendChart(
+        key: const ValueKey('report-viewer-shrinkage-chart'),
+        title: 'Lost stock by day',
+        subtitle: 'Base units lost to shrinkage and damage, day by day.',
+        primaryLabel: 'Units lost',
+        isCurrency: false,
+        height: 180,
+        points: _perDayPoints(
+          report.page.rows,
+          date: (row) => row.date,
+          value: (row) => row.qty,
+        ),
+      ),
+  ],
 );
 
 _ReportView _adjustmentsView(AdjustmentsReport report) => _ReportView(
@@ -1259,6 +1524,27 @@ _ReportView _adjustmentsView(AdjustmentsReport report) => _ReportView(
   emptyMessage: 'No stock adjustments in this range.',
   excelName: 'stock-adjustments-${report.from}-to-${report.to}.xlsx',
   excelBytes: () => buildAdjustmentsReportXlsx(report),
+  charts: [
+    if (report.page.rows.isNotEmpty)
+      ShareSplitChart(
+        key: const ValueKey('report-viewer-adjustments-split'),
+        title: 'Corrections vs supplier returns',
+        subtitle:
+            'How the adjusted quantity divides. A return lowers the shelf.',
+        slices: [
+          for (final entry in _totalsByLabel(
+            report.page.rows,
+            label: (row) => row.type,
+            amount: (row) => row.qty.abs(),
+          ).entries)
+            ShareSlice(
+              label: entry.key,
+              value: entry.value.amount,
+              amountText: formatQuantity(entry.value.amount),
+            ),
+        ],
+      ),
+  ],
 );
 
 _ReportView _reorderView(ReorderReport report) => _ReportView(
@@ -1293,6 +1579,27 @@ _ReportView _reorderView(ReorderReport report) => _ReportView(
   emptyMessage: 'Nothing is at or below its minimum stock.',
   excelName: 'reorder-list.xlsx',
   excelBytes: () => buildReorderReportXlsx(report),
+  charts: [
+    // The buying order: the biggest shortfalls are what get bought first.
+    if (report.page.rows.isNotEmpty)
+      HorizontalComparisonChart(
+        key: const ValueKey('report-viewer-reorder-chart'),
+        title: 'Biggest shortfalls',
+        subtitle: 'What has to be bought, against what is still on the shelf.',
+        primaryLabel: 'Shortfall',
+        secondaryLabel: 'On hand',
+        items: [
+          for (final row in report.page.rows.take(8))
+            ComparisonBarItem(
+              label: row.name,
+              primaryValue: row.gap,
+              primaryText: formatQuantity(row.gap),
+              secondaryValue: row.onHand,
+              secondaryText: 'On hand ${formatQuantity(row.onHand)}',
+            ),
+        ],
+      ),
+  ],
 );
 
 _ReportView _deadStockView(DeadStockReport report) => _ReportView(
@@ -1329,6 +1636,26 @@ _ReportView _deadStockView(DeadStockReport report) => _ReportView(
   emptyMessage: 'Every stocked item sold in this window.',
   excelName: 'dead-stock-${report.asOf}.xlsx',
   excelBytes: () => buildDeadStockReportXlsx(report),
+  charts: [
+    if (report.page.rows.isNotEmpty)
+      HorizontalComparisonChart(
+        key: const ValueKey('report-viewer-dead-stock-chart'),
+        title: 'Money tied up in dead stock',
+        subtitle: 'The worst offenders by pesos frozen at landed cost.',
+        primaryLabel: 'Money tied up',
+        items: [
+          for (final row in report.page.rows.take(8))
+            ComparisonBarItem(
+              label: row.name,
+              primaryValue: row.landedValue,
+              primaryText: formatPeso(row.landedValue),
+              badgeText: row.daysSinceLastSale == null
+                  ? 'Never sold'
+                  : '${formatCount(row.daysSinceLastSale!)} days idle',
+            ),
+        ],
+      ),
+  ],
 );
 
 _ReportView _fastSlowView(FastSlowReport report) => _ReportView(
@@ -1363,55 +1690,109 @@ _ReportView _fastSlowView(FastSlowReport report) => _ReportView(
   emptyMessage: 'No items sold in this range.',
   excelName: 'fast-slow-movers-${report.from}-to-${report.to}.xlsx',
   excelBytes: () => buildFastSlowReportXlsx(report),
-);
-
-_ReportView _cycleCountView(CycleCountReport report) => _ReportView(
-  kpis: [
-    (
-      label: 'Count corrections',
-      value: formatCount(report.adjustments),
-      caption: null,
-    ),
-    (
-      label: 'Net variance',
-      value: formatSignedQuantity(report.qty),
-      caption: 'Signed: a shortfall lowers',
-    ),
-    (
-      label: 'Shrinkage',
-      value: _percentOrUnknown(report.shrinkagePercent, 'No stock to measure'),
-      caption: 'Shortfall ÷ counted stock',
-    ),
-    (
-      label: 'Value of variance',
-      value: _costOrUnknown(report.totalValue),
-      caption: 'At landed cost',
-    ),
-    if (report.missingCostLines > 0)
-      (
-        label: 'Rows with no cost',
-        value: formatCount(report.missingCostLines),
-        caption: 'Left out of the value',
+  charts: [
+    if (report.page.rows.isNotEmpty)
+      ShareSplitChart(
+        key: const ValueKey('report-viewer-fast-slow-split'),
+        title: 'Fast vs slow movers',
+        subtitle: 'How the range’s base units divide between the two bands.',
+        slices: [
+          for (final entry in _totalsByLabel(
+            report.page.rows,
+            label: (row) => _bandLabel(row.band),
+            amount: (row) => row.qtyBase,
+          ).entries)
+            ShareSlice(
+              label: entry.key,
+              value: entry.value.amount,
+              amountText: formatQuantity(entry.value.amount),
+            ),
+        ],
       ),
   ],
-  columns: const ['Item', 'Date', 'Shelf', 'Counted by', 'Variance', 'Value'],
-  rows: [
-    for (final row in report.page.rows)
-      [
-        row.name,
-        _dateLabel(row.date),
-        row.locationName,
-        row.userName,
-        formatSignedQuantity(row.qty),
-        _costOrUnknown(row.value),
-      ],
-  ],
-  // A count that matched left no record: the server writes a CORRECTION only
-  // when the shelf disagreed with the count.
-  emptyMessage: 'No count corrections in this range.',
-  excelName: 'cycle-count-${report.from}-to-${report.to}.xlsx',
-  excelBytes: () => buildCycleCountReportXlsx(report),
 );
+
+_ReportView _cycleCountView(CycleCountReport report) {
+  final countedMore = report.page.rows
+      .where((row) => row.qty > 0)
+      .fold<double>(0, (sum, row) => sum + row.qty);
+  final countedShort = report.page.rows
+      .where((row) => row.qty < 0)
+      .fold<double>(0, (sum, row) => sum - row.qty);
+  return _ReportView(
+    kpis: [
+      (
+        label: 'Count corrections',
+        value: formatCount(report.adjustments),
+        caption: null,
+      ),
+      (
+        label: 'Net variance',
+        value: formatSignedQuantity(report.qty),
+        caption: 'Signed: a shortfall lowers',
+      ),
+      (
+        label: 'Shrinkage',
+        value: _percentOrUnknown(
+          report.shrinkagePercent,
+          'No stock to measure',
+        ),
+        caption: 'Shortfall ÷ counted stock',
+      ),
+      (
+        label: 'Value of variance',
+        value: _costOrUnknown(report.totalValue),
+        caption: 'At landed cost',
+      ),
+      if (report.missingCostLines > 0)
+        (
+          label: 'Rows with no cost',
+          value: formatCount(report.missingCostLines),
+          caption: 'Left out of the value',
+        ),
+    ],
+    columns: const ['Item', 'Date', 'Shelf', 'Counted by', 'Variance', 'Value'],
+    rows: [
+      for (final row in report.page.rows)
+        [
+          row.name,
+          _dateLabel(row.date),
+          row.locationName,
+          row.userName,
+          formatSignedQuantity(row.qty),
+          _costOrUnknown(row.value),
+        ],
+    ],
+    // A count that matched left no record: the server writes a CORRECTION only
+    // when the shelf disagreed with the count.
+    emptyMessage: 'No count corrections in this range.',
+    excelName: 'cycle-count-${report.from}-to-${report.to}.xlsx',
+    excelBytes: () => buildCycleCountReportXlsx(report),
+    charts: [
+      // Matches write no row, so the honest split is the variance itself: stock
+      // the count found extra against stock it found short.
+      if (report.page.rows.isNotEmpty)
+        ShareSplitChart(
+          key: const ValueKey('report-viewer-cycle-count-split'),
+          title: 'Counted more vs counted short',
+          subtitle:
+              'Base units of variance, split by which way the shelf moved.',
+          slices: [
+            ShareSlice(
+              label: 'Counted more than the shelf',
+              value: countedMore,
+              amountText: formatQuantity(countedMore),
+            ),
+            ShareSlice(
+              label: 'Counted short',
+              value: countedShort,
+              amountText: formatQuantity(countedShort),
+            ),
+          ],
+        ),
+    ],
+  );
+}
 
 _ReportView _expiryView(ExpiryReport report) => _ReportView(
   kpis: [
@@ -1451,7 +1832,93 @@ _ReportView _expiryView(ExpiryReport report) => _ReportView(
   emptyMessage: 'Nothing is expired or expiring.',
   excelName: 'expiry-${report.asOf}.xlsx',
   excelBytes: () => buildExpiryReportXlsx(report),
+  charts: [
+    // The server already buckets the value on hand: four bars, no arithmetic.
+    if (report.page.rows.isNotEmpty)
+      HorizontalComparisonChart(
+        key: const ValueKey('report-viewer-expiry-chart'),
+        title: 'Value at risk by expiry bucket',
+        subtitle: 'Pesos on the shelf, by how soon the batch expires.',
+        primaryLabel: 'Value at risk',
+        items: [
+          ComparisonBarItem(
+            label: 'Already expired',
+            primaryValue: report.valueExpired,
+            primaryText: formatPeso(report.valueExpired),
+          ),
+          ComparisonBarItem(
+            label: '0-30 days',
+            primaryValue: report.value0to30,
+            primaryText: formatPeso(report.value0to30),
+          ),
+          ComparisonBarItem(
+            label: '31-60 days',
+            primaryValue: report.value31to60,
+            primaryText: formatPeso(report.value31to60),
+          ),
+          ComparisonBarItem(
+            label: '61-90 days',
+            primaryValue: report.value61to90,
+            primaryText: formatPeso(report.value61to90),
+          ),
+        ],
+      ),
+  ],
 );
+
+/// Rows collapsed to one point per day, oldest first.
+///
+/// A per-ticket report (goods received, transfers, losses) carries a date on
+/// every row; this turns those rows into the time axis the chart reads, and
+/// shortens the date to the `MM-DD` label the sales trend already uses.
+List<TrendPoint> _perDayPoints<T>(
+  Iterable<T> rows, {
+  required String Function(T row) date,
+  required double Function(T row) value,
+}) {
+  final byDay = <String, double>{};
+  for (final row in rows) {
+    final raw = date(row);
+    final day = raw.length >= 10 ? raw.substring(0, 10) : raw;
+    byDay[day] = (byDay[day] ?? 0) + value(row);
+  }
+  final days = byDay.keys.toList()..sort();
+  return [
+    for (final day in days)
+      TrendPoint(
+        label: day.length >= 10 ? day.substring(5, 10) : day,
+        primary: byDay[day]!,
+      ),
+  ];
+}
+
+/// Rows collapsed by one label, summing an amount and counting the rows.
+///
+/// First-seen order is kept: a ranking chart sorts the entries it is given.
+Map<String, ({int count, double amount})> _totalsByLabel<T>(
+  Iterable<T> rows, {
+  required String Function(T row) label,
+  required double Function(T row) amount,
+}) {
+  final totals = <String, ({int count, double amount})>{};
+  for (final row in rows) {
+    final key = label(row);
+    final current = totals[key];
+    totals[key] = (
+      count: (current?.count ?? 0) + 1,
+      amount: (current?.amount ?? 0) + amount(row),
+    );
+  }
+  return totals;
+}
+
+/// The mover band in words: `FAST` is `Fast movers`, anything else keeps the
+/// server's own word.
+String _bandLabel(String band) => switch (band) {
+  'FAST' => 'Fast movers',
+  'SLOW' => 'Slow movers',
+  _ => band,
+};
 
 /// A peso value the server could not cost: words, never ₱0.00.
 String _costOrUnknown(double? value) =>
