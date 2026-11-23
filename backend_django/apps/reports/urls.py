@@ -29,9 +29,20 @@ urlpatterns = [
         name="inventory-valuation",
     ),
     path("stock-movements/", views.stock_movements_view, name="stock-movements"),
+    # P2 inventory reports batch A: documents, batch age, loss and count corrections.
+    path("grn/", views.grn_report_view, name="grn"),
+    path("stn/", views.stn_report_view, name="stn"),
+    path("batch-age/", views.batch_age_view, name="batch-age"),
+    path("shrinkage/", views.shrinkage_view, name="shrinkage"),
+    path("adjustments/", views.adjustments_report_view, name="adjustments"),
     path(
         "requisition-history/",
         views.requisition_history_view,
         name="requisition-history",
     ),
+    # P2 inventory reports batch B: reorder, dead stock, fast/slow, cycle count.
+    path("reorder/", views.reorder_report_view, name="reorder"),
+    path("dead-stock/", views.dead_stock_view, name="dead-stock"),
+    path("fast-slow/", views.fast_slow_view, name="fast-slow"),
+    path("cycle-count/", views.cycle_count_view, name="cycle-count"),
 ]

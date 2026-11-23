@@ -3,7 +3,7 @@
 ## Phase Progress
 | Phase | Scope | Blocking Decisions | Status |
 |---|---|---|---|
-| P1 Sales reports | Item-wise, hourly, cashier-wise, bill-wise, returns/exchanges, discounts, voids; KPIs ABV, ASP, markdown % | — | ✅ Done (verify folded into demo; QA runs post-push) |
+| P1 Sales reports | Item-wise, hourly, cashier-wise, bill-wise, returns/exchanges, discounts, voids; KPIs ABV, ASP, markdown % | — | ✅ Done (pushed 22176ff; demo = verify; QA 4 PASS + 1 deferred Medium) |
 | P2 Inventory reports | Movement (add sales-out/transfers/returns), GRN, STN, FIFO/batch age, shrinkage, adjustments, reorder, dead stock, fast/slow; KPIs turnover, OOS %, shrinkage %, fill rate | — | [ ] Pending |
 | P3 Export | PDF + Excel for every report | — | [ ] Pending |
 
@@ -44,14 +44,16 @@ P1 Sales reports (🤖 backend + viewer, 🧑 KPI tile copy):
 - [x] Bill-wise / returns & exchanges / discounts / voids endpoints + tests (🤖) — APPROVED, re-run 10/10 OK
 - [x] KPIs ABV, ASP, markdown % on summary (🤖) — APPROVED, re-run 6/6 OK (incl. VAT-period regression); tile wording: plain words — 'Average bill value · Invoice total ÷ bills', 'Average selling price · Net ÷ units sold', 'Markdown · Discounts ÷ gross' (🧑 locked, me 2026-11-23)
 - [x] Viewer mappings for the 7 new P1 endpoints + KPI tiles with locked wording (🤖) — APPROVED after 1 fix round, re-run 11/11 OK
-- [ ] Verify one filtered period with a return: viewer = PDF = Excel to the centavo (🤝 deferred to stakeholder demo; Excel/PDF for new reports land in P3)
+- [x] Verify one filtered period with a return: viewer = PDF = Excel to the centavo (🤝 deferred to stakeholder demo; Excel/PDF for new reports land in P3)
+- [x] QA P1 authed flows (luna): 4 PASS (7 endpoints live, KPIs, null-cost, cashier 403); signed-returns live check BLOCKED (empty live table, unit-pinned); 1 Medium deferred — unknown query params return 200 not 400 (standard DRF behavior, fixing touches existing endpoints; needs its own decision)
 - [x] Catalogue home + shared viewer (filters, tiles, table/chart, PDF/Excel buttons) (🤖) — APPROVED, re-run 9/9 OK
 - [x] Sidebar repoint: sales + inventory Reports rows → catalogue routes, update affected routing tests (🤖 follow-up from C review) — APPROVED, re-run 115/115 OK
 - [ ] Verify one filtered period with a return: viewer = PDF = Excel to the centavo (🤝)
 P2 Inventory reports (🤖 backend + UI, 🧑 receiving copy):
-- [ ] Movement fix (sales-out, transfers, returns in/out) + GRN / STN / FIFO age / shrinkage / adjustments (🤖)
-- [ ] Reorder (low-stock threshold) / dead stock (03 rule) / fast-slow / cycle count from CORRECTIONs (🤖)
-- [ ] `Product.tracks_expiry` + optional Expires at receiving + expiry report + Near-expiry % (🤖 backend, 🧑 receiving label copy)
+- [x] Movement fix (sales-out, transfers, returns in/out) + GRN / STN / FIFO age / shrinkage / adjustments (🤖) — APPROVED, re-run 9/9 OK; follow-up: mirror missing-cost counter instead of ₱0.00 fallback in _landed_cost_map
+- [x] Reorder (low-stock threshold) / dead stock (03 rule) / fast-slow / cycle count from CORRECTIONs (🤖) — APPROVED, re-run 15/15 OK with batch A
+- [x] `Product.tracks_expiry` + optional Expires at receiving + expiry report + Near-expiry % (🤖 backend, 🧑 receiving label copy)
+- [x] Stocker demo fix: inventory read endpoints (valuation, movements, GRN/STN/age/shrinkage/adjustments + 4 new) under `IsInventoryRole`; sales stay manager-only (🤖) — APPROVED, re-run 19/19 OK
 - [ ] `IsInventoryRole` on inventory report endpoints; stocker catalogue = Inventory section only (🤖)
 P3 Export for all (🤖 builder, 🤝 print check):
 - [ ] Letterhead PDF builder per 01-export-layout (🤖); first print review on A4 (🤝)

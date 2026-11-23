@@ -2,20 +2,27 @@
 """Reports app — read-only aggregation endpoints for the admin Reports page.
 
 No models: every view aggregates data from the other apps
-(pos, inventory, requisitions).  Managerial reports require
-Store Manager / Admin (IsManagerRole).
+(pos, inventory, requisitions).  Sales, VAT and requisition history require
+Store Manager / Admin (IsManagerRole); the inventory reads require
+Stock Manager / Store Manager / Admin (IsInventoryRole).
 
 Endpoints (mounted under /api/v1/reports/):
     GET /reports/sales-summary/?from=YYYY-MM-DD&to=YYYY-MM-DD
     GET /reports/inventory-valuation/
     GET /reports/stock-movements/?from=YYYY-MM-DD&to=YYYY-MM-DD
+    GET /reports/grn/?from=&to=
+    GET /reports/stn/?from=&to=
+    GET /reports/batch-age/
+    GET /reports/shrinkage/?from=&to=
+    GET /reports/adjustments/?from=&to=
     GET /reports/requisition-history/?status=&from=&to=
 """
 
 from datetime import date, timedelta
 from decimal import Decimal
+from math import ceil
 
-from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum
+from django.db.models import Count, DecimalField, ExpressionWrapper, F, Max, Q, Sum
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import status
@@ -23,7 +30,15 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
-from apps.inventory.models import GoodsReceipt, InventoryBatch, StockAdjustment
+from apps.inventory.models import (
+    GoodsReceipt,
+    InventoryBatch,
+    ProductVariant,
+    StockAdjustment,
+    StockTransfer,
+    StockTransferMove,
+    SupplierReturnDeduction,
+)
 from apps.pos.models import (
     DiscountApproval,
     Payment,
@@ -32,9 +47,11 @@ from apps.pos.models import (
     SalesTransaction,
 )
 from apps.requisitions.models import Requisition
-from apps.users.permissions import IsManagerRole
+from apps.users.permissions import IsInventoryRole, IsManagerRole
 
 DEFAULT_RANGE_DAYS = 30
+# Decision 03: dead stock is measured over its own trailing window, 90 days by default.
+DEAD_STOCK_DEFAULT_DAYS = 90
 _ZERO = Decimal("0.00")
 _CENT = Decimal("0.01")
 
@@ -95,6 +112,14 @@ def _range_error():
     return Response(
         {"detail": "Invalid date. Use YYYY-MM-DD for from/to."},
         status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+def _bad_range(request):
+    """True when a supplied from/to is not a YYYY-MM-DD date."""
+    return any(
+        request.query_params.get(p) and not parse_date(request.query_params[p])
+        for p in ("from", "to")
     )
 
 
@@ -1105,7 +1130,7 @@ def vat_summary_view(request):
 
 
 @api_view(["GET"])
-@permission_classes([IsManagerRole])
+@permission_classes([IsInventoryRole])
 def inventory_valuation_view(request):
     """Stock value at cost and at retail, grouped by category and by shelf.
 
@@ -1176,8 +1201,86 @@ def inventory_valuation_view(request):
     )
 
 
+def _sales_out_by_day(frm: date, to: date) -> list[dict]:
+    """Completed sales in BASE units per day; a return's negative line nets itself out."""
+    qty_base = ExpressionWrapper(
+        F("qty") * F("variant_uom__conversion_factor"),
+        output_field=DecimalField(max_digits=16, decimal_places=2),
+    )
+    rows = (
+        SalesItem.objects.filter(
+            transaction__status=SalesTransaction.Status.COMPLETED,
+            transaction__trans_date__date__range=(frm, to),
+        )
+        .values("transaction__trans_date__date")
+        .annotate(qty=Sum(qty_base))
+        .order_by("transaction__trans_date__date")
+    )
+    return [
+        {
+            "date": str(row["transaction__trans_date__date"]),
+            "qty_out": _q2(row["qty"] or _ZERO),
+        }
+        for row in rows
+    ]
+
+
+def _transfer_by_day(frm: date, to: date, key: str) -> list[dict]:
+    """Base quantity one transfer slip moved per day, keyed `qty_in` or `qty_out`."""
+    rows = (
+        StockTransferMove.objects.filter(
+            line__transfer__created_at__date__range=(frm, to)
+        )
+        .values("line__transfer__created_at__date")
+        .annotate(qty=Sum("qty"))
+        .order_by("line__transfer__created_at__date")
+    )
+    return [
+        {
+            "date": str(row["line__transfer__created_at__date"]),
+            key: _q2(row["qty"] or _ZERO),
+        }
+        for row in rows
+    ]
+
+
+def _supplier_returns_by_day(frm: date, to: date) -> list[dict]:
+    """Base quantity handed back to suppliers per day (the deduction rows are base)."""
+    rows = (
+        SupplierReturnDeduction.objects.filter(
+            line__supplier_return__created_at__date__range=(frm, to)
+        )
+        .values("line__supplier_return__created_at__date")
+        .annotate(qty=Sum("qty"))
+        .order_by("line__supplier_return__created_at__date")
+    )
+    return [
+        {
+            "date": str(row["line__supplier_return__created_at__date"]),
+            "qty_out": _q2(row["qty"] or _ZERO),
+        }
+        for row in rows
+    ]
+
+
+def _landed_cost_map() -> dict:
+    """Landed cost per variant, taken from its NEWEST batch.
+
+    `StockAdjustment` stores the quantity and never a cost, so a peso figure has to say
+    where its cost came from: the newest delivery is the cost the next correction is
+    booked against. A variant with no batch history is absent (callers read 0).
+    """
+    costs: dict = {}
+    rows = InventoryBatch.objects.order_by(
+        "variant_id", "-created_at", "-pk"
+    ).values_list("variant_id", "unit_cost_landed")
+    for variant_id, cost in rows:
+        costs.setdefault(variant_id, cost)
+    return costs
+
+
 @api_view(["GET"])
-@permission_classes([IsManagerRole])
+@permission_classes([IsInventoryRole])
 def stock_movements_view(request):
     """Stock IN (goods receipts) vs OUT (adjustments) for the given range.
 
@@ -1214,16 +1317,693 @@ def stock_movements_view(request):
         .annotate(movements=Count("id"), qty_out=Sum("qty_adjusted"))
         .order_by("-qty_out")
     )
+
+    # P2 movement fix: the report used to show only deliveries and count corrections, so
+    # stock that left through the TILL, a shelf MOVE or a supplier RETURN was invisible.
+    # Transfers are reported on both sides by design - a move takes from one shelf and
+    # puts on another, so it is never a gain or a loss for the shop, only a relocation.
+    sales_out = _sales_out_by_day(frm, to)
+    transfers_in = _transfer_by_day(frm, to, "qty_in")
+    transfers_out = _transfer_by_day(frm, to, "qty_out")
+    supplier_returns = _supplier_returns_by_day(frm, to)
     return Response(
         {
             "from": str(frm),
             "to": str(to),
             "total_qty_in": sum(r["qty_in"] or 0 for r in receipts),
             "total_qty_out": sum(a["qty_out"] or 0 for a in adjustments),
+            "total_sales_out": sum(r["qty_out"] for r in sales_out),
+            "total_transfers_in": sum(r["qty_in"] for r in transfers_in),
+            "total_transfers_out": sum(r["qty_out"] for r in transfers_out),
+            "total_supplier_returns_out": sum(r["qty_out"] for r in supplier_returns),
             "receipts_by_day": list(receipts),
             "adjustments_by_type": list(adjustments),
+            "sales_out_by_day": sales_out,
+            "transfers_in_by_day": transfers_in,
+            "transfers_out_by_day": transfers_out,
+            "supplier_returns_by_day": supplier_returns,
         }
     )
+
+
+@api_view(["GET"])
+@permission_classes([IsInventoryRole])
+def grn_report_view(request):
+    """One row per goods receipt: when, from whom, how much, and its bill.
+
+    GET /api/v1/reports/grn/?from=&to=
+    """
+    if _bad_range(request):
+        return _range_error()
+    frm, to = _parse_range(request)
+
+    rows = []
+    for receipt in (
+        GoodsReceipt.objects.filter(receive_date__range=(frm, to))
+        .select_related("po__supplier", "bill")
+        .prefetch_related("lines")
+        .order_by("receive_date", "pk")
+    ):
+        lines = list(receipt.lines.all())
+        # Reverse OneToOne: getattr's default covers the receipt that was never billed
+        # (processed before bills existed, or a zero-value delivery).
+        bill = getattr(receipt, "bill", None)
+        rows.append(
+            {
+                "id": receipt.pk,
+                "date": str(receipt.receive_date),
+                "supplier_id": receipt.po.supplier_id,
+                "supplier": receipt.po.supplier.company_name,
+                "delivery_receipt_no": receipt.delivery_receipt_no,
+                "items": len(lines),
+                "qty": _q2(sum((line.qty for line in lines), _ZERO)),
+                "bill_id": bill.pk if bill else None,
+                "bill_total": _q2(bill.total_amount) if bill else None,
+                "bill_status": str(bill.status) if bill else None,
+            }
+        )
+    totals = {
+        "receipts": len(rows),
+        "items": sum(r["items"] for r in rows),
+        "qty": _q2(sum((r["qty"] for r in rows), _ZERO)),
+        "billed": sum(1 for r in rows if r["bill_id"] is not None),
+        "unbilled": sum(1 for r in rows if r["bill_id"] is None),
+        "bill_total": _q2(sum((r["bill_total"] or _ZERO for r in rows), _ZERO)),
+    }
+    return _paged(request, rows, {"from": str(frm), "to": str(to), "totals": totals})
+
+
+@api_view(["GET"])
+@permission_classes([IsInventoryRole])
+def stn_report_view(request):
+    """One row per stock transfer slip: when, from -> to, how many lines and units.
+
+    GET /api/v1/reports/stn/?from=&to=
+
+    `status` reads COMPLETED for every row: a transfer is ONE step (decision 21 §3) -
+    stock moves at once, and a refused transfer writes no slip at all.
+    """
+    if _bad_range(request):
+        return _range_error()
+    frm, to = _parse_range(request)
+
+    rows = []
+    for transfer in (
+        StockTransfer.objects.filter(created_at__date__range=(frm, to))
+        .select_related("from_location", "to_location")
+        .prefetch_related("lines")
+    ):
+        lines = list(transfer.lines.all())
+        rows.append(
+            {
+                "id": transfer.pk,
+                "number": transfer.number,
+                "date": timezone.localtime(transfer.created_at).isoformat(),
+                "from_location": transfer.from_location_id,
+                "from_location_name": transfer.from_location.name,
+                "to_location": transfer.to_location_id,
+                "to_location_name": transfer.to_location.name,
+                "lines": len(lines),
+                "qty": _q2(sum((line.base_qty for line in lines), _ZERO)),
+                "status": "COMPLETED",
+            }
+        )
+    totals = {
+        "transfers": len(rows),
+        "lines": sum(r["lines"] for r in rows),
+        "qty": _q2(sum((r["qty"] for r in rows), _ZERO)),
+    }
+    return _paged(request, rows, {"from": str(frm), "to": str(to), "totals": totals})
+
+
+@api_view(["GET"])
+@permission_classes([IsInventoryRole])
+def batch_age_view(request):
+    """On-hand quantity per variant, bucketed by how old its batches are.
+
+    GET /api/v1/reports/batch-age/
+
+    Age is the delivery date, not the row's insert time: a transfer-born batch copies
+    its source's receipt, so the age that travelled with the goods is the age shown.
+    Buckets are 0-30, 30-90 and 90+ days, as of today.
+    """
+    as_of = timezone.localdate()
+    buckets: dict = {}
+    batches = InventoryBatch.objects.filter(current_qty__gt=0).values(
+        "variant_id",
+        "variant__sku",
+        "variant__variant_name",
+        "variant__product__base_name",
+        "variant__base_uom__code",
+        "current_qty",
+        "receipt__receive_date",
+    )
+    for batch in batches:
+        row = buckets.get(batch["variant_id"])
+        if row is None:
+            row = buckets[batch["variant_id"]] = {
+                "variant_id": batch["variant_id"],
+                "sku": batch["variant__sku"],
+                "product": batch["variant__product__base_name"],
+                "variant": batch["variant__variant_name"],
+                "uom": batch["variant__base_uom__code"],
+                "oldest_batch_age_days": 0,
+                "qty_0_30": _ZERO,
+                "qty_30_90": _ZERO,
+                "qty_90_plus": _ZERO,
+                "total_qty": _ZERO,
+            }
+        qty = batch["current_qty"]
+        age = (as_of - batch["receipt__receive_date"]).days
+        row["total_qty"] += qty
+        if age <= 30:
+            row["qty_0_30"] += qty
+        elif age <= 90:
+            row["qty_30_90"] += qty
+        else:
+            row["qty_90_plus"] += qty
+        row["oldest_batch_age_days"] = max(row["oldest_batch_age_days"], age)
+
+    rows = sorted(buckets.values(), key=lambda r: r["total_qty"], reverse=True)
+    for row in rows:
+        for key in ("qty_0_30", "qty_30_90", "qty_90_plus", "total_qty"):
+            row[key] = _q2(row[key])
+    totals = {
+        "variants": len(rows),
+        "qty_0_30": _q2(sum((r["qty_0_30"] for r in rows), _ZERO)),
+        "qty_30_90": _q2(sum((r["qty_30_90"] for r in rows), _ZERO)),
+        "qty_90_plus": _q2(sum((r["qty_90_plus"] for r in rows), _ZERO)),
+        "total_qty": _q2(sum((r["total_qty"] for r in rows), _ZERO)),
+    }
+    return _paged(request, rows, {"as_of": str(as_of), "totals": totals})
+
+
+@api_view(["GET"])
+@permission_classes([IsInventoryRole])
+def shrinkage_view(request):
+    """SHRINKAGE + DAMAGE loss per day, its peso value, and the shrinkage % KPI.
+
+    GET /api/v1/reports/shrinkage/?from=&to=
+
+    Reported as POSITIVE loss (the rows store a negative quantity). The KPI divides the
+    loss by what was available: opening stock at `from` plus what deliveries brought in.
+    Opening is reconstructed from EXISTING evidence - minted batches before `from`, less
+    everything that left, plus count corrections - so it stays computable only while that
+    history is intact; a zero denominator reports None rather than a fake 0%.
+    """
+    if _bad_range(request):
+        return _range_error()
+    frm, to = _parse_range(request)
+
+    cost_map = _landed_cost_map()
+    loss_types = [
+        StockAdjustment.AdjustmentType.SHRINKAGE,
+        StockAdjustment.AdjustmentType.DAMAGE,
+    ]
+    by_day: dict = {}
+    adjustments = StockAdjustment.objects.filter(
+        adjustment_type__in=loss_types, timestamp__date__range=(frm, to)
+    ).values("timestamp__date", "qty_adjusted", "variant_id")
+    for adjustment in adjustments:
+        key = adjustment["timestamp__date"]
+        row = by_day.get(key)
+        if row is None:
+            row = by_day[key] = {
+                "date": str(key),
+                "qty": _ZERO,
+                "value": _ZERO,
+                "adjustments": 0,
+            }
+        lost = -adjustment["qty_adjusted"]
+        row["qty"] += lost
+        row["value"] += lost * cost_map.get(adjustment["variant_id"], _ZERO)
+        row["adjustments"] += 1
+    rows = [by_day[key] for key in sorted(by_day)]
+    for row in rows:
+        row["qty"] = _q2(row["qty"])
+        row["value"] = _q2(row["value"])
+
+    minted_before = (
+        InventoryBatch.objects.filter(
+            source_batch__isnull=True, receipt__receive_date__lt=frm
+        ).aggregate(qty=Sum("initial_qty"))["qty"]
+        or _ZERO
+    )
+    qty_base = ExpressionWrapper(
+        F("qty") * F("variant_uom__conversion_factor"),
+        output_field=DecimalField(max_digits=16, decimal_places=2),
+    )
+    sold_before = (
+        SalesItem.objects.filter(
+            transaction__status=SalesTransaction.Status.COMPLETED,
+            transaction__trans_date__date__lt=frm,
+        ).aggregate(qty=Sum(qty_base))["qty"]
+        or _ZERO
+    )
+    returned_before = (
+        SupplierReturnDeduction.objects.filter(
+            line__supplier_return__created_at__date__lt=frm
+        ).aggregate(qty=Sum("qty"))["qty"]
+        or _ZERO
+    )
+    adjusted_before = (
+        StockAdjustment.objects.filter(timestamp__date__lt=frm).aggregate(
+            qty=Sum("qty_adjusted")
+        )["qty"]
+        or _ZERO
+    )
+    opening = minted_before - sold_before - returned_before + adjusted_before
+    received = (
+        InventoryBatch.objects.filter(
+            source_batch__isnull=True, receipt__receive_date__range=(frm, to)
+        ).aggregate(qty=Sum("initial_qty"))["qty"]
+        or _ZERO
+    )
+
+    loss_qty = _q2(sum((r["qty"] for r in rows), _ZERO))
+    available = opening + received
+    totals = {
+        "qty": loss_qty,
+        "value": _q2(sum((r["value"] for r in rows), _ZERO)),
+        "adjustments": sum(r["adjustments"] for r in rows),
+        "opening_qty": _q2(opening),
+        "received_qty": _q2(received),
+        "shrinkage_percent": (
+            _q2((loss_qty / available) * Decimal(100)) if available > 0 else None
+        ),
+    }
+    return _paged(request, rows, {"from": str(frm), "to": str(to), "totals": totals})
+
+
+@api_view(["GET"])
+@permission_classes([IsInventoryRole])
+def adjustments_report_view(request):
+    """CORRECTION + RETURN adjustments: date, product, shelf, user, qty and peso value.
+
+    GET /api/v1/reports/adjustments/?from=&to=
+
+    Quantities and pesos are SIGNED (a correction adds, a supplier return takes away) so
+    the rows add up to the totals; the loss types live in the shrinkage report instead.
+    """
+    if _bad_range(request):
+        return _range_error()
+    frm, to = _parse_range(request)
+
+    cost_map = _landed_cost_map()
+    rows = []
+    for adjustment in (
+        StockAdjustment.objects.filter(
+            adjustment_type__in=[
+                StockAdjustment.AdjustmentType.CORRECTION,
+                StockAdjustment.AdjustmentType.RETURN,
+            ],
+            timestamp__date__range=(frm, to),
+        )
+        .select_related("variant__product", "location", "user")
+        .order_by("-timestamp", "-pk")
+    ):
+        qty = adjustment.qty_adjusted
+        rows.append(
+            {
+                "id": adjustment.pk,
+                "date": timezone.localtime(adjustment.timestamp).isoformat(),
+                "type": adjustment.adjustment_type,
+                "product": adjustment.variant.product.base_name,
+                "variant": adjustment.variant.variant_name,
+                "location": adjustment.location_id,
+                "location_name": adjustment.location.name,
+                "user": adjustment.user.full_name,
+                "qty": _q2(qty),
+                "value": _q2(qty * cost_map.get(adjustment.variant_id, _ZERO)),
+            }
+        )
+    totals = {
+        "adjustments": len(rows),
+        "qty": _q2(sum((r["qty"] for r in rows), _ZERO)),
+        "value": _q2(sum((r["value"] for r in rows), _ZERO)),
+    }
+    return _paged(request, rows, {"from": str(frm), "to": str(to), "totals": totals})
+
+
+@api_view(["GET"])
+@permission_classes([IsInventoryRole])
+def reorder_report_view(request):
+    """Variants whose on-hand is at or below their own minimum stock threshold.
+
+    GET /api/v1/reports/reorder/
+
+    Guarded by `IsInventoryRole` (Stock Manager / Store Manager / Admin): the reorder
+    list is the stocker's own shelf work, so it must not sit behind the manager-only
+    fence that guards money reports.
+
+    On-hand is `InventoryBatch.current_qty` summed across every shelf, in base units,
+    and `gap` is what has to be bought to reach the threshold. The shelf split says
+    WHERE the little that is left actually sits.
+
+    A threshold of 0 is the model's default, not a configured reorder point: such a
+    variant only appears while it is empty (gap 0, sorted last), because a shop with
+    none of an item is a fact worth seeing either way.
+    """
+    variants = {
+        row["pk"]: row
+        for row in ProductVariant.objects.values(
+            "pk",
+            "sku",
+            "variant_name",
+            "product__base_name",
+            "base_uom__code",
+            "min_stock_threshold",
+        )
+    }
+    on_hand: dict = {}
+    shelves: dict = {}
+    for batch in InventoryBatch.objects.filter(current_qty__gt=0).values(
+        "variant_id", "location_id", "location__name", "current_qty"
+    ):
+        variant_id = batch["variant_id"]
+        qty = batch["current_qty"]
+        on_hand[variant_id] = on_hand.get(variant_id, _ZERO) + qty
+        per_shelf = shelves.setdefault(variant_id, {})
+        shelf = per_shelf.get(batch["location_id"])
+        if shelf is None:
+            shelf = per_shelf[batch["location_id"]] = {
+                "location": batch["location_id"],
+                "location_name": batch["location__name"],
+                "qty": _ZERO,
+            }
+        shelf["qty"] += qty
+
+    rows = []
+    for variant_id, variant in variants.items():
+        threshold = variant["min_stock_threshold"] or _ZERO
+        total = on_hand.get(variant_id, _ZERO)
+        if total > threshold:
+            continue
+        locations = sorted(
+            shelves.get(variant_id, {}).values(),
+            key=lambda shelf: shelf["qty"],
+            reverse=True,
+        )
+        rows.append(
+            {
+                "variant_id": variant_id,
+                "sku": variant["sku"],
+                "product": variant["product__base_name"],
+                "variant": variant["variant_name"],
+                "uom": variant["base_uom__code"],
+                "on_hand": _q2(total),
+                "threshold": _q2(threshold),
+                "gap": _q2(threshold - total),
+                "locations": [
+                    {**shelf, "qty": _q2(shelf["qty"])} for shelf in locations
+                ],
+            }
+        )
+    # Biggest shortfall first: that is the buying order.
+    rows.sort(key=lambda row: (-row["gap"], row["sku"]))
+    totals = {
+        "variants": len(rows),
+        "on_hand": _q2(sum((r["on_hand"] for r in rows), _ZERO)),
+        "threshold": _q2(sum((r["threshold"] for r in rows), _ZERO)),
+        "gap": _q2(sum((r["gap"] for r in rows), _ZERO)),
+    }
+    return _paged(request, rows, {"totals": totals})
+
+
+def _days_param(request):
+    """The trailing window in days, defaulting to decision 03's 90.
+
+    Returns (days, error_response).
+    """
+    raw = request.query_params.get("days", "").strip()
+    if not raw:
+        return DEAD_STOCK_DEFAULT_DAYS, None
+    try:
+        days = int(raw)
+    except ValueError:
+        days = 0
+    if days <= 0:
+        return None, Response(
+            {"detail": "Invalid days. Use a whole number of days above zero."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return days, None
+
+
+@api_view(["GET"])
+@permission_classes([IsInventoryRole])
+def dead_stock_view(request):
+    """Stock that sold NOTHING in the trailing window and is still on the shelf.
+
+    GET /api/v1/reports/dead-stock/?days=90
+
+    `IsInventoryRole` guards it, like the other inventory reads.
+
+    Decision 03's rule, to the letter: zero completed sales quantity in the trailing
+    `days` window (its own control, independent of from/to) AND on-hand > 0. On-hand > 0
+    already means a delivery brought it in, so a never-stocked variant cannot reach the
+    list. `days_since_last_sale` reads None for a variant that never sold at all - a
+    different fact from one that sold long ago. `landed_value` is the money tied up:
+    each batch's quantity at its own landed cost.
+    """
+    days, error = _days_param(request)
+    if error is not None:
+        return error
+    today = timezone.localdate()
+    frm = today - timedelta(days=days)
+
+    stock: dict = {}
+    for batch in InventoryBatch.objects.filter(current_qty__gt=0).values(
+        "variant_id", "current_qty", "unit_cost_landed"
+    ):
+        row = stock.get(batch["variant_id"])
+        if row is None:
+            row = stock[batch["variant_id"]] = {
+                "on_hand": _ZERO,
+                "landed_value": _ZERO,
+            }
+        row["on_hand"] += batch["current_qty"]
+        row["landed_value"] += batch["current_qty"] * batch["unit_cost_landed"]
+
+    sold_in_window = set(
+        SalesItem.objects.filter(
+            transaction__status=SalesTransaction.Status.COMPLETED,
+            transaction__trans_date__date__range=(frm, today),
+        )
+        .values("variant_uom__variant_id")
+        .annotate(qty=Sum("qty"))
+        # A quantity that nets back to zero is no evidence of demand.
+        .exclude(qty=0)
+        .values_list("variant_uom__variant_id", flat=True)
+    )
+    last_sale = {
+        row["variant_uom__variant_id"]: row["last"]
+        for row in SalesItem.objects.filter(
+            transaction__status=SalesTransaction.Status.COMPLETED,
+            qty__gt=0,
+            variant_uom__variant_id__in=list(stock.keys()),
+        )
+        .values("variant_uom__variant_id")
+        .annotate(last=Max("transaction__trans_date"))
+    }
+    details = {
+        row["pk"]: row
+        for row in ProductVariant.objects.filter(pk__in=list(stock.keys())).values(
+            "pk", "sku", "variant_name", "product__base_name", "base_uom__code"
+        )
+    }
+
+    rows = []
+    for variant_id, quantities in stock.items():
+        if variant_id in sold_in_window:
+            continue
+        variant = details.get(variant_id)
+        if variant is None:
+            continue
+        sold_at = last_sale.get(variant_id)
+        rows.append(
+            {
+                "variant_id": variant_id,
+                "sku": variant["sku"],
+                "product": variant["product__base_name"],
+                "variant": variant["variant_name"],
+                "uom": variant["base_uom__code"],
+                "on_hand": _q2(quantities["on_hand"]),
+                "days_since_last_sale": (
+                    (today - timezone.localtime(sold_at).date()).days
+                    if sold_at is not None
+                    else None
+                ),
+                "landed_value": _q2(quantities["landed_value"]),
+            }
+        )
+    # The biggest pile of idle money first.
+    rows.sort(key=lambda row: (-row["landed_value"], row["sku"]))
+    totals = {
+        "variants": len(rows),
+        "on_hand": _q2(sum((r["on_hand"] for r in rows), _ZERO)),
+        "landed_value": _q2(sum((r["landed_value"] for r in rows), _ZERO)),
+    }
+    return _paged(
+        request,
+        rows,
+        {
+            "as_of": str(today),
+            "days": days,
+            "from": str(frm),
+            "to": str(today),
+            "totals": totals,
+        },
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsInventoryRole])
+def fast_slow_view(request):
+    """Top 20% of the range's sold SKUs by base units, and the bottom 20%.
+
+    GET /api/v1/reports/fast-slow/?from=&to=
+
+    Decision 03: fast = top 20% of SKUs by completed sales quantity over the range,
+    slow = sold at least once and in the bottom 20%. The 20% is rounded UP, so a shop
+    with five sellers still gets one of each, and the two bands never overlap: with few
+    SKUs the slow band shrinks to nothing rather than repeating a row. Quantity is base
+    units across every selling unit; `net_merchandise` is the line subtotal less both
+    discount columns, the same net `sales-by-item` reports.
+    """
+    if _bad_range(request):
+        return _range_error()
+    frm, to = _parse_range(request)
+
+    qty_base = ExpressionWrapper(
+        F("qty") * F("variant_uom__conversion_factor"),
+        output_field=DecimalField(max_digits=16, decimal_places=2),
+    )
+    sold = list(
+        SalesItem.objects.filter(
+            transaction__status=SalesTransaction.Status.COMPLETED,
+            transaction__trans_date__date__range=(frm, to),
+        )
+        .values(
+            "variant_uom__variant_id",
+            "variant_uom__variant__sku",
+            "variant_uom__variant__variant_name",
+            "variant_uom__variant__product__base_name",
+            "variant_uom__variant__base_uom__code",
+        )
+        .annotate(
+            qty_base=Sum(qty_base),
+            gross=Sum("subtotal"),
+            item_discounts=Sum("item_discount_amount"),
+            cart_discounts=Sum("cart_discount_amount"),
+        )
+    )
+
+    def row_of(item, band):
+        net = _q2(
+            (item["gross"] or _ZERO)
+            - (item["item_discounts"] or _ZERO)
+            - (item["cart_discounts"] or _ZERO)
+        )
+        return {
+            "variant_id": item["variant_uom__variant_id"],
+            "sku": item["variant_uom__variant__sku"],
+            "product": item["variant_uom__variant__product__base_name"],
+            "variant": item["variant_uom__variant__variant_name"],
+            "uom": item["variant_uom__variant__base_uom__code"],
+            "band": band,
+            "qty_base": _q2(item["qty_base"] or _ZERO),
+            "net_merchandise": net,
+        }
+
+    # A variant whose returns outnumber its sales in the window sold nothing to rank.
+    population = [item for item in sold if (item["qty_base"] or _ZERO) > 0]
+    population.sort(key=lambda item: item["qty_base"], reverse=True)
+    count = len(population)
+    fast_count = ceil(count * 20 / 100) if count else 0
+    slow_count = min(fast_count, count - fast_count)
+
+    rows = [row_of(item, "FAST") for item in population[:fast_count]]
+    if slow_count:
+        rows.extend(row_of(item, "SLOW") for item in population[-slow_count:])
+    totals = {
+        "skus_sold": count,
+        "fast": fast_count,
+        "slow": slow_count,
+        "qty_base": _q2(sum((item["qty_base"] or _ZERO for item in population), _ZERO)),
+        "net_merchandise": _q2(
+            sum((row_of(item, "-")["net_merchandise"] for item in population), _ZERO)
+        ),
+    }
+    return _paged(request, rows, {"from": str(frm), "to": str(to), "totals": totals})
+
+
+@api_view(["GET"])
+@permission_classes([IsInventoryRole])
+def cycle_count_view(request):
+    """The CORRECTION ledger: what a stock count found, and the shrinkage % it implies.
+
+    GET /api/v1/reports/cycle-count/?from=&to=
+
+    Quantities and pesos are SIGNED (a count that found extra stock adds, a shortfall
+    takes away) so the rows add up to the totals. Peso variance uses
+    `_landed_cost_map`: `StockAdjustment` stores no batch link, so the variant's newest
+    delivery is the cost the correction is booked against.
+
+    `shrinkage_percent` divides the net SHORTFALL by what the count saw: the quantity on
+    hand now less the variance is the pre-count quantity. That reconstruction assumes
+    nothing else moved since the count, which is the same approximation the landed cost
+    above makes - a zero or negative denominator reports None, never a fake 0%.
+    """
+    if _bad_range(request):
+        return _range_error()
+    frm, to = _parse_range(request)
+
+    cost_map = _landed_cost_map()
+    rows = []
+    corrected_variant_ids = set()
+    for adjustment in (
+        StockAdjustment.objects.filter(
+            adjustment_type=StockAdjustment.AdjustmentType.CORRECTION,
+            timestamp__date__range=(frm, to),
+        )
+        .select_related("variant__product", "location", "user")
+        .order_by("-timestamp", "-pk")
+    ):
+        qty = adjustment.qty_adjusted
+        corrected_variant_ids.add(adjustment.variant_id)
+        rows.append(
+            {
+                "id": adjustment.pk,
+                "date": timezone.localtime(adjustment.timestamp).isoformat(),
+                "product": adjustment.variant.product.base_name,
+                "variant": adjustment.variant.variant_name,
+                "location": adjustment.location_id,
+                "location_name": adjustment.location.name,
+                "user": adjustment.user.full_name,
+                "qty": _q2(qty),
+                "value": _q2(qty * cost_map.get(adjustment.variant_id, _ZERO)),
+            }
+        )
+
+    variance = _q2(sum((r["qty"] for r in rows), _ZERO))
+    on_hand = (
+        InventoryBatch.objects.filter(
+            variant_id__in=corrected_variant_ids, current_qty__gt=0
+        ).aggregate(qty=Sum("current_qty"))["qty"]
+        or _ZERO
+    )
+    counted = on_hand - variance
+    totals = {
+        "adjustments": len(rows),
+        "qty": variance,
+        "value": _q2(sum((r["value"] for r in rows), _ZERO)),
+        "on_hand_qty": _q2(on_hand),
+        "shrinkage_percent": (
+            _q2((-variance / counted) * Decimal(100)) if counted > 0 else None
+        ),
+    }
+    return _paged(request, rows, {"from": str(frm), "to": str(to), "totals": totals})
 
 
 @api_view(["GET"])
