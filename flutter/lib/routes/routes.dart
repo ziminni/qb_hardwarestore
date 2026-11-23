@@ -31,7 +31,7 @@ import 'package:client/features/sales/views/sales_receivables_page.dart';
 import 'package:client/features/sales/views/sales_reports_page.dart';
 import 'package:client/features/reports/report_catalogue.dart';
 import 'package:client/features/reports/report_viewer_page.dart';
-import 'package:client/features/reports/reports_catalogue_page.dart';
+import 'package:client/features/reports/reports_browser_page.dart';
 import 'package:client/features/reports/reports_shell.dart';
 import 'package:client/features/sales/views/sales_returns_page.dart';
 import 'package:client/features/sales/views/sales_settings_page.dart';
@@ -472,7 +472,7 @@ class AppRoutes {
   /// address names no report in [reportCatalogue] (a retired or mistyped id).
   static Widget _reportViewer(String? reportId, ReportsShell shell) {
     final report = reportById(reportId ?? '');
-    if (report == null) return ReportsCataloguePage(shell: shell);
+    if (report == null) return ReportsBrowserPage(shell: shell);
     return ReportViewerPage(report: report, shell: shell);
   }
 
@@ -683,7 +683,7 @@ class AppRoutes {
           name: 'inventory_report_catalogue',
           pageBuilder: (context, state) => _transitionPage(
             state,
-            const ReportsCataloguePage(shell: ReportsShell.inventory),
+            const ReportsBrowserPage(shell: ReportsShell.inventory),
           ),
         ),
         GoRoute(
@@ -871,7 +871,7 @@ class AppRoutes {
           name: 'sales_report_catalogue',
           pageBuilder: (context, state) => _transitionPage(
             state,
-            const ReportsCataloguePage(shell: ReportsShell.sales),
+            const ReportsBrowserPage(shell: ReportsShell.sales),
           ),
         ),
         GoRoute(
