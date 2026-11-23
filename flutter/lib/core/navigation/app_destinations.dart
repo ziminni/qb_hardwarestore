@@ -163,13 +163,6 @@ class AppDestinations {
       route: AppRoutes.salesTransactions,
     ),
     AppDestination(
-      id: 'sales.quotations',
-      area: AppAreas.sales,
-      label: 'Quotations',
-      icon: Icons.request_quote_outlined,
-      route: AppRoutes.salesQuotations,
-    ),
-    AppDestination(
       id: 'sales.orders',
       area: AppAreas.sales,
       label: 'Sales orders',

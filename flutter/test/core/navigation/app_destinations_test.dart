@@ -88,7 +88,6 @@ const _storeManagerMenu = <_Row>[
     Icons.receipt_long_outlined,
     AppRoutes.salesTransactions,
   ),
-  _Row('Quotations', Icons.request_quote_outlined, AppRoutes.salesQuotations),
   _Row('Sales orders', Icons.assignment_outlined, AppRoutes.salesOrders),
   _Row(
     'Receivables',
