@@ -86,7 +86,10 @@ class ProfitBreakdownCard extends StatelessWidget {
     final discounts = sales.totalDiscounts;
     final netMerchInclVat = grossMerch - discounts;
     final netMerchExVat = sales.merchandiseNetExVat ?? sales.totalVatableSales;
-    final goodsVat = (netMerchInclVat - netMerchExVat).clamp(0.0, double.infinity);
+    final goodsVat = (netMerchInclVat - netMerchExVat).clamp(
+      0.0,
+      double.infinity,
+    );
     final cogs = sales.totalCogs;
     final profit = sales.grossProfit;
     final marginPct = sales.grossMarginPercent;
@@ -166,7 +169,9 @@ class ProfitBreakdownCard extends StatelessWidget {
           ),
           _BreakdownLine(
             label: 'Less: Discounts given (line + sale)',
-            amount: discounts > 0 ? '− ${formatPeso(discounts)}' : formatPeso(0),
+            amount: discounts > 0
+                ? '− ${formatPeso(discounts)}'
+                : formatPeso(0),
             valueColor: discounts > 0 ? AppColors.warning : null,
           ),
           _BreakdownLine(
@@ -182,8 +187,12 @@ class ProfitBreakdownCard extends StatelessWidget {
           ),
           _BreakdownLine(
             label: 'Less: Landed cost of goods sold (FIFO COGS)',
-            amount: cogs == null ? 'Missing cost history' : '− ${formatPeso(cogs)}',
-            valueColor: cogs == null ? AppColors.warning : AppColors.textPrimary,
+            amount: cogs == null
+                ? 'Missing cost history'
+                : '− ${formatPeso(cogs)}',
+            valueColor: cogs == null
+                ? AppColors.warning
+                : AppColors.textPrimary,
           ),
           const Divider(height: 16),
           _BreakdownLine(
@@ -819,6 +828,106 @@ class HorizontalComparisonChart extends StatelessWidget {
               ),
             ],
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// One part of a whole for [ShareSplitChart].
+class ShareSlice {
+  const ShareSlice({
+    required this.label,
+    required this.value,
+    required this.amountText,
+  });
+
+  final String label;
+  final double value;
+
+  /// Pre-formatted amount, so Peso formatting stays with the caller.
+  final String amountText;
+}
+
+/// A 100% split bar plus a legend: how one total divides into parts (tender
+/// methods, deduction kinds). Parts of zero are left out, so a split never
+/// grows a bar for money that did not move.
+class ShareSplitChart extends StatelessWidget {
+  const ShareSplitChart({
+    super.key,
+    required this.title,
+    this.subtitle,
+    required this.slices,
+  });
+
+  final String title;
+  final String? subtitle;
+  final List<ShareSlice> slices;
+
+  /// Gold-first, so a split stays in the store's own colours.
+  static const List<Color> _palette = [
+    AppColors.primary,
+    AppColors.success,
+    AppColors.warning,
+    AppColors.textSecondary,
+    AppColors.brandGoldLight,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = [
+      for (final slice in slices)
+        if (slice.value > 0) slice,
+    ];
+    if (parts.isEmpty) return const SizedBox.shrink();
+    final total = parts.fold<double>(0, (sum, slice) => sum + slice.value);
+
+    int flexOf(double value) => math.max(1, ((value / total) * 1000).round());
+
+    return AnalyticsCard(
+      title: title,
+      subtitle: subtitle,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadii.small),
+            child: SizedBox(
+              height: 18,
+              child: Row(
+                children: [
+                  for (var i = 0; i < parts.length; i++)
+                    Expanded(
+                      flex: flexOf(parts[i].value),
+                      child: Container(color: _palette[i % _palette.length]),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          for (var i = 0; i < parts.length; i++)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                children: [
+                  _LegendDot(
+                    color: _palette[i % _palette.length],
+                    label: parts[i].label,
+                  ),
+                  const Spacer(),
+                  Text(
+                    '${parts[i].amountText} · '
+                    '${(parts[i].value / total * 100).toStringAsFixed(0)}%',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );

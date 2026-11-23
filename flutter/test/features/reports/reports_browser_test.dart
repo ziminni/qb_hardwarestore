@@ -183,7 +183,14 @@ void main() {
       find.byKey(const ValueKey('report-browser-item-wise')),
       findsOneWidget,
     );
-    expect(find.text('Coke · 1.5L'), findsOneWidget);
+    expect(
+      // Scoped to the table: the item chart above it names the same item.
+      find.descendant(
+        of: find.byKey(const ValueKey('report-viewer-table')),
+        matching: find.text('Coke · 1.5L'),
+      ),
+      findsOneWidget,
+    );
     // The summary's own content is gone, not stacked under the new report.
     expect(
       find.byKey(const ValueKey('report-browser-sales-summary')),

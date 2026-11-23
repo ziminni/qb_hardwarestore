@@ -13,6 +13,7 @@ import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/reports/report_catalogue.dart';
 import 'package:client/features/reports/report_pdf.dart';
 import 'package:client/features/reports/reports_shell.dart';
+import 'package:client/shared/widgets/analytics_charts.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
@@ -361,6 +362,27 @@ class _ReportViewerViewState extends State<ReportViewerView> {
             ),
             const SizedBox(height: AppSpacing.md),
           ],
+          // Graphs sit between the tiles and the table: the summary line first,
+          // then what it is made of. A report that plots nothing passes no
+          // charts and keeps the tiles + table layout it always had.
+          if (view.charts != null) ...[
+            if (view.charts!.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                child: Text(
+                  'No data for this range',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              )
+            else
+              for (final chart in view.charts!) ...[
+                chart,
+                const SizedBox(height: AppSpacing.md),
+              ],
+          ],
           DataPanel<List<String>>(
             key: const ValueKey('report-viewer-table'),
             columns: [
@@ -407,12 +429,18 @@ class _ReportView {
     this.excelBytes,
     this.pdfName,
     this.pdfBytes,
+    this.charts,
   });
 
   final List<_Kpi> kpis;
   final List<String> columns;
   final List<List<String>> rows;
   final String emptyMessage;
+
+  /// Graphs drawn under the tiles and above the table. Null means the report
+  /// has nothing plottable at all; an empty list means it does, but this range
+  /// left nothing to draw — the viewer then says so in words.
+  final List<Widget>? charts;
   final String? excelName;
   final Uint8List Function()? excelBytes;
   final String? pdfName;
@@ -498,6 +526,51 @@ _ReportView _salesView(SalesSummary sales) {
       columns: columns,
       rows: rows,
     ),
+    charts: [
+      if (sales.days.isNotEmpty)
+        GroupedBarTrendChart(
+          key: const ValueKey('report-viewer-sales-trend'),
+          title: 'Daily sales & profit',
+          subtitle: sales.days.any((day) => day.cogs != null)
+              ? 'Bars compare net sales (ex-VAT) vs. landed COGS; the line tracks gross profit.'
+              : 'Daily invoice total across the reported dates.',
+          primaryLabel: sales.days.any((d) => d.merchandiseNetExVat != null)
+              ? 'Net sales (ex-VAT)'
+              : 'Invoice total',
+          secondaryLabel: 'COGS',
+          lineLabel: 'Gross profit',
+          height: 190,
+          points: [
+            for (final day in sales.days)
+              TrendPoint(
+                label: day.day.length >= 10 ? day.day.substring(5) : day.day,
+                primary: day.merchandiseNetExVat ?? day.gross,
+                secondary: day.cogs,
+                lineValue: day.grossProfit,
+              ),
+          ],
+        ),
+      if (sales.categories.isNotEmpty)
+        HorizontalComparisonChart(
+          key: const ValueKey('report-viewer-category-chart'),
+          title: 'Sales & cost by category',
+          subtitle: 'Top categories by net merchandise sales vs. landed cost.',
+          primaryLabel: 'Net sales',
+          secondaryLabel: 'COGS',
+          items: [
+            for (final category in sales.categories.take(6))
+              ComparisonBarItem(
+                label: category.categoryName,
+                primaryValue: category.netMerchandise,
+                primaryText: formatPeso(category.netMerchandise),
+                secondaryValue: category.cogs,
+                secondaryText: category.cogs == null
+                    ? null
+                    : 'COGS ${formatPeso(category.cogs!)}',
+              ),
+          ],
+        ),
+    ],
   );
 }
 
@@ -704,6 +777,29 @@ _ReportView _salesByItemView(SalesByItemReport report) => _ReportView(
   emptyMessage: 'No items sold in this range.',
   excelName: 'item-wise-sales-${report.from}-to-${report.to}.xlsx',
   excelBytes: () => buildSalesByItemReportXlsx(report),
+  charts: [
+    if (report.page.rows.isNotEmpty)
+      HorizontalComparisonChart(
+        key: const ValueKey('report-viewer-item-chart'),
+        title: 'Net merchandise by item',
+        subtitle: 'Best sellers first, each against its own landed cost.',
+        primaryLabel: 'Net sales',
+        secondaryLabel: 'COGS',
+        items: [
+          for (final row in report.page.rows.take(8))
+            ComparisonBarItem(
+              label: row.name,
+              primaryValue: row.net,
+              primaryText: formatPeso(row.net),
+              secondaryValue: row.cogs,
+              // A missing cost is words, never a ₱0.00 bar.
+              secondaryText: row.cogs == null
+                  ? 'No cost on file'
+                  : 'COGS ${formatPeso(row.cogs!)}',
+            ),
+        ],
+      ),
+  ],
 );
 
 _ReportView _salesByHourView(SalesByHour report) => _ReportView(
@@ -771,6 +867,26 @@ _ReportView _salesByCashierView(SalesByCashier report) => _ReportView(
   emptyMessage: 'No sales in this range.',
   excelName: 'cashier-performance-${report.from}-to-${report.to}.xlsx',
   excelBytes: () => buildSalesByCashierReportXlsx(report),
+  charts: [
+    if (report.page.rows.isNotEmpty)
+      HorizontalComparisonChart(
+        key: const ValueKey('report-viewer-cashier-chart'),
+        title: 'Invoice total by cashier',
+        subtitle: 'Each cashier’s takings, with the discounts they gave.',
+        primaryLabel: 'Invoice total',
+        secondaryLabel: 'Discounts',
+        items: [
+          for (final row in report.page.rows)
+            ComparisonBarItem(
+              label: row.cashierName,
+              primaryValue: row.invoiceTotal,
+              primaryText: formatPeso(row.invoiceTotal),
+              secondaryValue: row.discounts,
+              secondaryText: 'Discounts ${formatPeso(row.discounts)}',
+            ),
+        ],
+      ),
+  ],
 );
 
 _ReportView _billWiseView(BillWiseReport report) => _ReportView(
@@ -812,6 +928,24 @@ _ReportView _billWiseView(BillWiseReport report) => _ReportView(
   emptyMessage: 'No bills in this range.',
   excelName: 'bill-wise-sales-${report.from}-to-${report.to}.xlsx',
   excelBytes: () => buildBillWiseReportXlsx(report),
+  charts: [
+    // No tender recorded leaves the list empty, so the viewer says there is no
+    // data instead of an empty card.
+    if (report.totalMethods.values.any((tendered) => tendered > 0))
+      ShareSplitChart(
+        key: const ValueKey('report-viewer-tender-split'),
+        title: 'Payment breakdown',
+        subtitle: 'How the range’s takings split across tender methods.',
+        slices: [
+          for (final entry in report.totalMethods.entries)
+            ShareSlice(
+              label: TenderMethod.labelFor(entry.key),
+              value: entry.value,
+              amountText: formatPeso(entry.value),
+            ),
+        ],
+      ),
+  ],
 );
 
 _ReportView _returnsExchangesView(ReturnsExchangesReport report) => _ReportView(

@@ -520,7 +520,12 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.text(entry.value),
+        // Scoped to the table: the item chart above it names the same item, so
+        // the bare text now appears twice.
+        find.descendant(
+          of: find.byKey(const ValueKey('report-viewer-table')),
+          matching: find.text(entry.value),
+        ),
         findsOneWidget,
         reason: '${entry.key} draws its API row in the shared table',
       );
