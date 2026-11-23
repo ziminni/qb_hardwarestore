@@ -1114,6 +1114,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
   void clear() {
     _lines.clear();
     _wholeSaleDiscount = null;
+    _invoiceNo = null;
+    _creditSale = false;
     // The till no longer holds the parked basket, so a later sale must not try to
     // complete (or void) a cart this basket came from.
     _forgetResumedCart();
@@ -1128,6 +1130,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
   void resetSession() {
     _lines.clear();
     _wholeSaleDiscount = null;
+    _invoiceNo = null;
+    _creditSale = false;
     _selectedCustomer = null;
     _ledgerSummary = null;
     _ledgerError = null;
@@ -1475,6 +1479,8 @@ class PosTransactionViewmodel extends ChangeNotifier {
       );
       _lines.clear();
       _wholeSaleDiscount = null;
+      _invoiceNo = null;
+      _creditSale = false;
       // The basket is sold, so it is no longer a resumed cart: a second sale must not
       // try to complete the same parked cart again.
       _forgetResumedCart();

@@ -181,13 +181,10 @@ class _PosOfficialReceiptToggleState extends State<PosOfficialReceiptToggle> {
   Widget build(BuildContext context) {
     final state = context.watch<PosTransactionViewmodel>();
     // Auto-reset the toggle back to untoggled after a transaction completes or
-    // the cart is cleared (invoiceNo becomes null / lines become empty).
-    final clearedAfterSaleOrClear =
-        _enabled &&
-        state.invoiceNo == null &&
-        (_lastInvoiceNo != null ||
-            (state.lines.isEmpty && _lastLineCount > 0));
-    if (clearedAfterSaleOrClear) {
+    // the cart is cleared (invoiceNo resets to null or cart lines empty out).
+    final invoiceCleared = state.invoiceNo == null && _lastInvoiceNo != null;
+    final cartEmptied = state.lines.isEmpty && _lastLineCount > 0;
+    if (_enabled && (invoiceCleared || cartEmptied)) {
       _enabled = false;
       _controller.clear();
     }
