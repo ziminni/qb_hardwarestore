@@ -173,9 +173,10 @@ def process_goods_receipt(
         # Validated in a first pass, batch by batch, ONLY then created: a refusal on the
         # third line must leave lines one and two unbatched, which is easier to trust
         # when nothing was written yet than when the rollback has to undo it.
-        # (po_item, base_qty, package_qty, location_id): stock is minted from the BASE
-        # quantity, the bill from the PACKAGE quantity, and the batch lands on the shelf
-        # the line names (Phase 9 B3, plan Design 7).
+        # (po_item, base_qty, package_qty, location_id, expiration_date): stock is minted
+        # from the BASE quantity, the bill from the PACKAGE quantity, the batch lands on
+        # the shelf the line names (Phase 9 B3, plan Design 7) and carries the expiry the
+        # receiver typed for it (reports-suite MAP, P2).
         plan = []
         if lines:
             for line in lines:
@@ -188,6 +189,7 @@ def process_goods_receipt(
                         line.qty * line_factor(item),
                         line.qty,
                         line_destination(line),
+                        line.expiration_date,
                     )
                 )
         else:
@@ -215,8 +217,10 @@ def process_goods_receipt(
                             delta_base,
                             delta_base / line_factor(item),
                             # A receipt with no lines carries no destination: it is the
-                            # pre-Phase-9 shape, and it went HOME (Design 7).
+                            # pre-Phase-9 shape, and it went HOME (Design 7). Nor does it
+                            # carry an expiry - there is no line to have read one off.
                             item.variant.product.stored_at_id,
+                            None,
                         )
                     )
 
@@ -233,9 +237,13 @@ def process_goods_receipt(
         # mints the batch then. The bill and the PO status below still follow what the
         # stocker recorded, so payables are unchanged by the check.
         held_for_check = []
-        for item, base_qty, _package_qty, location_id in plan:
+        for item, base_qty, _package_qty, location_id, expiration_date in plan:
             location = destinations[location_id]
             if location.is_bodega:
+                # shortcut: a Bodega-held line loses its expiry, because the batch is
+                # minted by the checker's `confirm_delivery` and `BodegaDeliveryLine` has
+                # no date column yet. Upgrade when expiry matters on Bodega-held cement
+                # (add the column and copy it there too).
                 held_for_check.append((item, base_qty, location))
                 continue
             batches.append(
@@ -244,6 +252,7 @@ def process_goods_receipt(
                     item=item,
                     base_qty=base_qty,
                     location=location,
+                    expiration_date=expiration_date,
                 )
             )
         if held_for_check:
@@ -266,7 +275,8 @@ def process_goods_receipt(
             payables.create_bill_for_receipt(
                 receipt=receipt,
                 delivered=[
-                    (item, package_qty) for item, _base, package_qty, _location in plan
+                    (item, package_qty)
+                    for item, _base, package_qty, _location, _expiry in plan
                 ],
             )
 
@@ -347,9 +357,11 @@ def record_opening_stock(*, variant, qty: Decimal, unit_cost: Decimal, user):
         status=PurchaseOrder.Status.ORDERED,
         notes=f"Opening stock for {variant}",
     )
-    base_unit = VariantUOM.objects.filter(
-        variant=variant, conversion_factor=Decimal(1)
-    ).order_by("pk").first()
+    base_unit = (
+        VariantUOM.objects.filter(variant=variant, conversion_factor=Decimal(1))
+        .order_by("pk")
+        .first()
+    )
     item = POItem.objects.create(
         po=po,
         variant=variant,
@@ -455,7 +467,12 @@ def _lock_receiving_locations(plan) -> dict:
 
 
 def _create_batch(
-    *, receipt: GoodsReceipt, item: POItem, base_qty: Decimal, location=None
+    *,
+    receipt: GoodsReceipt,
+    item: POItem,
+    base_qty: Decimal,
+    location=None,
+    expiration_date=None,
 ) -> InventoryBatch:
     """One batch for one delivered BASE quantity; also re-checks the low-stock threshold.
 
@@ -473,6 +490,10 @@ def _create_batch(
     `location` is the shelf the line was delivered to (Phase 9 B3). The caller passes the
     row it already locked; an omitted one falls back to the product's home, which is what
     every delivery meant before the receiver could choose.
+
+    `expiration_date` is the Expires date read off the delivery (reports-suite MAP, P2).
+    None is a FACT - the product does not track expiry, or nobody filled the date in - so
+    it stays null instead of becoming a far-future placeholder.
     """
     factor = line_factor(item)
     base_qty = base_qty.quantize(CENT, rounding=ROUND_HALF_UP)
@@ -492,6 +513,7 @@ def _create_batch(
         unit_cost_landed=unit_cost_per_base,
         markup_percentage=Decimal(0),
         batch_selling_price=unit_cost_per_base,
+        expiration_date=expiration_date,
     )
     _check_low_stock(item.variant)
     return batch
@@ -521,7 +543,7 @@ def reserved_base_qty_for_variant(
             )
         )
     )["reserved"]
-    return total or Decimal("0")
+    return total or Decimal(0)
 
 
 def allocate_fifo(
@@ -589,17 +611,15 @@ def allocate_fifo(
 
     batch_list = list(batches)
     if location_id is None:
-        on_hand = sum((b.current_qty for b in batch_list), Decimal("0"))
+        on_hand = sum((b.current_qty for b in batch_list), Decimal(0))
         reserved = reserved_base_qty_for_variant(
             variant_id=variant_id,
             exclude_held_cart_id=exclude_held_cart_id,
         )
-        available = max(on_hand - reserved, Decimal("0"))
+        available = max(on_hand - reserved, Decimal(0))
         if available < qty_needed:
             variant = ProductVariant.objects.get(pk=variant_id)
-            note = (
-                f" ({reserved:.2f} reserved in held carts)" if reserved > 0 else ""
-            )
+            note = f" ({reserved:.2f} reserved in held carts)" if reserved > 0 else ""
             raise InsufficientStock(
                 f"Insufficient stock for {variant}{note}.",
                 shortfall=qty_needed - available,
@@ -1146,4 +1166,3 @@ def check_expiring_batches(variant_ids=None, warning_days=EXPIRY_WARNING_DAYS):
         if alert is not None:
             alerts.append(alert)
     return alerts
-

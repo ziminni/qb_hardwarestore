@@ -19,6 +19,7 @@ from django.db.models import Count, F, Prefetch, Q, Sum
 from django.db.models.deletion import ProtectedError
 from django.http import Http404
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework import generics, mixins, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.exceptions import ValidationError
@@ -1240,7 +1241,28 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
                         status=drf_status.HTTP_400_BAD_REQUEST,
                     )
                 location_id = chosen.pk
-            parsed.append((po_item.pk, qty, location_id))
+            # Expiry tracking (reports-suite MAP, P2): the optional Expires date the
+            # receiver read off the delivery. It is stored on the LINE and copied onto the
+            # batch at `process/`; omitted or null means UNDATED, which is every receipt
+            # of a product that does not track expiry - absent is never a far-future
+            # placeholder date. Refused here, outside the atomic block, so a typo leaves
+            # no receipt row behind.
+            raw_expiry = entry.get("expiration_date")
+            if raw_expiry in (None, ""):
+                expiration_date = None
+            else:
+                expiration_date = parse_date(str(raw_expiry))
+                if expiration_date is None:
+                    return Response(
+                        {
+                            "detail": (
+                                f"expiration_date for po_item {po_item.pk} is not a "
+                                f"YYYY-MM-DD date: {raw_expiry!r}."
+                            )
+                        },
+                        status=drf_status.HTTP_400_BAD_REQUEST,
+                    )
+            parsed.append((po_item.pk, qty, location_id, expiration_date))
 
         try:
             with transaction.atomic():
@@ -1277,7 +1299,7 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
                         f"PO {po.pk} is {po.status} and cannot receive more."
                     )
                 receipt = ser.save(received_by=request.user)
-                for po_item_pk, qty, location_id in parsed:
+                for po_item_pk, qty, location_id, expiration_date in parsed:
                     # LOCKED before accumulating: two deliveries recorded at the same
                     # moment would otherwise both read the same `received_qty` and the
                     # loser's quantity would vanish (or the over-order cap would be
@@ -1301,6 +1323,7 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
                             po_item=locked,
                             qty=qty,
                             location_id=location_id,
+                            expiration_date=expiration_date,
                         )
         except _ReceiptRefused as exc:
             # Raised inside the atomic block, so the receipt row and every accumulated

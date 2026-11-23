@@ -307,5 +307,4 @@ void main() {
     // The active order reads in the bar (ellipsized column, not the button).
     expect(find.textContaining('ORD-20261113-0001'), findsWidgets);
   });
-
 }

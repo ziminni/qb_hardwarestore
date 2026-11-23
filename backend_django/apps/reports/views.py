@@ -15,6 +15,7 @@ Endpoints (mounted under /api/v1/reports/):
     GET /reports/batch-age/
     GET /reports/shrinkage/?from=&to=
     GET /reports/adjustments/?from=&to=
+    GET /reports/expiry/?days=30
     GET /reports/requisition-history/?status=&from=&to=
 """
 
@@ -52,6 +53,11 @@ from apps.users.permissions import IsInventoryRole, IsManagerRole
 DEFAULT_RANGE_DAYS = 30
 # Decision 03: dead stock is measured over its own trailing window, 90 days by default.
 DEAD_STOCK_DEFAULT_DAYS = 90
+# Expiry (reports-suite MAP, P2): the KPI's near-expiry window, and the widest bucket
+# the report lists. A batch further out than this is stocked stock, not expiring stock.
+EXPIRY_DEFAULT_DAYS = 30
+EXPIRY_HORIZON_DAYS = 90
+EXPIRY_BUCKETS = (("0-30", 30), ("31-60", 60), ("61-90", 90))
 _ZERO = Decimal("0.00")
 _CENT = Decimal("0.01")
 
@@ -2004,6 +2010,122 @@ def cycle_count_view(request):
         ),
     }
     return _paged(request, rows, {"from": str(frm), "to": str(to), "totals": totals})
+
+
+@api_view(["GET"])
+@permission_classes([IsInventoryRole])
+def expiry_view(request):
+    """Stocked batches that are expired or expiring, and the Near-expiry % KPI.
+
+    GET /api/v1/reports/expiry/?days=30
+
+    A row is ONE stocked batch (`current_qty > 0`) with an `expiration_date`, and only
+    those already expired or within 90 days: a delivery dated two years out is stocked
+    stock, not expiring stock. Buckets are `expired` (negative days left), `0-30`,
+    `31-60` and `61-90`, and the rows come most urgent first, because the report exists to
+    be acted on.
+
+    Value is landed value - `current_qty x unit_cost_landed` - so the buckets and the KPI
+    speak the same money the valuation report does.
+
+    `days` (default 30) is the KPI's window, not the row filter: the Near-expiry % is the
+    value that is already expired OR expires inside `days`, over the value of ALL stock on
+    hand (dated, undated and far out alike). No stock on hand answers `null`, never a fake
+    0% - nothing to lose is not "nothing at risk".
+    """
+    raw_days = request.query_params.get("days")
+    if raw_days in (None, ""):
+        days = EXPIRY_DEFAULT_DAYS
+    else:
+        try:
+            days = int(raw_days)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "days must be a whole number of days (e.g. 30)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if days < 1:
+            return Response(
+                {"detail": "days must be at least 1."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    as_of = timezone.localdate()
+    rows = []
+    on_hand_value = _ZERO
+    near_expiry_value = _ZERO
+    batches = InventoryBatch.objects.filter(current_qty__gt=0).values(
+        "id",
+        "variant_id",
+        "variant__sku",
+        "variant__variant_name",
+        "variant__product__base_name",
+        "variant__base_uom__code",
+        "location__name",
+        "current_qty",
+        "unit_cost_landed",
+        "expiration_date",
+    )
+    for batch in batches:
+        value = _q2(batch["current_qty"] * batch["unit_cost_landed"])
+        on_hand_value += value
+        expires_on = batch["expiration_date"]
+        # UNDATED is not expiring: a product the shop does not track expiry for, or a
+        # delivery nobody dated, counts as on hand and never against the KPI.
+        if expires_on is None:
+            continue
+        days_left = (expires_on - as_of).days
+        if days_left <= days:
+            near_expiry_value += value
+        if days_left > EXPIRY_HORIZON_DAYS:
+            continue
+        if days_left < 0:
+            bucket = "expired"
+        else:
+            bucket = next(
+                label for label, limit in EXPIRY_BUCKETS if days_left <= limit
+            )
+        rows.append(
+            {
+                "batch_id": batch["id"],
+                "variant_id": batch["variant_id"],
+                "sku": batch["variant__sku"],
+                "product": batch["variant__product__base_name"],
+                "variant": batch["variant__variant_name"],
+                "uom": batch["variant__base_uom__code"],
+                "location": batch["location__name"],
+                "qty": _q2(batch["current_qty"]),
+                "value": value,
+                "expires_on": str(expires_on),
+                "days_left": days_left,
+                "bucket": bucket,
+            }
+        )
+
+    rows.sort(key=lambda row: (row["days_left"], row["batch_id"]))
+    bucket_value = {
+        "expired": _ZERO,
+        **{label: _ZERO for label, _limit in EXPIRY_BUCKETS},
+    }
+    for row in rows:
+        bucket_value[row["bucket"]] += row["value"]
+    totals = {
+        "rows": len(rows),
+        "qty": _q2(sum((row["qty"] for row in rows), _ZERO)),
+        "value": _q2(sum((row["value"] for row in rows), _ZERO)),
+        "value_expired": _q2(bucket_value["expired"]),
+        "value_0_30": _q2(bucket_value["0-30"]),
+        "value_31_60": _q2(bucket_value["31-60"]),
+        "value_61_90": _q2(bucket_value["61-90"]),
+        "near_expiry_value": _q2(near_expiry_value),
+        "on_hand_value": _q2(on_hand_value),
+        "near_expiry_pct": (
+            _q2((near_expiry_value / on_hand_value) * Decimal(100))
+            if on_hand_value > 0
+            else None
+        ),
+    }
+    return _paged(request, rows, {"as_of": str(as_of), "days": days, "totals": totals})
 
 
 @api_view(["GET"])

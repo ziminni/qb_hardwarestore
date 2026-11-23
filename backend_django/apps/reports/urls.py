@@ -45,4 +45,6 @@ urlpatterns = [
     path("dead-stock/", views.dead_stock_view, name="dead-stock"),
     path("fast-slow/", views.fast_slow_view, name="fast-slow"),
     path("cycle-count/", views.cycle_count_view, name="cycle-count"),
+    # Expiry (reports-suite MAP, P2): expired + expiring in 30/60/90 days, Near-expiry %.
+    path("expiry/", views.expiry_view, name="expiry"),
 ]

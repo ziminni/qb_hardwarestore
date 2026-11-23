@@ -4,6 +4,7 @@ import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:client/data/models/receiving.dart';
 import 'package:client/data/models/storage_location.dart';
 import 'package:client/data/models/supplier.dart';
@@ -485,6 +486,9 @@ class _ReceiptStepsState extends State<_ReceiptSteps> {
                   destinationId: viewmodel.destinationFor(item.id),
                   onDestination: (locationId) =>
                       viewmodel.setDestination(item.id, locationId),
+                  expirationDate: viewmodel.expirationFor(item.id),
+                  onExpiration: (date) =>
+                      viewmodel.setExpiration(item.id, date),
                   onChanged: (text) {
                     final parsed = double.tryParse(text.trim());
                     if (parsed == null) {
@@ -606,6 +610,8 @@ class _ReceiptLineRow extends StatelessWidget {
     required this.homeLocationId,
     required this.destinationId,
     required this.onDestination,
+    required this.expirationDate,
+    required this.onExpiration,
   });
 
   final PurchaseOrderItem item;
@@ -625,6 +631,11 @@ class _ReceiptLineRow extends StatelessWidget {
   final int? destinationId;
   final ValueChanged<int?> onDestination;
 
+  /// The Expires date the receiver entered for this line, or null when undated.
+  /// Only shown for a product that tracks expiry (cement, paint).
+  final DateTime? expirationDate;
+  final ValueChanged<DateTime?> onExpiration;
+
   /// The shelf the dropdown shows: the receiver's pick, else the product's home
   /// — and null when neither is active here, so the field asks for a shelf
   /// rather than naming one this delivery cannot take.
@@ -643,6 +654,22 @@ class _ReceiptLineRow extends StatelessWidget {
   bool get _homeIsActive =>
       homeLocationId != null &&
       locations.any((location) => location.id == homeLocationId);
+
+  /// Opens the calendar for this line's Expires date. Cancelling changes nothing:
+  /// an undated line stays undated rather than acquiring a date nobody chose.
+  Future<void> _pickExpiration(BuildContext context) async {
+    final now = appClock.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: expirationDate ?? now,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 10),
+      currentDate: now,
+      helpText: 'Expiry date',
+    );
+    if (picked == null) return;
+    onExpiration(picked);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -744,6 +771,40 @@ class _ReceiptLineRow extends StatelessWidget {
                   ),
               ],
               onChanged: onDestination,
+            ),
+          ],
+          // Expiry tracking (reports-suite MAP, P2): the Expires date is a property
+          // of cement and paint only, so the field exists ONLY for a product whose
+          // flag says so. Left empty it is not sent at all - the batch stays undated
+          // instead of carrying a far-future placeholder.
+          if (item.tracksExpiry) ...[
+            const SizedBox(height: AppSpacing.sm),
+            InkWell(
+              key: Key('receiving-expiry-${item.id}'),
+              onTap: () => _pickExpiration(context),
+              child: InputDecorator(
+                isEmpty: expirationDate == null,
+                decoration: InputDecoration(
+                  labelText: 'Expiry (optional, cement/paint only)',
+                  isDense: true,
+                  helperText: expirationDate == null
+                      ? null
+                      : 'Batch expires ${formatDate(expirationDate!)}.',
+                  suffixIcon: expirationDate == null
+                      ? const Icon(Icons.event_outlined, size: 18)
+                      : IconButton(
+                          key: Key('receiving-expiry-clear-${item.id}'),
+                          tooltip: 'No expiry',
+                          onPressed: () => onExpiration(null),
+                          icon: const Icon(Icons.close, size: 18),
+                        ),
+                ),
+                child: Text(
+                  expirationDate == null
+                      ? 'Not set'
+                      : formatDate(expirationDate!),
+                ),
+              ),
             ),
           ],
         ],

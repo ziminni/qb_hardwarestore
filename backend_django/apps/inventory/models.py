@@ -274,6 +274,11 @@ class Product(models.Model):
     # False for goods the shop never discounts (cement): checkout refuses a line
     # discount on it and leaves it out of the sale discount's share.
     allow_discount = models.BooleanField(default=True)
+    # Opt-in expiry tracking (reports-suite MAP, P2): only cement and paint go off, so the
+    # receiving screen offers an Expires date for THESE products and no other. Default
+    # False keeps every existing product exactly as it was - an absent date is a fact
+    # ("nobody said"), never a far-future placeholder.
+    tracks_expiry = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -801,6 +806,13 @@ class GoodsReceiptItem(models.Model):
         on_delete=models.PROTECT,
         related_name="receipt_lines",
     )
+    # The expiry the receiver read off the delivery, for a product that tracks expiry
+    # (reports-suite MAP). It lives on the LINE because the batches are minted at
+    # `process/`, and it is copied onto each of them there - the batch column
+    # (`InventoryBatch.expiration_date`) is the one the alerts and the report read, so
+    # there is no second copy of the fact to keep in step. NULL = the date was not
+    # offered or not filled in, and it stays NULL on the batch.
+    expiration_date = models.DateField(null=True, blank=True)
 
     class Meta:
         db_table = "inventory_goods_receipt_item"

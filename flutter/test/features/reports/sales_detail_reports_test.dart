@@ -578,6 +578,24 @@ void main() {
       ),
     );
     expect(tooltip.message, 'Excel lands in P3');
+
+    // Only the sales summary wired the letterhead PDF builder, so this report
+    // keeps its PDF button off and says when it lands (decision 01).
+    final pdf = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'Export PDF'),
+    );
+    expect(
+      pdf.onPressed,
+      isNull,
+      reason: 'no bill-wise letterhead PDF builder exists yet',
+    );
+    final pdfTooltip = tester.widget<Tooltip>(
+      find.ancestor(
+        of: find.text('Export PDF'),
+        matching: find.byType(Tooltip),
+      ),
+    );
+    expect(pdfTooltip.message, 'PDF export arrives in P3');
   });
 
   testWidgets('the summary viewer carries the three KPI tiles and their sums', (

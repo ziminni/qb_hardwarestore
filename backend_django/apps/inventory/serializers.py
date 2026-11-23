@@ -92,9 +92,7 @@ class StorePriceChangeSerializer(serializers.ModelSerializer):
         source="variant_uom.variant.variant_name", read_only=True
     )
     unit_code = serializers.CharField(source="variant_uom.uom.code", read_only=True)
-    barcode_qr = serializers.CharField(
-        source="variant_uom.barcode_qr", read_only=True
-    )
+    barcode_qr = serializers.CharField(source="variant_uom.barcode_qr", read_only=True)
     change_amount = serializers.SerializerMethodField()
     change_percent = serializers.SerializerMethodField()
     changed_by_name = serializers.SerializerMethodField()
@@ -127,7 +125,7 @@ class StorePriceChangeSerializer(serializers.ModelSerializer):
     def get_change_percent(self, obj):
         if obj.old_price is None or obj.old_price == 0:
             return None
-        pct = ((obj.new_price - obj.old_price) / obj.old_price) * Decimal("100")
+        pct = ((obj.new_price - obj.old_price) / obj.old_price) * Decimal(100)
         return f"{pct.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}"
 
     def get_changed_by_name(self, obj):
@@ -750,6 +748,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "stored_at_name",
             "is_active",
             "allow_discount",
+            "tracks_expiry",
             "variants",
             "created_at",
             "updated_at",
@@ -762,7 +761,7 @@ class ProductSerializer(serializers.ModelSerializer):
         # as an unchecked HTML checkbox (= False), which would silently archive a
         # product or disable discounts whenever a photo is uploaded without sending
         # those flags explicitly.
-        for flag in ("is_active", "allow_discount"):
+        for flag in ("is_active", "allow_discount", "tracks_expiry"):
             if flag not in data:
                 ret.pop(flag, None)
         return ret
@@ -887,6 +886,12 @@ class POItemSerializer(serializers.ModelSerializer):
     uom_is_whole = serializers.BooleanField(
         source="variant_uom.uom.is_whole", read_only=True
     )
+    # Expiry tracking is a property of the PRODUCT (reports-suite MAP, P2), and this line
+    # is what a receiving screen has in hand: the flag travels with it so the screen
+    # offers an Expires date for cement and paint without a request per line.
+    tracks_expiry = serializers.BooleanField(
+        source="variant.product.tracks_expiry", read_only=True
+    )
     ordered_qty = serializers.DecimalField(max_digits=12, decimal_places=2)
     unit_cost = serializers.DecimalField(max_digits=12, decimal_places=2)
 
@@ -901,6 +906,7 @@ class POItemSerializer(serializers.ModelSerializer):
             "uom_code",
             "conversion_factor",
             "uom_is_whole",
+            "tracks_expiry",
             "ordered_qty",
             "unit_cost",
             "received_qty",
@@ -1220,6 +1226,7 @@ class GoodsReceiptItemSerializer(serializers.ModelSerializer):
             "qty",
             "location",
             "location_name",
+            "expiration_date",
         ]
         read_only_fields = fields
 

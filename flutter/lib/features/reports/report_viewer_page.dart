@@ -9,15 +9,21 @@ import 'package:client/data/models/tender_method.dart';
 import 'package:client/data/repositories/reports_repository.dart';
 import 'package:client/data/services/reports_service.dart';
 import 'package:client/features/admin/reports_excel_export.dart';
+import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/reports/report_catalogue.dart';
+import 'package:client/features/reports/report_pdf.dart';
 import 'package:client/features/reports/reports_shell.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
+import 'package:client/shared/widgets/settings_side_layout.dart'
+    show StoreInformationPanel;
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:printing/printing.dart';
+import 'package:provider/provider.dart';
 
 /// The ONE viewer every catalogue card opens.
 ///
@@ -227,6 +233,26 @@ class _ReportViewerViewState extends State<ReportViewerView> {
     }
   }
 
+  Future<void> _exportPdf() async {
+    final view = _view;
+    final build = view?.pdfBytes;
+    if (view == null || build == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      // The account that pressed the button signs the paper.
+      final generatedBy = context.read<AuthViewmodel>().user?.fullName ?? '';
+      final bytes = await build(generatedBy);
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: view.pdfName ?? 'report.pdf',
+      );
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not export the PDF report: $error')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final view = _view;
@@ -260,13 +286,16 @@ class _ReportViewerViewState extends State<ReportViewerView> {
                 '${formatDate(_range.start)} to ${formatDate(_range.end)}',
               ),
             ),
-            // The letterhead PDF builder is phase P3 (decision 01-export-layout),
-            // so the button is disabled rather than pressed into a no-op.
+            // A report that wired a letterhead builder exports a PDF
+            // (decision 01-export-layout); the rest keep the button off and
+            // say when it lands, rather than pressed into a no-op.
             Tooltip(
-              message: 'PDF export arrives in P3',
+              message: view?.pdfBytes == null
+                  ? 'PDF export arrives in P3'
+                  : '',
               child: OutlinedButton.icon(
                 key: const ValueKey('report-viewer-export-pdf'),
-                onPressed: null,
+                onPressed: view?.pdfBytes == null ? null : _exportPdf,
                 icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
                 label: const Text('Export PDF'),
               ),
@@ -336,8 +365,12 @@ class _ReportViewerViewState extends State<ReportViewerView> {
 /// One KPI tile's text, already formatted.
 typedef _Kpi = ({String label, String value, String? caption});
 
+/// Builds a report's letterhead PDF from the viewer's already-formatted
+/// content, signed with the account that pressed Export.
+typedef _PdfBuilder = Future<Uint8List> Function(String generatedBy);
+
 /// A report reduced to what the shared layout draws: tiles, a table, and the
-/// workbook bytes its export button writes.
+/// workbook and PDF bytes its export buttons write.
 class _ReportView {
   const _ReportView({
     required this.kpis,
@@ -346,6 +379,8 @@ class _ReportView {
     required this.emptyMessage,
     this.excelName,
     this.excelBytes,
+    this.pdfName,
+    this.pdfBytes,
   });
 
   final List<_Kpi> kpis;
@@ -354,10 +389,12 @@ class _ReportView {
   final String emptyMessage;
   final String? excelName;
   final Uint8List Function()? excelBytes;
+  final String? pdfName;
+  final _PdfBuilder? pdfBytes;
 }
 
-_ReportView _salesView(SalesSummary sales) => _ReportView(
-  kpis: [
+_ReportView _salesView(SalesSummary sales) {
+  final kpis = <_Kpi>[
     (
       label: 'Transactions',
       value: formatCount(sales.totalTransactions),
@@ -394,9 +431,9 @@ _ReportView _salesView(SalesSummary sales) => _ReportView(
         value: '${sales.markdownPercent!.toStringAsFixed(1)}%',
         caption: 'Discounts ÷ gross',
       ),
-  ],
-  columns: const ['Day', 'Transactions', 'Invoice total', 'Discounts', 'VAT'],
-  rows: [
+  ];
+  const columns = ['Day', 'Transactions', 'Invoice total', 'Discounts', 'VAT'];
+  final rows = <List<String>>[
     for (final day in sales.days)
       [
         _dateLabel(day.day),
@@ -413,11 +450,30 @@ _ReportView _salesView(SalesSummary sales) => _ReportView(
         formatPeso(sales.totalDiscounts),
         formatPeso(sales.totalVat),
       ],
-  ],
-  emptyMessage: 'No sales in this range.',
-  excelName: 'sales-report-${sales.from}-to-${sales.to}.xlsx',
-  excelBytes: () => buildSalesReportXlsx(sales),
-);
+  ];
+  final period = '${_dateLabel(sales.from)} to ${_dateLabel(sales.to)}';
+  return _ReportView(
+    kpis: kpis,
+    columns: columns,
+    rows: rows,
+    emptyMessage: 'No sales in this range.',
+    excelName: 'sales-report-${sales.from}-to-${sales.to}.xlsx',
+    excelBytes: () => buildSalesReportXlsx(sales),
+    pdfName: 'sales-summary-${sales.from}-to-${sales.to}.pdf',
+    // Same tiles, columns and rows the screen drew: the paper and the viewer
+    // cannot disagree about what the report said.
+    pdfBytes: (generatedBy) => renderReportPdf(
+      title: 'Sales summary',
+      period: period,
+      generatedBy: generatedBy,
+      // shortcut: static store header until store details are user-editable.
+      storeName: StoreInformationPanel.storeName,
+      kpis: kpis,
+      columns: columns,
+      rows: rows,
+    ),
+  );
+}
 
 _ReportView _vatView(VatReportSummary report) => _ReportView(
   kpis: [

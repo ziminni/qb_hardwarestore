@@ -490,8 +490,7 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
       context: context,
       builder: (_) => PosOpenOrderDialog(
         orders: _transaction.openOrders,
-        customerName: (id) =>
-            _transaction.customerNameFor(id) ?? 'Order',
+        customerName: (id) => _transaction.customerNameFor(id) ?? 'Order',
         productName: (id) => _transaction.productNameFor(id) ?? 'Item $id',
         loadError: _transaction.ordersError,
         onRetry: () => _transaction.loadOpenOrders(),
@@ -508,7 +507,9 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Order ${chosen.number}: $count line(s) loaded at agreed prices.'),
+        content: Text(
+          'Order ${chosen.number}: $count line(s) loaded at agreed prices.',
+        ),
       ),
     );
   }

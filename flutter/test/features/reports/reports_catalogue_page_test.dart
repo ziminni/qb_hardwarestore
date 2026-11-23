@@ -196,7 +196,7 @@ void main() {
       expect(find.text('Total'), findsOneWidget);
     });
 
-    testWidgets('offers Excel export and a disabled PDF export', (
+    testWidgets('offers Excel and PDF export for the sales summary', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -219,10 +219,10 @@ void main() {
       );
       expect(
         pdf.onPressed,
-        isNull,
+        isNotNull,
         reason:
-            'the letterhead PDF builder is P3, so the button is disabled '
-            'rather than silently doing nothing',
+            'the sales summary wires the letterhead PDF builder '
+            '(decision 01-export-layout)',
       );
 
       // The date range filter sits above the report.

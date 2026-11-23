@@ -19,6 +19,7 @@ class PurchaseOrderItem {
     this.unitCode = '',
     this.conversionFactor = 1,
     this.unitIsWhole = false,
+    this.tracksExpiry = false,
   });
 
   final int id;
@@ -49,6 +50,11 @@ class PurchaseOrderItem {
   /// is not.
   final bool unitIsWhole;
 
+  /// Whether the PRODUCT tracks expiry (cement, paint). The receiving screen
+  /// offers an Expires date for these lines only; a server that predates the
+  /// flag sends nothing, and then no date field is invented.
+  final bool tracksExpiry;
+
   /// Base units per counted unit. A zero or negative factor is not a factor,
   /// so it reads as 1 instead of dividing stock by nothing.
   double get baseFactor => conversionFactor > 0 ? conversionFactor : 1;
@@ -73,6 +79,7 @@ class PurchaseOrderItem {
             ? 1
             : decimalField(json, 'conversion_factor'),
         unitIsWhole: json['uom_is_whole'] as bool? ?? false,
+        tracksExpiry: json['tracks_expiry'] as bool? ?? false,
       );
 }
 
@@ -120,6 +127,7 @@ class ReceiptLine {
     required this.poItemId,
     required this.qty,
     this.locationId,
+    this.expirationDate,
   });
 
   final int poItemId;
@@ -130,11 +138,26 @@ class ReceiptLine {
   /// — so the client stays silent about a default it did not choose.
   final int? locationId;
 
+  /// The Expires date read off the delivery, for a product that tracks expiry.
+  /// Null means UNDATED and stays off the wire: the server never receives a
+  /// far-future placeholder for "nobody filled this in".
+  final DateTime? expirationDate;
+
   Map<String, dynamic> toJson() => {
     'po_item': poItemId,
     'qty': qty,
     if (locationId != null) 'location': locationId,
+    if (expirationDate != null) 'expiration_date': _isoDay(expirationDate!),
   };
+
+  /// `YYYY-MM-DD` in LOCAL time: the day the clerk picked is the day the server
+  /// stores, with no timezone shifting it to the day before.
+  static String _isoDay(DateTime day) {
+    final local = day.toLocal();
+    final month = local.month.toString().padLeft(2, '0');
+    final dayOfMonth = local.day.toString().padLeft(2, '0');
+    return '${local.year.toString().padLeft(4, '0')}-$month-$dayOfMonth';
+  }
 }
 
 /// One delivered quantity as the server reports it back (`GoodsReceiptItem`).
@@ -148,6 +171,7 @@ class GoodsReceiptLine {
     required this.poItemId,
     required this.variantName,
     required this.qty,
+    this.expirationDate,
   });
 
   final int id;
@@ -155,12 +179,18 @@ class GoodsReceiptLine {
   final String variantName;
   final double qty;
 
+  /// The Expires date this line carried, or null when it was undated.
+  final DateTime? expirationDate;
+
   factory GoodsReceiptLine.fromJson(Map<String, dynamic> json) =>
       GoodsReceiptLine(
         id: intField(json, 'id'),
         poItemId: intField(json, 'po_item'),
         variantName: stringField(json, 'variant_name'),
         qty: decimalField(json, 'qty'),
+        expirationDate: json['expiration_date'] == null
+            ? null
+            : DateTime.tryParse(json['expiration_date'] as String),
       );
 }
 

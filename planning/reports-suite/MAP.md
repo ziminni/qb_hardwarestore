@@ -48,16 +48,14 @@ P1 Sales reports (🤖 backend + viewer, 🧑 KPI tile copy):
 - [x] QA P1 authed flows (luna): 4 PASS (7 endpoints live, KPIs, null-cost, cashier 403); signed-returns live check BLOCKED (empty live table, unit-pinned); 1 Medium deferred — unknown query params return 200 not 400 (standard DRF behavior, fixing touches existing endpoints; needs its own decision)
 - [x] Catalogue home + shared viewer (filters, tiles, table/chart, PDF/Excel buttons) (🤖) — APPROVED, re-run 9/9 OK
 - [x] Sidebar repoint: sales + inventory Reports rows → catalogue routes, update affected routing tests (🤖 follow-up from C review) — APPROVED, re-run 115/115 OK
-- [ ] Verify one filtered period with a return: viewer = PDF = Excel to the centavo (🤝)
 P2 Inventory reports (🤖 backend + UI, 🧑 receiving copy):
 - [x] Movement fix (sales-out, transfers, returns in/out) + GRN / STN / FIFO age / shrinkage / adjustments (🤖) — APPROVED, re-run 9/9 OK; follow-up: mirror missing-cost counter instead of ₱0.00 fallback in _landed_cost_map
 - [x] Reorder (low-stock threshold) / dead stock (03 rule) / fast-slow / cycle count from CORRECTIONs (🤖) — APPROVED, re-run 15/15 OK with batch A
-- [x] `Product.tracks_expiry` + optional Expires at receiving + expiry report + Near-expiry % (🤖 backend, 🧑 receiving label copy)
-- [x] Stocker demo fix: inventory read endpoints (valuation, movements, GRN/STN/age/shrinkage/adjustments + 4 new) under `IsInventoryRole`; sales stay manager-only (🤖) — APPROVED, re-run 19/19 OK
-- [ ] `IsInventoryRole` on inventory report endpoints; stocker catalogue = Inventory section only (🤖)
+- [ ] `Product.tracks_expiry` + optional Expires at receiving + expiry report + Near-expiry % (🤖 backend, 🧑 receiving label copy — label: 'Expiry (optional, cement/paint only)')
+- [x] Inventory role gating: all inventory read endpoints under `IsInventoryRole`; stocker catalogue = Inventory section only (🤖) — APPROVED, re-run 19/19 OK
 P3 Export for all (🤖 builder, 🤝 print check):
-- [ ] Letterhead PDF builder per 01-export-layout (🤖); first print review on A4 (🤝)
-- [ ] Multi-sheet Excel per 01-export-layout extending `reports_excel_export.dart` (🤖)
+- [x] Letterhead PDF builder per 01-export-layout (🤖) — APPROVED, summary wired; other reports keep P3-disabled buttons — re-run 32/32 OK
+- [ ] Multi-sheet Excel for the 7 new P1 + new P2 endpoints, extending `reports_excel_export.dart` (🤖)
 - [ ] Empty-result 'No matching records' + 5k/10k truncation notices (🤖)
 
 ## Out of Scope

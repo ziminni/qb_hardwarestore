@@ -38,6 +38,11 @@ class ReceivingViewmodel extends ChangeNotifier {
   /// the product's home shelf, which the server applies when the field is
   /// omitted (Phase 9 F2, decision 21 §7).
   final Map<int, int> _destinations = {};
+
+  /// The Expires date the receiver read off the delivery per PO line, keyed by PO
+  /// item id. ABSENT means undated, which the server reads as NULL — a product
+  /// that does not track expiry, or one nobody dated.
+  final Map<int, DateTime> _expirations = {};
   String? _actionError;
   bool _isActing = false;
   int? _lastReceiptId;
@@ -77,6 +82,9 @@ class ReceivingViewmodel extends ChangeNotifier {
   /// The destination the receiver PICKED for a PO line, or null when the line
   /// goes to the product's home shelf (the server's default).
   int? destinationFor(int poItemId) => _destinations[poItemId];
+
+  /// The Expires date the receiver entered for a PO line, or null when undated.
+  DateTime? expirationFor(int poItemId) => _expirations[poItemId];
 
   String? get actionError => _actionError;
   bool get isActing => _isActing;
@@ -173,6 +181,7 @@ class ReceivingViewmodel extends ChangeNotifier {
     _selected = order;
     _quantities.clear();
     _destinations.clear();
+    _expirations.clear();
     _actionError = null;
     _lastReceiptId = null;
     _lastBatches = const [];
@@ -202,6 +211,17 @@ class ReceivingViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Records the Expires date for a line. A null CLEARS it, which is a different
+  /// act from leaving it alone: the clerk decided there is no date to record.
+  void setExpiration(int poItemId, DateTime? date) {
+    if (date == null) {
+      _expirations.remove(poItemId);
+    } else {
+      _expirations[poItemId] = date;
+    }
+    notifyListeners();
+  }
+
   /// Records the receipt with one line per order item that has a quantity.
   Future<bool> recordReceipt({String deliveryReceiptNo = ''}) async {
     final order = _selected;
@@ -220,6 +240,8 @@ class ReceivingViewmodel extends ChangeNotifier {
             // the server's home default, and sending it would pretend the clerk
             // picked a shelf they never looked at.
             locationId: _destinations[item.id],
+            // Same rule for the Expires date: absent means undated.
+            expirationDate: _expirations[item.id],
           ),
     ];
     if (lines.isEmpty) {
