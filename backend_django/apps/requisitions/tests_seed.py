@@ -314,7 +314,9 @@ class SeedDemoTests(TestCase):
         self.assertFalse(
             OfficialReceipt.objects.filter(
                 transaction__source=SalesTransaction.Source.REQUISITION,
-                transaction__items__variant_uom__in=declined.items.values("variant_uom"),
+                transaction__items__variant_uom__in=declined.items.values(
+                    "variant_uom"
+                ),
             ).exists(),
             "nothing was handed out, so no receipt was printed",
         )
@@ -818,12 +820,16 @@ class SeedIfEmptyTests(TestCase):
     database that already has users (a real store), and must seed a fresh one."""
 
     def test_a_database_with_users_is_left_alone(self):
-        get_user_model().objects.create_user(username="owner", email="owner@store.ph", password="x")
+        get_user_model().objects.create_user(
+            username="owner", email="owner@store.ph", password="x"
+        )
         # Migrations may create groups (decision 25: `Bodega Checker`); the seed must add none.
         groups_before = set(Group.objects.values_list("name", flat=True))
         call_command("seed_demo", "--if-empty", verbosity=0, stdout=StringIO())
         self.assertEqual(get_user_model().objects.count(), 1)
-        self.assertEqual(set(Group.objects.values_list("name", flat=True)), groups_before)
+        self.assertEqual(
+            set(Group.objects.values_list("name", flat=True)), groups_before
+        )
 
     def test_a_fresh_database_is_seeded(self):
         call_command("seed_demo", "--if-empty", verbosity=0, stdout=StringIO())
