@@ -1,19 +1,19 @@
 # Store operations round (2026-11-22)
 
-Branch `feat/or-tagging-reports` in `temp/wt/pos-or`, from master `9423526`.
+Merged into `master` (`e5dfdab` through `d52cb5d`).
 
 ## Phase Progress
 
 | Phase | Scope | Blocking Decisions | Status |
 |---|---|---|---|
-| 1 | Official receipt (BIR invoice no.) tagging on order slips: at checkout, later via OS search/QR scan, reprint | none (owner answered) | 🟡 In Progress |
-| 2 | Discounts: per-product OR whole-sale, never both; whole-sale split by price over lines the cashier leaves ticked; hide product "Allow discounts" toggle | none | [ ] Pending |
-| 3 | Returns become exchanges: customer pays extra; cheaper swap → store credit / utang reduction; cash refund only when no replacement | none | [ ] Pending |
-| 4 | Held carts reserve stock with expiry; FIFO batch order shown on stock + sale details | expiry length default (2 h, Admin-editable) | [ ] Pending |
-| 5 | Cash drawer: denomination count at close, close report by tender, categorised cash-outs (lunch, fuel, supplies, other), store-day open/close | none | [ ] Pending |
-| 6 | Daily / weekly / monthly reports with breakdowns; VAT report split OR-tagged vs untagged | none | [ ] Pending |
-| 7 | Box / pack units back (flexible decimal factor: box→pcs, bag→kg); supplier orders + exports in the pack unit | none | [ ] Pending |
-| 8 | Price list: per-product price timeline + store-wide recent changes | none | [ ] Pending |
+| 1 | Official receipt (OR / invoice no.) tagging on order slips: at checkout, later via OS search/QR scan, reprint | none (owner answered) | ✅ Done |
+| 2 | Discounts: per-product OR whole-sale, never both; whole-sale split by price over lines the cashier leaves ticked; hide product "Allow discounts" toggle | none | ✅ Done |
+| 3 | Returns become exchanges: customer pays extra; cheaper swap → store credit / utang reduction; cash refund only when no replacement | none | ✅ Done |
+| 4 | Held carts reserve stock with expiry; FIFO batch order shown on stock + sale details | expiry length default (2 h, Admin-editable) | ✅ Done |
+| 5 | Cash drawer: denomination count at close, close report by tender, categorised cash-outs (lunch, fuel, supplies, other + custom), store-day open/close | none | ✅ Done |
+| 6 | Daily / weekly / monthly reports with breakdowns; VAT report split OR-tagged vs untagged + Excel export | none | ✅ Done |
+| 7 | Box / pack units back (flexible decimal factor: box→pcs, bag→kg); supplier orders + exports in the pack unit | none | ✅ Done |
+| 8 | Price list: per-product price timeline + store-wide recent changes | none | ✅ Done |
 
 ### Phase 1 checkpoint
 
