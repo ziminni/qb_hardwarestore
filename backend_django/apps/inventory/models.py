@@ -1189,11 +1189,13 @@ class SupplierPayment(models.Model):
     )
     decided_at = models.DateTimeField(null=True, blank=True)
     decision_reason = models.CharField(max_length=255, blank=True, default="")
+    proof_attachment = models.CharField(max_length=255, blank=True, default="")
 
     # The ONLY fields a stored row may ever be written with, and only while it is ISSUED:
     # `payables.decide_supplier_cheque` stamps exactly these under the row lock. Listed
     # once, here, so neither the service nor a shell session can widen the door.
     DECISION_FIELDS = ("status", "decided_by", "decided_at", "decision_reason")
+    PROOF_FIELDS = ("proof_attachment",)
 
     class Meta:
         db_table = "inventory_supplier_payment"
@@ -1207,15 +1209,7 @@ class SupplierPayment(models.Model):
         )
 
     def save(self, *args, **kwargs):
-        """Insert only - except the one decision a cheque is waiting for.
-
-        A stored payment is a fact about money that already moved, so an UPDATE raises.
-        The single door is decision 20 #3: a row whose STORED status is `ISSUED` may be
-        written with nothing but `DECISION_FIELDS`. The stored status is read on every
-        write, so "decided once" holds even if a caller holds a stale instance, and
-        `update_fields` is required - a bare `save()` rewrites every column and is
-        refused.
-        """
+        """Insert only - except a cheque decision or attaching proof of payment."""
         if self.pk is not None:
             from .exceptions import ImmutablePayableRecord
 
@@ -1227,11 +1221,14 @@ class SupplierPayment(models.Model):
                     and bool(update_fields)
                     and set(update_fields) <= set(self.DECISION_FIELDS)
                 )
-                if not is_decision:
+                is_proof_update = bool(update_fields) and set(update_fields) <= set(
+                    self.PROOF_FIELDS
+                )
+                if not is_decision and not is_proof_update:
                     raise ImmutablePayableRecord(
                         f"Supplier payment #{self.pk} cannot be changed: a payment is a "
                         "record of money that already moved. Only an issued cheque may "
-                        "still be cleared or bounced."
+                        "still be cleared or bounced, or proof attached."
                     )
         super().save(*args, **kwargs)
 

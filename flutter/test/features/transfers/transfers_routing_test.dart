@@ -92,13 +92,13 @@ void main() {
   });
 
   group('every transfers entry is APPENDED', () {
-    test('the inventory sidebar gains Transfers at 15, moving nothing', () {
+    test('the inventory sidebar has Transfers at 13 after Deliveries', () {
       final order = _areaOrder(AppAreas.inventory);
-      expect(order, hasLength(18));
+      expect(order, hasLength(16));
       expect(order[8], 'inventoryReceiving');
-      expect(order[13], 'inventoryPayables');
-      expect(order[14], 'inventoryDeliveries');
-      expect(order[15], 'inventoryTransfers');
+      expect(order[9], 'inventoryReturns');
+      expect(order[12], 'inventoryDeliveries');
+      expect(order[13], 'inventoryTransfers');
     });
 
     test('the sales sidebar gains Transfers at 11, moving nothing', () {
@@ -125,9 +125,9 @@ void main() {
 
     test('the inventory and sales layouts render the entry they advertise', () {
       final inventoryLabels = AppDestinations.labelsFor(AppAreas.inventory);
-      expect(inventoryLabels, hasLength(18));
-      expect(inventoryLabels[14], 'Deliveries');
-      expect(inventoryLabels[15], 'Transfers');
+      expect(inventoryLabels, hasLength(16));
+      expect(inventoryLabels[12], 'Deliveries');
+      expect(inventoryLabels[13], 'Transfers');
 
       final salesLabels = SalesSkeletonLayout.navigationSections
           .expand((section) => section.destinations)
@@ -151,7 +151,7 @@ void main() {
       final declared = RegExp(
         r'selectedNavigationIndex:\s*(\d+)',
       ).allMatches(source).map((match) => int.parse(match.group(1)!)).toList();
-      expect(declared, containsAll(<int>[15, 11]));
+      expect(declared, containsAll(<int>[13, 11]));
       expect(declared, hasLength(2), reason: 'inventory and sales literal');
       expect(source, isNot(contains('AdminSkeletonLayout')));
     });

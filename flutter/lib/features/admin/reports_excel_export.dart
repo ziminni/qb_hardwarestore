@@ -254,7 +254,7 @@ Uint8List buildVatReportXlsx(VatReportSummary report) {
     _num(report.totals.combined.vat),
   ]);
   summary.appendRow([
-    _text('BIR OR Only (Official Receipt)'),
+    _text('OR-Tagged Only (Official Receipt)'),
     _int(report.totals.orBacked.transactions),
     _num(report.totals.orBacked.grossSales),
     _num(report.totals.orBacked.vatableSales),

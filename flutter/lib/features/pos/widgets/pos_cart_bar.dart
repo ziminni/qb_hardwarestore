@@ -159,6 +159,8 @@ class PosOfficialReceiptToggle extends StatefulWidget {
 class _PosOfficialReceiptToggleState extends State<PosOfficialReceiptToggle> {
   final _controller = TextEditingController();
   bool _enabled = false;
+  int _lastLineCount = 0;
+  String? _lastInvoiceNo;
 
   @override
   void dispose() {
@@ -177,6 +179,21 @@ class _PosOfficialReceiptToggleState extends State<PosOfficialReceiptToggle> {
 
   @override
   Widget build(BuildContext context) {
+    final state = context.watch<PosTransactionViewmodel>();
+    // Auto-reset the toggle back to untoggled after a transaction completes or
+    // the cart is cleared (invoiceNo becomes null / lines become empty).
+    final clearedAfterSaleOrClear =
+        _enabled &&
+        state.invoiceNo == null &&
+        (_lastInvoiceNo != null ||
+            (state.lines.isEmpty && _lastLineCount > 0));
+    if (clearedAfterSaleOrClear) {
+      _enabled = false;
+      _controller.clear();
+    }
+    _lastLineCount = state.lines.length;
+    _lastInvoiceNo = state.invoiceNo;
+
     final color = widget.onDark ? AppColors.brandWhite : AppColors.textPrimary;
     return Row(
       mainAxisSize: MainAxisSize.min,

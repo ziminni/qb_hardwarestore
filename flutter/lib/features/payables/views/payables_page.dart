@@ -103,6 +103,7 @@ class _PayablesBodyState extends State<_PayablesBody> {
           chequeBank: request.chequeBank,
           chequeDate: request.chequeDate,
           creditNoteId: request.creditNoteId,
+          proofAttachment: request.proofAttachment,
         ),
       ),
     );
@@ -125,6 +126,13 @@ class _PayablesBodyState extends State<_PayablesBody> {
         bill: bill,
         canPay: _canPay,
         creditNotes: state.creditNotes,
+        onAttachProof: _canPay
+            ? (payment, proof) => state.attachPaymentProof(
+                billId: bill.id,
+                paymentId: payment.id,
+                proofAttachment: proof,
+              )
+            : null,
       ),
     );
     if (wantsPay == true && mounted) await _pay(bill);

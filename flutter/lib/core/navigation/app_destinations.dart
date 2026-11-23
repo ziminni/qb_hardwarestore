@@ -336,17 +336,9 @@ class AppDestinations {
       route: AppRoutes.inventoryReceiving,
     ),
     AppDestination(
-      id: 'inventory.sales',
-      area: AppAreas.inventory,
-      label: 'Sales',
-      icon: Icons.shopping_cart_outlined,
-      route: AppRoutes.inventorySales,
-      group: 'Sales',
-    ),
-    AppDestination(
       id: 'inventory.returns',
       area: AppAreas.inventory,
-      label: 'Returns',
+      label: 'Supplier returns',
       icon: Icons.undo_rounded,
       route: AppRoutes.inventoryReturns,
     ),
@@ -358,6 +350,7 @@ class AppDestinations {
       label: 'Reports',
       icon: Icons.bar_chart_rounded,
       route: AppRoutes.inventoryReports,
+      group: 'Operations',
     ),
     AppDestination(
       id: 'inventory.settings',
@@ -365,15 +358,6 @@ class AppDestinations {
       label: 'Settings',
       icon: Icons.settings_outlined,
       route: AppRoutes.inventorySettings,
-    ),
-    AppDestination(
-      id: 'payables',
-      area: AppAreas.inventory,
-      label: 'Payables',
-      icon: Icons.account_balance_wallet_outlined,
-      route: AppRoutes.inventoryPayables,
-      group: 'Operations',
-      sharedKey: 'payables',
     ),
     AppDestination(
       id: 'deliveries',

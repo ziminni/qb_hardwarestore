@@ -854,19 +854,35 @@ class SalesOrderSerializer(serializers.ModelSerializer):
 
 
 class HeldCartItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.SerializerMethodField()
+    unit_code = serializers.CharField(
+        source="variant_uom.uom.code", read_only=True, default=""
+    )
+
     class Meta:
         model = HeldCartItem
         fields = [
             "id",
             "cart",
             "variant_uom",
+            "product_name",
+            "unit_code",
             "qty",
             "unit_price",
             "discount_kind",
             "discount_value",
             "discount_reason",
         ]
-        read_only_fields = ["id", "cart"]
+        read_only_fields = ["id", "cart", "product_name", "unit_code"]
+
+    def get_product_name(self, obj):
+        try:
+            v = obj.variant_uom.variant
+            base = v.product.base_name
+            vname = (v.variant_name or "").strip()
+            return f"{base} · {vname}" if vname and vname.lower() != base.lower() else base
+        except Exception:
+            return ""
 
 
 class HeldCartSerializer(serializers.ModelSerializer):

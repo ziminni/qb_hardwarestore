@@ -73,7 +73,7 @@ class _InventoryReportsPageState extends State<InventoryReportsPage> {
     return InventorySkeletonLayout(
       title: 'Reports',
       subtitle: 'Stock value and stock alerts from the inventory data.',
-      selectedNavigationIndex: 11,
+      selectedNavigationIndex: 10,
       onNavigationSelected: (index) => navigateInventory(context, index),
       child: pending && !inventory.hasLoaded
           ? const Center(child: CircularProgressIndicator())

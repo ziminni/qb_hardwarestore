@@ -2,6 +2,7 @@ import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
+import 'package:client/core/format/numeric_input.dart';
 import 'package:client/data/models/returns.dart';
 import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/models/tender_method.dart';
@@ -615,16 +616,24 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
             TextField(
               key: const ValueKey('exchange-tendered-field'),
               controller: _tendered,
+              inputFormatters: decimalInputFormatters(),
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
               decoration: InputDecoration(
                 labelText:
                     'Amount tendered (min ${formatPeso(returns.exchangeExtraDue)})',
+                errorText: _tendered.text.trim().isNotEmpty &&
+                        ((double.tryParse(_tendered.text.trim()) ?? 0) <
+                            returns.exchangeExtraDue)
+                    ? 'Enter at least ${formatPeso(returns.exchangeExtraDue)}.'
+                    : null,
                 border: const OutlineInputBorder(),
               ),
-              onChanged: (raw) =>
-                  returns.setExchangeAmountTendered(double.tryParse(raw.trim())),
+              onChanged: (raw) {
+                setState(() {});
+                returns.setExchangeAmountTendered(double.tryParse(raw.trim()));
+              },
             ),
             const SizedBox(height: AppSpacing.md),
           ],
@@ -704,11 +713,38 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
                       item.qty - 1,
                     ),
                   ),
-                  Text(
-                    item.qty == item.qty.roundToDouble()
-                        ? item.qty.toStringAsFixed(0)
-                        : item.qty.toStringAsFixed(2),
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  SizedBox(
+                    width: 60,
+                    child: TextFormField(
+                      key: ValueKey(
+                        'exchange-replacement-qty-${item.variantUomId}-${item.qty}',
+                      ),
+                      initialValue: formatQuantity(item.qty),
+                      inputFormatters: decimalInputFormatters(maxDecimals: 3),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 7,
+                        ),
+                        border: OutlineInputBorder(),
+                      ),
+                      onFieldSubmitted: (raw) {
+                        final parsed = double.tryParse(raw.trim());
+                        if (parsed != null) {
+                          returns.setReplacementQty(item.variantUomId, parsed);
+                        }
+                      },
+                    ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.add_circle_outline, size: 18),
@@ -761,27 +797,64 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
       context: context,
       builder: (dialogContext) {
         var query = '';
+        var customQty = '1';
         return StatefulBuilder(
           builder: (context, setDialogState) {
             final filtered = options.where((opt) {
               if (query.trim().isEmpty) return true;
               return opt.name.toLowerCase().contains(query.trim().toLowerCase());
             }).toList();
+            final parsedQty = double.tryParse(customQty.trim());
+            final validQty = parsedQty != null && parsedQty > 0 ? parsedQty : 1.0;
             return AlertDialog(
               title: const Text('Choose replacement item'),
               content: SizedBox(
-                width: 440,
-                height: 360,
+                width: 460,
+                height: 410,
                 child: Column(
                   children: [
-                    TextField(
-                      autofocus: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Search product',
-                        prefixIcon: Icon(Icons.search),
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (value) => setDialogState(() => query = value),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: TextField(
+                            autofocus: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Search product',
+                              prefixIcon: Icon(Icons.search),
+                              border: OutlineInputBorder(),
+                            ),
+                            onChanged: (value) =>
+                                setDialogState(() => query = value),
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: TextFormField(
+                            key: const ValueKey('exchange-picker-qty-field'),
+                            initialValue: customQty,
+                            inputFormatters: decimalInputFormatters(
+                              maxDecimals: 3,
+                            ),
+                            keyboardType:
+                                const TextInputType.numberWithOptions(
+                                  decimal: true,
+                                ),
+                            decoration: InputDecoration(
+                              labelText: 'Quantity',
+                              errorText:
+                                  customQty.trim().isNotEmpty &&
+                                          (parsedQty == null || parsedQty <= 0)
+                                      ? '> 0'
+                                      : null,
+                              border: const OutlineInputBorder(),
+                            ),
+                            onChanged: (value) =>
+                                setDialogState(() => customQty = value),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: AppSpacing.sm),
                     Expanded(
@@ -799,7 +872,9 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
-                            onTap: () => Navigator.of(dialogContext).pop(opt),
+                            onTap: () => Navigator.of(
+                              dialogContext,
+                            ).pop(opt.copyWith(qty: validQty)),
                           );
                         },
                       ),

@@ -1400,6 +1400,10 @@ class SupplierPaymentSerializer(serializers.ModelSerializer):
     cheque_bank = serializers.CharField(
         required=False, allow_blank=True, max_length=100, default=""
     )
+    proof_attachment = serializers.CharField(
+        required=False, allow_blank=True, max_length=255, default=""
+    )
+    has_proof = serializers.SerializerMethodField()
     paid_by_name = serializers.CharField(source="paid_by.full_name", read_only=True)
     decided_by_name = serializers.CharField(
         source="decided_by.full_name", read_only=True
@@ -1421,6 +1425,8 @@ class SupplierPaymentSerializer(serializers.ModelSerializer):
             "decided_by_name",
             "decided_at",
             "decision_reason",
+            "proof_attachment",
+            "has_proof",
             # Phase 8 B3: the note a `CREDIT` payment spent (NULL for every other
             # method), so a bill's history says WHICH credit settled that peso.
             "credit_note",
@@ -1437,9 +1443,13 @@ class SupplierPaymentSerializer(serializers.ModelSerializer):
             "decided_by",
             "decided_at",
             "decision_reason",
+            "has_proof",
             "paid_by",
             "paid_on",
         ]
+
+    def get_has_proof(self, obj) -> bool:
+        return bool((getattr(obj, "proof_attachment", "") or "").strip())
 
     def validate_amount(self, value):
         """A peso amount, parsed once: `{code, detail}` instead of a field-error dict."""

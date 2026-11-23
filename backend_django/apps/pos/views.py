@@ -157,34 +157,22 @@ def _replayed_response(transaction):
 # reads as its own constant rather than reusing `IsInventoryRole.isrequired_roles`
 # by accident: if that set ever changes for stock reasons, deliveries must not move with
 # it silently.
-DELIVERY_UPDATER_ROLES = [ROLE_STORE_MANAGER, ROLE_STOCK_MANAGER, *STAFF_ROLES]
+DELIVERY_UPDATER_ROLES = [
+    ROLE_CASHIER,
+    ROLE_STORE_MANAGER,
+    ROLE_STOCK_MANAGER,
+    *STAFF_ROLES,
+]
 
-# Owner ruling (2026-11-17, delegated): the cashier who scheduled the trip is standing in
-# the shop when the goods leave, so they may make the FIRST move - `start/` - on their
-# own slips. Everything that FINISHES a trip (Delivered, Failed) stays with
-# `DELIVERY_UPDATER_ROLES`, so this widens one action and no other.
 DELIVERY_STARTER_ROLES = [ROLE_CASHIER, *DELIVERY_UPDATER_ROLES]
 
 
 class DeliveryReadWritePermission(BasePermission):
-    """Read a delivery with any SALES role; move it with the role the ACTION needs.
-
-    Reads are wider on purpose: the cashier who took the order at the till has to see the
-    slip they created on the deliveries page, and a Stock Manager reads sales already.
-
-    Writes are per action, because the ruling is: `start/` (Scheduled -> Out for
-    delivery) is the cashier's own dispatch move - `DELIVERY_STARTER_ROLES` - while
-    `deliver/` and `fail/` stay exactly `DELIVERY_UPDATER_ROLES`. A permission class
-    cannot read a row (the id is not resolved yet), so "their OWN slips only" is
-    `OwnSalesScopeMixin` on the viewset: another till's slip is a 404 before this move is
-    even considered. A Cashier who also holds Stock Manager takes the union, through
-    `has_role`. The CPMS service account holds no sales role, so it is refused here as
-    everywhere else in this app.
-    """
+    """Read a delivery with any SALES role; move it with any delivery updater role."""
 
     message = (
-        "Only the cashier who took the delivery may send it out, and only a Store "
-        "Manager, Admin or Stock Manager may mark it delivered or failed."
+        "Only a Cashier, Store Manager, Admin or Stock Manager may start, "
+        "deliver or fail a delivery."
     )
 
     def has_permission(self, request, view):  # pyright: ignore[reportIncompatibleMethodOverride]
@@ -2120,29 +2108,12 @@ class HeldCartViewSet(BaseViewSet):
         )
 
 
-class DeliveryViewSet(OwnSalesScopeMixin, viewsets.ReadOnlyModelViewSet):
-    """`/api/v1/deliveries/` — the delivery schedule and the slip (B3, decision 18).
+class DeliveryViewSet(viewsets.ReadOnlyModelViewSet):
+    """`/api/v1/deliveries/` — the store-wide delivery schedule and the slip.
 
-    Row scope (B3 review): a slip carries the customer's address, contact name and phone,
-    so a cashier-only user reads only the deliveries THEY took — `created_by`, which both
-    writers fill with the caller (the ring path passes the sale's cashier, the order path
-    the order's `created_by`). Another till's slip is a **404**, not a 403, exactly as on
-    `/transactions/`; the three store-wide roles keep the whole schedule. The scope runs
-    in `get_queryset`, so it also covers the detail URL and the three transition actions
-    (which look their row up through `get_object`).
-
-    Read-only on the resource itself, because a delivery is not a document somebody types:
-    it is created by ringing a sale with a `delivery` object or by creating a sales order
-    with one, inside that document's own atomic block. The only writes are the three
-    status actions, so `POST /deliveries/`, `PUT`, `PATCH` and `DELETE` are **405 for
-    every role, Admin included** - the slip is the record of a trip, and editing it after
-    the fact would make the schedule disagree with what the driver did.
-
-    Filters: `?status=` (one of the four states), `?date_from=` / `?date_to=`
-    (`YYYY-MM-DD`, inclusive, on the SCHEDULED date - the work queue is ordered by it),
-    `?sale=<id>` and `?sales_order=<id>`. An unusable value is a **400**
-    `INVALID_DELIVERY`, not an empty page: a dispatcher who typed `status=done` must be
-    told the code, not shown "no deliveries today".
+    Cashiers, Store Managers, Stock Managers and Admins see the entire delivery schedule
+    and can transition deliveries (`start`, `deliver`, `fail`) so deliveries never stall
+    when the Store Manager is away from the counter.
     """
 
     queryset = (
@@ -2165,7 +2136,6 @@ class DeliveryViewSet(OwnSalesScopeMixin, viewsets.ReadOnlyModelViewSet):
         .all()
     )
     serializer_class = DeliverySerializer
-    own_scope_field = "created_by"
     # Tuples, not lists: this new viewset adds no RUF012 to a file that already carries
     # one per `permission_classes` list (DRF accepts either).
     permission_classes = (DeliveryReadWritePermission,)
@@ -2177,8 +2147,6 @@ class DeliveryViewSet(OwnSalesScopeMixin, viewsets.ReadOnlyModelViewSet):
         from .exceptions import InvalidDelivery
 
         qs = super().get_queryset()
-        if self.action == "start" and is_cashier_only(self.request.user):
-            qs = qs.filter(sale__isnull=False, sales_order__isnull=True)
         status_param = (self.request.query_params.get("status") or "").strip()
         if status_param:
             if status_param.upper() not in Delivery.Status.values:

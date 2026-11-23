@@ -421,7 +421,7 @@ class _SalesTab extends StatelessWidget {
             icon: Icons.receipt_long_outlined,
             value: _whole(s, 'month_vat_total'),
             caption:
-                'BIR OR only: ${_whole(s, 'month_or_vat')} · '
+                'OR-tagged only: ${_whole(s, 'month_or_vat')} · '
                 '${_plural(s.count('month_or_count'), 'OR')}',
           ),
         if (s.has('month_gross_profit'))

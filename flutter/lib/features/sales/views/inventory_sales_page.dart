@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/layout/inventory_skeleton_layout.dart';
+import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/widgets/sales_transactions_content.dart';
@@ -48,7 +50,10 @@ class _InventorySalesPageState extends State<InventorySalesPage> {
       title: 'Sales',
       subtitle:
           'Read-only log of goods sold off your shelves (units deducted per completed sale).',
-      selectedNavigationIndex: 9,
+      selectedNavigationIndex: AppDestinations.indexOf(
+        'inventory.sales',
+        AppAreas.inventory,
+      ),
       // See the manager page: the list owns the scrolling, so it builds only the
       // rows on screen.
       scrollable: false,

@@ -240,14 +240,18 @@ class DispatchSaleTests(BodegaTestBase):
         (row,) = self.api.get("/api/v1/bodega/stock/").data
         return row
 
-    def test_a_dispatch_sale_is_not_a_pickup_claim(self):
+    def test_a_dispatch_sale_surfaces_in_bodega_claims_as_for_delivery(self):
         sale = self._sell_for_delivery(6)
         response = self._lookup(sale)
-        self.assertEqual(response.status_code, 400, response.data)
-        self.assertEqual(response.data["code"], "NO_BODEGA_CLAIM")
-        self.assertEqual(self._release(sale, 1).data["code"], "NO_BODEGA_CLAIM")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(response.data["is_delivery"])
+        self.assertTrue(response.data["delivery_no"].startswith("DEL-"))
+        self.assertEqual(response.data["delivery_address"], "12 Mabini St")
         self.api.force_authenticate(self.checker)
-        self.assertEqual(self.api.get("/api/v1/bodega/claims/").data, [])
+        claims = self.api.get("/api/v1/bodega/claims/").data
+        self.assertEqual(len(claims), 1)
+        self.assertTrue(claims[0]["is_delivery"])
+        self.assertEqual(self._release(sale, 2).status_code, 201)
 
     def test_a_scheduled_dispatch_is_physical_stock_until_it_goes_out(self):
         sale = self._sell_for_delivery(6)
@@ -334,7 +338,9 @@ class DispatchSaleTests(BodegaTestBase):
             )
         for sale in sold:
             with self.subTest(sale=sale.transaction_no):
-                self.assertEqual(self._lookup(sale).status_code, 400)
+                res = self._lookup(sale)
+                self.assertEqual(res.status_code, 200)
+                self.assertTrue(res.data["is_delivery"])
         row = self._stock()
         self.assertEqual(
             (row["unreleased"], row["awaiting_dispatch"], row["physical"]),

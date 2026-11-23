@@ -276,7 +276,7 @@ class _DashboardViewState extends State<_DashboardView> {
                       const SizedBox(width: AppSpacing.xs),
                       Expanded(
                         child: Text(
-                          'VAT Snapshot — Whole Sales vs. BIR OR Only ($scopeCaption)',
+                          'VAT Snapshot — All Sales vs. OR-Tagged ($scopeCaption)',
                           style: const TextStyle(
                             fontSize: 13.5,
                             fontWeight: FontWeight.w700,
@@ -302,7 +302,7 @@ class _DashboardViewState extends State<_DashboardView> {
                             '${formatPeso(summary.orVatBreakdown!.combined.grossSales)} gross',
                       ),
                       MetricTile(
-                        label: 'BIR OR Only VAT',
+                        label: 'OR-Tagged Only VAT',
                         value: formatPeso(summary.orVatBreakdown!.orBacked.vat),
                         caption:
                             '${formatCount(summary.orVatBreakdown!.orBacked.transactions)} OR-tagged · '

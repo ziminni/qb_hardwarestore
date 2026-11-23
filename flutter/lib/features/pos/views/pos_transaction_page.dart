@@ -741,9 +741,66 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     // A hold with no lines would park an empty basket that resumes to nothing.
     if (transaction.lines.isEmpty) return;
 
+    final noteController = TextEditingController();
+    final note = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Hold transaction'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Park this basket (${transaction.itemCount} item${transaction.itemCount == 1 ? "" : "s"} · ${formatPeso(transaction.total)}) for ${transaction.customerLabel}.',
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const ValueKey('hold-cart-note-input'),
+                controller: noteController,
+                autofocus: true,
+                maxLength: 160,
+                decoration: const InputDecoration(
+                  labelText: 'Note / identifier (optional)',
+                  hintText: 'e.g. Getting cash from car, red pickup truck',
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: (value) =>
+                    Navigator.of(dialogContext).pop(value.trim()),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            key: const ValueKey('hold-cart-confirm-button'),
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(noteController.text.trim()),
+            icon: const Icon(Icons.pause_circle_outline, size: 18),
+            label: const Text('Hold basket'),
+          ),
+        ],
+      ),
+    );
+    noteController.dispose();
+    if (note == null || !context.mounted) {
+      _restoreScannerFocus();
+      return;
+    }
+
     final messenger = ScaffoldMessenger.of(context);
     final held = await heldCarts.holdCart(
       customerId: transaction.selectedCustomer?.id,
+      notes: note,
       items: [
         for (final line in transaction.lines)
           HeldCartItem(
@@ -755,6 +812,8 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
             qty: line.quantity,
             unitPrice: line.unitPrice,
             discount: line.discount,
+            productName: line.productName,
+            unitCode: line.unit,
           ),
       ],
     );

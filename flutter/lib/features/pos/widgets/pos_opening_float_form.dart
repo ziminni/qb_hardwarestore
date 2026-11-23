@@ -1,4 +1,5 @@
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/numeric_input.dart';
 import 'package:client/data/models/shift.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:flutter/material.dart';
@@ -128,10 +129,15 @@ class _PosOpeningFloatFormState extends State<PosOpeningFloatForm> {
         TextField(
           controller: _floatController,
           autofocus: true,
+          inputFormatters: decimalInputFormatters(),
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: 'Opening float',
             prefixText: '₱ ',
+            errorText: _floatController.text.trim().isNotEmpty &&
+                    openingFloat == null
+                ? 'Enter a valid non-negative cash amount.'
+                : null,
           ),
           onChanged: (_) => setState(() {}),
           onSubmitted: (_) => _open(),

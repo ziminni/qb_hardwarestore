@@ -110,7 +110,7 @@ class _InventoryReturnsPageState extends State<InventoryReturnsPage> {
       title: 'Returns & Refunds',
       subtitle:
           'Read-only log of customer returns and refunds — shows units returned to shelves.',
-      selectedNavigationIndex: 10,
+      selectedNavigationIndex: 9,
       // The list owns the scrolling: a bounded slot lets the panel build only
       // the rows on screen, and the page can hold a return for years.
       scrollable: false,

@@ -1,4 +1,5 @@
 import 'package:client/core/format/format.dart';
+import 'package:client/core/format/numeric_input.dart';
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:flutter/material.dart';
 
@@ -94,12 +95,19 @@ class _PosSaleQuantityDialogState extends State<PosSaleQuantityDialog> {
                 TextFormField(
                   controller: _quantity,
                   autofocus: true,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  inputFormatters: decimalInputFormatters(
+                    maxDecimals: _selected.isWhole ? 0 : 3,
+                  ),
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
                   decoration: InputDecoration(
                     labelText: 'Quantity',
                     suffixText: _selected.unit,
+                    helperText: _selected.isWhole
+                        ? 'Whole numbers only'
+                        : 'Numbers only',
                   ),
                   validator: (value) {
                     final number = double.tryParse(value ?? '');

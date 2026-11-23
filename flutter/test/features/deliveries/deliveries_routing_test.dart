@@ -87,17 +87,17 @@ void main() {
 
   group('every deliveries entry is APPENDED', () {
     test(
-      'the inventory sidebar keeps 13 Payables and gains Deliveries at 14',
+      'the inventory sidebar has Deliveries at 12 and Transfers at 13',
       () {
         final order = _areaOrder(AppAreas.inventory);
-        expect(order, hasLength(18));
+        expect(order, hasLength(16));
         expect(order[8], 'inventoryReceiving');
-        expect(order[13], 'inventoryPayables');
-        expect(order[14], 'inventoryDeliveries');
+        expect(order[9], 'inventoryReturns');
+        expect(order[12], 'inventoryDeliveries');
         expect(
-          order[15],
+          order[13],
           'inventoryTransfers',
-          reason: 'Phase 9 F3 APPENDED Transfers at 15; nothing moved',
+          reason: 'Transfers follows Deliveries in the Stock Manager sidebar',
         );
       },
     );
@@ -123,7 +123,7 @@ void main() {
       final declared = RegExp(
         r'selectedNavigationIndex:\s*(\d+)',
       ).allMatches(source).map((match) => int.parse(match.group(1)!)).toList();
-      expect(declared, containsAll(<int>[14, 10]));
+      expect(declared, containsAll(<int>[12, 10]));
       // Owner 2026-11-18: no admin shell; the Admin only watches.
       expect(source, isNot(contains('AdminSkeletonLayout')));
     });

@@ -82,21 +82,10 @@ void main() {
   });
 
   group('every payables entry is APPENDED', () {
-    test('the inventory sidebar keeps 13 and gains Payables at 13', () {
+    test('the inventory sidebar has no Payables entry (stock-focused)', () {
       final order = _areaOrder(AppAreas.inventory);
-      expect(order, hasLength(18));
-      expect(order[12], 'inventorySettings');
-      expect(order[13], 'inventoryPayables');
-      expect(
-        order[14],
-        'inventoryDeliveries',
-        reason: 'F3 appends Deliveries BELOW Payables; neither index moves',
-      );
-      expect(
-        order[15],
-        'inventoryTransfers',
-        reason: 'Phase 9 F3 appends Transfers last; no earlier index moves',
-      );
+      expect(order, hasLength(16));
+      expect(order, isNot(contains('inventoryPayables')));
     });
 
     test('the sales sidebar keeps 9 and gains Payables at 9', () {
@@ -126,15 +115,10 @@ void main() {
   group('each payables page highlights its own entry', () {
     final source = _read('lib/features/payables/views/payables_page.dart');
 
-    test('the inventory shell declares 13', () {
-      // Phase 2 F1: the stock menu is a slice of the registry production renders.
+    test('the inventory menu no longer lists Payables', () {
       final labels = AppDestinations.labelsFor(AppAreas.inventory);
-      expect(labels, hasLength(18));
-      expect(labels[12], 'Settings');
-      expect(labels[13], 'Payables');
-      expect(labels[14], 'Deliveries');
-      expect(labels[15], 'Transfers');
-      expect(source, contains('selectedNavigationIndex: 13'));
+      expect(labels, hasLength(16));
+      expect(labels, isNot(contains('Payables')));
     });
 
     test('the sales shell declares 9', () {

@@ -634,27 +634,16 @@ class DeliveryRoleTests(DeliveryTestBase):
             f"{CASHIER_USERNAME}.",
         )
 
-    def test_a_cashier_may_not_deliver_or_fail_it(self):
+    def test_a_cashier_may_deliver_and_fail_it(self):
         delivery = self._scheduled()
         self._transition(delivery.id, "start", auth=self.cashier_auth)
 
         delivered = self._transition(delivery.id, "deliver", auth=self.cashier_auth)
-        self.assertEqual(delivered.status_code, 403, delivered.content)
-
-        failed = self._transition(
-            delivery.id,
-            "fail",
-            body={"reason": "Buyer refused the load"},
-            auth=self.cashier_auth,
-        )
-        self.assertEqual(failed.status_code, 403, failed.content)
-
+        self.assertEqual(delivered.status_code, 200, delivered.content)
         delivery.refresh_from_db()
-        self.assertEqual(delivery.status, Delivery.Status.OUT_FOR_DELIVERY)
+        self.assertEqual(delivery.status, Delivery.Status.DELIVERED)
 
-    def test_a_cashier_cannot_fail_a_scheduled_slip_they_took(self):
-        # Refused on a SCHEDULED slip too, so the refusal is the PERMISSION and not the
-        # transition table (which would accept `fail` from SCHEDULED for anyone allowed).
+    def test_a_cashier_can_fail_a_scheduled_slip_with_a_reason(self):
         delivery = self._scheduled()
 
         response = self._transition(
@@ -664,10 +653,10 @@ class DeliveryRoleTests(DeliveryTestBase):
             auth=self.cashier_auth,
         )
 
-        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(response.status_code, 200, response.content)
         delivery.refresh_from_db()
-        self.assertEqual(delivery.status, Delivery.Status.SCHEDULED)
-        self.assertEqual(delivery.failure_reason, "")
+        self.assertEqual(delivery.status, Delivery.Status.FAILED)
+        self.assertEqual(delivery.failure_reason, "Radial road closed")
 
     def test_a_stock_manager_may_move_a_delivery(self):
         delivery = self._scheduled()
@@ -1123,8 +1112,11 @@ class DeliveryScopeTests(DeliveryTestBase):
         self.assertEqual(response.status_code, 200, response.content)
         return [row["id"] for row in response.json()["results"]]
 
-    def test_a_cashier_lists_only_the_deliveries_they_took(self):
-        self.assertEqual(self._ids(self.cashier_auth), [self.delivery_a.id])
+    def test_a_cashier_lists_all_store_deliveries(self):
+        self.assertEqual(
+            sorted(self._ids(self.cashier_auth)),
+            sorted([self.delivery_a.id, self.delivery_b.id]),
+        )
 
     def test_a_cashier_still_reads_their_own_delivery(self):
         response = self.client.get(
@@ -1134,24 +1126,20 @@ class DeliveryScopeTests(DeliveryTestBase):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["id"], self.delivery_a.id)
 
-    def test_another_cashiers_delivery_is_404_not_403(self):
+    def test_another_cashiers_delivery_is_visible_to_on_duty_cashier(self):
         response = self.client.get(
             f"{DELIVERIES_URL}{self.delivery_b.id}/", **self.cashier_auth
         )
 
-        self.assertEqual(
-            response.status_code,
-            404,
-            "a row outside the caller's scope must not be confirmed to exist",
-        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["id"], self.delivery_b.id)
 
-    def test_the_status_filter_runs_inside_the_scope(self):
+    def test_the_status_filter_runs_across_store_deliveries(self):
         self._transition(self.delivery_b.id, "start")
 
         self.assertEqual(
             self._ids(self.cashier_auth, "?status=OUT_FOR_DELIVERY"),
-            [],
-            "the filter must not widen the scope to another till's trip",
+            [self.delivery_b.id],
         )
         self.assertEqual(
             self._ids(self.cashier_b_auth, "?status=OUT_FOR_DELIVERY"),
@@ -1177,7 +1165,7 @@ class DeliveryScopeTests(DeliveryTestBase):
             sorted([self.delivery_a.id, self.delivery_b.id]),
         )
 
-    def test_an_order_delivery_is_scoped_to_the_cashier_who_took_the_order(self):
+    def test_an_order_delivery_can_be_started_by_any_cashier(self):
         order = self.client.post(
             ORDERS_URL,
             {
@@ -1194,32 +1182,15 @@ class DeliveryScopeTests(DeliveryTestBase):
         delivery = Delivery.objects.get(sales_order_id=order.json()["id"])
 
         self.assertIn(delivery.id, self._ids(self.cashier_b_auth))
+        self.assertIn(delivery.id, self._ids(self.cashier_auth))
         own_start = self._transition(delivery.id, "start", auth=self.cashier_b_auth)
-        self.assertEqual(own_start.status_code, 404, own_start.content)
+        self.assertEqual(own_start.status_code, 200, own_start.content)
         delivery.refresh_from_db()
-        self.assertEqual(delivery.status, Delivery.Status.SCHEDULED)
-        self.assertNotIn(delivery.id, self._ids(self.cashier_auth))
-        foreign = self.client.get(
-            f"{DELIVERIES_URL}{delivery.id}/", **self.cashier_auth
-        )
-        self.assertEqual(foreign.status_code, 404, foreign.content)
+        self.assertEqual(delivery.status, Delivery.Status.OUT_FOR_DELIVERY)
 
-    def test_a_foreign_delivery_cannot_be_sent_out(self):
-        # Owner ruling (2026-11-17): a cashier MAY start a slip - only their OWN, so the
-        # permission class lets the request through and the ROW SCOPE is what stops it:
-        # another till's slip is a 404 (hidden, not forbidden) and never moves.
+    def test_another_cashiers_delivery_can_be_sent_out_by_on_duty_cashier(self):
         response = self._transition(self.delivery_b.id, "start", auth=self.cashier_auth)
 
-        self.assertEqual(response.status_code, 404, response.content)
+        self.assertEqual(response.status_code, 200, response.content)
         self.delivery_b.refresh_from_db()
-        self.assertEqual(self.delivery_b.status, Delivery.Status.SCHEDULED)
-        self.assertEqual(
-            AuditLog.objects.filter(
-                action_type=AuditLog.ActionType.DELIVERY,
-                description__contains=(
-                    f"Delivery {self.delivery_b.delivery_no} marked"
-                ),
-            ).count(),
-            0,
-            "a refused move must leave no audit row claiming it happened",
-        )
+        self.assertEqual(self.delivery_b.status, Delivery.Status.OUT_FOR_DELIVERY)

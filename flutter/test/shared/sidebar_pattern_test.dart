@@ -214,7 +214,7 @@ void main() {
                   child: const Text('BODY'),
                 ),
                 'Import & export',
-                12,
+                11,
               ),
               (
                 'Store Manager',

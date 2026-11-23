@@ -1,11 +1,13 @@
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
+import 'package:client/core/format/numeric_input.dart';
 import 'package:client/core/time/app_clock.dart';
 import 'package:client/data/models/supplier_payables.dart';
 import 'package:client/data/models/supplier_returns.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/status_badge.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 /// One payment as the dialog collected it, before the viewmodel turns it into
@@ -19,6 +21,7 @@ class SupplierPaymentRequest {
     this.chequeBank,
     this.chequeDate,
     this.creditNoteId,
+    this.proofAttachment = '',
   });
 
   final double amount;
@@ -30,6 +33,9 @@ class SupplierPaymentRequest {
 
   /// The note a `CREDIT` payment spends; null for every other method.
   final int? creditNoteId;
+
+  /// Optional proof attachment (receipt/deposit slip/cheque filename or note).
+  final String proofAttachment;
 }
 
 /// Record a payment against one bill (Phase 5 F2, decision 18).
@@ -78,6 +84,7 @@ class _SupplierPayDialogState extends State<SupplierPayDialog> {
   final _chequeNumber = TextEditingController();
   final _chequeBank = TextEditingController();
   final _chequeDateText = TextEditingController();
+  final _proofAttachment = TextEditingController();
 
   SupplierPaymentMethod _method = SupplierPaymentMethod.cash;
   DateTime? _chequeDate;
@@ -114,7 +121,20 @@ class _SupplierPayDialogState extends State<SupplierPayDialog> {
     _chequeNumber.dispose();
     _chequeBank.dispose();
     _chequeDateText.dispose();
+    _proofAttachment.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickProofFile() async {
+    const typeGroup = XTypeGroup(
+      label: 'Receipts & images',
+      extensions: <String>['jpg', 'jpeg', 'png', 'pdf', 'webp'],
+    );
+    final file = await openFile(acceptedTypeGroups: <XTypeGroup>[typeGroup]);
+    if (file == null || !mounted) return;
+    setState(() {
+      _proofAttachment.text = file.name;
+    });
   }
 
   Future<void> _pickChequeDate() async {
@@ -159,6 +179,7 @@ class _SupplierPayDialogState extends State<SupplierPayDialog> {
             ? _chequeDate
             : null,
         creditNoteId: applying ? _note!.id : null,
+        proofAttachment: _proofAttachment.text.trim(),
       ),
     );
     if (!mounted) return;
@@ -212,6 +233,7 @@ class _SupplierPayDialogState extends State<SupplierPayDialog> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
+              inputFormatters: decimalInputFormatters(),
               decoration: InputDecoration(
                 labelText: 'Amount',
                 prefixText: '₱ ',
@@ -350,6 +372,34 @@ class _SupplierPayDialogState extends State<SupplierPayDialog> {
                       'manager clears or bounces it once the bank answers.',
                 ),
               ],
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      key: const ValueKey('pay-proof-attachment'),
+                      controller: _proofAttachment,
+                      decoration: const InputDecoration(
+                        labelText: 'Proof attachment (optional)',
+                        helperText:
+                            'Receipt, deposit slip or cheque photo filename/reference. '
+                            'Payments without proof show an amber "No proof attached" badge.',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: OutlinedButton.icon(
+                      key: const ValueKey('pay-choose-proof-file'),
+                      onPressed: _submitting ? null : _pickProofFile,
+                      icon: const Icon(Icons.attach_file, size: 18),
+                      label: const Text('Attach file'),
+                    ),
+                  ),
+                ],
+              ),
             ],
             if (_refusal case final refusal?) ...[
               const SizedBox(height: AppSpacing.lg),

@@ -120,6 +120,7 @@ class SupplierPayment {
     this.decidedAt,
     this.decisionReason = '',
     this.creditNoteId,
+    this.proofAttachment = '',
   });
 
   final int id;
@@ -148,6 +149,11 @@ class SupplierPayment {
 
   /// The credit note a `CREDIT` payment spent; null for every other method.
   final int? creditNoteId;
+
+  /// Optional proof of payment (receipt/slip/cheque filename or reference).
+  final String proofAttachment;
+
+  bool get hasProof => proofAttachment.trim().isNotEmpty;
 
   /// [method]'s label, or the raw code when this build does not know it (a
   /// payment is history: its row must still read, not crash the dialog).
@@ -186,6 +192,7 @@ class SupplierPayment {
       creditNoteId: json['credit_note'] == null
           ? null
           : intField(json, 'credit_note'),
+      proofAttachment: json['proof_attachment'] as String? ?? '',
     );
   }
 }

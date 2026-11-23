@@ -134,6 +134,10 @@ class BodegaClaim {
     required this.lines,
     this.releases = const [],
     this.smsCode = '',
+    this.isDelivery = false,
+    this.deliveryNo = '',
+    this.deliveryStatus = '',
+    this.deliveryAddress = '',
   });
 
   final int saleId;
@@ -151,6 +155,13 @@ class BodegaClaim {
   /// Optional 4-digit SMS verification code for offline Bodega release replies.
   final String smsCode;
 
+  /// True when this Bodega claim is for a scheduled/out-for-delivery store delivery
+  /// rather than a walk-in customer pick-up.
+  final bool isDelivery;
+  final String deliveryNo;
+  final String deliveryStatus;
+  final String deliveryAddress;
+
   factory BodegaClaim.fromJson(Map<String, dynamic> json) => BodegaClaim(
     saleId: intField(json, 'sale'),
     transactionNo: stringField(json, 'transaction_no'),
@@ -162,6 +173,10 @@ class BodegaClaim {
     lines: nestedList(json, 'lines', BodegaClaimLine.fromJson),
     releases: nestedList(json, 'releases', BodegaRelease.fromJson),
     smsCode: json['sms_code'] as String? ?? '',
+    isDelivery: boolFieldOr(json, 'is_delivery', or: false),
+    deliveryNo: json['delivery_no'] as String? ?? '',
+    deliveryStatus: json['delivery_status'] as String? ?? '',
+    deliveryAddress: json['delivery_address'] as String? ?? '',
   );
 
   Map<String, dynamic> toJson() => {
@@ -175,6 +190,10 @@ class BodegaClaim {
     'lines': [for (final line in lines) line.toJson()],
     'releases': [for (final release in releases) release.toJson()],
     'sms_code': smsCode,
+    'is_delivery': isDelivery,
+    'delivery_no': deliveryNo,
+    'delivery_status': deliveryStatus,
+    'delivery_address': deliveryAddress,
   };
 }
 

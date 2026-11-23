@@ -151,6 +151,7 @@ class PayablesViewmodel extends ChangeNotifier {
     String? chequeBank,
     DateTime? chequeDate,
     int? creditNoteId,
+    String proofAttachment = '',
   }) async {
     if (_isSubmitting) return null;
     _isSubmitting = true;
@@ -170,6 +171,8 @@ class PayablesViewmodel extends ChangeNotifier {
           'cheque_bank': chequeBank,
         if (chequeDate != null) 'cheque_date': _isoDate(chequeDate),
         'credit_note': ?creditNoteId,
+        if (proofAttachment.trim().isNotEmpty)
+          'proof_attachment': proofAttachment.trim(),
       });
     } on PayablesServiceException catch (error) {
       _payError = error.message;
@@ -345,6 +348,21 @@ class PayablesViewmodel extends ChangeNotifier {
     if (_payError == null) return;
     _payError = null;
     notifyListeners();
+  }
+
+  /// Attaches or updates proof on an existing supplier payment and refreshes the bill.
+  Future<String?> attachPaymentProof({
+    required int billId,
+    required int paymentId,
+    required String proofAttachment,
+  }) async {
+    try {
+      await _repository.attachPaymentProof(paymentId, proofAttachment);
+    } on PayablesServiceException catch (error) {
+      return error.message;
+    }
+    await _refreshAfterPayment(billId);
+    return null;
   }
 
   /// `YYYY-MM-DD`: a `DateField` server-side rejects a timestamp, and a cheque

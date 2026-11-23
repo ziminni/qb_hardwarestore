@@ -56,4 +56,9 @@ class PayablesRepository {
 
   Future<SupplierPayment> bounceCheque(int paymentId, String reason) =>
       _service.bounceCheque(paymentId, reason);
+
+  Future<SupplierPayment> attachPaymentProof(
+    int paymentId,
+    String proofAttachment,
+  ) => _service.attachPaymentProof(paymentId, proofAttachment);
 }

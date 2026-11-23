@@ -13,6 +13,8 @@ class HeldCartItem {
     required this.qty,
     required this.unitPrice,
     this.discount,
+    this.productName = '',
+    this.unitCode = '',
   });
 
   factory HeldCartItem.fromJson(Map<String, dynamic> json) {
@@ -37,6 +39,8 @@ class HeldCartItem {
       qty: decimalField(json, 'qty'),
       unitPrice: decimalField(json, 'unit_price'),
       discount: parsedDiscount,
+      productName: (json['product_name'] as String? ?? '').trim(),
+      unitCode: (json['unit_code'] as String? ?? '').trim(),
     );
   }
 
@@ -49,6 +53,8 @@ class HeldCartItem {
   final double qty;
   final double unitPrice;
   final PosDiscount? discount;
+  final String productName;
+  final String unitCode;
 
   double get subtotal => qty * unitPrice;
 

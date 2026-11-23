@@ -1298,7 +1298,7 @@ class _OrVatComparisonPanel extends StatelessWidget {
               const SizedBox(width: AppSpacing.xs),
               const Expanded(
                 child: Text(
-                  'VAT Breakdown — Whole Sales vs. BIR OR Only',
+                  'VAT Breakdown — Whole Sales vs. OR-Tagged Only',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
@@ -1330,7 +1330,7 @@ class _OrVatComparisonPanel extends StatelessWidget {
                 ),
                 _VatBucketCard(
                   key: const ValueKey('vat-bucket-or'),
-                  title: 'BIR OR Only (Official Receipt)',
+                  title: 'OR-Tagged Only (Official Receipt)',
                   badge:
                       '${formatCount(split.orBacked.transactions)} OR · $orPct%',
                   vat: split.orBacked.vat,
@@ -1622,10 +1622,10 @@ class _VatOrTab extends StatelessWidget {
           const SizedBox(height: AppSpacing.sm),
           const _ReportExplainer(
             icon: Icons.receipt_long_outlined,
-            title: 'Whole VAT vs. BIR OR-Only VAT',
+            title: 'Whole VAT vs. OR-Tagged Only VAT',
             body:
                 'Whole VAT includes every completed sale in this range. '
-                'BIR OR Only totals only sales tagged with a paper Official Receipt '
+                'OR-Tagged Only totals only sales tagged with a paper Official Receipt '
                 '(at checkout or later via Attach OR). Untagged OS tracks Order Slips '
                 'without an OR number.',
           ),

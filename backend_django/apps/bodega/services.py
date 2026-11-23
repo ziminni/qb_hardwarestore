@@ -131,13 +131,19 @@ def _released_by_key(sale_ids=None, *, excluded_sales=None):
     return released
 
 
-def claim_lines(sale_ids=None):
+def claim_lines(sale_ids=None, *, include_dispatch=False):
     """Every claim line: `[{sale_id, variant_id, location_id, sold, released, remaining}]`.
 
     `remaining` never goes below zero: goods handed over and THEN returned at the counter
     make `sold - released` negative, and "owes the customer -2" means nothing at a gate.
+
+    When `include_dispatch=False` (used by `unreleased_by_variant_location` for
+    `bodega_stock`), delivery sales are excluded so `unreleased` and `awaiting_dispatch`
+    never double-count. When `include_dispatch=True` (used by the Bodega Checker's claims
+    queue, receipt lookup, and release recording), Bodega-shelved delivery sales are
+    included so the Bodega Checker can see and release/load them as "For Delivery" loads.
     """
-    dispatch = _dispatch_sales(sale_ids)
+    dispatch = None if include_dispatch else _dispatch_sales(sale_ids)
     sold = _sold_by_key(sale_ids, excluded_sales=dispatch)
     released = _released_by_key(sale_ids, excluded_sales=dispatch)
     lines = []
@@ -163,7 +169,7 @@ def claim_lines(sale_ids=None):
 def unreleased_by_variant_location():
     """`{(variant_id, location_id): base qty paid for and still on the shelf}`."""
     totals = defaultdict(lambda: ZERO)
-    for line in claim_lines():
+    for line in claim_lines(include_dispatch=False):
         totals[(line["variant_id"], line["location_id"])] += line["remaining"]
     return totals
 
@@ -183,8 +189,6 @@ def find_sale(reference):
     )
     if sale is None:
         raise NoBodegaClaim(f'No sale has the receipt number "{reference}".')
-    if _dispatch_sales([sale.pk]).exists():
-        raise NoBodegaClaim("This receipt is for delivery. Open Sales → Deliveries.")
     return sale
 
 
@@ -222,7 +226,7 @@ def record_release(*, sale, checker, received_by, plate_no, notes, lines):
 
     open_lines = {
         (line["variant_id"], line["location_id"]): line
-        for line in claim_lines([sale.pk])
+        for line in claim_lines([sale.pk], include_dispatch=True)
     }
     if not open_lines:
         raise NoBodegaClaim(

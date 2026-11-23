@@ -80,11 +80,12 @@ void main() {
     );
     expect(
       inventoryOrder.length,
-      18,
+      16,
       reason:
-          'the inventory sidebar has 18 destinations — Phase 5 F2 APPENDED '
-          'Payables at 13, F3 APPENDED Deliveries at 14 (decision 18), Phase 9 '
-          'F3 APPENDED Transfers at 15, Import & export at 16, and Price list at 17',
+          'the inventory sidebar has 16 stock-focused destinations — Sales and '
+          'Payables were removed from Stocker, Supplier returns sits at 9 under '
+          'Purchasing, Reports at 10, Settings at 11, Deliveries at 12, '
+          'Transfers at 13, Import & export at 14, and Price list at 15',
     );
     expect(
       tillOrder.length,
@@ -131,23 +132,15 @@ void main() {
     // Receiving must sit at 8, not 9: the sidebar's index 9 is "Returns".
     // When this was the other way round the Returns tab opened Receiving.
     expect(inventoryOrder[8], AppRoutes.inventoryReceiving);
-    expect(inventoryOrder[9], AppRoutes.inventorySales);
-    expect(inventoryOrder[10], AppRoutes.inventoryReturns);
-    expect(inventoryOrder[11], AppRoutes.inventoryReports);
-    expect(inventoryOrder[12], AppRoutes.inventorySettings);
+    expect(inventoryOrder[9], AppRoutes.inventoryReturns);
+    expect(inventoryOrder[10], AppRoutes.inventoryReports);
+    expect(inventoryOrder[11], AppRoutes.inventorySettings);
     expect(
-      inventoryOrder[13],
-      AppRoutes.inventoryPayables,
-      reason:
-          'Phase 5 F2 APPENDED Payables at 13, so the Stock Manager reads what '
-          'the shop owes without any earlier tab moving',
-    );
-    expect(
-      inventoryOrder[14],
+      inventoryOrder[12],
       AppRoutes.inventoryDeliveries,
       reason:
-          'Phase 5 F3 APPENDED Deliveries at 14 (decision 18): the Stock Manager '
-          'runs the schedule, and every earlier tab keeps its number',
+          'Deliveries sits at 12 in the Stock Manager sidebar after removing '
+          'Sales and Payables',
     );
     expect(tillOrder[0], AppRoutes.posDashboard);
     expect(tillOrder[2], AppRoutes.posRelease);

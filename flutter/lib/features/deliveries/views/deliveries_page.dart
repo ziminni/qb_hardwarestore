@@ -207,7 +207,7 @@ class _DeliveriesBodyState extends State<_DeliveriesBody> {
       DeliveriesShell.pos => DashboardShell(
         title: 'Deliveries',
         subtitle:
-            'Your delivery slips. Start your till sales when the goods leave.',
+            'Store delivery schedule. Mark deliveries out for delivery, delivered, or failed.',
         selectedNavigationIndex: 9,
         navigationItems: posNavigationItems,
         scrollable: false,
@@ -217,7 +217,7 @@ class _DeliveriesBodyState extends State<_DeliveriesBody> {
       DeliveriesShell.inventory => InventorySkeletonLayout(
         title: 'Deliveries',
         subtitle: 'The delivery schedule: what goes out, when, and by whom.',
-        selectedNavigationIndex: 14,
+        selectedNavigationIndex: 12,
         scrollable: false,
         onNavigationSelected: (index) => navigateInventory(context, index),
         child: content,
@@ -553,27 +553,24 @@ class _DeliveriesBodyState extends State<_DeliveriesBody> {
   /// wire, which is what stops a double click becoming a second POST.
   Widget _actions(DeliveriesViewmodel state, Delivery delivery) {
     final busy = state.isMoving(delivery.id);
-    final till = widget.shell == DeliveriesShell.pos;
     return Wrap(
       spacing: 4,
       runSpacing: 4,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        if (delivery.status.canStart &&
-            (!till ||
-                (delivery.saleId != null && delivery.salesOrderId == null)))
+        if (delivery.status.canStart)
           TextButton(
             key: ValueKey('delivery-start-${delivery.id}'),
             onPressed: busy ? null : () => _start(delivery),
             child: const Text('Start'),
           ),
-        if (!till && delivery.status.canDeliver)
+        if (delivery.status.canDeliver)
           TextButton(
             key: ValueKey('delivery-delivered-${delivery.id}'),
             onPressed: busy ? null : () => _deliver(delivery),
             child: const Text('Delivered'),
           ),
-        if (!till && delivery.status.canFail)
+        if (delivery.status.canFail)
           TextButton(
             key: ValueKey('delivery-failed-${delivery.id}'),
             onPressed: busy ? null : () => _fail(delivery),

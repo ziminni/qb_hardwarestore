@@ -5,6 +5,7 @@ import 'package:client/data/models/supplier_payables.dart';
 import 'package:client/data/models/supplier_returns.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/status_badge.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 /// One bill, read-only, with the payment history the ledger keeps.
@@ -22,6 +23,7 @@ class SupplierBillDetailsDialog extends StatelessWidget {
     required this.bill,
     this.canPay = false,
     this.creditNotes = const [],
+    this.onAttachProof,
   });
 
   final SupplierBill bill;
@@ -30,6 +32,10 @@ class SupplierBillDetailsDialog extends StatelessWidget {
   /// The notes read for this screen, so a `CREDIT` row can name the note it
   /// spent. A row whose note is not here still reads, by its own id.
   final List<SupplierCreditNote> creditNotes;
+
+  /// Optional callback to attach or update proof on an existing payment row.
+  final Future<String?> Function(SupplierPayment payment, String proofAttachment)?
+  onAttachProof;
 
   String get _terms =>
       bill.termsDays == 0 ? 'Due on receipt' : '${bill.termsDays} days';
@@ -111,7 +117,7 @@ class SupplierBillDetailsDialog extends StatelessWidget {
               ),
             )
           else
-            for (final payment in bill.payments) _payment(payment),
+            for (final payment in bill.payments) _payment(context, payment),
         ],
       ),
       actions: [
@@ -129,7 +135,102 @@ class SupplierBillDetailsDialog extends StatelessWidget {
     );
   }
 
-  Widget _payment(SupplierPayment payment) {
+  Future<void> _promptAttachProof(
+    BuildContext context,
+    SupplierPayment payment,
+  ) async {
+    final handler = onAttachProof;
+    if (handler == null) return;
+    final controller = TextEditingController(text: payment.proofAttachment);
+    String? errorText;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text(
+            payment.hasProof
+                ? 'Update payment proof'
+                : 'Attach payment proof',
+          ),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  key: ValueKey('proof-input-${payment.id}'),
+                  controller: controller,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    labelText: 'Receipt / slip filename or reference',
+                    hintText: 'e.g. deposit-slip-001.jpg or OR#12345',
+                    errorText: errorText,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    key: ValueKey('proof-pick-file-${payment.id}'),
+                    onPressed: () async {
+                      const group = XTypeGroup(
+                        label: 'Receipts & images',
+                        extensions: <String>['jpg', 'jpeg', 'png', 'pdf', 'webp'],
+                      );
+                      final file = await openFile(
+                        acceptedTypeGroups: <XTypeGroup>[group],
+                      );
+                      if (file != null) {
+                        setDialogState(() {
+                          controller.text = file.name;
+                          errorText = null;
+                        });
+                      }
+                    },
+                    icon: const Icon(Icons.attach_file, size: 18),
+                    label: const Text('Choose file'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: ValueKey('proof-save-${payment.id}'),
+              onPressed: () async {
+                final text = controller.text.trim();
+                if (text.isEmpty) {
+                  setDialogState(() {
+                    errorText = 'Enter a proof reference or choose a file.';
+                  });
+                  return;
+                }
+                final err = await handler(payment, text);
+                if (!dialogContext.mounted) return;
+                if (err != null) {
+                  setDialogState(() => errorText = err);
+                  return;
+                }
+                Navigator.pop(dialogContext, true);
+              },
+              child: const Text('Save proof'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    if (saved == true && context.mounted) {
+      Navigator.pop(context, false);
+    }
+  }
+
+  Widget _payment(BuildContext context, SupplierPayment payment) {
     final facts = [
       payment.methodLabel,
       // A credit row's whole point: no money left the till, a note did.
@@ -161,15 +262,43 @@ class SupplierBillDetailsDialog extends StatelessWidget {
                   facts,
                   style: const TextStyle(color: AppColors.textSecondary),
                 ),
-                // A payment carries its OWN status: a supplier cheque is issued
-                // until a manager decides it, whatever the bill says.
-                if (payment.statusLabel.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.xs),
-                  StatusBadge(
-                    label: payment.statusLabel,
-                    tone: _paymentTone(payment.status),
-                  ),
-                ],
+                const SizedBox(height: AppSpacing.xs),
+                Wrap(
+                  spacing: AppSpacing.xs,
+                  runSpacing: AppSpacing.xs,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    // A payment carries its OWN status: a supplier cheque is issued
+                    // until a manager decides it, whatever the bill says.
+                    if (payment.statusLabel.isNotEmpty)
+                      StatusBadge(
+                        label: payment.statusLabel,
+                        tone: _paymentTone(payment.status),
+                      ),
+                    if (payment.method != SupplierPaymentMethod.credit)
+                      payment.hasProof
+                          ? StatusBadge(
+                              label: 'Proof: ${payment.proofAttachment}',
+                              tone: StatusTone.success,
+                            )
+                          : const StatusBadge(
+                              label: 'No proof attached',
+                              tone: StatusTone.warning,
+                            ),
+                    if (canPay &&
+                        onAttachProof != null &&
+                        payment.method != SupplierPaymentMethod.credit)
+                      TextButton.icon(
+                        key: ValueKey('attach-proof-${payment.id}'),
+                        onPressed: () => _promptAttachProof(context, payment),
+                        icon: const Icon(Icons.attach_file, size: 15),
+                        label: Text(
+                          payment.hasProof ? 'Update proof' : 'Attach proof',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                  ],
+                ),
               ],
             ),
           ),

@@ -213,6 +213,7 @@ def record_supplier_payment(
     cheque_number="",
     cheque_bank="",
     cheque_date=None,
+    proof_attachment="",
     user,
 ):
     """Post one payment against one bill; returns the payment row.
@@ -257,6 +258,7 @@ def record_supplier_payment(
         cheque_number=(cheque_number or "").strip(),
         cheque_bank=(cheque_bank or "").strip(),
         cheque_date=cheque_date,
+        proof_attachment=(proof_attachment or "").strip()[:255],
         # Phase 8 B1 (decision 20 #3): a cheque is a PROMISE, so it starts ISSUED and a
         # manager decides it later; the balance still drops here, at issue. Cash and
         # transfers leave nothing to decide, so they are born settled.

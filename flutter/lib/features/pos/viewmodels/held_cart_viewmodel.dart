@@ -45,9 +45,17 @@ class HeldCartViewmodel extends ChangeNotifier {
   HeldCart? _pendingResume;
   HeldCart? get pendingResume => _pendingResume;
 
-  /// Hands [cart] to the till. The caller navigates immediately after.
+  /// IDs of held carts currently resumed into the till so they immediately
+  /// disappear from the Held Transactions list and are not shown again on reload.
+  final Set<int> _resumedCartIds = <int>{};
+
+  /// Hands [cart] to the till and removes it from the visible Held queue immediately.
   void resumeCart(HeldCart cart) {
     _pendingResume = cart;
+    _resumedCartIds.add(cart.id);
+    _carts = _carts
+        .where((existing) => existing.id != cart.id)
+        .toList(growable: false);
     notifyListeners();
   }
 
@@ -69,7 +77,11 @@ class HeldCartViewmodel extends ChangeNotifier {
     isLoading = true;
     notifyListeners();
     try {
-      _carts = await _service.fetchAll();
+      final fetched = await _service.fetchAll();
+      _carts = [
+        for (final cart in fetched)
+          if (!_resumedCartIds.contains(cart.id)) cart,
+      ];
       loadError = null;
     } on HeldCartServiceException catch (failure) {
       // Deliberately NOT `_carts = []`: see the class comment.

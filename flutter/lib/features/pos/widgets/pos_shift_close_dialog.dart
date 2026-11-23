@@ -2,6 +2,7 @@ import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
+import 'package:client/core/format/numeric_input.dart';
 import 'package:client/data/models/shift.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_z_reading_summary.dart';
@@ -321,6 +322,7 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
                                   key: ValueKey('denom-${d.key}'),
                                   controller: _denomControllers[d.key],
                                   keyboardType: TextInputType.number,
+                                  inputFormatters: integerInputFormatters(),
                                   textAlign: TextAlign.center,
                                   style: const TextStyle(
                                     fontSize: 13,
@@ -377,13 +379,17 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
           TextField(
             controller: _controller,
             autofocus: true,
+            inputFormatters: decimalInputFormatters(),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Actual cash counted in drawer',
               helperText:
                   'Total physical cash inside the register right now (or use the bill & coin counter above).',
+              errorText: _controller.text.trim().isNotEmpty && count == null
+                  ? 'Enter a valid non-negative cash amount.'
+                  : null,
               prefixText: '₱ ',
-              border: OutlineInputBorder(),
+              border: const OutlineInputBorder(),
             ),
             onChanged: (_) => setState(() {}),
           ),
@@ -394,6 +400,7 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
           TextField(
             controller: _leftController,
             enabled: !_cleared,
+            inputFormatters: decimalInputFormatters(),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: InputDecoration(
               labelText: 'Keep in drawer (Next shift float)',

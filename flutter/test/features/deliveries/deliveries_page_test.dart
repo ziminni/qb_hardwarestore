@@ -163,7 +163,7 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
   setUpAll(_loadAppFonts);
 
-  testWidgets('cashier can start till sales but cannot close or start orders', (
+  testWidgets('cashier can start, deliver and fail both till sales and orders', (
     tester,
   ) async {
     final service = _StubService(
@@ -177,12 +177,15 @@ void main() {
       tester,
       PosDeliveriesPage(viewmodel: DeliveriesViewmodel(service: service)),
     );
-    expect(find.byKey(const ValueKey('delivery-start-2')), findsNothing);
-    expect(find.byKey(const ValueKey('delivery-failed-1')), findsNothing);
-    expect(find.byKey(const ValueKey('delivery-delivered-3')), findsNothing);
+    expect(find.byKey(const ValueKey('delivery-start-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('delivery-start-2')), findsOneWidget);
+    expect(find.byKey(const ValueKey('delivery-failed-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('delivery-delivered-3')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('delivery-start-1')));
     await tester.pumpAndSettle();
-    expect(service.calls, ['load', 'start:1']);
+    await tester.tap(find.byKey(const ValueKey('delivery-delivered-3')));
+    await tester.pumpAndSettle();
+    expect(service.calls, ['load', 'start:1', 'deliver:3']);
     expect(tester.takeException(), isNull);
   });
 

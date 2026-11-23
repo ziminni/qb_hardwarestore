@@ -1839,7 +1839,7 @@ class SupplierPaymentViewSet(
     def get_permissions(self):
         # Phase 8 B1 (decision 20 #3): deciding a cheque moves the shop's debt, so it is a
         # manager's act exactly as recording the payment was.
-        if self.action in ("create", "clear", "bounce"):
+        if self.action in ("create", "clear", "bounce", "proof"):
             return [IsManagerRole()]
         return [IsInventoryRole()]
 
@@ -1908,6 +1908,7 @@ class SupplierPaymentViewSet(
                     cheque_number=data.get("cheque_number", ""),
                     cheque_bank=data.get("cheque_bank", ""),
                     cheque_date=data.get("cheque_date"),
+                    proof_attachment=data.get("proof_attachment", ""),
                     user=request.user,
                 )
                 # Same block as the payment and the moved balance (decision 07): a failed
@@ -1922,6 +1923,31 @@ class SupplierPaymentViewSet(
         return Response(
             self.get_serializer(payment).data, status=status.HTTP_201_CREATED
         )
+
+    @action(detail=True, methods=["post"], url_path="proof")
+    def proof(self, request, pk=None):
+        """POST /supplier-payments/{id}/proof/ {proof_attachment} -> attach or update proof."""
+        from .exceptions import InvalidSupplierPayment
+
+        payment = self.get_object()
+        raw_proof = request.data.get("proof_attachment")
+        if raw_proof is None and "proof_file" in request.FILES:
+            raw_proof = request.FILES["proof_file"].name
+        proof_text = (raw_proof if isinstance(raw_proof, str) else "").strip()[:255]
+        if not proof_text:
+            raise InvalidSupplierPayment(
+                "proof_attachment is required when attaching proof to a supplier payment."
+            )
+        with transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+            payment.proof_attachment = proof_text
+            payment.save(update_fields=["proof_attachment"])
+            audit_request(
+                request,
+                AuditLog.ActionType.PAYMENT,
+                f"Proof '{proof_text}' attached to supplier payment #{payment.pk} "
+                f"(bill #{payment.bill_id}) by {request.user.username}.",
+            )
+        return Response(self.get_serializer(payment).data)
 
     @action(detail=True, methods=["post"])
     def clear(self, request, pk=None):

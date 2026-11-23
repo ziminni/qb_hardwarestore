@@ -117,9 +117,21 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
     _projectsOnly,
   ];
 
+  static const String _allPaymentDates = 'All dates';
+  static const String _customPaymentDate = 'Custom range';
+  static const List<String> _paymentDateChips = [
+    _allPaymentDates,
+    'Today',
+    'This week',
+    'This month',
+    _customPaymentDate,
+  ];
+
   bool _partPaidOnly = false;
   String _accountType = _allAccounts;
   String _paymentsAccountType = _allAccounts;
+  String _paymentsDateFilter = _allPaymentDates;
+  DateTimeRange? _paymentsCustomRange;
   String _query = '';
   String _paymentsQuery = '';
   String _receiptsQuery = '';
@@ -753,10 +765,58 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
     LedgerStatus.paid => StatusTone.neutral,
   };
 
+  Future<void> _pickPaymentCustomDateRange() async {
+    final now = appClock.now();
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 2),
+      lastDate: DateTime(now.year + 1),
+      currentDate: now,
+      initialDateRange:
+          _paymentsCustomRange ??
+          DateTimeRange(
+            start: DateTime(now.year, now.month, now.day).subtract(
+              const Duration(days: 7),
+            ),
+            end: DateTime(now.year, now.month, now.day),
+          ),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _paymentsCustomRange = picked;
+      _paymentsDateFilter = _customPaymentDate;
+    });
+  }
+
+  bool _matchesPaymentDate(DateTime paidOn) {
+    final local = paidOn.toLocal();
+    final now = appClock.now().toLocal();
+    final day = DateTime(local.year, local.month, local.day);
+    final today = DateTime(now.year, now.month, now.day);
+    return switch (_paymentsDateFilter) {
+      'Today' => day == today,
+      'This week' => () {
+        final monday = today.subtract(Duration(days: today.weekday - 1));
+        final nextMonday = monday.add(const Duration(days: 7));
+        return !day.isBefore(monday) && day.isBefore(nextMonday);
+      }(),
+      'This month' => local.year == now.year && local.month == now.month,
+      _customPaymentDate => () {
+        final r = _paymentsCustomRange;
+        if (r == null) return true;
+        final start = DateTime(r.start.year, r.start.month, r.start.day);
+        final end = DateTime(r.end.year, r.end.month, r.end.day);
+        return !day.isBefore(start) && !day.isAfter(end);
+      }(),
+      _ => true,
+    };
+  }
+
   List<LedgerPayment> _visiblePayments(SalesReceivablesViewmodel viewmodel) {
     final rows = [
       for (final payment in viewmodel.payments)
-        if (_matchesAccountType(payment.projectName, _paymentsAccountType))
+        if (_matchesAccountType(payment.projectName, _paymentsAccountType) &&
+            _matchesPaymentDate(payment.paymentDate))
           payment,
     ];
     final query = _paymentsQuery.trim().toLowerCase();
@@ -823,7 +883,46 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
           options: _accountTypeChips,
           selected: _paymentsAccountType,
           onSelected: (chip) => setState(() => _paymentsAccountType = chip),
+          extraOptionsLabel: 'Date',
+          extraOptions: _paymentDateChips,
+          extraSelected: _paymentsDateFilter,
+          onExtraSelected: (chip) {
+            if (chip == _customPaymentDate) {
+              _pickPaymentCustomDateRange();
+            } else {
+              setState(() => _paymentsDateFilter = chip);
+            }
+          },
         ),
+        if (_paymentsDateFilter == _customPaymentDate &&
+            _paymentsCustomRange != null) ...[
+          const SizedBox(height: AppSpacing.xs),
+          Wrap(
+            spacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                'Custom range: ${formatDate(_paymentsCustomRange!.start)} – ${formatDate(_paymentsCustomRange!.end)} (${rows.length} shown)',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              TextButton(
+                onPressed: _pickPaymentCustomDateRange,
+                child: const Text('Change dates'),
+              ),
+              TextButton(
+                onPressed: () => setState(() {
+                  _paymentsDateFilter = _allPaymentDates;
+                  _paymentsCustomRange = null;
+                }),
+                child: const Text('Clear range'),
+              ),
+            ],
+          ),
+        ],
         if (failure != null) ...[
           const SizedBox(height: AppSpacing.md),
           ErrorBanner(message: failure, onRetry: viewmodel.load),

@@ -1,6 +1,7 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
+import 'package:client/core/format/numeric_input.dart';
 import 'package:client/data/models/shift.dart';
 import 'package:client/features/pos/viewmodels/shift_viewmodel.dart';
 import 'package:flutter/material.dart';
@@ -199,13 +200,19 @@ class _ShiftCashMovementDialogState extends State<_ShiftCashMovementDialog> {
                 key: const ValueKey('cash-movement-amount'),
                 controller: _amountController,
                 autofocus: true,
+                inputFormatters: decimalInputFormatters(),
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Amount',
                   prefixText: '₱ ',
-                  border: OutlineInputBorder(),
+                  helperText: 'Numbers only (greater than ₱0.00)',
+                  errorText: _amountController.text.trim().isNotEmpty &&
+                          _amount == null
+                      ? 'Enter a valid amount greater than 0.'
+                      : null,
+                  border: const OutlineInputBorder(),
                 ),
                 onChanged: (_) => setState(() {}),
               ),

@@ -208,7 +208,7 @@ void main() {
     test('Stock + Store Manager: shared pages once, under Sales', () {
       final rows = MergedSidebar.rows(const ['inventory', 'sales']);
 
-      expect(rows.length, 29, reason: '18 Stock + 14 Sales - 4 shared + 1');
+      expect(rows.length, 28, reason: '16 Stock + 14 Sales - 3 shared + 1');
       for (final sharedKey in const ['payables', 'deliveries', 'transfers', 'price-list']) {
         final owned = rows.where((row) => row.sharedKey == sharedKey).toList();
         expect(owned.length, 1, reason: '$sharedKey appears once');
@@ -230,12 +230,12 @@ void main() {
       );
     });
 
-    test('all five areas: 52 rows become 47, every identity once', () {
+    test('all five areas: 50 rows become 46, every identity once', () {
       final rows = MergedSidebar.rows(AppAreas.codes);
 
-      // 52 area rows - 6 duplicates + 1 landing = 47.
-      expect(rows.length, 47);
-      expect(rows.map((row) => row.id).toSet().length, 47);
+      // 50 area rows - 5 duplicates + 1 landing = 46.
+      expect(rows.length, 46);
+      expect(rows.map((row) => row.id).toSet().length, 46);
       for (final sharedKey in AppDestinations.sharedIds) {
         expect(
           rows.where((row) => row.sharedKey == sharedKey).length,
@@ -277,18 +277,18 @@ void main() {
     });
 
     test('a merged row carries the widest area route, never a twin', () {
-      // Owner 2026-11-18: the Admin has no Payables, so an Admin + Stock
+      // Owner 2026-11-18: the Admin has no Deliveries, so an Admin + Stock
       // account's row is the stock one.
       final rows = MergedSidebar.rows(const ['admin', 'inventory']);
-      final payables = rows.firstWhere((row) => row.id == 'payables');
+      final deliveries = rows.firstWhere((row) => row.id == 'deliveries');
 
-      expect(payables.area, AppAreas.inventory);
-      expect(payables.route, AppRoutes.inventoryPayables);
+      expect(deliveries.area, AppAreas.inventory);
+      expect(deliveries.route, AppRoutes.inventoryDeliveries);
 
       final salesAndStock = MergedSidebar.rows(const ['inventory', 'sales']);
       expect(
-        salesAndStock.firstWhere((row) => row.id == 'payables').route,
-        AppRoutes.salesPayables,
+        salesAndStock.firstWhere((row) => row.id == 'deliveries').route,
+        AppRoutes.salesDeliveries,
       );
     });
   });

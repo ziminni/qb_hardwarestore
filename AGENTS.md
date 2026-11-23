@@ -7,7 +7,7 @@ Rule: **One home per fact.** Follow the pointers; never paste a copy of a fact t
 | Setup, run, demo credentials, ports | `README.md` |
 | Architecture & Live/Mock matrix (+ cockpit) | `docs/SYSTEM_ATLAS.md` · `docs/system-atlas.html` |
 | API contract: endpoints, auth, role matrix | `ENDPOINTS.md` |
-| Unbuilt work, decisions, roadmap | `planning/MAP.md` (index) → `planning/pos-evolution/MAP.md`; completion build order 6 → 7 → 8 → 9 → 3 → 2 (decisions 19–24); **active work: documentation/owner closure** (`planning/pos-evolution/phase-3-plan.md`); Windows Excel smoke test owner-verified with unchanged stock; Phase 2 built/verified, formal phase closure pending (`phase-2-plan.md`) |
+| Unbuilt work, decisions, roadmap | **Active Plan:** `planning/store-ops-round-2-plan.md` (Store Operations Round 2: Cashier UX, Held Carts, Payables Proof, Deliveries & Stocker Sidebar); prior index: `planning/MAP.md` → `planning/pos-evolution/MAP.md` |
 | UI-refresh plan (complete) + ledger | `temp/ui-refresh/TASKS.md` · `.superpowers/sdd/ui-refresh/progress.md` (both untracked; held on the other machine, not on this Mac) |
 | QA how-to: run the app, roles, flows | `docs/testing/QA-PROFILE.md` |
 | My knowledge gaps | `docs/learning/gaps.md` |

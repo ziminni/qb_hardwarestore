@@ -65,6 +65,7 @@ def _claims_payload(lines):
         )
     import secrets
 
+    from apps.pos.models import Delivery
     from apps.sms.models import BodegaSmsTicket
 
     tickets_by_sale = {
@@ -73,14 +74,41 @@ def _claims_payload(lines):
             "sale_id", "code"
         )
     }
+    deliveries_by_sale = {}
+    for d in Delivery.objects.filter(sale_id__in=grouped.keys()):
+        deliveries_by_sale[d.sale_id] = d
+    # Also check order-linked deliveries for partial/later order fulfilments
+    missing_sale_ids = set(grouped.keys()) - set(deliveries_by_sale.keys())
+    if missing_sale_ids:
+        for sale_id_row, order_id in (
+            SalesTransaction.objects.filter(
+                pk__in=missing_sale_ids,
+                items__order_line__order_id__isnull=False,
+            )
+            .values_list("pk", "items__order_line__order_id")
+            .distinct()
+        ):
+            d = Delivery.objects.filter(sales_order_id=order_id).first()
+            if d is not None:
+                deliveries_by_sale[sale_id_row] = d
+
     out = []
     for sale_id, sale_lines in grouped.items():
         sale = sales[sale_id]
         sale_lines.sort(key=lambda row: row["label"])
         remaining = sum((row["remaining"] for row in sale_lines), services.ZERO)
         receipt = getattr(sale, "receipt", None)
+        delivery = deliveries_by_sale.get(sale.pk)
+        is_delivery = delivery is not None
+        # A delivery that was already marked DELIVERED or FAILED in Deliveries is no longer
+        # waiting at the Bodega gate to be loaded.
+        delivery_finished = is_delivery and delivery.status in (
+            Delivery.Status.DELIVERED,
+            Delivery.Status.FAILED,
+        )
+        is_open = remaining > 0 and not delivery_finished
         sms_code = tickets_by_sale.get(sale.pk, "")
-        if remaining > 0 and not sms_code:
+        if is_open and not sms_code:
             ticket, _ = BodegaSmsTicket.objects.get_or_create(
                 sale=sale,
                 defaults={"code": f"{secrets.randbelow(10000):04d}"},
@@ -94,8 +122,12 @@ def _claims_payload(lines):
                 "sms_code": sms_code,
                 "customer_name": sale.customer.name if sale.customer_id else "",
                 "sold_at": sale.trans_date,
-                "is_open": remaining > 0,
+                "is_open": is_open,
                 "remaining_total": remaining,
+                "is_delivery": is_delivery,
+                "delivery_no": delivery.delivery_no if delivery else "",
+                "delivery_status": delivery.status if delivery else "",
+                "delivery_address": delivery.address if delivery else "",
                 "lines": sale_lines,
             }
         )
@@ -136,7 +168,7 @@ class BodegaClaimListView(APIView):
                     )
                 ).values_list("pk", flat=True)[:200]
             )
-        claims = _claims_payload(services.claim_lines(sale_ids))
+        claims = _claims_payload(services.claim_lines(sale_ids, include_dispatch=True))
         if only_open:
             claims = [claim for claim in claims if claim["is_open"]]
         return Response(claims)
@@ -149,7 +181,7 @@ class BodegaClaimLookupView(APIView):
 
     def get(self, request):
         sale = services.find_sale(request.query_params.get("receipt", ""))
-        claims = _claims_payload(services.claim_lines([sale.pk]))
+        claims = _claims_payload(services.claim_lines([sale.pk], include_dispatch=True))
         if not claims:
             raise services.NoBodegaClaim(
                 f"Sale {sale.transaction_no} took nothing from the Bodega, so there is "

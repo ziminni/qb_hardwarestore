@@ -226,6 +226,33 @@ class PayablesService {
   Future<SupplierPayment> bounceCheque(int paymentId, String reason) =>
       _decideCheque(paymentId, 'bounce', reason: reason);
 
+  /// Attaches or updates proof of payment on an existing supplier payment.
+  Future<SupplierPayment> attachPaymentProof(
+    int paymentId,
+    String proofAttachment,
+  ) async {
+    try {
+      final response = await _client.post<dynamic>(
+        '$paymentsPath$paymentId/proof/',
+        data: {'proof_attachment': proofAttachment.trim()},
+      );
+      final body = response.data;
+      if (body is! Map<String, dynamic>) {
+        throw const FormatException('A payment is a single object.');
+      }
+      return SupplierPayment.fromJson(body);
+    } on DioException catch (error) {
+      throw PayablesServiceException(
+        _message(error, 'Could not attach payment proof.'),
+        code: _codeFor(error),
+      );
+    } on FormatException catch (error) {
+      throw PayablesServiceException(
+        'Proof was attached, but the payment could not be read back. (${error.message})',
+      );
+    }
+  }
+
   Future<SupplierPayment> _decideCheque(
     int paymentId,
     String action, {

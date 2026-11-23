@@ -155,7 +155,7 @@ void main() {
       for (final row in summary.rows)
         for (final cell in row) cell?.value?.toString() ?? '',
     ];
-    expect(cells, contains('BIR OR Only (Official Receipt)'));
+    expect(cells, contains('OR-Tagged Only (Official Receipt)'));
     expect(cells, contains('24'));
     expect(cells, contains('84'));
   });

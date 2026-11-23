@@ -39,6 +39,7 @@ List<String> _sidebarLabels() => AppDestinations.labelsFor(AppAreas.inventory);
 /// listed here instead of being derived from its words.
 const _renamedRoutes = <String, String>{
   'Stock adjustments': 'inventoryStockMovements',
+  'Supplier returns': 'inventoryReturns',
   // The label carries an ampersand, which no route constant can.
   'Import & export': 'inventoryImportExport',
 };
@@ -80,19 +81,12 @@ const _inventoryPaths = <String>[
   AppRoutes.inventoryPurchases,
   AppRoutes.inventorySuppliers,
   AppRoutes.inventoryReceiving,
-  AppRoutes.inventorySales,
   AppRoutes.inventoryReturns,
   AppRoutes.inventoryReports,
   AppRoutes.inventorySettings,
-  // Phase 5 F2/F3 APPENDED the supplier-debt and delivery screens (indices 13
-  // and 14), so 0-12 keep their numbers.
-  AppRoutes.inventoryPayables,
   AppRoutes.inventoryDeliveries,
-  // Phase 9 F3 APPENDED stock transfers at 15.
   AppRoutes.inventoryTransfers,
-  // Owner 2026-11-18 APPENDED Import & export at 16.
   AppRoutes.inventoryImportExport,
-  // Phase 8 APPENDED Price list at 17.
   AppRoutes.inventoryPriceList,
 ];
 
@@ -127,17 +121,12 @@ Widget _probeApp() {
 
 void main() {
   test('the parsers find the sidebar and the navigation map', () {
-    // Guard against vacuous passes: an empty parse makes every comparison
-    // below trivially true. 17 = the 13 pre-Phase-5 destinations plus the
-    // APPENDED Payables (13), Deliveries (14), Transfers (15) and Import &
-    // export (16).
-    expect(_sidebarLabels().length, 18);
-    expect(_navOrder().length, 18);
+    expect(_sidebarLabels().length, 16);
+    expect(_navOrder().length, 16);
     expect(_sidebarLabels().first, 'Dashboard');
-    // Settings still ends the original block; the two Phase 5 sections follow it.
     expect(
       _sidebarLabels()[_sidebarLabels().indexOf('Settings') + 1],
-      'Payables',
+      'Deliveries',
     );
     expect(_sidebarLabels().last, 'Price list');
     expect(_inventoryPaths.length, _sidebarLabels().length);

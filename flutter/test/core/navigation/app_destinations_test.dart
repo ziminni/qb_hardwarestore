@@ -161,21 +161,14 @@ const _stockManagerMenu = <_Row>[
     AppRoutes.inventorySuppliers,
   ),
   _Row('Receiving', Icons.move_to_inbox_outlined, AppRoutes.inventoryReceiving),
+  _Row('Supplier returns', Icons.undo_rounded, AppRoutes.inventoryReturns),
   _Row(
-    'Sales',
-    Icons.shopping_cart_outlined,
-    AppRoutes.inventorySales,
-    'Sales',
-  ),
-  _Row('Returns', Icons.undo_rounded, AppRoutes.inventoryReturns),
-  _Row('Reports', Icons.bar_chart_rounded, AppRoutes.inventoryReports),
-  _Row('Settings', Icons.settings_outlined, AppRoutes.inventorySettings),
-  _Row(
-    'Payables',
-    Icons.account_balance_wallet_outlined,
-    AppRoutes.inventoryPayables,
+    'Reports',
+    Icons.bar_chart_rounded,
+    AppRoutes.inventoryReports,
     'Operations',
   ),
+  _Row('Settings', Icons.settings_outlined, AppRoutes.inventorySettings),
   _Row(
     'Deliveries',
     Icons.local_shipping_outlined,
@@ -299,17 +292,17 @@ void main() {
     _expectMenu(AppAreas.bodega, _bodegaMenu);
   });
 
-  test('52 menu rows are 46 pages: only the locked set is shared', () {
+  test('50 menu rows are 45 pages: only the locked set is shared', () {
     // Without the counts, an empty or duplicated registry would make every
     // per-area check above pass against nothing.
     expect(
       AppDestinations.all,
-      hasLength(52),
-      reason: '5 menus: Till 10, Sales 14, Stock 18, Admin 6, Bodega 4',
+      hasLength(50),
+      reason: '5 menus: Till 10, Sales 14, Stock 16, Admin 6, Bodega 4',
     );
     expect(
       AppDestinations.all.map((row) => row.id).toSet(),
-      hasLength(46),
+      hasLength(45),
       reason:
           'Payables, Deliveries, Reports, Project requests, Staff, Transfers '
           'and Price list appear in more than one menu; every other row is one page',
@@ -371,8 +364,7 @@ void main() {
       AppAreas.inventory: [
         ('Inventory', 0),
         ('Purchasing', 6),
-        ('Sales', 9),
-        ('Operations', 13),
+        ('Operations', 10),
       ],
       AppAreas.admin: [
         ('Overview', 0),

@@ -184,22 +184,31 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
 
   /// The manager's date range over the loaded rows. Weeks start on Monday and
   /// every comparison is local time, because the dates the reader sees are.
-  bool _matchesDate(InventorySale sale, DateTime now) => switch (_date) {
-    'Today' => _sameDay(sale.date, now),
-    'Yesterday' => _sameDay(
-      sale.date,
-      DateTime(now.year, now.month, now.day).subtract(const Duration(days: 1)),
-    ),
-    'This week' => _inWeekOf(sale.date, now),
-    'This month' => sale.date.year == now.year && sale.date.month == now.month,
-    _customDate => _inCustomRange(sale.date),
-    _ => true,
-  };
+  bool _matchesDate(InventorySale sale, DateTime now) {
+    final localDate = sale.date.toLocal();
+    final localNow = now.toLocal();
+    return switch (_date) {
+      'Today' => _sameDay(localDate, localNow),
+      'Yesterday' => _sameDay(
+        localDate,
+        DateTime(
+          localNow.year,
+          localNow.month,
+          localNow.day,
+        ).subtract(const Duration(days: 1)),
+      ),
+      'This week' => _inWeekOf(localDate, localNow),
+      'This month' =>
+        localDate.year == localNow.year && localDate.month == localNow.month,
+      _customDate => _inCustomRange(localDate),
+      _ => true,
+    };
+  }
 
-  bool _inCustomRange(DateTime date) {
+  bool _inCustomRange(DateTime localDate) {
     final range = _customRange;
     if (range == null) return true;
-    final day = DateTime(date.year, date.month, date.day);
+    final day = DateTime(localDate.year, localDate.month, localDate.day);
     final start = DateTime(
       range.start.year,
       range.start.month,
@@ -262,14 +271,19 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
             children: [
               Text(
                 _date == _customDate && _customRange != null
-                    ? 'Showing ${formatDate(_customRange!.start)} to ${formatDate(_customRange!.end)} · $_dateCaption'
+                    ? 'Custom range: ${formatDate(_customRange!.start)} – ${formatDate(_customRange!.end)} (${rows.length} shown)'
                     : _dateCaption,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
-                  color: AppColors.textSecondary,
+                  fontWeight: _date == _customDate && _customRange != null
+                      ? FontWeight.w600
+                      : FontWeight.w400,
+                  color: _date == _customDate && _customRange != null
+                      ? AppColors.textPrimary
+                      : AppColors.textSecondary,
                 ),
               ),
-              if (_date == _customDate && _customRange != null)
+              if (_date == _customDate && _customRange != null) ...[
                 TextButton(
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -279,6 +293,19 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
                   onPressed: _pickCustomDateRange,
                   child: const Text('Change dates'),
                 ),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 28),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: () => setState(() {
+                    _date = _anyDate;
+                    _customRange = null;
+                  }),
+                  child: const Text('Clear range'),
+                ),
+              ],
             ],
           ),
         ],

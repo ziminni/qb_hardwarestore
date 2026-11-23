@@ -173,7 +173,7 @@ class _TransfersBodyState extends State<_TransfersBody> {
       TransfersShell.inventory => InventorySkeletonLayout(
         title: title,
         subtitle: subtitle,
-        selectedNavigationIndex: 15,
+        selectedNavigationIndex: 13,
         scrollable: false,
         onNavigationSelected: (index) => navigateInventory(context, index),
         child: content,

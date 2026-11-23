@@ -1,6 +1,7 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/format/format.dart';
+import 'package:client/core/format/numeric_input.dart';
 import 'package:client/data/models/pos_transaction.dart';
 import 'package:client/data/models/sale_discount.dart';
 import 'package:flutter/material.dart';
@@ -189,6 +190,8 @@ class _PosLineDiscountDialogState extends State<PosLineDiscountDialog> {
                 key: const ValueKey('pos-line-discount-value'),
                 controller: _value,
                 autofocus: true,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                inputFormatters: decimalInputFormatters(),
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
@@ -197,6 +200,9 @@ class _PosLineDiscountDialogState extends State<PosLineDiscountDialog> {
                   labelText: _kind == DiscountKind.amount
                       ? 'Discount amount'
                       : 'Discount percent',
+                  helperText: _kind == DiscountKind.amount
+                      ? 'Numbers only (max ${formatPeso(line.total)})'
+                      : 'Numbers only (0 – 100%)',
                   prefixText: _kind == DiscountKind.amount ? '₱ ' : null,
                   suffixText: _kind == DiscountKind.percent ? '%' : null,
                   border: const OutlineInputBorder(),

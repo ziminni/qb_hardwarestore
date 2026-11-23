@@ -1,6 +1,7 @@
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
+import 'package:client/core/format/numeric_input.dart';
 import 'package:client/data/models/returns.dart';
 import 'package:flutter/material.dart';
 
@@ -125,6 +126,7 @@ class _PosReturnsLineRowState extends State<PosReturnsLineRow> {
                 key: ValueKey('return-qty-input-${line.variantUomId}'),
                 controller: _controller,
                 focusNode: _focusNode,
+                inputFormatters: decimalInputFormatters(maxDecimals: 3),
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),

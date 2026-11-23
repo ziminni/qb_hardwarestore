@@ -169,18 +169,18 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Sales tab surfaces the Whole VAT vs BIR OR comparison panel.
+      // Sales tab surfaces the Whole VAT vs OR-Tagged comparison panel.
       expect(
         find.byKey(const ValueKey('or-vat-comparison-panel')),
         findsOneWidget,
       );
-      expect(find.text('BIR OR Only (Official Receipt)'), findsOneWidget);
+      expect(find.text('OR-Tagged Only (Official Receipt)'), findsOneWidget);
 
       // Jump to the dedicated VAT & OR tab.
       await tester.tap(find.byKey(const ValueKey('open-vat-or-tab-button')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Whole VAT vs. BIR OR-Only VAT'), findsOneWidget);
+      expect(find.text('Whole VAT vs. OR-Tagged Only VAT'), findsOneWidget);
       expect(repo.lastGranularity, 'day');
 
       // Switch grouping to Monthly.

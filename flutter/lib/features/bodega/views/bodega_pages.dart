@@ -244,12 +244,26 @@ class _PickupsBodyState extends State<_PickupsBody> {
             margin: const EdgeInsets.only(bottom: AppSpacing.sm),
             child: ListTile(
               key: ValueKey('open-claim-${row.saleId}'),
-              title: Text(
-                row.customerName.isEmpty ? 'Walk-in' : row.customerName,
-                style: const TextStyle(fontWeight: FontWeight.w600),
+              title: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      row.customerName.isEmpty ? 'Walk-in' : row.customerName,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  if (row.isDelivery)
+                    StatusBadge(
+                      label: row.deliveryNo.isEmpty
+                          ? 'For Delivery'
+                          : 'For Delivery · ${row.deliveryNo}',
+                      tone: StatusTone.info,
+                    ),
+                ],
               ),
               subtitle: Text(
-                '${row.orNumber.isEmpty ? row.transactionNo : row.orNumber}\n'
+                '${row.orNumber.isEmpty ? row.transactionNo : row.orNumber}'
+                '${row.isDelivery && row.deliveryAddress.isNotEmpty ? ' · Deliver to ${row.deliveryAddress}' : ''}\n'
                 '${[for (final line in row.lines)
                   if (line.remaining > 0) '${_q(line.remaining)} ${line.unit} ${line.label}'].join(', ')}',
               ),
@@ -386,18 +400,34 @@ class _ClaimCardState extends State<BodegaClaimCard> {
               ].join(' · '),
             ),
             const SizedBox(height: AppSpacing.sm),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: claim.isOpen
-                  ? const StatusBadge(
-                      label: 'Waiting for pick-up',
-                      tone: StatusTone.warning,
-                    )
-                  : const StatusBadge(
-                      label: 'Fully released',
-                      tone: StatusTone.success,
-                    ),
+            Wrap(
+              spacing: AppSpacing.xs,
+              runSpacing: AppSpacing.xs,
+              children: [
+                claim.isOpen
+                    ? StatusBadge(
+                        label: claim.isDelivery
+                            ? 'Waiting for delivery dispatch'
+                            : 'Waiting for pick-up',
+                        tone: StatusTone.warning,
+                      )
+                    : const StatusBadge(
+                        label: 'Fully released',
+                        tone: StatusTone.success,
+                      ),
+                if (claim.isDelivery)
+                  StatusBadge(
+                    label: claim.deliveryNo.isEmpty
+                        ? 'For Delivery'
+                        : 'For Delivery · ${claim.deliveryNo}',
+                    tone: StatusTone.info,
+                  ),
+              ],
             ),
+            if (claim.isDelivery && claim.deliveryAddress.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.xs),
+              _muted('Delivery address: ${claim.deliveryAddress}'),
+            ],
             const Divider(height: AppSpacing.lg),
             for (final line in claim.lines) ...[
               Text(

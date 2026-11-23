@@ -603,66 +603,106 @@ class _RequisitionLines extends StatelessWidget {
 
   final List<VerifiedRequisitionItem> items;
 
-  static const double _numberWidth = 76;
-  static const double _statusWidth = 168;
+  static const double _numberWidth = 104;
+  static const double _statusWidth = 176;
 
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) {
       return const _StepHint('No lines on this requisition.');
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _row(
-          const Text('Item', style: _headerStyle),
-          const Text(
-            'Ordered',
-            style: _headerStyle,
-            textAlign: TextAlign.right,
-          ),
-          const Text(
-            'Still to give',
-            style: _headerStyle,
-            textAlign: TextAlign.right,
-          ),
-          const Text(
-            'Give now',
-            style: _headerStyle,
-            textAlign: TextAlign.right,
-          ),
-          const Text('Status', style: _headerStyle),
-          last: false,
-        ),
-        for (var index = 0; index < items.length; index++)
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.xs,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceSunken,
+        borderRadius: BorderRadius.circular(AppRadii.medium),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
           _row(
-            Text(
-              items[index].variantName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            Text(
-              formatQuantity(items[index].quantity),
+            const Text('Item', style: _headerStyle),
+            const Text(
+              'Ordered',
+              style: _headerStyle,
               textAlign: TextAlign.right,
-              style: _numberStyle,
             ),
-            Text(
-              formatQuantity(items[index].remaining),
+            const Text(
+              'Still to give',
+              style: _headerStyle,
               textAlign: TextAlign.right,
-              style: _numberStyle,
             ),
-            // What the cashier physically hands over on this release.
-            Text(
-              formatQuantity(
-                items[index].available == false ? 0 : items[index].goesNow,
-              ),
+            const Text(
+              'Give now',
+              style: _headerStyle,
               textAlign: TextAlign.right,
-              style: _numberStyle.copyWith(fontWeight: FontWeight.w700),
             ),
-            _AvailabilityCell(item: items[index]),
-            last: index == items.length - 1,
+            const Text('Status', style: _headerStyle),
+            last: false,
           ),
-      ],
+          for (var index = 0; index < items.length; index++)
+            _row(
+              Text(
+                items[index].variantName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              Text(
+                formatQuantity(items[index].quantity),
+                textAlign: TextAlign.right,
+                style: _numberStyle,
+              ),
+              Text(
+                formatQuantity(items[index].remaining),
+                textAlign: TextAlign.right,
+                style: _numberStyle,
+              ),
+              // What the cashier physically hands over on this release.
+              Align(
+                alignment: Alignment.centerRight,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: (items[index].available == false
+                            ? 0
+                            : items[index].goesNow) >
+                        0
+                        ? AppColors.brandGold.withValues(alpha: 0.16)
+                        : AppColors.cardBackground,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: (items[index].available == false
+                              ? 0
+                              : items[index].goesNow) >
+                          0
+                          ? AppColors.brandGold
+                          : AppColors.border,
+                    ),
+                  ),
+                  child: Text(
+                    formatQuantity(
+                      items[index].available == false
+                          ? 0
+                          : items[index].goesNow,
+                    ),
+                    textAlign: TextAlign.right,
+                    style: _numberStyle.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+              _AvailabilityCell(item: items[index]),
+              last: index == items.length - 1,
+            ),
+        ],
+      ),
     );
   }
 
@@ -675,7 +715,7 @@ class _RequisitionLines extends StatelessWidget {
     required bool last,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: last
           ? null
           : const BoxDecoration(
@@ -684,8 +724,11 @@ class _RequisitionLines extends StatelessWidget {
       child: Row(
         children: [
           Expanded(flex: 3, child: item),
+          const SizedBox(width: AppSpacing.md),
           SizedBox(width: _numberWidth, child: requested),
+          const SizedBox(width: AppSpacing.md),
           SizedBox(width: _numberWidth, child: remaining),
+          const SizedBox(width: AppSpacing.md),
           SizedBox(width: _numberWidth, child: goesNow),
           // A gap before the pill: right-aligned numbers butt straight into it
           // otherwise, and the two headers read as one word.
