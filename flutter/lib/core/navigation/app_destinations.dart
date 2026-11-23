@@ -194,12 +194,14 @@ class AppDestinations {
     // The admin/sales Reports page: one body, two shells (decision 24's locked
     // shared set), so it carries a shared key. The icon differs per area and the
     // admin label is the same word, but the de-duplication keys off the id.
+    // The row opens the reports CATALOGUE (planning/reports-suite); the tabbed
+    // SalesReportsPage stays reachable at AppRoutes.salesReports.
     AppDestination(
       id: 'reports',
       area: AppAreas.sales,
       label: 'Reports',
       icon: Icons.bar_chart_outlined,
-      route: AppRoutes.salesReports,
+      route: AppRoutes.salesReportCatalogue,
       group: 'Management',
       sharedKey: 'reports',
     ),
@@ -344,12 +346,14 @@ class AppDestinations {
     ),
     // NOT the admin/sales Reports page: this is InventoryReportsPage, so it has no
     // shared key. Same label, same icon family - a different screen.
+    // The row opens the inventory reports CATALOGUE; the tabbed
+    // InventoryReportsPage stays reachable at AppRoutes.inventoryReports.
     AppDestination(
       id: 'inventory.reports',
       area: AppAreas.inventory,
       label: 'Reports',
       icon: Icons.bar_chart_rounded,
-      route: AppRoutes.inventoryReports,
+      route: AppRoutes.inventoryReportCatalogue,
       group: 'Operations',
     ),
     AppDestination(

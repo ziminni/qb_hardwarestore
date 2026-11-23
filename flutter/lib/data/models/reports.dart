@@ -237,6 +237,9 @@ class SalesSummary {
     this.costCoverage = const CostCoverage(),
     this.categories = const [],
     this.orVatBreakdown,
+    this.abv,
+    this.asp,
+    this.markdownPercent,
   });
 
   final String from;
@@ -258,6 +261,15 @@ class SalesSummary {
   final List<SalesDay> days;
   final List<SalesCategoryBreakdown> categories;
   final OrVatSplit? orVatBreakdown;
+
+  /// Average bill value: invoice total ÷ bills. Null over an empty range.
+  final double? abv;
+
+  /// Average selling price: net merchandise ÷ BASE units sold.
+  final double? asp;
+
+  /// Markdown: discounts ÷ merchandise gross, as a percentage.
+  final double? markdownPercent;
 
   bool get hasPaymentFees =>
       totalPaymentFees > 0 || days.any((day) => day.paymentFees > 0);
@@ -321,6 +333,9 @@ class SalesSummary {
       orVatBreakdown: orVatRaw is Map<String, dynamic>
           ? OrVatSplit.fromJson(orVatRaw)
           : null,
+      abv: nullableDecimalField(totals, 'abv'),
+      asp: nullableDecimalField(totals, 'asp'),
+      markdownPercent: nullableDecimalField(totals, 'markdown_percent'),
     );
   }
 }
@@ -619,4 +634,519 @@ class RequisitionHistoryRow {
         approvedBy: json['approved_by'] as String?,
         createdAt: stringField(json, 'created_at'),
       );
+}
+
+// ---------------------------------------------------------------------------
+// P1 sales detail reports. All seven answer through `_paged()` server-side:
+// `from`, `to` and `totals` sit OUTSIDE the page, so the report's own numbers
+// survive paging, and the rows arrive in `results` 50 at a time.
+// ---------------------------------------------------------------------------
+
+/// One page of a paginated report, plus how many rows the server holds in all.
+class ReportPage<TRow> {
+  const ReportPage({required this.count, required this.rows});
+
+  /// Rows across every page, not just this one.
+  final int count;
+  final List<TRow> rows;
+
+  factory ReportPage.fromJson(
+    Map<String, dynamic> json,
+    TRow Function(Map<String, dynamic>) row,
+  ) {
+    final results = json['results'];
+    if (results is! List) {
+      throw FormatException('Missing required list field "results"');
+    }
+    return ReportPage(
+      count: (json['count'] as num?)?.toInt() ?? results.length,
+      rows: [for (final item in results) row(item as Map<String, dynamic>)],
+    );
+  }
+}
+
+/// The `totals` object every paged report carries. Missing is a broken body,
+/// not an empty range: the totals exist even when the page holds no rows.
+Map<String, dynamic> totalsField(Map<String, dynamic> json) {
+  final totals = json['totals'];
+  if (totals is! Map<String, dynamic>) {
+    throw FormatException('Missing required object field "totals"');
+  }
+  return totals;
+}
+
+/// A `{method: pesos}` map, as bill-wise reports tenders.
+Map<String, double> methodsField(Map<String, dynamic> json, String key) {
+  final raw = json[key];
+  if (raw == null) return const {};
+  if (raw is! Map) {
+    throw FormatException('Field "$key" is not an object: ${raw.runtimeType}');
+  }
+  return {
+    for (final entry in raw.entries)
+      entry.key.toString(): optionalDecimalField({key: entry.value}, key),
+  };
+}
+
+/// GET /api/v1/reports/sales-by-item/
+class SalesByItemReport {
+  const SalesByItemReport({
+    required this.from,
+    required this.to,
+    required this.variantCount,
+    required this.totalQtyBase,
+    required this.totalNet,
+    required this.totalCogs,
+    required this.totalGrossProfit,
+    required this.missingCostDeductions,
+    required this.page,
+  });
+
+  final String from;
+  final String to;
+  final int variantCount;
+  final double totalQtyBase;
+  final double totalNet;
+
+  /// Null when no deduction in the range carried a cost: unknown, never ₱0.
+  final double? totalCogs;
+  final double? totalGrossProfit;
+  final int missingCostDeductions;
+  final ReportPage<ItemSalesRow> page;
+
+  factory SalesByItemReport.fromJson(Map<String, dynamic> json) {
+    final totals = totalsField(json);
+    return SalesByItemReport(
+      from: stringField(json, 'from'),
+      to: stringField(json, 'to'),
+      variantCount: (totals['variant_count'] as num?)?.toInt() ?? 0,
+      totalQtyBase: optionalDecimalField(totals, 'qty_base'),
+      totalNet: optionalDecimalField(totals, 'net_merchandise'),
+      totalCogs: nullableDecimalField(totals, 'cogs'),
+      totalGrossProfit: nullableDecimalField(totals, 'gross_profit'),
+      missingCostDeductions:
+          (totals['missing_cost_deductions'] as num?)?.toInt() ?? 0,
+      page: ReportPage.fromJson(json, ItemSalesRow.fromJson),
+    );
+  }
+}
+
+class ItemSalesRow {
+  const ItemSalesRow({
+    required this.sku,
+    required this.product,
+    required this.variant,
+    required this.uom,
+    required this.qtyBase,
+    required this.gross,
+    required this.discounts,
+    required this.net,
+    required this.cogs,
+    required this.grossProfit,
+    required this.missingCostDeductions,
+  });
+
+  final String sku;
+  final String product;
+  final String variant;
+  final String uom;
+
+  /// Base units: a selling unit of 2 bags counts as 2.
+  final double qtyBase;
+  final double gross;
+  final double discounts;
+  final double net;
+  final double? cogs;
+  final double? grossProfit;
+  final int missingCostDeductions;
+
+  /// What the table calls this item: `Coke · 1.5L`.
+  String get name => variant.trim().isEmpty ? product : '$product · $variant';
+
+  factory ItemSalesRow.fromJson(Map<String, dynamic> json) => ItemSalesRow(
+    sku: stringField(json, 'sku'),
+    product: stringField(json, 'product'),
+    variant: json['variant'] as String? ?? '',
+    uom: json['uom'] as String? ?? '',
+    qtyBase: optionalDecimalField(json, 'qty_base'),
+    gross: optionalDecimalField(json, 'merchandise_gross'),
+    discounts: optionalDecimalField(json, 'discounts'),
+    net: optionalDecimalField(json, 'net_merchandise'),
+    cogs: nullableDecimalField(json, 'cogs'),
+    grossProfit: nullableDecimalField(json, 'gross_profit'),
+    missingCostDeductions:
+        (json['missing_cost_deductions'] as num?)?.toInt() ?? 0,
+  );
+}
+
+/// GET /api/v1/reports/sales-by-hour/
+class SalesByHour {
+  const SalesByHour({
+    required this.from,
+    required this.to,
+    required this.totalTransactions,
+    required this.totalInvoice,
+    required this.page,
+  });
+
+  final String from;
+  final String to;
+  final int totalTransactions;
+  final double totalInvoice;
+  final ReportPage<HourlySalesRow> page;
+
+  factory SalesByHour.fromJson(Map<String, dynamic> json) {
+    final totals = totalsField(json);
+    return SalesByHour(
+      from: stringField(json, 'from'),
+      to: stringField(json, 'to'),
+      totalTransactions: (totals['transactions'] as num?)?.toInt() ?? 0,
+      totalInvoice: optionalDecimalField(totals, 'invoice_total'),
+      page: ReportPage.fromJson(json, HourlySalesRow.fromJson),
+    );
+  }
+}
+
+class HourlySalesRow {
+  const HourlySalesRow({
+    required this.hour,
+    required this.transactions,
+    required this.invoiceTotal,
+  });
+
+  /// Store-local hour, 0-23. Every hour is returned, zeros included.
+  final int hour;
+  final int transactions;
+  final double invoiceTotal;
+
+  factory HourlySalesRow.fromJson(Map<String, dynamic> json) => HourlySalesRow(
+    hour: (json['hour'] as num?)?.toInt() ?? 0,
+    transactions: (json['transactions'] as num?)?.toInt() ?? 0,
+    invoiceTotal: optionalDecimalField(json, 'invoice_total'),
+  );
+}
+
+/// GET /api/v1/reports/sales-by-cashier/
+class SalesByCashier {
+  const SalesByCashier({
+    required this.from,
+    required this.to,
+    required this.totalTransactions,
+    required this.totalInvoice,
+    required this.totalDiscounts,
+    required this.page,
+  });
+
+  final String from;
+  final String to;
+  final int totalTransactions;
+  final double totalInvoice;
+  final double totalDiscounts;
+  final ReportPage<CashierSalesRow> page;
+
+  factory SalesByCashier.fromJson(Map<String, dynamic> json) {
+    final totals = totalsField(json);
+    return SalesByCashier(
+      from: stringField(json, 'from'),
+      to: stringField(json, 'to'),
+      totalTransactions: (totals['transactions'] as num?)?.toInt() ?? 0,
+      totalInvoice: optionalDecimalField(totals, 'invoice_total'),
+      totalDiscounts: optionalDecimalField(totals, 'discounts'),
+      page: ReportPage.fromJson(json, CashierSalesRow.fromJson),
+    );
+  }
+}
+
+class CashierSalesRow {
+  const CashierSalesRow({
+    required this.cashierName,
+    required this.username,
+    required this.transactions,
+    required this.invoiceTotal,
+    required this.discounts,
+  });
+
+  final String cashierName;
+  final String username;
+  final int transactions;
+  final double invoiceTotal;
+  final double discounts;
+
+  factory CashierSalesRow.fromJson(Map<String, dynamic> json) =>
+      CashierSalesRow(
+        cashierName: stringField(json, 'cashier_name'),
+        username: json['username'] as String? ?? '',
+        transactions: (json['transactions'] as num?)?.toInt() ?? 0,
+        invoiceTotal: optionalDecimalField(json, 'invoice_total'),
+        discounts: optionalDecimalField(json, 'discounts'),
+      );
+}
+
+/// GET /api/v1/reports/bill-wise/
+class BillWiseReport {
+  const BillWiseReport({
+    required this.from,
+    required this.to,
+    required this.totalTransactions,
+    required this.totalDiscount,
+    required this.totalGrand,
+    required this.totalMethods,
+    required this.page,
+  });
+
+  final String from;
+  final String to;
+  final int totalTransactions;
+  final double totalDiscount;
+  final double totalGrand;
+
+  /// Tendered pesos per method across the whole range, change already off.
+  final Map<String, double> totalMethods;
+  final ReportPage<BillWiseRow> page;
+
+  factory BillWiseReport.fromJson(Map<String, dynamic> json) {
+    final totals = totalsField(json);
+    return BillWiseReport(
+      from: stringField(json, 'from'),
+      to: stringField(json, 'to'),
+      totalTransactions: (totals['transactions'] as num?)?.toInt() ?? 0,
+      totalDiscount: optionalDecimalField(totals, 'discount'),
+      totalGrand: optionalDecimalField(totals, 'grand_total'),
+      totalMethods: methodsField(totals, 'methods'),
+      page: ReportPage.fromJson(json, BillWiseRow.fromJson),
+    );
+  }
+}
+
+class BillWiseRow {
+  const BillWiseRow({
+    required this.id,
+    required this.transactionNo,
+    required this.orNumber,
+    required this.invoiceNo,
+    required this.date,
+    required this.cashierName,
+    required this.methods,
+    required this.discount,
+    required this.grandTotal,
+  });
+
+  final int id;
+  final String transactionNo;
+  final String orNumber;
+  final String invoiceNo;
+
+  /// Local ISO timestamp, e.g. `2026-10-29T14:14:00+08:00`.
+  final String date;
+  final String cashierName;
+  final Map<String, double> methods;
+  final double discount;
+
+  /// Signed: a RETURN bill is listed here with its negative total.
+  final double grandTotal;
+
+  factory BillWiseRow.fromJson(Map<String, dynamic> json) => BillWiseRow(
+    id: (json['id'] as num?)?.toInt() ?? 0,
+    transactionNo: stringField(json, 'transaction_no'),
+    orNumber: json['or_number'] as String? ?? '',
+    invoiceNo: json['invoice_no'] as String? ?? '',
+    date: stringField(json, 'date'),
+    cashierName: stringField(json, 'cashier_name'),
+    methods: methodsField(json, 'methods'),
+    discount: optionalDecimalField(json, 'discount'),
+    grandTotal: optionalDecimalField(json, 'grand_total'),
+  );
+}
+
+/// GET /api/v1/reports/returns-exchanges/
+class ReturnsExchangesReport {
+  const ReturnsExchangesReport({
+    required this.from,
+    required this.to,
+    required this.totalTransactions,
+    required this.totalReturns,
+    required this.totalExchanges,
+    required this.totalRefunded,
+    required this.page,
+  });
+
+  final String from;
+  final String to;
+  final int totalTransactions;
+  final int totalReturns;
+  final int totalExchanges;
+  final double totalRefunded;
+  final ReportPage<ReversalRow> page;
+
+  factory ReturnsExchangesReport.fromJson(Map<String, dynamic> json) {
+    final totals = totalsField(json);
+    return ReturnsExchangesReport(
+      from: stringField(json, 'from'),
+      to: stringField(json, 'to'),
+      totalTransactions: (totals['transactions'] as num?)?.toInt() ?? 0,
+      totalReturns: (totals['returns'] as num?)?.toInt() ?? 0,
+      totalExchanges: (totals['exchanges'] as num?)?.toInt() ?? 0,
+      totalRefunded: optionalDecimalField(totals, 'refunded'),
+      page: ReportPage.fromJson(json, ReversalRow.fromJson),
+    );
+  }
+}
+
+class ReversalRow {
+  const ReversalRow({
+    required this.transactionNo,
+    required this.date,
+    required this.source,
+    required this.cashierName,
+    required this.originalTransactionNo,
+    required this.refunded,
+    required this.grandTotal,
+    required this.reason,
+  });
+
+  final String transactionNo;
+  final String date;
+
+  /// `RETURN` or `EXCHANGE`.
+  final String source;
+  final String cashierName;
+  final String originalTransactionNo;
+
+  /// Money handed BACK: positive on a cash return, 0.00 on an exchange.
+  final double refunded;
+  final double grandTotal;
+
+  /// The note on file, null when nobody wrote one.
+  final String? reason;
+
+  factory ReversalRow.fromJson(Map<String, dynamic> json) => ReversalRow(
+    transactionNo: stringField(json, 'transaction_no'),
+    date: stringField(json, 'date'),
+    source: stringField(json, 'source'),
+    cashierName: stringField(json, 'cashier_name'),
+    originalTransactionNo: json['original_transaction_no'] as String? ?? '',
+    refunded: optionalDecimalField(json, 'refunded'),
+    grandTotal: optionalDecimalField(json, 'grand_total'),
+    reason: json['reason'] as String?,
+  );
+}
+
+/// GET /api/v1/reports/discounts/
+class DiscountsReport {
+  const DiscountsReport({
+    required this.from,
+    required this.to,
+    required this.totalLineDiscount,
+    required this.totalCartDiscount,
+    required this.totalApprovalDiscount,
+    required this.approvals,
+    required this.totalDiscount,
+    required this.page,
+  });
+
+  final String from;
+  final String to;
+  final double totalLineDiscount;
+  final double totalCartDiscount;
+
+  /// The CART discount on the sales a manager signed off — not extra money.
+  final double totalApprovalDiscount;
+  final int approvals;
+
+  /// LINE + CART only.
+  final double totalDiscount;
+  final ReportPage<DiscountTypeRow> page;
+
+  factory DiscountsReport.fromJson(Map<String, dynamic> json) {
+    final totals = totalsField(json);
+    return DiscountsReport(
+      from: stringField(json, 'from'),
+      to: stringField(json, 'to'),
+      totalLineDiscount: optionalDecimalField(totals, 'line_discount'),
+      totalCartDiscount: optionalDecimalField(totals, 'cart_discount'),
+      totalApprovalDiscount: optionalDecimalField(totals, 'approval_discount'),
+      approvals: (totals['approvals'] as num?)?.toInt() ?? 0,
+      totalDiscount: optionalDecimalField(totals, 'total_discount'),
+      page: ReportPage.fromJson(json, DiscountTypeRow.fromJson),
+    );
+  }
+}
+
+class DiscountTypeRow {
+  const DiscountTypeRow({
+    required this.type,
+    required this.transactions,
+    required this.totalDiscount,
+    required this.approvals,
+  });
+
+  /// `LINE`, `CART` or `APPROVAL`.
+  final String type;
+  final int transactions;
+  final double totalDiscount;
+
+  /// Only the APPROVAL row carries an approval count.
+  final int? approvals;
+
+  factory DiscountTypeRow.fromJson(Map<String, dynamic> json) =>
+      DiscountTypeRow(
+        type: stringField(json, 'type'),
+        transactions: (json['transactions'] as num?)?.toInt() ?? 0,
+        totalDiscount: optionalDecimalField(json, 'total_discount'),
+        approvals: (json['approvals'] as num?)?.toInt(),
+      );
+}
+
+/// GET /api/v1/reports/voids/
+class VoidsReport {
+  const VoidsReport({
+    required this.from,
+    required this.to,
+    required this.totalTransactions,
+    required this.totalVoided,
+    required this.page,
+  });
+
+  final String from;
+  final String to;
+  final int totalTransactions;
+  final double totalVoided;
+  final ReportPage<VoidRow> page;
+
+  factory VoidsReport.fromJson(Map<String, dynamic> json) {
+    final totals = totalsField(json);
+    return VoidsReport(
+      from: stringField(json, 'from'),
+      to: stringField(json, 'to'),
+      totalTransactions: (totals['transactions'] as num?)?.toInt() ?? 0,
+      totalVoided: optionalDecimalField(totals, 'voided_total'),
+      page: ReportPage.fromJson(json, VoidRow.fromJson),
+    );
+  }
+}
+
+class VoidRow {
+  const VoidRow({
+    required this.transactionNo,
+    required this.date,
+    required this.cashierName,
+    required this.voidedTotal,
+    required this.reason,
+  });
+
+  final String transactionNo;
+  final String date;
+  final String cashierName;
+  final double voidedTotal;
+
+  /// The row's note, null when the till was left blank.
+  final String? reason;
+
+  factory VoidRow.fromJson(Map<String, dynamic> json) => VoidRow(
+    transactionNo: stringField(json, 'transaction_no'),
+    date: stringField(json, 'date'),
+    cashierName: stringField(json, 'cashier_name'),
+    voidedTotal: optionalDecimalField(json, 'voided_total'),
+    reason: json['reason'] as String?,
+  );
 }

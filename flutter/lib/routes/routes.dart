@@ -29,6 +29,10 @@ import 'package:client/features/sales/views/sales_orders_page.dart';
 import 'package:client/features/sales/views/sales_quotations_page.dart';
 import 'package:client/features/sales/views/sales_receivables_page.dart';
 import 'package:client/features/sales/views/sales_reports_page.dart';
+import 'package:client/features/reports/report_catalogue.dart';
+import 'package:client/features/reports/report_viewer_page.dart';
+import 'package:client/features/reports/reports_catalogue_page.dart';
+import 'package:client/features/reports/reports_shell.dart';
 import 'package:client/features/sales/views/sales_returns_page.dart';
 import 'package:client/features/sales/views/sales_settings_page.dart';
 import 'package:client/features/sales/views/sales_transactions_page.dart';
@@ -134,6 +138,15 @@ class AppRoutes {
   static const String inventoryReceiving = '/inventory/receiving';
   static const String inventoryReturns = '/inventory/returns';
   static const String inventoryReports = '/inventory/reports';
+
+  /// The stocker's catalogue home and viewer: the SAME bodies as the sales pair,
+  /// in the inventory shell. An inventory-only account only ever reaches these,
+  /// and the catalogue shows it the INVENTORY section alone
+  /// (decision 02-role-visibility: Sales, VAT and profit reports are
+  /// `IsManagerRole` server-side).
+  static const String inventoryReportCatalogue = '/inventory/reports/catalogue';
+  static const String inventoryReportViewer =
+      '/inventory/reports/view/:reportId';
   static const String inventoryPayables = '/inventory/payables';
   static const String inventoryDeliveries = '/inventory/deliveries';
 
@@ -184,6 +197,14 @@ class AppRoutes {
   /// Separate from [adminReports] on purpose: the same report content, but in
   /// the SALES shell, so the manager's sidebar does not swap out.
   static const String salesReports = '/sales/reports';
+
+  /// The Reports suite's catalogue home and shared viewer (planning/reports-suite,
+  /// decision 02-role-visibility): a card per report, one viewer per report id.
+  ///
+  /// Sub-paths of the Reports tab rather than new sidebar entries, so the
+  /// manager's Reports tab keeps index 6 and the stocker's keeps index 10.
+  static const String salesReportCatalogue = '/sales/reports/catalogue';
+  static const String salesReportViewer = '/sales/reports/view/:reportId';
 
   /// The Store Manager's staff list (sales sidebar index 7). The same screen as
   /// [adminUserManagement], in the SALES shell, so the manager can reach it
@@ -447,6 +468,14 @@ class AppRoutes {
     };
   }
 
+  /// The shared viewer for one catalogue card, or the catalogue itself when the
+  /// address names no report in [reportCatalogue] (a retired or mistyped id).
+  static Widget _reportViewer(String? reportId, ReportsShell shell) {
+    final report = reportById(reportId ?? '');
+    if (report == null) return ReportsCataloguePage(shell: shell);
+    return ReportViewerPage(report: report, shell: shell);
+  }
+
   static CustomTransitionPage<void> _transitionPage(
     GoRouterState state,
     Widget child,
@@ -647,6 +676,27 @@ class AppRoutes {
           pageBuilder: (context, state) =>
               _transitionPage(state, const InventoryReportsPage()),
         ),
+        // The stocker's catalogue home and viewer: the same two bodies as the
+        // sales pair, in the inventory shell (decision 02-role-visibility).
+        GoRoute(
+          path: inventoryReportCatalogue,
+          name: 'inventory_report_catalogue',
+          pageBuilder: (context, state) => _transitionPage(
+            state,
+            const ReportsCataloguePage(shell: ReportsShell.inventory),
+          ),
+        ),
+        GoRoute(
+          path: inventoryReportViewer,
+          name: 'inventory_report_viewer',
+          pageBuilder: (context, state) => _transitionPage(
+            state,
+            _reportViewer(
+              state.pathParameters['reportId'],
+              ReportsShell.inventory,
+            ),
+          ),
+        ),
         GoRoute(
           path: inventoryPayables,
           name: 'inventory_payables',
@@ -813,6 +863,24 @@ class AppRoutes {
           name: 'sales_reports',
           pageBuilder: (context, state) =>
               _transitionPage(state, const SalesReportsPage()),
+        ),
+        // The Reports suite's catalogue home; the five live cards open the
+        // shared viewer below with their own report id.
+        GoRoute(
+          path: salesReportCatalogue,
+          name: 'sales_report_catalogue',
+          pageBuilder: (context, state) => _transitionPage(
+            state,
+            const ReportsCataloguePage(shell: ReportsShell.sales),
+          ),
+        ),
+        GoRoute(
+          path: salesReportViewer,
+          name: 'sales_report_viewer',
+          pageBuilder: (context, state) => _transitionPage(
+            state,
+            _reportViewer(state.pathParameters['reportId'], ReportsShell.sales),
+          ),
         ),
         GoRoute(
           path: salesProjectRequests,

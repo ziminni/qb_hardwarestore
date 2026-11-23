@@ -29,6 +29,14 @@ class ReportsService {
   static const String stockMovementsPath = '/api/v1/reports/stock-movements/';
   static const String requisitionHistoryPath =
       '/api/v1/reports/requisition-history/';
+  static const String salesByItemPath = '/api/v1/reports/sales-by-item/';
+  static const String salesByHourPath = '/api/v1/reports/sales-by-hour/';
+  static const String salesByCashierPath = '/api/v1/reports/sales-by-cashier/';
+  static const String billWisePath = '/api/v1/reports/bill-wise/';
+  static const String returnsExchangesPath =
+      '/api/v1/reports/returns-exchanges/';
+  static const String discountsPath = '/api/v1/reports/discounts/';
+  static const String voidsPath = '/api/v1/reports/voids/';
 
   /// Daily/weekly/monthly sales totals for the range; defaults to last 30 days.
   Future<SalesSummary> fetchSalesSummary({
@@ -39,11 +47,7 @@ class ReportsService {
     try {
       final response = await _client.get<Map<String, dynamic>>(
         salesSummaryPath,
-        queryParameters: {
-          'from': ?from,
-          'to': ?to,
-          'granularity': granularity,
-        },
+        queryParameters: {'from': ?from, 'to': ?to, 'granularity': granularity},
       );
       return SalesSummary.fromJson(response.data!);
     } on DioException catch (error) {
@@ -66,11 +70,7 @@ class ReportsService {
     try {
       final response = await _client.get<Map<String, dynamic>>(
         vatSummaryPath,
-        queryParameters: {
-          'from': ?from,
-          'to': ?to,
-          'granularity': granularity,
-        },
+        queryParameters: {'from': ?from, 'to': ?to, 'granularity': granularity},
       );
       return VatReportSummary.fromJson(response.data!);
     } on DioException catch (error) {
@@ -127,6 +127,83 @@ class ReportsService {
     } on FormatException {
       throw const ReportsServiceException(
         'The requisition history could not be read. Try again.',
+      );
+    }
+  }
+
+  /// Per selling unit: base-unit quantity, net merchandise, COGS and profit.
+  Future<SalesByItemReport> fetchSalesByItem({String? from, String? to}) =>
+      _paged(
+        salesByItemPath,
+        'item-wise sales',
+        from,
+        to,
+        SalesByItemReport.fromJson,
+      );
+
+  /// Every store-local hour 0-23, zeros included.
+  Future<SalesByHour> fetchSalesByHour({String? from, String? to}) =>
+      _paged(salesByHourPath, 'hourly sales', from, to, SalesByHour.fromJson);
+
+  /// Per cashier: transactions, invoice total and discounts given.
+  Future<SalesByCashier> fetchSalesByCashier({String? from, String? to}) =>
+      _paged(
+        salesByCashierPath,
+        'cashier sales',
+        from,
+        to,
+        SalesByCashier.fromJson,
+      );
+
+  /// One row per completed bill, with its tenders and signed total.
+  Future<BillWiseReport> fetchBillWise({String? from, String? to}) => _paged(
+    billWisePath,
+    'bill-wise sales',
+    from,
+    to,
+    BillWiseReport.fromJson,
+  );
+
+  /// Only the RETURN / EXCHANGE rows, with the refunded money.
+  Future<ReturnsExchangesReport> fetchReturnsExchanges({
+    String? from,
+    String? to,
+  }) => _paged(
+    returnsExchangesPath,
+    'returns & exchanges',
+    from,
+    to,
+    ReturnsExchangesReport.fromJson,
+  );
+
+  /// Discount pesos per type: LINE, CART and the APPROVAL behind a sale.
+  Future<DiscountsReport> fetchDiscounts({String? from, String? to}) =>
+      _paged(discountsPath, 'discounts', from, to, DiscountsReport.fromJson);
+
+  /// VOID bills with the reason on file.
+  Future<VoidsReport> fetchVoids({String? from, String? to}) =>
+      _paged(voidsPath, 'voids', from, to, VoidsReport.fromJson);
+
+  /// The shared shape of the seven paged sales reports: a dated GET whose body
+  /// is the `_paged()` envelope (totals outside the 50-row page).
+  Future<T> _paged<T>(
+    String path,
+    String report,
+    String? from,
+    String? to,
+    T Function(Map<String, dynamic>) parse,
+  ) async {
+    try {
+      final response = await _client.get<Map<String, dynamic>>(
+        path,
+        queryParameters: {'from': ?from, 'to': ?to},
+      );
+      return parse(response.data!);
+    } on DioException catch (error) {
+      throw ReportsServiceException(_messageFor(error, report));
+    } on FormatException {
+      throw ReportsServiceException(
+        'The $report could not be read. Try again.',
       );
     }
   }

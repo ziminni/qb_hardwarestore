@@ -86,26 +86,23 @@ void main() {
   });
 
   group('every deliveries entry is APPENDED', () {
-    test(
-      'the inventory sidebar has Deliveries at 12 and Transfers at 13',
-      () {
-        final order = _areaOrder(AppAreas.inventory);
-        expect(order, hasLength(16));
-        expect(order[8], 'inventoryReceiving');
-        expect(order[9], 'inventoryReturns');
-        expect(order[12], 'inventoryDeliveries');
-        expect(
-          order[13],
-          'inventoryTransfers',
-          reason: 'Transfers follows Deliveries in the Stock Manager sidebar',
-        );
-      },
-    );
+    test('the inventory sidebar has Deliveries at 12 and Transfers at 13', () {
+      final order = _areaOrder(AppAreas.inventory);
+      expect(order, hasLength(16));
+      expect(order[8], 'inventoryReceiving');
+      expect(order[9], 'inventoryReturns');
+      expect(order[12], 'inventoryDeliveries');
+      expect(
+        order[13],
+        'inventoryTransfers',
+        reason: 'Transfers follows Deliveries in the Stock Manager sidebar',
+      );
+    });
 
     test('the sales sidebar keeps 9 Payables and gains Deliveries at 10', () {
       final order = _areaOrder(AppAreas.sales);
       expect(order, hasLength(14));
-      expect(order[6], 'salesReports');
+      expect(order[6], 'salesReportCatalogue');
       expect(order[9], 'salesPayables');
       expect(order[10], 'salesDeliveries');
       expect(

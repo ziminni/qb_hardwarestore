@@ -50,6 +50,16 @@ Map<String, String> _routePaths(String routes) {
   return {for (final m in pattern.allMatches(routes)) m.group(1)!: m.group(2)!};
 }
 
+/// The pages that share their sidebar row with a NEWER page since the reports
+/// suite landed: the Reports row (sales 6, inventory 10) opens the catalogue, and
+/// the tabbed page behind it stays reachable by URL with the same index, because
+/// it still highlights that same row. Without this the loop below would read
+/// "the old page's route is not in the menu at all".
+const _rowOpens = <String, String>{
+  'SalesReportsPage': AppRoutes.salesReportCatalogue,
+  'InventoryReportsPage': AppRoutes.inventoryReportCatalogue,
+};
+
 void main() {
   final routes = _read('lib/routes/routes.dart');
   final pageRoutes = _pageRoutes(routes);
@@ -104,8 +114,10 @@ void main() {
     expect(salesOrder.first, AppRoutes.salesDashboard);
     expect(
       salesOrder[6],
-      AppRoutes.salesReports,
-      reason: 'index 6 is Reports — the tab that used to be a silent no-op',
+      AppRoutes.salesReportCatalogue,
+      reason:
+          'index 6 is Reports — the tab that used to be a silent no-op; it '
+          'opens the reports catalogue since the suite landed',
     );
     expect(salesOrder[7], AppRoutes.salesStaff);
     expect(
@@ -133,7 +145,7 @@ void main() {
     // When this was the other way round the Returns tab opened Receiving.
     expect(inventoryOrder[8], AppRoutes.inventoryReceiving);
     expect(inventoryOrder[9], AppRoutes.inventoryReturns);
-    expect(inventoryOrder[10], AppRoutes.inventoryReports);
+    expect(inventoryOrder[10], AppRoutes.inventoryReportCatalogue);
     expect(inventoryOrder[11], AppRoutes.inventorySettings);
     expect(
       inventoryOrder[12],
@@ -193,7 +205,7 @@ void main() {
           : 'POS';
 
       test('$className points at itself in the $sidebar sidebar', () {
-        final route = routePaths[pageRoutes[className]];
+        final route = _rowOpens[className] ?? routePaths[pageRoutes[className]];
         if (route == null) {
           fail('$className has an index but no route in routes.dart');
         }

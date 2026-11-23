@@ -104,7 +104,7 @@ const _storeManagerMenu = <_Row>[
   _Row(
     'Reports',
     Icons.bar_chart_outlined,
-    AppRoutes.salesReports,
+    AppRoutes.salesReportCatalogue,
     'Management',
   ),
   _Row('Staff', Icons.manage_accounts_outlined, AppRoutes.salesStaff),
@@ -165,7 +165,7 @@ const _stockManagerMenu = <_Row>[
   _Row(
     'Reports',
     Icons.bar_chart_rounded,
-    AppRoutes.inventoryReports,
+    AppRoutes.inventoryReportCatalogue,
     'Operations',
   ),
   _Row('Settings', Icons.settings_outlined, AppRoutes.inventorySettings),
@@ -335,7 +335,7 @@ void main() {
       ).firstWhere((row) => row.id == 'inventory.reports');
       expect(stockReports.label, 'Reports');
       expect(stockReports.sharedKey, isNull);
-      expect(stockReports.route, AppRoutes.inventoryReports);
+      expect(stockReports.route, AppRoutes.inventoryReportCatalogue);
       // Owner 2026-11-18: only the Store Manager keeps Reports now.
       final others = [
         ...AppDestinations.forArea(AppAreas.admin),

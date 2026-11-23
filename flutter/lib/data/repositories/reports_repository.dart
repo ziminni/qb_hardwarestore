@@ -28,9 +28,28 @@ class ReportsRepository {
     String? from,
     String? to,
     String granularity = 'day',
-  }) => _service.fetchVatSummary(
-    from: from,
-    to: to,
-    granularity: granularity,
-  );
+  }) => _service.fetchVatSummary(from: from, to: to, granularity: granularity);
+
+  Future<SalesByItemReport> fetchSalesByItem({String? from, String? to}) =>
+      _service.fetchSalesByItem(from: from, to: to);
+
+  Future<SalesByHour> fetchSalesByHour({String? from, String? to}) =>
+      _service.fetchSalesByHour(from: from, to: to);
+
+  Future<SalesByCashier> fetchSalesByCashier({String? from, String? to}) =>
+      _service.fetchSalesByCashier(from: from, to: to);
+
+  Future<BillWiseReport> fetchBillWise({String? from, String? to}) =>
+      _service.fetchBillWise(from: from, to: to);
+
+  Future<ReturnsExchangesReport> fetchReturnsExchanges({
+    String? from,
+    String? to,
+  }) => _service.fetchReturnsExchanges(from: from, to: to);
+
+  Future<DiscountsReport> fetchDiscounts({String? from, String? to}) =>
+      _service.fetchDiscounts(from: from, to: to);
+
+  Future<VoidsReport> fetchVoids({String? from, String? to}) =>
+      _service.fetchVoids(from: from, to: to);
 }

@@ -104,7 +104,7 @@ void main() {
     test('the sales sidebar gains Transfers at 11, moving nothing', () {
       final order = _areaOrder(AppAreas.sales);
       expect(order, hasLength(14));
-      expect(order[6], 'salesReports');
+      expect(order[6], 'salesReportCatalogue');
       expect(order[9], 'salesPayables');
       expect(order[10], 'salesDeliveries');
       expect(order[11], 'salesTransfers');

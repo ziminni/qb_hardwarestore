@@ -39,7 +39,9 @@ const _salesPaths = [
   '/sales/orders',
   '/sales/receivables',
   '/sales/returns',
-  '/sales/reports',
+  // Reports opens the catalogue since the reports suite landed; the tabbed
+  // SalesReportsPage stays reachable at /sales/reports.
+  '/sales/reports/catalogue',
   // Appended: Staff (sales_management_routing_test). Approvals was removed by
   // decision 01 - CPMS approves requests, so the POS has no queue.
   '/sales/staff',

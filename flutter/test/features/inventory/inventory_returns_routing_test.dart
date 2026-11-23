@@ -42,6 +42,9 @@ const _renamedRoutes = <String, String>{
   'Supplier returns': 'inventoryReturns',
   // The label carries an ampersand, which no route constant can.
   'Import & export': 'inventoryImportExport',
+  // The row keeps its label and index; it opens the catalogue now, and the
+  // tabbed ReportsPage stays reachable at /inventory/reports.
+  'Reports': 'inventoryReportCatalogue',
 };
 
 String _routeForLabel(String label) {
@@ -67,7 +70,8 @@ List<String> _navOrder() {
       m.group(2)!: m.group(1)!,
   };
   return [
-    for (final path in AppDestinations.routesFor(AppAreas.inventory)) names[path]!,
+    for (final path in AppDestinations.routesFor(AppAreas.inventory))
+      names[path]!,
   ];
 }
 
@@ -82,7 +86,7 @@ const _inventoryPaths = <String>[
   AppRoutes.inventorySuppliers,
   AppRoutes.inventoryReceiving,
   AppRoutes.inventoryReturns,
-  AppRoutes.inventoryReports,
+  AppRoutes.inventoryReportCatalogue,
   AppRoutes.inventorySettings,
   AppRoutes.inventoryDeliveries,
   AppRoutes.inventoryTransfers,
