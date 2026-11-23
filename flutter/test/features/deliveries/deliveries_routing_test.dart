@@ -120,7 +120,21 @@ void main() {
       final declared = RegExp(
         r'selectedNavigationIndex:\s*(\d+)',
       ).allMatches(source).map((match) => int.parse(match.group(1)!)).toList();
-      expect(declared, containsAll(<int>[12, 10]));
+      // The till and Stock pages still declare their row as a literal, pinned
+      // against the registry the sidebar renders.
+      expect(
+        declared,
+        containsAll(<int>[
+          AppDestinations.indexOf('deliveries', AppAreas.pos),
+          AppDestinations.indexOf('deliveries', AppAreas.inventory),
+        ]),
+      );
+      // The sales page LOOKS ITS ROW UP: hiding Quotations shifted it 10 -> 9,
+      // so a literal would now highlight Transfers.
+      final ids = RegExp(
+        r"indexOf\(\s*'([^']+)',\s*AppAreas\.sales",
+      ).allMatches(source).map((match) => match.group(1)!).toList();
+      expect(ids, contains('deliveries'));
       // Owner 2026-11-18: no admin shell; the Admin only watches.
       expect(source, isNot(contains('AdminSkeletonLayout')));
     });

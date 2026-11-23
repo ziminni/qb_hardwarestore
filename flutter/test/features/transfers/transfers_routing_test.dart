@@ -151,8 +151,18 @@ void main() {
       final declared = RegExp(
         r'selectedNavigationIndex:\s*(\d+)',
       ).allMatches(source).map((match) => int.parse(match.group(1)!)).toList();
-      expect(declared, containsAll(<int>[13, 11]));
-      expect(declared, hasLength(2), reason: 'inventory and sales literal');
+      // Stock still declares its row as a literal, pinned against the registry
+      // the sidebar renders.
+      expect(
+        declared,
+        contains(AppDestinations.indexOf('transfers', AppAreas.inventory)),
+      );
+      // The sales page LOOKS ITS ROW UP: hiding Quotations shifted it 11 -> 10,
+      // so a literal would now highlight Settings.
+      final ids = RegExp(
+        r"indexOf\(\s*'([^']+)',\s*AppAreas\.sales",
+      ).allMatches(source).map((match) => match.group(1)!).toList();
+      expect(ids, contains('transfers'));
       expect(source, isNot(contains('AdminSkeletonLayout')));
     });
   });

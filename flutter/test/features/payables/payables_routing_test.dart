@@ -88,18 +88,20 @@ void main() {
       expect(order, isNot(contains('inventoryPayables')));
     });
 
-    test('the sales sidebar keeps 9 and gains Payables at 9', () {
+    test('the sales sidebar keeps Payables above Deliveries and Transfers', () {
       final order = _areaOrder(AppAreas.sales);
-      expect(order, hasLength(14));
-      expect(order[8], 'salesProjectRequests');
-      expect(order[9], 'salesPayables');
+      // 13, not 14: the Quotations row is hidden (no create/accept/convert flow
+      // yet), so every row BELOW it moved up one (Payables 9 -> 8).
+      expect(order, hasLength(13));
+      expect(order[7], 'salesProjectRequests');
+      expect(order[8], 'salesPayables');
       expect(
-        order[10],
+        order[9],
         'salesDeliveries',
         reason: 'F3 appends Deliveries BELOW Payables; neither index moves',
       );
-      expect(order[11], 'salesTransfers');
-      expect(order[12], 'salesSettings');
+      expect(order[10], 'salesTransfers');
+      expect(order[11], 'salesSettings');
     });
 
     test('the Admin menu has no Payables', () {
@@ -121,13 +123,30 @@ void main() {
       expect(labels, isNot(contains('Payables')));
     });
 
-    test('the sales shell declares 9', () {
+    test('the sales shell looks its own row up, never a literal', () {
       final sales = SalesSkeletonLayout.navigationSections
           .expand((section) => section.destinations)
           .toList();
-      expect(sales[9].label, 'Payables');
-      expect(sales[10].label, 'Deliveries');
-      expect(source, contains('selectedNavigationIndex: 9'));
+      final index = AppDestinations.indexOf('payables', AppAreas.sales);
+      expect(index, isNot(-1), reason: 'no payables row in the sales menu');
+      expect(
+        AppDestinations.routesFor(AppAreas.sales)[index],
+        AppRoutes.salesPayables,
+        reason: 'the id the page looks up is not the payables row',
+      );
+      expect(sales[index].label, 'Payables');
+      expect(sales[index + 1].label, 'Deliveries');
+      final ids = RegExp(
+        r"indexOf\(\s*'([^']+)',\s*AppAreas\.sales",
+      ).allMatches(source).map((match) => match.group(1)!).toList();
+      expect(
+        ids,
+        contains('payables'),
+        reason:
+            'the page must look its index up by registry id: a literal 9 would '
+            'survive hiding Quotations, which shifted its own row to 8, and '
+            'highlight Deliveries instead',
+      );
     });
 
     test('there is no admin shell and no admin route any more', () {

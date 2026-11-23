@@ -1,3 +1,5 @@
+import 'package:client/core/constants/app_areas.dart';
+import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
@@ -181,7 +183,12 @@ class _TransfersBodyState extends State<_TransfersBody> {
       TransfersShell.sales => SalesSkeletonLayout(
         title: title,
         subtitle: subtitle,
-        selectedNavigationIndex: 11,
+        // Looked up, never literal: Quotations occupied 2 until its hide
+        // shifted every later row (Transfers 11 -> 10).
+        selectedNavigationIndex: AppDestinations.indexOf(
+          'transfers',
+          AppAreas.sales,
+        ),
         scrollable: false,
         onNavigationSelected: (index) => navigateSales(context, index),
         child: content,
@@ -265,15 +272,11 @@ class _TransfersBodyState extends State<_TransfersBody> {
           label: 'Route',
           flex: 3,
           cell: (transfer) {
-            final toBodega = transfer.toLocationName
-                .toLowerCase()
-                .contains('bodega');
-            final bg = toBodega
-                ? AppColors.warningTint
-                : AppColors.successTint;
-            final fg = toBodega
-                ? AppColors.warningText
-                : AppColors.successText;
+            final toBodega = transfer.toLocationName.toLowerCase().contains(
+              'bodega',
+            );
+            final bg = toBodega ? AppColors.warningTint : AppColors.successTint;
+            final fg = toBodega ? AppColors.warningText : AppColors.successText;
             return Align(
               alignment: Alignment.centerLeft,
               child: Container(

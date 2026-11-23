@@ -1,3 +1,5 @@
+import 'package:client/core/constants/app_areas.dart';
+import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
@@ -224,7 +226,12 @@ class _PayablesBodyState extends State<_PayablesBody> {
       PayablesShell.sales => SalesSkeletonLayout(
         title: 'Payables',
         subtitle: 'What the shop owes each supplier, and when it is due.',
-        selectedNavigationIndex: 9,
+        // Looked up, never literal: Quotations occupied 2 until its hide
+        // shifted every later row (Payables 9 -> 8).
+        selectedNavigationIndex: AppDestinations.indexOf(
+          'payables',
+          AppAreas.sales,
+        ),
         scrollable: false,
         onNavigationSelected: (index) => navigateSales(context, index),
         child: content,
