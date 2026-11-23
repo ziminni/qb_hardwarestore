@@ -291,17 +291,17 @@ void main() {
     _expectMenu(AppAreas.bodega, _bodegaMenu);
   });
 
-  test('50 menu rows are 45 pages: only the locked set is shared', () {
+  test('49 menu rows are 44 pages: only the locked set is shared', () {
     // Without the counts, an empty or duplicated registry would make every
     // per-area check above pass against nothing.
     expect(
       AppDestinations.all,
-      hasLength(50),
-      reason: '5 menus: Till 10, Sales 14, Stock 16, Admin 6, Bodega 4',
+      hasLength(49),
+      reason: '5 menus: Till 10, Sales 13, Stock 16, Admin 6, Bodega 4',
     );
     expect(
       AppDestinations.all.map((row) => row.id).toSet(),
-      hasLength(45),
+      hasLength(44),
       reason:
           'Payables, Deliveries, Reports, Project requests, Staff, Transfers '
           'and Price list appear in more than one menu; every other row is one page',
@@ -356,9 +356,9 @@ void main() {
       ],
       AppAreas.sales: [
         ('Selling', 0),
-        ('Customers', 4),
-        ('Management', 6),
-        ('Operations', 9),
+        ('Customers', 3),
+        ('Management', 5),
+        ('Operations', 8),
       ],
       AppAreas.inventory: [
         ('Inventory', 0),

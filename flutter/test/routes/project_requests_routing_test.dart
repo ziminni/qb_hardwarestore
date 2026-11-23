@@ -106,23 +106,23 @@ void main() {
     );
   });
 
-  test('the sales sidebar appends the queue at index 8, after Staff', () {
+  test('the sales sidebar appends the queue at index 7, after Staff', () {
     final labels = _labels(SalesSkeletonLayout.navigationSections);
-    expect(labels.indexOf('Project requests'), 8);
-    expect(labels.indexOf('Staff'), 7, reason: 'no earlier index may move');
-    // Phase 5 F2 appended Payables at 9, F3 appended Deliveries at 10,
-    // Phase 9 F3 appended Transfers at 11, and Configuration Settings at 12.
+    expect(labels.indexOf('Project requests'), 7);
+    expect(labels.indexOf('Staff'), 6, reason: 'no earlier index may move');
+    // Phase 5 F2 appended Payables at 8, F3 appended Deliveries at 9,
+    // Phase 9 F3 appended Transfers at 10, and Configuration Settings at 11.
     // Neither earlier index moved.
-    expect(labels, hasLength(14));
-    expect(labels[9], 'Payables');
-    expect(labels[10], 'Deliveries');
+    expect(labels, hasLength(13));
+    expect(labels[8], 'Payables');
+    expect(labels[9], 'Deliveries');
     expect(
-      labels[11],
+      labels[10],
       'Transfers',
-      reason: 'Phase 9 F3 appends Transfers at 11; no earlier index may move',
+      reason: 'Phase 9 F3 appends Transfers at 10; no earlier index may move',
     );
     expect(
-      labels[12],
+      labels[11],
       'Settings',
       reason: 'Settings appends last under Configuration; earlier indices stay',
     );
@@ -134,7 +134,7 @@ void main() {
       reason:
           'Reports, Staff, and Project requests are grouped under Management without renumbering',
     );
-    expect(SalesSkeletonLayout.projectRequestsIndex, 8);
+    expect(SalesSkeletonLayout.projectRequestsIndex, 7);
   });
 
   test('the admin sidebar no longer offers the queue', () {
@@ -149,7 +149,7 @@ void main() {
     );
   });
 
-  testWidgets('navigateSales sends index 8 to the queue', (tester) async {
+  testWidgets('navigateSales sends index 7 to the queue', (tester) async {
     late GoRouter router;
     router = GoRouter(
       initialLocation: '/start',
@@ -158,7 +158,7 @@ void main() {
           path: '/start',
           builder: (context, state) => Scaffold(
             body: TextButton(
-              onPressed: () => navigateSales(context, 8),
+              onPressed: () => navigateSales(context, 7),
               child: const Text('navigate'),
             ),
           ),
@@ -193,7 +193,7 @@ void main() {
     expect(routes, isNot(contains("'/sales/requisitions'")));
   });
 
-  testWidgets('the manager page renders the sales shell on index 8', (
+  testWidgets('the manager page renders the sales shell on index 7', (
     tester,
   ) async {
     await _pumpPage(tester, const ProjectRequestsPage());

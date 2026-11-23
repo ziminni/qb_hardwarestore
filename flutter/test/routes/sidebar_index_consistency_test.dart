@@ -60,6 +60,12 @@ const _rowOpens = <String, String>{
   'InventoryReportsPage': AppRoutes.inventoryReportCatalogue,
 };
 
+const _urlOnlyPages = <String>{
+  // Quotations row hidden (no create/accept/convert flow yet): reachable by URL,
+  // highlights nothing.
+  'SalesQuotationsPage',
+};
+
 void main() {
   final routes = _read('lib/routes/routes.dart');
   final pageRoutes = _pageRoutes(routes);
@@ -80,13 +86,12 @@ void main() {
     );
     expect(
       salesOrder.length,
-      14,
+      13,
       reason:
-          'the sales sidebar has 14 destinations — Reports (index 6) was added by '
-          'decision D-01 so the manager can reach live reports inside their own shell; '
-          'Staff (7), Project requests (8) and Payables (9) were APPENDED the same '
-          'way, Deliveries (10) by Phase 5 F3 (decision 18), Transfers (11) by '
-          'Phase 9 F3, Settings (12), and Price list (13). Approvals is gone (decision 01: CPMS approves)',
+          'the sales sidebar has 13 destinations — Quotations hidden until its '
+          'create/accept/convert flow exists; Reports (index 5); '
+          'Staff (6), Project requests (7) and Payables (8); '
+          'Deliveries (9), Transfers (10), Settings (11), and Price list (12). Approvals is gone (decision 01: CPMS approves)',
     );
     expect(
       inventoryOrder.length,
@@ -112,30 +117,29 @@ void main() {
     );
 
     expect(salesOrder.first, AppRoutes.salesDashboard);
-    expect(
-      salesOrder[6],
+    expect(salesOrder[5],
       AppRoutes.salesReportCatalogue,
       reason:
           'index 6 is Reports — the tab that used to be a silent no-op; it '
           'opens the reports catalogue since the suite landed',
     );
-    expect(salesOrder[7], AppRoutes.salesStaff);
+    expect(salesOrder[6], AppRoutes.salesStaff);
     expect(
-      salesOrder[9],
+      salesOrder[8],
       AppRoutes.salesPayables,
       reason:
-          'Phase 5 F2 APPENDED Payables at 9 (decision 18): the Store Manager '
+          'Phase 5 F2 APPENDED Payables at 8 (decision 18): the Store Manager '
           'records supplier payments in the sales shell',
     );
     expect(
-      salesOrder[10],
+      salesOrder[9],
       AppRoutes.salesDeliveries,
       reason:
-          'Phase 5 F3 APPENDED Deliveries at 10 (decision 18): the manager runs '
+          'Phase 5 F3 APPENDED Deliveries at 9 (decision 18): the manager runs '
           'the schedule from the sales shell, and no earlier tab moved',
     );
     expect(
-      salesOrder[8],
+      salesOrder[7],
       AppRoutes.salesProjectRequests,
       reason:
           'Phase 1b appended the store-review queue after Staff; renumbering an '
@@ -187,6 +191,8 @@ void main() {
         r'selectedNavigationIndex:\s*(\d+)',
       ).firstMatch(source)?.group(1);
       if (className == null || index == null) continue;
+
+      if (_urlOnlyPages.contains(className)) continue;
 
       final isSales = source.contains('SalesSkeletonLayout');
       final isInventory = source.contains('InventorySkeletonLayout');

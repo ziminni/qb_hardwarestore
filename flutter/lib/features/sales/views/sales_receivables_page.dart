@@ -51,7 +51,7 @@ class _ReceivablesView extends StatelessWidget {
     return SalesSkeletonLayout(
       title: 'Receivables',
       subtitle: 'Track unpaid, partial, and overdue customer balances.',
-      selectedNavigationIndex: 4,
+      selectedNavigationIndex: 3,
       // The list owns the scrolling, so it builds only the rows on screen.
       scrollable: false,
       onNavigationSelected: (index) => navigateSales(context, index),

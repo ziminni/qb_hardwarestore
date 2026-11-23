@@ -40,7 +40,7 @@ class _SalesReportsView extends StatelessWidget {
       title: 'Reports',
       subtitle:
           'Sales, inventory valuation, stock movements, and BIR OR vs. whole VAT.',
-      selectedNavigationIndex: 6,
+      selectedNavigationIndex: 5,
       onNavigationSelected: (index) => navigateSales(context, index),
       child: const ReportsContent(),
     );

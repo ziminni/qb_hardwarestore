@@ -35,7 +35,6 @@ import 'package:provider/provider.dart';
 const _salesPaths = [
   '/sales/dashboard',
   '/sales/transactions',
-  '/sales/quotations',
   '/sales/orders',
   '/sales/receivables',
   '/sales/returns',
@@ -155,18 +154,17 @@ void main() {
     expect(AppRoutes.salesReports, '/sales/reports');
   });
 
-  test('the sales sidebar has fourteen destinations', () {
+  test('the sales sidebar has thirteen destinations', () {
     expect(
       SalesSkeletonLayout.navigationSections
           .expand((section) => section.destinations)
           .length,
-      14,
+      13,
       reason:
-          'index 6 (Reports) is only reachable if the sidebar renders it; '
-          '7 is Staff and 8 is Project requests (Phase 1b); 9 Payables (Phase 5 '
-          'F2), 10 Deliveries (F3), 11 Transfers (Phase 9 F3), 12 Settings, '
-          'and 13 Price list were appended, so 0-8 keep their numbers. Approvals '
-          'was removed by decision 01',
+          'Quotations hidden until its flow exists; index 5 (Reports catalogue), '
+          '6 Staff, 7 Project requests (Phase 1b), 8 Payables (Phase 5 '
+          'F2), 9 Deliveries (F3), 10 Transfers (Phase 9 F3), 11 Settings, '
+          'and 12 Price list. Approvals was removed by decision 01',
     );
   });
 
@@ -212,8 +210,8 @@ void main() {
     expect(layout.title, 'Reports');
     expect(
       layout.selectedNavigationIndex,
-      6,
-      reason: 'Reports is index 6 of the sales sidebar',
+      5,
+      reason: 'Reports is index 5 of the sales sidebar (Quotations hidden)',
     );
     expect(
       layout.onNavigationSelected,

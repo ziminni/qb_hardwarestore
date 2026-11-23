@@ -44,7 +44,7 @@ class SalesSkeletonLayout extends StatelessWidget {
   /// [projectRequestsMarkers] and pinned by the routing tests, because marking
   /// or navigating the wrong row is invisible in a test that only checks "a
   /// badge appeared".
-  static const int projectRequestsIndex = 8;
+  static const int projectRequestsIndex = 7;
 
   /// The store manager's menu as the sidebar renders it, derived from
   /// [AppDestinations] (Phase 2 F1). The flat index is the row's position, and a

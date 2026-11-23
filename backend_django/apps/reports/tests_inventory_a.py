@@ -366,7 +366,9 @@ class BatchAgeReportTests(InventoryReportTestBase):
 class ShrinkageReportTests(InventoryReportTestBase):
     def test_losses_per_day_and_the_percent_against_opening_plus_received(self):
         # Opening: 100 base units delivered before the period, never sold or adjusted.
-        self._batch(self._receipt([100], receive_date=TODAY - timedelta(days=10)), "100")
+        self._batch(
+            self._receipt([100], receive_date=TODAY - timedelta(days=10)), "100"
+        )
         # Received inside the period: 50.
         self._batch(self._receipt([50], receive_date=TODAY), "50")
         self._adjustment("-5", StockAdjustment.AdjustmentType.SHRINKAGE)

@@ -99,18 +99,18 @@ void main() {
       );
     });
 
-    test('the sales sidebar keeps 9 Payables and gains Deliveries at 10', () {
+    test('the sales sidebar keeps 8 Payables and gains Deliveries at 9', () {
       final order = _areaOrder(AppAreas.sales);
-      expect(order, hasLength(14));
-      expect(order[6], 'salesReportCatalogue');
-      expect(order[9], 'salesPayables');
-      expect(order[10], 'salesDeliveries');
+      expect(order, hasLength(13));
+      expect(order[5], 'salesReportCatalogue');
+      expect(order[8], 'salesPayables');
+      expect(order[9], 'salesDeliveries');
       expect(
-        order[11],
+        order[10],
         'salesTransfers',
-        reason: 'Phase 9 F3 APPENDED Transfers at 11; nothing moved',
+        reason: 'Phase 9 F3 APPENDED Transfers at 10; nothing moved',
       );
-      expect(order[12], 'salesSettings');
+      expect(order[11], 'salesSettings');
     });
 
     test('every page declares its own shell index', () {

@@ -194,7 +194,7 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
       title: 'Sales Orders',
       subtitle:
           'Confirmed customer orders awaiting payment and stock release at the POS till.',
-      selectedNavigationIndex: 3,
+      selectedNavigationIndex: 2,
       // The list owns the scrolling, so it builds only the rows on screen.
       scrollable: false,
       onNavigationSelected: (index) => navigateSales(context, index),

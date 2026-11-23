@@ -217,7 +217,7 @@ class _SalesReturnsPageState extends State<SalesReturnsPage> {
     return SalesSkeletonLayout(
       title: 'Returns & Refunds',
       subtitle: 'Review customer returns, replacements, and refund outcomes.',
-      selectedNavigationIndex: 5,
+      selectedNavigationIndex: 4,
       // The list owns the scrolling: a bounded slot lets the panel build only
       // the rows on screen, and a store collects returns for years.
       scrollable: false,
