@@ -161,6 +161,19 @@ void main() {
     },
   );
 
+  test('an utang sale with no tenders clears the till and reads UTANG', () async {
+    // Regression: submit crashed on payments.first for tender-less utang sales,
+    // so the 201-recorded sale never cleared the cart.
+    addOne();
+    cart.selectCustomer(
+      const Customer(id: 2, name: 'Maria Santos', customerType: 'REGULAR'),
+    );
+    expect(await cart.submit(tenders: const []), isTrue);
+    expect(repository.sentPayments, isEmpty);
+    expect(cart.lines, isEmpty, reason: 'utang 201 clears like cash');
+    expect(cart.receipts.first.paymentMethod, 'UTANG');
+  });
+
   test('never submits an empty cart', () async {
     // The server has no empty-items guard: an empty sale would succeed and mint a
     // zero-value receipt.

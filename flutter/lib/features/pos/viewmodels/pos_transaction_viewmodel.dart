@@ -1470,7 +1470,9 @@ class PosTransactionViewmodel extends ChangeNotifier {
           lines: List.unmodifiable(_serverLines(result.lines, sold)),
           // The tenders the CASHIER entered, then the server's own rows: a split
           // sale keeps every method, and a cheque keeps its PENDING status.
-          paymentMethod: payments.first.method,
+          // An utang sale tenders nothing (the debt IS the payment), so there is
+          // no first tender to read: the method is the fact, not an index.
+          paymentMethod: payments.isEmpty ? 'UTANG' : payments.first.method,
           amountPaid: payments.fold(
             0.0,
             (sum, payment) => sum + payment.amountTendered,
