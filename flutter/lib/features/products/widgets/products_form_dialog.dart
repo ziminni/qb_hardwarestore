@@ -1095,9 +1095,10 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
           ),
         ],
       ),
-      const SizedBox(height: AppSpacing.md),
-      _utangMarkupFields(),
-      const SizedBox(height: AppSpacing.md),
+      // Utang markup hidden until its pricing is wanted again (owner 2026-11-23).
+      // const SizedBox(height: AppSpacing.md),
+      // _utangMarkupFields(),
+      // const SizedBox(height: AppSpacing.md),
       _packSection(context),
       const SizedBox(height: AppSpacing.md),
       Row(
@@ -1322,6 +1323,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
 
   /// Shared utang markup controls used in both Add Product and Edit Product so
   /// base-unit pricing fields stay consistent across modes.
+  // ignore: unused_element
   Widget _utangMarkupFields() => Row(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -1664,9 +1666,10 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
         ),
       ],
     ),
-    const SizedBox(height: AppSpacing.md),
-    _utangMarkupFields(),
-    const SizedBox(height: AppSpacing.md),
+    // Utang markup hidden until its pricing is wanted again (owner 2026-11-23).
+    // const SizedBox(height: AppSpacing.md),
+    // _utangMarkupFields(),
+    // const SizedBox(height: AppSpacing.md),
     _editVariantsCard(context),
     const SizedBox(height: AppSpacing.md),
     _storedAtField(),

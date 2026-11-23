@@ -117,10 +117,11 @@ void main() {
     );
 
     expect(salesOrder.first, AppRoutes.salesDashboard);
-    expect(salesOrder[5],
+    expect(
+      salesOrder[5],
       AppRoutes.salesReportCatalogue,
       reason:
-          'index 6 is Reports — the tab that used to be a silent no-op; it '
+          'index 5 is Reports — the tab that used to be a silent no-op; it '
           'opens the reports catalogue since the suite landed',
     );
     expect(salesOrder[6], AppRoutes.salesStaff);

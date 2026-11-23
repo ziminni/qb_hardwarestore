@@ -505,7 +505,7 @@ void main() {
     });
 
     testWidgets(
-      'edit mode shows Utang markup controls, Variants summary, and Pack / bulk units',
+      'edit mode hides Utang markup controls, shows Variants summary and Pack / bulk units',
       (tester) async {
         await openForm(
           tester,
@@ -513,7 +513,11 @@ void main() {
           // Pass an empty callback or test without it; let's verify section presence
         );
 
-        expect(find.byKey(const ValueKey('credit-markup-kind')), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('credit-markup-kind')),
+          findsNothing,
+          reason: 'markup parked until its pricing is wanted again',
+        );
         expect(
           find.byKey(const ValueKey('edit-variants-section')),
           findsOneWidget,
