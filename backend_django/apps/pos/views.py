@@ -1906,6 +1906,11 @@ class SalesOrderViewSet(BaseViewSet):
                     idempotency_key=idempotency_key,
                     request_hash=body_hash,
                 )
+                invoice_no = (request.data.get("invoice_no") or "").strip()
+                if invoice_no:
+                    from .services import tag_invoice
+
+                    tag_invoice(txn, invoice_no, request.user)
                 # Read the order back: the service wrote its status and quantities, and
                 # the audit line names both ends of that move.
                 fulfilled = SalesOrder.objects.get(pk=order.pk)
@@ -2077,6 +2082,11 @@ class HeldCartViewSet(BaseViewSet):
                     ),
                     exclude_held_cart_id=cart.id,
                 )
+                invoice_no = (request.data.get("invoice_no") or "").strip()
+                if invoice_no:
+                    from .services import tag_invoice
+
+                    tag_invoice(txn, invoice_no, request.user)
                 cart.delete()
                 # Inside THIS block (decision 07): the sale, the deleted cart and the
                 # audit row commit together. A refused completion (insufficient stock)

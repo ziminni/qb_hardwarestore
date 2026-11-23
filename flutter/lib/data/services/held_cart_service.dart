@@ -138,8 +138,10 @@ class HeldCartService {
     String? discountApproval,
     DeliveryDraft? delivery,
     bool creditSale = false,
+    String? invoiceNo,
   }) async {
     try {
+      final cleanedInvoiceNo = invoiceNo?.trim();
       final response = await _client.post<Map<String, dynamic>>(
         '$heldCartsPath$cartId/complete/',
         headers: idempotencyKey == null || idempotencyKey.isEmpty
@@ -160,6 +162,8 @@ class HeldCartService {
           // flag a resumed utang basket would be refused (CREDIT_PRICE_REQUIRED)
           // or quietly rung at cash prices.
           'credit_sale': creditSale,
+          if (cleanedInvoiceNo != null && cleanedInvoiceNo.isNotEmpty)
+            'invoice_no': cleanedInvoiceNo,
         },
       );
       final data = response.data;

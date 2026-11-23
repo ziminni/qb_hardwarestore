@@ -706,14 +706,18 @@ class PosService {
     required List<PosFulfilLine> lines,
     required List<PosCheckoutPayment> payments,
     String? idempotencyKey,
+    String? invoiceNo,
   }) async {
     try {
+      final cleanedInvoiceNo = invoiceNo?.trim();
       final response = await _client.post<Map<String, dynamic>>(
         '$salesOrdersPath$orderId/fulfil/',
         headers: _idempotencyHeaders(idempotencyKey),
         data: {
           'lines': [for (final line in lines) line.toJson()],
           'payments': [for (final payment in payments) payment.toJson()],
+          if (cleanedInvoiceNo != null && cleanedInvoiceNo.isNotEmpty)
+            'invoice_no': cleanedInvoiceNo,
         },
       );
       final data = response.data;

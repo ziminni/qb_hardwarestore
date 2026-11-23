@@ -741,57 +741,14 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     // A hold with no lines would park an empty basket that resumes to nothing.
     if (transaction.lines.isEmpty) return;
 
-    final noteController = TextEditingController();
     final note = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Hold transaction'),
-        content: SizedBox(
-          width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Park this basket (${transaction.itemCount} item${transaction.itemCount == 1 ? "" : "s"} · ${formatPeso(transaction.total)}) for ${transaction.customerLabel}.',
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                key: const ValueKey('hold-cart-note-input'),
-                controller: noteController,
-                autofocus: true,
-                maxLength: 160,
-                decoration: const InputDecoration(
-                  labelText: 'Note / identifier (optional)',
-                  hintText: 'e.g. Getting cash from car, red pickup truck',
-                  border: OutlineInputBorder(),
-                ),
-                onSubmitted: (value) =>
-                    Navigator.of(dialogContext).pop(value.trim()),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton.icon(
-            key: const ValueKey('hold-cart-confirm-button'),
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(noteController.text.trim()),
-            icon: const Icon(Icons.pause_circle_outline, size: 18),
-            label: const Text('Hold basket'),
-          ),
-        ],
+      builder: (_) => _HoldCartNoteDialog(
+        itemCount: transaction.itemCount,
+        total: transaction.total,
+        customerLabel: transaction.customerLabel,
       ),
     );
-    noteController.dispose();
     if (note == null || !context.mounted) {
       _restoreScannerFocus();
       return;
@@ -1131,6 +1088,82 @@ class _OpenShiftGate extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _HoldCartNoteDialog extends StatefulWidget {
+  const _HoldCartNoteDialog({
+    required this.itemCount,
+    required this.total,
+    required this.customerLabel,
+  });
+
+  final int itemCount;
+  final double total;
+  final String customerLabel;
+
+  @override
+  State<_HoldCartNoteDialog> createState() => _HoldCartNoteDialogState();
+}
+
+class _HoldCartNoteDialogState extends State<_HoldCartNoteDialog> {
+  final TextEditingController _noteController = TextEditingController();
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Hold transaction'),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Park this basket (${widget.itemCount} item${widget.itemCount == 1 ? "" : "s"} · ${formatPeso(widget.total)}) for ${widget.customerLabel}.',
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const ValueKey('hold-cart-note-input'),
+                controller: _noteController,
+                autofocus: true,
+                maxLength: 160,
+                decoration: const InputDecoration(
+                  labelText: 'Note / identifier (optional)',
+                  hintText: 'e.g. Getting cash from car, red pickup truck',
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.icon(
+          key: const ValueKey('hold-cart-confirm-button'),
+          onPressed: () =>
+              Navigator.of(context).pop(_noteController.text.trim()),
+          icon: const Icon(Icons.pause_circle_outline, size: 18),
+          label: const Text('Hold basket'),
+        ),
+      ],
     );
   }
 }

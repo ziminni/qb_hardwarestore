@@ -1572,7 +1572,7 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
               formatPeso(row.amount),
               bold: false,
             ),
-          if (_deliver && widget.lockedDeliveryFee == null)
+          if ( _deliver && widget.lockedDeliveryFee == null)
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(
@@ -1581,6 +1581,18 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
                 style: const TextStyle(color: AppColors.textSecondary),
               ),
             ),
+          if (widget.cart != null &&
+              (widget.cart!.attachOrEnabled ||
+                  widget.cart!.invoiceNo != null)) ...[
+            const Divider(height: 16),
+            _textSummaryRow(
+              'Official Receipt (OR)',
+              (widget.cart!.invoiceNo ?? '').trim().isNotEmpty
+                  ? widget.cart!.invoiceNo!
+                  : 'Enter OR / Invoice no. on the right',
+              bold: true,
+            ),
+          ],
         ],
       ),
     );
@@ -2178,6 +2190,16 @@ class _PosPaymentDialogState extends State<PosPaymentDialog> {
 
   Future<void> _validateAndComplete() async {
     setState(() => _tenderError = null);
+    if (widget.cart != null &&
+        widget.cart!.attachOrEnabled &&
+        (widget.cart!.invoiceNo == null ||
+            widget.cart!.invoiceNo!.trim().isEmpty)) {
+      setState(() {
+        _tenderError =
+            'Enter the OR / Invoice number in the cart on the right, or turn off "Attach OR?".';
+      });
+      return;
+    }
     if (!_formKey.currentState!.validate()) return;
 
     // A field on an earlier step is no longer built, so it cannot validate

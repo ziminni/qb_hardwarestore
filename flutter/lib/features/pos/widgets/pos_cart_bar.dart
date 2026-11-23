@@ -158,9 +158,6 @@ class PosOfficialReceiptToggle extends StatefulWidget {
 
 class _PosOfficialReceiptToggleState extends State<PosOfficialReceiptToggle> {
   final _controller = TextEditingController();
-  bool _enabled = false;
-  int _lastLineCount = 0;
-  String? _lastInvoiceNo;
 
   @override
   void dispose() {
@@ -169,27 +166,26 @@ class _PosOfficialReceiptToggleState extends State<PosOfficialReceiptToggle> {
   }
 
   void _setEnabled(bool value) {
-    setState(() => _enabled = value);
-    if (value) return;
-    // Switching the option off is the same as never having typed a number: both
-    // the field and the sale's tag are cleared.
-    _controller.clear();
-    context.read<PosTransactionViewmodel>().setInvoiceNo(null);
+    final vm = context.read<PosTransactionViewmodel>();
+    vm.setAttachOrEnabled(value);
+    if (!value) {
+      _controller.clear();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<PosTransactionViewmodel>();
-    // Auto-reset the toggle back to untoggled after a transaction completes or
-    // the cart is cleared (invoiceNo resets to null or cart lines empty out).
-    final invoiceCleared = state.invoiceNo == null && _lastInvoiceNo != null;
-    final cartEmptied = state.lines.isEmpty && _lastLineCount > 0;
-    if (_enabled && (invoiceCleared || cartEmptied)) {
-      _enabled = false;
+    final enabled = state.attachOrEnabled || state.invoiceNo != null;
+    if (!enabled && _controller.text.isNotEmpty) {
       _controller.clear();
+    } else if (state.invoiceNo != null &&
+        _controller.text.trim() != state.invoiceNo) {
+      _controller.value = TextEditingValue(
+        text: state.invoiceNo!,
+        selection: TextSelection.collapsed(offset: state.invoiceNo!.length),
+      );
     }
-    _lastLineCount = state.lines.length;
-    _lastInvoiceNo = state.invoiceNo;
 
     final color = widget.onDark ? AppColors.brandWhite : AppColors.textPrimary;
     return Row(
@@ -201,12 +197,12 @@ class _PosOfficialReceiptToggleState extends State<PosOfficialReceiptToggle> {
               'then type its OR / Invoice number.',
           child: Switch(
             key: PosOfficialReceiptToggle.switchKey,
-            value: _enabled,
+            value: enabled,
             onChanged: _setEnabled,
           ),
         ),
         Text('Attach OR?', style: TextStyle(color: color, fontSize: 13)),
-        if (_enabled) ...[
+        if (enabled) ...[
           const SizedBox(width: AppSpacing.sm),
           SizedBox(
             width: 150,

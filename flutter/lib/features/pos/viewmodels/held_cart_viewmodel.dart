@@ -1,3 +1,4 @@
+import 'package:client/core/sync/app_sync_bus.dart';
 import 'package:client/data/models/held_cart.dart';
 import 'package:client/data/services/held_cart_service.dart';
 import 'package:client/data/services/pos_service.dart';
@@ -16,7 +17,9 @@ import 'package:flutter/foundation.dart';
 ///   hiding it would strand a customer's items with nothing pointing at them.
 class HeldCartViewmodel extends ChangeNotifier {
   HeldCartViewmodel({HeldCartService? service})
-    : _service = service ?? HeldCartService();
+    : _service = service ?? HeldCartService() {
+    _resumedCartIds.clear();
+  }
 
   final HeldCartService _service;
 
@@ -46,8 +49,10 @@ class HeldCartViewmodel extends ChangeNotifier {
   HeldCart? get pendingResume => _pendingResume;
 
   /// IDs of held carts currently resumed into the till so they immediately
-  /// disappear from the Held Transactions list and are not shown again on reload.
-  final Set<int> _resumedCartIds = <int>{};
+  /// disappear from the Held Transactions list and sidebar badge.
+  static final Set<int> _resumedCartIds = <int>{};
+
+  static bool isResumed(int cartId) => _resumedCartIds.contains(cartId);
 
   /// Hands [cart] to the till and removes it from the visible Held queue immediately.
   void resumeCart(HeldCart cart) {
@@ -57,6 +62,7 @@ class HeldCartViewmodel extends ChangeNotifier {
         .where((existing) => existing.id != cart.id)
         .toList(growable: false);
     notifyListeners();
+    AppSyncBus.instance.notifyMarkersChanged();
   }
 
   /// Takes the pending basket, or null when there is none.
@@ -111,6 +117,7 @@ class HeldCartViewmodel extends ChangeNotifier {
       );
       _carts = [held, ..._carts];
       notifyListeners();
+      AppSyncBus.instance.notifyMarkersChanged();
       return held;
     } on HeldCartServiceException catch (failure) {
       actionError = failure.message;
@@ -124,10 +131,12 @@ class HeldCartViewmodel extends ChangeNotifier {
     actionError = null;
     try {
       await _service.voidCart(cartId);
+      _resumedCartIds.remove(cartId);
       _carts = _carts
           .where((cart) => cart.id != cartId)
           .toList(growable: false);
       notifyListeners();
+      AppSyncBus.instance.notifyMarkersChanged();
       return true;
     } on HeldCartServiceException catch (failure) {
       actionError = failure.message;
@@ -143,10 +152,13 @@ class HeldCartViewmodel extends ChangeNotifier {
   /// rung. The row must go: a cart that has already been sold must not sit in the queue
   /// inviting a second resume.
   void forgetCart(int cartId) {
+    _resumedCartIds.remove(cartId);
     final remaining = _carts.where((cart) => cart.id != cartId).toList();
-    if (remaining.length == _carts.length) return;
-    _carts = remaining;
-    notifyListeners();
+    if (remaining.length != _carts.length) {
+      _carts = remaining;
+      notifyListeners();
+    }
+    AppSyncBus.instance.notifyMarkersChanged();
   }
 
   /// Sells a parked basket through the server's `complete` action.
@@ -170,10 +182,12 @@ class HeldCartViewmodel extends ChangeNotifier {
         payments: payments,
         idempotencyKey: idempotencyKey,
       );
+      _resumedCartIds.remove(cartId);
       _carts = _carts
           .where((cart) => cart.id != cartId)
           .toList(growable: false);
       notifyListeners();
+      AppSyncBus.instance.notifyMarkersChanged();
       return sale;
     } on HeldCartServiceException catch (failure) {
       actionError = failure.message;

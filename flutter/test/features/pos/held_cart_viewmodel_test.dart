@@ -60,6 +60,7 @@ class _StubHeldCarts extends HeldCartService {
     String? discountApproval,
     DeliveryDraft? delivery,
     bool creditSale = false,
+    String? invoiceNo,
   }) async {
     if (failComplete != null) throw failComplete!;
     completed.add(cartId);

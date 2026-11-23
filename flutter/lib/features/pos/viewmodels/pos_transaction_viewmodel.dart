@@ -142,11 +142,28 @@ class PosTransactionViewmodel extends ChangeNotifier {
   String? _invoiceNo;
   String? get invoiceNo => _invoiceNo;
 
+  /// True when the cashier toggled "Attach OR?" on for the current sale.
+  bool _attachOrEnabled = false;
+  bool get attachOrEnabled => _attachOrEnabled;
+
+  void setAttachOrEnabled(bool value) {
+    if (_attachOrEnabled == value && (value || _invoiceNo == null)) return;
+    _attachOrEnabled = value;
+    if (!value) {
+      _invoiceNo = null;
+    }
+    _dropAttemptKey();
+    notifyListeners();
+  }
+
   /// Records the number typed for this sale. A blank value clears the tag, so
   /// switching the OR option off is the same as never having typed one.
   void setInvoiceNo(String? value) {
     final cleaned = (value ?? '').trim();
     final next = cleaned.isEmpty ? null : cleaned;
+    if (next != null) {
+      _attachOrEnabled = true;
+    }
     if (_invoiceNo == next) return;
     _invoiceNo = next;
     // A different BIR number is a different request body, so this attempt's spent
@@ -1115,6 +1132,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
     _lines.clear();
     _wholeSaleDiscount = null;
     _invoiceNo = null;
+    _attachOrEnabled = false;
     _creditSale = false;
     // The till no longer holds the parked basket, so a later sale must not try to
     // complete (or void) a cart this basket came from.
@@ -1131,6 +1149,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
     _lines.clear();
     _wholeSaleDiscount = null;
     _invoiceNo = null;
+    _attachOrEnabled = false;
     _creditSale = false;
     _selectedCustomer = null;
     _ledgerSummary = null;
@@ -1368,6 +1387,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
           ],
           payments: payments,
           idempotencyKey: attemptKey,
+          invoiceNo: _invoiceNo,
         );
       } else if (completeCartId != null) {
         result = PosCheckoutResult.fromJson(
@@ -1381,6 +1401,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
             // Owner ruling (utang markup): the parked cart is completed at the
             // SAME pricing the cashier chose before the tender was taken.
             creditSale: _creditSale,
+            invoiceNo: _invoiceNo,
           ),
         );
         _completedHeldCartId = completeCartId;
@@ -1480,6 +1501,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
       _lines.clear();
       _wholeSaleDiscount = null;
       _invoiceNo = null;
+      _attachOrEnabled = false;
       _creditSale = false;
       // The basket is sold, so it is no longer a resumed cart: a second sale must not
       // try to complete the same parked cart again.

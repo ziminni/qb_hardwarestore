@@ -4,6 +4,7 @@ import 'package:client/data/repositories/inventory_repository.dart';
 import 'package:client/data/repositories/requisition_repository.dart';
 import 'package:client/data/services/held_cart_service.dart';
 import 'package:client/data/services/inventory_service.dart';
+import 'package:client/features/pos/viewmodels/held_cart_viewmodel.dart';
 import 'package:client/routes/routes.dart';
 import 'package:client/shared/widgets/shared_sidebar.dart';
 import 'package:flutter/material.dart';
@@ -11,9 +12,11 @@ import 'package:flutter/material.dart';
 /// One live count, read once per area that owns a badge row.
 typedef BadgeCountLoader = Future<int> Function();
 
-/// Live queued carts: the Till's "Held transactions" count.
-Future<int> heldCartsCount() async =>
-    (await HeldCartService().fetchAll()).length;
+/// Live queued carts: the Till's "Held transactions" count, excluding any
+/// cart currently resumed into the active till.
+Future<int> heldCartsCount() async => (await HeldCartService().fetchAll())
+    .where((cart) => !HeldCartViewmodel.isResumed(cart.id))
+    .length;
 
 /// Unresolved stock alerts: the Stock Manager's "Low stock" count.
 Future<int> unresolvedAlertsCount() async => (await InventoryRepository(

@@ -141,90 +141,11 @@ class SupplierBillDetailsDialog extends StatelessWidget {
   ) async {
     final handler = onAttachProof;
     if (handler == null) return;
-    final controller = TextEditingController(text: payment.proofAttachment);
-    String? errorText;
     final saved = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: Text(
-            payment.hasProof
-                ? 'Update payment proof'
-                : 'Attach payment proof',
-          ),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TextField(
-                  key: ValueKey('proof-input-${payment.id}'),
-                  controller: controller,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    labelText: 'Receipt / slip filename or reference',
-                    hintText: 'e.g. deposit-slip-001.jpg or OR#12345',
-                    errorText: errorText,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: OutlinedButton.icon(
-                    key: ValueKey('proof-pick-file-${payment.id}'),
-                    onPressed: () async {
-                      const group = XTypeGroup(
-                        label: 'Receipts & images',
-                        extensions: <String>['jpg', 'jpeg', 'png', 'pdf', 'webp'],
-                      );
-                      final file = await openFile(
-                        acceptedTypeGroups: <XTypeGroup>[group],
-                      );
-                      if (file != null) {
-                        setDialogState(() {
-                          controller.text = file.name;
-                          errorText = null;
-                        });
-                      }
-                    },
-                    icon: const Icon(Icons.attach_file, size: 18),
-                    label: const Text('Choose file'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              key: ValueKey('proof-save-${payment.id}'),
-              onPressed: () async {
-                final text = controller.text.trim();
-                if (text.isEmpty) {
-                  setDialogState(() {
-                    errorText = 'Enter a proof reference or choose a file.';
-                  });
-                  return;
-                }
-                final err = await handler(payment, text);
-                if (!dialogContext.mounted) return;
-                if (err != null) {
-                  setDialogState(() => errorText = err);
-                  return;
-                }
-                Navigator.pop(dialogContext, true);
-              },
-              child: const Text('Save proof'),
-            ),
-          ],
-        ),
-      ),
+      builder: (_) =>
+          _AttachPaymentProofDialog(payment: payment, onSave: handler),
     );
-    controller.dispose();
     if (saved == true && context.mounted) {
       Navigator.pop(context, false);
     }
@@ -360,5 +281,132 @@ class _BillStatusBadge extends StatelessWidget {
         tone: StatusTone.neutral,
       ),
     };
+  }
+}
+
+class _AttachPaymentProofDialog extends StatefulWidget {
+  const _AttachPaymentProofDialog({
+    required this.payment,
+    required this.onSave,
+  });
+
+  final SupplierPayment payment;
+  final Future<String?> Function(SupplierPayment payment, String proofAttachment)
+  onSave;
+
+  @override
+  State<_AttachPaymentProofDialog> createState() =>
+      _AttachPaymentProofDialogState();
+}
+
+class _AttachPaymentProofDialogState extends State<_AttachPaymentProofDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.payment.proofAttachment,
+  );
+  String? _errorText;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final payment = widget.payment;
+    return AlertDialog(
+      title: Text(
+        payment.hasProof ? 'Update payment proof' : 'Attach payment proof',
+      ),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                key: ValueKey('proof-input-${payment.id}'),
+                controller: _controller,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: 'Receipt / slip filename or reference',
+                  hintText: 'e.g. deposit-slip-001.jpg or OR#12345',
+                  errorText: _errorText,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  key: ValueKey('proof-pick-file-${payment.id}'),
+                  onPressed: _saving
+                      ? null
+                      : () async {
+                          const group = XTypeGroup(
+                            label: 'Receipts & images',
+                            extensions: <String>[
+                              'jpg',
+                              'jpeg',
+                              'png',
+                              'pdf',
+                              'webp',
+                            ],
+                          );
+                          final file = await openFile(
+                            acceptedTypeGroups: <XTypeGroup>[group],
+                          );
+                          if (file != null && mounted) {
+                            setState(() {
+                              _controller.text = file.name;
+                              _errorText = null;
+                            });
+                          }
+                        },
+                  icon: const Icon(Icons.attach_file, size: 18),
+                  label: const Text('Choose file'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: ValueKey('proof-save-${payment.id}'),
+          onPressed: _saving
+              ? null
+              : () async {
+                  final text = _controller.text.trim();
+                  if (text.isEmpty) {
+                    setState(() {
+                      _errorText = 'Enter a proof reference or choose a file.';
+                    });
+                    return;
+                  }
+                  setState(() {
+                    _saving = true;
+                    _errorText = null;
+                  });
+                  final err = await widget.onSave(payment, text);
+                  if (!context.mounted) return;
+                  if (err != null) {
+                    setState(() {
+                      _saving = false;
+                      _errorText = err;
+                    });
+                    return;
+                  }
+                  Navigator.pop(context, true);
+                },
+          child: const Text('Save proof'),
+        ),
+      ],
+    );
   }
 }

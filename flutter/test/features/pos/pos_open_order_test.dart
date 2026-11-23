@@ -90,6 +90,7 @@ class _FakeOrderService extends PosService {
     required List<PosFulfilLine> lines,
     required List<PosCheckoutPayment> payments,
     String? idempotencyKey,
+    String? invoiceNo,
   }) async {
     fulfilCalls++;
     sentOrderId = orderId;

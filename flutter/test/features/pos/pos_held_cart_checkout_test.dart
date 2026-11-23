@@ -372,7 +372,12 @@ void main() {
           hasLength(1),
           reason: 'the parked basket is in the till',
         );
-        expect(heldCarts.carts, hasLength(1));
+        expect(
+          heldCarts.carts,
+          isEmpty,
+          reason: 'resuming immediately removes the cart from the Held queue',
+        );
+        expect(HeldCartViewmodel.isResumed(held.id), isTrue);
 
         await tester.tap(find.text('Proceed to payment'));
         await tester.pumpAndSettle();
@@ -380,6 +385,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(heldService.completes, hasLength(1));
+        expect(HeldCartViewmodel.isResumed(held.id), isFalse);
         expect(
           heldCarts.carts,
           isEmpty,
