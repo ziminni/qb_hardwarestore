@@ -296,6 +296,45 @@ class QuotationRecord {
   }
 }
 
+/// What "New quotation" sends: `POST /api/v1/quotations/`.
+///
+/// The lines reuse [SalesOrderLineDraft]: a quotation item and an order item are
+/// the same three keys on the wire (`variant_uom`, `qty`, `unit_price`), and the
+/// price needs the same 2-dp text so a DecimalField never sees
+/// 249.99999999999997.
+///
+/// `status` is absent on purpose. The server writes every new quotation as DRAFT
+/// and the vocabulary is server-side (decision 22 #16); there is no accept
+/// endpoint either, so a quotation stays DRAFT until it becomes an order.
+class QuotationDraft {
+  const QuotationDraft({
+    required this.customerId,
+    required this.lines,
+    this.validUntil,
+  });
+
+  final int customerId;
+  final List<SalesOrderLineDraft> lines;
+
+  /// The day the price stops holding. Null means "no expiry set", which the
+  /// server accepts (the column is nullable) and the screen then reads as one
+  /// day: the quotation's own creation date.
+  final DateTime? validUntil;
+
+  Map<String, dynamic> toJson() => {
+    'customer': customerId,
+    'items': [for (final line in lines) line.toJson()],
+    if (validUntil != null) 'valid_until': _wireDate(validUntil!),
+  };
+
+  /// A `DateField` takes `YYYY-MM-DD`, never a timestamp.
+  static String _wireDate(DateTime value) {
+    final month = value.month.toString().padLeft(2, '0');
+    final day = value.day.toString().padLeft(2, '0');
+    return '${value.year}-$month-$day';
+  }
+}
+
 /// GET /api/v1/sales-orders/ rows. `quotationId` is the order's origin
 /// quotation when it has one — the quotation-to-order flow, made traceable.
 class OrderLineItem {
@@ -437,6 +476,7 @@ class SalesOrderDraft {
   const SalesOrderDraft({
     required this.customerId,
     required this.lines,
+    this.quotationId,
     this.notes = '',
     this.delivery,
     this.approvalToken,
@@ -444,6 +484,10 @@ class SalesOrderDraft {
 
   final int customerId;
   final List<SalesOrderLineDraft> lines;
+
+  /// The quotation this order honours, when it was raised from one. The server
+  /// keeps it, which is what makes the quote-to-order flow traceable.
+  final int? quotationId;
 
   /// Free text the customer asked for. Omitted when blank so the server keeps
   /// its own empty default.
@@ -465,6 +509,7 @@ class SalesOrderDraft {
 
   Map<String, dynamic> toJson() => {
     'customer': customerId,
+    if (quotationId != null) 'quotation': quotationId,
     if (notes.isNotEmpty) 'notes': notes,
     'items': [for (final line in lines) line.toJson()],
     if (delivery != null) 'delivery': delivery!.toJson(),

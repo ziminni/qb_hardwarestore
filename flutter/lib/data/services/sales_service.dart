@@ -104,6 +104,31 @@ class SalesService {
     );
   }
 
+  /// Creates ONE quotation: `POST /api/v1/quotations/`.
+  ///
+  /// The server writes the number and the status (DRAFT) and owns the lines'
+  /// parent; the client sends the customer, `valid_until` and the lines. A
+  /// refusal is re-thrown as the server's own sentence (`INACTIVE_SELLING_UNIT`
+  /// names the archived unit), because the form keeps the clerk's input on
+  /// screen and has to say which line the catalogue refused.
+  Future<QuotationRecord> createQuotation(QuotationDraft draft) async {
+    try {
+      final response = await _client.post<Map<String, dynamic>>(
+        quotationsPath,
+        data: draft.toJson(),
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const SalesServiceException(
+          'The server did not return the saved quotation.',
+        );
+      }
+      return QuotationRecord.fromJson(data);
+    } on DioException catch (error) {
+      throw _refusal(error, what: 'quotation');
+    }
+  }
+
   /// Creates ONE sales order and returns the server's row.
   ///
   /// Phase 5 F3 follow-up gave the sales screen create-only entry; Phase 7 F1
@@ -183,7 +208,12 @@ class SalesService {
   /// The sentence comes first for the human, but the CODE rides along: the order
   /// form branches on `DISCOUNT_OVER_CAP` to ask a manager to sign the price off
   /// without losing a word it typed.
-  SalesServiceException _refusal(DioException error) {
+  /// [what] names the document in the two sentences the server cannot supply: a
+  /// 403 and a body with nothing readable in it.
+  SalesServiceException _refusal(
+    DioException error, {
+    String what = 'sales order',
+  }) {
     if (error.type == DioExceptionType.connectionError ||
         error.type == DioExceptionType.connectionTimeout ||
         error.type == DioExceptionType.receiveTimeout) {
@@ -198,8 +228,8 @@ class SalesService {
       );
     }
     if (status == 403) {
-      return const SalesServiceException(
-        'You do not have permission to change this sales order.',
+      return SalesServiceException(
+        'You do not have permission to change this $what.',
       );
     }
     final data = error.response?.data;
@@ -235,9 +265,7 @@ class SalesService {
         }
       }
     }
-    return const SalesServiceException(
-      'The sales order was refused. Nothing was saved.',
-    );
+    return SalesServiceException('The $what was refused. Nothing was saved.');
   }
 
   /// Fallback sentences for a code that arrived without a `detail`.

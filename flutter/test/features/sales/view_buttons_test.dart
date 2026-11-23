@@ -228,7 +228,13 @@ void main() {
     testWidgets('View opens the quotation with its lines and total', (
       tester,
     ) async {
-      await pump(tester, inventory: await _inventory());
+      // Pin the clock: the fixture expires 2026-11-19, so wall-clock now
+      // would read 'Expired' instead of 'Sent'.
+      await pump(
+        tester,
+        inventory: await _inventory(),
+        now: () => DateTime(2026, 10, 19),
+      );
 
       expect(find.byType(SalesDocumentSheet), findsNothing);
       await _tapView(tester);

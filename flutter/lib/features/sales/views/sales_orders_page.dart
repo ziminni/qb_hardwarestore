@@ -87,6 +87,9 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
         await _openEditForm(item);
       case SalesDocumentAction.cancel:
         await _openCancelDialog(item);
+      case SalesDocumentAction.createOrder:
+        // A quotation's action: this sheet is never opened with that flag on.
+        break;
     }
   }
 

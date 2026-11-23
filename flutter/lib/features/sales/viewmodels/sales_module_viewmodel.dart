@@ -39,22 +39,51 @@ class SalesModuleViewmodel extends ChangeNotifier {
   /// The customers the order form offers, as the last load read them.
   List<Customer> get customers => List.unmodifiable(_customerRows);
 
+  /// Creates one quotation, then reloads the lists.
+  ///
+  /// Returns the number the SERVER generated — the screen reports it, because
+  /// that number is the shop's only handle on the document — plus the refusal
+  /// when there is one. No status is sent: the server writes every new quotation
+  /// as DRAFT and there is no accept endpoint, so DRAFT is the live state until
+  /// an order is raised from it.
+  Future<(String?, SalesServiceException?)> createQuotation(
+    QuotationDraft draft,
+  ) async {
+    try {
+      final created = await _service.createQuotation(draft);
+      await load();
+      return (created.number, null);
+    } on SalesServiceException catch (error) {
+      return (null, error);
+    }
+  }
+
   /// Creates one sales order, then reloads the lists.
   ///
   /// Returns null when the server accepted it, or the refusal itself — the CODE
   /// as well as the sentence, exactly like [updateOrder]: `DISCOUNT_OVER_CAP`
   /// turns into a manager approval prompt and one retry, not a dead end, and
   /// the rule is per line and per role (decision 19 follow-up ruling).
-  Future<SalesServiceException?> createOrder(SalesOrderDraft draft) async {
+  Future<SalesServiceException?> createOrder(SalesOrderDraft draft) async =>
+      (await createOrderWithNumber(draft)).$2;
+
+  /// [createOrder], plus the number the server wrote.
+  ///
+  /// Raising an order from a quotation reports `order_no` — that number is what
+  /// the manager sends the cashier to the till with — so this path needs the row
+  /// the plain [createOrder] form callback throws away.
+  Future<(String?, SalesServiceException?)> createOrderWithNumber(
+    SalesOrderDraft draft,
+  ) async {
     try {
-      await _service.createSalesOrder(draft);
+      final created = await _service.createSalesOrder(draft);
+      // The server has the order, so the list is re-read rather than patched
+      // with the row this client hoped for.
+      await load();
+      return (created.number, null);
     } on SalesServiceException catch (error) {
-      return error;
+      return (null, error);
     }
-    // The server has the order, so the list is re-read rather than patched with
-    // the row this client hoped for.
-    await load();
-    return null;
   }
 
   /// Rewrites one order a manager has not started keeping (Phase 7 F1).
@@ -124,6 +153,8 @@ class SalesModuleViewmodel extends ChangeNotifier {
                 DateTime.parse(q.createdAt),
             q.items.fold<double>(0, (sum, i) => sum + i.qty * i.unitPrice),
             _quoteStatus(q.status),
+            id: q.id,
+            customerId: q.customerId,
             // The list endpoint already carries the lines; the View sheet needs
             // no second fetch (decision D-02).
             items: q.items,

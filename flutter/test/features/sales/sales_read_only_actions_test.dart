@@ -3,6 +3,7 @@
 // What was there (2026-10-24 report): buttons that looked live and did nothing.
 //
 //   Sales Quotations  "New quotation"      — no create screen, no endpoint
+//                                             (back: the endpoint exists now)
 //   Sales Orders      "New sales order"    — same, until Phase 5 F3's follow-up
 //                                             (see below) built a create-only form
 //   Sales Returns     "New customer return"— cashiers return from the till
@@ -11,12 +12,13 @@
 //   Sales Returns row "View"               — swallowed the tap
 //   Sales Dashboard   "This month"         — filtered nothing
 //
-// The quotation and return create buttons are REMOVED (those views are read-only
-// by decision). "New sales order" is BACK as a form: the owner authorised it in
-// the Phase 5 F3 follow-up. Phase 7 F1 supersedes the ORDER half of these pins —
-// a Store Manager/Admin now gets Edit and Cancel on an unfulfilled order (decision
-// 19 #4) — and keeps the rest: DELETE is still gone (cancellation replaces it),
-// a cashier is offered neither action, and the QUOTATION pins are untouched.
+// The quotation and return create buttons were REMOVED (those views were
+// read-only by decision). "New sales order" came BACK as a form in the Phase 5 F3
+// follow-up, and "New quotation" is back too now that `POST /api/v1/quotations/`
+// exists (see sales_quotation_order_flow_test.dart). Phase 7 F1 supersedes the
+// ORDER half of these pins — a Store Manager/Admin now gets Edit and Cancel on an
+// unfulfilled order (decision 19 #4) — and keeps the rest: DELETE is still gone
+// (cancellation replaces it) and a cashier is offered neither action.
 // "View" opens the real read-only details sheet — the same document sheet the
 // transactions page uses. "This month" becomes a label that states what the
 // dashboard actually shows: every recorded transaction, with no period filter.
@@ -258,9 +260,7 @@ void main() {
 
   setUp(() => sales = _StubSalesService());
 
-  testWidgets('quotations: the dead "New quotation" button is gone', (
-    tester,
-  ) async {
+  testWidgets('quotations: "New quotation" is live again', (tester) async {
     _sizeUp(tester);
     sales.quotations = [_quotation()];
     await tester.pumpWidget(
@@ -276,7 +276,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('New quotation'), findsNothing);
+    // This pin used to say the button was GONE: no endpoint existed, so it could
+    // only ever do nothing. `POST /api/v1/quotations/` exists now, so the control
+    // is real — the form and the write it makes are pinned in
+    // sales_quotation_order_flow_test.dart.
+    expect(find.text('New quotation'), findsOneWidget);
     // The page still works: the row is there, and View still opens the document.
     expect(find.text('QT-20261019-0001'), findsOneWidget);
     expect(find.text('View'), findsOneWidget);

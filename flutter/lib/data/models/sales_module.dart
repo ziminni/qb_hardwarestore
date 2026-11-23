@@ -22,9 +22,20 @@ class SalesQuotation {
     this.validUntil,
     this.total,
     this.status, {
+    required this.id,
+    required this.customerId,
     this.items = const [],
     this.notes,
   });
+
+  /// The quotation's database id: "Create sales order" addresses it, and the
+  /// order it raises keeps the link.
+  final int id;
+
+  /// Who the quotation is for, so the order raised from it names the same
+  /// account. The wire carries only the id; [customer] is the joined name.
+  final int customerId;
+
   final String number;
   final String customer;
   final DateTime date;

@@ -49,7 +49,7 @@ class SalesDocumentLine {
 
 /// What a reader picked on the document sheet. The sheet pops with this rather
 /// than acting itself: it is a view, and the page owns the dialogs.
-enum SalesDocumentAction { edit, cancel }
+enum SalesDocumentAction { edit, cancel, createOrder }
 
 /// A quantity in the app's one quantity format (D7).
 ///
@@ -82,9 +82,9 @@ String variantUomName(InventoryViewmodel? inventory, int variantUomId) {
 
 /// Opens a document sheet (decision D-02 option A).
 ///
-/// [canEdit]/[canCancel] are decided by the PAGE, from the role and the order's
-/// status: the sheet never reads auth, and a sheet with neither flag is the
-/// strictly read-only family it was before Phase 7.
+/// [canEdit]/[canCancel]/[canCreateOrder] are decided by the PAGE, from the role
+/// and the document's status: the sheet never reads auth, and a sheet with none
+/// of the flags is the strictly read-only family it was before Phase 7.
 Future<SalesDocumentAction?> showSalesDocumentSheet(
   BuildContext context, {
   required String title,
@@ -93,6 +93,7 @@ Future<SalesDocumentAction?> showSalesDocumentSheet(
   required num total,
   bool canEdit = false,
   bool canCancel = false,
+  bool canCreateOrder = false,
   Future<void> Function()? onPrint,
   String printLabel = 'Print slip',
 }) {
@@ -107,6 +108,7 @@ Future<SalesDocumentAction?> showSalesDocumentSheet(
       total: total,
       canEdit: canEdit,
       canCancel: canCancel,
+      canCreateOrder: canCreateOrder,
       onPrint: onPrint,
       printLabel: printLabel,
     ),
@@ -133,6 +135,7 @@ class SalesDocumentSheet extends StatelessWidget {
     required this.total,
     this.canEdit = false,
     this.canCancel = false,
+    this.canCreateOrder = false,
     this.onPrint,
     this.printLabel = 'Print slip',
   });
@@ -143,6 +146,10 @@ class SalesDocumentSheet extends StatelessWidget {
   final num total;
   final bool canEdit;
   final bool canCancel;
+
+  /// A quotation only: raising the order it promises (the quote-to-order flow).
+  final bool canCreateOrder;
+
   final Future<void> Function()? onPrint;
   final String printLabel;
 
@@ -212,7 +219,10 @@ class SalesDocumentSheet extends StatelessWidget {
                   for (final line in lines) _line(line),
                 const SizedBox(height: AppSpacing.xl),
                 TotalBar(label: 'Total', amount: total),
-                if (canEdit || canCancel || onPrint != null) ...[
+                if (canEdit ||
+                    canCancel ||
+                    canCreateOrder ||
+                    onPrint != null) ...[
                   const SizedBox(height: AppSpacing.md),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
@@ -227,9 +237,7 @@ class SalesDocumentSheet extends StatelessWidget {
                               if (!context.mounted) return;
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  content: Text(
-                                    'Could not print slip: $error',
-                                  ),
+                                  content: Text('Could not print slip: $error'),
                                 ),
                               );
                             }
@@ -249,6 +257,22 @@ class SalesDocumentSheet extends StatelessWidget {
                               SalesDocumentAction.cancel,
                             ),
                             child: const Text('Cancel'),
+                          ),
+                        ),
+                      if (canCreateOrder)
+                        Padding(
+                          padding: const EdgeInsets.only(left: AppSpacing.sm),
+                          child: FilledButton.icon(
+                            key: const ValueKey('quotation-sheet-order'),
+                            onPressed: () => Navigator.pop(
+                              context,
+                              SalesDocumentAction.createOrder,
+                            ),
+                            icon: const Icon(
+                              Icons.assignment_turned_in_outlined,
+                              size: 18,
+                            ),
+                            label: const Text('Create sales order'),
                           ),
                         ),
                       if (canEdit)
