@@ -15,6 +15,7 @@ import 'package:client/features/dashboard/views/combined_dashboard_page.dart';
 import 'package:client/features/dashboard/views/inventory_dashboard.dart';
 import 'package:client/features/bodega/views/bodega_pages.dart';
 import 'package:client/features/pos/views/pos_customers_page.dart';
+import 'package:client/features/pos/views/pos_readings_page.dart';
 import 'package:client/features/pos/views/pos_receivables_page.dart';
 import 'package:client/features/pos/views/pos_returns_page.dart';
 import 'package:client/features/pos/views/pos_settings_page.dart';
@@ -194,6 +195,7 @@ class AppRoutes {
   /// discount, utang, and delivery presets for "Who is this sale for?".
   static const String posCustomers = '/pos/customers';
   static const String posDeliveries = '/pos/deliveries';
+  static const String posReadings = '/pos/readings';
   static const String salesDashboard = '/sales/dashboard';
   static const String salesTransactions = '/sales/transactions';
   static const String salesQuotations = '/sales/quotations';
@@ -830,6 +832,12 @@ class AppRoutes {
           name: 'pos_deliveries',
           pageBuilder: (context, state) =>
               _transitionPage(state, const PosDeliveriesPage()),
+        ),
+        GoRoute(
+          path: posReadings,
+          name: 'pos_readings',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const PosReadingsPage()),
         ),
         GoRoute(
           path: salesDashboard,

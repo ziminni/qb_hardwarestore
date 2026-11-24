@@ -147,6 +147,13 @@ class AppDestinations {
       route: AppRoutes.posDeliveries,
       sharedKey: 'deliveries',
     ),
+    AppDestination(
+      id: 'pos.readings',
+      area: AppAreas.pos,
+      label: 'X/Z Readings',
+      icon: Icons.summarize_outlined,
+      route: AppRoutes.posReadings,
+    ),
 
     // ---- Sales ----------------------------------------------------------------
     AppDestination(

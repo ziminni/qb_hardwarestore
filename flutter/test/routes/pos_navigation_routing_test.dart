@@ -11,6 +11,7 @@ void main() {
       AppRoutes.posHistory,
       AppRoutes.posRelease,
       AppRoutes.posReceivables,
+      AppRoutes.posReadings,
     ]) {
       test('pos stays on $location', () {
         expect(

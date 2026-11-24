@@ -198,6 +198,7 @@ class _PosShiftView extends StatelessWidget {
                 count: viewmodel.history.length,
                 columns: _historyColumns,
                 rows: viewmodel.history,
+                showPageSizePicker: true,
                 onRowTap: (shift) => _openPastShiftSheet(context, shift),
                 emptyMessage: viewmodel.loadError != null
                     ? 'Shifts could not be loaded.'

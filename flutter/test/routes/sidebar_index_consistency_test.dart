@@ -101,10 +101,10 @@ void main() {
     );
     expect(
       tillOrder.length,
-      10,
+      11,
       reason:
-          'the till has 10 destinations now that OR-tagged was merged into '
-          'Transaction history (Release 2 … Deliveries 9).',
+          'the till has 11 destinations now that X/Z Readings sits at 10 '
+          '(Release 2 … Deliveries 9, X/Z Readings 10).',
     );
     expect(
       adminOrder.length,
@@ -181,6 +181,7 @@ void main() {
     expect(tillOrder[7], AppRoutes.posSettings);
     expect(tillOrder[8], AppRoutes.posCustomers);
     expect(tillOrder[9], AppRoutes.posDeliveries);
+    expect(tillOrder[10], AppRoutes.posReadings);
   });
 
   group('every page highlights its own entry in its own sidebar', () {
