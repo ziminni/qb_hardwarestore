@@ -108,6 +108,7 @@ class InventorySalesViewmodel extends ChangeNotifier {
   }
 
   InventorySale _saleOf(TransactionRecord r) => InventorySale(
+    id: r.id,
     transactionNo: r.transactionNo,
     orNumber: r.orNumber,
     date: r.transDate,
@@ -132,13 +133,12 @@ class InventorySalesViewmodel extends ChangeNotifier {
         ),
     ],
     lines: [
-      // The wire carries no product names — only the selling unit's id and code
-      // — so the code stands in for both the product name and the SKU here, and
-      // the screen resolves the name from the catalogue when it has one.
       for (final i in r.items)
         InventorySaleLine(
           variantUomId: i.variantUomId,
-          productName: i.variantUomCode,
+          productName: i.productName.isNotEmpty
+              ? i.productName
+              : i.variantUomCode,
           variantName: i.variantUomCode,
           sku: i.variantUomCode,
           quantity: i.qty,
@@ -155,9 +155,8 @@ class InventorySalesViewmodel extends ChangeNotifier {
     paymentFee: r.paymentFee,
     creditSale: r.creditSale,
     bodegaStatus: r.bodegaStatus,
-    // Store-ops Phase 1: the BIR invoice no. the sale was tagged with, so the
-    // View sheet tells an OR-backed sale from an Order-Slip-only one.
     invoiceNo: r.invoiceNo,
+    notes: r.notes,
   );
 
   InventoryReturn _returnOf(

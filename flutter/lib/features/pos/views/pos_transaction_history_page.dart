@@ -1,9 +1,13 @@
 import 'dart:async';
 
 import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/sync/app_sync_bus.dart';
+import 'package:client/data/models/sales.dart';
+import 'package:client/data/services/pos_service.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/widgets/pos_attach_or_dialog.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
+import 'package:client/features/pos/widgets/pos_void_transaction_dialog.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/widgets/sales_transactions_content.dart';
 import 'package:flutter/material.dart';
@@ -13,13 +17,12 @@ import 'package:provider/provider.dart';
 ///
 /// Reuses the global [InventorySalesViewmodel], the same data as the sales
 /// transactions page, wrapped in the POS shell so the cashier stays in the POS
-/// workflow. See decisions 03 + 04.
-///
-/// The list itself is [SalesTransactionsContent] (card S1): the three screens
-/// that show transactions used to be three copies with three column sets and
-/// three table styles. The cashier reads it without the Source column.
+/// workflow.
 class PosTransactionHistoryPage extends StatefulWidget {
-  const PosTransactionHistoryPage({super.key});
+  const PosTransactionHistoryPage({super.key, this.posService});
+
+  /// Injectable for widget tests.
+  final PosService? posService;
 
   @override
   State<PosTransactionHistoryPage> createState() =>
@@ -49,6 +52,34 @@ class _PosTransactionHistoryPageState extends State<PosTransactionHistoryPage> {
     super.dispose();
   }
 
+  Future<void> _openAttachOr(InventorySalesViewmodel viewmodel) async {
+    await openAttachOrDialog(context);
+    if (mounted) {
+      unawaited(viewmodel.load(silent: true));
+    }
+  }
+
+  Future<void> _voidSale(
+    InventorySalesViewmodel viewmodel,
+    InventorySale sale,
+  ) async {
+    final voided = await showVoidTransactionDialog(
+      context,
+      sale: sale,
+      service: widget.posService,
+    );
+    if (!voided || !mounted) return;
+    AppSyncBus.instance.notifyMarkersChanged();
+    unawaited(viewmodel.load(silent: true));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Voided ${sale.transactionNo}. Stock and shift totals updated.',
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final viewmodel = context.watch<InventorySalesViewmodel>();
@@ -56,21 +87,16 @@ class _PosTransactionHistoryPageState extends State<PosTransactionHistoryPage> {
     return DashboardShell(
       title: 'Transaction History',
       subtitle:
-          'Review completed, exchanged, refunded, and voided sales — or attach an OR.',
+          'Review completed, exchanged, refunded, and voided sales — attach an OR or void eligible sales.',
       selectedNavigationIndex: 1,
       navigationItems: posNavigationItems,
       onNavigationSelected: (i) => navigatePos(context, i),
       actions: [
         Tooltip(
-          message: 'Tag a past sale with the paper OR invoice no.',
+          message: 'Tag a past sale with its Official Receipt (OR) number',
           child: TextButton.icon(
             key: const ValueKey('history-attach-or-button'),
-            onPressed: () async {
-              await openAttachOrDialog(context);
-              if (context.mounted) {
-                unawaited(viewmodel.load(silent: true));
-              }
-            },
+            onPressed: () => _openAttachOr(viewmodel),
             style: TextButton.styleFrom(
               foregroundColor: AppColors.textPrimary,
               minimumSize: const Size(44, 40),
@@ -91,8 +117,6 @@ class _PosTransactionHistoryPageState extends State<PosTransactionHistoryPage> {
           icon: const Icon(Icons.refresh_rounded),
         ),
       ],
-      // See the manager page: the list owns the scrolling, so it builds only the
-      // rows on screen.
       scrollable: false,
       child: SalesTransactionsContent(
         role: SalesTransactionsRole.cashier,
@@ -100,6 +124,8 @@ class _PosTransactionHistoryPageState extends State<PosTransactionHistoryPage> {
         isLoading: viewmodel.isLoading,
         loadError: viewmodel.loadError,
         onRetry: viewmodel.load,
+        onAttachOr: () => _openAttachOr(viewmodel),
+        onVoidSale: (sale) => _voidSale(viewmodel, sale),
       ),
     );
   }

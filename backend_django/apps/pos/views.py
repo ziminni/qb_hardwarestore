@@ -1051,6 +1051,33 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
         """
         return Response(returnable_payload(self.get_object()))
 
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="void",
+        permission_classes=[IsPOSRole],
+    )
+    def void(self, request, pk=None):
+        """POST /transactions/{id}/void/ -> void a completed sale and reverse stock, utang, and drawer."""
+        from .services import void_transaction
+
+        txn = self.get_object()
+        reason = request.data.get("reason", "")
+        with db_transaction.atomic():
+            voided = void_transaction(
+                transaction_id=txn.pk,
+                actor=request.user,
+                reason=reason,
+            )
+            audit_request(
+                request,
+                AuditLog.ActionType.UPDATE,
+                f"Voided sale {voided.transaction_no} (₱{voided.grand_total:.2f}) "
+                f"by {request.user.username}: {voided.notes}",
+            )
+        refreshed = self.get_queryset().get(pk=voided.pk)
+        return Response(self.get_serializer(refreshed).data)
+
     @action(detail=False, methods=["post"], url_path="exchange")
     def exchange(self, request):
         """POST /transactions/exchange/ -> swap returned items for replacement items."""
@@ -1595,6 +1622,7 @@ class ChequeViewSet(viewsets.ReadOnlyModelViewSet):
 
     queryset = (
         Payment.objects.filter(method=Payment.Method.CHEQUE)
+        .exclude(transaction__status=SalesTransaction.Status.VOID)
         .select_related("transaction__customer", "decided_by")
         .order_by("cheque_date", "id")
     )

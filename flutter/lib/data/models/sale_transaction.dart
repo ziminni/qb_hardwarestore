@@ -42,6 +42,7 @@ class TransactionLineItem {
     required this.qty,
     required this.unitPrice,
     required this.subtotal,
+    this.productName = '',
     this.storedAtName = '',
     this.pickUp = const [],
     this.fifoBatches = const [],
@@ -52,6 +53,7 @@ class TransactionLineItem {
   final double qty;
   final double unitPrice;
   final double subtotal;
+  final String productName;
 
   /// Where the product is picked up, as the SALE recorded it (Phase 5 B4).
   /// Empty on a row written before B4.
@@ -72,6 +74,9 @@ class TransactionLineItem {
         qty: decimalField(json, 'qty'),
         unitPrice: decimalField(json, 'unit_price'),
         subtotal: decimalField(json, 'subtotal'),
+        productName: json['product_name'] is String
+            ? json['product_name'] as String
+            : '',
         storedAtName: json['stored_at_name'] is String
             ? json['stored_at_name'] as String
             : '',
@@ -128,6 +133,7 @@ class TransactionRecord {
     this.orNumber = '',
     this.invoiceNo,
     this.invoiceTaggedAt,
+    this.notes = '',
   });
 
   final int id;
@@ -170,6 +176,7 @@ class TransactionRecord {
 
   /// When that number was typed in. Null on an untagged sale.
   final DateTime? invoiceTaggedAt;
+  final String notes;
 
   factory TransactionRecord.fromJson(Map<String, dynamic> json) {
     final items = json['items'];
@@ -190,6 +197,7 @@ class TransactionRecord {
       source: stringField(json, 'source'),
       originalTransactionId: json['original_transaction'] as int?,
       status: stringField(json, 'status'),
+      notes: json['notes'] is String ? json['notes'] as String : '',
       grandTotal: decimalField(json, 'grand_total'),
       // Phase 4 B1 fields. A body from before them reads as "no discount, VAT not
       // split", which is exactly what those sales were.

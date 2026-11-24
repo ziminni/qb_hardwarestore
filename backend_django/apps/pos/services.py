@@ -3188,3 +3188,210 @@ def returnable_payload(txn):
         "lines": list(lines.values()),
         "open_debt": _money(open_debt),
     }
+
+
+def void_transaction(*, transaction_id, actor, reason):
+    """Void a COMPLETED sale and atomically reverse all downstream effects.
+
+    Reverses:
+      1. Inventory FIFO batches (restores `SalesItemDeduction` quantities to their
+         original batches, or newest home batch for pre-deduction legacy rows).
+      2. Uncollected Collectibles / Utang (`CollectibleLedger`) and pending cheque links.
+      3. Pending Delivery slips (unlinks order deliveries so they can be re-fulfilled,
+         or marks standalone scheduled/out-for-delivery slips FAILED with void reason).
+      4. Linked `SalesOrder` fulfilment status (reverts order back to PARTIAL/CONFIRMED
+         when its fulfilled lines were voided).
+      5. `SalesTransaction.status = VOID` + records the reason in `notes`, which
+         automatically removes the sale from shift Z-readings, expected drawer, sales
+         summaries, VAT summaries, and Bodega pickup claims, while surfacing it in the
+         voids report.
+    """
+    from rest_framework import status as http_status
+
+    from apps.inventory.models import InventoryBatch
+    from apps.users.permissions import IsManagerRole, has_role
+
+    from .exceptions import VoidSaleError
+    from .models import Delivery, SalesItemDeduction, SalesOrder, Shift
+
+    cleaned_reason = reason.strip() if isinstance(reason, str) else ""
+    if not cleaned_reason or len(cleaned_reason) > MAX_RETURN_REASON_LENGTH:
+        raise VoidSaleError(
+            f"A void reason of 1 to {MAX_RETURN_REASON_LENGTH} characters is required.",
+            code="VOID_REASON_REQUIRED",
+            http_status=http_status.HTTP_400_BAD_REQUEST,
+        )
+
+    with transaction.atomic():
+        txn = (
+            SalesTransaction.objects.select_for_update()
+            .select_related("shift", "customer", "cashier")
+            .get(pk=transaction_id)
+        )
+
+        if txn.source == SalesTransaction.Source.RETURN:
+            raise VoidSaleError(
+                "A return transaction cannot be voided.",
+                code="VOID_RETURN_FORBIDDEN",
+                http_status=http_status.HTTP_409_CONFLICT,
+            )
+        if txn.source == SalesTransaction.Source.REQUISITION:
+            raise VoidSaleError(
+                "A material release cannot be voided from POS.",
+                code="VOID_RELEASE_FORBIDDEN",
+                http_status=http_status.HTTP_409_CONFLICT,
+            )
+        if txn.status != SalesTransaction.Status.COMPLETED:
+            raise VoidSaleError(
+                "Only a completed sale can be voided.",
+                code="VOID_NOT_COMPLETED",
+                http_status=http_status.HTTP_409_CONFLICT,
+            )
+
+        is_manager = has_role(actor, IsManagerRole.required_roles)
+        if not is_manager:
+            if txn.cashier_id != actor.id:
+                raise VoidSaleError(
+                    "Only a Store Manager or Admin can void another cashier's sale.",
+                    code="VOID_FOREIGN_CASHIER",
+                    http_status=http_status.HTTP_403_FORBIDDEN,
+                )
+            if txn.shift is None or txn.shift.status != Shift.Status.OPEN:
+                raise VoidSaleError(
+                    "Only a Store Manager or Admin can void a sale from a closed shift.",
+                    code="VOID_SHIFT_CLOSED",
+                    http_status=http_status.HTTP_403_FORBIDDEN,
+                )
+
+        if SalesTransaction.objects.filter(
+            original_transaction=txn,
+            status=SalesTransaction.Status.COMPLETED,
+        ).exists():
+            raise VoidSaleError(
+                "This sale already has returns or exchanges and cannot be voided.",
+                code="VOID_HAS_RETURNS",
+                http_status=http_status.HTTP_409_CONFLICT,
+            )
+
+        if txn.bodega_releases.exists():
+            raise VoidSaleError(
+                "Goods for this sale have already been released from Bodega. Use Returns instead.",
+                code="VOID_BODEGA_RELEASED",
+                http_status=http_status.HTTP_409_CONFLICT,
+            )
+
+        if Delivery.objects.filter(
+            sale=txn, status=Delivery.Status.DELIVERED
+        ).exists():
+            raise VoidSaleError(
+                "This sale has already been delivered. Use Returns instead.",
+                code="VOID_ALREADY_DELIVERED",
+                http_status=http_status.HTTP_409_CONFLICT,
+            )
+
+        if txn.payments.filter(
+            method=Payment.Method.CHEQUE,
+            status=Payment.Status.CLEARED,
+        ).exists():
+            raise VoidSaleError(
+                "A cheque on this sale has already cleared. Use Returns instead.",
+                code="VOID_CHEQUE_CLEARED",
+                http_status=http_status.HTTP_409_CONFLICT,
+            )
+
+        if CollectibleLedger.objects.filter(
+            transaction=txn,
+            payments__isnull=False,
+        ).exists():
+            raise VoidSaleError(
+                "Utang payments have already been recorded against this sale. Use Returns instead.",
+                code="VOID_LEDGER_HAS_PAYMENTS",
+                http_status=http_status.HTTP_409_CONFLICT,
+            )
+
+        # 1. Restore FIFO inventory batches.
+        deductions = list(
+            SalesItemDeduction.objects.select_related("batch")
+            .select_for_update()
+            .filter(sales_item__transaction=txn, qty__gt=0)
+            .order_by("id")
+        )
+        if deductions:
+            batch_adds: dict[int, tuple[InventoryBatch, Decimal]] = {}
+            for row in deductions:
+                batch, acc = batch_adds.get(row.batch_id, (row.batch, Decimal(0)))
+                batch_adds[row.batch_id] = (batch, acc + row.qty)
+            touched_batches = []
+            for batch, add_qty in batch_adds.values():
+                batch.current_qty += add_qty
+                touched_batches.append(batch)
+            InventoryBatch.objects.bulk_update(touched_batches, ["current_qty"])
+        else:
+            # Legacy pre-deduction sale: return base qty to newest home/available batch.
+            for item in txn.items.select_related("variant_uom__variant__product"):
+                base_qty = item.qty * item.variant_uom.conversion_factor
+                batch = (
+                    InventoryBatch.objects.select_for_update()
+                    .filter(variant_id=item.variant_uom.variant_id)
+                    .order_by("-receipt__receive_date", "-id")
+                    .first()
+                )
+                if batch is not None:
+                    batch.current_qty += base_qty
+                    batch.save(update_fields=["current_qty"])
+
+        # 2. Reverse uncollected Collectibles (utang) and unlink pending cheques.
+        txn.payments.filter(ledger__isnull=False).update(ledger=None)
+        CollectibleLedger.objects.filter(transaction=txn).delete()
+
+        # 3. Cancel or unlink pending deliveries.
+        for delivery in Delivery.objects.select_for_update().filter(
+            sale=txn,
+            status__in=(Delivery.Status.SCHEDULED, Delivery.Status.OUT_FOR_DELIVERY),
+        ):
+            if delivery.sales_order_id is not None:
+                delivery.sale = None
+                delivery.save(update_fields=["sale", "updated_at"])
+            else:
+                delivery.status = Delivery.Status.FAILED
+                delivery.failure_reason = f"Sale voided: {cleaned_reason}"[:255]
+                delivery.save(update_fields=["status", "failure_reason", "updated_at"])
+
+        # 4. Track any SalesOrders fulfilled by this sale before marking VOID.
+        affected_order_ids = list(
+            txn.items.filter(order_line__isnull=False)
+            .values_list("order_line__order_id", flat=True)
+            .distinct()
+        )
+        if affected_order_ids:
+            txn.items.filter(order_line__isnull=False).update(order_line=None)
+
+        # 5. Mark the transaction VOID and record the reason in `notes`.
+        existing_notes = (txn.notes or "").strip()
+        if existing_notes:
+            txn.notes = f"{existing_notes} | VOID: {cleaned_reason}"[:500]
+        else:
+            txn.notes = cleaned_reason[:500]
+        txn.status = SalesTransaction.Status.VOID
+        txn.save(update_fields=["status", "notes", "updated_at"])
+
+        # 6. Recompute affected SalesOrder statuses (back to PARTIAL or CONFIRMED).
+        for order in SalesOrder.objects.select_for_update().filter(
+            pk__in=affected_order_ids
+        ):
+            if order.status == SalesOrder.Status.CANCELLED:
+                continue
+            has_any_fulfilled = SalesItem.objects.filter(
+                order_line__order=order,
+                transaction__status=SalesTransaction.Status.COMPLETED,
+            ).exists()
+            new_status = (
+                SalesOrder.Status.PARTIAL
+                if has_any_fulfilled
+                else SalesOrder.Status.CONFIRMED
+            )
+            if order.status != new_status:
+                order.status = new_status
+                order.save(update_fields=["status", "updated_at"])
+
+    return txn

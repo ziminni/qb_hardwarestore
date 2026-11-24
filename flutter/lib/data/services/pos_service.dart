@@ -772,6 +772,22 @@ class PosService {
     }
   }
 
+  /// Voids a completed sale (`POST /api/v1/transactions/{id}/void/`), atomically
+  /// restoring inventory batches, removing uncollected utang, and updating shift totals.
+  Future<void> voidTransaction(
+    int transactionId, {
+    required String reason,
+  }) async {
+    try {
+      await _client.post<Map<String, dynamic>>(
+        '$transactionsPath$transactionId/void/',
+        data: {'reason': reason.trim()},
+      );
+    } on DioException catch (error) {
+      throw _failureFor(error);
+    }
+  }
+
   /// 32 hex characters from a CSPRNG: one sale attempt's `Idempotency-Key`.  ///
   /// Well inside the server's 64-character cap, and NOT a UUID dependency: the
   /// server only requires uniqueness per cashier, and `Random.secure()` gives that

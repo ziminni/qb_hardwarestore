@@ -165,6 +165,28 @@ class InvalidSale(ValueError):
     code = "INVALID_SALE"
 
 
+class VoidSaleError(ValueError):
+    """A completed sale that cannot be voided (missing reason, closed shift, or already reversed/released)."""
+
+    code = "VOID_SALE_ERROR"
+    http_status = status.HTTP_400_BAD_REQUEST
+
+    def __init__(
+        self,
+        detail: str,
+        *,
+        code: str | None = None,
+        http_status: int | None = None,
+        extra: Mapping[str, object] | None = None,
+    ):
+        super().__init__(detail)
+        if code is not None:
+            self.code = code
+        if http_status is not None:
+            self.http_status = http_status
+        self.extra = MappingProxyType(dict(extra)) if extra else MappingProxyType({})
+
+
 class WalkInCannotOwe(Exception):
     """An anonymous walk-in sale cannot go into utang (decision 14).
 
@@ -1119,6 +1141,10 @@ def handler(exc, context):
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
+    if isinstance(exc, VoidSaleError):
+        payload: dict[str, object] = {"code": exc.code, "detail": str(exc)}
+        payload.update(exc.extra)
+        return Response(payload, status=exc.http_status)
     if isinstance(exc, InvalidPaymentMethod):
         # The {code, detail} shape the client branches on, for the same reason as
         # InvalidSale: a label is a client bug, not a server fault, and the message

@@ -1,16 +1,11 @@
-// Card S1: the cashier's Transaction history is now a thin shell around the one
-// shared transactions content. These tests pin the cashier's own column set (no
-// Source), the status chips, the row tap that opens the document sheet and the
-// card layout on a narrow window.
-
 import 'package:client/data/models/sale_transaction.dart';
 import 'package:client/data/models/sales.dart';
+import 'package:client/data/services/pos_service.dart';
 import 'package:client/data/services/sales_service.dart';
 import 'package:client/features/pos/views/pos_transaction_history_page.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/widgets/sales_document_sheet.dart';
 import 'package:client/shared/widgets/data_panel.dart';
-import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -26,15 +21,31 @@ class _MutableSalesService extends SalesService {
       rows;
 }
 
+class _StubVoidPosService extends PosService {
+  int? voidedId;
+  String? voidedReason;
+
+  @override
+  Future<void> voidTransaction(
+    int transactionId, {
+    required String reason,
+  }) async {
+    voidedId = transactionId;
+    voidedReason = reason;
+  }
+}
+
 TransactionRecord _bodegaSale({
   required int id,
   required String no,
   required String? bodegaStatus,
-  String orNumber = 'OR-000123',
+  String orNumber = 'OS-000123',
+  String? invoiceNo,
 }) => TransactionRecord(
   id: id,
   transactionNo: no,
   orNumber: orNumber,
+  invoiceNo: invoiceNo,
   transDate: DateTime(2026, 11, 22, 14, 0),
   customerId: 1,
   customerName: 'Juan Dela Cruz',
@@ -69,46 +80,95 @@ void main() {
     WidgetTester tester, {
     Size size = const Size(1440, 900),
     InventorySalesViewmodel? withViewmodel,
+    PosService? posService,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       transactionsApp(
-        child: const PosTransactionHistoryPage(),
+        child: PosTransactionHistoryPage(posService: posService),
         viewmodel: withViewmodel ?? viewmodel,
       ),
     );
     await tester.pumpAndSettle();
   }
 
-  testWidgets('renders the shared content with the cashier columns', (
+  testWidgets('renders remodeled cashier KPI strip and separated OR # column', (
     tester,
   ) async {
     await pump(tester);
 
     expect(find.byType(DataPanel<InventorySale>), findsOneWidget);
-    for (final label in ['Transaction', 'Date and time', 'Customer', 'Total']) {
+    // 4-card KPI strip
+    expect(find.text('TOTAL TRANSACTIONS'), findsOneWidget);
+    expect(find.text('COMPLETED / SETTLED'), findsOneWidget);
+    expect(find.text('UTANG / CREDIT'), findsOneWidget);
+    expect(find.text('VOIDED & RETURNED'), findsOneWidget);
+
+    // Remodeled cashier table columns (separate Transaction & OS # and OR #)
+    for (final label in [
+      'Transaction & OS #',
+      'OR #',
+      'Customer',
+      'Items',
+      'Payment',
+      'Status',
+      'Total',
+      'Actions',
+    ]) {
       expect(find.text(label), findsOneWidget, reason: 'column $label');
     }
-    expect(find.text('Payment'), findsOneWidget);
-    expect(
-      find.text('Source'),
-      findsNothing,
-      reason: 'a cashier does not read where a sale came from',
-    );
-    expect(find.text('View'), findsNothing);
+    expect(find.text('Source'), findsNothing);
+    expect(find.textContaining('BIR'), findsNothing);
+    expect(find.text('Export CSV'), findsNothing);
+    expect(find.text('Print Shift Log'), findsNothing);
   });
 
-  testWidgets('a status chip narrows the list to that status', (tester) async {
+  testWidgets('OR # column displays actual OR value or None when untagged', (
+    tester,
+  ) async {
+    final service = _MutableSalesService([
+      _bodegaSale(
+        id: 1,
+        no: 'TRX-WITH-OR',
+        bodegaStatus: null,
+        orNumber: 'OS-20261125-0001',
+        invoiceNo: 'OR-99104',
+      ),
+      _bodegaSale(
+        id: 2,
+        no: 'TRX-NO-OR',
+        bodegaStatus: null,
+        orNumber: 'OS-20261125-0002',
+        invoiceNo: null,
+      ),
+    ]);
+    await pump(tester, withViewmodel: InventorySalesViewmodel(service: service));
+
+    final taggedRow = find.byKey(const ValueKey('TRX-WITH-OR'));
+    expect(
+      find.descendant(of: taggedRow, matching: find.text('OR-99104')),
+      findsOneWidget,
+    );
+
+    final untaggedRow = find.byKey(const ValueKey('TRX-NO-OR'));
+    expect(
+      find.descendant(of: untaggedRow, matching: find.text('None')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('segmented status pill narrows the list to that status', (
+    tester,
+  ) async {
     await pump(tester);
 
-    expect(find.byType(FilterBar), findsOneWidget);
     expect(find.text('TRX-20261030-0001'), findsOneWidget);
     await tester.tap(
       find.descendant(
-        of: find.byType(FilterBar),
-        matching: find.text('Refunded'),
+        of: find.byKey(const ValueKey('cashier-history-filter-bar')),
+        matching: find.textContaining('Refunded ('),
       ),
     );
     await tester.pumpAndSettle();
@@ -144,6 +204,34 @@ void main() {
       findsWidgets,
       reason: 'the seven digit total must survive the round trip',
     );
+  });
+
+  testWidgets('void button opens confirmation dialog and calls PosService.voidTransaction', (
+    tester,
+  ) async {
+    final voidService = _StubVoidPosService();
+    final salesService = _MutableSalesService([
+      _bodegaSale(id: 42, no: 'TRX-VOID-ME', bodegaStatus: null),
+    ]);
+    await pump(
+      tester,
+      withViewmodel: InventorySalesViewmodel(service: salesService),
+      posService: voidService,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('void-sale-TRX-VOID-ME')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Void Transaction'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey('void-reason-input')),
+      'Duplicate entry',
+    );
+    await tester.tap(find.byKey(const ValueKey('void-confirm-button')));
+    await tester.pumpAndSettle();
+
+    expect(voidService.voidedId, 42);
+    expect(voidService.voidedReason, 'Duplicate entry');
   });
 
   testWidgets('a narrow window shows each sale as a card', (tester) async {
@@ -198,11 +286,11 @@ void main() {
         findsOneWidget,
       );
 
-      // Filter chip "Pending Pickup" shows only PENDING + PARTIAL (not RELEASED).
+      // Segmented pill "Pending Pickup (2)" shows only PENDING + PARTIAL (not RELEASED).
       await tester.tap(
         find.descendant(
-          of: find.byType(FilterBar),
-          matching: find.text('Pending Pickup'),
+          of: find.byKey(const ValueKey('cashier-history-filter-bar')),
+          matching: find.text('Pending Pickup (2)'),
         ),
       );
       await tester.pumpAndSettle();

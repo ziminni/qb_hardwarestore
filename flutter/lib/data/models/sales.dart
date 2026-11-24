@@ -63,6 +63,7 @@ class InventorySalePayment {
 
 class InventorySale {
   const InventorySale({
+    this.id,
     required this.transactionNo,
     required this.date,
     required this.customer,
@@ -82,7 +83,9 @@ class InventorySale {
     this.bodegaStatus,
     this.orNumber = '',
     this.invoiceNo,
+    this.notes = '',
   });
+  final int? id;
   final String transactionNo;
   final DateTime date;
   final String customer;
@@ -114,9 +117,9 @@ class InventorySale {
   final String? bodegaStatus;
   final String orNumber;
 
-  /// The Invoice number written on the paper BIR Official Receipt
-  /// (store-ops Phase 1). Null when the sale got an Order Slip only.
+  /// The Official Receipt number attached to the sale, or null when none.
   final String? invoiceNo;
+  final String notes;
 
   /// What the customer actually owed: the lines less the discount plus any payment fee.
   /// The sheet's total bar shows this, so a discounted or fee-bearing sale reconciles.
