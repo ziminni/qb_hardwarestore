@@ -55,9 +55,34 @@ class _StubPriceRepository extends FakeProductsRepository {
 void main() {
   late _StubPriceRepository repository;
   late InventoryViewmodel inventory;
-  int? loadedHistoryUnitId;
+  late List<int> loadedHistoryUnitIds;
 
   final changedTime = DateTime.utc(2026, 11, 20, 9, 30);
+
+  // Each selling unit gets its own timeline, so a merged product view has
+  // something to interleave.
+  Future<List<PriceHistoryEntry>> loadHistory(int unitId) async {
+    loadedHistoryUnitIds.add(unitId);
+    return unitId == 1002
+        ? [
+            PriceHistoryEntry(
+              oldPrice: 90,
+              newPrice: 100,
+              changedAt: changedTime,
+              actor: 'mgr',
+              source: 'CATALOGUE',
+            ),
+          ]
+        : [
+            PriceHistoryEntry(
+              oldPrice: 12,
+              newPrice: 15,
+              changedAt: changedTime.subtract(const Duration(days: 2)),
+              actor: 'mgr',
+              source: 'ADMIN',
+            ),
+          ];
+  }
 
   setUp(() {
     final products = [
@@ -135,7 +160,7 @@ void main() {
       batches: batches,
       stockOnHand: onHandFromBatches(batches),
     );
-    loadedHistoryUnitId = null;
+    loadedHistoryUnitIds = <int>[];
   });
 
   Future<void> pumpPage(WidgetTester tester, {bool salesShell = false}) async {
@@ -166,33 +191,11 @@ void main() {
           home: salesShell
               ? SalesPriceListPage(
                   productsRepository: repository,
-                  priceHistoryLoader: (unitId) async {
-                    loadedHistoryUnitId = unitId;
-                    return [
-                      PriceHistoryEntry(
-                        oldPrice: 90,
-                        newPrice: 100,
-                        changedAt: changedTime,
-                        actor: 'mgr',
-                        source: 'CATALOGUE',
-                      ),
-                    ];
-                  },
+                  priceHistoryLoader: loadHistory,
                 )
               : InventoryPriceListPage(
                   productsRepository: repository,
-                  priceHistoryLoader: (unitId) async {
-                    loadedHistoryUnitId = unitId;
-                    return [
-                      PriceHistoryEntry(
-                        oldPrice: 90,
-                        newPrice: 100,
-                        changedAt: changedTime,
-                        actor: 'mgr',
-                        source: 'CATALOGUE',
-                      ),
-                    ];
-                  },
+                  priceHistoryLoader: loadHistory,
                 ),
         ),
       ),
@@ -216,10 +219,32 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('price-list-row-1002')));
     await tester.pumpAndSettle();
 
-    expect(loadedHistoryUnitId, 1002);
+    expect(loadedHistoryUnitIds, contains(1002));
     expect(find.text('Price History'), findsOneWidget);
     expect(find.text('₱90.00 → ₱100.00'), findsOneWidget);
   });
+
+  testWidgets(
+    'A price list row opens ONE product timeline holding every selling unit',
+    (tester) async {
+      await pumpPage(tester);
+
+      await tester.tap(find.byKey(const ValueKey('price-list-row-1002')));
+      await tester.pumpAndSettle();
+
+      // Both selling units of the product are on the timeline, not just the
+      // tapped row's unit.
+      expect(loadedHistoryUnitIds.toSet(), {1001, 1002});
+      expect(find.text('₱90.00 → ₱100.00'), findsOneWidget);
+      expect(find.text('₱12.00 → ₱15.00'), findsOneWidget);
+      // Each row says which unit it belongs to and where the change came from.
+      expect(find.textContaining('BOX (×10)'), findsOneWidget);
+      // The product sells one variant, so the base unit reads as its code alone.
+      expect(find.textContaining('PC · '), findsOneWidget);
+      expect(find.textContaining('Catalogue'), findsOneWidget);
+      expect(find.textContaining('Admin'), findsOneWidget);
+    },
+  );
 
   testWidgets('Recent price changes tab shows store-wide changes, filters by search, and opens history', (
     tester,
@@ -243,7 +268,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('recent-change-row-1')));
     await tester.pumpAndSettle();
-    expect(loadedHistoryUnitId, 1002);
+    expect(loadedHistoryUnitIds, [1002]);
     expect(find.text('Price History'), findsOneWidget);
   });
 }

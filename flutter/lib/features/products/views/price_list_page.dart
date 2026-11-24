@@ -249,19 +249,24 @@ class _PriceListPageBodyState extends State<_PriceListPageBody> {
 
   void _openPriceHistory({
     required String title,
-    required String unitLabel,
-    required int variantUomId,
+    required List<PriceHistoryUnit> units,
   }) {
     showDialog<void>(
       context: context,
       builder: (_) => PriceHistoryDialog(
         title: title,
-        unitLabel: unitLabel,
-        variantUomId: variantUomId,
+        units: units,
         loader: widget.priceHistoryLoader,
       ),
     );
   }
+
+  /// Every selling unit of [product], so one tap shows the product's whole
+  /// price story instead of a single unit's.
+  void _openProductPriceHistory(Product product) => _openPriceHistory(
+    title: product.baseName,
+    units: PriceHistoryUnit.forProduct(product),
+  );
 
   Future<void> _pickDate({required bool isSince}) async {
     final now = appClock.now();
@@ -603,12 +608,7 @@ class _PriceListPageBodyState extends State<_PriceListPageBody> {
     final changed = row.unit.lastPriceChangedAt;
     return InkWell(
       key: ValueKey('price-list-row-${row.unit.id}'),
-      onTap: () => _openPriceHistory(
-        title: '${row.product.baseName} · ${row.variant.variantName}',
-        unitLabel:
-            '${row.unit.uomCode} (×${formatQuantity(row.unit.conversionFactor)})',
-        variantUomId: row.unit.id,
-      ),
+      onTap: () => _openProductPriceHistory(row.product),
       child: Padding(
         padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.md,
@@ -728,12 +728,7 @@ class _PriceListPageBodyState extends State<_PriceListPageBody> {
     final changed = row.unit.lastPriceChangedAt;
     return InkWell(
       key: ValueKey('price-list-row-${row.unit.id}'),
-      onTap: () => _openPriceHistory(
-        title: '${row.product.baseName} · ${row.variant.variantName}',
-        unitLabel:
-            '${row.unit.uomCode} (×${formatQuantity(row.unit.conversionFactor)})',
-        variantUomId: row.unit.id,
-      ),
+      onTap: () => _openProductPriceHistory(row.product),
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.md),
         child: Column(
@@ -939,8 +934,12 @@ class _PriceListPageBodyState extends State<_PriceListPageBody> {
                         key: ValueKey('recent-change-row-${item.id}'),
                         onTap: () => _openPriceHistory(
                           title: '${item.productName} · ${item.variantName}',
-                          unitLabel: item.unitCode,
-                          variantUomId: item.variantUomId,
+                          units: [
+                            PriceHistoryUnit(
+                              variantUomId: item.variantUomId,
+                              label: item.unitCode,
+                            ),
+                          ],
                         ),
                         title: Text(
                           '${item.productName} · ${item.variantName} (${item.unitCode})',

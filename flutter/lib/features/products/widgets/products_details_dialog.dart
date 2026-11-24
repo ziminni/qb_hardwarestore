@@ -22,10 +22,15 @@ class ProductsDetailsDialog extends StatefulWidget {
     super.key,
     required this.product,
     this.movements = const [],
+    this.priceHistoryLoader,
   });
 
   final Product product;
   final List<InventoryMovement> movements;
+
+  /// Stub for the price-history read in tests; the dialog fetches it itself.
+  final Future<List<PriceHistoryEntry>> Function(int variantUomId)?
+  priceHistoryLoader;
 
   @override
   State<ProductsDetailsDialog> createState() => _ProductsDetailsDialogState();
@@ -168,6 +173,12 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
         ),
       ),
       actions: [
+        OutlinedButton.icon(
+          key: ValueKey('product-price-history-${product.id}'),
+          onPressed: () => _showProductPriceHistory(context, product),
+          icon: const Icon(Icons.history, size: 18),
+          label: const Text('Price history'),
+        ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Close'),
@@ -371,9 +382,26 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
       context: context,
       builder: (_) => PriceHistoryDialog(
         title: '${widget.product.baseName} · ${variant.variantName}',
-        unitLabel:
-            '${unit.uomCode} (×${formatQuantity(unit.conversionFactor)})',
-        variantUomId: unit.id,
+        units: [
+          PriceHistoryUnit(
+            variantUomId: unit.id,
+            label:
+                '${unit.uomCode} (×${formatQuantity(unit.conversionFactor)})',
+          ),
+        ],
+        loader: widget.priceHistoryLoader,
+      ),
+    );
+  }
+
+  /// One timeline for the WHOLE product: every selling unit of every variant.
+  Future<void> _showProductPriceHistory(BuildContext context, Product product) {
+    return showDialog<void>(
+      context: context,
+      builder: (_) => PriceHistoryDialog(
+        title: product.baseName,
+        units: PriceHistoryUnit.forProduct(product),
+        loader: widget.priceHistoryLoader,
       ),
     );
   }
@@ -455,16 +483,17 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
         productName: widget.product.baseName,
         variantName: variant.variantName,
         unit: unit,
-        onSubmit: ({
-          required double sellingPrice,
-          required String creditMarkupKind,
-          required double creditMarkupValue,
-        }) => inventory.updateSellingUnitPrice(
-          unitId: unit.id,
-          sellingPrice: sellingPrice,
-          creditMarkupKind: creditMarkupKind,
-          creditMarkupValue: creditMarkupValue,
-        ),
+        onSubmit:
+            ({
+              required double sellingPrice,
+              required String creditMarkupKind,
+              required double creditMarkupValue,
+            }) => inventory.updateSellingUnitPrice(
+              unitId: unit.id,
+              sellingPrice: sellingPrice,
+              creditMarkupKind: creditMarkupKind,
+              creditMarkupValue: creditMarkupValue,
+            ),
       ),
     );
   }
@@ -519,18 +548,58 @@ class PriceHistoryEntry {
   }
 }
 
+/// One selling unit on a price-history timeline.
+class PriceHistoryUnit {
+  const PriceHistoryUnit({required this.variantUomId, required this.label});
+
+  final int variantUomId;
+
+  /// Names the unit inside the merged timeline (a product has several).
+  final String label;
+
+  /// Every selling unit of [product]. A factor-1 unit reads as its code alone;
+  /// a bigger unit carries its factor. When two variants sell the same unit,
+  /// the later one names its variant so the rows stay tellable apart.
+  static List<PriceHistoryUnit> forProduct(Product product) {
+    final seen = <String>{};
+    final units = <PriceHistoryUnit>[];
+    for (final variant in product.variants) {
+      if (!variant.isActive) continue;
+      for (final unit in variant.sellingUoms) {
+        final unitLabel = unit.conversionFactor == 1
+            ? unit.uomCode
+            : '${unit.uomCode} (×${formatQuantity(unit.conversionFactor)})';
+        final label = seen.add(unitLabel)
+            ? unitLabel
+            : '${variant.variantName} · $unitLabel';
+        units.add(PriceHistoryUnit(variantUomId: unit.id, label: label));
+      }
+    }
+    return units;
+  }
+}
+
+/// An entry tagged with the unit whose timeline it came from.
+class _TimelineRow {
+  const _TimelineRow({required this.unitLabel, required this.entry});
+
+  final String unitLabel;
+  final PriceHistoryEntry entry;
+}
+
 class PriceHistoryDialog extends StatefulWidget {
   const PriceHistoryDialog({
     super.key,
     required this.title,
-    required this.unitLabel,
-    required this.variantUomId,
+    required this.units,
     this.loader,
   });
 
   final String title;
-  final String unitLabel;
-  final int variantUomId;
+
+  /// One unit shows that unit's history; a whole product's units merge into a
+  /// single timeline.
+  final List<PriceHistoryUnit> units;
   final Future<List<PriceHistoryEntry>> Function(int variantUomId)? loader;
 
   @override
@@ -538,7 +607,7 @@ class PriceHistoryDialog extends StatefulWidget {
 }
 
 class _PriceHistoryDialogState extends State<PriceHistoryDialog> {
-  late Future<List<PriceHistoryEntry>> _future;
+  late Future<List<_TimelineRow>> _future;
 
   @override
   void initState() {
@@ -546,13 +615,39 @@ class _PriceHistoryDialogState extends State<PriceHistoryDialog> {
     _future = _load();
   }
 
-  Future<List<PriceHistoryEntry>> _load() async {
+  Future<List<_TimelineRow>> _load() async {
+    final perUnit = await Future.wait([
+      for (final unit in widget.units) _loadUnit(unit),
+    ]);
+    final rows = [for (final unitRows in perUnit) ...unitRows];
+    // Newest first; an entry with no timestamp sinks to the bottom.
+    rows.sort((a, b) {
+      final at = a.entry.changedAt;
+      final bt = b.entry.changedAt;
+      if (at == null || bt == null) {
+        if (at == null && bt == null) return 0;
+        return at == null ? 1 : -1;
+      }
+      return bt.compareTo(at);
+    });
+    return rows;
+  }
+
+  Future<List<_TimelineRow>> _loadUnit(PriceHistoryUnit unit) async {
+    final entries = await _fetch(unit.variantUomId);
+    return [
+      for (final entry in entries)
+        _TimelineRow(unitLabel: unit.label, entry: entry),
+    ];
+  }
+
+  Future<List<PriceHistoryEntry>> _fetch(int variantUomId) async {
     final customLoader = widget.loader;
     if (customLoader != null) {
-      return customLoader(widget.variantUomId);
+      return customLoader(variantUomId);
     }
     final response = await ApiClient.instance.dio.get<dynamic>(
-      '/api/v1/variant-uoms/${widget.variantUomId}/price-history/',
+      '/api/v1/variant-uoms/$variantUomId/price-history/',
     );
     final data = response.data;
     final rows = data is Map<String, dynamic> && data['results'] is List
@@ -576,9 +671,9 @@ class _PriceHistoryDialogState extends State<PriceHistoryDialog> {
     return AppDialog(
       icon: Icons.history,
       title: 'Price History',
-      subtitle: '${widget.title} · ${widget.unitLabel}',
+      subtitle: widget.title,
       width: 560,
-      content: FutureBuilder<List<PriceHistoryEntry>>(
+      content: FutureBuilder<List<_TimelineRow>>(
         future: _future,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -598,7 +693,7 @@ class _PriceHistoryDialogState extends State<PriceHistoryDialog> {
             return const Padding(
               padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
               child: Text(
-                'No price changes recorded yet for this selling unit.',
+                'No price changes recorded yet for these selling units.',
               ),
             );
           }
@@ -609,7 +704,8 @@ class _PriceHistoryDialogState extends State<PriceHistoryDialog> {
               itemCount: entries.length,
               separatorBuilder: (_, _) => const Divider(height: 1),
               itemBuilder: (context, index) {
-                final item = entries[index];
+                final row = entries[index];
+                final item = row.entry;
                 final priceLine = item.oldPrice == null
                     ? 'Initial price: ${formatPeso(item.newPrice)}'
                     : '${formatPeso(item.oldPrice!)} → ${formatPeso(item.newPrice)}';
@@ -620,6 +716,7 @@ class _PriceHistoryDialogState extends State<PriceHistoryDialog> {
                     ? 'by ${item.actor}'
                     : '';
                 final meta = [
+                  row.unitLabel,
                   _sourceLabel(item.source),
                   if (who.isNotEmpty) who,
                   if (when.isNotEmpty) when,
