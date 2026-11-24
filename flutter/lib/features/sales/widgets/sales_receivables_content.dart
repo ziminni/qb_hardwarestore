@@ -375,20 +375,14 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
               ? const SizedBox.shrink()
               : LayoutBuilder(
                   builder: (context, slot) {
-                    // DataPanel turns the table into cards on its own content
-                    // width. Total and Paid only join as columns on a card: as
-                    // two more table columns they pushed the balance and the
-                    // action off a 1100 px window, which is the defect this
-                    // screen is being rebuilt for.
                     final cards =
                         slot.maxWidth - AppPanel.chrome <
                         DataPanel.cardBreakpoint;
                     return DataPanel<LedgerEntry>(
                       columns: _columns(viewmodel, now, cards: cards),
                       rows: rows,
+                      showPageSizePicker: !cards,
                       emptyMessage: _emptyMessage(viewmodel),
-                      // Rows already on screen outlive a refresh: the spinner
-                      // is only for a first load with nothing to show yet.
                       isLoading:
                           viewmodel.isLoading && viewmodel.entries.isEmpty,
                       rowKey: (entry) => ValueKey(entry.id),
@@ -500,32 +494,56 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
               _caption(
                 'Total ${formatPeso(entry.originalAmount)} · Paid ${formatPeso(entry.paidAmount)}',
               ),
+              if (entry.originalAmount > 0) ...[
+                const SizedBox(height: 4),
+                SizedBox(
+                  width: 110,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: (entry.paidAmount / entry.originalAmount).clamp(
+                        0.0,
+                        1.0,
+                      ),
+                      minHeight: 4,
+                      backgroundColor: AppColors.border,
+                      color: entry.isPaid
+                          ? AppColors.success
+                          : AppColors.primary,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ],
         ),
       ),
       DataPanelColumn<LedgerEntry>(
         label: 'Action',
-        flex: 2,
+        flex: 3,
         cell: (entry) => _actionButton(viewmodel, entry),
       ),
     ];
   }
 
   Widget _actionButton(SalesReceivablesViewmodel viewmodel, LedgerEntry entry) {
-    final detailsBtn = TextButton(
+    final detailsBtn = OutlinedButton.icon(
       key: ValueKey('receivable-details-${entry.id}'),
       onPressed: () => _openDetailsDialog(context, viewmodel, entry),
-      style: TextButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        minimumSize: const Size(44, 36),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppColors.textPrimary,
+        side: const BorderSide(color: AppColors.border),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        minimumSize: const Size(0, 32),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
-      child: const Text('History'),
+      icon: const Icon(Icons.history_rounded, size: 14),
+      label: const Text('History', style: TextStyle(fontSize: 12)),
     );
     if (entry.isPaid) {
       return Wrap(
-        spacing: 4,
+        spacing: 6,
+        runSpacing: 4,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           _caption(
@@ -539,14 +557,12 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
     }
     final paying = viewmodel.isPaying(entry.id);
     return Wrap(
-      spacing: 4,
+      spacing: 6,
       runSpacing: 4,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         detailsBtn,
-        FilledButton.tonal(
-          // Disabled in flight so a double tap cannot post twice; the viewmodel
-          // holds the same guard for the dialog's own Record button.
+        FilledButton.icon(
           onPressed: paying
               ? null
               : () => _openPaymentDialog(
@@ -556,17 +572,21 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
                   slipPrinter: widget.slipPrinter,
                 ),
           style: FilledButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            minimumSize: const Size(44, 36),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            minimumSize: const Size(0, 32),
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           ),
-          child: paying
+          icon: paying
               ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
                 )
-              : const Text('Record payment'),
+              : const Icon(Icons.payments_outlined, size: 14),
+          label: const Text('Record payment', style: TextStyle(fontSize: 12)),
         ),
       ],
     );
@@ -934,6 +954,7 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
               : DataPanel<LedgerPayment>(
                   columns: _paymentColumns(context, viewmodel),
                   rows: rows,
+                  showPageSizePicker: true,
                   emptyMessage: _paymentEmptyMessage(),
                   isLoading: viewmodel.isLoading && viewmodel.payments.isEmpty,
                   rowKey: (payment) => ValueKey('payment-${payment.id}'),
@@ -2075,36 +2096,63 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 6,
-                  runSpacing: 4,
+                  runSpacing: 6,
                   children: [
                     for (final preset in [
                       ('25%', widget.entry.balanceDue * 0.25),
                       ('50%', widget.entry.balanceDue * 0.50),
                       ('Full balance', widget.entry.balanceDue),
                     ])
-                      ActionChip(
-                        label: Text(preset.$1),
-                        visualDensity: VisualDensity.compact,
+                      OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          minimumSize: const Size(0, 32),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
                         onPressed: () => setState(() {
                           _amount.text = preset.$2.toStringAsFixed(2);
                           _error = null;
                         }),
+                        child: Text(
+                          preset.$1,
+                          style: const TextStyle(fontSize: 12),
+                        ),
                       ),
                   ],
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  typedAmount <= 0
-                      ? 'Enter a payment amount.'
-                      : (remainingAfter <= 0.005
-                            ? 'After this payment: Paid in full'
-                            : 'Remaining balance after payment: ${formatPeso(remainingAfter)}'),
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
                     color: remainingAfter <= 0.005 && typedAmount > 0
-                        ? AppColors.successText
-                        : AppColors.textSecondary,
+                        ? AppColors.success.withValues(alpha: 0.08)
+                        : AppColors.background,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: remainingAfter <= 0.005 && typedAmount > 0
+                          ? AppColors.success.withValues(alpha: 0.35)
+                          : AppColors.border,
+                    ),
+                  ),
+                  child: Text(
+                    typedAmount <= 0
+                        ? 'Enter a payment amount.'
+                        : (remainingAfter <= 0.005
+                              ? 'After this payment: Paid in full'
+                              : 'Remaining balance after payment: ${formatPeso(remainingAfter)}'),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: remainingAfter <= 0.005 && typedAmount > 0
+                          ? AppColors.successText
+                          : AppColors.textSecondary,
+                    ),
                   ),
                 ),
               ],

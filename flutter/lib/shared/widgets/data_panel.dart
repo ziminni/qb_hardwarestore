@@ -82,6 +82,7 @@ class DataPanel<T> extends StatefulWidget {
     this.count,
     this.pageSize = defaultPageSize,
     this.paginate = true,
+    this.showPageSizePicker = false,
   }) : assert(pageSize >= 1, 'a page holds at least one row');
 
   /// Below this content width the table becomes cards.
@@ -149,12 +150,17 @@ class DataPanel<T> extends StatefulWidget {
   /// already slices its own rows.
   final bool paginate;
 
+  /// When true, always shows the pager strip (with the items-per-page selector)
+  /// whenever [rows] is non-empty, even if all rows fit on page 1.
+  final bool showPageSizePicker;
+
   @override
   State<DataPanel<T>> createState() => _DataPanelState<T>();
 }
 
 class _DataPanelState<T> extends State<DataPanel<T>> {
   int _page = 1;
+  late int _activePageSize = widget.pageSize;
 
   /// The panel's own scroll position, made only when the caller handed none.
   ScrollController? _ownController;
@@ -162,25 +168,24 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
   int get _pageCount {
     final total = widget.rows.length;
     if (total == 0) return 1;
-    return (total + widget.pageSize - 1) ~/ widget.pageSize;
+    return (total + _activePageSize - 1) ~/ _activePageSize;
   }
 
-  /// Paging is off for a list that fits on one page: a 12 row list gets the
-  /// panel it always had, not a disabled pair of buttons.
+  /// Paging is off for a list that fits on one page unless [showPageSizePicker]
+  /// is enabled so the user can change items-per-page at any time.
   bool get _paged => widget.paginate && _pageCount > 1;
 
-  /// Where the current page starts in [DataPanel.rows], so a default row key
-  /// names the record, not the slot: row 26 of page 2 is keyed 26, as it is on
-  /// page 1 of a 200 row list.
-  int get _pageOffset => _paged ? (_page - 1) * widget.pageSize : 0;
+  bool get _showFooter =>
+      widget.paginate &&
+      widget.rows.isNotEmpty &&
+      (_pageCount > 1 || widget.showPageSizePicker);
 
-  /// The rows this panel lays out: the current page when paging is on. Every
-  /// layout below reads this, so the table, the cards and the "last row" border
-  /// all agree on where the slice ends.
+  int get _pageOffset => _paged ? (_page - 1) * _activePageSize : 0;
+
   List<T> get _rows {
     if (!_paged) return widget.rows;
-    final start = (_page - 1) * widget.pageSize;
-    final end = math.min(start + widget.pageSize, widget.rows.length);
+    final start = (_page - 1) * _activePageSize;
+    final end = math.min(start + _activePageSize, widget.rows.length);
     return widget.rows.sublist(start, end);
   }
 
@@ -190,11 +195,10 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
   @override
   void didUpdateWidget(DataPanel<T> oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Another list is another list: a filter leaving 30 rows would strand the
-    // reader on a page that no longer exists, halfway through rows they never
-    // asked for.
-    if (widget.pageSize != oldWidget.pageSize ||
-        !_sameRows(oldWidget.rows, widget.rows)) {
+    if (widget.pageSize != oldWidget.pageSize) {
+      _activePageSize = widget.pageSize;
+      _page = 1;
+    } else if (!_sameRows(oldWidget.rows, widget.rows)) {
       _page = 1;
     } else if (_page > _pageCount) {
       _page = _pageCount;
@@ -254,21 +258,39 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
     );
   }
 
-  /// The strip under the rows: which slice is on screen and the two buttons
-  /// that walk it. Null when the list fits on one page.
+  Future<void> _pickCustomPageSize(BuildContext context) async {
+    final chosen = await showDialog<int>(
+      context: context,
+      builder: (_) => _CustomPageSizeDialog(initial: _activePageSize),
+    );
+    if (chosen == null || !mounted) return;
+    _setPageSize(chosen);
+  }
+
+  void _setPageSize(int size) {
+    final clamped = size.clamp(1, 500);
+    if (clamped == _activePageSize) return;
+    setState(() {
+      _activePageSize = clamped;
+      _page = 1;
+    });
+    final controller = _ownController ?? widget.controller;
+    if (controller != null && controller.hasClients) controller.jumpTo(0);
+  }
+
+  /// The strip under the rows: which slice is on screen, optional items-per-page
+  /// selector, and the Previous/Next buttons.
   Widget? _footer(BuildContext context) {
-    if (!_paged) return null;
+    if (!_showFooter) return null;
 
     final p = AppPalette.of(context);
     final pages = _pageCount;
-    final start = (_page - 1) * widget.pageSize;
-    final end = math.min(start + widget.pageSize, widget.rows.length);
+    final start = (_page - 1) * _activePageSize;
+    final end = math.min(start + _activePageSize, widget.rows.length);
 
     return Padding(
       key: const ValueKey('DataPanel.pager'),
-      padding: const EdgeInsets.only(top: AppSpacing.md),
-      // A wrap, not a row: at a raised text scale on a narrow card the range
-      // and the buttons take a line each instead of overflowing.
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
       child: Wrap(
         alignment: WrapAlignment.spaceBetween,
         crossAxisAlignment: WrapCrossAlignment.center,
@@ -283,11 +305,87 @@ class _DataPanelState<T> extends State<DataPanel<T>> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              PopupMenuButton<int>(
+                key: const ValueKey('DataPanel.pageSize'),
+                tooltip: 'Items per page',
+                onSelected: (value) {
+                  if (value == -1) {
+                    _pickCustomPageSize(context);
+                  } else {
+                    _setPageSize(value);
+                  }
+                },
+                itemBuilder: (_) => [
+                  for (final size in const [10, 25, 50, 100])
+                    PopupMenuItem<int>(
+                      value: size,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 20,
+                            child: size == _activePageSize
+                                ? Icon(
+                                    Icons.check_rounded,
+                                    size: 16,
+                                    color: p.accentInk,
+                                  )
+                                : null,
+                          ),
+                          Text('$size per page'),
+                        ],
+                      ),
+                    ),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem<int>(
+                    value: -1,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 20,
+                          child: Icon(Icons.edit_outlined, size: 15),
+                        ),
+                        Text('Custom…'),
+                      ],
+                    ),
+                  ),
+                ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: p.selected,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: p.border),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '$_activePageSize / page',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: p.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Icon(
+                        Icons.arrow_drop_down_rounded,
+                        size: 18,
+                        color: p.textSecondary,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
               IconButton(
                 key: const ValueKey('DataPanel.previous'),
                 tooltip: 'Previous page',
-                // Null disables the button and takes it out of the tab order,
-                // which is what the end of the list should feel like.
                 onPressed: _page > 1 ? () => _goTo(_page - 1) : null,
                 icon: const Icon(Icons.chevron_left),
               ),
@@ -713,6 +811,69 @@ class _CountPill extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _CustomPageSizeDialog extends StatefulWidget {
+  const _CustomPageSizeDialog({required this.initial});
+
+  final int initial;
+
+  @override
+  State<_CustomPageSizeDialog> createState() => _CustomPageSizeDialogState();
+}
+
+class _CustomPageSizeDialogState extends State<_CustomPageSizeDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: '${widget.initial}',
+  );
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final parsed = int.tryParse(_controller.text.trim());
+    if (parsed == null || parsed < 1 || parsed > 500) {
+      setState(() => _error = 'Enter a whole number between 1 and 500.');
+      return;
+    }
+    Navigator.of(context).pop(parsed);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Custom items per page'),
+      content: SizedBox(
+        width: 280,
+        child: TextField(
+          key: const ValueKey('DataPanel.customPageSizeInput'),
+          controller: _controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(
+            labelText: 'Items per page (1–500)',
+            errorText: _error,
+            border: const OutlineInputBorder(),
+          ),
+          onSubmitted: (_) => _submit(),
+          onChanged: (_) {
+            if (_error != null) setState(() => _error = null);
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('Apply')),
+      ],
     );
   }
 }

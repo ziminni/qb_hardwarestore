@@ -11,7 +11,6 @@ import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:client/shared/widgets/status_badge.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 /// Which role is reading the transaction list.
@@ -115,8 +114,6 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
   String _tender = _anyTender;
   String _orFilter = _anyOrFilter;
   DateTimeRange? _customRange;
-  int _pageSize = 10;
-  int _currentPage = 1;
 
   @override
   void dispose() {
@@ -150,7 +147,6 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
       _tender = _anyTender;
       _orFilter = _anyOrFilter;
       _customRange = null;
-      _currentPage = 1;
     });
   }
 
@@ -690,63 +686,25 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
 
         // 3. Remodeled Transaction Table (separate Transaction & OS # and OR # columns)
         Expanded(
-          child: Builder(
-            builder: (context) {
-              final totalRows = rows.length;
-              final totalPages = totalRows == 0
-                  ? 1
-                  : (totalRows + _pageSize - 1) ~/ _pageSize;
-              final safePage = _currentPage.clamp(1, totalPages);
-              final startIdx = (safePage - 1) * _pageSize;
-              final endIdx = (startIdx + _pageSize).clamp(0, totalRows);
-              final pageRows = totalRows == 0
-                  ? const <InventorySale>[]
-                  : rows.sublist(startIdx, endIdx);
-
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    child: LayoutBuilder(
-                      builder: (context, slot) {
-                        final cards =
-                            slot.maxWidth - AppPanel.chrome <
-                            DataPanel.cardBreakpoint;
-                        return DataPanel<InventorySale>(
-                          title: 'Transactions',
-                          count: totalRows,
-                          columns: _columns(withAction: !cards),
-                          rows: pageRows,
-                          emptyMessage: _filtered
-                              ? 'No transactions match these filters.'
-                              : 'No transactions found.',
-                          isLoading: widget.isLoading && widget.sales.isEmpty,
-                          error: widget.loadError,
-                          onRetry: widget.onRetry,
-                          onRowTap: (sale) => _openDocument(context, sale),
-                          rowKey: (sale) => ValueKey(sale.transactionNo),
-                        );
-                      },
-                    ),
-                  ),
-                  if (totalRows > 0) ...[
-                    const SizedBox(height: AppSpacing.sm),
-                    _PaginationFooter(
-                      totalRows: totalRows,
-                      startRow: startIdx + 1,
-                      endRow: endIdx,
-                      currentPage: safePage,
-                      totalPages: totalPages,
-                      pageSize: _pageSize,
-                      onPageChanged: (page) =>
-                          setState(() => _currentPage = page),
-                      onPageSizeChanged: (size) => setState(() {
-                        _pageSize = size;
-                        _currentPage = 1;
-                      }),
-                    ),
-                  ],
-                ],
+          child: LayoutBuilder(
+            builder: (context, slot) {
+              final cards =
+                  slot.maxWidth - AppPanel.chrome < DataPanel.cardBreakpoint;
+              return DataPanel<InventorySale>(
+                title: 'Transactions',
+                count: rows.length,
+                columns: _columns(withAction: !cards),
+                rows: rows,
+                pageSize: 10,
+                showPageSizePicker: !cards,
+                emptyMessage: _filtered
+                    ? 'No transactions match these filters.'
+                    : 'No transactions found.',
+                isLoading: widget.isLoading && widget.sales.isEmpty,
+                error: widget.loadError,
+                onRetry: widget.onRetry,
+                onRowTap: (sale) => _openDocument(context, sale),
+                rowKey: (sale) => ValueKey(sale.transactionNo),
               );
             },
           ),
@@ -1503,164 +1461,6 @@ class _FilterDropdownPill extends StatelessWidget {
               ],
               onChanged: onChanged,
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PaginationFooter extends StatefulWidget {
-  const _PaginationFooter({
-    required this.totalRows,
-    required this.startRow,
-    required this.endRow,
-    required this.currentPage,
-    required this.totalPages,
-    required this.pageSize,
-    required this.onPageChanged,
-    required this.onPageSizeChanged,
-  });
-
-  final int totalRows;
-  final int startRow;
-  final int endRow;
-  final int currentPage;
-  final int totalPages;
-  final int pageSize;
-  final ValueChanged<int> onPageChanged;
-  final ValueChanged<int> onPageSizeChanged;
-
-  @override
-  State<_PaginationFooter> createState() => _PaginationFooterState();
-}
-
-class _PaginationFooterState extends State<_PaginationFooter> {
-  late final TextEditingController _sizeController = TextEditingController(
-    text: '${widget.pageSize}',
-  );
-
-  @override
-  void didUpdateWidget(covariant _PaginationFooter oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.pageSize != widget.pageSize) {
-      final parsed = int.tryParse(_sizeController.text.trim());
-      if (parsed != widget.pageSize) {
-        _sizeController.text = '${widget.pageSize}';
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _sizeController.dispose();
-    super.dispose();
-  }
-
-  void _applyCustomSize(String raw) {
-    final parsed = int.tryParse(raw.trim());
-    if (parsed == null || parsed <= 0) return;
-    final clamped = parsed.clamp(1, 500);
-    if (clamped != widget.pageSize) {
-      widget.onPageSizeChanged(clamped);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      key: const ValueKey('cashier-history-pagination'),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.cardBackground,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              'Showing ${widget.startRow}–${widget.endRow} of ${formatCount(widget.totalRows)} transactions',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 12.5,
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ),
-          const Text(
-            'Items per page:',
-            style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 58,
-            height: 32,
-            child: TextField(
-              key: const ValueKey('cashier-history-page-size'),
-              controller: _sizeController,
-              keyboardType: TextInputType.number,
-              textAlign: TextAlign.center,
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(3),
-              ],
-              style: const TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
-              ),
-              decoration: InputDecoration(
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 6,
-                  vertical: 7,
-                ),
-                filled: true,
-                fillColor: AppColors.background,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(6),
-                  borderSide: const BorderSide(color: AppColors.border),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(6),
-                  borderSide: const BorderSide(color: AppColors.border),
-                ),
-              ),
-              onChanged: _applyCustomSize,
-              onSubmitted: _applyCustomSize,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Text(
-            'Page ${widget.currentPage} of ${widget.totalPages}',
-            style: const TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          const SizedBox(width: 8),
-          IconButton(
-            key: const ValueKey('cashier-history-prev-page'),
-            tooltip: 'Previous page',
-            onPressed: widget.currentPage > 1
-                ? () => widget.onPageChanged(widget.currentPage - 1)
-                : null,
-            icon: const Icon(Icons.chevron_left_rounded, size: 20),
-            visualDensity: VisualDensity.compact,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-          ),
-          IconButton(
-            key: const ValueKey('cashier-history-next-page'),
-            tooltip: 'Next page',
-            onPressed: widget.currentPage < widget.totalPages
-                ? () => widget.onPageChanged(widget.currentPage + 1)
-                : null,
-            icon: const Icon(Icons.chevron_right_rounded, size: 20),
-            visualDensity: VisualDensity.compact,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
           ),
         ],
       ),

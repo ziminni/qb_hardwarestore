@@ -352,14 +352,14 @@ void main() {
       ),
     );
 
-    expect(find.text('Showing 1–10 of 15 transactions'), findsOneWidget);
+    expect(find.text('1 to 10 of 15'), findsOneWidget);
     expect(find.byKey(const ValueKey('TRX-PAGE-01')), findsOneWidget);
     expect(find.byKey(const ValueKey('TRX-PAGE-11')), findsNothing);
 
-    await tester.tap(find.byKey(const ValueKey('cashier-history-next-page')));
+    await tester.tap(find.byKey(const ValueKey('DataPanel.next')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Showing 11–15 of 15 transactions'), findsOneWidget);
+    expect(find.text('11 to 15 of 15'), findsOneWidget);
     expect(find.byKey(const ValueKey('TRX-PAGE-11')), findsOneWidget);
     expect(find.byKey(const ValueKey('TRX-PAGE-01')), findsNothing);
   });
