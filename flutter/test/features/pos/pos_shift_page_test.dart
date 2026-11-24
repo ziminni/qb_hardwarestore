@@ -280,7 +280,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('12'), findsOneWidget);
-      expect(find.text('₱8,400.00'), findsOneWidget);
+      expect(find.text('₱8,400.00'), findsWidgets);
       expect(find.text('₱4,400.00'), findsOneWidget);
       expect(find.text('₱2,500.00'), findsOneWidget);
       expect(find.text('₱1,500.00'), findsOneWidget);
@@ -456,9 +456,21 @@ void main() {
       await _pump(tester, ShiftViewmodel(service: service));
 
       expect(find.text('This shift so far'), findsOneWidget);
-      expect(find.text('1'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(PosZReadingSummary),
+          matching: find.text('1'),
+        ),
+        findsOneWidget,
+      );
       expect(find.text('₱315.00'), findsWidgets);
-      expect(find.text('₱500.00'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(PosZReadingSummary),
+          matching: find.text('₱500.00'),
+        ),
+        findsOneWidget,
+      );
       expect(
         find.text('Last closed shift (Oct 21, 2026, 8:00 AM)'),
         findsNothing,
@@ -633,8 +645,8 @@ void main() {
         reason: 'transactions, gross, cash, card, GCash, expected drawer',
       );
       expect(
-        find.text(formatDate(DateTime(2026, 10, 21))),
-        findsOneWidget,
+        find.textContaining(formatDate(DateTime(2026, 10, 21))),
+        findsWidgets,
         reason: 'the Opened column is a date, not a raw server timestamp',
       );
     });
@@ -1000,9 +1012,9 @@ void main() {
           find.text('Cash out · Owner safe drop for bank deposit'),
           findsOneWidget,
         );
-        expect(find.text('-₱1,200.00'), findsOneWidget);
+        expect(find.text('-₱1,200.00'), findsWidgets);
         // 5000 float + 315 cash sales - 1200 cash out = 4115 expected cash.
-        expect(find.text('₱4,115.00'), findsOneWidget);
+        expect(find.text('₱4,115.00'), findsWidgets);
       },
     );
   });

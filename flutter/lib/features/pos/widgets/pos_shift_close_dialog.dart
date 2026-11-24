@@ -18,14 +18,18 @@ import 'package:flutter/material.dart';
 /// (decision 06, ruling 3): it is shown afterwards, and management reviews it.
 Future<Shift?> showShiftCloseDialog(
   BuildContext context,
-  ShiftViewmodel viewmodel,
-) async {
+  ShiftViewmodel viewmodel, {
+  Map<String, int>? initialDenominations,
+}) async {
   final shift = viewmodel.currentShift;
   if (shift == null) return null;
 
   final result = await showDialog<_CloseResult>(
     context: context,
-    builder: (dialogContext) => _CloseShiftDialog(shift: shift),
+    builder: (dialogContext) => _CloseShiftDialog(
+      shift: shift,
+      initialDenominations: initialDenominations,
+    ),
   );
   if (result == null) return null;
 
@@ -73,9 +77,10 @@ Future<Shift?> showShiftCloseDialog(
 }
 
 class _CloseShiftDialog extends StatefulWidget {
-  const _CloseShiftDialog({required this.shift});
+  const _CloseShiftDialog({required this.shift, this.initialDenominations});
 
   final Shift shift;
+  final Map<String, int>? initialDenominations;
 
   @override
   State<_CloseShiftDialog> createState() => _CloseShiftDialogState();
@@ -93,6 +98,26 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
   /// "The drawer was cleared": sends `cash_left: 0.00`, which the server records
   /// as a REAL number (different from omitting the field).
   bool _cleared = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialDenominations;
+    if (initial != null && initial.isNotEmpty) {
+      var sum = 0.0;
+      for (final d in ShiftCashMovement.phpDenominations) {
+        final cnt = initial[d.key] ?? 0;
+        if (cnt > 0) {
+          _denomControllers[d.key]!.text = '$cnt';
+          sum += d.value * cnt;
+        }
+      }
+      if (sum > 0) {
+        _controller.text = sum.toStringAsFixed(2);
+        _showDenominations = true;
+      }
+    }
+  }
 
   @override
   void dispose() {

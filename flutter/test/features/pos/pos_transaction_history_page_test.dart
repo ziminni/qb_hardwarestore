@@ -251,7 +251,7 @@ void main() {
         _bodegaSale(id: 12, no: 'TRX-BODEGA-03', bodegaStatus: 'RELEASED'),
       ]);
       final vm = InventorySalesViewmodel(service: service);
-      await pump(tester, withViewmodel: vm);
+      await pump(tester, size: const Size(1440, 1200), withViewmodel: vm);
 
       // Row 1 (PENDING): Pending Pickup + Awaiting Bodega
       final row1 = find.byKey(const ValueKey('TRX-BODEGA-01'));
@@ -332,4 +332,35 @@ void main() {
       );
     },
   );
+
+  testWidgets('pagination splits rows by page size and navigates pages', (
+    tester,
+  ) async {
+    final manyRows = [
+      for (var i = 1; i <= 15; i++)
+        _bodegaSale(
+          id: i,
+          no: 'TRX-PAGE-${i.toString().padLeft(2, '0')}',
+          bodegaStatus: null,
+        ),
+    ];
+    await pump(
+      tester,
+      size: const Size(1440, 1200),
+      withViewmodel: InventorySalesViewmodel(
+        service: _MutableSalesService(manyRows),
+      ),
+    );
+
+    expect(find.text('Showing 1–10 of 15 transactions'), findsOneWidget);
+    expect(find.byKey(const ValueKey('TRX-PAGE-01')), findsOneWidget);
+    expect(find.byKey(const ValueKey('TRX-PAGE-11')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('cashier-history-next-page')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Showing 11–15 of 15 transactions'), findsOneWidget);
+    expect(find.byKey(const ValueKey('TRX-PAGE-11')), findsOneWidget);
+    expect(find.byKey(const ValueKey('TRX-PAGE-01')), findsNothing);
+  });
 }

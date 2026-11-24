@@ -25,14 +25,16 @@ class _CashMovementInput {
 /// extra change coins) on their open shift.
 Future<Shift?> showShiftCashMovementDialog(
   BuildContext context,
-  ShiftViewmodel viewmodel,
-) async {
+  ShiftViewmodel viewmodel, {
+  String initialKind = ShiftCashMovement.cashOutKind,
+}) async {
   final shift = viewmodel.currentShift;
   if (shift == null) return null;
 
   final input = await showDialog<_CashMovementInput>(
     context: context,
-    builder: (dialogContext) => const _ShiftCashMovementDialog(),
+    builder: (dialogContext) =>
+        _ShiftCashMovementDialog(initialKind: initialKind),
   );
   if (input == null) return null;
 
@@ -57,7 +59,11 @@ Future<Shift?> showShiftCashMovementDialog(
 }
 
 class _ShiftCashMovementDialog extends StatefulWidget {
-  const _ShiftCashMovementDialog();
+  const _ShiftCashMovementDialog({
+    this.initialKind = ShiftCashMovement.cashOutKind,
+  });
+
+  final String initialKind;
 
   @override
   State<_ShiftCashMovementDialog> createState() =>
@@ -65,7 +71,7 @@ class _ShiftCashMovementDialog extends StatefulWidget {
 }
 
 class _ShiftCashMovementDialogState extends State<_ShiftCashMovementDialog> {
-  String _kind = ShiftCashMovement.cashOutKind;
+  late String _kind = widget.initialKind;
   final _amountController = TextEditingController();
   final _categoryController = TextEditingController();
   final _reasonController = TextEditingController();

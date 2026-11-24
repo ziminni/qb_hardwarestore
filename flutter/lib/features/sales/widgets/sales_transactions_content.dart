@@ -92,11 +92,11 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
     _anyTender,
     'Cash',
     'GCash',
-    'Card',
-    'Bank Transfer',
     'Cheque',
     'Utang / Credit',
   ];
+
+  static const List<int> _pageSizeOptions = [10, 25, 50, 100];
 
   static const String _anyOrFilter = 'All OR';
   static const List<String> _orFilterOptions = [
@@ -116,6 +116,8 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
   String _tender = _anyTender;
   String _orFilter = _anyOrFilter;
   DateTimeRange? _customRange;
+  int _pageSize = 10;
+  int _currentPage = 1;
 
   @override
   void dispose() {
@@ -149,6 +151,7 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
       _tender = _anyTender;
       _orFilter = _anyOrFilter;
       _customRange = null;
+      _currentPage = 1;
     });
   }
 
@@ -688,23 +691,64 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
 
         // 3. Remodeled Transaction Table (separate Transaction & OS # and OR # columns)
         Expanded(
-          child: LayoutBuilder(
-            builder: (context, slot) {
-              final cards =
-                  slot.maxWidth - AppPanel.chrome < DataPanel.cardBreakpoint;
-              return DataPanel<InventorySale>(
-                title: 'Transactions',
-                count: rows.length,
-                columns: _columns(withAction: !cards),
-                rows: rows,
-                emptyMessage: _filtered
-                    ? 'No transactions match these filters.'
-                    : 'No transactions found.',
-                isLoading: widget.isLoading && widget.sales.isEmpty,
-                error: widget.loadError,
-                onRetry: widget.onRetry,
-                onRowTap: (sale) => _openDocument(context, sale),
-                rowKey: (sale) => ValueKey(sale.transactionNo),
+          child: Builder(
+            builder: (context) {
+              final totalRows = rows.length;
+              final totalPages = totalRows == 0
+                  ? 1
+                  : (totalRows + _pageSize - 1) ~/ _pageSize;
+              final safePage = _currentPage.clamp(1, totalPages);
+              final startIdx = (safePage - 1) * _pageSize;
+              final endIdx = (startIdx + _pageSize).clamp(0, totalRows);
+              final pageRows = totalRows == 0
+                  ? const <InventorySale>[]
+                  : rows.sublist(startIdx, endIdx);
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, slot) {
+                        final cards =
+                            slot.maxWidth - AppPanel.chrome <
+                            DataPanel.cardBreakpoint;
+                        return DataPanel<InventorySale>(
+                          title: 'Transactions',
+                          count: totalRows,
+                          columns: _columns(withAction: !cards),
+                          rows: pageRows,
+                          emptyMessage: _filtered
+                              ? 'No transactions match these filters.'
+                              : 'No transactions found.',
+                          isLoading: widget.isLoading && widget.sales.isEmpty,
+                          error: widget.loadError,
+                          onRetry: widget.onRetry,
+                          onRowTap: (sale) => _openDocument(context, sale),
+                          rowKey: (sale) => ValueKey(sale.transactionNo),
+                        );
+                      },
+                    ),
+                  ),
+                  if (totalRows > 0) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    _PaginationFooter(
+                      totalRows: totalRows,
+                      startRow: startIdx + 1,
+                      endRow: endIdx,
+                      currentPage: safePage,
+                      totalPages: totalPages,
+                      pageSize: _pageSize,
+                      pageSizeOptions: _pageSizeOptions,
+                      onPageChanged: (page) =>
+                          setState(() => _currentPage = page),
+                      onPageSizeChanged: (size) => setState(() {
+                        _pageSize = size;
+                        _currentPage = 1;
+                      }),
+                    ),
+                  ],
+                ],
               );
             },
           ),
@@ -1461,6 +1505,199 @@ class _FilterDropdownPill extends StatelessWidget {
               ],
               onChanged: onChanged,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PaginationFooter extends StatelessWidget {
+  const _PaginationFooter({
+    required this.totalRows,
+    required this.startRow,
+    required this.endRow,
+    required this.currentPage,
+    required this.totalPages,
+    required this.pageSize,
+    required this.pageSizeOptions,
+    required this.onPageChanged,
+    required this.onPageSizeChanged,
+  });
+
+  final int totalRows;
+  final int startRow;
+  final int endRow;
+  final int currentPage;
+  final int totalPages;
+  final int pageSize;
+  final List<int> pageSizeOptions;
+  final ValueChanged<int> onPageChanged;
+  final ValueChanged<int> onPageSizeChanged;
+
+  List<int?> _pageNumbers() {
+    if (totalPages <= 7) {
+      return [for (var i = 1; i <= totalPages; i++) i];
+    }
+    final pages = <int?>[1];
+    if (currentPage > 3) pages.add(null);
+    final start = (currentPage - 1).clamp(2, totalPages - 1);
+    final end = (currentPage + 1).clamp(2, totalPages - 1);
+    for (var i = start; i <= end; i++) {
+      pages.add(i);
+    }
+    if (currentPage < totalPages - 2) pages.add(null);
+    pages.add(totalPages);
+    return pages;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('cashier-history-pagination'),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.cardBackground,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Wrap(
+        spacing: AppSpacing.md,
+        runSpacing: AppSpacing.sm,
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Wrap(
+            spacing: AppSpacing.md,
+            runSpacing: AppSpacing.xs,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                'Showing $startRow–$endRow of ${formatCount(totalRows)} transactions',
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Per page:',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    decoration: BoxDecoration(
+                      color: AppColors.background,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<int>(
+                        key: const ValueKey('cashier-history-page-size'),
+                        value: pageSize,
+                        isDense: true,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary,
+                        ),
+                        items: [
+                          for (final size in pageSizeOptions)
+                            DropdownMenuItem(value: size, child: Text('$size')),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) onPageSizeChanged(value);
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          Wrap(
+            spacing: 4,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              OutlinedButton(
+                key: const ValueKey('cashier-history-prev-page'),
+                onPressed: currentPage > 1
+                    ? () => onPageChanged(currentPage - 1)
+                    : null,
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text('Previous', style: TextStyle(fontSize: 12)),
+              ),
+              for (final page in _pageNumbers())
+                if (page == null)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4),
+                    child: Text(
+                      '…',
+                      style: TextStyle(color: AppColors.textSecondary),
+                    ),
+                  )
+                else
+                  InkWell(
+                    key: ValueKey('cashier-history-page-$page'),
+                    onTap: () => onPageChanged(page),
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      decoration: BoxDecoration(
+                        color: page == currentPage
+                            ? AppColors.primary
+                            : AppColors.background,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: page == currentPage
+                              ? AppColors.primary
+                              : AppColors.border,
+                        ),
+                      ),
+                      child: Text(
+                        '$page',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: page == currentPage
+                              ? Colors.white
+                              : AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                  ),
+              OutlinedButton(
+                key: const ValueKey('cashier-history-next-page'),
+                onPressed: currentPage < totalPages
+                    ? () => onPageChanged(currentPage + 1)
+                    : null,
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text('Next', style: TextStyle(fontSize: 12)),
+              ),
+            ],
           ),
         ],
       ),
