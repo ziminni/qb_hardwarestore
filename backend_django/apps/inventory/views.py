@@ -615,6 +615,69 @@ class ProductVariantViewSet(_AuditedCatalogViewSet):
             self.get_serializer(variant).data, status=status.HTTP_201_CREATED
         )
 
+    @action(detail=True, methods=["post"], url_path="add-smaller-unit")
+    def add_smaller_unit_action(self, request, pk=None):
+        """`POST /variants/{id}/add-smaller-unit/` — add a smaller loose unit to an existing variant.
+
+        Rebases the variant onto the smaller unit when no ledger history exists,
+        or creates an exact fractional selling unit when history exists.
+        """
+        from decimal import Decimal, InvalidOperation
+
+        from .exceptions import InvalidSellingUnit
+        from .models import UnitOfMeasure
+        from .services import add_smaller_unit
+
+        uom_id = request.data.get("uom")
+        uom = UnitOfMeasure.objects.filter(pk=uom_id).first() if uom_id else None
+        if uom is None:
+            raise InvalidSellingUnit("Choose a valid selling unit.")
+
+        try:
+            units_per_base = Decimal(str(request.data.get("units_per_base", "")))
+            price = Decimal(str(request.data.get("default_selling_price", "")))
+            credit_val = Decimal(
+                str(request.data.get("credit_markup_value", "0") or "0")
+            )
+        except (InvalidOperation, ValueError) as exc:
+            raise InvalidSellingUnit(
+                "Send the unit count and selling price as numbers."
+            ) from exc
+
+        credit_kind = str(request.data.get("credit_markup_kind", "NONE") or "NONE")
+        barcode_qr = str(request.data.get("barcode_qr", "") or "")
+
+        variant = self.get_object()
+        try:
+            with transaction.atomic():
+                variant, new_unit, rebased_from = add_smaller_unit(
+                    variant=variant,
+                    uom=uom,
+                    units_per_base=units_per_base,
+                    default_selling_price=price,
+                    barcode_qr=barcode_qr,
+                    credit_markup_kind=credit_kind,
+                    credit_markup_value=credit_val,
+                    user=request.user,
+                )
+                detail = (
+                    f"Added smaller unit {uom.code} (1 {rebased_from} = "
+                    f"{units_per_base} {uom.code}) and rebased {variant} onto "
+                    f"{uom.code} at ₱{new_unit.default_selling_price}."
+                    if rebased_from
+                    else f"Added smaller unit {uom.code} (1 {variant.base_uom.code} = "
+                    f"{units_per_base} {uom.code}) on {variant} at "
+                    f"₱{new_unit.default_selling_price}."
+                )
+                audit_request(request, AuditLog.ActionType.UPDATE, detail)
+        except IntegrityError as exc:
+            _refuse_lost_barcode_race(exc)
+
+        refreshed = self.get_queryset().get(pk=variant.pk)
+        return Response(
+            self.get_serializer(refreshed).data, status=status.HTTP_201_CREATED
+        )
+
 
 class VariantUOMViewSet(_AuditedCatalogViewSet):
     # `variant__product` is joined because the response explains WHY a scanned unit

@@ -137,6 +137,7 @@ class NewSellingUnit {
     required this.uomCode,
     required this.conversionFactor,
     required this.sellingPrice,
+    this.unitsPerBase,
     this.barcodeQr = '',
     this.creditMarkupKind = 'NONE',
     this.creditMarkupValue = 0,
@@ -147,6 +148,12 @@ class NewSellingUnit {
   final double conversionFactor;
   final double sellingPrice;
 
+  /// When non-null (> 1), this unit is SMALLER than the variant's current base
+  /// unit (`1 base = unitsPerBase of this unit`, e.g. `1 BOX = 24 CAN`). The
+  /// repository posts to `/variants/{id}/add-smaller-unit/` so the server can
+  /// rebase cleanly onto the smaller unit without 2-decimal rounding loss.
+  final double? unitsPerBase;
+
   /// Blank asks the server for this unit's own `QB` code.
   final String barcodeQr;
   final String creditMarkupKind;
@@ -156,6 +163,17 @@ class NewSellingUnit {
     'variant': variantId,
     'uom': uomId,
     'conversion_factor': conversionFactor,
+    'default_selling_price': sellingPrice,
+    'barcode_qr': barcodeQr,
+    if (creditMarkupKind != 'NONE' && creditMarkupValue > 0) ...{
+      'credit_markup_kind': creditMarkupKind,
+      'credit_markup_value': creditMarkupValue,
+    },
+  };
+
+  Map<String, dynamic> smallerUnitBody() => {
+    'uom': uomId,
+    'units_per_base': unitsPerBase,
     'default_selling_price': sellingPrice,
     'barcode_qr': barcodeQr,
     if (creditMarkupKind != 'NONE' && creditMarkupValue > 0) ...{

@@ -227,7 +227,9 @@ class ProductsRepository {
   /// refusal names the unit, and nothing else was written.
   Future<void> createSellingUnit(int variantId, NewSellingUnit unit) => _step(
     ProductWriteStep.sellingUnit,
-    () => service.createSellingUnit(unit.body(variantId)),
+    () => unit.unitsPerBase != null
+        ? service.addSmallerUnit(variantId, unit.smallerUnitBody())
+        : service.createSellingUnit(unit.body(variantId)),
   );
 
   /// Removes one selling unit that nothing references (decision 16).

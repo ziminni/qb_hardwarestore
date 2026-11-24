@@ -420,6 +420,52 @@ void main() {
       },
     );
 
+    testWidgets(
+      'Defining bigger unit first then smaller loose unit auto-normalizes base cleanly',
+      (tester) async {
+        await openForm(tester);
+        await fillBasics(tester);
+        // Base starts as KG (id 1), price ₱1,500, cost ₱1,200, initial 10, reorder 2
+        await tester.enterText(find.byKey(const ValueKey('cost-field')), '1200');
+        await tester.enterText(find.byKey(const ValueKey('base-price')), '1500');
+        await tester.enterText(find.byKey(const ValueKey('initial-field')), '10');
+        await tester.enterText(find.byKey(const ValueKey('reorder-field')), '2');
+        await tapKey(tester, const ValueKey('also-sold-as-pack'));
+
+        // Switch direction to "Smaller unit" (1 KG = ? BAG -> here BAG is id 2)
+        await tester.tap(find.textContaining('1 KG = ?'));
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey('pack-factor-field')),
+          '24',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey('pack-price-field')),
+          '70',
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.textContaining('Stock will be tracked in'),
+          findsOneWidget,
+        );
+
+        await save(tester);
+        final draft = lastResult!.draft!;
+        // Smaller unit becomes base (id 2 at ₱70), original bigger unit becomes ×24 at ₱1,500
+        expect(draft.baseUomId, 2);
+        expect(draft.sellingPrice, 70);
+        expect(draft.openingQty, 240);
+        expect(draft.openingUnitCost, 50);
+        expect(draft.minStockThreshold, 48);
+        expect(draft.extraSellingUnits, hasLength(1));
+        expect(draft.extraSellingUnits.single.uomId, 1);
+        expect(draft.extraSellingUnits.single.conversionFactor, 24);
+        expect(draft.extraSellingUnits.single.sellingPrice, 1500);
+      },
+    );
+
     testWidgets('no initial stock means no opening stock', (tester) async {
       await openForm(tester);
       await fillBasics(tester);

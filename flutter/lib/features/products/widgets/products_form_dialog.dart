@@ -146,6 +146,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   int? _baseUomId;
   int? _packUomId;
   bool _alsoSoldAsPack = false;
+  bool _packIsSmaller = false;
 
   /// The product's STORED photo URL (the server's, or a legacy one). Never a path
   /// this device invented.
@@ -618,6 +619,35 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
       final packUnit = _alsoSoldAsPack ? _unitWithId(_packUomId) : null;
       final packFactor = _num(_packFactorController);
       final packPrice = _num(_packPriceController);
+      final packBarcode = _packBarcodeController.text.trim();
+      final baseUnit = _unitWithId(_baseUomId);
+      final openingCost = _num(_costController);
+
+      // Bidirectional pack/unit setup: if the clerk defined the BIGGER unit
+      // first (e.g. BOX at ₱1,500) and then added a SMALLER loose unit (e.g.
+      // 1 BOX = 24 CAN at ₱70/CAN), automatically normalize so the smaller unit
+      // is stored as the factor-1 base unit and the bigger unit is ×24. That
+      // keeps every conversion factor exact without 2-decimal rounding loss.
+      final normalizeToSmaller =
+          _alsoSoldAsPack &&
+          _packIsSmaller &&
+          packUnit != null &&
+          baseUnit != null &&
+          packFactor > 1;
+
+      final resolvedBaseUomId = normalizeToSmaller ? packUnit.id : _baseUomId!;
+      final resolvedSellingPrice = normalizeToSmaller ? packPrice : price;
+      final resolvedBarcode = normalizeToSmaller ? packBarcode : barcode;
+      final resolvedOpeningQty = normalizeToSmaller
+          ? double.parse((_openingBaseQty * packFactor).toStringAsFixed(2))
+          : _openingBaseQty;
+      final resolvedOpeningCost = normalizeToSmaller
+          ? double.parse((openingCost / packFactor).toStringAsFixed(2))
+          : openingCost;
+      final resolvedThreshold = normalizeToSmaller
+          ? double.parse((threshold * packFactor).toStringAsFixed(2))
+          : threshold;
+
       Navigator.of(context).pop(
         ProductFormResult.create(
           NewProductDraft(
@@ -629,28 +659,36 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
             image: _imageUpload,
             variantName: _variantController.text.trim(),
             sku: _skuController.text.trim(),
-            baseUomId: _baseUomId!,
-            minStockThreshold: threshold,
+            baseUomId: resolvedBaseUomId,
+            minStockThreshold: resolvedThreshold,
             maxStockLevel: 0,
-            sellingPrice: price,
+            sellingPrice: resolvedSellingPrice,
             creditMarkupKind: _creditKind,
             creditMarkupValue: _creditValue,
-            barcodeQr: barcode,
+            barcodeQr: resolvedBarcode,
             locationHint: widget.locationHint,
             storedAtId: _storedAtId,
             allowDiscount: _allowDiscount,
             extraSellingUnits: [
-              if (_alsoSoldAsPack && packUnit != null)
+              if (normalizeToSmaller)
+                NewSellingUnit(
+                  uomId: baseUnit.id,
+                  uomCode: baseUnit.code,
+                  conversionFactor: packFactor,
+                  sellingPrice: price,
+                  barcodeQr: barcode,
+                )
+              else if (_alsoSoldAsPack && packUnit != null)
                 NewSellingUnit(
                   uomId: packUnit.id,
                   uomCode: packUnit.code,
                   conversionFactor: packFactor,
                   sellingPrice: packPrice,
-                  barcodeQr: _packBarcodeController.text.trim(),
+                  barcodeQr: packBarcode,
                 ),
             ],
-            openingQty: _openingBaseQty,
-            openingUnitCost: _num(_costController),
+            openingQty: resolvedOpeningQty,
+            openingUnitCost: resolvedOpeningCost,
           ),
         ),
       );
@@ -1167,9 +1205,9 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
         SwitchListTile(
           key: const ValueKey('also-sold-as-pack'),
           contentPadding: EdgeInsets.zero,
-          title: const Text('Also sold / bought as a pack'),
+          title: const Text('Also sold / bought in another unit'),
           subtitle: const Text(
-            'Optional bulk / pack unit (e.g. Box of 10 PC, Bag of 40 KG, Roll of 2.5 M).',
+            'Add a bigger pack (e.g. Box of 24 CAN) or a smaller loose unit (e.g. 24 CAN inside 1 BOX).',
           ),
           value: _alsoSoldAsPack,
           onChanged: (value) => setState(() {
@@ -1191,6 +1229,23 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                SegmentedButton<bool>(
+                  key: const ValueKey('pack-direction-toggle'),
+                  segments: [
+                    ButtonSegment<bool>(
+                      value: false,
+                      label: Text('1 $packCode = ? $_baseCode'),
+                    ),
+                    ButtonSegment<bool>(
+                      value: true,
+                      label: Text('1 $_baseCode = ? $packCode'),
+                    ),
+                  ],
+                  selected: {_packIsSmaller},
+                  onSelectionChanged: (values) =>
+                      setState(() => _packIsSmaller = values.first),
+                ),
+                const SizedBox(height: AppSpacing.md),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1203,8 +1258,10 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                           key: const ValueKey('pack-unit-picker'),
                           isExpanded: true,
                           initialValue: selectedPackId,
-                          decoration: const InputDecoration(
-                            labelText: 'Unit (Box, Bag, Roll…)',
+                          decoration: InputDecoration(
+                            labelText: _packIsSmaller
+                                ? 'Smaller unit (Can, Piece, Kg…)'
+                                : 'Pack unit (Box, Bag, Roll…)',
                           ),
                           items: [
                             for (final unit in options)
@@ -1217,7 +1274,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                               ),
                           ],
                           validator: (value) => value == null
-                              ? 'Choose or create a pack unit.'
+                              ? 'Choose or create a unit.'
                               : null,
                           onChanged: (value) =>
                               setState(() => _packUomId = value),
@@ -1252,12 +1309,31 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                         inputFormatters: [_decimalFormatter],
                         onChanged: (_) => setState(() {}),
                         decoration: InputDecoration(
-                          labelText: 'Contains how many $_baseCode?',
-                          hintText: 'e.g. 40 or 2.5',
-                          suffixText: _baseCode,
+                          labelText: _packIsSmaller
+                              ? 'How many $packCode in 1 $_baseCode?'
+                              : 'Contains how many $_baseCode?',
+                          hintText: _packIsSmaller
+                              ? 'e.g. 12, 24, 100'
+                              : 'e.g. 40 or 2.5',
+                          suffixText: _packIsSmaller ? packCode : _baseCode,
                         ),
-                        validator: (raw) =>
-                            sellingUnitFactorError(raw, baseCode: _baseCode),
+                        validator: (raw) {
+                          if (_packIsSmaller) {
+                            final text = (raw ?? '').trim();
+                            final value = double.tryParse(text);
+                            if (value == null || value <= 1) {
+                              return 'Enter how many $packCode fit in 1 $_baseCode (> 1).';
+                            }
+                            if (sellingUnitDecimalPlaces(text) > 2) {
+                              return 'Use at most 2 decimals.';
+                            }
+                            return null;
+                          }
+                          return sellingUnitFactorError(
+                            raw,
+                            baseCode: _baseCode,
+                          );
+                        },
                       ),
                     ),
                     const SizedBox(width: AppSpacing.md),
@@ -1270,8 +1346,8 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                         ),
                         inputFormatters: [_decimalFormatter],
                         onChanged: (_) => setState(() {}),
-                        decoration: const InputDecoration(
-                          labelText: 'Selling price for the whole pack',
+                        decoration: InputDecoration(
+                          labelText: 'Selling price per $packCode',
                           hintText: '0.00',
                           prefixText: '₱ ',
                         ),
@@ -1287,11 +1363,11 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                   inputFormatters: [
                     FilteringTextInputFormatter.deny(RegExp(r'\s')),
                   ],
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText:
-                        'Factory barcode for pack (leave blank to auto-generate)',
-                    hintText: 'Scan or type the pack barcode',
-                    prefixIcon: Icon(Icons.barcode_reader),
+                        'Factory barcode for $packCode (leave blank to auto-generate)',
+                    hintText: 'Scan or type the $packCode barcode',
+                    prefixIcon: const Icon(Icons.barcode_reader),
                   ),
                 ),
                 if (factor > 0 &&
@@ -1308,9 +1384,15 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                       border: Border.all(color: AppColors.border),
                     ),
                     child: Text(
-                      '1 $packCode = ${formatQuantity(factor)} $_baseCode · '
-                      'per-$_baseCode equivalent ${formatPeso(packPrice / factor)}'
-                      '${basePrice > 0 ? ' vs your $_baseCode price ${formatPeso(basePrice)}' : ''}',
+                      _packIsSmaller
+                          ? '1 $_baseCode = ${formatQuantity(factor)} $packCode · '
+                                '${formatPeso(packPrice)} / $packCode '
+                                '(${formatPeso(packPrice * factor)} per $_baseCode'
+                                '${basePrice > 0 ? ' vs your $_baseCode price ${formatPeso(basePrice)}' : ''})'
+                                ' · Stock will be tracked in $packCode'
+                          : '1 $packCode = ${formatQuantity(factor)} $_baseCode · '
+                                'per-$_baseCode equivalent ${formatPeso(packPrice / factor)}'
+                                '${basePrice > 0 ? ' vs your $_baseCode price ${formatPeso(basePrice)}' : ''}',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),

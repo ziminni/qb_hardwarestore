@@ -134,6 +134,7 @@ class SellingUnitDraft {
   final code = TextEditingController();
   final creditMarkupValue = TextEditingController();
   int? uomId;
+  double? unitsPerBase;
   String creditMarkupKind = 'NONE';
 
   double get resolvedCreditValue => creditMarkupKind == 'NONE'
@@ -295,39 +296,35 @@ class _SellingUnitFieldsState extends State<SellingUnitFields> {
   void _onUnitsPerBaseChanged(String raw) {
     final text = raw.trim();
     if (text.isEmpty) {
-      setState(() => _subUnitHintError = null);
+      setState(() {
+        _subUnitHintError = null;
+        draft.unitsPerBase = null;
+      });
       draft.factor.text = '';
       return;
     }
     final count = double.tryParse(text);
     if (count == null || count <= 1) {
       setState(() {
-        _subUnitHintError = 'Enter a number greater than 1 (e.g. 10, 20, 100).';
+        _subUnitHintError = 'Enter a number greater than 1 (e.g. 12, 24, 100).';
+        draft.unitsPerBase = null;
       });
       draft.factor.text = '';
       return;
     }
-    final computed = 1 / count;
-    if (computed < 0.01) {
+    if (sellingUnitDecimalPlaces(text) > 2) {
       setState(() {
-        _subUnitHintError =
-            'Max 100 $_selectedCode per 1 $baseCode (min factor is 0.01 $baseCode).';
+        _subUnitHintError = 'Use at most 2 decimals.';
+        draft.unitsPerBase = null;
       });
       draft.factor.text = '';
       return;
     }
-    final rounded = double.parse(computed.toStringAsFixed(2));
-    final exactCheck = (rounded * count - 1).abs();
     setState(() {
-      _subUnitHintError = exactCheck > 0.005
-          ? 'Rounded to ${formatQuantity(rounded)} $baseCode per $_selectedCode '
-                '(at most 2 decimals).'
-          : null;
+      _subUnitHintError = null;
+      draft.unitsPerBase = count;
     });
-    draft.factor.text = rounded.toStringAsFixed(2).replaceFirst(
-      RegExp(r'\.?0+$'),
-      '',
-    );
+    draft.factor.text = (1 / count).toStringAsFixed(4);
   }
 
   void _switchMode(_ConversionMode next) {
@@ -338,10 +335,17 @@ class _SellingUnitFieldsState extends State<SellingUnitFields> {
       if (next == _ConversionMode.subUnit) {
         final current = double.tryParse(draft.factor.text.trim());
         if (current != null && current > 0 && current < 1) {
-          _unitsPerBaseController.text = formatQuantity(1 / current);
+          final count = double.parse((1 / current).toStringAsFixed(2));
+          _unitsPerBaseController.text = formatQuantity(count);
+          draft.unitsPerBase = count;
         } else {
           _unitsPerBaseController.clear();
+          draft.unitsPerBase = null;
+          draft.factor.clear();
         }
+      } else {
+        draft.unitsPerBase = null;
+        draft.factor.clear();
       }
     });
   }
@@ -460,47 +464,53 @@ class _SellingUnitFieldsState extends State<SellingUnitFields> {
             onSelectionChanged: (values) => _switchMode(values.first),
           ),
           const SizedBox(height: AppSpacing.md),
-          if (_mode == _ConversionMode.subUnit) ...[
-            TextFormField(
-              key: ValueKey('$keyPrefix-subcount-$index'),
-              controller: _unitsPerBaseController,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              inputFormatters: [_decimalFormatter],
-              onChanged: _onUnitsPerBaseChanged,
-              decoration: InputDecoration(
-                labelText: 'How many $selectedCode in 1 $baseCode',
-                hintText: 'e.g. 20 or 100',
-                suffixText: '$selectedCode / $baseCode',
-                helperText:
-                    _subUnitHintError ??
-                    'Auto-calculates the $baseCode conversion factor below.',
-              ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-          ],
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: TextFormField(
-                  key: ValueKey('$keyPrefix-factor-$index'),
-                  controller: draft.factor,
-                  autofocus: widget.autofocus,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  inputFormatters: [_decimalFormatter],
-                  decoration: InputDecoration(
-                    labelText: 'Contains how many $baseCode?',
-                    hintText: _mode == _ConversionMode.subUnit
-                        ? '0.05'
-                        : 'e.g. 40 or 2.5',
-                    suffixText: baseCode,
-                  ),
-                  validator: widget.validateFactor,
-                ),
+                child: _mode == _ConversionMode.subUnit
+                    ? TextFormField(
+                        key: ValueKey('$keyPrefix-subcount-$index'),
+                        controller: _unitsPerBaseController,
+                        autofocus: widget.autofocus,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [_decimalFormatter],
+                        onChanged: _onUnitsPerBaseChanged,
+                        decoration: InputDecoration(
+                          labelText: 'How many $selectedCode in 1 $baseCode?',
+                          hintText: 'e.g. 12, 24, 100',
+                          suffixText: '$selectedCode / $baseCode',
+                          helperText: _subUnitHintError,
+                        ),
+                        validator: (raw) {
+                          final text = (raw ?? '').trim();
+                          final count = double.tryParse(text);
+                          if (count == null || count <= 1) {
+                            return 'Enter how many $selectedCode fit in 1 $baseCode (> 1).';
+                          }
+                          if (sellingUnitDecimalPlaces(text) > 2) {
+                            return 'Use at most 2 decimals.';
+                          }
+                          return null;
+                        },
+                      )
+                    : TextFormField(
+                        key: ValueKey('$keyPrefix-factor-$index'),
+                        controller: draft.factor,
+                        autofocus: widget.autofocus,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [_decimalFormatter],
+                        decoration: InputDecoration(
+                          labelText: 'Contains how many $baseCode?',
+                          hintText: 'e.g. 24, 40, or 2.5',
+                          suffixText: baseCode,
+                        ),
+                        validator: widget.validateFactor,
+                      ),
               ),
               const SizedBox(width: AppSpacing.md),
               Expanded(
@@ -511,8 +521,8 @@ class _SellingUnitFieldsState extends State<SellingUnitFields> {
                     decimal: true,
                   ),
                   inputFormatters: [_decimalFormatter],
-                  decoration: const InputDecoration(
-                    labelText: 'Selling price for the whole pack',
+                  decoration: InputDecoration(
+                    labelText: 'Selling price per $selectedCode',
                     hintText: '0.00',
                     prefixText: '₱ ',
                   ),
@@ -638,9 +648,11 @@ class SellingUnitHelper extends StatelessWidget {
         draft.creditMarkupValue,
       ]),
       builder: (context, _) {
+        final subCount = draft.unitsPerBase;
         final factor = double.tryParse(draft.factor.text.trim());
         final price = double.tryParse(draft.price.text.trim());
-        if (factor == null || factor <= 0 || price == null || price < 0) {
+        if (price == null || price < 0) return const SizedBox.shrink();
+        if (subCount == null && (factor == null || factor <= 0)) {
           return const SizedBox.shrink();
         }
         final unitCode = _codeFor(draft.uomId);
@@ -660,19 +672,30 @@ class SellingUnitHelper extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '1 $unitCode = ${formatQuantity(factor)} $baseCode · '
-                'per-$baseCode equivalent ${formatPeso(price / factor)}'
-                '${basePrice != null ? ' vs your $baseCode price ${formatPeso(basePrice!)}' : ''}',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
-              ),
-              if (factor < 1)
+              if (subCount != null && subCount > 1) ...[
                 Text(
-                  '${formatQuantity(1 / factor)} $unitCode = 1 $baseCode',
+                  '1 $baseCode = ${formatQuantity(subCount)} $unitCode · '
+                  '${formatPeso(price)} / $unitCode '
+                  '(${formatPeso(price * subCount)} per $baseCode'
+                  '${basePrice != null ? ' vs your $baseCode price ${formatPeso(basePrice!)}' : ''})',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                Text(
+                  'Stock will track cleanly in $unitCode when this variant has no sales history yet.',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
+              ] else ...[
+                Text(
+                  '1 $unitCode = ${formatQuantity(factor!)} $baseCode · '
+                  'per-$baseCode equivalent ${formatPeso(price / factor)}'
+                  '${basePrice != null ? ' vs your $baseCode price ${formatPeso(basePrice!)}' : ''}',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ],
               if (creditPrice != null)
                 Text(
                   'Utang price: ${formatPeso(creditPrice)} per $unitCode',
@@ -760,10 +783,14 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
       _saving = true;
       _error = null;
     });
+    final subCount = _draft.unitsPerBase;
     final unit = NewSellingUnit(
       uomId: _draft.uomId!,
       uomCode: _codeFor(_draft.uomId),
-      conversionFactor: double.parse(_draft.factor.text.trim()),
+      conversionFactor: subCount != null
+          ? (1 / subCount)
+          : double.parse(_draft.factor.text.trim()),
+      unitsPerBase: subCount,
       sellingPrice: double.parse(_draft.price.text.trim()),
       barcodeQr: _draft.code.text.trim(),
       creditMarkupKind: _draft.creditMarkupKind,

@@ -378,6 +378,193 @@ def record_opening_stock(*, variant, qty: Decimal, unit_cost: Decimal, user):
     return receipt
 
 
+def add_smaller_unit(
+    *,
+    variant,
+    uom,
+    units_per_base: Decimal,
+    default_selling_price: Decimal,
+    barcode_qr: str = "",
+    credit_markup_kind: str = "NONE",
+    credit_markup_value: Decimal = Decimal("0"),
+    user=None,
+):
+    """Add a selling unit SMALLER than `variant.base_uom` (e.g. 1 BOX = 24 CAN).
+
+    When the variant has no sales, held carts, requisitions, purchase orders,
+    transfers, or adjustments yet (freshly created or only opening stock), we
+    atomically REBASE the variant onto the smaller unit (`CAN` becomes x1,
+    `BOX` becomes x24, opening batches & reorder levels convert cleanly).
+    That keeps every conversion factor exact without 2-decimal rounding drift.
+
+    When historical ledger rows already exist, rebasing would rewrite past
+    records, so we only allow a clean 2-decimal fractional factor (e.g. 1/20 =
+    0.05) and refuse non-divisible counts (like 1/24) with a clear message.
+    """
+    from apps.pos.models import HeldCartItem, SalesItem
+    from apps.requisitions.models import RequisitionItem
+
+    from .exceptions import BarcodeTaken, InvalidSellingUnit
+    from .models import (
+        POItem,
+        ProductVariant,
+        SellingUnitPriceChange,
+        StockAdjustment,
+        StockTransferLine,
+        VariantUOM,
+        normalise_barcode,
+    )
+
+    variant = (
+        ProductVariant.objects.select_for_update()
+        .select_related("product__stored_at", "base_uom")
+        .get(pk=variant.pk)
+    )
+
+    if uom.pk == variant.base_uom_id or VariantUOM.objects.filter(
+        variant=variant, uom=uom
+    ).exists():
+        raise InvalidSellingUnit(
+            f"{variant} already uses {uom.code}: choose a different unit."
+        )
+
+    if units_per_base is None or units_per_base <= Decimal("1"):
+        raise InvalidSellingUnit(
+            f"Enter how many {uom.code} fit in 1 {variant.base_uom.code} "
+            "(must be greater than 1)."
+        )
+    if units_per_base != units_per_base.quantize(CENT):
+        raise InvalidSellingUnit("Use at most two decimal places for the unit count.")
+
+    if default_selling_price is None or default_selling_price < 0:
+        raise InvalidSellingUnit("default_selling_price must not be negative.")
+
+    if credit_markup_kind not in VariantUOM.CreditMarkupKind.values:
+        raise InvalidSellingUnit("Invalid credit_markup_kind.")
+    if credit_markup_value is None or credit_markup_value < 0:
+        raise InvalidSellingUnit("credit_markup_value must not be negative.")
+    if (
+        credit_markup_kind == VariantUOM.CreditMarkupKind.PERCENT
+        and credit_markup_value > Decimal("1000")
+    ):
+        raise InvalidSellingUnit("credit_markup_value cannot be more than 1000 percent.")
+    if credit_markup_kind == VariantUOM.CreditMarkupKind.NONE:
+        credit_markup_value = Decimal("0")
+
+    clean_code = normalise_barcode(barcode_qr)
+    if clean_code:
+        rival = (
+            VariantUOM.objects.filter(barcode_qr__iexact=clean_code)
+            .select_related("variant__product", "uom")
+            .first()
+        )
+        if rival is not None:
+            raise BarcodeTaken(
+                f"Barcode {clean_code} is already assigned to "
+                f"{rival.variant.product.base_name} ({rival.uom.code})."
+            )
+
+    existing_uoms = list(
+        VariantUOM.objects.select_for_update()
+        .filter(variant=variant)
+        .order_by("pk")
+    )
+    uom_ids = [u.pk for u in existing_uoms]
+    has_ledger_history = (
+        SalesItem.objects.filter(variant_uom_id__in=uom_ids).exists()
+        or HeldCartItem.objects.filter(variant_uom_id__in=uom_ids).exists()
+        or RequisitionItem.objects.filter(variant_uom_id__in=uom_ids).exists()
+        or POItem.objects.filter(variant=variant)
+        .exclude(po__supplier__company_name=OPENING_STOCK_SUPPLIER)
+        .exists()
+        or StockAdjustment.objects.filter(variant=variant).exists()
+        or StockTransferLine.objects.filter(variant_uom_id__in=uom_ids).exists()
+    )
+
+    if has_ledger_history:
+        exact_factor = (Decimal("1") / units_per_base).quantize(CENT)
+        if (
+            exact_factor < CENT
+            or (exact_factor * units_per_base).quantize(Decimal("0.0001"))
+            != Decimal("1.0000")
+        ):
+            raise InvalidSellingUnit(
+                f"{variant} already has sales or stock history in "
+                f"{variant.base_uom.code}, so its base unit cannot be converted "
+                f"to {uom.code} (1/{units_per_base} does not divide evenly into "
+                "hundredths). Add a separate variant for this unit instead."
+            )
+        new_unit = VariantUOM.objects.create(
+            variant=variant,
+            uom=uom,
+            conversion_factor=exact_factor,
+            default_selling_price=default_selling_price.quantize(CENT),
+            barcode_qr=clean_code,
+            credit_markup_kind=credit_markup_kind,
+            credit_markup_value=credit_markup_value.quantize(CENT),
+        )
+        SellingUnitPriceChange.record(
+            unit=new_unit,
+            old_price=None,
+            new_price=new_unit.default_selling_price,
+            actor=user,
+            source=SellingUnitPriceChange.Source.CATALOGUE,
+        )
+        return variant, new_unit, False
+
+    # Safe rebase: multiply existing unit factors, thresholds, and opening batches
+    # so the smaller unit becomes the exact factor-1 base unit.
+    old_base_code = variant.base_uom.code
+    for existing in existing_uoms:
+        existing.conversion_factor = (
+            existing.conversion_factor * units_per_base
+        ).quantize(CENT)
+        existing.save(update_fields=["conversion_factor"])
+
+    variant.base_uom = uom
+    variant.min_stock_threshold = (
+        variant.min_stock_threshold * units_per_base
+    ).quantize(CENT)
+    variant.max_stock_level = (
+        variant.max_stock_level * units_per_base
+    ).quantize(CENT)
+    variant.save(update_fields=["base_uom", "min_stock_threshold", "max_stock_level"])
+
+    for batch in InventoryBatch.objects.select_for_update().filter(variant=variant):
+        batch.initial_qty = (batch.initial_qty * units_per_base).quantize(CENT)
+        batch.current_qty = (batch.current_qty * units_per_base).quantize(CENT)
+        batch.unit_cost_landed = (batch.unit_cost_landed / units_per_base).quantize(
+            CENT
+        )
+        batch.batch_selling_price = default_selling_price.quantize(CENT)
+        batch.save(
+            update_fields=[
+                "initial_qty",
+                "current_qty",
+                "unit_cost_landed",
+                "batch_selling_price",
+            ]
+        )
+
+    new_unit = VariantUOM.objects.create(
+        variant=variant,
+        uom=uom,
+        conversion_factor=Decimal("1.00"),
+        default_selling_price=default_selling_price.quantize(CENT),
+        barcode_qr=clean_code,
+        credit_markup_kind=credit_markup_kind,
+        credit_markup_value=credit_markup_value.quantize(CENT),
+    )
+    SellingUnitPriceChange.record(
+        unit=new_unit,
+        old_price=None,
+        new_price=new_unit.default_selling_price,
+        actor=user,
+        source=SellingUnitPriceChange.Source.CATALOGUE,
+    )
+    return variant, new_unit, old_base_code
+
+
 def line_factor(item: POItem) -> Decimal:
     """How many base units ONE selling unit of this PO line is.
 

@@ -251,6 +251,20 @@ class ProductsService {
     return _idOf(response.data);
   }
 
+  /// Adds a smaller selling unit to an existing variant (rebasing cleanly when
+  /// the variant has no sales/stock history yet).
+  Future<void> addSmallerUnit(
+    int variantId,
+    Map<String, dynamic> body,
+  ) async {
+    await _write(
+      () => _client.post<Map<String, dynamic>>(
+        '$variantsPath$variantId/add-smaller-unit/',
+        data: body,
+      ),
+    );
+  }
+
   /// PATCHes one product row.
   ///
   /// [image] replaces the stored photo; null leaves it alone, which is what every
