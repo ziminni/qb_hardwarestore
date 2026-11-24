@@ -15,6 +15,8 @@ import 'package:client/features/pos/widgets/pos_navigation.dart';
 import 'package:client/features/pos/widgets/pos_return_receipt.dart';
 import 'package:client/features/pos/widgets/pos_returns_bar.dart';
 import 'package:client/features/pos/widgets/pos_returns_line_row.dart';
+import 'package:client/features/pos/widgets/pos_returns_log_panel.dart';
+import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/widgets/live_load_error_banner.dart';
 import 'package:client/routes/routes.dart';
 import 'package:client/shared/widgets/app_panel.dart';
@@ -97,8 +99,27 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
     super.initState();
     HardwareKeyboard.instance.addHandler(_onHardwareKey);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _shift.loadCurrent();
+      if (!mounted) return;
+      _shift.loadCurrent();
+      final salesVm = _trySalesVm(context, listen: false);
+      if (salesVm != null &&
+          salesVm.returns.isEmpty &&
+          salesVm.sales.isEmpty &&
+          !salesVm.isLoading) {
+        salesVm.load(silent: true);
+      }
     });
+  }
+
+  InventorySalesViewmodel? _trySalesVm(
+    BuildContext context, {
+    bool listen = true,
+  }) {
+    try {
+      return Provider.of<InventorySalesViewmodel>(context, listen: listen);
+    } on ProviderNotFoundException {
+      return null;
+    }
   }
 
   /// Captures a USB 2D QR scanner burst on the Returns page even if the cursor
@@ -380,6 +401,17 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
                         _refundPanel(context, returns, showConfirm: false),
                       ],
                     ],
+                    if (_trySalesVm(context) case final salesVm?) ...[
+                      const SizedBox(height: AppSpacing.xl),
+                      PosReturnsLogPanel(
+                        returns: salesVm.returns,
+                        exchanges: salesVm.sales
+                            .where((s) => s.source == 'Exchange')
+                            .toList(growable: false),
+                        isLoading: salesVm.isLoading,
+                        onRefresh: () => salesVm.load(silent: true),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -525,6 +557,41 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
               onQuantityChanged: (qty) =>
                   returns.setQuantity(line.variantUomId, qty),
             ),
+          if (returns.hasQuantity) ...[
+            const SizedBox(height: AppSpacing.md),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(AppRadii.medium),
+                border: Border.all(
+                  color: AppColors.primary.withValues(alpha: 0.25),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Total return credit available',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  Text(
+                    formatPeso(returns.returnValue),
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.primary,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
