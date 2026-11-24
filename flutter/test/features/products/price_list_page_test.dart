@@ -203,26 +203,27 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('Price list shows price, cost per unit, margin %, and opens unit history on tap', (
-    tester,
-  ) async {
-    await pumpPage(tester);
+  testWidgets(
+    'Price list shows price, cost per unit, margin %, and opens unit history on tap',
+    (tester) async {
+      await pumpPage(tester);
 
-    expect(find.text('₱15.00'), findsOneWidget);
-    expect(find.text('₱8.00'), findsOneWidget);
-    expect(find.text('46.7%'), findsOneWidget);
+      expect(find.text('₱15.00'), findsOneWidget);
+      expect(find.text('₱8.00'), findsOneWidget);
+      expect(find.text('46.7%'), findsOneWidget);
 
-    expect(find.text('₱100.00'), findsOneWidget);
-    expect(find.text('₱80.00'), findsOneWidget);
-    expect(find.text('20.0%'), findsOneWidget);
+      expect(find.text('₱100.00'), findsOneWidget);
+      expect(find.text('₱80.00'), findsOneWidget);
+      expect(find.text('20.0%'), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('price-list-row-1002')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('price-list-row-1002')));
+      await tester.pumpAndSettle();
 
-    expect(loadedHistoryUnitIds, contains(1002));
-    expect(find.text('Price History'), findsOneWidget);
-    expect(find.text('₱90.00 → ₱100.00'), findsOneWidget);
-  });
+      expect(loadedHistoryUnitIds, contains(1002));
+      expect(find.text('Price History'), findsOneWidget);
+      expect(find.text('₱90.00 → ₱100.00'), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'A price list row opens ONE product timeline holding every selling unit',
@@ -246,29 +247,30 @@ void main() {
     },
   );
 
-  testWidgets('Recent price changes tab shows store-wide changes, filters by search, and opens history', (
-    tester,
-  ) async {
-    await pumpPage(tester, salesShell: true);
+  testWidgets(
+    'Recent price changes tab shows store-wide changes, filters by search, and opens history',
+    (tester) async {
+      await pumpPage(tester, salesShell: true);
 
-    await tester.tap(find.byKey(const ValueKey('recent-price-changes-tab')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('recent-price-changes-tab')));
+      await tester.pumpAndSettle();
 
-    expect(find.text('Latex Paint · White 1L (BOX)'), findsOneWidget);
-    expect(find.text('₱90.00 → ₱100.00'), findsOneWidget);
-    expect(find.text('+₱10.00 (+11.1%)'), findsOneWidget);
+      expect(find.text('Latex Paint · White 1L (BOX)'), findsOneWidget);
+      expect(find.text('₱90.00 → ₱100.00'), findsOneWidget);
+      expect(find.text('+₱10.00 (+11.1%)'), findsOneWidget);
 
-    await tester.enterText(
-      find.byKey(const ValueKey('recent-changes-search')),
-      'QB001002-2',
-    );
-    await tester.tap(find.byKey(const ValueKey('recent-changes-apply')));
-    await tester.pumpAndSettle();
-    expect(repository.lastQuery, 'QB001002-2');
+      await tester.enterText(
+        find.byKey(const ValueKey('recent-changes-search')),
+        'QB001002-2',
+      );
+      await tester.tap(find.byKey(const ValueKey('recent-changes-apply')));
+      await tester.pumpAndSettle();
+      expect(repository.lastQuery, 'QB001002-2');
 
-    await tester.tap(find.byKey(const ValueKey('recent-change-row-1')));
-    await tester.pumpAndSettle();
-    expect(loadedHistoryUnitIds, [1002]);
-    expect(find.text('Price History'), findsOneWidget);
-  });
+      await tester.tap(find.byKey(const ValueKey('recent-change-row-1')));
+      await tester.pumpAndSettle();
+      expect(loadedHistoryUnitIds, [1002]);
+      expect(find.text('Price History'), findsOneWidget);
+    },
+  );
 }

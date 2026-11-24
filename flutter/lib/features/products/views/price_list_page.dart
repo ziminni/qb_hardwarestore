@@ -38,7 +38,7 @@ class InventoryPriceListPage extends StatelessWidget {
 
   final ProductsRepository? productsRepository;
   final Future<List<PriceHistoryEntry>> Function(int variantUomId)?
-      priceHistoryLoader;
+  priceHistoryLoader;
 
   @override
   Widget build(BuildContext context) => _PriceListPageBody(
@@ -58,7 +58,7 @@ class SalesPriceListPage extends StatelessWidget {
 
   final ProductsRepository? productsRepository;
   final Future<List<PriceHistoryEntry>> Function(int variantUomId)?
-      priceHistoryLoader;
+  priceHistoryLoader;
 
   @override
   Widget build(BuildContext context) => _PriceListPageBody(
@@ -104,7 +104,7 @@ class _PriceListPageBody extends StatefulWidget {
   final PriceListShell shell;
   final ProductsRepository? productsRepository;
   final Future<List<PriceHistoryEntry>> Function(int variantUomId)?
-      priceHistoryLoader;
+  priceHistoryLoader;
 
   @override
   State<_PriceListPageBody> createState() => _PriceListPageBodyState();
@@ -588,7 +588,11 @@ class _PriceListPageBodyState extends State<_PriceListPageBody> {
           SizedBox(width: AppSpacing.sm),
           SizedBox(
             width: 110,
-            child: Text('Cost / unit', textAlign: TextAlign.right, style: style),
+            child: Text(
+              'Cost / unit',
+              textAlign: TextAlign.right,
+              style: style,
+            ),
           ),
           SizedBox(width: AppSpacing.sm),
           SizedBox(
@@ -698,7 +702,9 @@ class _PriceListPageBodyState extends State<_PriceListPageBody> {
                   fontWeight: FontWeight.w600,
                   color: margin == null
                       ? AppColors.textSecondary
-                      : (margin < 0 ? AppColors.errorText : AppColors.successText),
+                      : (margin < 0
+                            ? AppColors.errorText
+                            : AppColors.successText),
                   fontFeatures: const [FontFeature.tabularFigures()],
                 ),
               ),
@@ -818,7 +824,9 @@ class _PriceListPageBodyState extends State<_PriceListPageBody> {
                 onPressed: () => _pickDate(isSince: true),
                 icon: const Icon(Icons.date_range_outlined, size: 18),
                 label: Text(
-                  _sinceDate == null ? 'From date' : 'From: ${_isoDate(_sinceDate!)}',
+                  _sinceDate == null
+                      ? 'From date'
+                      : 'From: ${_isoDate(_sinceDate!)}',
                 ),
               ),
               OutlinedButton.icon(
@@ -826,7 +834,9 @@ class _PriceListPageBodyState extends State<_PriceListPageBody> {
                 onPressed: () => _pickDate(isSince: false),
                 icon: const Icon(Icons.event_outlined, size: 18),
                 label: Text(
-                  _untilDate == null ? 'To date' : 'To: ${_isoDate(_untilDate!)}',
+                  _untilDate == null
+                      ? 'To date'
+                      : 'To: ${_isoDate(_untilDate!)}',
                 ),
               ),
               FilledButton.tonal(

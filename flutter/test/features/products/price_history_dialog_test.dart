@@ -81,9 +81,7 @@ void main() {
     ],
   };
 
-  testWidgets('empty state when no unit has a recorded change', (
-    tester,
-  ) async {
+  testWidgets('empty state when no unit has a recorded change', (tester) async {
     await pumpHistory(tester, (unitId) async => const <PriceHistoryEntry>[]);
 
     expect(find.byType(ListTile), findsNothing);
@@ -169,9 +167,7 @@ void main() {
     await tester.tap(find.text('open details'));
     await tester.pumpAndSettle();
 
-    await tester.tap(
-      find.byKey(const ValueKey('product-price-history-7')),
-    );
+    await tester.tap(find.byKey(const ValueKey('product-price-history-7')));
     await tester.pumpAndSettle();
 
     expect(find.text('Price History'), findsOneWidget);
@@ -192,7 +188,10 @@ void main() {
     // A first price has no old side, and still gets the peso format.
     expect(find.text('Initial price: ${formatPeso(15)}'), findsOneWidget);
     expect(find.text('${formatPeso(90)} → ${formatPeso(100)}'), findsOneWidget);
-    expect(find.text('${formatPeso(100)} → ${formatPeso(110)}'), findsOneWidget);
+    expect(
+      find.text('${formatPeso(100)} → ${formatPeso(110)}'),
+      findsOneWidget,
+    );
 
     expect(
       find.textContaining(
