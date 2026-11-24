@@ -210,7 +210,7 @@ class _DeliveriesBodyState extends State<_DeliveriesBody> {
         title: 'Deliveries',
         subtitle:
             'Store delivery schedule. Mark deliveries out for delivery, delivered, or failed.',
-        selectedNavigationIndex: 10,
+        selectedNavigationIndex: 9,
         navigationItems: posNavigationItems,
         scrollable: false,
         onNavigationSelected: (index) => navigatePos(context, index),

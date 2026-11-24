@@ -220,7 +220,7 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
             subtitle:
                 'Swap returned items for replacements. Cash refunds only when '
                 'no replacement is available.',
-            selectedNavigationIndex: 7,
+            selectedNavigationIndex: 6,
             navigationItems: posNavigationItems,
             onNavigationSelected: (i) => navigatePos(context, i),
             // The page keeps the refund bar on screen by scrolling its own

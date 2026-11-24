@@ -101,10 +101,10 @@ void main() {
     );
     expect(
       tillOrder.length,
-      11,
+      10,
       reason:
-          'the till has 11 destinations: the OR-tagged tab was INSERTED at 2, '
-          'which moved every later tab (Release 3 … Deliveries 10) one down.',
+          'the till has 10 destinations now that OR-tagged was merged into '
+          'Transaction history (Release 2 … Deliveries 9).',
     );
     expect(
       adminOrder.length,
@@ -169,25 +169,18 @@ void main() {
           'Sales and Payables',
     );
     expect(tillOrder[0], AppRoutes.posDashboard);
+    expect(tillOrder[1], AppRoutes.posHistory);
+    expect(tillOrder[2], AppRoutes.posRelease);
+    expect(tillOrder[4], AppRoutes.posHeld);
+    expect(tillOrder[5], AppRoutes.posShifts);
     expect(
-      tillOrder[2],
-      AppRoutes.posOrTagged,
-      reason: 'the owner asked for OR-tagged beside Transaction history',
-    );
-    expect(tillOrder[3], AppRoutes.posRelease);
-    expect(tillOrder[5], AppRoutes.posHeld);
-    expect(tillOrder[6], AppRoutes.posShifts);
-    expect(
-      tillOrder[7],
+      tillOrder[6],
       AppRoutes.posReturns,
-      reason:
-          'Returns was appended at 6 (decision 05) and moved to 7 when the '
-          'OR-tagged tab took 2. Renumbering a tab without its page sends a '
-          'cashier to the wrong screen — the regression this file exists for',
+      reason: 'Returns sits at 6 now that OR-tagged was merged into Transaction history',
     );
-    expect(tillOrder[8], AppRoutes.posSettings);
-    expect(tillOrder[9], AppRoutes.posCustomers);
-    expect(tillOrder[10], AppRoutes.posDeliveries);
+    expect(tillOrder[7], AppRoutes.posSettings);
+    expect(tillOrder[8], AppRoutes.posCustomers);
+    expect(tillOrder[9], AppRoutes.posDeliveries);
   });
 
   group('every page highlights its own entry in its own sidebar', () {

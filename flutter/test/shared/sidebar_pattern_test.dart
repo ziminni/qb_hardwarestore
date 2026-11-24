@@ -239,9 +239,7 @@ void main() {
                   child: const Text('BODY'),
                 ),
                 'Customers',
-                // 8, not 7: the OR-tagged tab was inserted at 2, so every later
-                // till row moved one down with it.
-                8,
+                7,
               ),
             ];
 

@@ -36,7 +36,7 @@ class _PosReceivablesView extends StatelessWidget {
       title: 'Record Payment',
       subtitle:
           'Track customer utang and project receivables, record payments, and view payment history.',
-      selectedNavigationIndex: 4,
+      selectedNavigationIndex: 3,
       navigationItems: posNavigationItems,
       onNavigationSelected: (i) => navigatePos(context, i),
       // The list owns the scrolling, so it builds only the rows on screen.

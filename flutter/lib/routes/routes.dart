@@ -20,7 +20,6 @@ import 'package:client/features/pos/views/pos_returns_page.dart';
 import 'package:client/features/pos/views/pos_settings_page.dart';
 import 'package:client/features/pos/views/pos_shift_page.dart';
 import 'package:client/features/pos/views/pos_held_transactions_page.dart';
-import 'package:client/features/pos/views/pos_or_tagged_page.dart';
 import 'package:client/features/pos/views/pos_transaction_history_page.dart';
 import 'package:client/features/pos/views/pos_transaction_page.dart';
 import 'package:client/features/pos/views/material_release_page.dart';
@@ -779,12 +778,6 @@ class AppRoutes {
           name: 'pos_history',
           pageBuilder: (context, state) =>
               _transitionPage(state, const PosTransactionHistoryPage()),
-        ),
-        GoRoute(
-          path: posOrTagged,
-          name: 'pos_or_tagged',
-          pageBuilder: (context, state) =>
-              _transitionPage(state, const PosOrTaggedPage()),
         ),
         GoRoute(
           path: posRelease,

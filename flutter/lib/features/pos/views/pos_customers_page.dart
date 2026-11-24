@@ -212,7 +212,7 @@ class _PosCustomersPageState extends State<PosCustomersPage> {
             title: 'Customers',
             subtitle:
                 'Regular customers, standing discounts, utang & delivery presets',
-            selectedNavigationIndex: 9,
+            selectedNavigationIndex: 8,
             navigationItems: posNavigationItems,
             onNavigationSelected: (i) => navigatePos(context, i),
             actions: [

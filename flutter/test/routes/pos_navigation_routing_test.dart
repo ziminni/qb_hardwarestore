@@ -9,7 +9,6 @@ void main() {
     for (final location in [
       AppRoutes.posDashboard,
       AppRoutes.posHistory,
-      AppRoutes.posOrTagged,
       AppRoutes.posRelease,
       AppRoutes.posReceivables,
     ]) {

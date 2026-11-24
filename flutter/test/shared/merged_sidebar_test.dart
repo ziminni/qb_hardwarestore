@@ -195,8 +195,8 @@ void main() {
 
       expect(
         rows.length,
-        25,
-        reason: '11 Till rows + 14 Sales rows - 1 shared + landing',
+        24,
+        reason: '10 Till rows + 14 Sales rows - 1 shared + landing',
       );
       expect(
         [for (final section in MergedSidebar.sectionsFor(rows)) section.label],
@@ -234,19 +234,19 @@ void main() {
     test('Admin + Cashier: the till adds no shared page to the admin menu', () {
       final rows = MergedSidebar.rows(const ['admin', 'pos']);
 
-      expect(rows.length, 18, reason: '11 Till + 6 Admin rows + landing');
+      expect(rows.length, 17, reason: '10 Till + 6 Admin rows + landing');
       expect(
         [for (final section in MergedSidebar.sectionsFor(rows)) section.label],
         ['', 'Till', 'Admin'],
       );
     });
 
-    test('all five areas: 51 rows become 47, every identity once', () {
+    test('all five areas: 50 rows become 46, every identity once', () {
       final rows = MergedSidebar.rows(AppAreas.codes);
 
-      // 51 area rows - 5 duplicates + 1 landing = 47.
-      expect(rows.length, 47);
-      expect(rows.map((row) => row.id).toSet().length, 47);
+      // 50 area rows - 5 duplicates + 1 landing = 46.
+      expect(rows.length, 46);
+      expect(rows.map((row) => row.id).toSet().length, 46);
       for (final sharedKey in AppDestinations.sharedIds) {
         expect(
           rows.where((row) => row.sharedKey == sharedKey).length,
@@ -368,9 +368,7 @@ void main() {
       await _pump(
         tester,
         await _auth([_sales, _pos]),
-        // 5, not 4: the OR-tagged tab was inserted at 2, so Held transactions
-        // sits one index lower than it used to.
-        _cashierShell(selected: 5),
+        _cashierShell(selected: 4),
       );
 
       expect(_tile(tester, 'Held transactions').selected, isTrue);

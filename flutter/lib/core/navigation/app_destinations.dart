@@ -86,16 +86,6 @@ class AppDestinations {
       icon: Icons.receipt_long_outlined,
       route: AppRoutes.posHistory,
     ),
-    // The one row NOT appended: the cashier tags slips right after reviewing
-    // them, so the owner asked for it beside Transaction history. Every till row
-    // below it moved one index down with it.
-    AppDestination(
-      id: 'pos.or-tagged',
-      area: AppAreas.pos,
-      label: 'OR-tagged',
-      icon: Icons.receipt_outlined,
-      route: AppRoutes.posOrTagged,
-    ),
     AppDestination(
       id: 'pos.release',
       area: AppAreas.pos,

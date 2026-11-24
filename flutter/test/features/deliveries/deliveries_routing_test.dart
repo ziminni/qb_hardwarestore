@@ -139,20 +139,18 @@ void main() {
       expect(source, isNot(contains('AdminSkeletonLayout')));
     });
 
-    test('the till sidebar keeps Customers and Deliveries, now one down', () {
-      // The OR-tagged tab was inserted at 2, so every row after it moved one
-      // down: Customers 8 -> 9, Deliveries 9 -> 10.
+    test('the till sidebar keeps Customers and Deliveries', () {
       final order = _areaOrder(AppAreas.pos);
-      expect(order, hasLength(11));
-      expect(order[9], 'posCustomers');
-      expect(order[10], 'posDeliveries');
+      expect(order, hasLength(10));
+      expect(order[8], 'posCustomers');
+      expect(order[9], 'posDeliveries');
     });
 
     test('the till page draws the till shell, not a manager one', () {
       final source = _read(
         'lib/features/deliveries/views/deliveries_page.dart',
       );
-      expect(source, contains('selectedNavigationIndex: 10'));
+      expect(source, contains('selectedNavigationIndex: 9'));
       expect(source, contains('posNavigationItems'));
       expect(source, contains('class PosDeliveriesPage'));
     });

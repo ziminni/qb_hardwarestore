@@ -54,7 +54,6 @@ const _tillMenu = <_Row>[
     Icons.receipt_long_outlined,
     AppRoutes.posHistory,
   ),
-  _Row('OR-tagged', Icons.receipt_outlined, AppRoutes.posOrTagged),
   _Row(
     'Release materials',
     Icons.inventory_2_outlined,
@@ -295,17 +294,17 @@ void main() {
     _expectMenu(AppAreas.bodega, _bodegaMenu);
   });
 
-  test('51 menu rows are 46 pages: only the locked set is shared', () {
+  test('50 menu rows are 45 pages: only the locked set is shared', () {
     // Without the counts, an empty or duplicated registry would make every
     // per-area check above pass against nothing.
     expect(
       AppDestinations.all,
-      hasLength(51),
-      reason: '5 menus: Till 11, Sales 14, Stock 16, Admin 6, Bodega 4',
+      hasLength(50),
+      reason: '5 menus: Till 10, Sales 14, Stock 16, Admin 6, Bodega 4',
     );
     expect(
       AppDestinations.all.map((row) => row.id).toSet(),
-      hasLength(46),
+      hasLength(45),
       reason:
           'Payables, Deliveries, Reports, Project requests, Staff, Transfers '
           'and Price list appear in more than one menu; every other row is one page',
@@ -355,10 +354,8 @@ void main() {
     const expected = {
       AppAreas.pos: [
         ('Selling', 0),
-        // The OR-tagged row was inserted at 2, so both later headings moved
-        // one down with their rows.
-        ('Customers and projects', 3),
-        ('Till', 5),
+        ('Customers and projects', 2),
+        ('Till', 4),
       ],
       AppAreas.sales: [
         ('Selling', 0),
