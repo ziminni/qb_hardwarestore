@@ -729,6 +729,32 @@ class ShiftCashMovement(models.Model):
         )
 
 
+class ShiftXReading(models.Model):
+    """Persisted mid-shift X-reading snapshot captured on an open shift."""
+
+    shift = models.ForeignKey(
+        Shift, on_delete=models.CASCADE, related_name="x_readings"
+    )
+    taken_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="taken_x_readings",
+    )
+    taken_at = models.DateTimeField(auto_now_add=True)
+    reading_number = models.CharField(max_length=40, db_index=True)
+    snapshot = models.JSONField(default=dict)
+    notes = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        db_table = "pos_shift_x_reading"
+        ordering = ["-taken_at", "-id"]
+
+    def __str__(self):
+        return f"{self.reading_number} — Shift {self.shift_id}"
+
+
 class DocumentCounter(models.Model):
     """The sequence behind `TRX-YYYYMMDD-NNNN` and `OR-YYYYMMDD-NNNN`, one row per day.
 

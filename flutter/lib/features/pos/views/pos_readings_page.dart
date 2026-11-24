@@ -104,6 +104,36 @@ class PosReadingEntry {
     );
   }
 
+  factory PosReadingEntry.fromXReading(ShiftXReading reading) {
+    final z = reading.snapshot;
+    final localTakenAt = reading.takenAt.toLocal();
+    return PosReadingEntry(
+      code: reading.readingNumber,
+      isXReading: true,
+      shiftId: reading.shiftId,
+      cashierName: reading.cashierName,
+      timestamp: localTakenAt,
+      openedAt: localTakenAt,
+      closedAt: null,
+      openingFloat: z.openingFloat,
+      transactionCount: z.transactionCount,
+      grossSales: z.grossSales,
+      discounts: z.discounts,
+      netSales: z.grossSales,
+      cashSales: z.cashSales,
+      gcashSales: z.gcashSales,
+      cardSales: z.cardSales,
+      bankSales: z.bankSales,
+      chequeSales: z.chequeSales,
+      cashIn: z.cashIn,
+      cashOut: z.cashOut,
+      expectedCash: z.expectedDrawer,
+      countedCash: null,
+      variance: null,
+      denominationCounts: z.denominationCounts,
+    );
+  }
+
   factory PosReadingEntry.xSnapshot(
     Shift shift, {
     required int sequence,
@@ -122,13 +152,13 @@ class PosReadingEntry {
       openingFloat: shift.openingFloat,
       transactionCount: z?.transactionCount ?? 0,
       grossSales: gross,
-      discounts: 0,
+      discounts: z?.discounts ?? 0,
       netSales: gross,
       cashSales: z?.cashSales ?? 0,
       gcashSales: z?.gcashSales ?? 0,
       cardSales: z?.cardSales ?? 0,
-      bankSales: 0,
-      chequeSales: 0,
+      bankSales: z?.bankSales ?? 0,
+      chequeSales: z?.chequeSales ?? 0,
       cashIn: z?.cashIn ?? 0,
       cashOut: z?.cashOut ?? 0,
       expectedCash: z?.expectedDrawer ?? shift.openingFloat,
@@ -173,16 +203,21 @@ class _PosReadingsPageState extends State<PosReadingsPage> {
   _ReadingsTab _activeTab = _ReadingsTab.all;
   _ReadingStatusFilter _statusFilter = _ReadingStatusFilter.all;
   String _searchQuery = '';
-  final List<PosReadingEntry> _sessionXReadings = [];
   DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
   bool _monthPinnedByUser = false;
+
+  Future<void> _reloadAll() async {
+    await _viewmodel.load();
+    if (!mounted) return;
+    await _viewmodel.loadXReadings();
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      await _viewmodel.load();
+      await _reloadAll();
       if (!mounted || _monthPinnedByUser) return;
       final latest = _viewmodel.history.firstOrNull;
       if (latest != null) {
@@ -199,7 +234,8 @@ class _PosReadingsPageState extends State<PosReadingsPage> {
     super.dispose();
   }
 
-  void _generateInstantXReading() {
+  Future<void> _generateInstantXReading() async {
+    if (_viewmodel.isTakingXReading) return;
     final current = _viewmodel.currentShift;
     if (current == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -211,28 +247,32 @@ class _PosReadingsPageState extends State<PosReadingsPage> {
       );
       return;
     }
-    final nextSeq = _sessionXReadings.length + 1;
-    final entry = PosReadingEntry.xSnapshot(
-      current,
-      sequence: nextSeq,
-      takenAt: DateTime.now(),
-    );
-    setState(() {
-      _sessionXReadings.insert(0, entry);
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Instant X-Reading ${entry.code} captured for Shift #${current.id}.',
+    final created = await _viewmodel.takeXReading();
+    if (!mounted) return;
+    if (created != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'X-Reading ${created.readingNumber} captured for Shift #${created.shiftId}.',
+          ),
         ),
-      ),
-    );
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _viewmodel.actionError ??
+                'Could not capture X-reading. Please try again.',
+          ),
+        ),
+      );
+    }
   }
 
   void _openActiveThermalSlip() {
     PosReadingEntry? target;
-    if (_sessionXReadings.isNotEmpty) {
-      target = _sessionXReadings.first;
+    if (_viewmodel.xReadings.isNotEmpty) {
+      target = PosReadingEntry.fromXReading(_viewmodel.xReadings.first);
     } else if (_viewmodel.currentShift != null) {
       target = PosReadingEntry.xSnapshot(
         _viewmodel.currentShift!,
@@ -280,17 +320,22 @@ class _PosReadingsPageState extends State<PosReadingsPage> {
               final closedShifts = viewmodel.history
                   .where((shift) => !shift.isOpen)
                   .toList();
+              final xEntries = [
+                for (final reading in viewmodel.xReadings)
+                  PosReadingEntry.fromXReading(reading),
+              ];
               final zEntries = [
                 for (final shift in closedShifts)
                   PosReadingEntry.fromClosedShift(shift),
               ];
-              final allEntries = <PosReadingEntry>[
-                ..._sessionXReadings,
-                ...zEntries,
-              ];
+              final allEntries = <PosReadingEntry>[...xEntries, ...zEntries];
 
               final nothingLoaded =
-                  viewmodel.currentShift == null && viewmodel.history.isEmpty;
+                  viewmodel.currentShift == null &&
+                  viewmodel.history.isEmpty &&
+                  viewmodel.xReadings.isEmpty;
+              final bannerError =
+                  viewmodel.loadError ?? viewmodel.xReadingsError;
 
               return DashboardShell(
                 title: 'Daily X/Z-Reading & Sales Summary',
@@ -302,10 +347,10 @@ class _PosReadingsPageState extends State<PosReadingsPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (viewmodel.loadError != null) ...[
+                    if (bannerError != null) ...[
                       ErrorBanner(
-                        message: viewmodel.loadError!,
-                        onRetry: viewmodel.load,
+                        message: bannerError,
+                        onRetry: _reloadAll,
                       ),
                       const SizedBox(height: AppSpacing.md),
                     ],
@@ -314,7 +359,7 @@ class _PosReadingsPageState extends State<PosReadingsPage> {
                     _buildReadingGuideStrip(),
                     const SizedBox(height: AppSpacing.md),
                     _buildSubTabBar(
-                      xCount: _sessionXReadings.length,
+                      xCount: xEntries.length,
                       zCount: zEntries.length,
                       hasOpenShift: viewmodel.currentShift != null,
                     ),
@@ -329,6 +374,8 @@ class _PosReadingsPageState extends State<PosReadingsPage> {
                         _ReadingsTab.all => _buildAllReadingsTab(allEntries),
                         _ReadingsTab.xReadings => _buildTodayXReadingsTab(
                           viewmodel.currentShift,
+                          xEntries,
+                          isTakingXReading: viewmodel.isTakingXReading,
                         ),
                         _ReadingsTab.zReadings => _buildDailyZReadingsTab(
                           zEntries,
@@ -384,14 +431,20 @@ class _PosReadingsPageState extends State<PosReadingsPage> {
             children: [
               FilledButton.icon(
                 key: const ValueKey('readings-generate-x'),
-                onPressed: _generateInstantXReading,
+                onPressed: viewmodel.isTakingXReading
+                    ? null
+                    : _generateInstantXReading,
                 icon: const Icon(Icons.document_scanner_outlined, size: 18),
-                label: const Row(
+                label: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('Generate Instant X-Reading'),
-                    SizedBox(width: 6),
-                    _ShortcutTag(label: 'F7', onPrimary: true),
+                    Text(
+                      viewmodel.isTakingXReading
+                          ? 'Capturing X-Reading…'
+                          : 'Generate Instant X-Reading',
+                    ),
+                    const SizedBox(width: 6),
+                    const _ShortcutTag(label: 'F7', onPrimary: true),
                   ],
                 ),
               ),
@@ -825,7 +878,11 @@ class _PosReadingsPageState extends State<PosReadingsPage> {
 
   // ------------------------------------------------------------------ Tab 2
 
-  Widget _buildTodayXReadingsTab(Shift? current) {
+  Widget _buildTodayXReadingsTab(
+    Shift? current,
+    List<PosReadingEntry> xEntries, {
+    required bool isTakingXReading,
+  }) {
     final liveEntry = current == null
         ? null
         : PosReadingEntry.xSnapshot(
@@ -894,9 +951,15 @@ class _PosReadingsPageState extends State<PosReadingsPage> {
                       children: [
                         FilledButton.icon(
                           key: const ValueKey('x-tab-take-snapshot'),
-                          onPressed: _generateInstantXReading,
+                          onPressed: isTakingXReading
+                              ? null
+                              : _generateInstantXReading,
                           icon: const Icon(Icons.add_chart_outlined, size: 18),
-                          label: const Text('Take Mid-Shift X-Reading'),
+                          label: Text(
+                            isTakingXReading
+                                ? 'Capturing…'
+                                : 'Take Mid-Shift X-Reading',
+                          ),
                         ),
                         OutlinedButton.icon(
                           key: const ValueKey('x-tab-view-tape'),
@@ -934,12 +997,12 @@ class _PosReadingsPageState extends State<PosReadingsPage> {
         const SizedBox(height: AppSpacing.lg),
         DataPanel<PosReadingEntry>(
           title: "Today's Captured X-Readings",
-          count: _sessionXReadings.length,
-          rows: _sessionXReadings,
+          count: xEntries.length,
+          rows: xEntries,
           showPageSizePicker: true,
           columns: _readingColumns(actionLabel: 'Thermal Slip'),
           emptyMessage:
-              'No mid-shift X-reading snapshots captured in this session yet. Press Generate Instant X-Reading (F7) to capture one.',
+              'No mid-shift X-reading snapshots recorded yet. Press Generate Instant X-Reading (F7) to capture one.',
         ),
       ],
     );

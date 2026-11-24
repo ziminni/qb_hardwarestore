@@ -218,6 +218,65 @@ class ShiftService {
     }
   }
 
+  /// Captures and persists a mid-shift X-reading snapshot on an open shift.
+  Future<ShiftXReading> takeXReading(int shiftId, {String? notes}) async {
+    try {
+      final trimmedNotes = notes?.trim() ?? '';
+      final response = await _client.post<Map<String, dynamic>>(
+        '$shiftsPath$shiftId/x-reading/',
+        data: {if (trimmedNotes.isNotEmpty) 'notes': trimmedNotes},
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const ShiftServiceException(
+          'The server did not return the X-reading.',
+        );
+      }
+      return ShiftXReading.fromJson(data);
+    } on DioException catch (error) {
+      throw ShiftServiceException(_message(error));
+    } on FormatException {
+      throw const ShiftServiceException(
+        'The server returned an X-reading this app cannot read.',
+      );
+    }
+  }
+
+  /// Lists persisted mid-shift X-readings (scoped to caller's shifts for
+  /// cashiers; all shifts for managers/admins).
+  Future<List<ShiftXReading>> listXReadings({
+    int? shiftId,
+    String? date,
+  }) async {
+    try {
+      final all = <ShiftXReading>[];
+      var page = 1;
+      while (true) {
+        final result = await _client.getList<ShiftXReading>(
+          '${shiftsPath}x-readings/',
+          ShiftXReading.fromJson,
+          queryParameters: {
+            'page': page,
+            'shift_id': ?shiftId,
+            if (date != null && date.isNotEmpty) 'date': date,
+          },
+        );
+        all.addAll(result.items);
+        if (!result.hasMore) return all;
+        page++;
+        if (page > _maxPages) {
+          throw const FormatException('The X-reading list did not end.');
+        }
+      }
+    } on DioException catch (error) {
+      throw ShiftServiceException(_message(error));
+    } on FormatException {
+      throw const ShiftServiceException(
+        'The X-readings could not be read. Try again.',
+      );
+    }
+  }
+
   /// Maps a transport failure onto something a cashier can act on. The server's
   /// own `detail` wins when present: `SHIFT_ALREADY_OPEN` says what to do next,
   /// where a generic message would not.

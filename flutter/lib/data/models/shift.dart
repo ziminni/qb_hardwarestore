@@ -182,6 +182,10 @@ class ZReading {
     required this.gcashSales,
     required this.expectedDrawer,
     required this.variance,
+    this.openingFloat = 0,
+    this.discounts = 0,
+    this.bankSales = 0,
+    this.chequeSales = 0,
     this.cashIn = 0,
     this.cashOut = 0,
     this.heldCartCount = 0,
@@ -228,6 +232,10 @@ class ZReading {
       variance: json['variance'] == null
           ? null
           : decimalField(json, 'variance'),
+      openingFloat: _optionalDecimalField(json, 'opening_float'),
+      discounts: _optionalDecimalField(json, 'discounts'),
+      bankSales: _optionalDecimalField(json, 'bank_sales'),
+      chequeSales: _optionalDecimalField(json, 'cheque_sales'),
       cashIn: _optionalDecimalField(json, 'cash_in'),
       cashOut: _optionalDecimalField(json, 'cash_out'),
       // ADVISORY (Phase 3 Task 3): the count of carts still parked by this
@@ -251,6 +259,10 @@ class ZReading {
   final double cardSales;
   final double gcashSales;
   final double expectedDrawer;
+  final double openingFloat;
+  final double discounts;
+  final double bankSales;
+  final double chequeSales;
   final double cashIn;
   final double cashOut;
   final Map<String, int> denominationCounts;
@@ -368,4 +380,58 @@ class Shift {
   final double? cashLeftInDrawer;
 
   bool get isOpen => status == openStatus;
+}
+
+/// A persisted mid-shift X-reading snapshot captured on an open shift.
+class ShiftXReading {
+  const ShiftXReading({
+    required this.id,
+    required this.shiftId,
+    required this.cashierName,
+    required this.takenAt,
+    required this.readingNumber,
+    required this.snapshot,
+    this.takenByName,
+    this.notes = '',
+  });
+
+  factory ShiftXReading.fromJson(Map<String, dynamic> json) {
+    final rawSnapshot = json['snapshot'];
+    final rawShiftId = json['shift_id'] ?? json['shift'];
+    return ShiftXReading(
+      id: intField(json, 'id'),
+      shiftId: rawShiftId is int
+          ? rawShiftId
+          : intField({'shift_id': rawShiftId}, 'shift_id'),
+      cashierName: json['cashier_name'] is String
+          ? json['cashier_name'] as String
+          : '',
+      takenByName: json['taken_by_name'] is String
+          ? json['taken_by_name'] as String
+          : null,
+      takenAt: DateTime.parse(stringField(json, 'taken_at')),
+      readingNumber: stringField(json, 'reading_number'),
+      snapshot: rawSnapshot is Map<String, dynamic>
+          ? ZReading.fromJson(rawSnapshot)
+          : const ZReading(
+              transactionCount: 0,
+              grossSales: 0,
+              cashSales: 0,
+              cardSales: 0,
+              gcashSales: 0,
+              expectedDrawer: 0,
+              variance: null,
+            ),
+      notes: json['notes'] is String ? json['notes'] as String : '',
+    );
+  }
+
+  final int id;
+  final int shiftId;
+  final String cashierName;
+  final String? takenByName;
+  final DateTime takenAt;
+  final String readingNumber;
+  final ZReading snapshot;
+  final String notes;
 }

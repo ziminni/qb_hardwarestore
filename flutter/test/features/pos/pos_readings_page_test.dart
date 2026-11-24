@@ -12,16 +12,60 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _StubShiftService extends ShiftService {
-  _StubShiftService({this.current, this.history = const []});
+  _StubShiftService({
+    this.current,
+    this.history = const [],
+    List<ShiftXReading> xReadings = const [],
+  }) : _xReadings = List<ShiftXReading>.from(xReadings);
 
   final Shift? current;
   final List<Shift> history;
+  final List<ShiftXReading> _xReadings;
+  int listXReadingCalls = 0;
+  int takeXReadingCalls = 0;
 
   @override
   Future<Shift?> fetchCurrent() async => current;
 
   @override
   Future<List<Shift>> fetchAll() async => history;
+
+  @override
+  Future<List<ShiftXReading>> listXReadings({
+    int? shiftId,
+    String? date,
+  }) async {
+    listXReadingCalls++;
+    return List<ShiftXReading>.from(_xReadings);
+  }
+
+  @override
+  Future<ShiftXReading> takeXReading(int shiftId, {String? notes}) async {
+    takeXReadingCalls++;
+    final seq = (_xReadings.length + 1).toString().padLeft(3, '0');
+    final shift = current ?? _openShift(id: shiftId);
+    final reading = ShiftXReading(
+      id: 900 + _xReadings.length + 1,
+      shiftId: shiftId,
+      cashierName: shift.cashierName,
+      takenByName: shift.cashierName,
+      takenAt: DateTime(2026, 11, 25, 13, 30),
+      readingNumber: 'X-20261125-$seq',
+      snapshot: shift.zReading ??
+          const ZReading(
+            transactionCount: 0,
+            grossSales: 0,
+            cashSales: 0,
+            cardSales: 0,
+            gcashSales: 0,
+            expectedDrawer: 2000,
+            variance: null,
+          ),
+      notes: notes ?? '',
+    );
+    _xReadings.insert(0, reading);
+    return reading;
+  }
 }
 
 Shift _openShift({int id = 42, String cashier = 'Ana Cruz'}) => Shift(
@@ -150,24 +194,57 @@ void main() {
   });
 
   testWidgets(
-    'taking an instant X-reading adds snapshot to Today\'s X-Readings and All Readings',
+    'loads persisted X-readings on startup and taking a new X-reading persists via service',
     (tester) async {
-      final vm = ShiftViewmodel(
-        service: _StubShiftService(
-          current: _openShift(),
-          history: [_openShift()],
+      final persisted = ShiftXReading(
+        id: 10,
+        shiftId: 42,
+        cashierName: 'Ana Cruz',
+        takenByName: 'Ana Cruz',
+        takenAt: DateTime(2026, 11, 25, 10, 15),
+        readingNumber: 'X-20261125-001',
+        snapshot: const ZReading(
+          transactionCount: 6,
+          grossSales: 4200,
+          cashSales: 3000,
+          cardSales: 500,
+          gcashSales: 700,
+          expectedDrawer: 5000,
+          variance: null,
+          openingFloat: 2000,
         ),
       );
+      final stub = _StubShiftService(
+        current: _openShift(),
+        history: [_openShift()],
+        xReadings: [persisted],
+      );
+      final vm = ShiftViewmodel(service: stub);
       await _pumpPage(tester, vm);
 
-      await tester.tap(find.byKey(const ValueKey('readings-generate-x')));
-      await tester.pumpAndSettle();
+      // Persisted X-reading is loaded on startup and visible in All Readings.
+      expect(stub.listXReadingCalls, 1);
+      expect(find.text('#X-20261125-001'), findsOneWidget);
 
-      expect(find.text('#X-1'), findsOneWidget);
-
+      // Switch to Today's X-Readings and tap Take Mid-Shift X-Reading.
       await tester.tap(find.byKey(const ValueKey('readings-tab-x')));
       await tester.pumpAndSettle();
-      expect(find.text('#X-1'), findsOneWidget);
+      expect(find.text('#X-20261125-001'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('x-tab-take-snapshot')));
+      await tester.pumpAndSettle();
+
+      expect(stub.takeXReadingCalls, 1);
+      expect(find.text('#X-20261125-002'), findsOneWidget);
+      expect(
+        find.text('X-Reading X-20261125-002 captured for Shift #42.'),
+        findsOneWidget,
+      );
+
+      // Newly captured X-reading also appears in All Readings.
+      await tester.tap(find.byKey(const ValueKey('readings-tab-all')));
+      await tester.pumpAndSettle();
+      expect(find.text('#X-20261125-002'), findsOneWidget);
     },
   );
 

@@ -25,6 +25,7 @@ from .models import (
     SalesTransaction,
     Shift,
     ShiftCashMovement,
+    ShiftXReading,
 )
 
 
@@ -395,6 +396,33 @@ class ShiftCashMovementSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
+
+
+class ShiftXReadingSerializer(serializers.ModelSerializer):
+    shift_id = serializers.IntegerField(read_only=True)
+    cashier_name = serializers.CharField(
+        source="shift.cashier.full_name", read_only=True
+    )
+    taken_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ShiftXReading
+        fields = [
+            "id",
+            "shift",
+            "shift_id",
+            "cashier_name",
+            "taken_by",
+            "taken_by_name",
+            "taken_at",
+            "reading_number",
+            "snapshot",
+            "notes",
+        ]
+        read_only_fields = fields
+
+    def get_taken_by_name(self, obj):
+        return obj.taken_by.full_name if obj.taken_by_id else None
 
 
 class ShiftSerializer(serializers.ModelSerializer):

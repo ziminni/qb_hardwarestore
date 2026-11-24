@@ -57,6 +57,7 @@ from .models import (
     SalesTransaction,
     Shift,
     ShiftCashMovement,
+    ShiftXReading,
     StoreSettings,
     TenderFee,
 )
@@ -71,11 +72,13 @@ from .serializers import (
     SalesOrderSerializer,
     SalesTransactionSerializer,
     ShiftSerializer,
+    ShiftXReadingSerializer,
 )
 from .services import (
     MAX_SALES_ORDER_REASON_LENGTH,
     cancel_sales_order,
     compute_z_reading,
+    create_shift_x_reading,
     decide_cheque,
     issue_discount_approval,
     opening_suggestion,
@@ -1574,6 +1577,82 @@ class ShiftViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return Response(store_day_summary(target))
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="x-reading",
+        permission_classes=[IsPOSRole],
+    )
+    def take_x_reading(self, request, pk=None):
+        """POST /shifts/{id}/x-reading/ -> 201 persisted mid-shift X-reading snapshot."""
+        shift = self.get_object()
+        notes = str(request.data.get("notes") or "")
+        try:
+            reading = create_shift_x_reading(shift, user=request.user, notes=notes)
+        except ValueError as exc:
+            return Response(
+                {
+                    "code": "SHIFT_CLOSED",
+                    "detail": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            ShiftXReadingSerializer(reading).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="x-readings",
+        permission_classes=[IsPOSRole],
+    )
+    def list_x_readings(self, request):
+        """GET /shifts/x-readings/ -> persisted X-readings (scoped for cashier-only users)."""
+        from django.utils.dateparse import parse_date
+
+        qs = ShiftXReading.objects.select_related("shift__cashier", "taken_by").all()
+        user = request.user
+        if not (
+            user.is_superuser
+            or user.groups.filter(name__in=IsManagerRole.required_roles).exists()
+        ):
+            qs = qs.filter(shift__cashier=user)
+
+        raw_shift_id = request.query_params.get("shift_id")
+        if raw_shift_id:
+            try:
+                qs = qs.filter(shift_id=int(raw_shift_id))
+            except (TypeError, ValueError):
+                return Response(
+                    {
+                        "code": "INVALID_SHIFT_ID",
+                        "detail": "shift_id must be an integer.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        raw_date = request.query_params.get("date")
+        if raw_date:
+            target = parse_date(raw_date)
+            if target is None:
+                return Response(
+                    {
+                        "code": "INVALID_DATE",
+                        "detail": "Use YYYY-MM-DD for date.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            qs = qs.filter(taken_at__date=target)
+
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            return self.get_paginated_response(
+                ShiftXReadingSerializer(page, many=True).data
+            )
+        return Response(ShiftXReadingSerializer(qs, many=True).data)
 
 
 class PaymentViewSet(OwnSalesScopeMixin, viewsets.ReadOnlyModelViewSet):

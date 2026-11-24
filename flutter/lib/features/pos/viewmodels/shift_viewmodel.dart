@@ -26,17 +26,25 @@ class ShiftViewmodel extends ChangeNotifier {
   List<Shift> _history = const [];
   List<Shift> get history => _history;
 
+  List<ShiftXReading> _xReadings = const [];
+  List<ShiftXReading> get xReadings => _xReadings;
+
   bool isLoading = false;
+  bool isTakingXReading = false;
 
   // Kept apart so a successful history load cannot hide a failed current-shift
   // load (or the reverse): the till gate reads [loadError], and an unrelated
   // success must never turn "unknown" into "no shift".
   String? _currentError;
   String? _historyError;
+  String? _xReadingsError;
 
   /// Why the last load failed, or null. Non-null means "unknown", not "no
   /// shift".
   String? get loadError => _currentError ?? _historyError;
+
+  /// Why the last persisted X-readings load failed, or null.
+  String? get xReadingsError => _xReadingsError;
 
   /// Why the last CURRENT-shift read failed, or null.
   ///
@@ -199,6 +207,42 @@ class ShiftViewmodel extends ChangeNotifier {
       actionError = failure.message;
       notifyListeners();
       return null;
+    }
+  }
+
+  /// Loads persisted mid-shift X-readings from the server.
+  Future<void> loadXReadings({int? shiftId, String? date}) async {
+    try {
+      _xReadings = await _service.listXReadings(shiftId: shiftId, date: date);
+      _xReadingsError = null;
+    } on ShiftServiceException catch (failure) {
+      _xReadingsError = failure.message;
+    }
+    notifyListeners();
+  }
+
+  /// Captures and persists a mid-shift X-reading on the current open shift.
+  Future<ShiftXReading?> takeXReading({String? notes}) async {
+    final shift = _currentShift;
+    if (shift == null) return null;
+
+    isTakingXReading = true;
+    actionError = null;
+    notifyListeners();
+    try {
+      final reading = await _service.takeXReading(shift.id, notes: notes);
+      _xReadings = [
+        reading,
+        ..._xReadings.where((other) => other.id != reading.id),
+      ];
+      _xReadingsError = null;
+      return reading;
+    } on ShiftServiceException catch (failure) {
+      actionError = failure.message;
+      return null;
+    } finally {
+      isTakingXReading = false;
+      notifyListeners();
     }
   }
 }

@@ -65,6 +65,8 @@ from .models import (
     SalesItem,
     SalesOrder,
     SalesTransaction,
+    Shift,
+    ShiftXReading,
     StoreSettings,
     TenderFee,
 )
@@ -2333,6 +2335,48 @@ def compute_z_reading(shift):
         # Advisory, not a blocker: `close_shift` records the count and closes anyway.
         "held_cart_count": held_cart_count(shift),
     }
+
+
+def create_shift_x_reading(shift, *, user=None, notes=""):
+    """Capture and persist an immutable mid-shift X-reading snapshot for an open shift.
+
+    Refuses closed shifts with ``ValueError`` (mapped to 400 ``SHIFT_CLOSED`` by the view).
+    Generates a daily local-date sequential ``reading_number`` (``X-YYYYMMDD-NNN``)
+    using ``DocumentCounter`` locked with ``select_for_update``.
+    """
+    if shift.status != Shift.Status.OPEN:
+        raise ValueError("Cannot take an X-reading on a closed shift.")
+
+    clean_notes = (notes or "").strip()[:255]
+    today = timezone.localdate()
+    stamp = f"X-{today:%Y%m%d}-"
+
+    with transaction.atomic():
+        locked_shift = Shift.objects.select_for_update().get(pk=shift.pk)
+        if locked_shift.status != Shift.Status.OPEN:
+            raise ValueError("Cannot take an X-reading on a closed shift.")
+
+        snapshot = compute_z_reading(locked_shift)
+        counter, _ = DocumentCounter.objects.select_for_update().get_or_create(
+            prefix="X",
+            day=today,
+            defaults={
+                "last": highest_existing_sequence(
+                    ShiftXReading, "reading_number", stamp
+                ),
+            },
+        )
+        counter.last += 1
+        counter.save(update_fields=["last"])
+        reading_number = f"{stamp}{counter.last:03d}"
+
+        return ShiftXReading.objects.create(
+            shift=locked_shift,
+            taken_by=user,
+            reading_number=reading_number,
+            snapshot=snapshot,
+            notes=clean_notes,
+        )
 
 
 def store_day_summary(target_date=None):
