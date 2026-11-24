@@ -5,6 +5,7 @@ import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/core/constants/app_areas.dart';
+import 'package:client/data/models/reports.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
@@ -50,10 +51,13 @@ class _DashboardView extends StatefulWidget {
   State<_DashboardView> createState() => _DashboardViewState();
 }
 
+enum _DashboardRangePreset { today, thisWeek, thisMonth, last30Days }
+
 class _DashboardViewState extends State<_DashboardView> {
   /// True once the transaction list has answered. Until then the returns tile
   /// says "Not loaded": an empty list is not the same fact as "zero returns".
   bool _transactionsLoaded = false;
+  _DashboardRangePreset _preset = _DashboardRangePreset.last30Days;
 
   @override
   void initState() {
@@ -61,6 +65,48 @@ class _DashboardViewState extends State<_DashboardView> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _loadSales();
     });
+  }
+
+  String _isoDate(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  ({String? from, String? to, String label}) _presetRange(
+    _DashboardRangePreset preset,
+  ) {
+    final now = appClock.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return switch (preset) {
+      _DashboardRangePreset.today => (
+        from: _isoDate(today),
+        to: _isoDate(today),
+        label: 'Today',
+      ),
+      _DashboardRangePreset.thisWeek => (
+        from: _isoDate(today.subtract(Duration(days: today.weekday - 1))),
+        to: _isoDate(today),
+        label: 'This week',
+      ),
+      _DashboardRangePreset.thisMonth => (
+        from: _isoDate(DateTime(today.year, today.month, 1)),
+        to: _isoDate(today),
+        label: 'This month',
+      ),
+      _DashboardRangePreset.last30Days => (
+        from: null,
+        to: null,
+        label: 'Last 30 days',
+      ),
+    };
+  }
+
+  Future<void> _selectPreset(_DashboardRangePreset preset) async {
+    if (_preset == preset) return;
+    setState(() => _preset = preset);
+    final range = _presetRange(preset);
+    await context.read<InventorySalesViewmodel>().loadSummary(
+      from: range.from,
+      to: range.to,
+    );
   }
 
   Future<void> _loadSales() async {
@@ -73,7 +119,8 @@ class _DashboardViewState extends State<_DashboardView> {
     if (inventory != null && !inventory.hasLoaded) inventory.load();
     // Rows and tiles fail independently: the list feeds the table, the summary
     // feeds the tiles, and neither blocks the other.
-    sales.loadSummary();
+    final range = _presetRange(_preset);
+    sales.loadSummary(from: range.from, to: range.to);
     await sales.load();
     if (!mounted) return;
     if (sales.loadError == null) setState(() => _transactionsLoaded = true);
@@ -130,7 +177,7 @@ class _DashboardViewState extends State<_DashboardView> {
     // cut to "Last 30 days · se..." tells the reader nothing.
     final scopeCaption = summary == null
         ? 'Loaded transactions'
-        : 'Last 30 days';
+        : _presetRange(_preset).label;
     // A read that has not answered established no number. Folding zero rows
     // would print a confident ₱0.00 for a failure, so the tiles say "Not
     // loaded" until either the summary or the row list has actually replied.
@@ -171,33 +218,35 @@ class _DashboardViewState extends State<_DashboardView> {
               padding: const EdgeInsets.only(bottom: AppSpacing.md),
               child: ErrorBanner(message: failure, onRetry: _retryAll),
             ),
-          Row(
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            alignment: WrapAlignment.spaceBetween,
             children: [
-              Expanded(
-                child: Text(
-                  'Needs you',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              Text(
+                'Needs you',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-              // A statement, not a control: the dashboard reads EVERY recorded
-              // transaction (no date parameter exists on the load), so a "This
-              // month" button that changed nothing was a lie with a border.
-              Row(
-                mainAxisSize: MainAxisSize.min,
+              Wrap(
+                spacing: AppSpacing.xs,
+                runSpacing: AppSpacing.xs,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Icon(
-                    Icons.receipt_long_outlined,
-                    size: 15,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                  const SizedBox(width: AppSpacing.xs),
-                  Text(
-                    'All recorded transactions',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                  for (final preset in _DashboardRangePreset.values)
+                    ChoiceChip(
+                      key: ValueKey('sales-dashboard-preset-${preset.name}'),
+                      label: Text(_presetRange(preset).label),
+                      selected: _preset == preset,
+                      onSelected: (_) => _selectPreset(preset),
                     ),
+                  OutlinedButton.icon(
+                    key: const ValueKey('sales-dashboard-refresh'),
+                    onPressed: _retryAll,
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('Refresh'),
                   ),
                 ],
               ),
@@ -362,6 +411,10 @@ class _DashboardViewState extends State<_DashboardView> {
               ],
             ),
           ],
+          if (summary != null && summary.merchandiseGross != null) ...[
+            const SizedBox(height: AppSpacing.lg),
+            ProfitBreakdownCard(sales: summary),
+          ],
           if (summary != null && summary.categories.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.lg),
             HorizontalComparisonChart(
@@ -383,6 +436,13 @@ class _DashboardViewState extends State<_DashboardView> {
                         : null,
                   ),
               ],
+            ),
+          ],
+          if (_transactionsLoaded && completed.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.lg),
+            _TenderAndOrSplitRow(
+              completed: completed,
+              orVatBreakdown: summary?.orVatBreakdown,
             ),
           ],
           // The panels below read the transaction list. Until it answers there
@@ -428,6 +488,90 @@ class _DashboardViewState extends State<_DashboardView> {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _TenderAndOrSplitRow extends StatelessWidget {
+  const _TenderAndOrSplitRow({
+    required this.completed,
+    required this.orVatBreakdown,
+  });
+
+  final List<InventorySale> completed;
+  final OrVatSplit? orVatBreakdown;
+
+  @override
+  Widget build(BuildContext context) {
+    final totalsByMethod = <String, double>{};
+    for (final sale in completed) {
+      final key = sale.paymentMethod.trim().isEmpty
+          ? 'Other'
+          : sale.paymentMethod.trim();
+      totalsByMethod[key] = (totalsByMethod[key] ?? 0) + sale.total;
+    }
+    final sorted = totalsByMethod.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final total = sorted.fold<double>(0, (sum, e) => sum + e.value);
+
+    final tenderChart = DonutChart(
+      key: const ValueKey('sales-dashboard-tender-donut'),
+      title: 'Payment / Tender Mix',
+      subtitle: 'Completed sales share across payment methods.',
+      centerLabel: 'Completed',
+      centerValue: formatPeso(total),
+      slices: [
+        for (final entry in sorted.take(6))
+          ShareSlice(
+            label: entry.key,
+            value: entry.value,
+            amountText: formatPeso(entry.value),
+          ),
+      ],
+    );
+
+    final orChart = orVatBreakdown == null
+        ? null
+        : ShareSplitChart(
+            key: const ValueKey('sales-dashboard-or-split'),
+            title: 'OR-Tagged vs. Untagged Order Slips',
+            subtitle: 'Gross sales split by official receipt attachment.',
+            slices: [
+              ShareSlice(
+                label: 'OR-Tagged Only (Official Receipt)',
+                value: orVatBreakdown!.orBacked.grossSales,
+                amountText: formatPeso(orVatBreakdown!.orBacked.grossSales),
+              ),
+              ShareSlice(
+                label: 'Untagged Order Slips',
+                value: orVatBreakdown!.untaggedOs.grossSales,
+                amountText: formatPeso(orVatBreakdown!.untaggedOs.grossSales),
+              ),
+            ],
+          );
+
+    if (orChart == null) return tenderChart;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 820) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              tenderChart,
+              const SizedBox(height: AppSpacing.md),
+              orChart,
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(flex: 3, child: tenderChart),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(flex: 2, child: orChart),
+          ],
+        );
+      },
     );
   }
 }

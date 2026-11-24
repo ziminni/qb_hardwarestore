@@ -356,6 +356,7 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
                 count: rows.length,
                 columns: _columns(withAction: !cards),
                 rows: rows,
+                showPageSizePicker: !cards,
                 emptyMessage: _filtered
                     ? 'No transactions match these filters.'
                     : 'No transactions found.',

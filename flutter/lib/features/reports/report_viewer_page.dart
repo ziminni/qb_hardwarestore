@@ -88,11 +88,30 @@ class _ReportViewerViewState extends State<ReportViewerView> {
       widget.repository ?? ReportsRepository();
 
   late DateTimeRange _range = widget.initialRange ?? _lastThirtyDays();
+  final _searchController = TextEditingController();
+  String _tableQuery = '';
 
   /// The loaded report, already shaped for the tiles and the table.
   _ReportView? _view;
   String? _error;
   bool _loading = true;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _applyPreset(DateTimeRange next) {
+    setState(() => _range = next);
+    _load();
+  }
+
+  bool _sameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  bool _matchesRange(DateTimeRange target) =>
+      _sameDay(_range.start, target.start) && _sameDay(_range.end, target.end);
 
   static DateTimeRange _lastThirtyDays() {
     final now = appClock.now();
@@ -292,6 +311,29 @@ class _ReportViewerViewState extends State<ReportViewerView> {
       icon: const Icon(Icons.download_outlined, size: 18),
       label: const Text('Export Excel'),
     );
+    final now = appClock.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final todayRange = DateTimeRange(start: today, end: today);
+    final weekRange = DateTimeRange(
+      start: today.subtract(Duration(days: today.weekday - 1)),
+      end: today,
+    );
+    final monthRange = DateTimeRange(
+      start: DateTime(today.year, today.month, 1),
+      end: today,
+    );
+    final thirtyRange = _lastThirtyDays();
+    final query = _tableQuery.trim().toLowerCase();
+    final filteredRows = view == null
+        ? const <List<String>>[]
+        : (query.isEmpty
+              ? view.rows
+              : view.rows
+                    .where(
+                      (row) =>
+                          row.any((cell) => cell.toLowerCase().contains(query)),
+                    )
+                    .toList());
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -307,6 +349,30 @@ class _ReportViewerViewState extends State<ReportViewerView> {
                 icon: const Icon(Icons.arrow_back_rounded, size: 18),
                 label: const Text('All reports'),
               ),
+            ChoiceChip(
+              key: const ValueKey('report-preset-today'),
+              label: const Text('Today'),
+              selected: _matchesRange(todayRange),
+              onSelected: (_) => _applyPreset(todayRange),
+            ),
+            ChoiceChip(
+              key: const ValueKey('report-preset-week'),
+              label: const Text('This Week'),
+              selected: _matchesRange(weekRange),
+              onSelected: (_) => _applyPreset(weekRange),
+            ),
+            ChoiceChip(
+              key: const ValueKey('report-preset-month'),
+              label: const Text('This Month'),
+              selected: _matchesRange(monthRange),
+              onSelected: (_) => _applyPreset(monthRange),
+            ),
+            ChoiceChip(
+              key: const ValueKey('report-preset-30d'),
+              label: const Text('Last 30 Days'),
+              selected: _matchesRange(thirtyRange),
+              onSelected: (_) => _applyPreset(thirtyRange),
+            ),
             OutlinedButton.icon(
               key: const ValueKey('report-viewer-range'),
               onPressed: _pickRange,
@@ -314,6 +380,12 @@ class _ReportViewerViewState extends State<ReportViewerView> {
               label: Text(
                 '${formatDate(_range.start)} to ${formatDate(_range.end)}',
               ),
+            ),
+            OutlinedButton.icon(
+              key: const ValueKey('report-viewer-refresh'),
+              onPressed: _loading ? null : _load,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Refresh'),
             ),
             // A report that wired a letterhead builder exports a PDF
             // (decision 01-export-layout); the rest keep the button off and
@@ -383,8 +455,35 @@ class _ReportViewerViewState extends State<ReportViewerView> {
                 const SizedBox(height: AppSpacing.md),
               ],
           ],
+          if (view.rows.isNotEmpty) ...[
+            SizedBox(
+              width: 340,
+              child: TextField(
+                key: const ValueKey('report-viewer-search'),
+                controller: _searchController,
+                onChanged: (value) => setState(() => _tableQuery = value),
+                decoration: InputDecoration(
+                  hintText: 'Filter rows…',
+                  prefixIcon: const Icon(Icons.search, size: 18),
+                  isDense: true,
+                  suffixIcon: _tableQuery.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Clear filter',
+                          icon: const Icon(Icons.close, size: 16),
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _tableQuery = '');
+                          },
+                        ),
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ],
           DataPanel<List<String>>(
             key: const ValueKey('report-viewer-table'),
+            showPageSizePicker: true,
             columns: [
               for (var index = 0; index < view.columns.length; index++)
                 DataPanelColumn<List<String>>(
@@ -401,8 +500,10 @@ class _ReportViewerViewState extends State<ReportViewerView> {
                   ),
                 ),
             ],
-            rows: view.rows,
-            emptyMessage: view.emptyMessage,
+            rows: filteredRows,
+            emptyMessage: query.isNotEmpty
+                ? 'No rows match "$_tableQuery".'
+                : view.emptyMessage,
           ),
         ],
       ],
@@ -527,6 +628,7 @@ _ReportView _salesView(SalesSummary sales) {
       rows: rows,
     ),
     charts: [
+      if (sales.merchandiseGross != null) ProfitBreakdownCard(sales: sales),
       // The trend is an area, and the dashed line over it is the landed cost
       // behind those same days: a fill for the money made, a comparison for
       // what it cost. The model carries no previous period, so nothing here

@@ -187,6 +187,7 @@ class _SalesDocumentListContentState extends State<SalesDocumentListContent> {
               return DataPanel<SalesDocumentRow>(
                 columns: _columns(withAction: !cards),
                 rows: rows,
+                showPageSizePicker: !cards,
                 emptyMessage: _emptyMessage,
                 // The rows already on screen outlive a refresh, so the spinner
                 // is only for a first load with nothing to show yet.

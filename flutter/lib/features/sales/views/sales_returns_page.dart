@@ -285,6 +285,7 @@ class _SalesReturnsPageState extends State<SalesReturnsPage> {
                   count: rows.length,
                   columns: _columns(withAction: !cards),
                   rows: rows,
+                  showPageSizePicker: !cards,
                   emptyMessage: _filtered
                       ? 'No returns match these filters.'
                       : 'No customer returns available.',

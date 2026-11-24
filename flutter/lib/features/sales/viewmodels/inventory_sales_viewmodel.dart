@@ -56,11 +56,11 @@ class InventorySalesViewmodel extends ChangeNotifier {
   /// cleared — a stale total beside fresh rows would be a wrong number
   /// presented as a fact. The transaction list is untouched: rows and tiles
   /// fail independently.
-  Future<void> loadSummary() async {
+  Future<void> loadSummary({String? from, String? to}) async {
     _summaryError = null;
     notifyListeners();
     try {
-      _summary = await _reports.fetchSalesSummary();
+      _summary = await _reports.fetchSalesSummary(from: from, to: to);
       _summaryError = null;
     } on ReportsServiceException catch (error) {
       _summary = null;
