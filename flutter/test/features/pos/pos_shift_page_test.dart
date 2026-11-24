@@ -989,8 +989,8 @@ void main() {
           ..history = [_shift(id: 5, openingFloat: 5000, zReading: _running)];
         await _pump(tester, ShiftViewmodel(service: service));
 
-        expect(find.text('Cash in / out'), findsOneWidget);
-        await tester.tap(find.text('Cash in / out'));
+        expect(find.text('Record Cash Out'), findsOneWidget);
+        await tester.tap(find.text('Record Cash Out'));
         await tester.pumpAndSettle();
 
         expect(find.text('Record drawer cash in / out'), findsOneWidget);

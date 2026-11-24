@@ -55,13 +55,17 @@ Future<Shift?> showShiftCloseDialog(
     await showDialog<void>(
       context: context,
       builder: (resultContext) => AlertDialog(
-        title: const Text('Shift closed'),
-        content: SingleChildScrollView(
-          child: PosZReadingSummary(
-            reading: reading,
-            // Both sides of the difference the cashier is about to read.
-            closingCount: closed.closingCount,
-            cashMovements: closed.cashMovements,
+        title: Text('Shift #${closed.id} Closed · Z-Reading'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: PosZReadingSummary(
+              reading: reading,
+              title: 'Final Z-Reading',
+              closingCount: closed.closingCount,
+              cashLeftInDrawer: closed.cashLeftInDrawer,
+              cashMovements: closed.cashMovements,
+            ),
           ),
         ),
         actions: [
@@ -418,6 +422,48 @@ class _CloseShiftDialogState extends State<_CloseShiftDialog> {
             ),
             onChanged: (_) => setState(() {}),
           ),
+          if (count != null && expected != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Builder(
+              builder: (_) {
+                final variance = count - expected;
+                final color = posVarianceColor(variance);
+                return Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(AppRadii.small),
+                    border: Border.all(color: color.withValues(alpha: 0.35)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Variance (${posVarianceWord(variance)})',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: color,
+                        ),
+                      ),
+                      Text(
+                        posVarianceText(variance),
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: color,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
           const SizedBox(height: AppSpacing.md),
           // Owner ruling (drawer carry): what stays behind for the next shift.
           // Optional on purpose - an unanswered question is stored as "not

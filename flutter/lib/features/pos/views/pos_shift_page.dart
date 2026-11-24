@@ -133,8 +133,6 @@ class _PosShiftView extends StatelessWidget {
               lastClosed: lastClosed,
               shiftUnknown: shiftUnknown,
               onOpen: () => showOpenShiftDialog(context, viewmodel),
-              onRecordCashMovement: () =>
-                  showShiftCashMovementDialog(context, viewmodel),
               onClose: () => showShiftCloseDialog(context, viewmodel),
             ),
 
@@ -344,7 +342,6 @@ class _HeroShiftStatusCard extends StatelessWidget {
     required this.lastClosed,
     required this.shiftUnknown,
     required this.onOpen,
-    required this.onRecordCashMovement,
     required this.onClose,
   });
 
@@ -352,7 +349,6 @@ class _HeroShiftStatusCard extends StatelessWidget {
   final Shift? lastClosed;
   final bool shiftUnknown;
   final VoidCallback onOpen;
-  final VoidCallback onRecordCashMovement;
   final VoidCallback onClose;
 
   @override
@@ -542,27 +538,13 @@ class _HeroShiftStatusCard extends StatelessWidget {
             Align(
               alignment: Alignment.centerRight,
               child: shift != null
-                  ? Wrap(
-                      spacing: AppSpacing.md,
-                      runSpacing: AppSpacing.sm,
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: onRecordCashMovement,
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size(0, 48),
-                          ),
-                          icon: const Icon(Icons.payments_outlined),
-                          label: const Text('Cash in / out'),
-                        ),
-                        FilledButton.icon(
-                          onPressed: onClose,
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size(0, 48),
-                          ),
-                          icon: const Icon(Icons.lock_clock_outlined),
-                          label: const Text('Close shift'),
-                        ),
-                      ],
+                  ? FilledButton.icon(
+                      onPressed: onClose,
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(0, 48),
+                      ),
+                      icon: const Icon(Icons.lock_clock_outlined),
+                      label: const Text('Close shift'),
                     )
                   : FilledButton.icon(
                       onPressed: onOpen,
@@ -930,56 +912,59 @@ class _QuickActionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.all(AppSpacing.sm),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: color.withValues(alpha: 0.25)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.8),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(icon, size: 18, color: color),
+    return OutlinedButton(
+      onPressed: onTap,
+      style: OutlinedButton.styleFrom(
+        backgroundColor: bg,
+        foregroundColor: color,
+        side: BorderSide(color: color.withValues(alpha: 0.45), width: 1.25),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        elevation: 0,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: color.withValues(alpha: 0.25)),
             ),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: color,
-                    ),
+            child: Icon(icon, size: 18, color: color),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: color,
                   ),
-                  Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                      color: AppColors.textSecondary,
-                    ),
+                ),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w400,
+                    color: AppColors.textSecondary,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          Icon(Icons.chevron_right_rounded, size: 18, color: color),
+        ],
       ),
     );
   }
@@ -1106,12 +1091,15 @@ class _DenominationAuditCalculatorState
                       formatPeso(widget.expectedDrawer),
                       AppColors.textSecondary,
                     ),
-                    if (hasInput)
-                      _footerStat(
-                        'Projected variance',
-                        '${posVarianceText(variance)} (${posVarianceWord(variance)})',
-                        posVarianceColor(variance),
-                      ),
+                    _footerStat(
+                      'Variance (Counted − Expected)',
+                      hasInput
+                          ? '${posVarianceText(variance)} (${posVarianceWord(variance)})'
+                          : 'Enter bills/coins to calculate',
+                      hasInput
+                          ? posVarianceColor(variance)
+                          : AppColors.textSecondary,
+                    ),
                   ],
                 ),
                 Wrap(
