@@ -5,6 +5,7 @@ import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/core/navigation/app_destinations.dart';
 import 'package:client/core/constants/app_areas.dart';
+import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/reports.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
@@ -70,31 +71,38 @@ class _DashboardViewState extends State<_DashboardView> {
   String _isoDate(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-  ({String? from, String? to, String label}) _presetRange(
-    _DashboardRangePreset preset,
-  ) {
+  ({String? from, String? to, DateTime startDate, String label, String chipLabel})
+  _presetRange(_DashboardRangePreset preset) {
     final now = appClock.now();
     final today = DateTime(now.year, now.month, now.day);
     return switch (preset) {
       _DashboardRangePreset.today => (
         from: _isoDate(today),
         to: _isoDate(today),
+        startDate: today,
         label: 'Today',
+        chipLabel: 'Daily (Today)',
       ),
       _DashboardRangePreset.thisWeek => (
-        from: _isoDate(today.subtract(Duration(days: today.weekday - 1))),
+        from: _isoDate(today.subtract(const Duration(days: 6))),
         to: _isoDate(today),
-        label: 'This week',
+        startDate: today.subtract(const Duration(days: 6)),
+        label: 'Weekly (7 Days)',
+        chipLabel: 'Weekly (7 Days)',
       ),
       _DashboardRangePreset.thisMonth => (
         from: _isoDate(DateTime(today.year, today.month, 1)),
         to: _isoDate(today),
-        label: 'This month',
+        startDate: DateTime(today.year, today.month, 1),
+        label: 'Monthly (MTD)',
+        chipLabel: 'Monthly (MTD)',
       ),
       _DashboardRangePreset.last30Days => (
         from: null,
         to: null,
+        startDate: today.subtract(const Duration(days: 30)),
         label: 'Last 30 days',
+        chipLabel: 'Last 30 days',
       ),
     };
   }
@@ -165,8 +173,13 @@ class _DashboardViewState extends State<_DashboardView> {
     final theme = Theme.of(context);
     final salesState = context.watch<InventorySalesViewmodel>();
     final alerts = context.watch<SalesDashboardAlertsViewmodel>();
+    final inventoryState = context.watch<InventoryViewmodel?>();
+    final activePreset = _presetRange(_preset);
     final completed = salesState.sales
         .where((sale) => sale.status == InventorySaleStatus.completed)
+        .toList();
+    final scopedCompleted = completed
+        .where((sale) => !sale.date.isBefore(activePreset.startDate))
         .toList();
     // Phase 5 Task 3: tiles read the server summary (correct at any scale),
     // never the client fold of a capped transaction walk. Until the summary
@@ -238,10 +251,17 @@ class _DashboardViewState extends State<_DashboardView> {
                   for (final preset in _DashboardRangePreset.values)
                     ChoiceChip(
                       key: ValueKey('sales-dashboard-preset-${preset.name}'),
-                      label: Text(_presetRange(preset).label),
+                      label: Text(_presetRange(preset).chipLabel),
                       selected: _preset == preset,
                       onSelected: (_) => _selectPreset(preset),
                     ),
+                  OutlinedButton.icon(
+                    key: const ValueKey('sales-dashboard-audit-vat'),
+                    onPressed: () =>
+                        _selectNavigation(context, _row('reports')),
+                    icon: const Icon(Icons.account_balance_outlined, size: 16),
+                    label: const Text('Audit VAT Ledger'),
+                  ),
                   OutlinedButton.icon(
                     key: const ValueKey('sales-dashboard-refresh'),
                     onPressed: _retryAll,
@@ -312,78 +332,21 @@ class _DashboardViewState extends State<_DashboardView> {
           ),
           if (summary?.orVatBreakdown != null) ...[
             const SizedBox(height: AppSpacing.md),
-            Container(
-              key: const ValueKey('sales-dashboard-vat-split'),
-              padding: const EdgeInsets.all(AppSpacing.md),
-              decoration: BoxDecoration(
-                color: AppColors.cardBackground,
-                borderRadius: BorderRadius.circular(AppRadii.large),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.receipt_long_outlined,
-                        size: 18,
-                        color: AppColors.brandGold,
-                      ),
-                      const SizedBox(width: AppSpacing.xs),
-                      Expanded(
-                        child: Text(
-                          'VAT Snapshot — All Sales vs. OR-Tagged ($scopeCaption)',
-                          style: const TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                      ),
-                      TextButton.icon(
-                        onPressed: () =>
-                            _selectNavigation(context, _row('reports')),
-                        icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                        label: const Text('Full VAT & OR report'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  MetricGrid(
-                    children: [
-                      MetricTile(
-                        label: 'Whole VAT (All Sales)',
-                        value: formatPeso(
-                          summary!.orVatBreakdown!.combined.vat,
-                        ),
-                        caption:
-                            '${formatCount(summary.orVatBreakdown!.combined.transactions)} sales · '
-                            '${formatPeso(summary.orVatBreakdown!.combined.grossSales)} gross',
-                      ),
-                      MetricTile(
-                        label: 'OR-Tagged Only VAT',
-                        value: formatPeso(summary.orVatBreakdown!.orBacked.vat),
-                        caption:
-                            '${formatCount(summary.orVatBreakdown!.orBacked.transactions)} OR-tagged · '
-                            '${formatPeso(summary.orVatBreakdown!.orBacked.grossSales)} gross',
-                      ),
-                      MetricTile(
-                        label: 'Untagged OS VAT',
-                        value: formatPeso(
-                          summary.orVatBreakdown!.untaggedOs.vat,
-                        ),
-                        caption:
-                            '${formatCount(summary.orVatBreakdown!.untaggedOs.transactions)} untagged OS · '
-                            '${formatPeso(summary.orVatBreakdown!.untaggedOs.grossSales)} gross',
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+            _DualStreamTaxCard(
+              breakdown: summary!.orVatBreakdown!,
+              scopeCaption: scopeCaption,
+              onOpenReport: () => _selectNavigation(context, _row('reports')),
             ),
           ],
-          if (summary != null && summary.days.isNotEmpty) ...[
+          if (_preset == _DashboardRangePreset.today &&
+              _transactionsLoaded &&
+              scopedCompleted.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.lg),
+            _HourlyAndTenderRow(
+              scopedCompleted: scopedCompleted,
+              scopeCaption: scopeCaption,
+            ),
+          ] else if (summary != null && summary.days.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.lg),
             GroupedBarTrendChart(
               key: const ValueKey('sales-dashboard-profit-chart'),
@@ -438,11 +401,22 @@ class _DashboardViewState extends State<_DashboardView> {
               ],
             ),
           ],
-          if (_transactionsLoaded && completed.isNotEmpty) ...[
+          if (_transactionsLoaded &&
+              scopedCompleted.isNotEmpty &&
+              _preset != _DashboardRangePreset.today) ...[
             const SizedBox(height: AppSpacing.lg),
             _TenderAndOrSplitRow(
-              completed: completed,
+              completed: scopedCompleted,
+              scopeCaption: scopeCaption,
               orVatBreakdown: summary?.orVatBreakdown,
+            ),
+          ],
+          if (inventoryState != null && inventoryState.products.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.lg),
+            _StockSnapshotCard(
+              inventory: inventoryState,
+              onOpenInventory: () =>
+                  _selectNavigation(context, _row('sales.inventory')),
             ),
           ],
           // The panels below read the transaction list. Until it answers there
@@ -492,43 +466,300 @@ class _DashboardViewState extends State<_DashboardView> {
   }
 }
 
+class _DualStreamTaxCard extends StatelessWidget {
+  const _DualStreamTaxCard({
+    required this.breakdown,
+    required this.scopeCaption,
+    required this.onOpenReport,
+  });
+
+  final OrVatSplit breakdown;
+  final String scopeCaption;
+  final VoidCallback onOpenReport;
+
+  @override
+  Widget build(BuildContext context) {
+    final totalGross = breakdown.combined.grossSales;
+    final orPct = totalGross > 0
+        ? (breakdown.orBacked.grossSales / totalGross * 100)
+        : 0.0;
+    final osPct = totalGross > 0
+        ? (breakdown.untaggedOs.grossSales / totalGross * 100)
+        : 0.0;
+
+    return Container(
+      key: const ValueKey('sales-dashboard-vat-split'),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.cardBackground,
+        borderRadius: BorderRadius.circular(AppRadii.large),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.xs,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            alignment: WrapAlignment.spaceBetween,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.receipt_long_outlined,
+                    size: 18,
+                    color: AppColors.brandGold,
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  Text(
+                    'Official Receipt (OR) vs. Untagged Order Slips ($scopeCaption)',
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
+              TextButton.icon(
+                onPressed: onOpenReport,
+                icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                label: const Text('Full VAT & OR report'),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          MetricGrid(
+            children: [
+              MetricTile(
+                label: 'OR-Tagged Only (Official Receipt)',
+                value: formatPeso(breakdown.orBacked.vat),
+                caption:
+                    '${formatCount(breakdown.orBacked.transactions)} OR-tagged (${orPct.toStringAsFixed(0)}%) · '
+                    '${formatPeso(breakdown.orBacked.grossSales)} gross · '
+                    'Base ${formatPeso(breakdown.orBacked.vatableSales)}',
+              ),
+              MetricTile(
+                label: 'Untagged Order Slips (OS)',
+                value: formatPeso(breakdown.untaggedOs.vat),
+                caption:
+                    '${formatCount(breakdown.untaggedOs.transactions)} untagged OS (${osPct.toStringAsFixed(0)}%) · '
+                    '${formatPeso(breakdown.untaggedOs.grossSales)} gross · '
+                    'Base ${formatPeso(breakdown.untaggedOs.vatableSales)}',
+              ),
+              MetricTile(
+                label: 'Consolidated Turnover (OR + OS)',
+                value: formatPeso(breakdown.combined.grossSales),
+                caption:
+                    '${formatCount(breakdown.combined.transactions)} total sales · '
+                    'Total VAT ${formatPeso(breakdown.combined.vat)}',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HourlyAndTenderRow extends StatelessWidget {
+  const _HourlyAndTenderRow({
+    required this.scopedCompleted,
+    required this.scopeCaption,
+  });
+
+  final List<InventorySale> scopedCompleted;
+  final String scopeCaption;
+
+  @override
+  Widget build(BuildContext context) {
+    final byHour = <int, double>{};
+    for (final sale in scopedCompleted) {
+      final h = sale.date.hour;
+      byHour[h] = (byHour[h] ?? 0) + sale.total;
+    }
+    final hourlyChart = TimeOfDayChart(
+      key: const ValueKey('sales-dashboard-hourly-chart'),
+      title: 'Hourly Revenue Stream ($scopeCaption)',
+      subtitle: 'Completed invoice revenue plotted by hour of day.',
+      byHour: byHour,
+      valueLabel: 'Hourly sales',
+      height: 190,
+    );
+    final tenderChart = _buildTenderDonut(scopedCompleted, scopeCaption);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 860) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              hourlyChart,
+              const SizedBox(height: AppSpacing.md),
+              tenderChart,
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(flex: 3, child: hourlyChart),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(flex: 2, child: tenderChart),
+          ],
+        );
+      },
+    );
+  }
+}
+
+DonutChart _buildTenderDonut(
+  List<InventorySale> completed,
+  String scopeCaption,
+) {
+  final totalsByMethod = <String, double>{};
+  for (final sale in completed) {
+    final key = sale.paymentMethod.trim().isEmpty
+        ? 'Other'
+        : sale.paymentMethod.trim();
+    totalsByMethod[key] = (totalsByMethod[key] ?? 0) + sale.total;
+  }
+  final sorted = totalsByMethod.entries.toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+  final total = sorted.fold<double>(0, (sum, e) => sum + e.value);
+
+  return DonutChart(
+    key: const ValueKey('sales-dashboard-tender-donut'),
+    title: 'Payment / Tender Mix ($scopeCaption)',
+    subtitle: 'Completed sales share across payment methods.',
+    centerLabel: 'Intake',
+    centerValue: formatPeso(total),
+    slices: [
+      for (final entry in sorted.take(6))
+        ShareSlice(
+          label: entry.key,
+          value: entry.value,
+          amountText: formatPeso(entry.value),
+        ),
+    ],
+  );
+}
+
+class _StockSnapshotCard extends StatelessWidget {
+  const _StockSnapshotCard({
+    required this.inventory,
+    required this.onOpenInventory,
+  });
+
+  final InventoryViewmodel inventory;
+  final VoidCallback onOpenInventory;
+
+  @override
+  Widget build(BuildContext context) {
+    var inStock = 0;
+    var lowStock = 0;
+    var outOfStock = 0;
+    for (final product in inventory.products) {
+      for (final variant in product.variants) {
+        final status = inventory.statusForVariant(variant.id);
+        if (status == InventoryStockStatus.inStock) inStock++;
+        if (status == InventoryStockStatus.lowStock) lowStock++;
+        if (status == InventoryStockStatus.outOfStock) outOfStock++;
+      }
+    }
+    final stockValue = inventory.batches.fold<double>(
+      0,
+      (sum, batch) => sum + batch.currentQty * batch.unitCostLanded,
+    );
+    return Container(
+      key: const ValueKey('sales-dashboard-stock-snapshot'),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.cardBackground,
+        borderRadius: BorderRadius.circular(AppRadii.large),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.xs,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            alignment: WrapAlignment.spaceBetween,
+            children: [
+              const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.inventory_2_outlined,
+                    size: 18,
+                    color: AppColors.primary,
+                  ),
+                  SizedBox(width: AppSpacing.xs),
+                  Text(
+                    'Store Stock & Restock Snapshot',
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
+              TextButton.icon(
+                onPressed: onOpenInventory,
+                icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                label: const Text('Inventory & Sales'),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          MetricGrid(
+            children: [
+              MetricTile(
+                label: 'Active Products',
+                value: formatCount(inventory.products.length),
+                caption: '${formatCount(inStock)} variants healthy',
+              ),
+              MetricTile(
+                label: 'FIFO Stock Value',
+                value: formatPeso(stockValue),
+                caption: 'On-hand landed cost',
+              ),
+              MetricTile(
+                label: 'Low Stock',
+                value: formatCount(lowStock),
+                caption: 'Below reorder point',
+              ),
+              MetricTile(
+                label: 'Out of Stock',
+                value: formatCount(outOfStock),
+                caption: 'Needs immediate restock',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TenderAndOrSplitRow extends StatelessWidget {
   const _TenderAndOrSplitRow({
     required this.completed,
+    required this.scopeCaption,
     required this.orVatBreakdown,
   });
 
   final List<InventorySale> completed;
+  final String scopeCaption;
   final OrVatSplit? orVatBreakdown;
 
   @override
   Widget build(BuildContext context) {
-    final totalsByMethod = <String, double>{};
-    for (final sale in completed) {
-      final key = sale.paymentMethod.trim().isEmpty
-          ? 'Other'
-          : sale.paymentMethod.trim();
-      totalsByMethod[key] = (totalsByMethod[key] ?? 0) + sale.total;
-    }
-    final sorted = totalsByMethod.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    final total = sorted.fold<double>(0, (sum, e) => sum + e.value);
-
-    final tenderChart = DonutChart(
-      key: const ValueKey('sales-dashboard-tender-donut'),
-      title: 'Payment / Tender Mix',
-      subtitle: 'Completed sales share across payment methods.',
-      centerLabel: 'Completed',
-      centerValue: formatPeso(total),
-      slices: [
-        for (final entry in sorted.take(6))
-          ShareSlice(
-            label: entry.key,
-            value: entry.value,
-            amountText: formatPeso(entry.value),
-          ),
-      ],
-    );
+    final tenderChart = _buildTenderDonut(completed, scopeCaption);
 
     final orChart = orVatBreakdown == null
         ? null
