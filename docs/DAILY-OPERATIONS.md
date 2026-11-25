@@ -1,5 +1,7 @@
 # BuildPro Ecosystem — Daily Operations & Update Guide
 
+> **Windows Docker presentation (no Contabo):** See `docs/PRESENTATION-SETUP.md` in the CPMS checkout. The Contabo instructions below are for the retired VPS deployment.
+
 Complete runbook for running and updating the 3-device **BuildPro** ecosystem (**Windows POS & Inventory** + **USB SIM800C SMS Bridge** + **Contabo VPS CPMS** + **Android Bodega Mobile**):
 
 1. [Live Architecture & Endpoints](#live-architecture--endpoints)
@@ -38,11 +40,11 @@ Complete runbook for running and updating the 3-device **BuildPro** ecosystem (*
      *(Expected: `{"status":"ok"}`. If not, run `.\scripts\start-tunnel.ps1`.)*
    - **Fresh Empty reset** *(only the 6 accounts, `Store`/`Bodega` with `is_bodega=True`, 12 standard UOMs, `Walk-in Customer`, and `BuildRight Construction` contractor — zero products/sales/POs)*:
      ```powershell
-     .\scripts\reset-fresh-empty.ps1
+     .\scripts\reset-fresh-empty.ps1 -ConfirmReset
      ```
    - **Basic Seeded Demo reset** *(accounts + sample hardware products, stock, suppliers & contractor)*:
      ```powershell
-     .\scripts\reset-seeded-demo.ps1
+     .\scripts\reset-seeded-demo.ps1 -ConfirmReset
      ```
 4. **Launch the POS Desktop App:**
    ```powershell

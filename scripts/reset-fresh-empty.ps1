@@ -5,16 +5,27 @@
     and 1 contractor customer (BuildRight Construction) for CPMS integration.
 
 .EXAMPLE
-    .\scripts\reset-fresh-empty.ps1
+    .\scripts\reset-fresh-empty.ps1 -LocalOnly -ConfirmReset
 #>
 
+param([switch]$LocalOnly, [switch]$ConfirmReset)
+
 $ErrorActionPreference = 'Stop'
+if (-not $ConfirmReset) {
+    throw 'This deletes the POS database volume. Back it up first, then pass -ConfirmReset for a disposable presentation database only.'
+}
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
 
-Write-Host "=== 1/4 Wiping POS DB volume & restarting stack + tunnel ===" -ForegroundColor Cyan
+Write-Host "=== 1/4 Wiping POS DB volume & restarting stack ===" -ForegroundColor Cyan
 docker compose --profile tunnel down -v
-& (Join-Path $PSScriptRoot 'start-tunnel.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'Could not reset the POS database volume.' }
+if ($LocalOnly) {
+    docker compose up -d --build backend
+    if ($LASTEXITCODE -ne 0) { throw 'POS backend did not start.' }
+} else {
+    & (Join-Path $PSScriptRoot 'start-tunnel.ps1')
+}
 
 Write-Host "=== 2/4 Waiting for backend migrations & startup to finish ===" -ForegroundColor Cyan
 $ready = $false
@@ -29,7 +40,9 @@ if (-not $ready) { throw "Backend did not become healthy on http://127.0.0.1:800
 
 Write-Host "=== 3/4 Flushing demo rows ===" -ForegroundColor Cyan
 docker compose exec -T backend python manage.py migrate --noinput
+if ($LASTEXITCODE -ne 0) { throw 'POS migrations failed.' }
 docker compose exec -T backend python manage.py flush --noinput
+if ($LASTEXITCODE -ne 0) { throw 'POS database flush failed.' }
 
 Write-Host "=== 4/4 Seeding clean accounts, Store/Bodega, 12 standard UOMs & contractor payer ===" -ForegroundColor Cyan
 $py = @'
@@ -94,7 +107,8 @@ print(f"FRESH EMPTY POS READY (PAYER_ID={payer.id})")
 '@
 
 $py | docker compose exec -T backend python manage.py shell
+if ($LASTEXITCODE -ne 0) { throw 'POS fresh seed failed.' }
 
 Write-Host ""
 Write-Host "Done! Accounts (password: demo1234): admin, manager, stocker, cashier, checker, cpms_service" -ForegroundColor Green
-Write-Host "Next: run .\scripts\reset-fresh-empty-vps.ps1 on your Contabo VPS to reset CPMS too." -ForegroundColor Yellow
+Write-Host "Next: run CPMS scripts\reset-presentation.ps1 -Mode Fresh -ConfirmReset in the Windows CPMS checkout." -ForegroundColor Yellow
