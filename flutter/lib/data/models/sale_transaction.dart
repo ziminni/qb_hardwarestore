@@ -43,6 +43,7 @@ class TransactionLineItem {
     required this.unitPrice,
     required this.subtotal,
     this.productName = '',
+    this.variantName = '',
     this.storedAtName = '',
     this.pickUp = const [],
     this.fifoBatches = const [],
@@ -54,6 +55,7 @@ class TransactionLineItem {
   final double unitPrice;
   final double subtotal;
   final String productName;
+  final String variantName;
 
   /// Where the product is picked up, as the SALE recorded it (Phase 5 B4).
   /// Empty on a row written before B4.
@@ -76,6 +78,9 @@ class TransactionLineItem {
         subtotal: decimalField(json, 'subtotal'),
         productName: json['product_name'] is String
             ? json['product_name'] as String
+            : '',
+        variantName: json['variant_name'] is String
+            ? json['variant_name'] as String
             : '',
         storedAtName: json['stored_at_name'] is String
             ? json['stored_at_name'] as String

@@ -9,7 +9,6 @@ import 'package:client/features/sales/views/sales_transactions_page.dart';
 import 'package:client/features/sales/widgets/sales_document_sheet.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
-import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -19,7 +18,7 @@ void main() {
   Future<void> pump(
     WidgetTester tester, {
     InventorySalesViewmodel? viewmodel,
-    Size size = const Size(1440, 900),
+    Size size = const Size(1440, 1200),
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -37,13 +36,22 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('renders the shared content with the manager columns', (
+  testWidgets('renders the shared Stitch content with the manager columns', (
     tester,
   ) async {
     await pump(tester);
 
     expect(find.byType(DataPanel<InventorySale>), findsOneWidget);
-    for (final label in ['Transaction', 'Date and time', 'Customer', 'Total']) {
+    for (final label in [
+      'Transaction & OS #',
+      'OR #',
+      'Customer',
+      'Items',
+      'Payment',
+      'Status',
+      'Total',
+      'Actions',
+    ]) {
       expect(find.text(label), findsOneWidget, reason: 'column $label');
     }
     expect(
@@ -52,24 +60,23 @@ void main() {
       reason: 'where a sale came from is this role\'s extra fact',
     );
     expect(
-      find.text('View'),
-      findsWidgets,
-      reason: 'the pinned View action still opens the document',
+      find.byKey(const ValueKey('view-sale-TRX-20261030-0001')),
+      findsOneWidget,
+      reason: 'the View details action opens the document',
     );
   });
 
-  // FX1 (wave-1 review I1): the manager lost how a sale was paid when the four
-  // money columns became one panel. The method rides under the customer, the
-  // way the sale's source does, so it shows at every width the table fits.
-  testWidgets('the payment method rides under the customer', (tester) async {
+  // Payment method appears cleanly in its dedicated Payment column at desktop
+  // widths, matching the cashier transactions table.
+  testWidgets('the payment method shows for each transaction', (tester) async {
     await pump(tester);
 
     expect(
       find.text('Cash'),
-      findsOneWidget,
+      findsWidgets,
       reason: 'how the walk-in sale was paid',
     );
-    expect(find.text('Bank transfer'), findsOneWidget);
+    expect(find.text('Bank transfer'), findsWidgets);
     expect(
       find.text('No payment'),
       findsOneWidget,
@@ -132,14 +139,11 @@ void main() {
     });
   }
 
-  testWidgets('a status chip narrows the list to that status', (tester) async {
+  testWidgets('a status pill narrows the list to that status', (tester) async {
     await pump(tester);
 
-    expect(find.byType(FilterBar), findsOneWidget);
     expect(find.text('TRX-20261030-0001'), findsOneWidget);
-    await tester.tap(
-      find.descendant(of: find.byType(FilterBar), matching: find.text('Void')),
-    );
+    await tester.tap(find.textContaining('Void ('));
     await tester.pumpAndSettle();
 
     expect(find.text('TRX-20261029-0006'), findsOneWidget);

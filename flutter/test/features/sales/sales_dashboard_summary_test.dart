@@ -181,7 +181,11 @@ Future<GoRouter> _pumpRouted(WidgetTester tester) async {
         builder: (context, state) =>
             SalesDashboardPage(viewmodel: _alerts(overdue: 2)),
       ),
-      for (final path in [AppRoutes.salesReceivables, AppRoutes.salesReturns])
+      for (final path in [
+        AppRoutes.salesReceivables,
+        AppRoutes.salesReturns,
+        '/sales/reports/view/vat-summary',
+      ])
         GoRoute(
           path: path,
           builder: (context, state) => Scaffold(body: Text('page:$path')),
@@ -443,5 +447,18 @@ void main() {
     // The other two tiles are untouched by the removal.
     expect(_tile('receivables'), findsOneWidget);
     expect(_tile('returns'), findsOneWidget);
+  });
+
+  testWidgets('Audit VAT Ledger routes directly to the VAT summary report', (
+    tester,
+  ) async {
+    await _pumpRouted(tester);
+
+    final vatButton = find.byKey(const ValueKey('sales-dashboard-audit-vat'));
+    expect(vatButton, findsOneWidget);
+    await tester.tap(vatButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('page:/sales/reports/view/vat-summary'), findsOneWidget);
   });
 }

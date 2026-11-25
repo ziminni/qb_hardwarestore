@@ -14,12 +14,14 @@ import 'package:client/features/pos/widgets/receipt_document.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/widgets/sales_document_sheet.dart';
 import 'package:client/features/sales/widgets/sales_navigation.dart';
+import 'package:client/features/sales/widgets/sales_transactions_content.dart';
 import 'package:client/features/sales/widgets/sales_unlinked_return_dialog.dart';
 import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:client/shared/widgets/status_badge.dart';
+import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -109,7 +111,8 @@ class _SalesReturnsPageState extends State<SalesReturnsPage> {
       item.reference,
       item.relatedReference,
       item.reason,
-      for (final line in item.lines) line.sku,
+      for (final line in item.lines)
+        '${line.productName} ${line.variantName} ${line.sku}',
     ].join(' ');
     return haystack.toLowerCase().contains(query);
   }
@@ -174,10 +177,7 @@ class _SalesReturnsPageState extends State<SalesReturnsPage> {
       lines: [
         for (final line in item.lines)
           SalesDocumentLine(
-            // The wire carries no product names, only the selling-unit code
-            // (same limitation the transactions sheet states), so the code is
-            // the line name rather than an invented one.
-            name: line.productName,
+            name: formatSaleLineName(line),
             qty: line.quantity,
             unitPrice: line.unitPrice,
           ),
@@ -195,7 +195,7 @@ class _SalesReturnsPageState extends State<SalesReturnsPage> {
           printedAt: item.date,
           lines: [
             for (final line in item.lines)
-              (name: line.productName, uom: '', qty: line.quantity),
+              (name: formatSaleLineName(line), uom: line.sku, qty: line.quantity),
           ],
           returnValue: item.total,
           debtReduced: 0,
@@ -210,6 +210,22 @@ class _SalesReturnsPageState extends State<SalesReturnsPage> {
   Widget build(BuildContext context) {
     final viewmodel = context.watch<InventorySalesViewmodel>();
     final returns = viewmodel.returns;
+    final customerReturns = returns
+        .where((item) => item.type == InventoryReturnType.customer)
+        .toList();
+    final completedReturns = customerReturns
+        .where((item) => item.status == InventoryReturnStatus.completed)
+        .toList();
+    final rejectedReturns = customerReturns
+        .where((item) => item.status == InventoryReturnStatus.rejected)
+        .length;
+    final unlinkedReturns = customerReturns
+        .where((item) => item.relatedReference.isEmpty)
+        .length;
+    final refundedVolume = completedReturns.fold<double>(
+      0,
+      (sum, item) => sum + item.total.abs(),
+    );
     final rows = _visible(returns);
     final failure = viewmodel.loadError;
 
@@ -229,6 +245,90 @@ class _SalesReturnsPageState extends State<SalesReturnsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (customerReturns.isNotEmpty) ...[
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final cards = [
+                  StitchKpiCard(
+                    compact: true,
+                    label: 'Customer Returns',
+                    value: formatCount(customerReturns.length),
+                    subtitle: '${formatCount(completedReturns.length)} posted',
+                    icon: Icons.assignment_return_outlined,
+                    tone: StitchTone.primary,
+                    pillLabel: 'Returns log',
+                    pillTone: StitchTone.primary,
+                  ),
+                  StitchKpiCard(
+                    compact: true,
+                    label: 'Refunded Volume',
+                    value: formatPeso(refundedVolume),
+                    subtitle: 'Completed customer refunds',
+                    icon: Icons.payments_outlined,
+                    tone: StitchTone.warning,
+                    pillLabel: '${formatCount(completedReturns.length)} slips',
+                    pillTone: StitchTone.warning,
+                  ),
+                  StitchKpiCard(
+                    compact: true,
+                    label: 'Unlinked Returns',
+                    value: formatCount(unlinkedReturns),
+                    subtitle: 'Manager-posted without sale',
+                    icon: Icons.link_off_outlined,
+                    tone: unlinkedReturns > 0
+                        ? StitchTone.warning
+                        : StitchTone.neutral,
+                    pillLabel: unlinkedReturns > 0 ? 'Review' : 'All linked',
+                    pillTone: unlinkedReturns > 0
+                        ? StitchTone.warning
+                        : StitchTone.success,
+                  ),
+                  StitchKpiCard(
+                    compact: true,
+                    label: 'Rejected / Voided',
+                    value: formatCount(rejectedReturns),
+                    subtitle: 'Voided return slips',
+                    icon: Icons.cancel_outlined,
+                    tone: rejectedReturns > 0
+                        ? StitchTone.danger
+                        : StitchTone.neutral,
+                    valueColor: rejectedReturns > 0
+                        ? StitchColors.danger
+                        : StitchColors.ink,
+                    pillLabel: rejectedReturns > 0 ? 'Voided' : 'None',
+                    pillTone: rejectedReturns > 0
+                        ? StitchTone.danger
+                        : StitchTone.neutral,
+                  ),
+                ];
+                if (constraints.maxWidth >= 980) {
+                  return Row(
+                    children: [
+                      for (var i = 0; i < cards.length; i++) ...[
+                        Expanded(child: cards[i]),
+                        if (i < cards.length - 1)
+                          const SizedBox(width: AppSpacing.md),
+                      ],
+                    ],
+                  );
+                }
+                return Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.sm,
+                  children: [
+                    for (final card in cards)
+                      SizedBox(
+                        width: constraints.maxWidth >= 560
+                            ? (constraints.maxWidth - AppSpacing.sm) / 2
+                            : constraints.maxWidth,
+                        child: card,
+                      ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
           // "New customer return" is GONE (Phase 3 Task 0): a cashier returns
           // from the till's Returns tab. The manager's unlinked correction is
           // the one write here, and it is the only filled button on the page.

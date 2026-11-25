@@ -5,6 +5,7 @@ import 'package:client/data/repositories/reports_repository.dart';
 import 'package:client/features/reports/report_catalogue.dart';
 import 'package:client/features/reports/report_viewer_page.dart';
 import 'package:client/features/reports/reports_shell.dart';
+import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:flutter/material.dart';
 
 /// The Reports area's front door: an inner sidebar of reports on the left,
@@ -102,7 +103,7 @@ class _ReportsBrowserViewState extends State<ReportsBrowserView> {
                 onPick: (id) => setState(() => _selectedId = id),
               ),
               const SizedBox(height: AppSpacing.md),
-              Expanded(child: _content(selected)),
+              Expanded(child: SingleChildScrollView(child: _content(selected))),
             ],
           );
         }
@@ -110,19 +111,34 @@ class _ReportsBrowserViewState extends State<ReportsBrowserView> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SizedBox(
-              width: 264,
-              child: _Sidebar(
-                shell: widget.shell,
-                areas: widget.areas,
-                selectedId: selected?.id,
-                collapsed: _collapsed,
-                onToggle: (section) => setState(() {
-                  if (!_collapsed.remove(section)) _collapsed.add(section);
-                }),
-                onPick: (id) => setState(() => _selectedId = id),
+              width: 268,
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: StitchColors.card,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: StitchColors.cardBorder),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x0A0F172A),
+                      blurRadius: 12,
+                      offset: Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: _Sidebar(
+                  shell: widget.shell,
+                  areas: widget.areas,
+                  selectedId: selected?.id,
+                  collapsed: _collapsed,
+                  onToggle: (section) => setState(() {
+                    if (!_collapsed.remove(section)) _collapsed.add(section);
+                  }),
+                  onPick: (id) => setState(() => _selectedId = id),
+                ),
               ),
             ),
-            const VerticalDivider(width: 1),
+            const SizedBox(width: AppSpacing.lg),
             Expanded(child: _content(selected)),
           ],
         );
@@ -200,6 +216,12 @@ class _Group extends StatelessWidget {
   final VoidCallback onToggle;
   final ValueChanged<String> onPick;
 
+  IconData _sectionIcon(ReportSection section) => switch (section) {
+    ReportSection.sales => Icons.point_of_sale_outlined,
+    ReportSection.inventory => Icons.inventory_2_outlined,
+    ReportSection.kpis => Icons.insights_outlined,
+  };
+
   @override
   Widget build(BuildContext context) {
     final reports = reportCatalogue
@@ -213,27 +235,30 @@ class _Group extends StatelessWidget {
           key: ValueKey('report-group-${section.name}'),
           onTap: onToggle,
           child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.sm,
-              vertical: AppSpacing.sm,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             child: Row(
               children: [
+                Icon(
+                  _sectionIcon(section),
+                  size: 15,
+                  color: StitchColors.primary,
+                ),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     section.label,
                     style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                      color: AppColors.textSecondary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.9,
+                      color: StitchColors.inkMuted,
                     ),
                   ),
                 ),
                 Icon(
                   collapsed ? Icons.expand_more : Icons.expand_less,
                   size: 18,
-                  color: AppColors.textSecondary,
+                  color: StitchColors.inkMuted,
                 ),
               ],
             ),
@@ -246,6 +271,7 @@ class _Group extends StatelessWidget {
               selected: report.id == selectedId,
               onTap: () => onPick(report.id),
             ),
+        const SizedBox(height: 6),
       ],
     );
   }
@@ -265,30 +291,50 @@ class _Row extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(
-        left: AppSpacing.sm,
-        right: AppSpacing.sm,
-        bottom: 2,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       child: Material(
-        color: selected ? AppColors.selected : Colors.transparent,
+        color: selected ? StitchColors.primarySoft : Colors.transparent,
         borderRadius: BorderRadius.circular(AppRadii.medium),
         child: InkWell(
           key: ValueKey('report-row-${report.id}'),
           onTap: onTap,
           borderRadius: BorderRadius.circular(AppRadii.medium),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.sm,
-              vertical: AppSpacing.sm,
-            ),
-            child: Text(
-              report.title,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                color: selected ? AppColors.primary : AppColors.textPrimary,
-              ),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            decoration: selected
+                ? BoxDecoration(
+                    borderRadius: BorderRadius.circular(AppRadii.medium),
+                    border: Border.all(
+                      color: StitchColors.primary.withValues(alpha: 0.22),
+                    ),
+                  )
+                : null,
+            child: Row(
+              children: [
+                Container(
+                  width: 3,
+                  height: 16,
+                  margin: const EdgeInsets.only(right: 9),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? StitchColors.primaryDeep
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    report.title,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      color: selected
+                          ? StitchColors.primaryDeep
+                          : StitchColors.ink,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),

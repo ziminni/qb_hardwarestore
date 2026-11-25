@@ -1,6 +1,5 @@
 import 'package:client/core/constants/app_colors.dart';
-import 'package:client/core/constants/app_text_styles.dart';
-import 'package:client/shared/widgets/app_panel.dart';
+import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:flutter/material.dart';
 
 /// One dashboard number.
@@ -28,18 +27,31 @@ class MetricTile extends StatelessWidget {
   /// Change since the previous period, e.g. "-2.1%". The sign picks the color.
   final String? trend;
 
-  Color get _trendColor {
+  StitchTone get _trendTone {
     final text = trend;
-    if (text == null) return AppColors.textSecondary;
-    if (text.startsWith('-')) return AppColors.errorText;
-    if (text.startsWith('+')) return AppColors.successText;
-    return AppColors.textSecondary;
+    if (text == null) return StitchTone.neutral;
+    if (text.startsWith('-')) return StitchTone.danger;
+    if (text.startsWith('+')) return StitchTone.success;
+    return StitchTone.neutral;
   }
 
   @override
   Widget build(BuildContext context) {
     final note = caption;
-    return AppPanel(
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: StitchColors.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: StitchColors.cardBorder),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A0F172A),
+            blurRadius: 10,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -52,35 +64,34 @@ class MetricTile extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 11,
+                    fontSize: 11.5,
                     fontWeight: FontWeight.w700,
-                    letterSpacing: 0.8,
-                    color: AppColors.textSecondary,
+                    letterSpacing: 0.4,
+                    color: StitchColors.inkMuted,
                   ),
                 ),
               ),
-              if (trend != null)
-                Text(
-                  trend!,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: _trendColor,
-                  ),
-                ),
+              if (trend != null) ...[
+                const SizedBox(width: 6),
+                StitchPill(label: trend!, tone: _trendTone),
+              ],
             ],
           ),
-          const SizedBox(height: 10),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontFamily: AppTextStyles.cinzelFont,
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-              fontFeatures: [FontFeature.tabularFigures()],
+          const SizedBox(height: 8),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.4,
+                color: StitchColors.ink,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
             ),
           ),
           if (note != null) ...[
@@ -91,6 +102,7 @@ class MetricTile extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 fontSize: 12,
+                fontWeight: FontWeight.w500,
                 color: AppColors.textSecondary,
               ),
             ),

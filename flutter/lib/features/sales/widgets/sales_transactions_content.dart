@@ -126,7 +126,9 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
       sale.invoiceNo != null && sale.invoiceNo!.trim().isNotEmpty;
 
   bool get _isCashierRemodel =>
-      widget.role == SalesTransactionsRole.cashier && !widget.orTracking;
+      !widget.orTracking &&
+      (widget.role == SalesTransactionsRole.cashier ||
+          widget.role == SalesTransactionsRole.storeManager);
 
   bool get _dateFiltered => _date != _anyDate;
 
@@ -309,9 +311,107 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
     final chipLabel = widget.orTracking ? 'OR' : 'Status';
     final chips = widget.orTracking ? _orChips : _statusChips;
     final chipSelected = widget.orTracking ? _or : _status;
+    final stockCompleted = scoped
+        .where((s) => s.status == InventorySaleStatus.completed)
+        .toList();
+    final stockUnitsOut = stockCompleted.fold<double>(
+      0,
+      (sum, s) => sum + s.totalQuantity,
+    );
+    final stockLineItems = stockCompleted.fold<int>(
+      0,
+      (sum, s) => sum + s.lines.length,
+    );
+    final stockReversed = scoped
+        .where(
+          (s) =>
+              s.status == InventorySaleStatus.voided ||
+              s.status == InventorySaleStatus.refunded,
+        )
+        .length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (widget.role == SalesTransactionsRole.stockManager) ...[
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final cards = [
+                StitchKpiCard(
+                  compact: true,
+                  label: 'Sales Slips',
+                  value: formatCount(scoped.length),
+                  subtitle: '${formatCount(stockCompleted.length)} completed',
+                  icon: Icons.receipt_long_outlined,
+                  tone: StitchTone.primary,
+                  pillLabel: 'Warehouse log',
+                  pillTone: StitchTone.primary,
+                ),
+                StitchKpiCard(
+                  compact: true,
+                  label: 'Units Deducted',
+                  value: _quantity(stockUnitsOut),
+                  subtitle: 'From completed sales',
+                  icon: Icons.inventory_2_outlined,
+                  tone: StitchTone.success,
+                  pillLabel: 'Stock out',
+                  pillTone: StitchTone.success,
+                ),
+                StitchKpiCard(
+                  compact: true,
+                  label: 'Line Items Sold',
+                  value: formatCount(stockLineItems),
+                  subtitle: 'Across completed slips',
+                  icon: Icons.list_alt_outlined,
+                  tone: StitchTone.neutral,
+                  pillLabel: 'Read-only',
+                  pillTone: StitchTone.neutral,
+                ),
+                StitchKpiCard(
+                  compact: true,
+                  label: 'Voided & Returned',
+                  value: formatCount(stockReversed),
+                  subtitle: 'Reversed deductions',
+                  icon: Icons.assignment_return_outlined,
+                  tone: stockReversed > 0
+                      ? StitchTone.danger
+                      : StitchTone.neutral,
+                  valueColor: stockReversed > 0
+                      ? StitchColors.danger
+                      : StitchColors.ink,
+                  pillLabel: stockReversed > 0 ? 'Reversed' : 'None',
+                  pillTone: stockReversed > 0
+                      ? StitchTone.danger
+                      : StitchTone.neutral,
+                ),
+              ];
+              if (constraints.maxWidth >= 980) {
+                return Row(
+                  children: [
+                    for (var i = 0; i < cards.length; i++) ...[
+                      Expanded(child: cards[i]),
+                      if (i < cards.length - 1)
+                        const SizedBox(width: AppSpacing.md),
+                    ],
+                  ],
+                );
+              }
+              return Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: [
+                  for (final card in cards)
+                    SizedBox(
+                      width: constraints.maxWidth >= 560
+                          ? (constraints.maxWidth - AppSpacing.sm) / 2
+                          : constraints.maxWidth,
+                      child: card,
+                    ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: AppSpacing.md),
+        ],
         FilterBar(
           searchHint: switch (widget.role) {
             SalesTransactionsRole.stockManager =>
@@ -438,15 +538,19 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
           builder: (context, constraints) {
             final cards = [
               StitchKpiCard(
+                compact: true,
                 label: 'Total Transactions',
                 value: formatCount(totalCount),
                 subtitle: '${formatPeso(grossVolume)} active volume',
                 icon: Icons.receipt_long_rounded,
                 tone: StitchTone.primary,
-                pillLabel: 'Live shift log',
+                pillLabel: widget.role == SalesTransactionsRole.storeManager
+                    ? 'Store sales log'
+                    : 'Live shift log',
                 pillTone: StitchTone.primary,
               ),
               StitchKpiCard(
+                compact: true,
                 label: 'Completed / Settled',
                 value: formatCount(completedList.length),
                 subtitle: '${settledPct.toStringAsFixed(1)}% of listed sales',
@@ -456,6 +560,7 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
                 pillTone: StitchTone.success,
               ),
               StitchKpiCard(
+                compact: true,
                 label: 'Utang / Credit',
                 value: formatCount(creditList.length),
                 subtitle: '${formatPeso(creditVolume)} credit sales',
@@ -467,6 +572,7 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
                     : StitchTone.warning,
               ),
               StitchKpiCard(
+                compact: true,
                 label: 'Voided & Returned',
                 value: formatCount(reversedList.length),
                 subtitle: '${formatPeso(reversedVolume)} reversed',
@@ -696,12 +802,16 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
                     ),
                 ],
               ),
+              if (widget.role == SalesTransactionsRole.storeManager) ...[
+                const SizedBox(height: 6),
+                _buildDateCaptionRow(rows.length),
+              ],
             ],
           ),
         ),
         const SizedBox(height: AppSpacing.md),
 
-        // 3. Remodeled Transaction Table (separate Transaction & OS # and OR # columns)
+        // 3. Unified Stitch Transaction Table (separate Transaction & OS # and OR # columns)
         Expanded(
           child: LayoutBuilder(
             builder: (context, slot) {
@@ -712,7 +822,9 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
                 count: rows.length,
                 columns: _columns(withAction: !cards),
                 rows: rows,
-                pageSize: 10,
+                pageSize: widget.role == SalesTransactionsRole.storeManager
+                    ? 25
+                    : 10,
                 showPageSizePicker: !cards,
                 emptyMessage: _filtered
                     ? 'No transactions match these filters.'
@@ -782,7 +894,10 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
       return [
         _cashierTxnOsColumn(),
         _orColumn(),
-        _customerColumn(flex: 2),
+        _customerColumn(
+          flex: 2,
+          withSource: widget.role == SalesTransactionsRole.storeManager,
+        ),
         _itemsSummaryColumn(),
         _paymentColumn(flex: 2),
         _statusColumn(),
@@ -1248,72 +1363,118 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
       value % 1 == 0 ? formatCount(value.toInt()) : salesQty(value);
 
   void _openDocument(BuildContext context, InventorySale initialSale) {
-    showModalBottomSheet<SalesDocumentAction>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        InventorySalesViewmodel? vm;
-        try {
-          vm = Provider.of<InventorySalesViewmodel>(sheetContext);
-        } on ProviderNotFoundException {
-          vm = null;
-        }
-        final sale =
-            vm?.sales
-                .where((s) => s.transactionNo == initialSale.transactionNo)
-                .firstOrNull ??
-            initialSale;
-        return SalesDocumentSheet(
-          title: sale.transactionNo,
-          fields: [
-            if (sale.orNumber.isNotEmpty) ('Order Slip (OS)', sale.orNumber),
-            ('OR #', _isTagged(sale) ? sale.invoiceNo!.trim() : 'None'),
-            ('Date', formatDateTime(sale.date)),
-            ('Customer', sale.customer),
-            ('Cashier', sale.cashier),
-            if (widget.role == SalesTransactionsRole.storeManager)
-              ('Source', sale.source),
-            ('Items', formatCount(sale.lines.length)),
-            ('Units out', _quantity(sale.totalQuantity)),
-            for (final payment in sale.payments)
-              (
-                'Payment (${TenderMethod.labelFor(payment.method)})',
-                formatPeso(payment.amount),
-              ),
-            if (sale.creditSale) ('Pricing', 'Credit price (utang)'),
-            if (sale.bodegaDetailLabel != null)
-              ('Bodega pickup', sale.bodegaDetailLabel!),
-            if (sale.discountAmount > 0)
-              (
-                sale.discountReason.trim().isEmpty
-                    ? 'Discount'
-                    : 'Discount (${sale.discountReason})',
-                formatPeso(sale.discountAmount),
-              ),
-            if (sale.paymentFee > 0)
-              ('Payment fee', formatPeso(sale.paymentFee)),
-            if (sale.vatRegistered) ...[
-              ('Vatable sales', formatPeso(sale.vatableSales)),
-              ('VAT', formatPeso(sale.vatAmount)),
-            ] else
-              ('VAT', 'Non-VAT'),
-            ('Status', sale.displayStatusLabel),
-            if (sale.notes.trim().isNotEmpty) ('Notes', sale.notes.trim()),
-          ],
-          lines: [
-            for (final line in sale.lines)
-              SalesDocumentLine(
-                name: line.productName,
-                qty: line.quantity,
-                unitPrice: line.unitPrice,
-              ),
-          ],
-          total: sale.amountDue,
-        );
-      },
+    showInventorySaleDetailSheet(
+      context,
+      initialSale,
+      showSource: widget.role == SalesTransactionsRole.storeManager,
+      showUnitsOut: widget.role == SalesTransactionsRole.stockManager,
     );
   }
+}
+
+/// Formats a sale or return line item as `Product · Variant (UOM)` while
+/// avoiding redundant labels when variant/UOM match the base product name.
+String formatSaleLineName(InventorySaleLine line) {
+  final base = line.productName.trim().isNotEmpty
+      ? line.productName.trim()
+      : line.sku.trim();
+  final variant = line.variantName.trim();
+  final uom = line.sku.trim();
+  final showVariant =
+      variant.isNotEmpty &&
+      variant.toLowerCase() != 'standard' &&
+      variant.toLowerCase() != base.toLowerCase() &&
+      variant.toLowerCase() != uom.toLowerCase();
+  final showUom = uom.isNotEmpty && uom.toLowerCase() != base.toLowerCase();
+  final buf = StringBuffer(base);
+  if (showVariant) buf.write(' · $variant');
+  if (showUom) buf.write(' ($uom)');
+  return buf.toString();
+}
+
+/// Opens the full read-only transaction detail sheet with every metadata field
+/// (OS #, OR #, cashier, customer, tender breakdown, VAT, notes) and ALL items
+/// bought with full product + variant + UOM labels.
+void showInventorySaleDetailSheet(
+  BuildContext context,
+  InventorySale initialSale, {
+  bool showSource = false,
+  bool showUnitsOut = false,
+}) {
+  showModalBottomSheet<SalesDocumentAction>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheetContext) {
+      InventorySalesViewmodel? vm;
+      try {
+        vm = Provider.of<InventorySalesViewmodel>(sheetContext);
+      } on ProviderNotFoundException {
+        vm = null;
+      }
+      final sale =
+          vm?.sales
+              .where((s) => s.transactionNo == initialSale.transactionNo)
+              .firstOrNull ??
+          initialSale;
+      final isTagged =
+          sale.invoiceNo != null && sale.invoiceNo!.trim().isNotEmpty;
+
+      return SalesDocumentSheet(
+        title: sale.transactionNo,
+        fields: [
+          if (sale.orNumber.isNotEmpty) ('Order Slip (OS)', sale.orNumber),
+          ('OR #', isTagged ? sale.invoiceNo!.trim() : 'None (Order Slip)'),
+          ('Date', formatDateTime(sale.date)),
+          ('Customer', sale.customer),
+          if (sale.cashier.isNotEmpty) ('Cashier', sale.cashier),
+          if (showSource) ('Source', sale.source),
+          if (showUnitsOut)
+            (
+              'Units out',
+              sale.totalQuantity % 1 == 0
+                  ? formatCount(sale.totalQuantity.toInt())
+                  : salesQty(sale.totalQuantity),
+            ),
+          ('Items bought', formatCount(sale.lines.length)),
+          ('Units out', formatQuantity(sale.totalQuantity)),
+          for (final payment in sale.payments)
+            (
+              'Payment (${TenderMethod.labelFor(payment.method)})',
+              formatPeso(payment.amount),
+            ),
+          if (sale.creditSale) ('Pricing', 'Credit price (utang)'),
+          if (sale.bodegaDetailLabel != null)
+            ('Bodega pickup', sale.bodegaDetailLabel!),
+          if (sale.discountAmount > 0)
+            (
+              sale.discountReason.trim().isEmpty
+                  ? 'Discount'
+                  : 'Discount (${sale.discountReason})',
+              formatPeso(sale.discountAmount),
+            ),
+          if (sale.paymentFee > 0)
+            ('Payment fee', formatPeso(sale.paymentFee)),
+          if (sale.vatRegistered) ...[
+            ('Vatable sales', formatPeso(sale.vatableSales)),
+            ('12% VAT', formatPeso(sale.vatAmount)),
+          ] else
+            ('VAT', 'Non-VAT'),
+          ('Status', sale.displayStatusLabel),
+          if (sale.notes.trim().isNotEmpty) ('Notes', sale.notes.trim()),
+        ],
+        lines: [
+          for (final line in sale.lines)
+            SalesDocumentLine(
+              name: formatSaleLineName(line),
+              qty: line.quantity,
+              unitPrice: line.unitPrice,
+            ),
+        ],
+        total: sale.amountDue,
+      );
+    },
+  );
 }
 
 class _SegmentedStatusPill extends StatelessWidget {

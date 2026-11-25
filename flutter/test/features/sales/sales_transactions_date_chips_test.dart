@@ -8,7 +8,6 @@
 import 'package:client/core/theme/app_theme.dart';
 import 'package:client/data/models/sales.dart';
 import 'package:client/features/sales/widgets/sales_transactions_content.dart';
-import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -24,7 +23,7 @@ void main() {
     SalesTransactionsRole role = SalesTransactionsRole.storeManager,
     List<InventorySale>? sales,
   }) async {
-    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.physicalSize = const Size(1440, 1200);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
@@ -43,15 +42,19 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// Scoped to the bar: a status or the word Refunded also sits in the rows.
-  Future<void> tapChip(WidgetTester tester, String label) async {
-    await tester.tap(
-      find.descendant(of: find.byType(FilterBar), matching: find.text(label)),
-    );
+  /// Selects a date preset from the unified date dropdown pill.
+  Future<void> selectDate(
+    WidgetTester tester,
+    String currentLabel,
+    String targetLabel,
+  ) async {
+    await tester.tap(find.text(currentLabel).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(targetLabel).last);
     await tester.pumpAndSettle();
   }
 
-  testWidgets('the date chips narrow the loaded rows at a fixed now', (
+  testWidgets('the date filter narrows the loaded rows at a fixed now', (
     tester,
   ) async {
     await pumpContent(tester);
@@ -62,14 +65,13 @@ void main() {
       expect(find.text(no), findsOneWidget, reason: no);
     }
 
-    await tapChip(tester, 'Today');
+    await selectDate(tester, 'All dates', 'Today');
     expect(find.text('TRX-20261030-0001'), findsOneWidget);
     for (final no in _all.where((no) => no != 'TRX-20261030-0001')) {
       expect(find.text(no), findsNothing, reason: 'Today keeps only today');
     }
 
-    await tapChip(tester, 'All dates');
-    await tapChip(tester, 'This week');
+    await selectDate(tester, 'Today', 'This week');
     expect(find.text('TRX-20261026-0003'), findsOneWidget, reason: 'Monday');
     expect(
       find.text('TRX-20261025-0002'),
@@ -77,7 +79,7 @@ void main() {
       reason: 'Sunday belongs to last week: the week starts Monday',
     );
 
-    await tapChip(tester, 'This month');
+    await selectDate(tester, 'This week', 'This month');
     expect(
       find.text('TRX-20261025-0002'),
       findsOneWidget,
@@ -85,19 +87,20 @@ void main() {
     );
     expect(find.text('TRX-20260930-0001'), findsNothing, reason: 'last month');
 
-    await tapChip(tester, 'All dates');
+    await selectDate(tester, 'This month', 'All dates');
     for (final no in _all) {
       expect(find.text(no), findsOneWidget, reason: no);
     }
   });
 
-  testWidgets('a date chip combines with a status chip and the search text', (
+  testWidgets('a date filter combines with a status pill', (
     tester,
   ) async {
     await pumpContent(tester);
 
-    await tapChip(tester, 'Refunded');
-    await tapChip(tester, 'This month');
+    await tester.tap(find.textContaining('Refunded ('));
+    await tester.pumpAndSettle();
+    await selectDate(tester, 'All dates', 'This month');
     expect(find.text('TRX-20261025-0002'), findsOneWidget);
     expect(
       find.text('TRX-20261020-0004'),
@@ -107,14 +110,14 @@ void main() {
     expect(
       find.text('TRX-20261030-0001'),
       findsNothing,
-      reason: 'completed sales are filtered out by the status chip',
+      reason: 'completed sales are filtered out by the status pill',
     );
 
-    await tapChip(tester, 'This week');
+    await selectDate(tester, 'This month', 'This week');
     expect(
       find.text('TRX-20261020-0004'),
       findsNothing,
-      reason: 'the week chip and the status chip must both hold',
+      reason: 'the week filter and the status pill must both hold',
     );
     expect(
       find.text('TRX-20261025-0002'),
@@ -128,11 +131,9 @@ void main() {
     );
   });
 
-  testWidgets('the cashier keeps status and search only', (tester) async {
+  testWidgets('the cashier omits the loaded-rows caption', (tester) async {
     await pumpContent(tester, role: SalesTransactionsRole.cashier);
 
-    expect(find.text('Today'), findsNothing);
-    expect(find.text('This week'), findsNothing);
     expect(find.text(_caption), findsNothing);
   });
 }

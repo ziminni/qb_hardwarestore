@@ -5,6 +5,7 @@ import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
 import 'package:client/shared/widgets/status_badge.dart';
+import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:flutter/material.dart';
 
 // The building blocks of Admin → Dashboard, built once and shared by all five
@@ -21,24 +22,24 @@ const double _barHeight = 6;
 /// Colour of a status as (text, tint, bar).
 (Color, Color, Color) _toneColors(StatusTone tone) => switch (tone) {
   StatusTone.success => (
-    AppColors.successText,
-    AppColors.successTint,
-    AppColors.success,
+    StitchColors.successInk,
+    StitchColors.successTint,
+    StitchColors.success,
   ),
   StatusTone.warning => (
-    AppColors.warningText,
-    AppColors.warningTint,
-    AppColors.warning,
+    StitchColors.warningInk,
+    StitchColors.warningTint,
+    StitchColors.warning,
   ),
   StatusTone.error => (
-    AppColors.errorText,
-    AppColors.errorTint,
-    AppColors.error,
+    StitchColors.dangerInk,
+    StitchColors.dangerTint,
+    StitchColors.danger,
   ),
   StatusTone.info || StatusTone.neutral => (
-    AppColors.brandGoldText,
-    AppColors.brandGoldLight.withValues(alpha: 0.35),
-    AppColors.brandGold,
+    StitchColors.primaryDeep,
+    StitchColors.primarySoft,
+    StitchColors.primary,
   ),
 };
 
@@ -248,7 +249,7 @@ class DashboardColumns extends StatelessWidget {
   );
 }
 
-/// Light gold strip for a tab the Admin only reads: who records this data.
+/// Info strip for a tab the Admin only reads: who records this data.
 class ReadOnlyBanner extends StatelessWidget {
   const ReadOnlyBanner(this.message, {super.key});
   final String message;
@@ -261,22 +262,26 @@ class ReadOnlyBanner extends StatelessWidget {
       vertical: AppSpacing.md,
     ),
     decoration: BoxDecoration(
-      color: AppColors.brandGoldLight.withValues(alpha: 0.28),
-      borderRadius: BorderRadius.circular(AppRadii.medium),
-      border: Border.all(color: AppColors.brandGoldLight),
+      color: StitchColors.primarySoft,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: StitchColors.primary.withValues(alpha: 0.2)),
     ),
     child: Row(
       children: [
         const Icon(
           Icons.visibility_outlined,
           size: 18,
-          color: AppColors.brandGoldText,
+          color: StitchColors.primaryDeep,
         ),
         const SizedBox(width: AppSpacing.md),
         Expanded(
           child: Text(
             message,
-            style: const TextStyle(color: AppColors.brandGoldText),
+            style: const TextStyle(
+              color: StitchColors.primaryDeep,
+              fontWeight: FontWeight.w500,
+              fontSize: 13,
+            ),
           ),
         ),
       ],
@@ -375,31 +380,41 @@ class DashboardCard extends StatelessWidget {
         ],
       ),
     );
-    return Material(
-      color: AppColors.cardBackground,
-      shape: RoundedRectangleBorder(
-        side: const BorderSide(color: AppColors.border),
-        borderRadius: BorderRadius.circular(AppRadii.large),
+    return Container(
+      decoration: BoxDecoration(
+        color: StitchColors.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: StitchColors.cardBorder),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A0F172A),
+            blurRadius: 12,
+            offset: Offset(0, 3),
+          ),
+        ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          header,
-          if (edgeToEdge) ...[
-            const Divider(height: 1),
-            child,
-          ] else
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.lg,
-                0,
-                AppSpacing.lg,
-                AppSpacing.lg,
+      child: Material(
+        color: Colors.transparent,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            header,
+            if (edgeToEdge) ...[
+              const Divider(height: 1, color: StitchColors.divider),
+              child,
+            ] else
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg,
+                  0,
+                  AppSpacing.lg,
+                  AppSpacing.lg,
+                ),
+                child: child,
               ),
-              child: child,
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -917,7 +932,7 @@ class _DashboardTabButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? AppColors.textPrimary : AppColors.textSecondary;
+    final color = selected ? StitchColors.primaryDeep : StitchColors.inkMuted;
     return Semantics(
       selected: selected,
       button: true,
@@ -956,7 +971,9 @@ class _DashboardTabButton extends StatelessWidget {
                 Container(
                   height: 3,
                   decoration: BoxDecoration(
-                    color: selected ? AppColors.brandGold : Colors.transparent,
+                    color: selected
+                        ? StitchColors.primaryDeep
+                        : Colors.transparent,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -1047,8 +1064,8 @@ class DashboardStat extends StatelessWidget {
                   child: LinearProgressIndicator(
                     value: share!.clamp(0, 1),
                     minHeight: _barHeight,
-                    color: AppColors.brandGold,
-                    backgroundColor: AppColors.surfaceMuted,
+                    color: StitchColors.primary,
+                    backgroundColor: StitchColors.surfaceCanvas,
                   ),
                 ),
               ],

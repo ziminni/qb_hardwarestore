@@ -20,6 +20,7 @@ import 'package:client/shared/widgets/metric_grid.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
 import 'package:client/shared/widgets/settings_side_layout.dart'
     show StoreInformationPanel;
+import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -83,6 +84,8 @@ class ReportViewerView extends StatefulWidget {
   State<ReportViewerView> createState() => _ReportViewerViewState();
 }
 
+enum _VatStreamFilter { consolidated, orOnly, osOnly }
+
 class _ReportViewerViewState extends State<ReportViewerView> {
   late final ReportsRepository _repository =
       widget.repository ?? ReportsRepository();
@@ -90,6 +93,11 @@ class _ReportViewerViewState extends State<ReportViewerView> {
   late DateTimeRange _range = widget.initialRange ?? _lastThirtyDays();
   final _searchController = TextEditingController();
   String _tableQuery = '';
+
+  /// VAT Ledger interactive stream filter and period granularity.
+  _VatStreamFilter _vatStream = _VatStreamFilter.consolidated;
+  String _vatGranularity = 'day';
+  VatReportSummary? _vatReport;
 
   /// The loaded report, already shaped for the tiles and the table.
   _ReportView? _view;
@@ -149,9 +157,13 @@ class _ReportViewerViewState extends State<ReportViewerView> {
             await _repository.fetchSalesSummary(from: from, to: to),
           );
         case 'vat-summary':
-          view = _vatView(
-            await _repository.fetchVatSummary(from: from, to: to),
+          final vatSummary = await _repository.fetchVatSummary(
+            from: from,
+            to: to,
+            granularity: _vatGranularity,
           );
+          _vatReport = vatSummary;
+          view = _vatView(vatSummary, stream: _vatStream);
         case 'inventory-valuation':
           view = _valuationView(await _repository.fetchInventoryValuation());
         case 'stock-movements':
@@ -337,75 +349,160 @@ class _ReportViewerViewState extends State<ReportViewerView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Wrap(
-          spacing: AppSpacing.sm,
-          runSpacing: AppSpacing.sm,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            if (widget.onBack != null)
-              TextButton.icon(
-                key: const ValueKey('report-viewer-back'),
-                onPressed: widget.onBack,
-                icon: const Icon(Icons.arrow_back_rounded, size: 18),
-                label: const Text('All reports'),
+        if (widget.report.id != 'vat-summary') ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: StitchColors.card,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: StitchColors.cardBorder),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x0A0F172A),
+                  blurRadius: 10,
+                  offset: Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: StitchColors.primarySoft,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    widget.report.section == ReportSection.inventory
+                        ? Icons.inventory_2_outlined
+                        : Icons.analytics_outlined,
+                    size: 20,
+                    color: StitchColors.primaryDeep,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            widget.report.title,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.2,
+                              color: StitchColors.ink,
+                            ),
+                          ),
+                          StitchPill(
+                            label: widget.report.section ==
+                                    ReportSection.inventory
+                                ? 'Inventory report'
+                                : 'Sales report',
+                            tone: StitchTone.primary,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        widget.report.description,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: StitchColors.inkMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+        ],
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: StitchColors.card,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: StitchColors.cardBorder),
+          ),
+          child: Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              if (widget.onBack != null)
+                TextButton.icon(
+                  key: const ValueKey('report-viewer-back'),
+                  onPressed: widget.onBack,
+                  icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                  label: const Text('All reports'),
+                ),
+              ChoiceChip(
+                key: const ValueKey('report-preset-today'),
+                label: const Text('Today'),
+                selected: _matchesRange(todayRange),
+                onSelected: (_) => _applyPreset(todayRange),
               ),
-            ChoiceChip(
-              key: const ValueKey('report-preset-today'),
-              label: const Text('Today'),
-              selected: _matchesRange(todayRange),
-              onSelected: (_) => _applyPreset(todayRange),
-            ),
-            ChoiceChip(
-              key: const ValueKey('report-preset-week'),
-              label: const Text('This Week'),
-              selected: _matchesRange(weekRange),
-              onSelected: (_) => _applyPreset(weekRange),
-            ),
-            ChoiceChip(
-              key: const ValueKey('report-preset-month'),
-              label: const Text('This Month'),
-              selected: _matchesRange(monthRange),
-              onSelected: (_) => _applyPreset(monthRange),
-            ),
-            ChoiceChip(
-              key: const ValueKey('report-preset-30d'),
-              label: const Text('Last 30 Days'),
-              selected: _matchesRange(thirtyRange),
-              onSelected: (_) => _applyPreset(thirtyRange),
-            ),
-            OutlinedButton.icon(
-              key: const ValueKey('report-viewer-range'),
-              onPressed: _pickRange,
-              icon: const Icon(Icons.event_outlined, size: 18),
-              label: Text(
-                '${formatDate(_range.start)} to ${formatDate(_range.end)}',
+              ChoiceChip(
+                key: const ValueKey('report-preset-week'),
+                label: const Text('This Week'),
+                selected: _matchesRange(weekRange),
+                onSelected: (_) => _applyPreset(weekRange),
               ),
-            ),
-            OutlinedButton.icon(
-              key: const ValueKey('report-viewer-refresh'),
-              onPressed: _loading ? null : _load,
-              icon: const Icon(Icons.refresh_rounded, size: 18),
-              label: const Text('Refresh'),
-            ),
-            // A report that wired a letterhead builder exports a PDF
-            // (decision 01-export-layout); the rest keep the button off and
-            // say when it lands, rather than pressed into a no-op.
-            Tooltip(
-              message: view?.pdfBytes == null ? 'PDF export arrives in P3' : '',
-              child: OutlinedButton.icon(
-                key: const ValueKey('report-viewer-export-pdf'),
-                onPressed: view?.pdfBytes == null ? null : _exportPdf,
-                icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
-                label: const Text('Export PDF'),
+              ChoiceChip(
+                key: const ValueKey('report-preset-month'),
+                label: const Text('This Month'),
+                selected: _matchesRange(monthRange),
+                onSelected: (_) => _applyPreset(monthRange),
               ),
-            ),
-            // Same rule for Excel: a report with a workbook builder exports, and
-            // one without keeps the button off and says when it lands.
-            if (view?.excelBytes != null)
-              excel
-            else
-              Tooltip(message: 'Excel lands in P3', child: excel),
-          ],
+              ChoiceChip(
+                key: const ValueKey('report-preset-30d'),
+                label: const Text('Last 30 Days'),
+                selected: _matchesRange(thirtyRange),
+                onSelected: (_) => _applyPreset(thirtyRange),
+              ),
+              OutlinedButton.icon(
+                key: const ValueKey('report-viewer-range'),
+                onPressed: _pickRange,
+                icon: const Icon(Icons.event_outlined, size: 18),
+                label: Text(
+                  '${formatDate(_range.start)} to ${formatDate(_range.end)}',
+                ),
+              ),
+              OutlinedButton.icon(
+                key: const ValueKey('report-viewer-refresh'),
+                onPressed: _loading ? null : _load,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('Refresh'),
+              ),
+              // A report that wired a letterhead builder exports a PDF
+              // (decision 01-export-layout); the rest keep the button off and
+              // say when it lands, rather than pressed into a no-op.
+              Tooltip(
+                message: view?.pdfBytes == null ? 'PDF export arrives in P3' : '',
+                child: OutlinedButton.icon(
+                  key: const ValueKey('report-viewer-export-pdf'),
+                  onPressed: view?.pdfBytes == null ? null : _exportPdf,
+                  icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                  label: const Text('Export PDF'),
+                ),
+              ),
+              // Same rule for Excel: a report with a workbook builder exports, and
+              // one without keeps the button off and says when it lands.
+              if (view?.excelBytes != null)
+                excel
+              else
+                Tooltip(message: 'Excel lands in P3', child: excel),
+            ],
+          ),
         ),
         const SizedBox(height: AppSpacing.md),
         if (_loading)
@@ -421,7 +518,25 @@ class _ReportViewerViewState extends State<ReportViewerView> {
             child: ErrorBanner(message: failure, onRetry: _load),
           )
         else if (view != null) ...[
-          if (view.kpis.isNotEmpty) ...[
+          if (widget.report.id == 'vat-summary' && _vatReport != null) ...[
+            _VatLedgerHeroSection(
+              report: _vatReport!,
+              stream: _vatStream,
+              granularity: _vatGranularity,
+              onStreamChanged: (next) {
+                setState(() {
+                  _vatStream = next;
+                  _view = _vatView(_vatReport!, stream: next);
+                });
+              },
+              onGranularityChanged: (next) {
+                if (next == _vatGranularity) return;
+                setState(() => _vatGranularity = next);
+                _load();
+              },
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ] else if (view.kpis.isNotEmpty) ...[
             MetricGrid(
               children: [
                 for (final kpi in view.kpis)
@@ -684,8 +799,232 @@ _ReportView _salesView(SalesSummary sales) {
   );
 }
 
-_ReportView _vatView(VatReportSummary report) => _ReportView(
-  kpis: [
+class _VatLedgerHeroSection extends StatelessWidget {
+  const _VatLedgerHeroSection({
+    required this.report,
+    required this.stream,
+    required this.granularity,
+    required this.onStreamChanged,
+    required this.onGranularityChanged,
+  });
+
+  final VatReportSummary report;
+  final _VatStreamFilter stream;
+  final String granularity;
+  final ValueChanged<_VatStreamFilter> onStreamChanged;
+  final ValueChanged<String> onGranularityChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final totals = report.totals;
+    final totalGross = totals.combined.grossSales;
+    final orShare = totalGross > 0
+        ? (totals.orBacked.grossSales / totalGross * 100)
+        : 0.0;
+    final osShare = totalGross > 0
+        ? (totals.untaggedOs.grossSales / totalGross * 100)
+        : 0.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        StitchSectionCard(
+          key: const ValueKey('report-viewer-vat-hero'),
+          icon: Icons.account_balance_outlined,
+          overline: 'DUAL-STREAM TAX LEDGER',
+          title: 'Official Receipt (OR) & Untagged Order Slip VAT Ledger',
+          subtitle:
+              'Real-time segregation of 12% Output VAT on OR-tagged invoices vs. internal untagged order slips.',
+          trailing: Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.xs,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              StitchSegmentedBar<_VatStreamFilter>(
+                selected: stream,
+                onSelected: onStreamChanged,
+                items: const [
+                  (
+                    value: _VatStreamFilter.consolidated,
+                    label: 'Consolidated (OR + OS)',
+                    key: ValueKey('vat-stream-consolidated'),
+                  ),
+                  (
+                    value: _VatStreamFilter.orOnly,
+                    label: 'Official Receipt (OR) Only',
+                    key: ValueKey('vat-stream-or-only'),
+                  ),
+                  (
+                    value: _VatStreamFilter.osOnly,
+                    label: 'Untagged Order Slips (OS) Only',
+                    key: ValueKey('vat-stream-os-only'),
+                  ),
+                ],
+              ),
+              StitchSegmentedBar<String>(
+                selected: granularity,
+                onSelected: onGranularityChanged,
+                items: const [
+                  (value: 'day', label: 'Daily', key: ValueKey('vat-gran-day')),
+                  (
+                    value: 'week',
+                    label: 'Weekly',
+                    key: ValueKey('vat-gran-week'),
+                  ),
+                  (
+                    value: 'month',
+                    label: 'Monthly',
+                    key: ValueKey('vat-gran-month'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          child: MetricGrid(
+            minTileWidth: 230,
+            children: [
+              StitchKpiCard(
+                label: 'Total Invoiced (All Streams)',
+                value: formatPeso(totals.combined.grossSales),
+                icon: Icons.payments_outlined,
+                tone: StitchTone.primary,
+                subtitle:
+                    'Whole VAT ${formatPeso(totals.combined.vat)} · ${formatCount(totals.combined.transactions)} slips',
+                pillLabel: 'Consolidated',
+                pillTone: StitchTone.primary,
+              ),
+              StitchKpiCard(
+                label: 'Official Receipt (OR) Sales',
+                value: formatPeso(totals.orBacked.grossSales),
+                icon: Icons.verified_outlined,
+                tone: StitchTone.primary,
+                subtitle:
+                    '${formatCount(totals.orBacked.transactions)} OR invoices · ${orShare.toStringAsFixed(0)}% share',
+                pillLabel: 'OR-Tagged',
+                pillTone: StitchTone.primary,
+              ),
+              StitchKpiCard(
+                label: '12% Output VAT (OR-Tagged)',
+                value: formatPeso(totals.orBacked.vat),
+                icon: Icons.account_balance_wallet_outlined,
+                tone: StitchTone.success,
+                valueColor: StitchColors.primaryDeep,
+                subtitle:
+                    'Vatable base ${formatPeso(totals.orBacked.vatableSales)}',
+                pillLabel: 'OR-tagged VAT',
+                pillTone: StitchTone.success,
+              ),
+              StitchKpiCard(
+                label: 'Order Slip (OS) Internal',
+                value: formatPeso(totals.untaggedOs.grossSales),
+                icon: Icons.description_outlined,
+                tone: StitchTone.neutral,
+                subtitle:
+                    'Untagged VAT ${formatPeso(totals.untaggedOs.vat)} · ${osShare.toStringAsFixed(0)}% share',
+                pillLabel:
+                    '${formatCount(totals.untaggedOs.transactions)} Order Slips',
+                pillTone: StitchTone.neutral,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+_ReportView _vatView(
+  VatReportSummary report, {
+  _VatStreamFilter stream = _VatStreamFilter.consolidated,
+}) {
+  final columns = switch (stream) {
+    _VatStreamFilter.consolidated => const [
+      'Period',
+      'OR Slips',
+      'OR Sales',
+      'OR VAT',
+      'OS Slips',
+      'OS Sales',
+      'Untagged VAT',
+      'Whole VAT',
+    ],
+    _VatStreamFilter.orOnly => const [
+      'Period',
+      'OR Slips',
+      'OR Gross Sales',
+      'Vatable Base',
+      '12% Output VAT',
+    ],
+    _VatStreamFilter.osOnly => const [
+      'Period',
+      'OS Slips',
+      'OS Gross Sales',
+      'Vatable Base',
+      'Untagged VAT',
+    ],
+  };
+
+  final rows = <List<String>>[
+    for (final period in report.periods)
+      switch (stream) {
+        _VatStreamFilter.consolidated => [
+          _dateLabel(period.period),
+          formatCount(period.orBackedTransactions),
+          formatPeso(period.orBackedSales),
+          formatPeso(period.orBackedVat),
+          formatCount(period.untaggedTransactions),
+          formatPeso(period.untaggedSales),
+          formatPeso(period.untaggedVat),
+          formatPeso(period.vat),
+        ],
+        _VatStreamFilter.orOnly => [
+          _dateLabel(period.period),
+          formatCount(period.orBackedTransactions),
+          formatPeso(period.orBackedSales),
+          formatPeso(period.orBackedVatable),
+          formatPeso(period.orBackedVat),
+        ],
+        _VatStreamFilter.osOnly => [
+          _dateLabel(period.period),
+          formatCount(period.untaggedTransactions),
+          formatPeso(period.untaggedSales),
+          formatPeso(period.untaggedVatable),
+          formatPeso(period.untaggedVat),
+        ],
+      },
+    if (report.periods.isNotEmpty)
+      switch (stream) {
+        _VatStreamFilter.consolidated => [
+          'Total',
+          formatCount(report.totals.orBacked.transactions),
+          formatPeso(report.totals.orBacked.grossSales),
+          formatPeso(report.totals.orBacked.vat),
+          formatCount(report.totals.untaggedOs.transactions),
+          formatPeso(report.totals.untaggedOs.grossSales),
+          formatPeso(report.totals.untaggedOs.vat),
+          formatPeso(report.totals.combined.vat),
+        ],
+        _VatStreamFilter.orOnly => [
+          'Total',
+          formatCount(report.totals.orBacked.transactions),
+          formatPeso(report.totals.orBacked.grossSales),
+          formatPeso(report.totals.orBacked.vatableSales),
+          formatPeso(report.totals.orBacked.vat),
+        ],
+        _VatStreamFilter.osOnly => [
+          'Total',
+          formatCount(report.totals.untaggedOs.transactions),
+          formatPeso(report.totals.untaggedOs.grossSales),
+          formatPeso(report.totals.untaggedOs.vatableSales),
+          formatPeso(report.totals.untaggedOs.vat),
+        ],
+      },
+  ];
+
+  final hasVatData =
+      report.totals.orBacked.vat > 0 || report.totals.untaggedOs.vat > 0;
+  final periodLabel = '${_dateLabel(report.from)} to ${_dateLabel(report.to)}';
+  final pdfKpis = <_Kpi>[
     (
       label: 'Whole VAT',
       value: formatPeso(report.totals.combined.vat),
@@ -694,61 +1033,77 @@ _ReportView _vatView(VatReportSummary report) => _ReportView(
     (
       label: 'OR-tagged VAT',
       value: formatPeso(report.totals.orBacked.vat),
-      caption: 'Slips carrying a paper OR number',
+      caption: 'Slips carrying an Official Receipt (OR)',
     ),
     (
       label: 'Untagged VAT',
       value: formatPeso(report.totals.untaggedOs.vat),
       caption: 'Order slips without an OR',
     ),
-  ],
-  columns: const ['Period', 'OR sales', 'OR VAT', 'Untagged VAT', 'Whole VAT'],
-  rows: [
-    for (final period in report.periods)
-      [
-        _dateLabel(period.period),
-        formatPeso(period.orBackedSales),
-        formatPeso(period.orBackedVat),
-        formatPeso(period.untaggedVat),
-        formatPeso(period.vat),
-      ],
-    if (report.periods.isNotEmpty)
-      [
-        'Total',
-        formatPeso(report.totals.orBacked.grossSales),
-        formatPeso(report.totals.orBacked.vat),
-        formatPeso(report.totals.untaggedOs.vat),
-        formatPeso(report.totals.combined.vat),
-      ],
-  ],
-  emptyMessage: 'No sales recorded in this period.',
-  excelName:
-      'vat-or-report-${report.granularity}-${report.from}-to-${report.to}.xlsx',
-  excelBytes: () => buildVatReportXlsx(report),
-  charts: [
-    // Two VAT buckets are the whole report: what an OR backs, and what it does
-    // not. Zero in both buckets means the range had no VAT to divide.
-    if (report.totals.orBacked.vat > 0 || report.totals.untaggedOs.vat > 0)
-      ShareSplitChart(
-        key: const ValueKey('report-viewer-vat-split'),
-        title: 'Whole VAT vs OR-tagged',
-        subtitle:
-            'How the period’s VAT divides between OR-tagged slips and untagged order slips.',
-        slices: [
-          ShareSlice(
-            label: 'OR-tagged VAT',
-            value: report.totals.orBacked.vat,
-            amountText: formatPeso(report.totals.orBacked.vat),
-          ),
-          ShareSlice(
-            label: 'Untagged VAT',
-            value: report.totals.untaggedOs.vat,
-            amountText: formatPeso(report.totals.untaggedOs.vat),
-          ),
-        ],
-      ),
-  ],
-);
+  ];
+
+  return _ReportView(
+    kpis: pdfKpis,
+    columns: columns,
+    rows: rows,
+    emptyMessage: 'No sales recorded in this period.',
+    excelName:
+        'vat-or-report-${report.granularity}-${report.from}-to-${report.to}.xlsx',
+    excelBytes: () => buildVatReportXlsx(report),
+    pdfName:
+        'vat-or-ledger-${report.granularity}-${report.from}-to-${report.to}.pdf',
+    pdfBytes: (generatedBy) => renderReportPdf(
+      title: 'Official Receipt (OR) & Order Slip VAT Ledger',
+      period: periodLabel,
+      generatedBy: generatedBy,
+      storeName: StoreInformationPanel.storeName,
+      kpis: pdfKpis,
+      columns: columns,
+      rows: rows,
+    ),
+    charts: [
+      if (hasVatData && report.periods.isNotEmpty)
+        GroupedBarTrendChart(
+          key: const ValueKey('report-viewer-vat-trend'),
+          title: 'OR-Tagged vs. Untagged Order Slip VAT by Period',
+          subtitle:
+              'Compares 12% Output VAT from Official Receipts (OR) against untagged internal order slips.',
+          primaryLabel: 'OR-tagged VAT',
+          primaryColor: StitchColors.primaryDeep,
+          secondaryLabel: 'Untagged VAT',
+          secondaryColor: const Color(0xFF93C5FD),
+          height: 200,
+          points: [
+            for (final p in report.periods)
+              TrendPoint(
+                label: p.period.length >= 10 ? p.period.substring(5) : p.period,
+                primary: p.orBackedVat,
+                secondary: p.untaggedVat,
+              ),
+          ],
+        ),
+      if (hasVatData)
+        ShareSplitChart(
+          key: const ValueKey('report-viewer-vat-split'),
+          title: 'Whole VAT vs OR-tagged',
+          subtitle:
+              'How the period’s VAT divides between OR-tagged slips and untagged order slips.',
+          slices: [
+            ShareSlice(
+              label: 'OR-tagged VAT',
+              value: report.totals.orBacked.vat,
+              amountText: formatPeso(report.totals.orBacked.vat),
+            ),
+            ShareSlice(
+              label: 'Untagged VAT',
+              value: report.totals.untaggedOs.vat,
+              amountText: formatPeso(report.totals.untaggedOs.vat),
+            ),
+          ],
+        ),
+    ],
+  );
+}
 
 _ReportView _valuationView(InventoryValuation valuation) => _ReportView(
   kpis: [

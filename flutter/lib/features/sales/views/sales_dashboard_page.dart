@@ -21,6 +21,7 @@ import 'package:client/shared/widgets/metric_grid.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
 import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 /// The Store Manager's dashboard: what needs them now, then the numbers.
@@ -256,8 +257,7 @@ class _DashboardViewState extends State<_DashboardView> {
                   ),
                   FilledButton.icon(
                     key: const ValueKey('sales-dashboard-audit-vat'),
-                    onPressed: () =>
-                        _selectNavigation(context, _row('reports')),
+                    onPressed: () => context.go('/sales/reports/view/vat-summary'),
                     style: FilledButton.styleFrom(
                       backgroundColor: StitchColors.primaryDeep,
                       foregroundColor: Colors.white,
@@ -400,20 +400,15 @@ class _DashboardViewState extends State<_DashboardView> {
             _DualStreamTaxCard(
               breakdown: summary!.orVatBreakdown!,
               scopeCaption: scopeCaption,
-              onOpenReport: () => _selectNavigation(context, _row('reports')),
+              onOpenReport: () =>
+                  context.go('/sales/reports/view/vat-summary'),
             ),
           ],
-          // 2-Column Chart Hero
-          if (_preset == _DashboardRangePreset.today && hasScopedSales) ...[
+          // Unified 2-Column Chart Hero (consistent GroupedBarTrendChart + Tender Donut across all timeframes)
+          if (hasTrendDays || hasScopedSales) ...[
             const SizedBox(height: AppSpacing.lg),
-            _HourlyAndTenderRow(
-              scopedCompleted: scopedCompleted,
-              scopeCaption: scopeCaption,
-            ),
-          ] else if (_preset != _DashboardRangePreset.today &&
-              (hasTrendDays || hasScopedSales)) ...[
-            const SizedBox(height: AppSpacing.lg),
-            _TrendAndTenderRow(
+            _RevenueAndTenderHero(
+              isToday: _preset == _DashboardRangePreset.today,
               summary: hasTrendDays ? summary : null,
               scopedCompleted: hasScopedSales ? scopedCompleted : const [],
               scopeCaption: scopeCaption,
@@ -919,103 +914,104 @@ class _TaxSubMetric extends StatelessWidget {
   }
 }
 
-class _HourlyAndTenderRow extends StatelessWidget {
-  const _HourlyAndTenderRow({
-    required this.scopedCompleted,
-    required this.scopeCaption,
-  });
-
-  final List<InventorySale> scopedCompleted;
-  final String scopeCaption;
-
-  @override
-  Widget build(BuildContext context) {
-    final byHour = <int, double>{};
-    for (final sale in scopedCompleted) {
-      final h = sale.date.hour;
-      byHour[h] = (byHour[h] ?? 0) + sale.total;
-    }
-    final hourlyChart = TimeOfDayChart(
-      key: const ValueKey('sales-dashboard-hourly-chart'),
-      title: 'Hourly Revenue Stream ($scopeCaption)',
-      subtitle: 'Completed invoice revenue plotted by hour of day.',
-      byHour: byHour,
-      valueLabel: 'Hourly sales',
-      height: 190,
-    );
-    final tenderChart = _buildTenderDonut(scopedCompleted, scopeCaption);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 860) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              hourlyChart,
-              const SizedBox(height: AppSpacing.md),
-              tenderChart,
-            ],
-          );
-        }
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(flex: 3, child: hourlyChart),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(flex: 2, child: tenderChart),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _TrendAndTenderRow extends StatelessWidget {
-  const _TrendAndTenderRow({
+class _RevenueAndTenderHero extends StatelessWidget {
+  const _RevenueAndTenderHero({
+    required this.isToday,
     required this.summary,
     required this.scopedCompleted,
     required this.scopeCaption,
   });
 
+  final bool isToday;
   final SalesSummary? summary;
   final List<InventorySale> scopedCompleted;
   final String scopeCaption;
 
+  static String _hourLabel(int hour) {
+    final suffix = hour >= 12 ? 'P' : 'A';
+    final h12 = hour % 12 == 0 ? 12 : hour % 12;
+    return '$h12$suffix';
+  }
+
+  Widget? _buildPrimaryChart() {
+    if (isToday) {
+      if (scopedCompleted.isEmpty) return null;
+      final grossByHour = <int, double>{};
+      final orByHour = <int, double>{};
+      var minHour = 8;
+      var maxHour = 19;
+      var hasOrSales = false;
+      for (final sale in scopedCompleted) {
+        final h = sale.date.hour;
+        if (h < minHour) minHour = h;
+        if (h > maxHour) maxHour = h;
+        grossByHour[h] = (grossByHour[h] ?? 0) + sale.total;
+        if ((sale.invoiceNo ?? '').trim().isNotEmpty) {
+          hasOrSales = true;
+          orByHour[h] = (orByHour[h] ?? 0) + sale.total;
+        }
+      }
+      final points = <TrendPoint>[
+        for (var h = minHour; h <= maxHour; h++)
+          TrendPoint(
+            label: _hourLabel(h),
+            primary: grossByHour[h] ?? 0,
+            secondary: hasOrSales ? (orByHour[h] ?? 0) : null,
+          ),
+      ];
+      return GroupedBarTrendChart(
+        key: const ValueKey('sales-dashboard-hourly-chart'),
+        title: 'Hourly Revenue Stream ($scopeCaption)',
+        subtitle: hasOrSales
+            ? 'Bars compare total hourly invoice sales vs. OR-tagged official receipts.'
+            : 'Completed hourly invoice revenue across active store hours.',
+        primaryLabel: 'Gross sales',
+        primaryColor: StitchColors.primaryDeep,
+        secondaryLabel: hasOrSales ? 'OR-tagged' : null,
+        secondaryColor: const Color(0xFF93C5FD),
+        height: 210,
+        points: points,
+      );
+    }
+
+    if (summary == null || summary!.days.isEmpty) return null;
+    final hasCogs = summary!.days.any((d) => d.cogs != null);
+    final hasNetExVat = summary!.days.any((d) => d.merchandiseNetExVat != null);
+    return GroupedBarTrendChart(
+      key: const ValueKey('sales-dashboard-profit-chart'),
+      title: 'Daily Sales & Profit ($scopeCaption)',
+      subtitle: hasCogs
+          ? 'Bars compare net sales (ex-VAT) vs. landed COGS; line tracks gross profit.'
+          : 'Daily invoice sales across reported dates.',
+      primaryLabel: hasNetExVat ? 'Net sales' : 'Invoice total',
+      primaryColor: StitchColors.primaryDeep,
+      secondaryLabel: hasCogs ? 'COGS' : null,
+      secondaryColor: const Color(0xFF93C5FD),
+      lineLabel: hasCogs ? 'Profit' : null,
+      lineColor: StitchColors.success,
+      height: 210,
+      points: [
+        for (final day in summary!.days)
+          TrendPoint(
+            label: day.day.length >= 10 ? day.day.substring(5) : day.day,
+            primary: day.merchandiseNetExVat ?? day.gross,
+            secondary: day.cogs,
+            lineValue: day.grossProfit,
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final trendChart = summary == null
-        ? null
-        : GroupedBarTrendChart(
-            key: const ValueKey('sales-dashboard-profit-chart'),
-            title: 'Daily Sales & Profit ($scopeCaption)',
-            subtitle: summary!.days.any((d) => d.cogs != null)
-                ? 'Bars compare net sales (ex-VAT) vs. landed COGS; line tracks gross profit.'
-                : 'Daily sales totals across reported dates.',
-            primaryLabel:
-                summary!.days.any((d) => d.merchandiseNetExVat != null)
-                ? 'Net sales'
-                : 'Invoice total',
-            secondaryLabel: 'COGS',
-            lineLabel: 'Profit',
-            height: 190,
-            points: [
-              for (final day in summary!.days)
-                TrendPoint(
-                  label: day.day.length >= 10
-                      ? day.day.substring(5)
-                      : day.day,
-                  primary: day.merchandiseNetExVat ?? day.gross,
-                  secondary: day.cogs,
-                  lineValue: day.grossProfit,
-                ),
-            ],
-          );
+    final primaryChart = _buildPrimaryChart();
     final tenderChart = scopedCompleted.isEmpty
         ? null
         : _buildTenderDonut(scopedCompleted, scopeCaption);
 
-    if (trendChart != null && tenderChart == null) return trendChart;
-    if (trendChart == null && tenderChart != null) return tenderChart;
-    if (trendChart == null && tenderChart == null) {
+    if (primaryChart != null && tenderChart == null) return primaryChart;
+    if (primaryChart == null && tenderChart != null) return tenderChart;
+    if (primaryChart == null && tenderChart == null) {
       return const SizedBox.shrink();
     }
 
@@ -1025,7 +1021,7 @@ class _TrendAndTenderRow extends StatelessWidget {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              trendChart!,
+              primaryChart!,
               const SizedBox(height: AppSpacing.md),
               tenderChart!,
             ],
@@ -1034,7 +1030,7 @@ class _TrendAndTenderRow extends StatelessWidget {
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(flex: 3, child: trendChart!),
+            Expanded(flex: 3, child: primaryChart!),
             const SizedBox(width: AppSpacing.md),
             Expanded(flex: 2, child: tenderChart!),
           ],

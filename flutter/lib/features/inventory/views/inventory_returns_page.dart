@@ -6,10 +6,12 @@ import 'package:client/data/models/sales.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:client/features/sales/viewmodels/inventory_sales_viewmodel.dart';
 import 'package:client/features/sales/widgets/sales_document_sheet.dart';
+import 'package:client/features/sales/widgets/sales_transactions_content.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:client/shared/widgets/status_badge.dart';
+import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -81,7 +83,8 @@ class _InventoryReturnsPageState extends State<InventoryReturnsPage> {
       item.reference,
       item.relatedReference,
       item.reason,
-      for (final line in item.lines) line.sku,
+      for (final line in item.lines)
+        '${line.productName} ${line.variantName} ${line.sku}',
     ].join(' ');
     return haystack.toLowerCase().contains(query);
   }
@@ -103,6 +106,19 @@ class _InventoryReturnsPageState extends State<InventoryReturnsPage> {
   Widget build(BuildContext context) {
     final viewmodel = context.watch<InventorySalesViewmodel>();
     final returns = viewmodel.returns;
+    final completedReturns = returns
+        .where((item) => item.status == InventoryReturnStatus.completed)
+        .toList();
+    final unitsReturned = completedReturns.fold<double>(
+      0,
+      (sum, item) => sum + item.quantity,
+    );
+    final linkedReturns = returns
+        .where((item) => item.relatedReference.isNotEmpty)
+        .length;
+    final rejectedReturns = returns
+        .where((item) => item.status == InventoryReturnStatus.rejected)
+        .length;
     final rows = _visible(returns);
     final failure = viewmodel.loadError;
 
@@ -118,6 +134,87 @@ class _InventoryReturnsPageState extends State<InventoryReturnsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (returns.isNotEmpty) ...[
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final cards = [
+                  StitchKpiCard(
+                    compact: true,
+                    label: 'Return Slips',
+                    value: formatCount(returns.length),
+                    subtitle: '${formatCount(completedReturns.length)} posted',
+                    icon: Icons.assignment_return_outlined,
+                    tone: StitchTone.primary,
+                    pillLabel: 'Read-only',
+                    pillTone: StitchTone.primary,
+                  ),
+                  StitchKpiCard(
+                    compact: true,
+                    label: 'Units Returned',
+                    value: _quantity(unitsReturned),
+                    subtitle: 'Restocked from completed returns',
+                    icon: Icons.inventory_2_outlined,
+                    tone: StitchTone.success,
+                    pillLabel: 'Stock back',
+                    pillTone: StitchTone.success,
+                  ),
+                  StitchKpiCard(
+                    compact: true,
+                    label: 'Linked to Sale',
+                    value: formatCount(linkedReturns),
+                    subtitle:
+                        '${formatCount(returns.length - linkedReturns)} unlinked',
+                    icon: Icons.link_outlined,
+                    tone: StitchTone.neutral,
+                    pillLabel: 'Traceable',
+                    pillTone: StitchTone.neutral,
+                  ),
+                  StitchKpiCard(
+                    compact: true,
+                    label: 'Rejected / Voided',
+                    value: formatCount(rejectedReturns),
+                    subtitle: 'Voided return entries',
+                    icon: Icons.cancel_outlined,
+                    tone: rejectedReturns > 0
+                        ? StitchTone.danger
+                        : StitchTone.neutral,
+                    valueColor: rejectedReturns > 0
+                        ? StitchColors.danger
+                        : StitchColors.ink,
+                    pillLabel: rejectedReturns > 0 ? 'Voided' : 'None',
+                    pillTone: rejectedReturns > 0
+                        ? StitchTone.danger
+                        : StitchTone.neutral,
+                  ),
+                ];
+                if (constraints.maxWidth >= 980) {
+                  return Row(
+                    children: [
+                      for (var i = 0; i < cards.length; i++) ...[
+                        Expanded(child: cards[i]),
+                        if (i < cards.length - 1)
+                          const SizedBox(width: AppSpacing.md),
+                      ],
+                    ],
+                  );
+                }
+                return Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.sm,
+                  children: [
+                    for (final card in cards)
+                      SizedBox(
+                        width: constraints.maxWidth >= 560
+                            ? (constraints.maxWidth - AppSpacing.sm) / 2
+                            : constraints.maxWidth,
+                        child: card,
+                      ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
           FilterBar(
             searchHint: 'Return, original sale, or SKU',
             onSearchChanged: (value) => setState(() => _query = value),
@@ -254,10 +351,7 @@ class _InventoryReturnsPageState extends State<InventoryReturnsPage> {
       lines: [
         for (final line in item.lines)
           SalesDocumentLine(
-            // The wire carries no product names, only the selling-unit code
-            // (the same limitation the transactions sheet states), so the code
-            // is the line name rather than an invented one.
-            name: line.productName,
+            name: formatSaleLineName(line),
             qty: line.quantity,
             unitPrice: line.unitPrice,
           ),

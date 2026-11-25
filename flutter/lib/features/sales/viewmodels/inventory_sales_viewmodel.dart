@@ -139,7 +139,7 @@ class InventorySalesViewmodel extends ChangeNotifier {
           productName: i.productName.isNotEmpty
               ? i.productName
               : i.variantUomCode,
-          variantName: i.variantUomCode,
+          variantName: i.variantName,
           sku: i.variantUomCode,
           quantity: i.qty,
           unitPrice: i.unitPrice,
@@ -188,8 +188,10 @@ class InventorySalesViewmodel extends ChangeNotifier {
         for (final i in r.items)
           InventorySaleLine(
             variantUomId: i.variantUomId,
-            productName: i.variantUomCode,
-            variantName: i.variantUomCode,
+            productName: i.productName.isNotEmpty
+                ? i.productName
+                : i.variantUomCode,
+            variantName: i.variantName,
             sku: i.variantUomCode,
             quantity: i.qty,
             unitPrice: i.unitPrice,

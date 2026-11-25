@@ -16,6 +16,7 @@ import 'package:client/shared/widgets/metric_grid.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
 import 'package:client/shared/widgets/section_heading.dart';
 import 'package:client/shared/widgets/status_badge.dart';
+import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:client/core/time/app_clock.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -1258,7 +1259,7 @@ typedef _VatPeriodTableRow = ({
   bool isTotal,
 });
 
-/// Executive summary card comparing Whole VAT (all sales) against BIR OR-only
+/// Executive summary card comparing Whole VAT (all sales) against OR-only
 /// VAT and untagged Order Slips (OS). Shown on the Sales tab and at the top of
 /// the dedicated VAT & OR tab.
 class _OrVatComparisonPanel extends StatelessWidget {
@@ -1279,11 +1280,18 @@ class _OrVatComparisonPanel extends StatelessWidget {
 
     return Container(
       key: const ValueKey('or-vat-comparison-panel'),
-      padding: const EdgeInsets.all(AppSpacing.md),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: AppColors.cardBackground,
-        borderRadius: BorderRadius.circular(AppRadii.large),
-        border: Border.all(color: AppColors.border),
+        color: StitchColors.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: StitchColors.cardBorder),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A0F172A),
+            blurRadius: 12,
+            offset: Offset(0, 3),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1291,23 +1299,23 @@ class _OrVatComparisonPanel extends StatelessWidget {
           Row(
             children: [
               const Icon(
-                Icons.receipt_long_outlined,
+                Icons.account_balance_outlined,
                 size: 18,
-                color: AppColors.brandGold,
+                color: StitchColors.primaryDeep,
               ),
               const SizedBox(width: AppSpacing.xs),
               const Expanded(
                 child: Text(
                   'VAT Breakdown — Whole Sales vs. OR-Tagged Only',
                   style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w800,
+                    color: StitchColors.ink,
                   ),
                 ),
               ),
               if (onOpenDetail != null)
-                TextButton.icon(
+                FilledButton.tonalIcon(
                   key: const ValueKey('open-vat-or-tab-button'),
                   onPressed: onOpenDetail,
                   icon: const Icon(Icons.arrow_forward_rounded, size: 16),
@@ -1396,18 +1404,11 @@ class _VatBucketCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: highlighted
-            ? AppColors.brandGold.withValues(alpha: 0.08)
-            : AppColors.surfaceSunken,
-        borderRadius: BorderRadius.circular(AppRadii.medium),
-        border: Border.all(
-          color: highlighted ? AppColors.brandGold : AppColors.border,
-          width: highlighted ? 1.5 : 1,
-        ),
-      ),
+    return StitchAccentBox(
+      accentColor: highlighted ? StitchColors.primaryDeep : StitchColors.primary,
+      backgroundColor: highlighted
+          ? StitchColors.primarySoft
+          : StitchColors.surfaceCanvas,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1418,51 +1419,33 @@ class _VatBucketCard extends StatelessWidget {
                   title,
                   style: TextStyle(
                     fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
                     color: highlighted
-                        ? AppColors.brandBlack
-                        : AppColors.textSecondary,
+                        ? StitchColors.primaryDeep
+                        : StitchColors.ink,
                   ),
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: highlighted
-                      ? AppColors.brandBlack
-                      : AppColors.cardBackground,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: highlighted ? AppColors.brandGold : AppColors.border,
-                  ),
-                ),
-                child: Text(
-                  badge,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: highlighted
-                        ? AppColors.brandWhite
-                        : AppColors.textSecondary,
-                  ),
-                ),
+              StitchPill(
+                label: badge,
+                tone: highlighted ? StitchTone.primary : StitchTone.neutral,
               ),
             ],
           ),
           const SizedBox(height: 8),
           Text(
             formatPeso(vat),
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
-              fontFeatures: [FontFeature.tabularFigures()],
+              color: highlighted ? StitchColors.primaryDeep : StitchColors.ink,
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
           const SizedBox(height: 2),
           const Text(
             'VAT amount',
-            style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+            style: TextStyle(fontSize: 11.5, color: StitchColors.inkMuted),
           ),
           const SizedBox(height: 10),
           Row(
@@ -1470,14 +1453,14 @@ class _VatBucketCard extends StatelessWidget {
             children: [
               const Text(
                 'Gross sales',
-                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                style: TextStyle(fontSize: 12, color: StitchColors.inkMuted),
               ),
               Text(
                 formatPeso(grossSales),
                 style: const TextStyle(
                   fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                  color: StitchColors.ink,
                   fontFeatures: [FontFeature.tabularFigures()],
                 ),
               ),
@@ -1489,14 +1472,14 @@ class _VatBucketCard extends StatelessWidget {
             children: [
               const Text(
                 'Vatable sales',
-                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                style: TextStyle(fontSize: 12, color: StitchColors.inkMuted),
               ),
               Text(
                 formatPeso(vatableSales),
                 style: const TextStyle(
                   fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                  color: StitchColors.ink,
                   fontFeatures: [FontFeature.tabularFigures()],
                 ),
               ),

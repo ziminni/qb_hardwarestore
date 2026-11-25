@@ -541,55 +541,40 @@ class _SalesTab extends StatelessWidget {
               ),
           ],
         ),
-        if (last7Days.isNotEmpty)
-          StitchSectionCard(
-            overline: '01 / FINANCIAL VELOCITY',
-            title: 'Revenue, COGS & Gross Profit Trajectory',
+        if (last7Days.isNotEmpty) ...[
+          GroupedBarTrendChart(
+            key: const ValueKey('admin-dashboard-7d-chart'),
+            title: 'Revenue, COGS & Gross Profit Trajectory (Last 7 Days)',
             subtitle:
-                'Daily sales, landed COGS, and gross profit across the last 7 days',
-            icon: Icons.show_chart_rounded,
-            trailing: const StitchPill(
-              label: '7-Day Window',
-              tone: StitchTone.primary,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                GroupedBarTrendChart(
-                  key: const ValueKey('admin-dashboard-7d-chart'),
-                  title: 'Last 7 days sales & profit',
-                  subtitle:
-                      'Visual comparison of daily sales, landed COGS, and gross profit.',
-                  primaryLabel: 'Sales',
-                  secondaryLabel: 'COGS',
-                  lineLabel: 'Profit',
-                  height: 185,
-                  points: [
-                    for (final row in last7Days)
-                      TrendPoint(
-                        label: _shortDay(row['date']),
-                        primary: _num(row['total']),
-                        secondary: row['cogs'] != null
-                            ? _num(row['cogs'])
-                            : null,
-                        lineValue: row['gross_profit'] != null
-                            ? _num(row['gross_profit'])
-                            : null,
-                      ),
-                  ],
+                'Daily sales, landed COGS, and gross profit across the last 7 days.',
+            primaryLabel: 'Sales',
+            primaryColor: StitchColors.primaryDeep,
+            secondaryLabel: 'COGS',
+            secondaryColor: const Color(0xFF93C5FD),
+            lineLabel: 'Profit',
+            lineColor: StitchColors.success,
+            height: 210,
+            points: [
+              for (final row in last7Days)
+                TrendPoint(
+                  label: _shortDay(row['date']),
+                  primary: _num(row['total']),
+                  secondary: row['cogs'] != null ? _num(row['cogs']) : null,
+                  lineValue: row['gross_profit'] != null
+                      ? _num(row['gross_profit'])
+                      : null,
                 ),
-                const SizedBox(height: 14),
-                _VelocitySummaryStrip(
-                  peak7d: formatPesoWhole(peak7d),
-                  total7d: formatPesoWhole(total7d),
-                  monthMargin: s.has('month_margin_percent')
-                      ? '${s.text('month_margin_percent')}%'
-                      : '—',
-                  negativeMargin: monthGrossProfit < 0,
-                ),
-              ],
-            ),
+            ],
           ),
+          _VelocitySummaryStrip(
+            peak7d: formatPesoWhole(peak7d),
+            total7d: formatPesoWhole(total7d),
+            monthMargin: s.has('month_margin_percent')
+                ? '${s.text('month_margin_percent')}%'
+                : '—',
+            negativeMargin: monthGrossProfit < 0,
+          ),
+        ],
         DashboardCard(
           icon: Icons.calendar_today_outlined,
           title: 'Last 7 days',
