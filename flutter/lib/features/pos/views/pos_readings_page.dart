@@ -17,7 +17,9 @@ import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
+import 'package:client/shared/widgets/metric_grid.dart';
 import 'package:client/shared/widgets/status_badge.dart';
+import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -358,6 +360,14 @@ class _PosReadingsPageState extends State<PosReadingsPage> {
                     const SizedBox(height: AppSpacing.md),
                     _buildReadingGuideStrip(),
                     const SizedBox(height: AppSpacing.md),
+                    if (viewmodel.currentShift != null ||
+                        zEntries.isNotEmpty) ...[
+                      _buildStitchSummaryAndFormula(
+                        currentShift: viewmodel.currentShift,
+                        latestClosed: zEntries.firstOrNull,
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                    ],
                     _buildSubTabBar(
                       xCount: xEntries.length,
                       zCount: zEntries.length,
@@ -391,6 +401,121 @@ class _PosReadingsPageState extends State<PosReadingsPage> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildStitchSummaryAndFormula({
+    required Shift? currentShift,
+    required PosReadingEntry? latestClosed,
+  }) {
+    final activeEntry = currentShift != null
+        ? PosReadingEntry.xSnapshot(
+            currentShift,
+            sequence: 0,
+            takenAt: DateTime.now(),
+          )
+        : latestClosed;
+    if (activeEntry == null) return const SizedBox.shrink();
+    final nonDrawer =
+        activeEntry.gcashSales +
+        activeEntry.cardSales +
+        activeEntry.bankSales +
+        activeEntry.chequeSales;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        MetricGrid(
+          minTileWidth: 230,
+          children: [
+            StitchKpiCard(
+              label: 'Gross Sales',
+              value: formatPeso(activeEntry.grossSales),
+              icon: Icons.trending_up_rounded,
+              tone: StitchTone.primary,
+              subtitle:
+                  '${formatCount(activeEntry.transactionCount)} slips · Shift #${activeEntry.shiftId}',
+              pillLabel: currentShift != null ? 'Live Shift' : 'Last Closed',
+              pillTone: currentShift != null
+                  ? StitchTone.success
+                  : StitchTone.neutral,
+            ),
+            StitchKpiCard(
+              label: 'Audited Net Sales',
+              value: formatPeso(activeEntry.netSales),
+              icon: Icons.receipt_long_outlined,
+              tone: StitchTone.primary,
+              subtitle: 'Discounts: ${formatPeso(activeEntry.discounts)}',
+            ),
+            StitchKpiCard(
+              label: 'Expected Drawer Cash',
+              value: formatPeso(activeEntry.expectedCash),
+              icon: Icons.payments_outlined,
+              tone: StitchTone.success,
+              subtitle:
+                  'Float ${formatPeso(activeEntry.openingFloat)} + Cash ${formatPeso(activeEntry.cashSales)}',
+              pillLabel: activeEntry.variance == null
+                  ? 'Accumulating'
+                  : (activeEntry.isBalanced
+                        ? 'Exact match'
+                        : posVarianceText(activeEntry.variance!)),
+              pillTone: activeEntry.variance == null
+                  ? StitchTone.primary
+                  : (activeEntry.isBalanced
+                        ? StitchTone.success
+                        : StitchTone.danger),
+            ),
+            StitchKpiCard(
+              label: 'Non-Drawer Intake',
+              value: formatPeso(nonDrawer),
+              icon: Icons.account_balance_outlined,
+              tone: StitchTone.neutral,
+              subtitle:
+                  'GCash ${formatPeso(activeEntry.gcashSales)} · Bank/Cheque/Card',
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        StitchSectionCard(
+          overline: 'DRAWER CASH FORMULA ARITHMETIC',
+          title: 'Expected Drawer Reconciliation (Shift #${activeEntry.shiftId})',
+          subtitle:
+              'Opening Float + Cash Sales + Cash In − Cash Out = Expected Drawer',
+          icon: Icons.calculate_outlined,
+          child: Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              StitchPill(
+                label: 'Float ${formatPeso(activeEntry.openingFloat)}',
+                tone: StitchTone.neutral,
+              ),
+              const Text('+', style: TextStyle(fontWeight: FontWeight.w700)),
+              StitchPill(
+                label: 'Cash Sales ${formatPeso(activeEntry.cashSales)}',
+                tone: StitchTone.primary,
+              ),
+              const Text('+', style: TextStyle(fontWeight: FontWeight.w700)),
+              StitchPill(
+                label: 'Cash In ${formatPeso(activeEntry.cashIn)}',
+                tone: StitchTone.success,
+              ),
+              const Text('−', style: TextStyle(fontWeight: FontWeight.w700)),
+              StitchPill(
+                label: 'Cash Out ${formatPeso(activeEntry.cashOut)}',
+                tone: StitchTone.danger,
+              ),
+              const Text('=', style: TextStyle(fontWeight: FontWeight.w800)),
+              StitchPill(
+                label: 'Expected ${formatPeso(activeEntry.expectedCash)}',
+                tone: StitchTone.primary,
+                icon: Icons.check_circle_outline_rounded,
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

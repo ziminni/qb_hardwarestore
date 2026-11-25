@@ -14,6 +14,7 @@ import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/status_badge.dart';
+import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -370,7 +371,37 @@ class _HeroShiftStatusCard extends StatelessWidget {
       tone = StatusTone.neutral;
     }
 
-    return AppPanel(
+    final isDarkHero = shift != null;
+    final heroText = isDarkHero ? Colors.white : AppColors.textPrimary;
+    final heroMuted = isDarkHero
+        ? Colors.white.withValues(alpha: 0.72)
+        : AppColors.textSecondary;
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        gradient: isDarkHero
+            ? const LinearGradient(
+                colors: [Color(0xFF0B1C30), Color(0xFF1E3A8A)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              )
+            : null,
+        color: isDarkHero ? null : StitchColors.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDarkHero
+              ? Colors.white.withValues(alpha: 0.12)
+              : StitchColors.cardBorder,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x140F172A),
+            blurRadius: 16,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -393,7 +424,7 @@ class _HeroShiftStatusCard extends StatelessWidget {
                             vertical: 3,
                           ),
                           decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.08),
+                            color: Colors.white.withValues(alpha: 0.14),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
@@ -401,7 +432,7 @@ class _HeroShiftStatusCard extends StatelessWidget {
                             style: const TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
-                              color: AppColors.primary,
+                              color: Colors.white,
                             ),
                           ),
                         ),
@@ -413,8 +444,18 @@ class _HeroShiftStatusCard extends StatelessWidget {
                       spacing: AppSpacing.xl,
                       runSpacing: AppSpacing.sm,
                       children: [
-                        _fact('Opened at', formatDateTime(shift.openedAt)),
-                        _fact('Opening float', formatPeso(shift.openingFloat)),
+                        _fact(
+                          'Opened at',
+                          formatDateTime(shift.openedAt),
+                          labelColor: heroMuted,
+                          valueColor: heroText,
+                        ),
+                        _fact(
+                          'Opening float',
+                          formatPeso(shift.openingFloat),
+                          labelColor: heroMuted,
+                          valueColor: heroText,
+                        ),
                       ],
                     )
                   else
@@ -431,9 +472,11 @@ class _HeroShiftStatusCard extends StatelessWidget {
                   ? Container(
                       padding: const EdgeInsets.all(AppSpacing.md),
                       decoration: BoxDecoration(
-                        color: AppColors.background,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: AppColors.border),
+                        color: Colors.white.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.14),
+                        ),
                       ),
                       child: Wrap(
                         spacing: AppSpacing.lg,
@@ -442,17 +485,20 @@ class _HeroShiftStatusCard extends StatelessWidget {
                           _miniMetric(
                             'Cash sales',
                             formatPeso(reading.cashSales),
-                            AppColors.textPrimary,
+                            Colors.white,
+                            labelColor: heroMuted,
                           ),
                           _miniMetric(
                             'Cash added',
                             '+${formatPeso(reading.cashIn)}',
-                            AppColors.successText,
+                            StitchColors.successMint,
+                            labelColor: heroMuted,
                           ),
                           _miniMetric(
                             'Cash drops / out',
                             '-${formatPeso(reading.cashOut)}',
-                            AppColors.errorText,
+                            const Color(0xFFFCA5A5),
+                            labelColor: heroMuted,
                           ),
                         ],
                       ),
@@ -463,22 +509,22 @@ class _HeroShiftStatusCard extends StatelessWidget {
                   ? Container(
                       padding: const EdgeInsets.all(AppSpacing.md),
                       decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.06),
-                        borderRadius: BorderRadius.circular(10),
+                        color: Colors.white.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: AppColors.primary.withValues(alpha: 0.2),
+                          color: Colors.white.withValues(alpha: 0.22),
                         ),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'EXPECTED IN DRAWER',
                             style: TextStyle(
                               fontSize: 10.5,
                               fontWeight: FontWeight.w700,
                               letterSpacing: 0.6,
-                              color: AppColors.primary,
+                              color: Colors.white.withValues(alpha: 0.8),
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -487,16 +533,16 @@ class _HeroShiftStatusCard extends StatelessWidget {
                             style: const TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.w800,
-                              color: AppColors.primary,
+                              color: Colors.white,
                               fontFeatures: [FontFeature.tabularFigures()],
                             ),
                           ),
                           const SizedBox(height: 2),
                           Text(
                             '${formatCount(reading.transactionCount)} sales this shift',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
-                              color: AppColors.textSecondary,
+                              color: Colors.white.withValues(alpha: 0.78),
                             ),
                           ),
                         ],
@@ -562,36 +608,40 @@ class _HeroShiftStatusCard extends StatelessWidget {
     );
   }
 
-  Widget _fact(String label, String value) {
+  Widget _fact(
+    String label,
+    String value, {
+    Color labelColor = AppColors.textSecondary,
+    Color valueColor = AppColors.textPrimary,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-        ),
+        Text(label, style: TextStyle(fontSize: 12, color: labelColor)),
         const SizedBox(height: 2),
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 15,
             fontWeight: FontWeight.w700,
-            color: AppColors.textPrimary,
-            fontFeatures: [FontFeature.tabularFigures()],
+            color: valueColor,
+            fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
       ],
     );
   }
 
-  Widget _miniMetric(String label, String value, Color color) {
+  Widget _miniMetric(
+    String label,
+    String value,
+    Color color, {
+    Color labelColor = AppColors.textSecondary,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
-        ),
+        Text(label, style: TextStyle(fontSize: 11.5, color: labelColor)),
         const SizedBox(height: 2),
         Text(
           value,

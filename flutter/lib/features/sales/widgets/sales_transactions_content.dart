@@ -10,6 +10,7 @@ import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:client/shared/widgets/status_badge.dart';
+import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -432,41 +433,56 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 1. 4-Card KPI Summary Strip (adapted from Stitch)
+        // 1. 4-Card Stitch Hero KPI Strip
         LayoutBuilder(
           builder: (context, constraints) {
             final cards = [
-              _KpiCard(
+              StitchKpiCard(
                 label: 'Total Transactions',
                 value: formatCount(totalCount),
                 subtitle: '${formatPeso(grossVolume)} active volume',
                 icon: Icons.receipt_long_rounded,
-                iconBg: AppColors.primary.withValues(alpha: 0.10),
-                iconColor: AppColors.primary,
+                tone: StitchTone.primary,
+                pillLabel: 'Live shift log',
+                pillTone: StitchTone.primary,
               ),
-              _KpiCard(
+              StitchKpiCard(
                 label: 'Completed / Settled',
                 value: formatCount(completedList.length),
                 subtitle: '${settledPct.toStringAsFixed(1)}% of listed sales',
                 icon: Icons.check_circle_outline_rounded,
-                iconBg: AppColors.success.withValues(alpha: 0.12),
-                iconColor: AppColors.success,
+                tone: StitchTone.success,
+                pillLabel: '${settledPct.toStringAsFixed(0)}% settled',
+                pillTone: StitchTone.success,
               ),
-              _KpiCard(
+              StitchKpiCard(
                 label: 'Utang / Credit',
                 value: formatCount(creditList.length),
                 subtitle: '${formatPeso(creditVolume)} credit sales',
                 icon: Icons.account_balance_wallet_outlined,
-                iconBg: AppColors.warning.withValues(alpha: 0.14),
-                iconColor: AppColors.warning,
+                tone: StitchTone.warning,
+                pillLabel: creditList.isEmpty ? 'None open' : 'On-account',
+                pillTone: creditList.isEmpty
+                    ? StitchTone.neutral
+                    : StitchTone.warning,
               ),
-              _KpiCard(
+              StitchKpiCard(
                 label: 'Voided & Returned',
                 value: formatCount(reversedList.length),
                 subtitle: '${formatPeso(reversedVolume)} reversed',
                 icon: Icons.assignment_return_outlined,
-                iconBg: AppColors.error.withValues(alpha: 0.12),
-                iconColor: AppColors.error,
+                tone: reversedList.isEmpty
+                    ? StitchTone.neutral
+                    : StitchTone.danger,
+                valueColor: reversedList.isEmpty
+                    ? StitchColors.ink
+                    : StitchColors.danger,
+                pillLabel: totalCount == 0
+                    ? '0.0% rate'
+                    : '${(reversedList.length / totalCount * 100).toStringAsFixed(1)}% rate',
+                pillTone: reversedList.isEmpty
+                    ? StitchTone.neutral
+                    : StitchTone.danger,
               ),
             ];
             if (constraints.maxWidth >= 980) {
@@ -1296,89 +1312,6 @@ class _SalesTransactionsContentState extends State<SalesTransactionsContent> {
           total: sale.amountDue,
         );
       },
-    );
-  }
-}
-
-class _KpiCard extends StatelessWidget {
-  const _KpiCard({
-    required this.label,
-    required this.value,
-    required this.subtitle,
-    required this.icon,
-    required this.iconBg,
-    required this.iconColor,
-  });
-
-  final String label;
-  final String value;
-  final String subtitle;
-  final IconData icon;
-  final Color iconBg;
-  final Color iconColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.cardBackground,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  label.toUpperCase(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.5,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ),
-              Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  color: iconBg,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, size: 17, color: iconColor),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-              fontFeatures: [FontFeature.tabularFigures()],
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            subtitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppColors.textSecondary,
-              fontFeatures: [FontFeature.tabularFigures()],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

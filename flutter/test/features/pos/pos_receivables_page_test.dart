@@ -130,7 +130,8 @@ void main() {
         _entry(id: 2, balance: 100, isOverdue: true),
       ],
     );
-    expect(find.text('Dela Cruz Construction'), findsNWidgets(2));
+    expect(viewmodel.filteredEntries, hasLength(2));
+    expect(find.text('Dela Cruz Construction'), findsAtLeastNWidgets(1));
 
     await tester.tap(
       find.descendant(

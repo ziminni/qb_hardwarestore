@@ -14,8 +14,8 @@ import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
-import 'package:client/shared/widgets/metric_tile.dart';
 import 'package:client/shared/widgets/status_badge.dart';
+import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:client/core/time/app_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -298,31 +298,48 @@ class _SalesReceivablesContentState extends State<SalesReceivablesContent> {
       children: [
         MetricGrid(
           children: [
-            MetricTile(
+            StitchKpiCard(
               label: 'Outstanding',
               value: totalsUnknown
                   ? _notLoaded
                   : formatPeso(viewmodel.outstanding),
-              caption: totalsUnknown
+              icon: Icons.account_balance_wallet_outlined,
+              tone: StitchTone.primary,
+              compact: true,
+              subtitle: totalsUnknown
                   ? null
                   : '${formatCount(viewmodel.entries.where((e) => !e.isPaid).length)} open invoices',
             ),
-            MetricTile(
+            StitchKpiCard(
               label: 'Part-paid',
               value: totalsUnknown ? _notLoaded : formatPeso(partPaidBalance),
-              caption: totalsUnknown
+              icon: Icons.pie_chart_outline_rounded,
+              tone: StitchTone.warning,
+              compact: true,
+              subtitle: totalsUnknown
                   ? null
                   : '${formatCount(partPaidEntries.length)} partially settled',
             ),
-            MetricTile(
+            StitchKpiCard(
               label: 'Overdue',
               value: totalsUnknown ? _notLoaded : formatPeso(viewmodel.overdue),
-              caption: totalsUnknown ? null : 'Requires follow-up',
+              icon: Icons.warning_amber_rounded,
+              tone: viewmodel.overdue > 0
+                  ? StitchTone.danger
+                  : StitchTone.neutral,
+              valueColor: !totalsUnknown && viewmodel.overdue > 0
+                  ? StitchColors.danger
+                  : StitchColors.ink,
+              compact: true,
+              subtitle: totalsUnknown ? null : 'Requires follow-up',
             ),
-            MetricTile(
+            StitchKpiCard(
               label: 'Collected',
               value: totalsUnknown ? _notLoaded : formatPeso(totalCollected),
-              caption: totalsUnknown
+              icon: Icons.check_circle_outline_rounded,
+              tone: StitchTone.success,
+              compact: true,
+              subtitle: totalsUnknown
                   ? null
                   : '${formatCount(paidEntries.length)} paid in full',
             ),

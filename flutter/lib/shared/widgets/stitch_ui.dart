@@ -129,6 +129,7 @@ class StitchKpiCard extends StatelessWidget {
     this.secondaryPillTone,
     this.progress,
     this.valueColor,
+    this.compact = false,
     this.onTap,
   });
 
@@ -143,13 +144,16 @@ class StitchKpiCard extends StatelessWidget {
   final StitchTone? secondaryPillTone;
   final double? progress;
   final Color? valueColor;
+  final bool compact;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final palette = stitchTonePalette(tone);
     final body = Container(
-      padding: const EdgeInsets.all(16),
+      padding: compact
+          ? const EdgeInsets.symmetric(horizontal: 12, vertical: 8)
+          : const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: StitchColors.card,
         borderRadius: BorderRadius.circular(16),
@@ -167,12 +171,12 @@ class StitchKpiCard extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
                 child: Text(
                   label.toUpperCase(),
-                  maxLines: 2,
+                  maxLines: compact ? 1 : 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 11,
@@ -184,24 +188,24 @@ class StitchKpiCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Container(
-                width: 32,
-                height: 32,
+                width: compact ? 22 : 32,
+                height: compact ? 22 : 32,
                 decoration: BoxDecoration(
                   color: palette.bg,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(compact ? 6 : 10),
                 ),
-                child: Icon(icon, size: 17, color: palette.fg),
+                child: Icon(icon, size: compact ? 13 : 17, color: palette.fg),
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: compact ? 3 : 10),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
             child: Text(
               value,
               style: TextStyle(
-                fontSize: 24,
+                fontSize: compact ? 18 : 24,
                 fontWeight: FontWeight.w800,
                 letterSpacing: -0.5,
                 color: valueColor ?? StitchColors.ink,
@@ -210,13 +214,13 @@ class StitchKpiCard extends StatelessWidget {
             ),
           ),
           if (subtitle != null && subtitle!.isNotEmpty) ...[
-            const SizedBox(height: 4),
+            SizedBox(height: compact ? 1 : 4),
             Text(
               subtitle!,
-              maxLines: 2,
+              maxLines: compact ? 1 : 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 12,
+              style: TextStyle(
+                fontSize: compact ? 11.5 : 12,
                 color: StitchColors.inkMuted,
               ),
             ),
