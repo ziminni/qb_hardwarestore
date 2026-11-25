@@ -1482,13 +1482,19 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
 
         from django.db.models import Sum
 
+        from apps.bodega.models import BodegaDelivery
+
         receipt = self.get_object()
+        has_pending_bodega = BodegaDelivery.objects.filter(
+            receipt=receipt, status=BodegaDelivery.Status.PENDING
+        ).exists()
         rows = []
         for line in receipt.lines.select_related(
             "po_item__variant__base_uom", "po_item__variant_uom__uom"
         ).order_by("id"):
             item = line.po_item
             factor = line_factor(item)
+            delivered_base = line.qty * factor
             returned_base = SupplierReturnLine.objects.filter(
                 receipt_line=line
             ).aggregate(total=Sum("base_qty")).get("total") or Decimal(0)
@@ -1496,9 +1502,17 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
                 receipt=receipt, variant=item.variant
             ).aggregate(total=Sum("current_qty")).get("total") or Decimal(0)
             returnable_base = min(
-                line.qty * factor - returned_base,
+                delivered_base - returned_base,
                 on_hand_base,
             )
+            reason = ""
+            if returnable_base <= 0:
+                if delivered_base - returned_base <= 0:
+                    reason = "Already fully returned"
+                elif has_pending_bodega and on_hand_base <= 0:
+                    reason = "Waiting for Bodega confirmation"
+                else:
+                    reason = "Already sold or adjusted out"
             rows.append(
                 {
                     "receipt_line": line.pk,
@@ -1509,9 +1523,10 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
                         if item.variant_uom_id
                         else item.variant.base_uom.code
                     ),
-                    "delivered": f"{_line_units(line.qty * factor, factor):.2f}",
+                    "delivered": f"{_line_units(delivered_base, factor):.2f}",
                     "returned": f"{_line_units(returned_base, factor):.2f}",
                     "returnable": f"{_line_units(returnable_base, factor):.2f}",
+                    "reason": reason,
                 }
             )
         return Response(rows)

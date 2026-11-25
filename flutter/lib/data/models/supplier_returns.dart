@@ -24,6 +24,7 @@ class SupplierReturnableLine {
     required this.delivered,
     required this.returned,
     required this.returnable,
+    this.reason = '',
   });
 
   /// The id the return POST names in `lines[].receipt_line`.
@@ -44,6 +45,10 @@ class SupplierReturnableLine {
   /// server's own cap, so a delivery whose bags were sold cannot give them back.
   final double returnable;
 
+  /// Optional human-readable explanation when [returnable] is 0 (e.g.
+  /// "Already sold or adjusted out" or "Waiting for Bodega confirmation").
+  final String reason;
+
   /// The POST refuses a zero quantity, so a line with nothing left offers none.
   bool get canReturn => returnable > 0;
 
@@ -56,6 +61,7 @@ class SupplierReturnableLine {
         delivered: decimalField(json, 'delivered'),
         returned: decimalField(json, 'returned'),
         returnable: decimalField(json, 'returnable'),
+        reason: json['reason'] as String? ?? '',
       );
 }
 

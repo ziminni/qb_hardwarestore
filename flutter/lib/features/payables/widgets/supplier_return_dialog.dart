@@ -284,9 +284,23 @@ class _SupplierReturnDialogState extends State<SupplierReturnDialog> {
           )
         else if (_linesError case final error?) ...[
           ErrorBanner(message: error, onRetry: () => _loadLines(_receiptId)),
-        ] else if (lines != null && returnable.isEmpty)
-          const InfoBanner(message: 'Nothing on this delivery can go back.')
-        else ...[
+        ] else if (lines != null && returnable.isEmpty) ...[
+          const InfoBanner(message: 'Nothing on this delivery can go back.'),
+          if (lines.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            for (final line in lines)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+                child: Text(
+                  '• ${line.variantName}: ${formatQuantity(line.delivered)} ${line.unit} delivered'
+                  '${line.reason.isNotEmpty ? ' — ${line.reason}' : ''}',
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ),
+          ],
+        ] else ...[
           DialogSectionLabel(
             'Lines',
             trailing: Text(

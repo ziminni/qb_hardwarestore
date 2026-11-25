@@ -425,20 +425,18 @@ class Command(BaseCommand):
                 received_qty=Decimal(100),
             )
             receipt = GoodsReceipt.objects.create(po=po, received_by=stocker)
-            if info["variant"].product.base_name == BODEGA_DEMO_PRODUCT:
-                # Phase 9 B5 (decision 21 §7, plan Design 7): the Bodega product's
-                # delivery NAMES its destination shelf, the way the receiving screen
-                # does. That takes the per-line path `process_goods_receipt` already
-                # follows for every real delivery, so the Bodega stock in the demo is
-                # received stock rather than a batch written by hand. The line's qty is
-                # the same 100 base units the legacy no-lines path would have minted,
-                # so no seeded number moves.
-                GoodsReceiptItem.objects.create(
-                    receipt=receipt,
-                    po_item=item,
-                    qty=Decimal(100),
-                    location=storage_location(BODEGA_LOCATION_NAME),
-                )
+            dest_location = (
+                storage_location(BODEGA_LOCATION_NAME)
+                if info["variant"].product.base_name == BODEGA_DEMO_PRODUCT
+                else info["variant"].product.stored_at
+            )
+            GoodsReceiptItem.objects.create(
+                receipt=receipt,
+                po_item=item,
+                qty=Decimal(100),
+                unit_cost=info["cost"],
+                location=dest_location,
+            )
             process_goods_receipt(receipt=receipt, user=stocker)
             if i == 0:
                 low_stock_variant = info["variant"]
