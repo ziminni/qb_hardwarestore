@@ -1,9 +1,9 @@
 import 'package:client/core/constants/app_spacing.dart';
-import 'package:client/core/constants/app_text_styles.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/supplier.dart';
 import 'package:client/features/dashboard/widget/inventory_action_button.dart';
+import 'package:client/features/dashboard/widget/inventory_fifo_pipeline_card.dart';
 import 'package:client/features/dashboard/widget/inventory_recent_adjustments_panel.dart';
 import 'package:client/features/dashboard/widget/inventory_restock_queue_panel.dart';
 import 'package:client/features/dashboard/widget/inventory_waiting_to_receive_panel.dart';
@@ -15,7 +15,7 @@ import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/empty_state.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
-import 'package:client/shared/widgets/metric_tile.dart';
+import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -28,10 +28,6 @@ import 'package:provider/provider.dart';
 /// "Waiting to receive", which reads the purchase orders the Purchasing screens
 /// already load: they are a different authority (an order, not stock), and no
 /// panel here invents a number the wire does not carry.
-///
-/// The inventory TABLE this page used to show is gone: it repeated the Stock
-/// page row for row. What replaces it is the restock queue (ranked, the thing
-/// this role is for), the deliveries still owed, and the recent adjustments.
 class InventoryDashboardContent extends StatefulWidget {
   const InventoryDashboardContent({super.key});
 
@@ -177,22 +173,31 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
       final cat = product.categoryName.isEmpty
           ? 'Uncategorized'
           : product.categoryName;
-      final loc = product.storedAtName.isEmpty
+      final productLoc = product.storedAtName.isEmpty
           ? 'Main Store'
           : product.storedAtName;
       for (final variant in product.variants) {
         variantCategory[variant.id] = cat;
-        variantLocation[variant.id] = loc;
+        variantLocation[variant.id] = variant.storedAtName.isNotEmpty
+            ? variant.storedAtName
+            : productLoc;
         final status = inventory.statusForVariant(variant.id);
         if (status == InventoryStockStatus.inStock) inStock++;
         if (status == InventoryStockStatus.lowStock) lowStock++;
         if (status == InventoryStockStatus.outOfStock) outOfStock++;
       }
     }
+
+    final totalVariants = inStock + lowStock + outOfStock;
+    final healthyRatio = totalVariants > 0 ? inStock / totalVariants : 0.0;
+    final healthyPct = (healthyRatio * 100).round();
+
+    var activeBatchesCount = 0;
     final valueByCategory = <String, double>{};
     final valueByLocation = <String, double>{};
     for (final batch in inventory.batches) {
       if (batch.currentQty <= 0) continue;
+      activeBatchesCount++;
       final value = batch.currentQty * batch.unitCostLanded;
       final cat = variantCategory[batch.variantId] ?? 'Other';
       valueByCategory[cat] = (valueByCategory[cat] ?? 0) + value;
@@ -203,12 +208,23 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
       ..sort((a, b) => b.value.compareTo(a.value));
     final topLocations = valueByLocation.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
+
     // The same valuation the stock screens use: every live batch at its landed
     // cost, not a price the catalogue wishes it had.
     final inventoryValue = inventory.batches.fold<double>(
       0,
       (sum, batch) => sum + batch.currentQty * batch.unitCostLanded,
     );
+
+    final waitingPoCount = purchases.purchases
+        .where(
+          (order) =>
+              order.status == PurchaseStatus.ordered ||
+              order.status == PurchaseStatus.partial,
+        )
+        .length;
+
+    final criticalCount = lowStock + outOfStock;
 
     // Adjustment rows name the item, which the adjustment itself does not carry.
     final itemNames = <int, String>{
@@ -217,22 +233,36 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
             '${record.product.baseName} ${record.variant.variantName}',
     };
 
-    return Column(
+    final content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // 1. Stitch Top Action Bar
         Wrap(
           spacing: AppSpacing.sm,
           runSpacing: AppSpacing.sm,
           crossAxisAlignment: WrapCrossAlignment.center,
           alignment: WrapAlignment.spaceBetween,
           children: [
-            const Text(
-              'Inventory overview',
-              style: TextStyle(
-                fontFamily: AppTextStyles.cinzelFont,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.xs,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: const [
+                Text(
+                  'Inventory overview',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                    color: StitchColors.ink,
+                  ),
+                ),
+                StitchPill(
+                  label: 'Live Stock · Store & Bodega',
+                  tone: StitchTone.success,
+                  icon: Icons.circle,
+                ),
+              ],
             ),
             Wrap(
               spacing: AppSpacing.sm,
@@ -281,40 +311,79 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
             ),
           )
         else ...[
+          // 2. 4-Column Stitch Hero KPI Strip
           MetricGrid(
-            // Four across at 1440, two at 760: 220 px min would fit three at
-            // 760 and leave the fourth tile alone on its own row.
-            minTileWidth: 240,
+            minTileWidth: 230,
             children: [
-              MetricTile(
-                label: 'Total products',
-                value: formatCount(inventory.products.length),
-                caption: 'In the catalogue',
-              ),
-              MetricTile(
-                label: 'Inventory value',
+              StitchKpiCard(
+                key: const ValueKey('inventory-kpi-valuation'),
+                label: 'FIFO Landed Valuation',
                 value: formatPeso(inventoryValue),
-                caption: 'On hand at landed cost',
+                icon: Icons.account_balance_wallet_outlined,
+                tone: StitchTone.primary,
+                subtitle: 'On hand at landed cost',
+                pillLabel:
+                    '${formatCount(activeBatchesCount)} active ${activeBatchesCount == 1 ? 'batch' : 'batches'}',
+                pillTone: StitchTone.primary,
               ),
-              MetricTile(
-                label: 'Low stock',
-                value: formatCount(lowStock),
-                caption: 'Under its reorder level',
+              StitchKpiCard(
+                key: const ValueKey('inventory-kpi-health'),
+                label: 'Stock Health Coverage',
+                value: '$healthyPct%',
+                icon: Icons.verified_outlined,
+                tone: healthyRatio >= 0.8
+                    ? StitchTone.success
+                    : (healthyRatio >= 0.5
+                          ? StitchTone.warning
+                          : StitchTone.danger),
+                subtitle:
+                    '${formatCount(inStock)} of ${formatCount(totalVariants)} variants healthy',
+                progress: healthyRatio,
               ),
-              MetricTile(
-                label: 'Out of stock',
-                value: formatCount(outOfStock),
-                caption: 'Nothing on hand',
+              StitchKpiCard(
+                key: const ValueKey('inventory-kpi-depletion'),
+                label: 'Critical Depletion Radar',
+                value: '${formatCount(criticalCount)} SKUs',
+                icon: Icons.warning_amber_rounded,
+                tone: criticalCount > 0
+                    ? StitchTone.danger
+                    : StitchTone.success,
+                valueColor: criticalCount > 0
+                    ? StitchColors.danger
+                    : StitchColors.ink,
+                pillLabel: '${formatCount(outOfStock)} Out of stock',
+                pillTone: outOfStock > 0
+                    ? StitchTone.danger
+                    : StitchTone.neutral,
+                secondaryPillLabel: '${formatCount(lowStock)} Low stock',
+                secondaryPillTone: lowStock > 0
+                    ? StitchTone.warning
+                    : StitchTone.neutral,
+                onTap: () => context.go(AppRoutes.inventoryLowStock),
+              ),
+              StitchKpiCard(
+                key: const ValueKey('inventory-kpi-products'),
+                label: 'Total Products',
+                value: formatCount(inventory.products.length),
+                icon: Icons.inventory_2_outlined,
+                tone: StitchTone.primary,
+                subtitle: 'In the catalogue',
+                pillLabel:
+                    '${formatCount(waitingPoCount)} waiting ${waitingPoCount == 1 ? 'PO' : 'POs'}',
+                pillTone: waitingPoCount > 0
+                    ? StitchTone.warning
+                    : StitchTone.neutral,
+                onTap: () => context.go(AppRoutes.inventoryProducts),
               ),
             ],
           ),
           const SizedBox(height: AppSpacing.lg),
+          // 3. 2-Column Chart Hero (Left flex:3 Category + Location, Right flex:2 Donut)
           LayoutBuilder(
             builder: (context, constraints) {
-              final totalVariants = inStock + lowStock + outOfStock;
               final healthChart = DonutChart(
                 key: const ValueKey('inventory-dashboard-health-chart'),
-                title: 'Stock Health Overview',
+                title: 'Stock Composition / Health',
                 subtitle: 'Variants grouped by current stock status.',
                 centerLabel: 'Variants',
                 centerValue: formatCount(totalVariants),
@@ -339,6 +408,7 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
                     ),
                 ],
               );
+
               final categoryChart = topCategories.isEmpty
                   ? null
                   : HorizontalComparisonChart(
@@ -355,55 +425,68 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
                           ),
                       ],
                     );
-              if (categoryChart == null || constraints.maxWidth < 900) {
+
+              final locationChart = topLocations.isEmpty
+                  ? null
+                  : ShareSplitChart(
+                      key: const ValueKey('inventory-dashboard-location-split'),
+                      title: 'Stock Value by Storage Location',
+                      subtitle:
+                          'FIFO stock capital distribution — Store vs Bodega.',
+                      slices: [
+                        for (final entry in topLocations.take(6))
+                          ShareSlice(
+                            label: entry.key,
+                            value: entry.value,
+                            amountText: formatPeso(entry.value),
+                          ),
+                      ],
+                    );
+
+              final hasLeftColumn =
+                  categoryChart != null || locationChart != null;
+              final leftColumn = Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ?categoryChart,
+                  if (categoryChart != null && locationChart != null)
+                    const SizedBox(height: AppSpacing.lg),
+                  ?locationChart,
+                ],
+              );
+
+              if (!hasLeftColumn) {
+                return healthChart;
+              }
+              if (constraints.maxWidth < 960) {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    leftColumn,
+                    const SizedBox(height: AppSpacing.lg),
                     healthChart,
-                    if (categoryChart != null) ...[
-                      const SizedBox(height: AppSpacing.lg),
-                      categoryChart,
-                    ],
                   ],
                 );
               }
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(flex: 2, child: healthChart),
+                  Expanded(flex: 3, child: leftColumn),
                   const SizedBox(width: AppSpacing.lg),
-                  Expanded(flex: 3, child: categoryChart),
+                  Expanded(flex: 2, child: healthChart),
                 ],
               );
             },
           ),
-          if (topLocations.isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.lg),
-            ShareSplitChart(
-              key: const ValueKey('inventory-dashboard-location-split'),
-              title: 'Stock Value by Storage Location',
-              subtitle: 'FIFO stock capital distribution across shelves.',
-              slices: [
-                for (final entry in topLocations.take(6))
-                  ShareSlice(
-                    label: entry.key,
-                    value: entry.value,
-                    amountText: formatPeso(entry.value),
-                  ),
-              ],
-            ),
-          ],
           const SizedBox(height: AppSpacing.lg),
+          // 4. Real Active FIFO Pipeline Queue
+          InventoryFifoPipelineCard(inventory: inventory),
+          const SizedBox(height: AppSpacing.lg),
+          // 5. Urgent Restock Queue + Waiting to Receive
           LayoutBuilder(
             builder: (context, constraints) {
               final restock = _restockPanel(inventory);
               final waiting = _waitingPanel(context, purchases);
-              // Two columns only where the LEFT one is still wide enough for
-              // DataPanel's 720 px table: at 1440 the content column is about
-              // 1,136 px, and a 3:2 split puts both tables under the breakpoint,
-              // so both panels would render as boxed cards inside boxed panels
-              // and the page would be twice as tall for the same five rows.
-              // Below this width the panels stack and each table gets the page.
               if (constraints.maxWidth < _twoColumnWidth) {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -417,8 +500,6 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // The queue is the page's reason to exist, so it gets the
-                  // wider column.
                   Expanded(flex: 3, child: restock),
                   const SizedBox(width: AppSpacing.lg),
                   Expanded(flex: 2, child: waiting),
@@ -430,6 +511,19 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
           _adjustmentsPanel(inventory, itemNames),
         ],
       ],
+    );
+
+    // When hosted inside a bounded-height Scaffold (e.g. standalone widget
+    // tests) without an outer scrollable shell, wrap in SingleChildScrollView
+    // so vertical content never overflows. Inside InventorySkeletonLayout
+    // (which already scrolls and passes unbounded height), return directly.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.hasBoundedHeight) {
+          return SingleChildScrollView(child: content);
+        }
+        return content;
+      },
     );
   }
 

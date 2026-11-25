@@ -36,8 +36,8 @@ import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmodel.dart';
 import 'package:client/routes/routes.dart';
 import 'package:client/shared/widgets/error_banner.dart';
-import 'package:client/shared/widgets/metric_tile.dart';
 import '../../support/phase4_fakes.dart';
+import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -385,11 +385,14 @@ void main() {
   ) async {
     await _pump(tester, await _loadedInventory(), await _loadedPurchases());
 
-    // Scoped to the tiles: "Low stock" and "Out of stock" are also row badges.
-    expect(find.widgetWithText(MetricTile, 'Total products'), findsOneWidget);
+    // Scoped to the Stitch KPI cards: catalogue count, FIFO valuation, and depletion radar.
+    expect(
+      find.widgetWithText(StitchKpiCard, 'TOTAL PRODUCTS'),
+      findsOneWidget,
+    );
     expect(
       find.descendant(
-        of: find.widgetWithText(MetricTile, 'Total products'),
+        of: find.widgetWithText(StitchKpiCard, 'TOTAL PRODUCTS'),
         matching: find.text('3'),
       ),
       findsOneWidget,
@@ -397,13 +400,27 @@ void main() {
     // 12 x 200 + 0 x 200 + 500 x 200 = 102,400.00
     expect(
       find.descendant(
-        of: find.widgetWithText(MetricTile, 'Inventory value'),
+        of: find.widgetWithText(StitchKpiCard, 'FIFO LANDED VALUATION'),
         matching: find.text('₱102,400.00'),
       ),
       findsOneWidget,
     );
-    expect(find.widgetWithText(MetricTile, 'Low stock'), findsOneWidget);
-    expect(find.widgetWithText(MetricTile, 'Out of stock'), findsOneWidget);
+    final criticalCard = find.byKey(const ValueKey('inventory-kpi-depletion'));
+    expect(criticalCard, findsOneWidget);
+    expect(
+      find.descendant(
+        of: criticalCard,
+        matching: find.textContaining('Out of stock'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: criticalCard,
+        matching: find.textContaining('Low stock'),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('a failed first load is one failure, never also an empty list', (
@@ -470,7 +487,10 @@ void main() {
   testWidgets('recent adjustments opens Stock adjustments', (tester) async {
     await _pump(tester, await _loadedInventory(), await _loadedPurchases());
 
-    await tester.tap(viewAllIn(InventoryRecentAdjustmentsPanel));
+    final viewAll = viewAllIn(InventoryRecentAdjustmentsPanel);
+    await tester.ensureVisible(viewAll);
+    await tester.pumpAndSettle();
+    await tester.tap(viewAll);
     await tester.pumpAndSettle();
 
     expect(find.text('ARRIVED adjustments'), findsOneWidget);

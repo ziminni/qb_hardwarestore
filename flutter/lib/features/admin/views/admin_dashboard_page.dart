@@ -1,5 +1,6 @@
+import 'dart:math' as math;
+
 import 'package:client/core/constants/app_areas.dart';
-import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/admin_skeleton_layout.dart';
@@ -11,6 +12,7 @@ import 'package:client/routes/routes.dart';
 import 'package:client/shared/widgets/analytics_charts.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
 import 'package:client/shared/widgets/status_badge.dart';
+import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -131,24 +133,70 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
             selected: _tab,
             onSelect: _select,
           ),
-          const SizedBox(height: AppSpacing.lg),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  asOf == null
-                      ? ''
-                      : 'Updated ${formatDateTime(asOf.toLocal())}',
-                  style: const TextStyle(color: AppColors.textSecondary),
+          const SizedBox(height: AppSpacing.md),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: StitchColors.card,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: StitchColors.cardBorder),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x0A0F172A),
+                  blurRadius: 10,
+                  offset: Offset(0, 2),
                 ),
-              ),
-              OutlinedButton.icon(
-                key: const ValueKey('dashboard-refresh'),
-                onPressed: _current.loading ? null : _current.load,
-                icon: const Icon(Icons.refresh, size: 18),
-                label: const Text('Refresh'),
-              ),
-            ],
+              ],
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Wrap(
+                    spacing: 12,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      const StitchPill(
+                        label: 'Store & Bodega · Live',
+                        tone: StitchTone.success,
+                        icon: Icons.circle,
+                      ),
+                      if (asOf != null)
+                        Text(
+                          'Updated ${formatDateTime(asOf.toLocal())}',
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w500,
+                            color: StitchColors.inkMuted,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                ElevatedButton.icon(
+                  key: const ValueKey('dashboard-refresh'),
+                  onPressed: _current.loading ? null : _current.load,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: StitchColors.primary,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  icon: const Icon(Icons.refresh, size: 17),
+                  label: const Text(
+                    'Refresh',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       );
@@ -186,7 +234,7 @@ String _plural(int count, String one, [String? many]) =>
 Widget _tab(
   String key, {
   String? readOnly,
-  required List<DashboardStat> tiles,
+  required List<Widget> tiles,
   required List<Widget> main,
   required List<Widget> side,
 }) => Column(
@@ -232,34 +280,46 @@ class _SystemTab extends StatelessWidget {
     return _tab(
       'tab-system',
       tiles: [
-        DashboardStat(
-          label: 'Active accounts',
+        StitchKpiCard(
+          label: 'User accounts',
+          subtitle: 'Active accounts',
           icon: Icons.group_outlined,
           value: _count(s, 'users_active'),
-          caption: '${_count(s, 'users_inactive')} switched off',
-          share: s.count('users_total') == 0
+          tone: StitchTone.primary,
+          progress: s.count('users_total') == 0
               ? 0
               : s.count('users_active') / s.count('users_total'),
+          pillLabel: '${_count(s, 'users_inactive')} switched off',
+          pillTone: s.count('users_inactive') > 0
+              ? StitchTone.warning
+              : StitchTone.neutral,
           onTap: () => go(AppRoutes.adminUserManagement),
         ),
-        DashboardStat(
+        StitchKpiCard(
           label: 'Sign-ins today',
           icon: Icons.login,
           value: _count(s, 'logins_today'),
+          tone: StitchTone.success,
+          pillLabel: 'Today',
+          pillTone: StitchTone.success,
         ),
-        DashboardStat(
+        StitchKpiCard(
           label: 'Failed sign-ins',
           icon: Icons.no_accounts_outlined,
           value: _count(s, 'failed_logins_7d'),
-          caption: 'last 7 days',
-          tone: failed > 0 ? StatusTone.error : StatusTone.neutral,
+          tone: failed > 0 ? StitchTone.danger : StitchTone.neutral,
+          valueColor: failed > 0 ? StitchColors.danger : null,
+          pillLabel: 'last 7 days',
+          pillTone: failed > 0 ? StitchTone.danger : StitchTone.neutral,
           onTap: () => go(AppRoutes.adminAuditLogs),
         ),
-        DashboardStat(
+        StitchKpiCard(
           label: 'Recorded actions today',
           icon: Icons.history,
           value: _count(s, 'events_today'),
-          caption: 'audit trail',
+          tone: StitchTone.primary,
+          pillLabel: 'audit trail',
+          pillTone: StitchTone.neutral,
           onTap: () => go(AppRoutes.adminAuditLogs),
         ),
       ],
@@ -386,56 +446,85 @@ class _SalesTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final stale = s.rows('stale_shifts');
     final returns = s.count('month_returns_count');
+    final last7Days = s.rows('last_7_days');
+    final peak7d = last7Days.fold<double>(
+      0,
+      (best, row) => math.max(best, _num(row['total'])),
+    );
+    final total7d = last7Days.fold<double>(
+      0,
+      (sum, row) => sum + _num(row['total']),
+    );
+    final monthGrossProfit = s.money('month_gross_profit');
     return _tab(
       'tab-sales',
       readOnly:
           'Cashiers record sales and returns at the till. This tab only '
           'shows them.',
       tiles: [
-        DashboardStat(
+        StitchKpiCard(
           label: 'Sales today',
           icon: Icons.point_of_sale_outlined,
           value: _whole(s, 'today_total'),
-          caption: _plural(s.count('today_transactions'), 'transaction'),
+          tone: StitchTone.primary,
+          pillLabel: _plural(s.count('today_transactions'), 'transaction'),
+          pillTone: StitchTone.primary,
         ),
-        DashboardStat(
+        StitchKpiCard(
           label: 'Sales this month',
           icon: Icons.calendar_month_outlined,
           value: _whole(s, 'month_total'),
-          caption: _plural(s.count('month_transactions'), 'transaction'),
+          tone: StitchTone.primary,
+          pillLabel: _plural(s.count('month_transactions'), 'transaction'),
+          pillTone: StitchTone.neutral,
         ),
-        DashboardStat(
+        StitchKpiCard(
           label: 'Returns this month',
           icon: Icons.assignment_return_outlined,
           value: _whole(s, 'month_returns_total'),
-          caption: _plural(returns, 'return'),
+          tone: returns > 0 ? StitchTone.warning : StitchTone.neutral,
+          pillLabel: _plural(returns, 'return'),
+          pillTone: returns > 0 ? StitchTone.warning : StitchTone.neutral,
         ),
-        DashboardStat(
+        StitchKpiCard(
           label: 'Open shifts',
           icon: Icons.schedule,
           value: _count(s, 'open_shifts'),
+          tone: stale.isNotEmpty ? StitchTone.danger : StitchTone.success,
+          valueColor: stale.isNotEmpty ? StitchColors.danger : null,
+          pillLabel: stale.isNotEmpty
+              ? '${stale.length} stale'
+              : 'On schedule',
+          pillTone: stale.isNotEmpty ? StitchTone.danger : StitchTone.success,
         ),
         if (s.has('month_vat_total'))
-          DashboardStat(
+          StitchKpiCard(
             label: 'VAT this month (All)',
             icon: Icons.receipt_long_outlined,
             value: _whole(s, 'month_vat_total'),
-            caption:
-                'OR-tagged only: ${_whole(s, 'month_or_vat')} · '
-                '${_plural(s.count('month_or_count'), 'OR')}',
+            tone: StitchTone.neutral,
+            subtitle: 'OR-tagged only: ${_whole(s, 'month_or_vat')}',
+            pillLabel: _plural(s.count('month_or_count'), 'OR'),
+            pillTone: StitchTone.primary,
           ),
         if (s.has('month_gross_profit'))
-          DashboardStat(
+          StitchKpiCard(
             label: 'Gross profit (month)',
             icon: Icons.trending_up,
             value: _whole(s, 'month_gross_profit'),
-            tone: s.money('month_gross_profit') < 0
-                ? StatusTone.error
-                : StatusTone.success,
-            caption: s.has('month_margin_percent')
+            tone: monthGrossProfit < 0
+                ? StitchTone.danger
+                : StitchTone.success,
+            valueColor: monthGrossProfit < 0
+                ? StitchColors.danger
+                : StitchColors.successInk,
+            pillLabel: s.has('month_margin_percent')
                 ? '${s.text('month_margin_percent')}% margin'
                       '${s.flag('month_cost_coverage_complete') ? '' : ' (partial cost)'}'
                 : 'Net sales ex-VAT minus COGS',
+            pillTone: monthGrossProfit < 0
+                ? StitchTone.danger
+                : StitchTone.success,
           ),
       ],
       main: [
@@ -452,26 +541,54 @@ class _SalesTab extends StatelessWidget {
               ),
           ],
         ),
-        if (s.rows('last_7_days').isNotEmpty)
-          GroupedBarTrendChart(
-            key: const ValueKey('admin-dashboard-7d-chart'),
-            title: 'Last 7 days sales & profit',
-            subtitle: 'Visual comparison of daily sales, landed COGS, and gross profit.',
-            primaryLabel: 'Sales',
-            secondaryLabel: 'COGS',
-            lineLabel: 'Profit',
-            height: 185,
-            points: [
-              for (final row in s.rows('last_7_days'))
-                TrendPoint(
-                  label: _shortDay(row['date']),
-                  primary: _num(row['total']),
-                  secondary: row['cogs'] != null ? _num(row['cogs']) : null,
-                  lineValue: row['gross_profit'] != null
-                      ? _num(row['gross_profit'])
-                      : null,
+        if (last7Days.isNotEmpty)
+          StitchSectionCard(
+            overline: '01 / FINANCIAL VELOCITY',
+            title: 'Revenue, COGS & Gross Profit Trajectory',
+            subtitle:
+                'Daily sales, landed COGS, and gross profit across the last 7 days',
+            icon: Icons.show_chart_rounded,
+            trailing: const StitchPill(
+              label: '7-Day Window',
+              tone: StitchTone.primary,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                GroupedBarTrendChart(
+                  key: const ValueKey('admin-dashboard-7d-chart'),
+                  title: 'Last 7 days sales & profit',
+                  subtitle:
+                      'Visual comparison of daily sales, landed COGS, and gross profit.',
+                  primaryLabel: 'Sales',
+                  secondaryLabel: 'COGS',
+                  lineLabel: 'Profit',
+                  height: 185,
+                  points: [
+                    for (final row in last7Days)
+                      TrendPoint(
+                        label: _shortDay(row['date']),
+                        primary: _num(row['total']),
+                        secondary: row['cogs'] != null
+                            ? _num(row['cogs'])
+                            : null,
+                        lineValue: row['gross_profit'] != null
+                            ? _num(row['gross_profit'])
+                            : null,
+                      ),
+                  ],
                 ),
-            ],
+                const SizedBox(height: 14),
+                _VelocitySummaryStrip(
+                  peak7d: formatPesoWhole(peak7d),
+                  total7d: formatPesoWhole(total7d),
+                  monthMargin: s.has('month_margin_percent')
+                      ? '${s.text('month_margin_percent')}%'
+                      : '—',
+                  negativeMargin: monthGrossProfit < 0,
+                ),
+              ],
+            ),
           ),
         DashboardCard(
           icon: Icons.calendar_today_outlined,
@@ -571,29 +688,46 @@ class _InventoryTab extends StatelessWidget {
           'The Stock Manager records deliveries, counts and adjustments. '
           'This tab only shows them.',
       tiles: [
-        DashboardStat(
+        StitchKpiCard(
           label: 'Stock value at cost',
           icon: Icons.inventory_2_outlined,
           value: _whole(s, 'stock_cost'),
-          caption: 'at retail ${_whole(s, 'stock_retail')}',
+          tone: StitchTone.primary,
+          pillLabel: 'at retail ${_whole(s, 'stock_retail')}',
+          pillTone: StitchTone.primary,
         ),
-        DashboardStat(
+        StitchKpiCard(
           label: 'Products on sale',
           icon: Icons.sell_outlined,
           value: _count(s, 'products_active'),
-          caption: '${_count(s, 'products_archived')} archived',
+          tone: StitchTone.success,
+          pillLabel: '${_count(s, 'products_archived')} archived',
+          pillTone: StitchTone.neutral,
         ),
-        DashboardStat(
+        StitchKpiCard(
           label: 'Open stock alerts',
           icon: Icons.notifications_none,
           value: _count(s, 'open_alerts'),
-          tone: out > 0 ? StatusTone.error : StatusTone.neutral,
+          tone: out > 0
+              ? StitchTone.danger
+              : (low > 0 || expiring > 0
+                    ? StitchTone.warning
+                    : StitchTone.success),
+          valueColor: out > 0 ? StitchColors.danger : null,
+          pillLabel: out > 0
+              ? '$out out of stock'
+              : (low > 0 ? '$low low stock' : 'All healthy'),
+          pillTone: out > 0
+              ? StitchTone.danger
+              : (low > 0 ? StitchTone.warning : StitchTone.success),
         ),
-        DashboardStat(
+        StitchKpiCard(
           label: 'Purchase orders open',
           icon: Icons.shopping_cart_outlined,
           value: _count(s, 'open_purchase_orders'),
-          caption: _plural(drafts, 'draft'),
+          tone: drafts > 0 ? StitchTone.warning : StitchTone.neutral,
+          pillLabel: _plural(drafts, 'draft'),
+          pillTone: drafts > 0 ? StitchTone.warning : StitchTone.neutral,
         ),
       ],
       main: [
@@ -742,30 +876,44 @@ class _BodegaTab extends StatelessWidget {
           'The Bodega checker confirms deliveries and releases pick-ups on '
           'the phone. This tab only shows them.',
       tiles: [
-        DashboardStat(
+        StitchKpiCard(
           label: 'Waiting for pick-up',
           icon: Icons.outbox_outlined,
           value: _count(s, 'open_pickups'),
-          caption: 'paid, not fully collected',
+          tone: pickups > 0 ? StitchTone.warning : StitchTone.primary,
+          pillLabel: 'paid, not fully collected',
+          pillTone: pickups > 0 ? StitchTone.warning : StitchTone.neutral,
         ),
-        DashboardStat(
+        StitchKpiCard(
           label: 'Deliveries to check',
           icon: Icons.local_shipping_outlined,
           value: _count(s, 'pending_deliveries'),
-          caption: 'not stock until checked',
-          tone: pendingCount > 0 ? StatusTone.warning : StatusTone.neutral,
+          tone: waitedLong > 0
+              ? StitchTone.danger
+              : (pendingCount > 0 ? StitchTone.warning : StitchTone.success),
+          valueColor: waitedLong > 0 ? StitchColors.danger : null,
+          pillLabel: 'not stock until checked',
+          pillTone: waitedLong > 0
+              ? StitchTone.danger
+              : (pendingCount > 0 ? StitchTone.warning : StitchTone.neutral),
         ),
-        DashboardStat(
+        StitchKpiCard(
           label: 'Releases today',
           icon: Icons.done_all,
           value: _count(s, 'releases_today'),
+          tone: StitchTone.success,
+          pillLabel: 'Bodega dispatches',
+          pillTone: StitchTone.success,
         ),
-        DashboardStat(
+        StitchKpiCard(
           label: 'Write-offs this month',
           icon: Icons.report_gmailerrorred_outlined,
           value: _count(s, 'write_offs_month'),
-          caption:
+          tone: writeOffs > 0 ? StitchTone.danger : StitchTone.neutral,
+          valueColor: writeOffs > 0 ? StitchColors.danger : null,
+          pillLabel:
               '${_plural(s.count('deliveries_checked_month'), 'delivery', 'deliveries')} checked',
+          pillTone: StitchTone.neutral,
         ),
       ],
       main: [
@@ -905,30 +1053,40 @@ class _FinanceTab extends StatelessWidget {
           'Cashiers collect utang and the Store Manager pays supplier bills. '
           'This tab only shows them.',
       tiles: [
-        DashboardStat(
+        StitchKpiCard(
           label: 'Customers owe (utang)',
           icon: Icons.people_outline,
           value: _whole(s, 'receivables_total'),
-          caption: _plural(s.count('receivables_count'), 'open account'),
+          tone: StitchTone.primary,
+          pillLabel: _plural(s.count('receivables_count'), 'open account'),
+          pillTone: StitchTone.primary,
         ),
-        DashboardStat(
+        StitchKpiCard(
           label: 'Overdue utang',
           icon: Icons.event_busy_outlined,
           value: _whole(s, 'receivables_overdue'),
-          tone: overdueUtang > 0 ? StatusTone.error : StatusTone.neutral,
-          caption: _plural(overdueUtang, 'account'),
+          tone: overdueUtang > 0 ? StitchTone.danger : StitchTone.success,
+          valueColor: overdueUtang > 0 ? StitchColors.danger : null,
+          pillLabel: _plural(overdueUtang, 'account'),
+          pillTone: overdueUtang > 0 ? StitchTone.danger : StitchTone.success,
         ),
-        DashboardStat(
+        StitchKpiCard(
           label: 'We owe suppliers',
           icon: Icons.storefront_outlined,
           value: _whole(s, 'payables_total'),
-          caption: _plural(s.count('payables_count'), 'open bill'),
+          tone: StitchTone.primary,
+          pillLabel: _plural(s.count('payables_count'), 'open bill'),
+          pillTone: StitchTone.neutral,
         ),
-        DashboardStat(
+        StitchKpiCard(
           label: 'Bills due in 7 days',
           icon: Icons.event_outlined,
           value: _whole(s, 'payables_due_7d'),
-          caption: 'overdue ${_whole(s, 'payables_overdue')}',
+          tone: overdueBills > 0
+              ? StitchTone.danger
+              : (dueSoon > 0 ? StitchTone.warning : StitchTone.success),
+          pillLabel: 'overdue ${_whole(s, 'payables_overdue')}',
+          pillTone: overdueBills > 0 ? StitchTone.danger : StitchTone.neutral,
         ),
       ],
       main: [
@@ -1104,6 +1262,106 @@ class _FinanceTab extends StatelessWidget {
         ('Due', dueLabel),
         ('Bill total', formatPeso(_num(row['total']))),
         ('Balance', formatPeso(_num(row['balance']))),
+      ],
+    );
+  }
+}
+
+class _VelocitySummaryStrip extends StatelessWidget {
+  const _VelocitySummaryStrip({
+    required this.peak7d,
+    required this.total7d,
+    required this.monthMargin,
+    required this.negativeMargin,
+  });
+
+  final String peak7d;
+  final String total7d;
+  final String monthMargin;
+  final bool negativeMargin;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      _VelocityStat(label: '7-DAY PEAK', value: peak7d),
+      _VelocityStat(label: '7-DAY TOTAL', value: total7d),
+      _VelocityStat(
+        label: 'MONTH MARGIN %',
+        value: monthMargin,
+        valueColor: monthMargin == '—'
+            ? StitchColors.inkMuted
+            : (negativeMargin ? StitchColors.danger : StitchColors.successInk),
+      ),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: StitchColors.surfaceCanvas,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: StitchColors.divider),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth < 420) {
+            return Wrap(spacing: 16, runSpacing: 10, children: items);
+          }
+          return Row(
+            children: [
+              for (var i = 0; i < items.length; i++) ...[
+                if (i > 0) const SizedBox(width: 12),
+                Expanded(child: items[i]),
+              ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _VelocityStat extends StatelessWidget {
+  const _VelocityStat({
+    required this.label,
+    required this.value,
+    this.valueColor,
+  });
+
+  final String label;
+  final String value;
+  final Color? valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.6,
+            color: StitchColors.inkMuted,
+          ),
+        ),
+        const SizedBox(height: 3),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            value,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: valueColor ?? StitchColors.ink,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ),
       ],
     );
   }

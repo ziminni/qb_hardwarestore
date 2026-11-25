@@ -1,10 +1,9 @@
-import 'package:client/core/constants/app_colors.dart';
-import 'package:client/core/constants/app_radii.dart';
+import 'package:client/core/constants/app_areas.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/core/navigation/app_destinations.dart';
-import 'package:client/core/constants/app_areas.dart';
+import 'package:client/core/time/app_clock.dart';
 import 'package:client/data/models/inventory.dart';
 import 'package:client/data/models/reports.dart';
 import 'package:client/data/models/sales.dart';
@@ -20,7 +19,7 @@ import 'package:client/shared/widgets/analytics_charts.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
-import 'package:client/core/time/app_clock.dart';
+import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -136,7 +135,6 @@ class _DashboardViewState extends State<_DashboardView> {
 
   /// Re-runs both read groups. They fail independently, so the one banner's
   /// Retry repairs both rather than making the manager chase two.
-  ///
   void _retryAll() {
     context.read<SalesDashboardAlertsViewmodel>().load();
     _loadSales();
@@ -185,12 +183,9 @@ class _DashboardViewState extends State<_DashboardView> {
     // never the client fold of a capped transaction walk. Until the summary
     // arrives the tiles fall back to the loaded rows and SAY so.
     final summary = salesState.summary;
-    // "Last 30 days" is what the summary covers; "Loaded transactions" is what
-    // the page's own rows cover. No third word fits a 760 px tile, and a scope
-    // cut to "Last 30 days · se..." tells the reader nothing.
     final scopeCaption = summary == null
         ? 'Loaded transactions'
-        : _presetRange(_preset).label;
+        : activePreset.label;
     // A read that has not answered established no number. Folding zero rows
     // would print a confident ₱0.00 for a failure, so the tiles say "Not
     // loaded" until either the summary or the row list has actually replied.
@@ -206,15 +201,14 @@ class _DashboardViewState extends State<_DashboardView> {
     final returnsToday = _transactionsLoaded
         ? _returnsToday(salesState.returns)
         : null;
-    // Two independent groups of reads (the overdue book, and the sales list
-    // with its summary) can fail separately, but the manager needs ONE failure
-    // surface and ONE Retry: two red bars saying the same thing is noise, and
-    // the tiles below already say "Not loaded" wherever a read did not answer.
-    // The sales reads speak first: a refused summary is what an older test pins
-    // by name, and a dead transaction list is the larger loss than a dead
-    // receivables count.
+    final kpisUnloaded =
+        revenue == null && transactionCount == null && average == null;
     final failure =
         salesState.loadError ?? salesState.summaryError ?? alerts.loadError;
+
+    final hasTrendDays = summary != null && summary.days.isNotEmpty;
+    final hasScopedSales = _transactionsLoaded && scopedCompleted.isNotEmpty;
+
     return SalesSkeletonLayout(
       title: 'Sales Dashboard',
       subtitle:
@@ -222,15 +216,14 @@ class _DashboardViewState extends State<_DashboardView> {
       selectedNavigationIndex: 0,
       onNavigationSelected: (index) => _selectNavigation(context, index),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // One banner, one retry. A failed REFRESH keeps the rows and counts
-          // it already had and says why above them.
           if (failure != null)
             Padding(
               padding: const EdgeInsets.only(bottom: AppSpacing.md),
               child: ErrorBanner(message: failure, onRetry: _retryAll),
             ),
+          // Top Control Bar
           Wrap(
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
@@ -241,30 +234,53 @@ class _DashboardViewState extends State<_DashboardView> {
                 'Needs you',
                 style: theme.textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.w700,
+                  color: StitchColors.ink,
                 ),
               ),
               Wrap(
-                spacing: AppSpacing.xs,
+                spacing: AppSpacing.sm,
                 runSpacing: AppSpacing.xs,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  for (final preset in _DashboardRangePreset.values)
-                    ChoiceChip(
-                      key: ValueKey('sales-dashboard-preset-${preset.name}'),
-                      label: Text(_presetRange(preset).chipLabel),
-                      selected: _preset == preset,
-                      onSelected: (_) => _selectPreset(preset),
-                    ),
-                  OutlinedButton.icon(
+                  StitchSegmentedBar<_DashboardRangePreset>(
+                    selected: _preset,
+                    onSelected: _selectPreset,
+                    items: [
+                      for (final preset in _DashboardRangePreset.values)
+                        (
+                          value: preset,
+                          label: _presetRange(preset).chipLabel,
+                          key: ValueKey('sales-dashboard-preset-${preset.name}'),
+                        ),
+                    ],
+                  ),
+                  FilledButton.icon(
                     key: const ValueKey('sales-dashboard-audit-vat'),
                     onPressed: () =>
                         _selectNavigation(context, _row('reports')),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: StitchColors.primaryDeep,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                    ),
                     icon: const Icon(Icons.account_balance_outlined, size: 16),
                     label: const Text('Audit VAT Ledger'),
                   ),
                   OutlinedButton.icon(
                     key: const ValueKey('sales-dashboard-refresh'),
                     onPressed: _retryAll,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: StitchColors.ink,
+                      side: const BorderSide(color: StitchColors.cardBorder),
+                      backgroundColor: StitchColors.card,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                    ),
                     icon: const Icon(Icons.refresh_rounded, size: 16),
                     label: const Text('Refresh'),
                   ),
@@ -273,6 +289,7 @@ class _DashboardViewState extends State<_DashboardView> {
             ],
           ),
           const SizedBox(height: AppSpacing.md),
+          // Actionable "Needs you" tiles
           MetricGrid(
             children: [
               SalesNeedsYouTile(
@@ -281,9 +298,6 @@ class _DashboardViewState extends State<_DashboardView> {
                 value: _count(alerts.overdueReceivables),
                 caption: 'Customers past their due date',
                 icon: Icons.account_balance_wallet_outlined,
-                // The receivables screen opens unfiltered: its Overdue chip is
-                // that screen's own state, and preset filters would mean
-                // editing a file another card owns.
                 onTap: () =>
                     _selectNavigation(context, _row('sales.receivables')),
               ),
@@ -298,80 +312,111 @@ class _DashboardViewState extends State<_DashboardView> {
             ],
           ),
           const SizedBox(height: AppSpacing.lg),
-          MetricGrid(
-            children: [
-              MetricTile(
-                label: 'Revenue',
-                value: revenue == null ? 'Not loaded' : formatPeso(revenue),
-                caption: transactionCount == null
-                    ? null
-                    : '${formatCount(transactionCount)} completed · '
-                          '$scopeCaption',
-              ),
-              MetricTile(
-                label: 'Transactions',
-                value: transactionCount == null
-                    ? 'Not loaded'
-                    : formatCount(transactionCount),
-                caption: transactionCount == null ? null : scopeCaption,
-              ),
-              MetricTile(
-                label: 'Average sale',
-                value: average == null ? 'Not loaded' : formatPeso(average),
-                caption: 'Per completed transaction',
-              ),
-              if (summary?.grossProfit != null)
+          // 4-Column Stitch Hero KPI Strip
+          if (kpisUnloaded)
+            const MetricGrid(
+              minTileWidth: 230,
+              children: [
+                MetricTile(label: 'Revenue', value: 'Not loaded'),
+                MetricTile(label: 'Transactions', value: 'Not loaded'),
                 MetricTile(
-                  label: 'Gross profit',
-                  value: formatPeso(summary!.grossProfit!),
-                  caption: summary.grossMarginPercent != null
-                      ? '${summary.grossMarginPercent!.toStringAsFixed(1)}% margin · $scopeCaption'
-                      : scopeCaption,
+                  label: 'Average sale',
+                  value: 'Not loaded',
+                  caption: 'Per completed transaction',
                 ),
-            ],
-          ),
+              ],
+            )
+          else
+            MetricGrid(
+              minTileWidth: 230,
+              children: [
+                StitchKpiCard(
+                  label: 'Revenue',
+                  value: revenue == null ? 'Not loaded' : formatPeso(revenue),
+                  icon: Icons.payments_outlined,
+                  tone: StitchTone.primary,
+                  subtitle: transactionCount == null
+                      ? null
+                      : '${formatCount(transactionCount)} completed · $scopeCaption',
+                  pillLabel: scopeCaption,
+                  pillTone: StitchTone.primary,
+                ),
+                StitchKpiCard(
+                  label: 'Transactions',
+                  value: transactionCount == null
+                      ? 'Not loaded'
+                      : formatCount(transactionCount),
+                  icon: Icons.receipt_long_outlined,
+                  tone: StitchTone.primary,
+                  subtitle: 'Completed sales slips',
+                  pillLabel: transactionCount == null ? null : scopeCaption,
+                  pillTone: StitchTone.primary,
+                ),
+                StitchKpiCard(
+                  label: 'Average sale',
+                  value: average == null ? 'Not loaded' : formatPeso(average),
+                  icon: Icons.analytics_outlined,
+                  tone: StitchTone.primary,
+                  subtitle: 'Per completed transaction',
+                  pillLabel: 'Basket average',
+                  pillTone: StitchTone.neutral,
+                ),
+                if (summary?.grossProfit != null)
+                  StitchKpiCard(
+                    label: 'Gross profit',
+                    value: formatPeso(summary!.grossProfit!),
+                    icon: Icons.trending_up,
+                    tone: summary.grossProfit! >= 0
+                        ? StitchTone.success
+                        : StitchTone.danger,
+                    valueColor: summary.grossProfit! >= 0
+                        ? StitchColors.successInk
+                        : StitchColors.danger,
+                    subtitle: scopeCaption,
+                    pillLabel: summary.grossMarginPercent != null
+                        ? '${summary.grossMarginPercent!.toStringAsFixed(1)}% margin'
+                        : scopeCaption,
+                    pillTone: summary.grossProfit! >= 0
+                        ? StitchTone.success
+                        : StitchTone.danger,
+                  )
+                else if (summary?.orVatBreakdown != null)
+                  StitchKpiCard(
+                    label: 'OR-Tagged VAT',
+                    value: formatPeso(summary!.orVatBreakdown!.orBacked.vat),
+                    icon: Icons.verified_outlined,
+                    tone: StitchTone.primary,
+                    subtitle:
+                        '12% Output on ${formatPeso(summary.orVatBreakdown!.orBacked.vatableSales)} base',
+                    pillLabel:
+                        '${formatCount(summary.orVatBreakdown!.orBacked.transactions)} OR Invoices',
+                    pillTone: StitchTone.primary,
+                  ),
+              ],
+            ),
+          // 3-Column Dual-Stream Tax Segregation Card
           if (summary?.orVatBreakdown != null) ...[
-            const SizedBox(height: AppSpacing.md),
+            const SizedBox(height: AppSpacing.lg),
             _DualStreamTaxCard(
               breakdown: summary!.orVatBreakdown!,
               scopeCaption: scopeCaption,
               onOpenReport: () => _selectNavigation(context, _row('reports')),
             ),
           ],
-          if (_preset == _DashboardRangePreset.today &&
-              _transactionsLoaded &&
-              scopedCompleted.isNotEmpty) ...[
+          // 2-Column Chart Hero
+          if (_preset == _DashboardRangePreset.today && hasScopedSales) ...[
             const SizedBox(height: AppSpacing.lg),
             _HourlyAndTenderRow(
               scopedCompleted: scopedCompleted,
               scopeCaption: scopeCaption,
             ),
-          ] else if (summary != null && summary.days.isNotEmpty) ...[
+          ] else if (_preset != _DashboardRangePreset.today &&
+              (hasTrendDays || hasScopedSales)) ...[
             const SizedBox(height: AppSpacing.lg),
-            GroupedBarTrendChart(
-              key: const ValueKey('sales-dashboard-profit-chart'),
-              title: 'Daily Sales & Profit ($scopeCaption)',
-              subtitle: summary.days.any((d) => d.cogs != null)
-                  ? 'Bars compare net sales (ex-VAT) vs. landed COGS; line tracks gross profit.'
-                  : 'Daily sales totals across reported dates.',
-              primaryLabel:
-                  summary.days.any((d) => d.merchandiseNetExVat != null)
-                  ? 'Net sales'
-                  : 'Invoice total',
-              secondaryLabel: 'COGS',
-              lineLabel: 'Profit',
-              height: 190,
-              points: [
-                for (final day in summary.days)
-                  TrendPoint(
-                    label: day.day.length >= 10
-                        ? day.day.substring(5)
-                        : day.day,
-                    primary: day.merchandiseNetExVat ?? day.gross,
-                    secondary: day.cogs,
-                    lineValue: day.grossProfit,
-                  ),
-              ],
+            _TrendAndTenderRow(
+              summary: hasTrendDays ? summary : null,
+              scopedCompleted: hasScopedSales ? scopedCompleted : const [],
+              scopeCaption: scopeCaption,
             ),
           ],
           if (summary != null && summary.merchandiseGross != null) ...[
@@ -401,16 +446,6 @@ class _DashboardViewState extends State<_DashboardView> {
               ],
             ),
           ],
-          if (_transactionsLoaded &&
-              scopedCompleted.isNotEmpty &&
-              _preset != _DashboardRangePreset.today) ...[
-            const SizedBox(height: AppSpacing.lg),
-            _TenderAndOrSplitRow(
-              completed: scopedCompleted,
-              scopeCaption: scopeCaption,
-              orVatBreakdown: summary?.orVatBreakdown,
-            ),
-          ],
           if (inventoryState != null && inventoryState.products.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.lg),
             _StockSnapshotCard(
@@ -419,10 +454,6 @@ class _DashboardViewState extends State<_DashboardView> {
                   _selectNavigation(context, _row('sales.inventory')),
             ),
           ],
-          // The panels below read the transaction list. Until it answers there
-          // is nothing honest to draw there: a "No completed sales yet" panel
-          // under a failure banner would claim a fact the failed read never
-          // established, so the banner is the whole story.
           if (_transactionsLoaded) ...[
             const SizedBox(height: AppSpacing.lg),
             LayoutBuilder(
@@ -486,80 +517,404 @@ class _DualStreamTaxCard extends StatelessWidget {
     final osPct = totalGross > 0
         ? (breakdown.untaggedOs.grossSales / totalGross * 100)
         : 0.0;
+    final orFlex = (orPct * 10).round();
+    final osFlex = (osPct * 10).round();
 
-    return Container(
-      key: const ValueKey('sales-dashboard-vat-split'),
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.cardBackground,
-        borderRadius: BorderRadius.circular(AppRadii.large),
-        border: Border.all(color: AppColors.border),
-      ),
+    final orBox = StitchAccentBox(
+      accentColor: StitchColors.primaryDeep,
+      backgroundColor: StitchColors.primarySoft,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.xs,
-            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 6,
             alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Row(
+              const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(
-                    Icons.receipt_long_outlined,
-                    size: 18,
-                    color: AppColors.brandGold,
+                  Icon(
+                    Icons.verified_outlined,
+                    size: 15,
+                    color: StitchColors.primaryDeep,
                   ),
-                  const SizedBox(width: AppSpacing.xs),
+                  SizedBox(width: 6),
                   Text(
-                    'Official Receipt (OR) vs. Untagged Order Slips ($scopeCaption)',
-                    style: const TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
+                    'OR-Tagged Official Receipt (OR)',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: StitchColors.primaryDeep,
                     ),
                   ),
                 ],
               ),
-              TextButton.icon(
-                onPressed: onOpenReport,
-                icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                label: const Text('Full VAT & OR report'),
+              StitchPill(
+                label: '${formatCount(breakdown.orBacked.transactions)} OR Invoices',
+                tone: StitchTone.primary,
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.sm),
-          MetricGrid(
+          const SizedBox(height: 12),
+          const Text(
+            'GROSS OR SALES',
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.6,
+              color: StitchColors.inkMuted,
+            ),
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              formatPeso(breakdown.orBacked.grossSales),
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: StitchColors.ink,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Divider(height: 1, color: StitchColors.divider),
+          const SizedBox(height: 10),
+          Row(
             children: [
-              MetricTile(
-                label: 'OR-Tagged Only (Official Receipt)',
-                value: formatPeso(breakdown.orBacked.vat),
-                caption:
-                    '${formatCount(breakdown.orBacked.transactions)} OR-tagged (${orPct.toStringAsFixed(0)}%) · '
-                    '${formatPeso(breakdown.orBacked.grossSales)} gross · '
-                    'Base ${formatPeso(breakdown.orBacked.vatableSales)}',
+              Expanded(
+                child: _TaxSubMetric(
+                  label: 'VATABLE BASE',
+                  value: formatPeso(breakdown.orBacked.vatableSales),
+                ),
               ),
-              MetricTile(
-                label: 'Untagged Order Slips (OS)',
-                value: formatPeso(breakdown.untaggedOs.vat),
-                caption:
-                    '${formatCount(breakdown.untaggedOs.transactions)} untagged OS (${osPct.toStringAsFixed(0)}%) · '
-                    '${formatPeso(breakdown.untaggedOs.grossSales)} gross · '
-                    'Base ${formatPeso(breakdown.untaggedOs.vatableSales)}',
-              ),
-              MetricTile(
-                label: 'Consolidated Turnover (OR + OS)',
-                value: formatPeso(breakdown.combined.grossSales),
-                caption:
-                    '${formatCount(breakdown.combined.transactions)} total sales · '
-                    'Total VAT ${formatPeso(breakdown.combined.vat)}',
+              const SizedBox(width: 10),
+              Expanded(
+                child: _TaxSubMetric(
+                  label: '12% OUTPUT VAT',
+                  value: formatPeso(breakdown.orBacked.vat),
+                  valueColor: StitchColors.primaryDeep,
+                ),
               ),
             ],
           ),
         ],
       ),
+    );
+
+    final osBox = StitchAccentBox(
+      accentColor: StitchColors.primary,
+      backgroundColor: StitchColors.surfaceCanvas,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.description_outlined,
+                    size: 15,
+                    color: StitchColors.primary,
+                  ),
+                  SizedBox(width: 6),
+                  Text(
+                    'Untagged Order Slips (OS)',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: StitchColors.primary,
+                    ),
+                  ),
+                ],
+              ),
+              StitchPill(
+                label: '${formatCount(breakdown.untaggedOs.transactions)} Order Slips',
+                tone: StitchTone.neutral,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'INTERNAL OS SALES',
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.6,
+              color: StitchColors.inkMuted,
+            ),
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              formatPeso(breakdown.untaggedOs.grossSales),
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: StitchColors.ink,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Divider(height: 1, color: StitchColors.divider),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _TaxSubMetric(
+                  label: 'VATABLE BASE',
+                  value: formatPeso(breakdown.untaggedOs.vatableSales),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _TaxSubMetric(
+                  label: 'ESTIMATED VAT',
+                  value: formatPeso(breakdown.untaggedOs.vat),
+                  valueColor: StitchColors.primary,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    final consolidatedBox = StitchAccentBox(
+      accentColor: StitchColors.success,
+      backgroundColor: const Color(0xFFF0FDF4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                'Consolidated Turnover (OR + OS)',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: StitchColors.successInk,
+                ),
+              ),
+              StitchPill(label: 'Reconciled', tone: StitchTone.success),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'TOTAL GROSS (OR + OS)',
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.6,
+              color: StitchColors.inkMuted,
+            ),
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              formatPeso(breakdown.combined.grossSales),
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: StitchColors.ink,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Total VAT ${formatPeso(breakdown.combined.vat)} · ${formatCount(breakdown.combined.transactions)} slips',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: StitchColors.inkMuted,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'OR ${orPct.toStringAsFixed(0)}%',
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: StitchColors.primaryDeep,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  'OS ${osPct.toStringAsFixed(0)}%',
+                  textAlign: TextAlign.end,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF2563EB),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: SizedBox(
+              height: 8,
+              child: Row(
+                children: [
+                  if (orFlex > 0)
+                    Expanded(
+                      flex: orFlex,
+                      child: Container(color: StitchColors.primaryDeep),
+                    ),
+                  if (osFlex > 0)
+                    Expanded(
+                      flex: osFlex,
+                      child: Container(color: const Color(0xFF60A5FA)),
+                    ),
+                  if (orFlex == 0 && osFlex == 0)
+                    Expanded(
+                      child: Container(color: StitchColors.cardBorder),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return StitchSectionCard(
+      key: const ValueKey('sales-dashboard-vat-split'),
+      icon: Icons.account_balance_outlined,
+      overline: 'DUAL-STREAM TAX SEGREGATION',
+      title: 'Official Receipt (OR) vs. Untagged Order Slips',
+      subtitle:
+          'Contrasting 12% Output VAT on OR-tagged sales against untagged internal order slips ($scopeCaption).',
+      trailing: Wrap(
+        spacing: 10,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          StitchPill(
+            label:
+                '${orPct.toStringAsFixed(0)}% OR / ${osPct.toStringAsFixed(0)}% OS',
+            tone: StitchTone.primary,
+          ),
+          FilledButton.icon(
+            onPressed: onOpenReport,
+            style: FilledButton.styleFrom(
+              backgroundColor: StitchColors.primaryDeep,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            ),
+            icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+            label: const Text('Full VAT & OR report'),
+          ),
+        ],
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth < 860) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                orBox,
+                const SizedBox(height: AppSpacing.sm),
+                osBox,
+                const SizedBox(height: AppSpacing.sm),
+                consolidatedBox,
+              ],
+            );
+          }
+          return IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: orBox),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(child: osBox),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(child: consolidatedBox),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _TaxSubMetric extends StatelessWidget {
+  const _TaxSubMetric({
+    required this.label,
+    required this.value,
+    this.valueColor,
+  });
+
+  final String label;
+  final String value;
+  final Color? valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.5,
+            color: StitchColors.inkMuted,
+          ),
+        ),
+        const SizedBox(height: 2),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            value,
+            style: TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w800,
+              color: valueColor ?? StitchColors.ink,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -607,6 +962,81 @@ class _HourlyAndTenderRow extends StatelessWidget {
             Expanded(flex: 3, child: hourlyChart),
             const SizedBox(width: AppSpacing.md),
             Expanded(flex: 2, child: tenderChart),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _TrendAndTenderRow extends StatelessWidget {
+  const _TrendAndTenderRow({
+    required this.summary,
+    required this.scopedCompleted,
+    required this.scopeCaption,
+  });
+
+  final SalesSummary? summary;
+  final List<InventorySale> scopedCompleted;
+  final String scopeCaption;
+
+  @override
+  Widget build(BuildContext context) {
+    final trendChart = summary == null
+        ? null
+        : GroupedBarTrendChart(
+            key: const ValueKey('sales-dashboard-profit-chart'),
+            title: 'Daily Sales & Profit ($scopeCaption)',
+            subtitle: summary!.days.any((d) => d.cogs != null)
+                ? 'Bars compare net sales (ex-VAT) vs. landed COGS; line tracks gross profit.'
+                : 'Daily sales totals across reported dates.',
+            primaryLabel:
+                summary!.days.any((d) => d.merchandiseNetExVat != null)
+                ? 'Net sales'
+                : 'Invoice total',
+            secondaryLabel: 'COGS',
+            lineLabel: 'Profit',
+            height: 190,
+            points: [
+              for (final day in summary!.days)
+                TrendPoint(
+                  label: day.day.length >= 10
+                      ? day.day.substring(5)
+                      : day.day,
+                  primary: day.merchandiseNetExVat ?? day.gross,
+                  secondary: day.cogs,
+                  lineValue: day.grossProfit,
+                ),
+            ],
+          );
+    final tenderChart = scopedCompleted.isEmpty
+        ? null
+        : _buildTenderDonut(scopedCompleted, scopeCaption);
+
+    if (trendChart != null && tenderChart == null) return trendChart;
+    if (trendChart == null && tenderChart != null) return tenderChart;
+    if (trendChart == null && tenderChart == null) {
+      return const SizedBox.shrink();
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 860) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              trendChart!,
+              const SizedBox(height: AppSpacing.md),
+              tenderChart!,
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(flex: 3, child: trendChart!),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(flex: 2, child: tenderChart!),
           ],
         );
       },
@@ -672,137 +1102,61 @@ class _StockSnapshotCard extends StatelessWidget {
       0,
       (sum, batch) => sum + batch.currentQty * batch.unitCostLanded,
     );
-    return Container(
+    return StitchSectionCard(
       key: const ValueKey('sales-dashboard-stock-snapshot'),
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.cardBackground,
-        borderRadius: BorderRadius.circular(AppRadii.large),
-        border: Border.all(color: AppColors.border),
+      icon: Icons.inventory_2_outlined,
+      overline: 'STORE & BODEGA INVENTORY',
+      title: 'Store Stock & Restock Snapshot',
+      subtitle: 'Live catalog health and FIFO landed stock valuation.',
+      trailing: FilledButton.tonalIcon(
+        onPressed: onOpenInventory,
+        icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+        label: const Text('Inventory & Sales'),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: MetricGrid(
+        minTileWidth: 210,
         children: [
-          Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.xs,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            alignment: WrapAlignment.spaceBetween,
-            children: [
-              const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.inventory_2_outlined,
-                    size: 18,
-                    color: AppColors.primary,
-                  ),
-                  SizedBox(width: AppSpacing.xs),
-                  Text(
-                    'Store Stock & Restock Snapshot',
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
-              TextButton.icon(
-                onPressed: onOpenInventory,
-                icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                label: const Text('Inventory & Sales'),
-              ),
-            ],
+          StitchKpiCard(
+            label: 'Active Products',
+            value: formatCount(inventory.products.length),
+            icon: Icons.category_outlined,
+            tone: StitchTone.primary,
+            subtitle: '${formatCount(inStock)} variants healthy',
+            pillLabel: 'Catalog',
+            pillTone: StitchTone.primary,
           ),
-          const SizedBox(height: AppSpacing.sm),
-          MetricGrid(
-            children: [
-              MetricTile(
-                label: 'Active Products',
-                value: formatCount(inventory.products.length),
-                caption: '${formatCount(inStock)} variants healthy',
-              ),
-              MetricTile(
-                label: 'FIFO Stock Value',
-                value: formatPeso(stockValue),
-                caption: 'On-hand landed cost',
-              ),
-              MetricTile(
-                label: 'Low Stock',
-                value: formatCount(lowStock),
-                caption: 'Below reorder point',
-              ),
-              MetricTile(
-                label: 'Out of Stock',
-                value: formatCount(outOfStock),
-                caption: 'Needs immediate restock',
-              ),
-            ],
+          StitchKpiCard(
+            label: 'FIFO Stock Value',
+            value: formatPeso(stockValue),
+            icon: Icons.account_balance_wallet_outlined,
+            tone: StitchTone.success,
+            subtitle: 'On-hand landed cost',
+            pillLabel: 'FIFO valuation',
+            pillTone: StitchTone.success,
+          ),
+          StitchKpiCard(
+            label: 'Low Stock',
+            value: formatCount(lowStock),
+            icon: Icons.warning_amber_rounded,
+            tone: lowStock > 0 ? StitchTone.warning : StitchTone.neutral,
+            valueColor:
+                lowStock > 0 ? StitchColors.warningInk : StitchColors.ink,
+            subtitle: 'Below reorder point',
+            pillLabel: lowStock > 0 ? 'Reorder soon' : 'All healthy',
+            pillTone: lowStock > 0 ? StitchTone.warning : StitchTone.success,
+          ),
+          StitchKpiCard(
+            label: 'Out of Stock',
+            value: formatCount(outOfStock),
+            icon: Icons.remove_shopping_cart_outlined,
+            tone: outOfStock > 0 ? StitchTone.danger : StitchTone.neutral,
+            valueColor: outOfStock > 0 ? StitchColors.danger : StitchColors.ink,
+            subtitle: 'Needs immediate restock',
+            pillLabel: outOfStock > 0 ? 'Action needed' : 'Zero stockouts',
+            pillTone: outOfStock > 0 ? StitchTone.danger : StitchTone.success,
           ),
         ],
       ),
-    );
-  }
-}
-
-class _TenderAndOrSplitRow extends StatelessWidget {
-  const _TenderAndOrSplitRow({
-    required this.completed,
-    required this.scopeCaption,
-    required this.orVatBreakdown,
-  });
-
-  final List<InventorySale> completed;
-  final String scopeCaption;
-  final OrVatSplit? orVatBreakdown;
-
-  @override
-  Widget build(BuildContext context) {
-    final tenderChart = _buildTenderDonut(completed, scopeCaption);
-
-    final orChart = orVatBreakdown == null
-        ? null
-        : ShareSplitChart(
-            key: const ValueKey('sales-dashboard-or-split'),
-            title: 'OR-Tagged vs. Untagged Order Slips',
-            subtitle: 'Gross sales split by official receipt attachment.',
-            slices: [
-              ShareSlice(
-                label: 'OR-Tagged Only (Official Receipt)',
-                value: orVatBreakdown!.orBacked.grossSales,
-                amountText: formatPeso(orVatBreakdown!.orBacked.grossSales),
-              ),
-              ShareSlice(
-                label: 'Untagged Order Slips',
-                value: orVatBreakdown!.untaggedOs.grossSales,
-                amountText: formatPeso(orVatBreakdown!.untaggedOs.grossSales),
-              ),
-            ],
-          );
-
-    if (orChart == null) return tenderChart;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 820) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              tenderChart,
-              const SizedBox(height: AppSpacing.md),
-              orChart,
-            ],
-          );
-        }
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(flex: 3, child: tenderChart),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(flex: 2, child: orChart),
-          ],
-        );
-      },
     );
   }
 }
