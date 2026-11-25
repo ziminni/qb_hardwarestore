@@ -136,6 +136,7 @@ class _InventoryReturnsPageState extends State<InventoryReturnsPage> {
             child: DataPanel<InventoryReturn>(
               title: 'Returns',
               count: rows.length,
+              showPageSizePicker: true,
               columns: _columns,
               rows: rows,
               emptyMessage: _filtered

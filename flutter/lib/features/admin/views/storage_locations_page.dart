@@ -210,6 +210,7 @@ class _StorageLocationsBodyState extends State<_StorageLocationsBody> {
     return DataPanel<StorageLocation>(
       title: 'Storage locations',
       count: rows.length,
+      showPageSizePicker: true,
       rows: rows,
       isLoading: state.isLoading && state.locations.isEmpty,
       error: state.locations.isEmpty ? state.loadError : null,

@@ -233,6 +233,7 @@ class _TransfersBodyState extends State<_TransfersBody> {
     return DataPanel<StockTransfer>(
       title: 'Transfer slips',
       count: rows.length,
+      showPageSizePicker: true,
       rows: rows,
       isLoading: state.isLoading && state.transfers.isEmpty,
       error: state.transfers.isEmpty ? state.loadError : null,

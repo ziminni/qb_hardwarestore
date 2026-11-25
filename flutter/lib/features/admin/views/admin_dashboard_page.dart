@@ -525,22 +525,25 @@ class _SalesTab extends StatelessWidget {
           ),
         ),
         if (s.rows('by_payment_method_month').isNotEmpty)
-          DashboardCard(
-            icon: Icons.payments_outlined,
+          DonutChart(
+            key: const ValueKey('admin-dashboard-payment-donut'),
             title: 'Payment methods this month',
-            subtitle: 'Cleared tenders',
-            child: BreakdownBars(
-              empty: 'No cleared payments this month.',
-              entries: [
-                for (final row in s.rows('by_payment_method_month'))
-                  BreakdownEntry(
-                    label:
-                        '${TenderMethod.labelFor('${row['method']}')} (${row['count']})',
-                    value: _num(row['total']),
-                    display: formatPesoWhole(_num(row['total'])),
-                  ),
-              ],
+            subtitle: 'Cleared tender share',
+            centerLabel: 'Cleared',
+            centerValue: formatPesoWhole(
+              s
+                  .rows('by_payment_method_month')
+                  .fold<double>(0, (sum, r) => sum + _num(r['total'])),
             ),
+            slices: [
+              for (final row in s.rows('by_payment_method_month'))
+                ShareSlice(
+                  label:
+                      '${TenderMethod.labelFor('${row['method']}')} (${row['count']})',
+                  value: _num(row['total']),
+                  amountText: formatPesoWhole(_num(row['total'])),
+                ),
+            ],
           ),
       ],
     );
@@ -661,6 +664,48 @@ class _InventoryTab extends StatelessWidget {
             ],
           ),
         ),
+        if (s.rows('by_location').isNotEmpty)
+          DonutChart(
+            key: const ValueKey('admin-dashboard-shelf-donut'),
+            title: 'Shelf share',
+            subtitle: 'Landed FIFO cost distribution',
+            centerLabel: 'At cost',
+            centerValue: _whole(s, 'stock_cost'),
+            slices: [
+              for (final row in s.rows('by_location'))
+                ShareSlice(
+                  label: '${row['name']}',
+                  value: _num(row['cost']),
+                  amountText: formatPesoWhole(_num(row['cost'])),
+                ),
+            ],
+          ),
+        if (out > 0 || low > 0 || expiring > 0)
+          ShareSplitChart(
+            key: const ValueKey('admin-dashboard-alert-split'),
+            title: 'Alert breakdown',
+            subtitle: 'Active stock exceptions',
+            slices: [
+              if (out > 0)
+                ShareSlice(
+                  label: 'Out of stock',
+                  value: out.toDouble(),
+                  amountText: '$out',
+                ),
+              if (low > 0)
+                ShareSlice(
+                  label: 'Low stock',
+                  value: low.toDouble(),
+                  amountText: '$low',
+                ),
+              if (expiring > 0)
+                ShareSlice(
+                  label: 'Expiring batches',
+                  value: expiring.toDouble(),
+                  amountText: '$expiring',
+                ),
+            ],
+          ),
         DashboardCard(
           icon: Icons.swap_horiz,
           title: 'Last 7 days',
@@ -972,6 +1017,42 @@ class _FinanceTab extends StatelessWidget {
             ],
           ),
         ),
+        if (s.rows('payables_by_supplier').isNotEmpty)
+          DonutChart(
+            key: const ValueKey('admin-dashboard-payables-donut'),
+            title: 'Supplier balance share',
+            subtitle: 'Unpaid payables breakdown',
+            centerLabel: 'Payables',
+            centerValue: _whole(s, 'payables_total'),
+            slices: [
+              for (final row in s.rows('payables_by_supplier').take(6))
+                ShareSlice(
+                  label: '${row['supplier']}',
+                  value: _num(row['balance']),
+                  amountText: formatPesoWhole(_num(row['balance'])),
+                ),
+            ],
+          ),
+        if (s.money('receivables_total') > 0 || s.money('payables_total') > 0)
+          ShareSplitChart(
+            key: const ValueKey('admin-dashboard-ar-ap-split'),
+            title: 'Receivables vs. Payables',
+            subtitle: 'Open utang owed to shop vs. unpaid supplier bills',
+            slices: [
+              if (s.money('receivables_total') > 0)
+                ShareSlice(
+                  label: 'Customers owe (utang)',
+                  value: s.money('receivables_total'),
+                  amountText: _whole(s, 'receivables_total'),
+                ),
+              if (s.money('payables_total') > 0)
+                ShareSlice(
+                  label: 'We owe suppliers',
+                  value: s.money('payables_total'),
+                  amountText: _whole(s, 'payables_total'),
+                ),
+            ],
+          ),
         DashboardCard(
           icon: Icons.payments_outlined,
           title: 'This month',

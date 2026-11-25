@@ -172,12 +172,17 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
     var lowStock = 0;
     var outOfStock = 0;
     final variantCategory = <int, String>{};
+    final variantLocation = <int, String>{};
     for (final product in inventory.products) {
       final cat = product.categoryName.isEmpty
           ? 'Uncategorized'
           : product.categoryName;
+      final loc = product.storedAtName.isEmpty
+          ? 'Main Store'
+          : product.storedAtName;
       for (final variant in product.variants) {
         variantCategory[variant.id] = cat;
+        variantLocation[variant.id] = loc;
         final status = inventory.statusForVariant(variant.id);
         if (status == InventoryStockStatus.inStock) inStock++;
         if (status == InventoryStockStatus.lowStock) lowStock++;
@@ -185,14 +190,18 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
       }
     }
     final valueByCategory = <String, double>{};
+    final valueByLocation = <String, double>{};
     for (final batch in inventory.batches) {
       if (batch.currentQty <= 0) continue;
+      final value = batch.currentQty * batch.unitCostLanded;
       final cat = variantCategory[batch.variantId] ?? 'Other';
-      valueByCategory[cat] =
-          (valueByCategory[cat] ?? 0) +
-          batch.currentQty * batch.unitCostLanded;
+      valueByCategory[cat] = (valueByCategory[cat] ?? 0) + value;
+      final locName = variantLocation[batch.variantId] ?? 'Main Store';
+      valueByLocation[locName] = (valueByLocation[locName] ?? 0) + value;
     }
     final topCategories = valueByCategory.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final topLocations = valueByLocation.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     // The same valuation the stock screens use: every live batch at its landed
     // cost, not a price the catalogue wishes it had.
@@ -211,24 +220,47 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
+        Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          alignment: WrapAlignment.spaceBetween,
           children: [
-            const Expanded(
-              child: Text(
-                'Inventory overview',
-                style: TextStyle(
-                  fontFamily: AppTextStyles.cinzelFont,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
+            const Text(
+              'Inventory overview',
+              style: TextStyle(
+                fontFamily: AppTextStyles.cinzelFont,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
               ),
             ),
-            // Decision D-04: "Export" is GONE (no export endpoint exists in the
-            // client or the API). "Add product" goes to the live Products page
-            // instead of doing nothing.
-            InventoryActionButton(
-              label: 'Add product',
-              onPressed: () => context.go(AppRoutes.inventoryProducts),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.xs,
+              children: [
+                OutlinedButton.icon(
+                  key: const ValueKey('inventory-dashboard-refresh'),
+                  onPressed: inventory.isLoading
+                      ? null
+                      : () {
+                          inventory.load();
+                          purchases.load();
+                        },
+                  icon: const Icon(Icons.refresh_rounded, size: 16),
+                  label: const Text('Refresh'),
+                ),
+                OutlinedButton.icon(
+                  key: const ValueKey('inventory-dashboard-reports'),
+                  onPressed: () =>
+                      context.go(AppRoutes.inventoryReportCatalogue),
+                  icon: const Icon(Icons.analytics_outlined, size: 16),
+                  label: const Text('Inventory reports'),
+                ),
+                InventoryActionButton(
+                  label: 'Add product',
+                  onPressed: () => context.go(AppRoutes.inventoryProducts),
+                ),
+              ],
             ),
           ],
         ),
@@ -279,27 +311,32 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
           const SizedBox(height: AppSpacing.lg),
           LayoutBuilder(
             builder: (context, constraints) {
-              final healthChart = HorizontalComparisonChart(
+              final totalVariants = inStock + lowStock + outOfStock;
+              final healthChart = DonutChart(
                 key: const ValueKey('inventory-dashboard-health-chart'),
                 title: 'Stock Health Overview',
                 subtitle: 'Variants grouped by current stock status.',
-                primaryLabel: 'Variants',
-                items: [
-                  ComparisonBarItem(
-                    label: 'Healthy / In stock',
-                    primaryValue: inStock.toDouble(),
-                    primaryText: '${formatCount(inStock)} variants',
-                  ),
-                  ComparisonBarItem(
-                    label: 'Low stock',
-                    primaryValue: lowStock.toDouble(),
-                    primaryText: '${formatCount(lowStock)} variants',
-                  ),
-                  ComparisonBarItem(
-                    label: 'Out of stock',
-                    primaryValue: outOfStock.toDouble(),
-                    primaryText: '${formatCount(outOfStock)} variants',
-                  ),
+                centerLabel: 'Variants',
+                centerValue: formatCount(totalVariants),
+                slices: [
+                  if (inStock > 0)
+                    ShareSlice(
+                      label: 'Healthy / In stock',
+                      value: inStock.toDouble(),
+                      amountText: '${formatCount(inStock)} variants',
+                    ),
+                  if (lowStock > 0)
+                    ShareSlice(
+                      label: 'Low stock',
+                      value: lowStock.toDouble(),
+                      amountText: '${formatCount(lowStock)} variants',
+                    ),
+                  if (outOfStock > 0)
+                    ShareSlice(
+                      label: 'Out of stock',
+                      value: outOfStock.toDouble(),
+                      amountText: '${formatCount(outOfStock)} variants',
+                    ),
                 ],
               );
               final categoryChart = topCategories.isEmpty
@@ -333,13 +370,29 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(child: healthChart),
+                  Expanded(flex: 2, child: healthChart),
                   const SizedBox(width: AppSpacing.lg),
-                  Expanded(child: categoryChart),
+                  Expanded(flex: 3, child: categoryChart),
                 ],
               );
             },
           ),
+          if (topLocations.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.lg),
+            ShareSplitChart(
+              key: const ValueKey('inventory-dashboard-location-split'),
+              title: 'Stock Value by Storage Location',
+              subtitle: 'FIFO stock capital distribution across shelves.',
+              slices: [
+                for (final entry in topLocations.take(6))
+                  ShareSlice(
+                    label: entry.key,
+                    value: entry.value,
+                    amountText: formatPeso(entry.value),
+                  ),
+              ],
+            ),
+          ],
           const SizedBox(height: AppSpacing.lg),
           LayoutBuilder(
             builder: (context, constraints) {

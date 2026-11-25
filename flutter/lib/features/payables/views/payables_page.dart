@@ -332,6 +332,7 @@ class _PayablesBodyState extends State<_PayablesBody> {
     return DataPanel<SupplierPayable>(
       title: 'Owed per supplier',
       count: state.suppliers.length,
+      showPageSizePicker: true,
       rows: state.suppliers,
       isLoading: state.isLoading && state.suppliers.isEmpty,
       error: state.bills.isEmpty ? state.loadError : null,
@@ -413,6 +414,7 @@ class _PayablesBodyState extends State<_PayablesBody> {
       child: DataPanel<SupplierBill>(
         title: 'Bills',
         count: bills.length,
+        showPageSizePicker: true,
         rows: bills,
         isLoading: state.isLoading && bills.isEmpty,
         error: state.bills.isEmpty ? state.loadError : null,

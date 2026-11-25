@@ -337,6 +337,7 @@ class _DeliveriesBodyState extends State<_DeliveriesBody> {
     return DataPanel<Delivery>(
       title: 'Delivery schedule',
       count: rows.length,
+      showPageSizePicker: true,
       rows: rows,
       isLoading: state.isLoading && state.deliveries.isEmpty,
       error: state.deliveries.isEmpty ? state.loadError : null,

@@ -1356,9 +1356,9 @@ class DonutChart extends StatelessWidget {
     return AnalyticsCard(
       title: title,
       subtitle: subtitle,
-      child: Row(
-        children: [
-          SizedBox(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final ring = SizedBox(
             width: diameter,
             height: diameter,
             child: Stack(
@@ -1394,38 +1394,69 @@ class DonutChart extends StatelessWidget {
                 ),
               ],
             ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (var i = 0; i < parts.length; i++)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Row(
-                      children: [
-                        _LegendDot(
+          );
+          final legend = Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var i = 0; i < parts.length; i++)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
                           color: _sharePalette[i % _sharePalette.length],
-                          label: parts[i].label,
+                          borderRadius: BorderRadius.circular(2),
                         ),
-                        const Spacer(),
-                        Text(
-                          '${parts[i].amountText} · '
-                          '${(parts[i].value / total * 100).toStringAsFixed(0)}%',
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          parts[i].label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 12,
-                            fontWeight: FontWeight.w600,
                             color: AppColors.textSecondary,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${parts[i].amountText} · '
+                        '${(parts[i].value / total * 100).toStringAsFixed(0)}%',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
                   ),
+                ),
+            ],
+          );
+          if (constraints.maxWidth < diameter + 220) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(child: ring),
+                const SizedBox(height: AppSpacing.md),
+                legend,
               ],
-            ),
-          ),
-        ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              ring,
+              const SizedBox(width: AppSpacing.md),
+              Expanded(child: legend),
+            ],
+          );
+        },
       ),
     );
   }

@@ -151,6 +151,7 @@ class _ReceiptHistory extends StatelessWidget {
   Widget build(BuildContext context) {
     final receipts = viewmodel.receipts;
     return DataPanel<GoodsReceiptRecord>(
+      showPageSizePicker: true,
       columns: [
         DataPanelColumn<GoodsReceiptRecord>(
           label: 'Received',

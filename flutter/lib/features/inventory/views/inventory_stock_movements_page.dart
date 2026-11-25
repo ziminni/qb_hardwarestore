@@ -383,6 +383,7 @@ class _InventoryStockMovementsPageState
                 // claim nothing was recorded, which nobody has checked.
                 ? const SizedBox.shrink()
                 : DataPanel<_AdjustmentRow>(
+                    showPageSizePicker: true,
                     columns: _columns(),
                     rows: rows,
                     emptyMessage: filtersActive
