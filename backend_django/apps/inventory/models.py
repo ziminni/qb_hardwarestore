@@ -813,6 +813,17 @@ class GoodsReceiptItem(models.Model):
     # there is no second copy of the fact to keep in step. NULL = the date was not
     # offered or not filled in, and it stays NULL on the batch.
     expiration_date = models.DateField(null=True, blank=True)
+    # Actual supplier invoice unit cost at delivery (in the PO line's selling unit).
+    # NULL = legacy receipt or unchanged cost; falls back to `po_item.unit_cost`.
+    # When set, `process_goods_receipt` uses `unit_cost / conversion_factor` as the
+    # new batch's `unit_cost_landed` (COGS) and bills the supplier at this cost.
+    unit_cost = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
 
     class Meta:
         db_table = "inventory_goods_receipt_item"

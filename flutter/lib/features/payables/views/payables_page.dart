@@ -218,7 +218,10 @@ class _PayablesBodyState extends State<_PayablesBody> {
       PayablesShell.inventory => InventorySkeletonLayout(
         title: 'Payables',
         subtitle: 'What the shop owes each supplier, and when it is due.',
-        selectedNavigationIndex: 13,
+        selectedNavigationIndex: AppDestinations.indexOf(
+          'payables',
+          AppAreas.inventory,
+        ),
         scrollable: false,
         onNavigationSelected: (index) => navigateInventory(context, index),
         child: content,

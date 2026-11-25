@@ -210,7 +210,10 @@ class _DeliveriesBodyState extends State<_DeliveriesBody> {
         title: 'Deliveries',
         subtitle:
             'Store delivery schedule. Mark deliveries out for delivery, delivered, or failed.',
-        selectedNavigationIndex: 9,
+        selectedNavigationIndex: AppDestinations.indexOf(
+          'deliveries',
+          AppAreas.pos,
+        ),
         navigationItems: posNavigationItems,
         scrollable: false,
         onNavigationSelected: (index) => navigatePos(context, index),
@@ -219,7 +222,10 @@ class _DeliveriesBodyState extends State<_DeliveriesBody> {
       DeliveriesShell.inventory => InventorySkeletonLayout(
         title: 'Deliveries',
         subtitle: 'The delivery schedule: what goes out, when, and by whom.',
-        selectedNavigationIndex: 12,
+        selectedNavigationIndex: AppDestinations.indexOf(
+          'deliveries',
+          AppAreas.inventory,
+        ),
         scrollable: false,
         onNavigationSelected: (index) => navigateInventory(context, index),
         child: content,

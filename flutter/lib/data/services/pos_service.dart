@@ -415,6 +415,8 @@ class PosOpenOrder {
     required this.customerId,
     required this.status,
     required this.lines,
+    this.createdAt,
+    this.notes,
   });
 
   final int id;
@@ -426,6 +428,12 @@ class PosOpenOrder {
   final String status;
   final List<PosOpenOrderLine> lines;
 
+  /// When the order was created, if present on the wire.
+  final DateTime? createdAt;
+
+  /// Optional manager notes attached to the order.
+  final String? notes;
+
   static const openStatuses = {'CONFIRMED', 'PARTIAL'};
 
   bool get isOpen => openStatuses.contains(status);
@@ -433,6 +441,10 @@ class PosOpenOrder {
   /// True before anything was rung: the agreed delivery fee is charged on the
   /// FIRST fulfilment and on no later one.
   bool get hasNothingFulfilled => lines.every((line) => line.fulfilledQty == 0);
+
+  /// Full order value across all ordered quantities.
+  double get orderTotal =>
+      lines.fold<double>(0, (sum, line) => sum + line.qty * line.unitPrice);
 
   /// What the goods still come to - not the total, because the delivery fee
   /// lives on its own slip and is never discounted.
@@ -446,11 +458,14 @@ class PosOpenOrder {
     if (items is! List) {
       throw FormatException('Missing required list field "items"');
     }
+    final rawDate = (json['created_at'] ?? json['order_date'])?.toString();
     return PosOpenOrder(
       id: json['id'] as int,
       number: json['order_no'] as String,
       customerId: json['customer'] as int,
       status: json['status'] as String,
+      createdAt: rawDate == null ? null : DateTime.tryParse(rawDate),
+      notes: json['notes'] as String?,
       lines: [
         for (final item in items)
           PosOpenOrderLine.fromJson(item as Map<String, dynamic>),
@@ -649,6 +664,19 @@ class PosService {
     }
   }
 
+  /// Every sales order (CONFIRMED, PARTIAL, COMPLETED, CANCELLED) for the
+  /// Cashier's dedicated Sales Orders screen.
+  Future<List<PosOpenOrder>> fetchAllSalesOrders() async {
+    try {
+      return await _client.getAll<PosOpenOrder>(
+        salesOrdersPath,
+        PosOpenOrder.fromJson,
+      );
+    } on DioException catch (error) {
+      throw _failureFor(error);
+    }
+  }
+
   /// The orders the counter may still ring: CONFIRMED or PARTIAL, with a line
   /// left to ring (Phase 7 F2, decision 19 #3).
   ///
@@ -656,20 +684,11 @@ class PosService {
   /// the server reports the EFFECTIVE status, so a legacy PROCESSING/READY row is
   /// a live order and a column filter would hide it.
   Future<List<PosOpenOrder>> fetchOpenOrders() async {
-    try {
-      // Every page: an order taken three weeks ago is still CONFIRMED, so page 1
-      // of the newest orders is not "the open ones".
-      final rows = await _client.getAll<PosOpenOrder>(
-        salesOrdersPath,
-        PosOpenOrder.fromJson,
-      );
-      return [
-        for (final row in rows)
-          if (row.isOpen && row.lines.any((line) => line.remainingQty > 0)) row,
-      ];
-    } on DioException catch (error) {
-      throw _failureFor(error);
-    }
+    final rows = await fetchAllSalesOrders();
+    return [
+      for (final row in rows)
+        if (row.isOpen && row.lines.any((line) => line.remainingQty > 0)) row,
+    ];
   }
 
   /// The delivery fee the FIRST fulfilment must charge, or null when the order

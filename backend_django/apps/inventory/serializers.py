@@ -1216,6 +1216,12 @@ class GoodsReceiptItemSerializer(serializers.ModelSerializer):
         source="location.name", read_only=True, allow_null=True
     )
 
+    effective_unit_cost = serializers.SerializerMethodField()
+
+    def get_effective_unit_cost(self, obj):
+        cost = obj.unit_cost if obj.unit_cost is not None else obj.po_item.unit_cost
+        return f"{cost:.2f}"
+
     class Meta:
         model = GoodsReceiptItem
         fields = [
@@ -1224,6 +1230,8 @@ class GoodsReceiptItemSerializer(serializers.ModelSerializer):
             "variant",
             "variant_name",
             "qty",
+            "unit_cost",
+            "effective_unit_cost",
             "location",
             "location_name",
             "expiration_date",
@@ -1632,13 +1640,29 @@ class SupplierReturnDeductionSerializer(serializers.ModelSerializer):
 class SupplierReturnLineSerializer(serializers.ModelSerializer):
     """One returned quantity: what the clerk entered, what left, what it was worth."""
 
+    product_name = serializers.CharField(
+        source="receipt_line.po_item.variant.product.base_name", read_only=True
+    )
+    variant_name = serializers.CharField(
+        source="receipt_line.po_item.variant.variant_name", read_only=True
+    )
+    unit_code = serializers.SerializerMethodField()
     deductions = SupplierReturnDeductionSerializer(many=True, read_only=True)
+
+    def get_unit_code(self, obj):
+        po_item = obj.receipt_line.po_item
+        if po_item.variant_uom_id and po_item.variant_uom is not None:
+            return po_item.variant_uom.uom.code
+        return po_item.variant.base_uom.code
 
     class Meta:
         model = SupplierReturnLine
         fields = [  # noqa: RUF012 - declarative DRF Meta option, not mutable state
             "id",
             "receipt_line",
+            "product_name",
+            "variant_name",
+            "unit_code",
             "qty",
             "base_qty",
             "credit_value",

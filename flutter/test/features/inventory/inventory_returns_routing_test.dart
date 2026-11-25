@@ -88,10 +88,8 @@ const _inventoryPaths = <String>[
   AppRoutes.inventoryReturns,
   AppRoutes.inventoryReportCatalogue,
   AppRoutes.inventorySettings,
-  AppRoutes.inventoryDeliveries,
   AppRoutes.inventoryTransfers,
   AppRoutes.inventoryImportExport,
-  AppRoutes.inventoryPriceList,
 ];
 
 Widget _probeApp() {
@@ -125,14 +123,14 @@ Widget _probeApp() {
 
 void main() {
   test('the parsers find the sidebar and the navigation map', () {
-    expect(_sidebarLabels().length, 16);
-    expect(_navOrder().length, 16);
+    expect(_sidebarLabels().length, 14);
+    expect(_navOrder().length, 14);
     expect(_sidebarLabels().first, 'Dashboard');
     expect(
       _sidebarLabels()[_sidebarLabels().indexOf('Settings') + 1],
-      'Deliveries',
+      'Transfers',
     );
-    expect(_sidebarLabels().last, 'Price list');
+    expect(_sidebarLabels().last, 'Import & export');
     expect(_inventoryPaths.length, _sidebarLabels().length);
   });
 

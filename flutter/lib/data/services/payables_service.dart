@@ -148,6 +148,14 @@ class PayablesService {
     }
   }
 
+  /// Every supplier return recorded by the hardware store, newest first.
+  Future<List<SupplierReturn>> fetchReturns({int? supplierId}) => _readAll(
+    returnsPath,
+    SupplierReturn.fromJson,
+    'The supplier returns history could not be loaded.',
+    query: {'supplier': ?supplierId},
+  );
+
   /// Records a return (`{receipt, reason, lines: [{receipt_line, qty}]}`).
   ///
   /// [lines] carries the quantities exactly as the clerk typed them, as 2 dp

@@ -65,6 +65,11 @@ class PosTransactionPage extends StatefulWidget {
   /// which is what lets Resume hand a basket to this page.
   final HeldCartViewmodel? heldCartViewmodel;
 
+  /// One-shot handoff from the Cashier's Sales Orders screen: selecting
+  /// "Complete at Till" parks the chosen order here before routing to the till,
+  /// which consumes it once on open and loads its remaining lines into the cart.
+  static PosOpenOrder? pendingOrderToLoad;
+
   @override
   State<PosTransactionPage> createState() => _PosTransactionPageState();
 }
@@ -130,9 +135,10 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     // prices. Found by the 6D live pass (mock 270 vs live 260 on Portland).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<InventoryViewmodel>().load();
+      final loadFuture = context.read<InventoryViewmodel>().load();
       _shiftViewmodel.loadCurrent();
       _resumePendingCart();
+      _loadPendingOrder(loadFuture);
       _loadStoreSettings();
     });
   }
@@ -216,6 +222,24 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
     // The parked basket's balance is re-read for whoever it was held for, so the
     // utang panel is not blank on a basket that has one.
     _transaction.loadLedgerForSelection();
+  }
+
+  /// Picks up a sales order handed over from [PosSalesOrdersPage], if any.
+  Future<void> _loadPendingOrder(Future<void> catalogueLoad) async {
+    final order = PosTransactionPage.pendingOrderToLoad;
+    if (order == null) return;
+    PosTransactionPage.pendingOrderToLoad = null;
+    await catalogueLoad;
+    if (!mounted) return;
+    final count = await _transaction.loadOpenOrder(order);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Order ${order.number}: $count line${count == 1 ? '' : 's'} loaded at agreed prices. Complete payment to print receipt.',
+        ),
+      ),
+    );
   }
 
   @override

@@ -160,9 +160,18 @@ def create_bill_for_receipt(*, receipt, delivered):
     receipts of the same order cannot both allocate against the same stale totals).
     """
     po = receipt.po
-    gross = money(
-        sum((Decimal(qty) * item.unit_cost for item, qty in delivered), Decimal(0))
-    )
+    line_totals = []
+    for entry in delivered:
+        if len(entry) == 3:
+            item, qty, unit_cost = entry
+            effective_cost = (
+                Decimal(unit_cost) if unit_cost is not None else Decimal(item.unit_cost)
+            )
+        else:
+            item, qty = entry
+            effective_cost = Decimal(item.unit_cost)
+        line_totals.append(Decimal(qty) * effective_cost)
+    gross = money(sum(line_totals, Decimal(0)))
     if gross <= 0:
         return None
 

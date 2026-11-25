@@ -34,6 +34,10 @@ class ReceivingViewmodel extends ChangeNotifier {
   PurchaseOrderRecord? _selected;
   final Map<int, double> _quantities = {};
 
+  /// Actual supplier invoice unit cost entered at receiving, keyed by PO item id.
+  /// Absent means unchanged from the PO line's estimated unit cost.
+  final Map<int, double> _unitCosts = {};
+
   /// The shelf the receiver chose per PO line, keyed by PO item id. ABSENT means
   /// the product's home shelf, which the server applies when the field is
   /// omitted (Phase 9 F2, decision 21 §7).
@@ -78,6 +82,9 @@ class ReceivingViewmodel extends ChangeNotifier {
 
   /// Entered received quantity for a PO line; unset means nothing entered yet.
   double? qtyFor(int poItemId) => _quantities[poItemId];
+
+  /// Actual receiving unit cost override for a PO line, or null when unchanged.
+  double? unitCostFor(int poItemId) => _unitCosts[poItemId];
 
   /// The destination the receiver PICKED for a PO line, or null when the line
   /// goes to the product's home shelf (the server's default).
@@ -180,6 +187,7 @@ class ReceivingViewmodel extends ChangeNotifier {
   void select(PurchaseOrderRecord order) {
     _selected = order;
     _quantities.clear();
+    _unitCosts.clear();
     _destinations.clear();
     _expirations.clear();
     _actionError = null;
@@ -196,6 +204,17 @@ class ReceivingViewmodel extends ChangeNotifier {
   /// Withdraws a line: clearing a field must not post the value it used to hold.
   void clearQty(int poItemId) {
     _quantities.remove(poItemId);
+    notifyListeners();
+  }
+
+  /// Sets the actual supplier invoice unit cost for a PO line (becomes the new
+  /// FIFO batch's COGS when processed). Passing null restores the PO default.
+  void setUnitCost(int poItemId, double? cost) {
+    if (cost == null || cost < 0) {
+      _unitCosts.remove(poItemId);
+    } else {
+      _unitCosts[poItemId] = cost;
+    }
     notifyListeners();
   }
 
@@ -236,6 +255,7 @@ class ReceivingViewmodel extends ChangeNotifier {
           ReceiptLine(
             poItemId: item.id,
             qty: _quantities[item.id]!,
+            unitCost: _unitCosts[item.id],
             // Only a shelf the receiver CHOSE travels: an omitted `location` is
             // the server's home default, and sending it would pretend the clerk
             // picked a shelf they never looked at.

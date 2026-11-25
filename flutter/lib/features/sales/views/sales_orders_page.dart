@@ -1,8 +1,11 @@
 import 'package:client/core/constants/app_areas.dart';
+import 'package:client/core/constants/app_colors.dart';
+import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/core/format/format.dart';
 import 'package:client/core/layout/sales_skeleton_layout.dart';
 import 'package:client/core/navigation/app_destinations.dart';
+import 'package:client/core/theme/app_palette.dart';
 import 'package:client/data/models/sales_module.dart';
 import 'package:client/data/services/discount_approval_service.dart';
 import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
@@ -90,7 +93,8 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
       case SalesDocumentAction.cancel:
         await _openCancelDialog(item);
       case SalesDocumentAction.createOrder:
-        // A quotation's action: this sheet is never opened with that flag on.
+      case SalesDocumentAction.completeAtTill:
+        // Quotation and cashier-only actions: this sheet never raises them.
         break;
     }
   }
@@ -194,6 +198,19 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
   Widget build(BuildContext context) {
     final viewmodel = context.watch<SalesModuleViewmodel>();
     final orders = viewmodel.orders;
+    final manager = _mayManage(context);
+    final confirmedCount = orders
+        .where((o) => o.status == SalesOrderStatus.confirmed)
+        .length;
+    final partialCount = orders
+        .where((o) => o.status == SalesOrderStatus.partial)
+        .length;
+    final completedCount = orders
+        .where((o) => o.status == SalesOrderStatus.completed)
+        .length;
+    final cancelledCount = orders
+        .where((o) => o.status == SalesOrderStatus.cancelled)
+        .length;
 
     return SalesSkeletonLayout(
       title: 'Sales Orders',
@@ -212,23 +229,54 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // A failed load left no customers to name and no fresh rows behind it,
-          // so the form is offered only once the page has read what it needs.
-          if (viewmodel.loadError == null)
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton.icon(
-                onPressed: _openForm,
-                icon: const Icon(Icons.add),
-                label: const Text('New sales order'),
+          Row(
+            children: [
+              Expanded(
+                child: Wrap(
+                  spacing: AppSpacing.md,
+                  runSpacing: AppSpacing.sm,
+                  children: [
+                    _OrderKpiPill(
+                      label: 'Confirmed',
+                      value: '$confirmedCount',
+                      accent: AppColors.primary,
+                    ),
+                    _OrderKpiPill(
+                      label: 'Partial',
+                      value: '$partialCount',
+                      accent: AppColors.warningText,
+                    ),
+                    _OrderKpiPill(
+                      label: 'Completed',
+                      value: '$completedCount',
+                      accent: AppColors.successText,
+                    ),
+                    _OrderKpiPill(
+                      label: 'Cancelled',
+                      value: '$cancelledCount',
+                      accent: AppColors.errorText,
+                    ),
+                  ],
+                ),
               ),
-            ),
+              // A failed load left no customers to name and no fresh rows behind it,
+              // so the form is offered only once the page has read what it needs.
+              if (viewmodel.loadError == null) ...[
+                const SizedBox(width: AppSpacing.md),
+                FilledButton.icon(
+                  onPressed: _openForm,
+                  icon: const Icon(Icons.add),
+                  label: const Text('New sales order'),
+                ),
+              ],
+            ],
+          ),
           const SizedBox(height: AppSpacing.md),
           // The list takes the rest of the slot and scrolls its own rows.
           Expanded(
             child: SalesDocumentListContent(
               kind: SalesDocumentKind.order,
-              rows: [for (final item in orders) _row(item)],
+              rows: [for (final item in orders) _row(item, manager: manager)],
               isLoading: viewmodel.isLoading,
               loadError: viewmodel.loadError,
               onRetry: viewmodel.load,
@@ -239,7 +287,7 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
     );
   }
 
-  SalesDocumentRow _row(SalesOrderRecord item) {
+  SalesDocumentRow _row(SalesOrderRecord item, {required bool manager}) {
     return SalesDocumentRow(
       number: item.number,
       customer: item.customer,
@@ -248,6 +296,64 @@ class _SalesOrdersPageState extends State<SalesOrdersPage> {
       statusLabel: _orderStatusLabel(item.status),
       tone: _orderTone(item.status),
       onOpen: () => _showOrderSheet(context, item),
+      onCancel: manager && _canCancel(item)
+          ? () => _openCancelDialog(item)
+          : null,
+    );
+  }
+}
+
+class _OrderKpiPill extends StatelessWidget {
+  const _OrderKpiPill({
+    required this.label,
+    required this.value,
+    required this.accent,
+  });
+
+  final String label;
+  final String value;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: p.cardBackground,
+        borderRadius: BorderRadius.circular(AppRadii.large),
+        border: Border.all(color: p.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Text(
+            '$label: ',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: p.textSecondary,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: p.textPrimary,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

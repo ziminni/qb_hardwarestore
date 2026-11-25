@@ -5,10 +5,12 @@ import 'package:client/core/format/format.dart';
 import 'package:client/data/models/receiving.dart';
 import 'package:client/data/models/supplier.dart';
 import 'package:client/features/payables/widgets/supplier_return_dialog.dart';
+import 'package:client/features/suppliers/widgets/purchase_order_pdf.dart';
 import 'package:client/features/suppliers/widgets/purchases_status_badge.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
 
 /// One purchase order, read-only: what was ordered, what has arrived, and what
 /// the lines cost.
@@ -111,6 +113,21 @@ class _PurchasesDetailsDialogState extends State<PurchasesDetailsDialog> {
       ? formatQuantity(value)
       : '${formatQuantity(value)} ${item.uomCode}';
 
+  Future<void> _exportPdf() async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      final bytes = await renderPurchaseOrderPdf(order);
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: PurchaseOrderPdf.fileName(order.id),
+      );
+    } catch (error) {
+      messenger?.showSnackBar(
+        SnackBar(content: Text('Could not export PO PDF: $error')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasPartial = _hasPartialLine;
@@ -123,6 +140,12 @@ class _PurchasesDetailsDialogState extends State<PurchasesDetailsDialog> {
       headerTrailing: PurchasesStatusBadge(status: order.status),
       width: 780,
       actions: [
+        OutlinedButton.icon(
+          key: ValueKey('po-export-pdf-${order.id}'),
+          onPressed: _exportPdf,
+          icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+          label: const Text('Export PDF'),
+        ),
         FilledButton(
           onPressed: () => Navigator.pop(context),
           child: const Text('Close'),

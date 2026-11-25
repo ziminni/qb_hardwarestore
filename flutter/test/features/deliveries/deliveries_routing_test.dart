@@ -85,17 +85,18 @@ void main() {
     });
   });
 
-  group('every deliveries entry is APPENDED', () {
-    test('the inventory sidebar has Deliveries at 12 and Transfers at 13', () {
+  group('every deliveries entry is placed in Sales and Till', () {
+    test('the Stock Manager menu no longer carries customer Deliveries', () {
       final order = _areaOrder(AppAreas.inventory);
-      expect(order, hasLength(16));
+      expect(order, hasLength(14));
+      expect(order, isNot(contains('inventoryDeliveries')));
       expect(order[8], 'inventoryReceiving');
       expect(order[9], 'inventoryReturns');
-      expect(order[12], 'inventoryDeliveries');
+      expect(order[12], 'inventoryTransfers');
+      expect(order[13], 'inventoryImportExport');
       expect(
-        order[13],
-        'inventoryTransfers',
-        reason: 'Transfers follows Deliveries in the Stock Manager sidebar',
+        _read('lib/routes/routes.dart'),
+        isNot(contains('path: inventoryDeliveries')),
       );
     });
 
@@ -113,44 +114,36 @@ void main() {
       expect(order[12], 'salesSettings');
     });
 
-    test('every page declares its own shell index', () {
+    test('every page looks up its own shell index from AppDestinations', () {
       final source = _read(
         'lib/features/deliveries/views/deliveries_page.dart',
       );
-      final declared = RegExp(
-        r'selectedNavigationIndex:\s*(\d+)',
-      ).allMatches(source).map((match) => int.parse(match.group(1)!)).toList();
-      // The till and Stock pages still declare their row as a literal, pinned
-      // against the registry the sidebar renders.
-      expect(
-        declared,
-        containsAll(<int>[
-          AppDestinations.indexOf('deliveries', AppAreas.pos),
-          AppDestinations.indexOf('deliveries', AppAreas.inventory),
-        ]),
-      );
-      // The sales page LOOKS ITS ROW UP: Quotations back at 2 puts the row at
-      // 10, so a literal would highlight the wrong screen.
-      final ids = RegExp(
+      final salesIds = RegExp(
         r"indexOf\(\s*'([^']+)',\s*AppAreas\.sales",
       ).allMatches(source).map((match) => match.group(1)!).toList();
-      expect(ids, contains('deliveries'));
+      final posIds = RegExp(
+        r"indexOf\(\s*'([^']+)',\s*AppAreas\.pos",
+      ).allMatches(source).map((match) => match.group(1)!).toList();
+      expect(salesIds, contains('deliveries'));
+      expect(posIds, contains('deliveries'));
       // Owner 2026-11-18: no admin shell; the Admin only watches.
       expect(source, isNot(contains('AdminSkeletonLayout')));
     });
 
-    test('the till sidebar keeps Customers and Deliveries', () {
+    test('the till sidebar keeps Customers, Deliveries, Readings, and Sales orders', () {
       final order = _areaOrder(AppAreas.pos);
-      expect(order, hasLength(10));
+      expect(order, hasLength(12));
       expect(order[8], 'posCustomers');
       expect(order[9], 'posDeliveries');
+      expect(order[10], 'posReadings');
+      expect(order[11], 'posSalesOrders');
     });
 
     test('the till page draws the till shell, not a manager one', () {
       final source = _read(
         'lib/features/deliveries/views/deliveries_page.dart',
       );
-      expect(source, contains('selectedNavigationIndex: 9'));
+      expect(source, contains("AppDestinations.indexOf(\n          'deliveries',\n          AppAreas.pos,"));
       expect(source, contains('posNavigationItems'));
       expect(source, contains('class PosDeliveriesPage'));
     });

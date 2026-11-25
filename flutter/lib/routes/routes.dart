@@ -18,6 +18,7 @@ import 'package:client/features/pos/views/pos_customers_page.dart';
 import 'package:client/features/pos/views/pos_readings_page.dart';
 import 'package:client/features/pos/views/pos_receivables_page.dart';
 import 'package:client/features/pos/views/pos_returns_page.dart';
+import 'package:client/features/pos/views/pos_sales_orders_page.dart';
 import 'package:client/features/pos/views/pos_settings_page.dart';
 import 'package:client/features/pos/views/pos_shift_page.dart';
 import 'package:client/features/pos/views/pos_held_transactions_page.dart';
@@ -196,6 +197,7 @@ class AppRoutes {
   static const String posCustomers = '/pos/customers';
   static const String posDeliveries = '/pos/deliveries';
   static const String posReadings = '/pos/readings';
+  static const String posSalesOrders = '/pos/sales-orders';
   static const String salesDashboard = '/sales/dashboard';
   static const String salesTransactions = '/sales/transactions';
   static const String salesQuotations = '/sales/quotations';
@@ -714,12 +716,8 @@ class AppRoutes {
           pageBuilder: (context, state) =>
               _transitionPage(state, const InventoryPayablesPage()),
         ),
-        GoRoute(
-          path: inventoryDeliveries,
-          name: 'inventory_deliveries',
-          pageBuilder: (context, state) =>
-              _transitionPage(state, const InventoryDeliveriesPage()),
-        ),
+        // Customer deliveries belong to Store Manager and Cashier; Stock Manager
+        // no longer works customer deliveries.
         GoRoute(
           path: inventoryTransfers,
           name: 'inventory_transfers',
@@ -757,12 +755,8 @@ class AppRoutes {
           pageBuilder: (context, state) =>
               _transitionPage(state, const InventoryImportExportPage()),
         ),
-        GoRoute(
-          path: inventoryPriceList,
-          name: 'inventory_price_list',
-          pageBuilder: (context, state) =>
-              _transitionPage(state, const InventoryPriceListPage()),
-        ),
+        // Price list belongs to Store Manager only; Stock Manager focuses on
+        // stock, purchasing, receiving, and supplier returns.
         GoRoute(
           path: inventorySettings,
           name: 'inventory_settings',
@@ -838,6 +832,12 @@ class AppRoutes {
           name: 'pos_readings',
           pageBuilder: (context, state) =>
               _transitionPage(state, const PosReadingsPage()),
+        ),
+        GoRoute(
+          path: posSalesOrders,
+          name: 'pos_sales_orders',
+          pageBuilder: (context, state) =>
+              _transitionPage(state, const PosSalesOrdersPage()),
         ),
         GoRoute(
           path: salesDashboard,

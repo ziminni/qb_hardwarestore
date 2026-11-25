@@ -154,6 +154,13 @@ class AppDestinations {
       icon: Icons.summarize_outlined,
       route: AppRoutes.posReadings,
     ),
+    AppDestination(
+      id: 'pos.sales-orders',
+      area: AppAreas.pos,
+      label: 'Sales orders',
+      icon: Icons.assignment_outlined,
+      route: AppRoutes.posSalesOrders,
+    ),
 
     // ---- Sales ----------------------------------------------------------------
     AppDestination(
@@ -377,14 +384,6 @@ class AppDestinations {
       route: AppRoutes.inventorySettings,
     ),
     AppDestination(
-      id: 'deliveries',
-      area: AppAreas.inventory,
-      label: 'Deliveries',
-      icon: Icons.local_shipping_outlined,
-      route: AppRoutes.inventoryDeliveries,
-      sharedKey: 'deliveries',
-    ),
-    AppDestination(
       id: 'transfers',
       area: AppAreas.inventory,
       label: 'Transfers',
@@ -400,14 +399,6 @@ class AppDestinations {
       label: 'Import & export',
       icon: Icons.import_export_rounded,
       route: AppRoutes.inventoryImportExport,
-    ),
-    AppDestination(
-      id: 'price-list',
-      area: AppAreas.inventory,
-      label: 'Price list',
-      icon: Icons.price_change_outlined,
-      route: AppRoutes.inventoryPriceList,
-      sharedKey: 'price-list',
     ),
 
     // ---- Admin ----------------------------------------------------------------

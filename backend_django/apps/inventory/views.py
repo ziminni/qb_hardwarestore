@@ -1325,7 +1325,31 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
                         },
                         status=drf_status.HTTP_400_BAD_REQUEST,
                     )
-            parsed.append((po_item.pk, qty, location_id, expiration_date))
+            raw_cost = entry.get("unit_cost")
+            if raw_cost in (None, ""):
+                unit_cost = None
+            else:
+                try:
+                    unit_cost = Decimal(str(raw_cost))
+                except Exception:
+                    return Response(
+                        {
+                            "detail": (
+                                f"unit_cost for po_item {po_item.pk} is not a number."
+                            )
+                        },
+                        status=drf_status.HTTP_400_BAD_REQUEST,
+                    )
+                if unit_cost < 0:
+                    return Response(
+                        {
+                            "detail": (
+                                f"unit_cost for po_item {po_item.pk} must not be negative."
+                            )
+                        },
+                        status=drf_status.HTTP_400_BAD_REQUEST,
+                    )
+            parsed.append((po_item.pk, qty, location_id, expiration_date, unit_cost))
 
         try:
             with transaction.atomic():
@@ -1362,7 +1386,7 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
                         f"PO {po.pk} is {po.status} and cannot receive more."
                     )
                 receipt = ser.save(received_by=request.user)
-                for po_item_pk, qty, location_id, expiration_date in parsed:
+                for po_item_pk, qty, location_id, expiration_date, unit_cost in parsed:
                     # LOCKED before accumulating: two deliveries recorded at the same
                     # moment would otherwise both read the same `received_qty` and the
                     # loser's quantity would vanish (or the over-order cap would be
@@ -1387,6 +1411,7 @@ class GoodsReceiptViewSet(_StockRecordBaseViewSet):
                             qty=qty,
                             location_id=location_id,
                             expiration_date=expiration_date,
+                            unit_cost=unit_cost,
                         )
         except _ReceiptRefused as exc:
             # Raised inside the atomic block, so the receipt row and every accumulated

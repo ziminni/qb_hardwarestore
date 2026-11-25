@@ -7,12 +7,14 @@ import 'package:client/features/inventory/viewmodels/receiving_viewmodel.dart';
 import 'package:client/features/inventory/widgets/inventory_navigation.dart';
 import 'package:client/features/payables/widgets/supplier_return_dialog.dart';
 import 'package:client/features/suppliers/viewmodels/suppliers_purchases_viewmodel.dart';
+import 'package:client/features/suppliers/widgets/purchase_order_pdf.dart';
 import 'package:client/features/suppliers/widgets/purchases_details_dialog.dart';
 import 'package:client/features/suppliers/widgets/purchases_form_dialog.dart';
 import 'package:client/features/suppliers/widgets/purchases_table.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/filter_bar.dart';
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 
 /// The Purchases screen (decision D-02, Phase 4 Task 4).
@@ -124,6 +126,18 @@ class _PurchasesPageState extends State<PurchasesPage> {
     navigateInventory(context, 8);
   }
 
+  Future<void> _exportPdf(PurchaseOrder order) async {
+    try {
+      final bytes = await renderPurchaseOrderPdf(order);
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: PurchaseOrderPdf.fileName(order.id),
+      );
+    } catch (error) {
+      _announce('Could not export PO-${order.id} PDF: $error');
+    }
+  }
+
   /// Opens the order, with the door to its supplier returns wired.
   ///
   /// This page is the only place that constructs the dialog, and the page is
@@ -230,6 +244,7 @@ class _PurchasesPageState extends State<PurchasesPage> {
               onPlace: _place,
               onCancel: _confirmCancel,
               onReceive: _receive,
+              onExportPdf: _exportPdf,
               emptyMessage: filtered
                   ? 'No purchase orders match these filters.'
                   : 'No purchase orders yet.',

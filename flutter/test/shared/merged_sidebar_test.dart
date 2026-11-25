@@ -195,8 +195,8 @@ void main() {
 
       expect(
         rows.length,
-        25,
-        reason: '11 Till rows + 14 Sales rows - 1 shared + landing',
+        26,
+        reason: '12 Till rows + 14 Sales rows - 1 shared + landing',
       );
       expect(
         [for (final section in MergedSidebar.sectionsFor(rows)) section.label],
@@ -214,7 +214,7 @@ void main() {
     test('Stock + Store Manager: shared pages once, under Sales', () {
       final rows = MergedSidebar.rows(const ['inventory', 'sales']);
 
-      expect(rows.length, 28, reason: '16 Stock + 14 Sales - 3 shared + 1');
+      expect(rows.length, 28, reason: '14 Stock + 14 Sales - 1 shared + 1');
       for (final sharedKey in const [
         'payables',
         'deliveries',
@@ -234,19 +234,19 @@ void main() {
     test('Admin + Cashier: the till adds no shared page to the admin menu', () {
       final rows = MergedSidebar.rows(const ['admin', 'pos']);
 
-      expect(rows.length, 18, reason: '11 Till + 6 Admin rows + landing');
+      expect(rows.length, 19, reason: '12 Till + 6 Admin rows + landing');
       expect(
         [for (final section in MergedSidebar.sectionsFor(rows)) section.label],
         ['', 'Till', 'Admin'],
       );
     });
 
-    test('all five areas: 51 rows become 47, every identity once', () {
+    test('all five areas: 50 rows become 48, every identity once', () {
       final rows = MergedSidebar.rows(AppAreas.codes);
 
-      // 51 area rows - 5 duplicates + 1 landing = 47.
-      expect(rows.length, 47);
-      expect(rows.map((row) => row.id).toSet().length, 47);
+      // 50 area rows - 3 duplicates + 1 landing = 48.
+      expect(rows.length, 48);
+      expect(rows.map((row) => row.id).toSet().length, 48);
       for (final sharedKey in AppDestinations.sharedIds) {
         expect(
           rows.where((row) => row.sharedKey == sharedKey).length,
@@ -288,17 +288,25 @@ void main() {
     });
 
     test('a merged row carries the widest area route, never a twin', () {
-      // Owner 2026-11-18: the Admin has no Deliveries, so an Admin + Stock
-      // account's row is the stock one.
-      final rows = MergedSidebar.rows(const ['admin', 'inventory']);
-      final deliveries = rows.firstWhere((row) => row.id == 'deliveries');
+      // Neither Admin nor Stock carries Deliveries; Transfers is shared between
+      // Stock and Sales, and Deliveries is shared between Till and Sales.
+      final adminAndStock = MergedSidebar.rows(const ['admin', 'inventory']);
+      final transfers = adminAndStock.firstWhere(
+        (row) => row.id == 'transfers',
+      );
 
-      expect(deliveries.area, AppAreas.inventory);
-      expect(deliveries.route, AppRoutes.inventoryDeliveries);
+      expect(transfers.area, AppAreas.inventory);
+      expect(transfers.route, AppRoutes.inventoryTransfers);
 
       final salesAndStock = MergedSidebar.rows(const ['inventory', 'sales']);
       expect(
-        salesAndStock.firstWhere((row) => row.id == 'deliveries').route,
+        salesAndStock.firstWhere((row) => row.id == 'transfers').route,
+        AppRoutes.salesTransfers,
+      );
+
+      final salesAndPos = MergedSidebar.rows(const ['pos', 'sales']);
+      expect(
+        salesAndPos.firstWhere((row) => row.id == 'deliveries').route,
         AppRoutes.salesDeliveries,
       );
     });

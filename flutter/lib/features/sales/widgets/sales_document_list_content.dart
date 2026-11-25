@@ -31,6 +31,7 @@ class SalesDocumentRow {
     required this.tone,
     required this.onOpen,
     this.validUntil,
+    this.onCancel,
   });
 
   final String number;
@@ -53,6 +54,10 @@ class SalesDocumentRow {
 
   /// Opens the read-only document sheet.
   final VoidCallback onOpen;
+
+  /// Optional quick-cancel action for cancellable documents (e.g. confirmed or
+  /// partially fulfilled sales orders for a Store Manager).
+  final VoidCallback? onCancel;
 }
 
 /// The one document list behind the Store Manager's Quotations and Sales orders
@@ -291,20 +296,39 @@ class _SalesDocumentListContentState extends State<SalesDocumentListContent> {
   }
 
   DataPanelColumn<SalesDocumentRow> _actionColumn() {
+    final hasAnyCancel = widget.rows.any((row) => row.onCancel != null);
     return DataPanelColumn<SalesDocumentRow>(
-      // Action is a button, not a name: one share, so Customer can take three.
       label: 'Action',
-      flex: 1,
+      flex: hasAnyCancel ? 2 : 1,
       cell: (row) => Align(
         alignment: Alignment.centerLeft,
-        child: TextButton(
-          onPressed: row.onOpen,
-          style: TextButton.styleFrom(
-            padding: EdgeInsets.zero,
-            minimumSize: const Size(44, 44),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
-          child: const Text('View'),
+        child: Wrap(
+          spacing: AppSpacing.xs,
+          runSpacing: AppSpacing.xs,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            TextButton(
+              onPressed: row.onOpen,
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                minimumSize: const Size(44, 40),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text('View'),
+            ),
+            if (row.onCancel != null)
+              TextButton(
+                key: ValueKey('sales-order-cancel-${row.number}'),
+                onPressed: row.onCancel,
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.errorText,
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  minimumSize: const Size(44, 40),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text('Cancel'),
+              ),
+          ],
         ),
       ),
     );

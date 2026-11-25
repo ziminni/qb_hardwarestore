@@ -126,12 +126,18 @@ class ReceiptLine {
   const ReceiptLine({
     required this.poItemId,
     required this.qty,
+    this.unitCost,
     this.locationId,
     this.expirationDate,
   });
 
   final int poItemId;
   final double qty;
+
+  /// Actual supplier invoice unit cost per PO selling unit at delivery. When
+  /// omitted, the server keeps the PO line's estimated unit cost; when set,
+  /// the created FIFO batch uses `unitCost / conversionFactor` as its new COGS.
+  final double? unitCost;
 
   /// The shelf this line lands on (Phase 9 F2, decision 21 §7). Null means the
   /// product's HOME, which is what the server assumes when the field is absent
@@ -146,6 +152,7 @@ class ReceiptLine {
   Map<String, dynamic> toJson() => {
     'po_item': poItemId,
     'qty': qty,
+    if (unitCost != null) 'unit_cost': unitCost!.toStringAsFixed(2),
     if (locationId != null) 'location': locationId,
     if (expirationDate != null) 'expiration_date': _isoDay(expirationDate!),
   };
@@ -171,6 +178,7 @@ class GoodsReceiptLine {
     required this.poItemId,
     required this.variantName,
     required this.qty,
+    this.unitCost,
     this.expirationDate,
   });
 
@@ -178,6 +186,9 @@ class GoodsReceiptLine {
   final int poItemId;
   final String variantName;
   final double qty;
+
+  /// Recorded/effective unit cost per PO selling unit for this delivery line.
+  final double? unitCost;
 
   /// The Expires date this line carried, or null when it was undated.
   final DateTime? expirationDate;
@@ -188,6 +199,11 @@ class GoodsReceiptLine {
         poItemId: intField(json, 'po_item'),
         variantName: stringField(json, 'variant_name'),
         qty: decimalField(json, 'qty'),
+        unitCost: json['unit_cost'] != null
+            ? decimalField(json, 'unit_cost')
+            : (json['effective_unit_cost'] != null
+                  ? decimalField(json, 'effective_unit_cost')
+                  : null),
         expirationDate: json['expiration_date'] == null
             ? null
             : DateTime.tryParse(json['expiration_date'] as String),

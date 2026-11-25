@@ -24,6 +24,7 @@ class PurchasesTable extends StatelessWidget {
     required this.onPlace,
     required this.onCancel,
     required this.onReceive,
+    this.onExportPdf,
     required this.emptyMessage,
     this.isLoading = false,
     this.error,
@@ -39,6 +40,9 @@ class PurchasesTable extends StatelessWidget {
 
   /// Sends the reader to Receiving, where the goods are recorded.
   final ValueChanged<PurchaseOrder> onReceive;
+
+  /// Optional quick PDF export action per row.
+  final ValueChanged<PurchaseOrder>? onExportPdf;
 
   /// Worded by the page: "nothing loaded" and "nothing matches" differ.
   final String emptyMessage;
@@ -127,6 +131,13 @@ class PurchasesTable extends StatelessWidget {
                 onPressed: () => onView(order),
                 icon: const Icon(Icons.visibility_outlined, size: 18),
               ),
+              if (onExportPdf != null)
+                IconButton(
+                  key: ValueKey('PurchasesTable.pdf.${order.id}'),
+                  tooltip: 'Export PO PDF',
+                  onPressed: () => onExportPdf!(order),
+                  icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                ),
               if (order.canPlace)
                 IconButton(
                   tooltip: 'Place purchase order',

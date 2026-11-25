@@ -96,10 +96,16 @@ class SupplierReturnLine {
     required this.baseQty,
     required this.creditValue,
     required this.deductions,
+    this.productName = '',
+    this.variantName = '',
+    this.unitCode = '',
   });
 
   final int id;
   final int receiptLineId;
+  final String productName;
+  final String variantName;
+  final String unitCode;
 
   /// The quantity in the receipt line's package unit — what the clerk entered.
   final double qty;
@@ -111,10 +117,27 @@ class SupplierReturnLine {
   final double creditValue;
   final List<SupplierReturnDeduction> deductions;
 
+  String get displayName {
+    final p = productName.trim();
+    final v = variantName.trim();
+    if (p.isNotEmpty &&
+        v.isNotEmpty &&
+        v.toLowerCase() != 'standard' &&
+        v.toLowerCase() != p.toLowerCase()) {
+      return '$p · $v';
+    }
+    if (p.isNotEmpty) return p;
+    if (v.isNotEmpty) return v;
+    return 'Receipt line #$receiptLineId';
+  }
+
   factory SupplierReturnLine.fromJson(Map<String, dynamic> json) =>
       SupplierReturnLine(
         id: intField(json, 'id'),
         receiptLineId: intField(json, 'receipt_line'),
+        productName: json['product_name'] as String? ?? '',
+        variantName: json['variant_name'] as String? ?? '',
+        unitCode: json['unit_code'] as String? ?? '',
         qty: decimalField(json, 'qty'),
         baseQty: decimalField(json, 'base_qty'),
         creditValue: decimalField(json, 'credit_value'),

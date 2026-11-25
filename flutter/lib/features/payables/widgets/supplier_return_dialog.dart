@@ -298,12 +298,32 @@ class _SupplierReturnDialogState extends State<SupplierReturnDialog> {
           ),
           for (final line in returnable) _lineRow(line),
           const SizedBox(height: AppSpacing.md),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final preset in const [
+                'Goods shrinkage / damaged',
+                'Defective item',
+                'Wrong item delivered',
+                'Expired / near expiry',
+              ])
+                ActionChip(
+                  label: Text(preset, style: const TextStyle(fontSize: 12)),
+                  onPressed: () {
+                    _reason.text = preset;
+                    setState(() {});
+                  },
+                ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
           TextFormField(
             key: const ValueKey('return-reason'),
             controller: _reason,
             decoration: const InputDecoration(
               labelText: 'Reason',
-              helperText: 'Why the goods are going back.',
+              helperText: 'Why the goods are going back to the supplier.',
             ),
             validator: (value) => (value ?? '').trim().isEmpty
                 ? 'Say why the goods are going back.'

@@ -335,11 +335,15 @@ class _ReceiptSteps extends StatefulWidget {
 
 class _ReceiptStepsState extends State<_ReceiptSteps> {
   final _controllers = <int, TextEditingController>{};
+  final _costControllers = <int, TextEditingController>{};
   final _deliveryController = TextEditingController();
 
   @override
   void dispose() {
     for (final controller in _controllers.values) {
+      controller.dispose();
+    }
+    for (final controller in _costControllers.values) {
       controller.dispose();
     }
     _deliveryController.dispose();
@@ -355,6 +359,17 @@ class _ReceiptStepsState extends State<_ReceiptSteps> {
             null => '',
           },
         ),
+      );
+
+  TextEditingController _costControllerFor(PurchaseOrderItem item) =>
+      _costControllers.putIfAbsent(
+        item.id,
+        () {
+          final initial = widget.viewmodel.unitCostFor(item.id) ?? item.unitCost;
+          return TextEditingController(
+            text: initial > 0 ? initial.toStringAsFixed(2) : '',
+          );
+        },
       );
 
   /// One unit up or down from what is typed. The box is the state; the stepper
@@ -481,6 +496,18 @@ class _ReceiptStepsState extends State<_ReceiptSteps> {
                 child: _ReceiptLineRow(
                   item: item,
                   controller: _controllerFor(item.id),
+                  costController: _costControllerFor(item),
+                  onCostChanged: (text) {
+                    final trimmed = text.trim();
+                    if (trimmed.isEmpty) {
+                      viewmodel.setUnitCost(item.id, null);
+                      return;
+                    }
+                    final parsed = double.tryParse(trimmed);
+                    if (parsed != null && parsed >= 0) {
+                      viewmodel.setUnitCost(item.id, parsed);
+                    }
+                  },
                   locations: activeLocations,
                   homeLocationId: inventory?.homeLocationIdFor(item.variantId),
                   destinationId: viewmodel.destinationFor(item.id),
@@ -604,6 +631,8 @@ class _ReceiptLineRow extends StatelessWidget {
   const _ReceiptLineRow({
     required this.item,
     required this.controller,
+    required this.costController,
+    required this.onCostChanged,
     required this.onChanged,
     required this.onStep,
     required this.locations,
@@ -616,6 +645,8 @@ class _ReceiptLineRow extends StatelessWidget {
 
   final PurchaseOrderItem item;
   final TextEditingController controller;
+  final TextEditingController costController;
+  final ValueChanged<String> onCostChanged;
   final ValueChanged<String> onChanged;
   final ValueChanged<double> onStep;
 
@@ -685,6 +716,14 @@ class _ReceiptLineRow extends StatelessWidget {
     final conversion = typed == null
         ? ''
         : poConversionLabel(item, typed, baseUomCode: baseUomCode);
+    final typedCost =
+        double.tryParse(costController.text.trim()) ?? item.unitCost;
+    final baseCogs = item.baseFactor > 0
+        ? typedCost / item.baseFactor
+        : typedCost;
+    final cogsUnit = baseUomCode.isNotEmpty
+        ? baseUomCode
+        : (item.unitCode.isNotEmpty ? item.unitCode : 'unit');
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
@@ -702,44 +741,75 @@ class _ReceiptLineRow extends StatelessWidget {
           const SizedBox(height: AppSpacing.xs),
           Text(
             'Ordered ${poQtyLabel(item.orderedQty, item)} · already received '
-            '${poQtyLabel(item.receivedQty, item)}',
+            '${poQtyLabel(item.receivedQty, item)}'
+            '${item.unitCost > 0 ? ' · PO est. ${formatPeso(item.unitCost)}' : ''}',
             style: const TextStyle(
               fontSize: 12,
               color: AppColors.textSecondary,
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
-          // The box takes the width it needs and the stepper stays beside it, so
-          // a long product name above never squeezes the number out of sight.
-          Row(
+          // Delivered quantity stepper + actual supplier unit cost (becomes new
+          // batch COGS when processed). Wraps cleanly on narrow windows.
+          Wrap(
+            spacing: AppSpacing.md,
+            runSpacing: AppSpacing.sm,
+            crossAxisAlignment: WrapCrossAlignment.start,
             children: [
-              IconButton.outlined(
-                tooltip: 'One less',
-                onPressed: () => onStep(-1),
-                icon: const Icon(Icons.remove, size: 18),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton.outlined(
+                    tooltip: 'One less',
+                    onPressed: () => onStep(-1),
+                    icon: const Icon(Icons.remove, size: 18),
+                  ),
+                  SizedBox(
+                    width: 128,
+                    child: TextField(
+                      key: Key('receiving-qty-${item.id}'),
+                      controller: controller,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: '0',
+                        suffixText: item.unitCode.isEmpty ? null : item.unitCode,
+                        helperText: conversion.isEmpty ? null : conversion,
+                        helperMaxLines: 2,
+                        isDense: true,
+                      ),
+                      onChanged: onChanged,
+                    ),
+                  ),
+                  IconButton.outlined(
+                    tooltip: 'One more',
+                    onPressed: () => onStep(1),
+                    icon: const Icon(Icons.add, size: 18),
+                  ),
+                ],
               ),
               SizedBox(
-                width: 128,
+                width: 180,
                 child: TextField(
-                  key: Key('receiving-qty-${item.id}'),
-                  controller: controller,
+                  key: Key('receiving-cost-${item.id}'),
+                  controller: costController,
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
                   decoration: InputDecoration(
-                    hintText: '0',
-                    suffixText: item.unitCode.isEmpty ? null : item.unitCode,
-                    helperText: conversion.isEmpty ? null : conversion,
+                    labelText: item.unitCode.isEmpty
+                        ? 'Actual unit cost'
+                        : 'Cost / ${item.unitCode}',
+                    prefixText: '₱ ',
+                    hintText: item.unitCost.toStringAsFixed(2),
+                    helperText:
+                        'Batch COGS: ${formatPeso(baseCogs)} / $cogsUnit',
                     helperMaxLines: 2,
                     isDense: true,
                   ),
-                  onChanged: onChanged,
+                  onChanged: onCostChanged,
                 ),
-              ),
-              IconButton.outlined(
-                tooltip: 'One more',
-                onPressed: () => onStep(1),
-                icon: const Icon(Icons.add, size: 18),
               ),
             ],
           ),

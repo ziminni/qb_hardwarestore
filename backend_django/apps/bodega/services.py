@@ -444,13 +444,20 @@ def confirm_delivery(*, delivery_id, checker, lines, notes=""):
                 f"{row.delivered_qty} {unit.code} the stocker received."
             )
 
+    receipt_costs = {
+        (line.po_item_id, line.location_id): line.unit_cost
+        for line in delivery.receipt.lines.all()
+        if line.unit_cost is not None
+    }
     for row in rows:
         good, damaged, remarks = lines[row.pk]
+        actual_cost = receipt_costs.get((row.po_item_id, delivery.location_id))
         batch = _create_batch(
             receipt=delivery.receipt,
             item=row.po_item,
             base_qty=row.delivered_qty,
             location=delivery.location,
+            unit_cost=actual_cost,
         )
         missing = row.delivered_qty - good - damaged
         note = f"Bodega delivery check {delivery.number}" + (

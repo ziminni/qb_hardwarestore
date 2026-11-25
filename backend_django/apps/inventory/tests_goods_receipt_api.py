@@ -260,3 +260,52 @@ class SplitReceiptLineTests(GoodsReceiptItemsApiTests):
 
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(response.data.get('lines') or [], [])
+
+    def test_actual_receiving_unit_cost_sets_new_batch_cogs_and_bill_total(self):
+        from apps.inventory.models import InventoryBatch, SupplierBill
+
+        # PO estimate was 50.00/unit, but supplier billed 62.50/unit on delivery.
+        response = self._post({
+            'po': self.po.id,
+            'items': [{'po_item': self.item.id, 'qty': '4', 'unit_cost': '62.50'}],
+        })
+        self.assertEqual(response.status_code, 201, response.data)
+        lines = response.data.get('lines') or []
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0]['unit_cost'], '62.50')
+        self.assertEqual(lines[0]['effective_unit_cost'], '62.50')
+
+        processed = self._process(response.data['id'])
+        self.assertEqual(processed.status_code, 200, processed.data)
+
+        batch = InventoryBatch.objects.filter(variant=self.variant).latest('id')
+        self.assertEqual(batch.unit_cost_landed, Decimal('62.50'))
+        self.assertEqual(batch.current_qty, Decimal('4'))
+
+        bill = SupplierBill.objects.filter(purchase_order=self.po).latest('id')
+        self.assertEqual(bill.total_amount, Decimal('250.00'))
+
+    def test_omitted_receiving_unit_cost_falls_back_to_po_item_cost(self):
+        from apps.inventory.models import InventoryBatch
+
+        response = self._post({
+            'po': self.po.id,
+            'items': [{'po_item': self.item.id, 'qty': '3'}],
+        })
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertIsNone(response.data['lines'][0]['unit_cost'])
+        self.assertEqual(response.data['lines'][0]['effective_unit_cost'], '50.00')
+
+        processed = self._process(response.data['id'])
+        self.assertEqual(processed.status_code, 200, processed.data)
+
+        batch = InventoryBatch.objects.filter(variant=self.variant).latest('id')
+        self.assertEqual(batch.unit_cost_landed, Decimal('50.00'))
+
+    def test_negative_receiving_unit_cost_is_refused(self):
+        response = self._post({
+            'po': self.po.id,
+            'items': [{'po_item': self.item.id, 'qty': '2', 'unit_cost': '-5.00'}],
+        })
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn('unit_cost', response.data['detail'])

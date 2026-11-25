@@ -183,6 +183,9 @@ def process_goods_receipt(
                 item = line.po_item
                 # `line.qty` is in the PO line's selling unit; stock is base units.
                 refuse_unrepresentable_stock(item=item, qty=line.qty)
+                actual_cost = (
+                    line.unit_cost if line.unit_cost is not None else item.unit_cost
+                )
                 plan.append(
                     (
                         item,
@@ -190,6 +193,7 @@ def process_goods_receipt(
                         line.qty,
                         line_destination(line),
                         line.expiration_date,
+                        actual_cost,
                     )
                 )
         else:
@@ -221,6 +225,7 @@ def process_goods_receipt(
                             # carry an expiry - there is no line to have read one off.
                             item.variant.product.stored_at_id,
                             None,
+                            item.unit_cost,
                         )
                     )
 
@@ -237,7 +242,7 @@ def process_goods_receipt(
         # mints the batch then. The bill and the PO status below still follow what the
         # stocker recorded, so payables are unchanged by the check.
         held_for_check = []
-        for item, base_qty, _package_qty, location_id, expiration_date in plan:
+        for item, base_qty, _package_qty, location_id, expiration_date, actual_cost in plan:
             location = destinations[location_id]
             if location.is_bodega:
                 # shortcut: a Bodega-held line loses its expiry, because the batch is
@@ -253,6 +258,7 @@ def process_goods_receipt(
                     base_qty=base_qty,
                     location=location,
                     expiration_date=expiration_date,
+                    unit_cost=actual_cost,
                 )
             )
         if held_for_check:
@@ -275,8 +281,8 @@ def process_goods_receipt(
             payables.create_bill_for_receipt(
                 receipt=receipt,
                 delivered=[
-                    (item, package_qty)
-                    for item, _base, package_qty, _location, _expiry in plan
+                    (item, package_qty, actual_cost)
+                    for item, _base, package_qty, _location, _expiry, actual_cost in plan
                 ],
             )
 
@@ -660,6 +666,7 @@ def _create_batch(
     base_qty: Decimal,
     location=None,
     expiration_date=None,
+    unit_cost: Decimal | None = None,
 ) -> InventoryBatch:
     """One batch for one delivered BASE quantity; also re-checks the low-stock threshold.
 
@@ -684,7 +691,10 @@ def _create_batch(
     """
     factor = line_factor(item)
     base_qty = base_qty.quantize(CENT, rounding=ROUND_HALF_UP)
-    unit_cost_per_base = (Decimal(item.unit_cost) / factor).quantize(
+    effective_unit_cost = (
+        Decimal(unit_cost) if unit_cost is not None else Decimal(item.unit_cost)
+    )
+    unit_cost_per_base = (effective_unit_cost / factor).quantize(
         CENT, rounding=ROUND_HALF_UP
     )
     batch = InventoryBatch.objects.create(

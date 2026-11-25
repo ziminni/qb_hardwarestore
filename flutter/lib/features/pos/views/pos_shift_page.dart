@@ -261,9 +261,7 @@ class _PosShiftView extends StatelessWidget {
         formatPeso(shift.openingFloat),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          fontFeatures: [FontFeature.tabularFigures()],
-        ),
+        style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
       ),
     ),
     DataPanelColumn<Shift>(
@@ -828,7 +826,10 @@ class _QuickActionsAndCashOutRow extends StatelessWidget {
             children: [
               const Text(
                 'Total cash out',
-                style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: AppColors.textSecondary,
+                ),
               ),
               Text(
                 formatPeso(reading.cashOut),
@@ -859,7 +860,10 @@ class _QuickActionsAndCashOutRow extends StatelessWidget {
                   children: [
                     for (var i = 0; i < categories.length; i++)
                       Expanded(
-                        flex: (categories[i].value * 100).round().clamp(1, 1000000),
+                        flex: (categories[i].value * 100).round().clamp(
+                          1,
+                          1000000,
+                        ),
                         child: Container(
                           color: _barColors[i % _barColors.length],
                         ),
@@ -1136,7 +1140,11 @@ class _DenominationAuditCalculatorState
                   spacing: AppSpacing.xl,
                   runSpacing: AppSpacing.sm,
                   children: [
-                    _footerStat('Counted cash', formatPeso(counted), AppColors.textPrimary),
+                    _footerStat(
+                      'Counted cash',
+                      formatPeso(counted),
+                      AppColors.textPrimary,
+                    ),
                     _footerStat(
                       'Expected drawer',
                       formatPeso(widget.expectedDrawer),
@@ -1270,7 +1278,10 @@ class _DenominationAuditCalculatorState
       children: [
         Text(
           label,
-          style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+          style: const TextStyle(
+            fontSize: 11.5,
+            color: AppColors.textSecondary,
+          ),
         ),
         const SizedBox(height: 2),
         Text(

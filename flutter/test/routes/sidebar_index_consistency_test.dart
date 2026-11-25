@@ -92,19 +92,19 @@ void main() {
     );
     expect(
       inventoryOrder.length,
-      16,
+      14,
       reason:
-          'the inventory sidebar has 16 stock-focused destinations — Sales and '
-          'Payables were removed from Stocker, Supplier returns sits at 9 under '
-          'Purchasing, Reports at 10, Settings at 11, Deliveries at 12, '
-          'Transfers at 13, Import & export at 14, and Price list at 15',
+          'the inventory sidebar has 14 stock-focused destinations — Sales, '
+          'Payables, Deliveries, and Price list were removed from Stocker; '
+          'Supplier returns sits at 9 under Purchasing, Reports at 10, '
+          'Settings at 11, Transfers at 12, and Import & export at 13',
     );
     expect(
       tillOrder.length,
-      11,
+      12,
       reason:
-          'the till has 11 destinations now that X/Z Readings sits at 10 '
-          '(Release 2 … Deliveries 9, X/Z Readings 10).',
+          'the till has 12 destinations now that Sales orders sits at 11 '
+          '(Release 2 … Deliveries 9, X/Z Readings 10, Sales orders 11).',
     );
     expect(
       adminOrder.length,
@@ -163,11 +163,12 @@ void main() {
     expect(inventoryOrder[11], AppRoutes.inventorySettings);
     expect(
       inventoryOrder[12],
-      AppRoutes.inventoryDeliveries,
+      AppRoutes.inventoryTransfers,
       reason:
-          'Deliveries sits at 12 in the Stock Manager sidebar after removing '
-          'Sales and Payables',
+          'Transfers sits at 12 in the Stock Manager sidebar after removing '
+          'Deliveries and Price list',
     );
+    expect(inventoryOrder[13], AppRoutes.inventoryImportExport);
     expect(tillOrder[0], AppRoutes.posDashboard);
     expect(tillOrder[1], AppRoutes.posHistory);
     expect(tillOrder[2], AppRoutes.posRelease);
@@ -182,6 +183,7 @@ void main() {
     expect(tillOrder[8], AppRoutes.posCustomers);
     expect(tillOrder[9], AppRoutes.posDeliveries);
     expect(tillOrder[10], AppRoutes.posReadings);
+    expect(tillOrder[11], AppRoutes.posSalesOrders);
   });
 
   group('every page highlights its own entry in its own sidebar', () {

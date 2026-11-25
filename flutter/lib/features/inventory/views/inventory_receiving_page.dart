@@ -307,6 +307,9 @@ class GoodsReceiptDetailsSheet extends StatelessWidget {
                 contentPadding: EdgeInsets.zero,
                 dense: true,
                 title: Text(line.variantName),
+                subtitle: line.unitCost != null
+                    ? Text('Unit cost: ${formatPeso(line.unitCost!)}')
+                    : null,
                 trailing: Text(_lineQty(line)),
               ),
         ],

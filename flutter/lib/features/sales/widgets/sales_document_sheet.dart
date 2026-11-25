@@ -49,7 +49,7 @@ class SalesDocumentLine {
 
 /// What a reader picked on the document sheet. The sheet pops with this rather
 /// than acting itself: it is a view, and the page owns the dialogs.
-enum SalesDocumentAction { edit, cancel, createOrder }
+enum SalesDocumentAction { edit, cancel, createOrder, completeAtTill }
 
 /// A quantity in the app's one quantity format (D7).
 ///
@@ -94,6 +94,7 @@ Future<SalesDocumentAction?> showSalesDocumentSheet(
   bool canEdit = false,
   bool canCancel = false,
   bool canCreateOrder = false,
+  bool canCompleteAtTill = false,
   Future<void> Function()? onPrint,
   String printLabel = 'Print slip',
 }) {
@@ -109,6 +110,7 @@ Future<SalesDocumentAction?> showSalesDocumentSheet(
       canEdit: canEdit,
       canCancel: canCancel,
       canCreateOrder: canCreateOrder,
+      canCompleteAtTill: canCompleteAtTill,
       onPrint: onPrint,
       printLabel: printLabel,
     ),
@@ -136,6 +138,7 @@ class SalesDocumentSheet extends StatelessWidget {
     this.canEdit = false,
     this.canCancel = false,
     this.canCreateOrder = false,
+    this.canCompleteAtTill = false,
     this.onPrint,
     this.printLabel = 'Print slip',
   });
@@ -149,6 +152,10 @@ class SalesDocumentSheet extends StatelessWidget {
 
   /// A quotation only: raising the order it promises (the quote-to-order flow).
   final bool canCreateOrder;
+
+  /// Cashier's Sales Orders view: loads the order into the POS till for payment
+  /// and receipt printing.
+  final bool canCompleteAtTill;
 
   final Future<void> Function()? onPrint;
   final String printLabel;
@@ -222,10 +229,13 @@ class SalesDocumentSheet extends StatelessWidget {
                 if (canEdit ||
                     canCancel ||
                     canCreateOrder ||
+                    canCompleteAtTill ||
                     onPrint != null) ...[
                   const SizedBox(height: AppSpacing.md),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
+                  Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
                     children: [
                       if (onPrint != null)
                         OutlinedButton.icon(
@@ -251,46 +261,48 @@ class SalesDocumentSheet extends StatelessWidget {
                           label: Text(printLabel),
                         ),
                       if (canCancel)
-                        Padding(
-                          padding: EdgeInsets.only(
-                            left: onPrint != null ? AppSpacing.sm : 0,
+                        TextButton(
+                          key: const ValueKey('so-sheet-cancel'),
+                          onPressed: () => Navigator.pop(
+                            context,
+                            SalesDocumentAction.cancel,
                           ),
-                          child: TextButton(
-                            key: const ValueKey('so-sheet-cancel'),
-                            onPressed: () => Navigator.pop(
-                              context,
-                              SalesDocumentAction.cancel,
-                            ),
-                            child: const Text('Cancel'),
-                          ),
+                          child: const Text('Cancel'),
                         ),
                       if (canCreateOrder)
-                        Padding(
-                          padding: const EdgeInsets.only(left: AppSpacing.sm),
-                          child: FilledButton.icon(
-                            key: const ValueKey('quotation-sheet-order'),
-                            onPressed: () => Navigator.pop(
-                              context,
-                              SalesDocumentAction.createOrder,
-                            ),
-                            icon: const Icon(
-                              Icons.assignment_turned_in_outlined,
-                              size: 18,
-                            ),
-                            label: const Text('Create sales order'),
+                        FilledButton.icon(
+                          key: const ValueKey('quotation-sheet-order'),
+                          onPressed: () => Navigator.pop(
+                            context,
+                            SalesDocumentAction.createOrder,
                           ),
+                          icon: const Icon(
+                            Icons.assignment_turned_in_outlined,
+                            size: 18,
+                          ),
+                          label: const Text('Create sales order'),
+                        ),
+                      if (canCompleteAtTill)
+                        FilledButton.icon(
+                          key: const ValueKey('so-sheet-complete-at-till'),
+                          onPressed: () => Navigator.pop(
+                            context,
+                            SalesDocumentAction.completeAtTill,
+                          ),
+                          icon: const Icon(
+                            Icons.point_of_sale_outlined,
+                            size: 18,
+                          ),
+                          label: const Text('Complete at Till'),
                         ),
                       if (canEdit)
-                        Padding(
-                          padding: const EdgeInsets.only(left: AppSpacing.sm),
-                          child: FilledButton.tonal(
-                            key: const ValueKey('so-sheet-edit'),
-                            onPressed: () => Navigator.pop(
-                              context,
-                              SalesDocumentAction.edit,
-                            ),
-                            child: const Text('Edit'),
+                        FilledButton.tonal(
+                          key: const ValueKey('so-sheet-edit'),
+                          onPressed: () => Navigator.pop(
+                            context,
+                            SalesDocumentAction.edit,
                           ),
+                          child: const Text('Edit'),
                         ),
                     ],
                   ),
