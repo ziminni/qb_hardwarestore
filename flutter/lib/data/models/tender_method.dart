@@ -83,6 +83,8 @@ enum TenderMethod {
   /// A value the wire never sent is "Not set" (D18): the receipt prints this after
   /// "Payment: ", where a lone dash reads as a missing print, not a missing value.
   static String labelFor(String? value) {
+    // Reports only: what nobody paid at the counter (utang, project releases).
+    if (value == 'ON_ACCOUNT') return 'On account (utang)';
     final method = fromWire(value);
     if (method != null) return method.label;
     final trimmed = value?.trim() ?? '';

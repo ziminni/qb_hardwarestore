@@ -2,11 +2,13 @@ import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/repositories/reports_repository.dart';
+import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/reports/report_catalogue.dart';
 import 'package:client/features/reports/report_viewer_page.dart';
 import 'package:client/features/reports/reports_shell.dart';
 import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 /// The Reports area's front door: an inner sidebar of reports on the left,
 /// the selected report's content on the right.
@@ -64,13 +66,27 @@ class _ReportsBrowserViewState extends State<ReportsBrowserView> {
   final Set<ReportSection> _collapsed = {};
 
   List<ReportDefinition> _available() {
-    final visible = reportSectionsFor(widget.areas ?? {widget.shell.area});
+    final held = widget.areas ?? _signedInAreas() ?? {widget.shell.area};
+    final visible = reportSectionsFor(held);
     return [
       for (final section in ReportSection.values)
         if (visible.contains(section))
           for (final report in reportCatalogue)
-            if (report.section == section && report.available) report,
+            if (report.section == section &&
+                report.available &&
+                report.readableBy(held))
+              report,
     ];
+  }
+
+  /// The signed-in account's areas, or null where no session is provided.
+  Set<String>? _signedInAreas() {
+    try {
+      final codes = context.read<AuthViewmodel>().user?.areaCodes;
+      return codes == null || codes.isEmpty ? null : codes.toSet();
+    } on ProviderNotFoundException {
+      return null;
+    }
   }
 
   ReportDefinition? _firstAvailable() {

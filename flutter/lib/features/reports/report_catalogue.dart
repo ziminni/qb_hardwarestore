@@ -27,6 +27,7 @@ class ReportDefinition {
     required this.description,
     required this.section,
     this.available = true,
+    this.readers,
   });
 
   final String id;
@@ -34,6 +35,16 @@ class ReportDefinition {
   final String description;
   final ReportSection section;
   final bool available;
+
+  /// The areas whose accounts the server lets read this report, when that is
+  /// narrower than its section; null means everyone who sees the section. A
+  /// card the account cannot open is not drawn, so nobody lands on "You do not
+  /// have access to reports" (requisition history is Store Manager / Admin).
+  final Set<String>? readers;
+
+  /// Whether an account holding [areas] may open this report.
+  bool readableBy(Set<String> areas) =>
+      readers == null || readers!.any(areas.contains);
 }
 
 /// Every report the catalogue offers, grouped by [ReportSection] in the order
@@ -122,6 +133,8 @@ const List<ReportDefinition> reportCatalogue = [
     title: 'Requisition history',
     description: 'Project requests with their status and approvals.',
     section: ReportSection.inventory,
+    // `requisition_history_view` is IsManagerRole on the server.
+    readers: {AppAreas.sales, AppAreas.admin},
   ),
 
   // P2 inventory detail reports: every one answers through `_paged()` with its
