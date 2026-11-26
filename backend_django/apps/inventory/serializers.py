@@ -591,6 +591,10 @@ class ProductVariantSerializer(serializers.ModelSerializer):
     """
 
     base_uom_code = serializers.CharField(source="base_uom.code", read_only=True)
+    # Sell in parts: halves/quarters are offered only for whole-counted base units.
+    base_uom_is_whole = serializers.BooleanField(
+        source="base_uom.is_whole", read_only=True
+    )
     selling_uoms = VariantUOMSerializer(many=True, read_only=True)
     # Phase 5 B4 (decision 18): a variant is stored where its PRODUCT is, read-only -
     # moving goods between places is not this phase's job (no per-location stock).
@@ -614,6 +618,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             "sku",
             "base_uom",
             "base_uom_code",
+            "base_uom_is_whole",
             "min_stock_threshold",
             "max_stock_level",
             "stored_at",
@@ -1286,12 +1291,16 @@ class StockAdjustmentSerializer(serializers.ModelSerializer):
         queryset=StorageLocation.objects.all(), required=False, allow_null=True
     )
 
+    # Who made the adjustment, for the history list (it used to show "User 3").
+    user_name = serializers.CharField(source="user.full_name", read_only=True)
+
     class Meta:
         model = StockAdjustment
         fields = [
             "id",
             "variant",
             "user",
+            "user_name",
             # The shelf the count belongs to, defaulting to the variant's home.
             "location",
             "adjustment_type",

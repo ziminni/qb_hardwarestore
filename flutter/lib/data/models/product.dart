@@ -11,6 +11,7 @@ class ProductVariant {
     this.sellingUoms = const [],
     required this.variantName,
     required this.baseUomCode,
+    this.baseUomIsWhole = true,
     required this.isActive,
     this.storedAtId,
     this.storedAtName = '',
@@ -37,6 +38,10 @@ class ProductVariant {
 
   final String variantName;
   final String baseUomCode;
+
+  /// Whether the base unit is counted whole (BAG, PC) rather than measured
+  /// (KG, M). API field `base_uom_is_whole`; only whole units sell in parts.
+  final bool baseUomIsWhole;
   final bool isActive;
 
   /// Where this variant's PRODUCT is kept (Phase 5 B4): read-only on the wire,
@@ -87,6 +92,7 @@ class ProductVariant {
       sellingUoms: sellingUoms ?? this.sellingUoms,
       variantName: variantName ?? this.variantName,
       baseUomCode: baseUomCode ?? this.baseUomCode,
+      baseUomIsWhole: baseUomIsWhole,
       isActive: isActive ?? this.isActive,
       storedAtId: storedAtId,
       storedAtName: storedAtName,
@@ -100,6 +106,7 @@ class ProductVariant {
       variantName: stringField(json, 'variant_name'),
       sku: json['sku'] is String ? json['sku'] as String : '',
       baseUomCode: stringField(json, 'base_uom_code'),
+      baseUomIsWhole: boolFieldOr(json, 'base_uom_is_whole', or: true),
       isActive: boolFieldOr(json, 'is_active', or: true),
       productId: intField(json, 'product'),
       baseUomId: intField(json, 'base_uom'),

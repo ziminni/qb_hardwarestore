@@ -118,6 +118,22 @@ String formatQuantity(num value) {
   return '$sign$whole$decimals';
 }
 
+/// Sell in parts: what a fractional on-hand of a whole-counted unit means on the
+/// shelf. `9.75 BAG` is 9 sealed and one opened bag with ¾ left, so this returns
+/// "1 opened BAG, ¾ left"; a whole number returns null.
+String? openedUnitLabel(num onHand, String unitCode) {
+  if (onHand <= 0) return null;
+  final cents = ((onHand * 100).round()) % 100;
+  if (cents == 0) return null;
+  final left = switch (cents) {
+    25 => '¼',
+    50 => '½',
+    75 => '¾',
+    _ => formatQuantity(cents / 100),
+  };
+  return '1 opened $unitCode, $left left';
+}
+
 /// A signed quantity change, for an adjustment: `+10`, `-2`, `-0.5`.
 String formatSignedQuantity(num value) =>
     '${value >= 0 ? '+' : '-'}${formatQuantity(value.abs())}';

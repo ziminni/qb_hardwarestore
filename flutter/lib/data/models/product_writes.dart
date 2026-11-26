@@ -138,6 +138,7 @@ class NewSellingUnit {
     required this.conversionFactor,
     required this.sellingPrice,
     this.unitsPerBase,
+    this.parts,
     this.barcodeQr = '',
     this.creditMarkupKind = 'NONE',
     this.creditMarkupValue = 0,
@@ -154,6 +155,11 @@ class NewSellingUnit {
   /// rebase cleanly onto the smaller unit without 2-decimal rounding loss.
   final double? unitsPerBase;
 
+  /// Sell in parts: 2 (halves) or 4 (quarters) of ONE base unit, e.g. an
+  /// opened bag. The repository posts to `/variants/{id}/add-part-unit/`, which
+  /// picks the HALF/QTR unit itself and never rebases the variant.
+  final int? parts;
+
   /// Blank asks the server for this unit's own `QB` code.
   final String barcodeQr;
   final String creditMarkupKind;
@@ -163,6 +169,16 @@ class NewSellingUnit {
     'variant': variantId,
     'uom': uomId,
     'conversion_factor': conversionFactor,
+    'default_selling_price': sellingPrice,
+    'barcode_qr': barcodeQr,
+    if (creditMarkupKind != 'NONE' && creditMarkupValue > 0) ...{
+      'credit_markup_kind': creditMarkupKind,
+      'credit_markup_value': creditMarkupValue,
+    },
+  };
+
+  Map<String, dynamic> partUnitBody() => {
+    'parts': parts,
     'default_selling_price': sellingPrice,
     'barcode_qr': barcodeQr,
     if (creditMarkupKind != 'NONE' && creditMarkupValue > 0) ...{

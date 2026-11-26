@@ -213,7 +213,7 @@ void main() {
     final loadsBefore = repository.loadCount;
 
     await tapVisible(tester, find.byKey(const ValueKey('add-pack-unit-210')));
-    expect(find.text('Add pack / bulk unit'), findsOneWidget);
+    expect(find.text('Add selling unit'), findsOneWidget);
 
     await tapVisible(tester, find.byKey(const ValueKey('add-unit-0')));
     await tester.tap(find.text('Pack (PACK)').last);
@@ -227,7 +227,7 @@ void main() {
       findsOneWidget,
     );
 
-    await tapVisible(tester, find.text('Add pack unit').last);
+    await tapVisible(tester, find.text('Add unit').last);
 
     final created = repository.createdUnits.single;
     expect(created.variantId, 210);

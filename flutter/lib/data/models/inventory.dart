@@ -22,6 +22,7 @@ class StockAdjustment {
     required this.id,
     required this.variantId,
     required this.userId,
+    this.userName = '',
     required this.adjustmentType,
     required this.quantityAdjusted,
     required this.remarks,
@@ -31,6 +32,9 @@ class StockAdjustment {
   final int id;
   final int variantId;
   final int userId;
+
+  /// The adjuster's full name (`user_name`); blank from an older server.
+  final String userName;
   final StockAdjustmentType adjustmentType;
   final double quantityAdjusted;
   final String remarks;
@@ -41,6 +45,7 @@ class StockAdjustment {
       id: json['id'] as int,
       variantId: json['variant'] as int,
       userId: json['user'] as int,
+      userName: json['user_name'] as String? ?? '',
       adjustmentType: StockAdjustmentType.fromApiValue(
         json['adjustment_type'] as String,
       ),
