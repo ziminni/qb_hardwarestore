@@ -755,7 +755,9 @@ class SalesTransactionViewSet(OwnSalesScopeMixin, BaseViewSet):
                     "variant_uom__uom",
                     "variant_uom__variant__base_uom",
                     "variant_uom__variant__product__stored_at",
-                ).prefetch_related("deductions__batch__location"),
+                ).prefetch_related(
+                    "deductions__batch__location", "deductions__batch__receipt"
+                ),
             ),
             "payments",
             "receipt",
@@ -2246,6 +2248,7 @@ class DeliveryViewSet(viewsets.ReadOnlyModelViewSet):
             # driver's page reads the same deduction rows and base units the receipt does
             # - prefetched, because a slip can carry many lines.
             "sale__items__deductions__batch__location",
+            "sale__items__deductions__batch__receipt",
             "sale__items__variant_uom__variant__base_uom",
             "sales_order__items__variant_uom__variant",
             "sales_order__items__variant_uom__uom",

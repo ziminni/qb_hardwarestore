@@ -390,15 +390,30 @@ class HeldCartTests(POSTestBase):
         self.assertEqual(resp.status_code, 201)
         self.assertIsNone(resp.data['customer'])
 
-    def test_complete_insufficient_stock_keeps_cart(self):
+    def test_holding_more_than_the_shelf_is_refused(self):
+        # Held carts reserve stock now, so an impossible quantity is refused when it
+        # is HELD rather than at completion, and no cart is left behind.
+        from .models import HeldCart
+        before = HeldCart.objects.count()
         hold_resp = self._hold(
             customer=self.customer.id,
             items=[{'variant_uom': self.vuom.id, 'qty': '99999', 'unit_price': '10.00'}],
         )
+        self.assertEqual(hold_resp.status_code, 400, hold_resp.data)
+        self.assertEqual(HeldCart.objects.count(), before)
+
+    def test_complete_insufficient_stock_keeps_cart(self):
+        hold_resp = self._hold(
+            customer=self.customer.id,
+            items=[{'variant_uom': self.vuom.id, 'qty': '1', 'unit_price': '10.00'}],
+        )
         cart_id = hold_resp.data['id']
+        # The shelf empties after the hold (for example a count correction).
+        from apps.inventory.models import InventoryBatch
+        InventoryBatch.objects.filter(variant=self.vuom.variant).update(current_qty=0)
         resp = self.client.post(
             f'{HELD_CARTS_URL}{cart_id}/complete/',
-            {'payments': [{'method': 'CASH', 'amount_tendered': '999990.00'}]},
+            {'payments': [{'method': 'CASH', 'amount_tendered': '10.00'}]},
             content_type='application/json', **self.auth,
         )
         self.assertEqual(resp.status_code, 400)

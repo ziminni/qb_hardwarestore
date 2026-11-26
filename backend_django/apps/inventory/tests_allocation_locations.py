@@ -188,13 +188,15 @@ class AllocationQueryTests(AllocationOrderTests):
         with CaptureQueriesContext(connection) as captured:
             allocate_fifo(variant_id=self.variant.pk, qty_needed=Decimal(3))
 
-        inserts = [
+        # ONE locking read orders the whole shelf list. The held-cart reservation
+        # sum (decision on held carts) is a plain read and takes no lock.
+        locked = [
             query["sql"]
             for query in captured.captured_queries
             if query["sql"].lstrip().upper().startswith("SELECT")
+            and "FOR UPDATE" in query["sql"]
         ]
-        self.assertEqual(len(inserts), 1, [q["sql"] for q in captured.captured_queries])
-        self.assertIn("FOR UPDATE", inserts[0])
+        self.assertEqual(len(locked), 1, [q["sql"] for q in captured.captured_queries])
 
     def test_the_lock_covers_only_the_batch_rows(self):
         # `of=("self",)` is load-bearing: the joins through to the storage location and
