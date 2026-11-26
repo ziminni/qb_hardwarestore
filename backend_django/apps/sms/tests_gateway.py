@@ -405,9 +405,9 @@ class InboundReleaseTests(GatewayBase):
             order.append("sale-lock")
             return real_lock(*args, **kwargs)
 
-        def tracking_claim(sale_ids=None):
+        def tracking_claim(sale_ids=None, **kwargs):
             order.append("claim")
-            return real_claim(sale_ids)
+            return real_claim(sale_ids, **kwargs)
 
         with (
             mock.patch.object(
@@ -576,13 +576,19 @@ class StaffApiTests(GatewayBase):
         )
         self.assertEqual(response.status_code, 405, response.data)
 
-    def test_only_an_admin_registers_a_number(self):
+    def test_a_manager_or_admin_registers_a_number(self):
+        # Store Managers register Bodega phones too (SmsContactViewSet: IsManagerRole,
+        # matching the setup guide's "admin or manager"); a cashier may not.
         self._sell_and_commit(1)
         body = {"phone": PHONE, "user": self.checker.pk, "label": "Bodega"}
-        self.api.force_authenticate(self.manager)
+        self.api.force_authenticate(self.cashier)
         self.assertEqual(
             self.api.post("/api/v1/sms/contacts/", body, format="json").status_code, 403
         )
+        self.api.force_authenticate(self.manager)
+        self.assertEqual(
+            self.api.post("/api/v1/sms/contacts/", body, format="json").status_code, 400
+        )  # PHONE is taken
         self.api.force_authenticate(self.admin)
         created = self.api.post("/api/v1/sms/contacts/", body, format="json")
         self.assertEqual(created.status_code, 400, created.data)  # PHONE is taken
