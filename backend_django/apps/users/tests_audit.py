@@ -284,7 +284,11 @@ class HeldCartAuditTests(AuditAssertions, _RoleUsersMixin, POSTestBase):
             'SALE', contains=[first.data['transaction_no']])
 
     def test_refused_completion_writes_no_row(self):
-        cart_id = self._hold(qty='99999')
+        # Held carts reserve stock, so the impossible quantity is refused when HELD.
+        # The completion refusal happens when the shelf empties after the hold.
+        cart_id = self._hold()
+        from apps.inventory.models import InventoryBatch
+        InventoryBatch.objects.all().update(current_qty=0)
         response = self._complete(cart_id)
         self.assertEqual(response.status_code, 400, response.data)
         self.assert_no_rows('SALE')
