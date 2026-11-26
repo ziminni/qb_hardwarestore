@@ -679,6 +679,58 @@ class ProductVariantViewSet(_AuditedCatalogViewSet):
         )
 
 
+    @action(detail=True, methods=["post"], url_path="add-part-unit")
+    def add_part_unit_action(self, request, pk=None):
+        """`POST /variants/{id}/add-part-unit/ {parts: 2|4, default_selling_price}`.
+
+        Sell in parts (planning/sell-in-parts): halves or quarters of a whole-counted
+        unit, priced on their own. Never rebases the variant.
+        """
+        from decimal import Decimal, InvalidOperation
+
+        from .exceptions import InvalidSellingUnit
+        from .services import add_part_unit
+
+        try:
+            parts = int(request.data.get("parts"))
+            price = Decimal(str(request.data.get("default_selling_price", "")))
+            credit_val = Decimal(
+                str(request.data.get("credit_markup_value", "0") or "0")
+            )
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise InvalidSellingUnit(
+                "Send the number of parts and the selling price as numbers."
+            ) from exc
+        credit_kind = str(request.data.get("credit_markup_kind", "NONE") or "NONE")
+        barcode_qr = str(request.data.get("barcode_qr", "") or "")
+
+        variant = self.get_object()
+        try:
+            with transaction.atomic():
+                unit = add_part_unit(
+                    variant=variant,
+                    parts=parts,
+                    default_selling_price=price,
+                    barcode_qr=barcode_qr,
+                    credit_markup_kind=credit_kind,
+                    credit_markup_value=credit_val,
+                    user=request.user,
+                )
+                audit_request(
+                    request,
+                    AuditLog.ActionType.UPDATE,
+                    f"{variant} can now be sold as 1/{parts} {variant.base_uom.code} "
+                    f"({unit.uom.code}) at ₱{unit.default_selling_price}.",
+                )
+        except IntegrityError as exc:
+            _refuse_lost_barcode_race(exc)
+
+        refreshed = self.get_queryset().get(pk=variant.pk)
+        return Response(
+            self.get_serializer(refreshed).data, status=status.HTTP_201_CREATED
+        )
+
+
 class VariantUOMViewSet(_AuditedCatalogViewSet):
     # `variant__product` is joined because the response explains WHY a scanned unit
     # cannot be sold (`product_name`, `product_is_active`): one query, not three per row.

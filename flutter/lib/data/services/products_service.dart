@@ -251,6 +251,16 @@ class ProductsService {
     return _idOf(response.data);
   }
 
+  /// Sell in parts: halves or quarters of one base unit (an opened bag).
+  Future<void> addPartUnit(int variantId, Map<String, dynamic> body) async {
+    await _write(
+      () => _client.post<Map<String, dynamic>>(
+        '$variantsPath$variantId/add-part-unit/',
+        data: body,
+      ),
+    );
+  }
+
   /// Adds a smaller selling unit to an existing variant (rebasing cleanly when
   /// the variant has no sales/stock history yet).
   Future<void> addSmallerUnit(
@@ -390,9 +400,9 @@ class ProductsService {
     'INVALID_VARIANT':
         'A stock level cannot be negative. Correct the reorder level and save '
         'again.',
-    'INVALID_SELLING_UNIT':
-        'The selling price cannot be negative, and one selling unit always '
-        'holds at least one base unit.',
+    // `INVALID_SELLING_UNIT` is deliberately ABSENT: the server's detail names
+    // the exact rule that failed (a negative price, a factor that cannot be
+    // stored, a part the item already has), which a fixed sentence used to hide.
     'DUPLICATE_BASE_UNIT': 'This variant already has a base-unit selling unit.',
     'SELLING_UNIT_IN_USE':
         'This selling unit has already been sold, so its unit and factor are '

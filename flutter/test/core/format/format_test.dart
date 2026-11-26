@@ -89,6 +89,21 @@ void main() {
     });
   });
 
+  group('openedUnitLabel', () {
+    test('a whole count has no opened unit', () {
+      expect(openedUnitLabel(10, 'BAG'), isNull);
+      expect(openedUnitLabel(0, 'BAG'), isNull);
+    });
+    test('quarters read as the part left in the opened bag', () {
+      expect(openedUnitLabel(9.75, 'BAG'), '1 opened BAG, ¾ left');
+      expect(openedUnitLabel(9.5, 'BAG'), '1 opened BAG, ½ left');
+      expect(openedUnitLabel(0.25, 'BAG'), '1 opened BAG, ¼ left');
+    });
+    test('any other fraction keeps its number', () {
+      expect(openedUnitLabel(3.4, 'SACK'), '1 opened SACK, 0.4 left');
+    });
+  });
+
   group('formatQuantity', () {
     // FX4 (wave 3a fix pass): one quantity format for the app. D7: quantities
     // are counts when they are whole. "38.0 of 40.0 left" was a double leaking
