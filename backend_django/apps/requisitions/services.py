@@ -322,6 +322,8 @@ def verify_token(*, token_value: str) -> dict:
             "req_number": req.req_number,
             "project": req.project.name,
             "customer": req.project.customer.name,
+            # 2026-11-27: the till shows "Accepted" / "Partly released" in its header.
+            "status": req.status,
         },
         # Wire shape unchanged for the till (decision 04 changed the column, not the
         # screen): `variant_id` is still the PRODUCT VARIANT id and `variant_name` the
@@ -335,6 +337,13 @@ def verify_token(*, token_value: str) -> dict:
                 "remaining": str(line["remaining"]),
                 "availability": _availability(line),
                 "releasable": str(line["releasable"]),
+                # 2026-11-27: what the Give now stepper needs — the selling unit, whether
+                # it counts in whole numbers, and its price for the "Giving today" sum.
+                "unit": line["item"].variant_uom.uom.code,
+                "is_whole": line["item"].variant_uom.uom.is_whole,
+                "unit_price": str(
+                    line["item"].variant_uom.default_selling_price.quantize(Decimal("0.01"))
+                ),
                 # Decisions 10/13: the STORE's answer, distinct from the shelf's word
                 # above — False means "we do not carry it", not "it is out today".
                 "available": line["item"].available,
