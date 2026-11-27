@@ -410,7 +410,22 @@ class UserViewSet(viewsets.ModelViewSet):
         refusal = user_admin_refusal(request, None, group_names=STAFF_ROLES)
         if refusal is not None:
             return refusal
-        return super().create(request, *args, **kwargs)
+        # Same rules as `POST /auth/register/`. `UserSerializer` has no password
+        # field, so this route used to answer 201 with an account nobody could sign
+        # in to (role walkthrough 2026-11-27).
+        if body_mixes_role_fields(request.data):
+            return roles_conflict_response()
+        serializer = RegisterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            user = serializer.save()
+            audit_request(
+                request, AuditLog.ActionType.CREATE, f"User {user.username} created."
+            )
+        return Response(
+            UserSerializer(user, context=self.get_serializer_context()).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     def update(self, request, *args, **kwargs):
         """PATCH / PUT, guarded so the last active admin cannot be disabled.

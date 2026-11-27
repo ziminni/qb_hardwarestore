@@ -18,13 +18,13 @@ import 'package:client/shared/widgets/data_panel.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
+import 'package:client/shared/widgets/operational_charts.dart';
 import 'package:client/shared/widgets/settings_side_layout.dart'
     show StoreInformationPanel;
 import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 
 /// The ONE viewer every catalogue card opens.
@@ -103,6 +103,15 @@ class _ReportViewerViewState extends State<ReportViewerView> {
   _ReportView? _view;
   String? _error;
   bool _loading = true;
+  int _loadVersion = 0;
+
+  bool get _isSnapshot => const {
+    'inventory-valuation',
+    'batch-age',
+    'reorder',
+    'dead-stock',
+    'expiry',
+  }.contains(widget.report.id);
 
   @override
   void dispose() {
@@ -139,6 +148,7 @@ class _ReportViewerViewState extends State<ReportViewerView> {
   }
 
   Future<void> _load() async {
+    final version = ++_loadVersion;
     setState(() {
       _loading = true;
       _error = null;
@@ -151,6 +161,7 @@ class _ReportViewerViewState extends State<ReportViewerView> {
     final to = _isoDate(_range.end);
     try {
       final _ReportView view;
+      VatReportSummary? loadedVat;
       switch (widget.report.id) {
         case 'sales-summary':
           view = _salesView(
@@ -162,7 +173,7 @@ class _ReportViewerViewState extends State<ReportViewerView> {
             to: to,
             granularity: _vatGranularity,
           );
-          _vatReport = vatSummary;
+          loadedVat = vatSummary;
           view = _vatView(vatSummary, stream: _vatStream);
         case 'inventory-valuation':
           view = _valuationView(await _repository.fetchInventoryValuation());
@@ -171,7 +182,9 @@ class _ReportViewerViewState extends State<ReportViewerView> {
             await _repository.fetchStockMovements(from: from, to: to),
           );
         case 'requisition-history':
-          view = _requisitionsView(await _repository.fetchRequisitionHistory());
+          view = _requisitionsView(
+            await _repository.fetchRequisitionHistory(from: from, to: to),
+          );
         case 'item-wise':
           view = _salesByItemView(
             await _repository.fetchSalesByItem(from: from, to: to),
@@ -236,13 +249,14 @@ class _ReportViewerViewState extends State<ReportViewerView> {
             emptyMessage: 'This report has no endpoint yet (planned P1).',
           );
       }
-      if (!mounted) return;
+      if (!mounted || version != _loadVersion) return;
       setState(() {
+        _vatReport = loadedVat;
         _view = view;
         _loading = false;
       });
     } on ReportsServiceException catch (error) {
-      if (!mounted) return;
+      if (!mounted || version != _loadVersion) return;
       setState(() {
         _error = error.message;
         _loading = false;
@@ -295,22 +309,64 @@ class _ReportViewerViewState extends State<ReportViewerView> {
 
   Future<void> _exportPdf() async {
     final view = _view;
-    final build = view?.pdfBytes;
-    if (view == null || build == null) return;
+    if (view == null || _loading || _error != null) return;
     final messenger = ScaffoldMessenger.of(context);
     try {
       // The account that pressed the button signs the paper.
       final generatedBy = context.read<AuthViewmodel>().user?.fullName ?? '';
-      final bytes = await build(generatedBy);
-      await Printing.sharePdf(
-        bytes: bytes,
-        filename: view.pdfName ?? 'report.pdf',
+      final build = view.pdfBytes;
+      final bytes = build == null
+          ? await _exportStandardPdf(view, generatedBy)
+          : await build(generatedBy);
+      final name = view.pdfName ?? '${widget.report.id}.pdf';
+      final location = await getSaveLocation(
+        suggestedName: name,
+        acceptedTypeGroups: const [
+          XTypeGroup(label: 'PDF document', extensions: ['pdf']),
+        ],
       );
+      if (location == null) return;
+      await XFile.fromData(
+        bytes,
+        name: name,
+        mimeType: 'application/pdf',
+      ).saveTo(location.path);
+      messenger.showSnackBar(SnackBar(content: Text('Exported $name')));
     } catch (error) {
       messenger.showSnackBar(
         SnackBar(content: Text('Could not export the PDF report: $error')),
       );
     }
+  }
+
+  /// Use the same loaded dataset as the viewer, without restricting the
+  /// document to the visible pagination page or local table search.
+  Future<Uint8List> _exportStandardPdf(_ReportView view, String generatedBy) {
+    final sourceRows = view.pdfRows ?? view.rows;
+    final pdfRows = sourceRows.take(5000).toList();
+    final fullCount = view.rowCount ?? sourceRows.length;
+    final period = _isSnapshot
+        ? 'Current snapshot'
+        : '${formatDate(_range.start)} to ${formatDate(_range.end)}';
+    String printText(String value) => value.replaceAll('₱', 'PHP ');
+    return renderReportPdf(
+      title: widget.report.title,
+      period: period,
+      filters: [
+        if (fullCount > pdfRows.length)
+          'Showing first ${pdfRows.length} of $fullCount rows. Narrow the date range for more detail.',
+      ],
+      generatedBy: generatedBy,
+      storeName: StoreInformationPanel.storeName,
+      kpis: [
+        for (final kpi in view.kpis)
+          (label: kpi.label, value: printText(kpi.value), caption: kpi.caption),
+      ],
+      columns: view.pdfColumns ?? view.columns,
+      rows: [for (final row in pdfRows) row.map(printText).toList()],
+      emptyMessage: view.emptyMessage,
+      landscape: (view.pdfColumns ?? view.columns).length > 5,
+    );
   }
 
   @override
@@ -319,7 +375,9 @@ class _ReportViewerViewState extends State<ReportViewerView> {
     final failure = _error;
     final excel = OutlinedButton.icon(
       key: const ValueKey('report-viewer-export-excel'),
-      onPressed: view?.excelBytes == null ? null : _exportExcel,
+      onPressed: _loading || failure != null || view?.excelBytes == null
+          ? null
+          : _exportExcel,
       icon: const Icon(Icons.download_outlined, size: 18),
       label: const Text('Export Excel'),
     );
@@ -402,8 +460,8 @@ class _ReportViewerViewState extends State<ReportViewerView> {
                             ),
                           ),
                           StitchPill(
-                            label: widget.report.section ==
-                                    ReportSection.inventory
+                            label:
+                                widget.report.section == ReportSection.inventory
                                 ? 'Inventory report'
                                 : 'Sales report',
                             tone: StitchTone.primary,
@@ -445,55 +503,62 @@ class _ReportViewerViewState extends State<ReportViewerView> {
                   icon: const Icon(Icons.arrow_back_rounded, size: 18),
                   label: const Text('All reports'),
                 ),
-              ChoiceChip(
-                key: const ValueKey('report-preset-today'),
-                label: const Text('Today'),
-                selected: _matchesRange(todayRange),
-                onSelected: (_) => _applyPreset(todayRange),
-              ),
-              ChoiceChip(
-                key: const ValueKey('report-preset-week'),
-                label: const Text('This Week'),
-                selected: _matchesRange(weekRange),
-                onSelected: (_) => _applyPreset(weekRange),
-              ),
-              ChoiceChip(
-                key: const ValueKey('report-preset-month'),
-                label: const Text('This Month'),
-                selected: _matchesRange(monthRange),
-                onSelected: (_) => _applyPreset(monthRange),
-              ),
-              ChoiceChip(
-                key: const ValueKey('report-preset-30d'),
-                label: const Text('Last 30 Days'),
-                selected: _matchesRange(thirtyRange),
-                onSelected: (_) => _applyPreset(thirtyRange),
-              ),
-              OutlinedButton.icon(
-                key: const ValueKey('report-viewer-range'),
-                onPressed: _pickRange,
-                icon: const Icon(Icons.event_outlined, size: 18),
-                label: Text(
-                  '${formatDate(_range.start)} to ${formatDate(_range.end)}',
+              if (_isSnapshot)
+                const StitchPill(
+                  label: 'Current snapshot',
+                  tone: StitchTone.neutral,
                 ),
-              ),
+              if (!_isSnapshot) ...[
+                ChoiceChip(
+                  key: const ValueKey('report-preset-today'),
+                  label: const Text('Today'),
+                  selected: _matchesRange(todayRange),
+                  onSelected: (_) => _applyPreset(todayRange),
+                ),
+                ChoiceChip(
+                  key: const ValueKey('report-preset-week'),
+                  label: const Text('This Week'),
+                  selected: _matchesRange(weekRange),
+                  onSelected: (_) => _applyPreset(weekRange),
+                ),
+                ChoiceChip(
+                  key: const ValueKey('report-preset-month'),
+                  label: const Text('This Month'),
+                  selected: _matchesRange(monthRange),
+                  onSelected: (_) => _applyPreset(monthRange),
+                ),
+                ChoiceChip(
+                  key: const ValueKey('report-preset-30d'),
+                  label: const Text('Last 30 Days'),
+                  selected: _matchesRange(thirtyRange),
+                  onSelected: (_) => _applyPreset(thirtyRange),
+                ),
+                OutlinedButton.icon(
+                  key: const ValueKey('report-viewer-range'),
+                  onPressed: _pickRange,
+                  icon: const Icon(Icons.event_outlined, size: 18),
+                  label: Text(
+                    '${formatDate(_range.start)} to ${formatDate(_range.end)}',
+                  ),
+                ),
+              ],
               OutlinedButton.icon(
                 key: const ValueKey('report-viewer-refresh'),
                 onPressed: _loading ? null : _load,
                 icon: const Icon(Icons.refresh_rounded, size: 18),
                 label: const Text('Refresh'),
               ),
-              // A report that wired a letterhead builder exports a PDF
-              // (decision 01-export-layout); the rest keep the button off and
-              // say when it lands, rather than pressed into a no-op.
-              Tooltip(
-                message: view?.pdfBytes == null ? 'PDF export arrives in P3' : '',
-                child: OutlinedButton.icon(
-                  key: const ValueKey('report-viewer-export-pdf'),
-                  onPressed: view?.pdfBytes == null ? null : _exportPdf,
-                  icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
-                  label: const Text('Export PDF'),
-                ),
+              OutlinedButton.icon(
+                key: const ValueKey('report-viewer-export-pdf'),
+                onPressed:
+                    _loading ||
+                        failure != null ||
+                        view == null ||
+                        !widget.report.available
+                    ? null
+                    : _exportPdf,
+                icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                label: const Text('Export PDF'),
               ),
               // Same rule for Excel: a report with a workbook builder exports, and
               // one without keeps the button off and says when it lands.
@@ -518,6 +583,20 @@ class _ReportViewerViewState extends State<ReportViewerView> {
             child: ErrorBanner(message: failure, onRetry: _load),
           )
         else if (view != null) ...[
+          if (view.rowCount != null && view.rowCount! > view.rows.length) ...[
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: AppColors.warningTint,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'Showing ${view.rows.length} of ${view.rowCount} detail rows. KPI totals cover the full range; detail charts and exports use loaded rows. Narrow the date range for complete detail.',
+                style: const TextStyle(color: AppColors.warningText),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
           if (widget.report.id == 'vat-summary' && _vatReport != null) ...[
             _VatLedgerHeroSection(
               report: _vatReport!,
@@ -564,11 +643,10 @@ class _ReportViewerViewState extends State<ReportViewerView> {
                   ),
                 ),
               )
-            else
-              for (final chart in view.charts!) ...[
-                chart,
-                const SizedBox(height: AppSpacing.md),
-              ],
+            else ...[
+              _ReportChartGrid(charts: view.charts!),
+              const SizedBox(height: AppSpacing.md),
+            ],
           ],
           if (view.rows.isNotEmpty) ...[
             SizedBox(
@@ -626,6 +704,41 @@ class _ReportViewerViewState extends State<ReportViewerView> {
   }
 }
 
+/// The primary chart remains full-width. On wide desktop reports the secondary
+/// charts form a two-column section, matching the reference dashboard's
+/// information hierarchy without squeezing the existing narrow layout.
+class _ReportChartGrid extends StatelessWidget {
+  const _ReportChartGrid({required this.charts});
+  final List<Widget> charts;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final pair = constraints.maxWidth >= 1100;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          charts.first,
+          for (var index = 1; index < charts.length; index += pair ? 2 : 1) ...[
+            const SizedBox(height: AppSpacing.md),
+            if (pair && index + 1 < charts.length)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: charts[index]),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(child: charts[index + 1]),
+                ],
+              )
+            else
+              charts[index],
+          ],
+        ],
+      );
+    },
+  );
+}
+
 /// One KPI tile's text, already formatted.
 typedef _Kpi = ({String label, String value, String? caption});
 
@@ -645,6 +758,9 @@ class _ReportView {
     this.excelBytes,
     this.pdfName,
     this.pdfBytes,
+    this.pdfColumns,
+    this.pdfRows,
+    this.rowCount,
     this.charts,
   });
 
@@ -661,6 +777,9 @@ class _ReportView {
   final Uint8List Function()? excelBytes;
   final String? pdfName;
   final _PdfBuilder? pdfBytes;
+  final List<String>? pdfColumns;
+  final List<List<String>>? pdfRows;
+  final int? rowCount;
 }
 
 _ReportView _salesView(SalesSummary sales) {
@@ -738,12 +857,26 @@ _ReportView _salesView(SalesSummary sales) {
       generatedBy: generatedBy,
       // shortcut: static store header until store details are user-editable.
       storeName: StoreInformationPanel.storeName,
-      kpis: kpis,
+      kpis: [
+        ...kpis,
+        for (final entry in sales.byPaymentMethod.entries)
+          (
+            label: TenderMethod.labelFor(entry.key),
+            value: formatPeso(entry.value),
+            caption: 'Invoice allocation',
+          ),
+      ],
       columns: columns,
       rows: rows,
     ),
     charts: [
       if (sales.merchandiseGross != null) ProfitBreakdownCard(sales: sales),
+      if (sales.byPaymentMethod.isNotEmpty)
+        PaymentAllocationChart(
+          key: const ValueKey('report-viewer-summary-payment-allocation'),
+          amounts: sales.byPaymentMethod,
+          title: 'Invoice allocation by payment method',
+        ),
       // The trend is an area, and the dashed line over it is the landed cost
       // behind those same days: a fill for the money made, a comparison for
       // what it cost. The model carries no previous period, so nothing here
@@ -1144,9 +1277,66 @@ _ReportView _valuationView(InventoryValuation valuation) => _ReportView(
       ],
   ],
   emptyMessage: 'No stock on hand.',
+  pdfColumns: const [
+    'Scope',
+    'Category / location',
+    'Batches',
+    'Units',
+    'At cost',
+    'At retail',
+  ],
+  pdfRows: [
+    for (final category in valuation.categories)
+      [
+        'Category',
+        category.name,
+        formatCount(category.batchCount),
+        formatQuantity(category.units),
+        formatPeso(category.cost),
+        formatPeso(category.retail),
+      ],
+    for (final location in valuation.locations)
+      [
+        'Location',
+        location.locationName,
+        formatCount(location.batchCount),
+        formatQuantity(location.units),
+        formatPeso(location.cost),
+        formatPeso(location.retail),
+      ],
+    if (valuation.categories.isNotEmpty || valuation.locations.isNotEmpty)
+      [
+        'Total',
+        'Inventory (do not add both scopes)',
+        formatCount(valuation.batchCount),
+        formatQuantity(valuation.totalUnits),
+        formatPeso(valuation.totalCost),
+        formatPeso(valuation.totalRetail),
+      ],
+  ],
   excelName: 'inventory-valuation.xlsx',
   excelBytes: () => buildValuationReportXlsx(valuation),
   charts: [
+    if (valuation.categories.isNotEmpty)
+      HorizontalComparisonChart(
+        key: const ValueKey('report-viewer-valuation-cost-retail'),
+        title: 'Landed cost vs current retail',
+        subtitle:
+            'Potential selling value compared with stock investment — not realized profit.',
+        primaryLabel: 'Landed cost',
+        secondaryLabel: 'Retail value',
+        secondaryColor: AppColors.brandGoldText,
+        items: [
+          for (final category in valuation.categories)
+            ComparisonBarItem(
+              label: category.name,
+              primaryValue: category.cost,
+              primaryText: formatPeso(category.cost),
+              secondaryValue: category.retail,
+              secondaryText: formatPeso(category.retail),
+            ),
+        ],
+      ),
     if (valuation.categories.isNotEmpty)
       ShareSplitChart(
         key: const ValueKey('report-viewer-valuation-category-split'),
@@ -1279,6 +1469,7 @@ _ReportView _requisitionsView(RequisitionHistory history) => _ReportView(
   ],
   emptyMessage: 'No requisitions in this range.',
   excelName: 'requisition-history.xlsx',
+  rowCount: history.rowCount,
   excelBytes: () => buildRequisitionsReportXlsx(history),
   charts: [
     if (history.countByStatus.isNotEmpty)
@@ -1352,6 +1543,7 @@ _ReportView _salesByItemView(SalesByItemReport report) {
     ],
     emptyMessage: 'No items sold in this range.',
     excelName: 'item-wise-sales-${report.from}-to-${report.to}.xlsx',
+    rowCount: report.page.count,
     excelBytes: () => buildSalesByItemReportXlsx(report),
     charts: [
       if (stackable.isNotEmpty)
@@ -1419,6 +1611,7 @@ _ReportView _salesByHourView(SalesByHour report) => _ReportView(
   ],
   emptyMessage: 'No sales in this range.',
   excelName: 'hourly-sales-${report.from}-to-${report.to}.xlsx',
+  rowCount: report.page.count,
   excelBytes: () => buildSalesByHourReportXlsx(report),
   charts: [
     if (report.page.rows.isNotEmpty)
@@ -1473,6 +1666,7 @@ _ReportView _salesByCashierView(SalesByCashier report) => _ReportView(
   ],
   emptyMessage: 'No sales in this range.',
   excelName: 'cashier-performance-${report.from}-to-${report.to}.xlsx',
+  rowCount: report.page.count,
   excelBytes: () => buildSalesByCashierReportXlsx(report),
   charts: [
     if (report.page.rows.isNotEmpty)
@@ -1514,12 +1708,19 @@ _ReportView _billWiseView(BillWiseReport report) => _ReportView(
       caption: null,
     ),
     (
-      label: 'Tendered',
+      label: 'Invoice allocation',
       value: _methodsLabel(report.totalMethods),
-      caption: 'Per tender method',
+      caption: 'After change; includes on-account sales',
     ),
   ],
-  columns: const ['Bill', 'OR number', 'Date', 'Cashier', 'Tenders', 'Total'],
+  columns: const [
+    'Bill',
+    'OR number',
+    'Date',
+    'Cashier',
+    'Allocation',
+    'Total',
+  ],
   rows: [
     for (final row in report.page.rows)
       [
@@ -1534,30 +1735,16 @@ _ReportView _billWiseView(BillWiseReport report) => _ReportView(
   ],
   emptyMessage: 'No bills in this range.',
   excelName: 'bill-wise-sales-${report.from}-to-${report.to}.xlsx',
+  rowCount: report.page.count,
   excelBytes: () => buildBillWiseReportXlsx(report),
   charts: [
     // No tender recorded leaves the list empty, so the viewer says there is no
     // data instead of an empty card.
-    if (report.totalMethods.values.any((tendered) => tendered > 0))
-      DonutChart(
+    if (report.totalMethods.values.any((amount) => amount != 0))
+      PaymentAllocationChart(
         key: const ValueKey('report-viewer-tender-split'),
         title: 'Payment breakdown',
-        subtitle: 'How the range’s takings split across tender methods.',
-        centerLabel: 'Tendered',
-        centerValue: formatPeso(
-          report.totalMethods.values.fold<double>(
-            0,
-            (sum, tendered) => sum + tendered,
-          ),
-        ),
-        slices: [
-          for (final entry in report.totalMethods.entries)
-            ShareSlice(
-              label: TenderMethod.labelFor(entry.key),
-              value: entry.value,
-              amountText: formatPeso(entry.value),
-            ),
-        ],
+        amounts: report.totalMethods,
       ),
   ],
 );
@@ -1591,6 +1778,7 @@ _ReportView _returnsExchangesView(ReturnsExchangesReport report) => _ReportView(
   ],
   emptyMessage: 'No returns or exchanges in this range.',
   excelName: 'returns-exchanges-${report.from}-to-${report.to}.xlsx',
+  rowCount: report.page.count,
   excelBytes: () => buildReturnsExchangesReportXlsx(report),
   charts: [
     // A return hands money back and an exchange swaps goods: the split is by
@@ -1652,6 +1840,7 @@ _ReportView _discountsView(DiscountsReport report) => _ReportView(
   ],
   emptyMessage: 'No discounts in this range.',
   excelName: 'discounts-${report.from}-to-${report.to}.xlsx',
+  rowCount: report.page.count,
   excelBytes: () => buildDiscountsReportXlsx(report),
   charts: [
     if (report.page.rows.isNotEmpty)
@@ -1707,6 +1896,7 @@ _ReportView _voidsView(VoidsReport report) {
     ],
     emptyMessage: 'No voided bills in this range.',
     excelName: 'voids-${report.from}-to-${report.to}.xlsx',
+    rowCount: report.page.count,
     excelBytes: () => buildVoidsReportXlsx(report),
     charts: [
       if (reasons.isNotEmpty)
@@ -1774,6 +1964,7 @@ _ReportView _grnView(GrnReport report) => _ReportView(
   ],
   emptyMessage: 'No goods received in this range.',
   excelName: 'goods-received-${report.from}-to-${report.to}.xlsx',
+  rowCount: report.page.count,
   excelBytes: () => buildGrnReportXlsx(report),
   charts: [
     // A receipt carries its own date, so the page's rows make a real time axis:
@@ -1822,6 +2013,7 @@ _ReportView _stnView(StnReport report) => _ReportView(
   ],
   emptyMessage: 'No stock transfers in this range.',
   excelName: 'stock-transfers-${report.from}-to-${report.to}.xlsx',
+  rowCount: report.page.count,
   excelBytes: () => buildStnReportXlsx(report),
   charts: [
     if (report.page.rows.isNotEmpty)
@@ -1885,9 +2077,22 @@ _ReportView _batchAgeView(BatchAgeReport report) => _ReportView(
   ],
   emptyMessage: 'No stock on hand.',
   excelName: 'batch-age-${report.asOf}.xlsx',
+  rowCount: report.page.count,
   excelBytes: () => buildBatchAgeReportXlsx(report),
   charts: [
     // FIFO buckets are already totals on the report: three bars, no arithmetic.
+    if (report.page.rows.isNotEmpty)
+      FifoAgeChart(
+        key: const ValueKey('report-viewer-fifo-priority'),
+        items: [
+          for (final row
+              in (report.page.rows.toList()..sort(
+                    (a, b) => b.oldestAgeDays.compareTo(a.oldestAgeDays),
+                  ))
+                  .take(8))
+            FifoAgeItem(row.name, row.qty0to30, row.qty30to90, row.qty90plus),
+        ],
+      ),
     if (report.page.rows.isNotEmpty)
       HorizontalComparisonChart(
         key: const ValueKey('report-viewer-batch-age-chart'),
@@ -1951,6 +2156,7 @@ _ReportView _shrinkageView(ShrinkageReport report) => _ReportView(
   ],
   emptyMessage: 'No shrinkage or damage in this range.',
   excelName: 'shrinkage-${report.from}-to-${report.to}.xlsx',
+  rowCount: report.page.count,
   excelBytes: () => buildShrinkageReportXlsx(report),
   charts: [
     // The endpoint buckets losses by day, not by reason: the days plot, and the
@@ -2019,8 +2225,23 @@ _ReportView _adjustmentsView(AdjustmentsReport report) => _ReportView(
   ],
   emptyMessage: 'No stock adjustments in this range.',
   excelName: 'stock-adjustments-${report.from}-to-${report.to}.xlsx',
+  rowCount: report.page.count,
   excelBytes: () => buildAdjustmentsReportXlsx(report),
   charts: [
+    if (report.page.rows.isNotEmpty)
+      SignedVarianceChart(
+        key: const ValueKey('report-viewer-adjustments-direction'),
+        title: 'Net quantity by adjustment type',
+        subtitle: 'Negative bars reduce stock; positive bars add stock.',
+        items: [
+          for (final entry in _totalsByLabel(
+            report.page.rows,
+            label: (row) => row.type,
+            amount: (row) => row.qty,
+          ).entries)
+            SignedVarianceItem(entry.key, entry.value.amount),
+        ],
+      ),
     if (report.page.rows.isNotEmpty)
       ShareSplitChart(
         key: const ValueKey('report-viewer-adjustments-split'),
@@ -2074,9 +2295,21 @@ _ReportView _reorderView(ReorderReport report) => _ReportView(
   ],
   emptyMessage: 'Nothing is at or below its minimum stock.',
   excelName: 'reorder-list.xlsx',
+  rowCount: report.page.count,
   excelBytes: () => buildReorderReportXlsx(report),
   charts: [
     // The buying order: the biggest shortfalls are what get bought first.
+    if (report.page.rows.isNotEmpty)
+      StockCoverageChart(
+        key: const ValueKey('report-viewer-reorder-coverage'),
+        items: [
+          for (final row
+              in (report.page.rows.toList()
+                    ..sort((a, b) => b.gap.compareTo(a.gap)))
+                  .take(8))
+            StockCoverageItem(row.name, row.onHand, row.threshold),
+        ],
+      ),
     if (report.page.rows.isNotEmpty)
       HorizontalComparisonChart(
         key: const ValueKey('report-viewer-reorder-chart'),
@@ -2131,6 +2364,7 @@ _ReportView _deadStockView(DeadStockReport report) => _ReportView(
   ],
   emptyMessage: 'Every stocked item sold in this window.',
   excelName: 'dead-stock-${report.asOf}.xlsx',
+  rowCount: report.page.count,
   excelBytes: () => buildDeadStockReportXlsx(report),
   charts: [
     if (report.page.rows.isNotEmpty)
@@ -2185,6 +2419,7 @@ _ReportView _fastSlowView(FastSlowReport report) => _ReportView(
   ],
   emptyMessage: 'No items sold in this range.',
   excelName: 'fast-slow-movers-${report.from}-to-${report.to}.xlsx',
+  rowCount: report.page.count,
   excelBytes: () => buildFastSlowReportXlsx(report),
   charts: [
     if (report.page.rows.isNotEmpty)
@@ -2263,10 +2498,31 @@ _ReportView _cycleCountView(CycleCountReport report) {
     // when the shelf disagreed with the count.
     emptyMessage: 'No count corrections in this range.',
     excelName: 'cycle-count-${report.from}-to-${report.to}.xlsx',
+    rowCount: report.page.count,
     excelBytes: () => buildCycleCountReportXlsx(report),
     charts: [
       // Matches write no row, so the honest split is the variance itself: stock
       // the count found extra against stock it found short.
+      if (report.page.rows.isNotEmpty)
+        SignedVarianceChart(
+          key: const ValueKey('report-viewer-cycle-count-direction'),
+          title: 'Net count variance by product',
+          subtitle:
+              'The largest eight absolute net variances, retaining their direction.',
+          items: [
+            for (final entry
+                in (_totalsByLabel(
+                      report.page.rows,
+                      label: (row) => row.name,
+                      amount: (row) => row.qty,
+                    ).entries.toList()..sort(
+                      (a, b) =>
+                          b.value.amount.abs().compareTo(a.value.amount.abs()),
+                    ))
+                    .take(8))
+              SignedVarianceItem(entry.key, entry.value.amount),
+          ],
+        ),
       if (report.page.rows.isNotEmpty)
         ShareSplitChart(
           key: const ValueKey('report-viewer-cycle-count-split'),
@@ -2327,6 +2583,7 @@ _ReportView _expiryView(ExpiryReport report) => _ReportView(
   ],
   emptyMessage: 'Nothing is expired or expiring.',
   excelName: 'expiry-${report.asOf}.xlsx',
+  rowCount: report.page.count,
   excelBytes: () => buildExpiryReportXlsx(report),
   charts: [
     // The server already buckets the value on hand: four bars, no arithmetic.

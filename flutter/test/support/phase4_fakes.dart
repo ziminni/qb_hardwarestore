@@ -65,6 +65,7 @@ ProductVariant variant({
   List<VariantUom>? sellingUoms,
   String baseUomCode = 'PC',
   int baseUomId = 1,
+  bool baseUomIsWhole = true,
   bool isActive = true,
 }) => ProductVariant(
   id: id,
@@ -85,6 +86,7 @@ ProductVariant variant({
       ],
   variantName: name,
   baseUomCode: baseUomCode,
+  baseUomIsWhole: baseUomIsWhole,
   isActive: isActive,
 );
 

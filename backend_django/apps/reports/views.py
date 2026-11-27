@@ -23,7 +23,21 @@ from datetime import date, timedelta
 from decimal import Decimal
 from math import ceil
 
-from django.db.models import Count, DecimalField, ExpressionWrapper, F, Max, Q, Sum
+from django.db.models import (
+    Case,
+    Count,
+    DecimalField,
+    ExpressionWrapper,
+    F,
+    Max,
+    OuterRef,
+    Q,
+    Subquery,
+    Sum,
+    Value,
+    When,
+)
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import status
@@ -39,6 +53,7 @@ from apps.inventory.models import (
     StockTransfer,
     StockTransferMove,
     SupplierReturnDeduction,
+    VariantUOM,
 )
 from apps.pos.models import (
     DiscountApproval,
@@ -100,6 +115,40 @@ def _delivery_fee_ex_vat(tx) -> Decimal:
         divisor = Decimal(1) + (tx.vat_rate / Decimal(100))
         return _q2(fee / divisor)
     return _q2(fee)
+
+
+# Revenue before VAT, per transaction. A VAT sale stores it as `vatable_sales`; a
+# non-VAT sale charges no tax, so it is the whole total less the untaxed payment fee.
+# Reading `vatable_sales` alone made a non-VAT store's profit equal minus its COGS.
+# (Delivery fees are taken out by the caller, VAT-stripped where VAT applies.)
+_MONEY = DecimalField(max_digits=16, decimal_places=4)
+def _goods_ex_vat():
+    """A fresh expression each call: Django resolves expressions in place."""
+    return Case(
+        When(vat_registered=True, then=F("vatable_sales")),
+        default=F("grand_total") - F("payment_fee"),
+        output_field=_MONEY,
+    )
+
+
+def _line_net_ex_vat(prefix=""):
+    """One sales line's net (after discounts) without VAT, as a Sum-able expression."""
+    net = (
+        F(f"{prefix}subtotal")
+        - Coalesce(F(f"{prefix}item_discount_amount"), Value(0), output_field=_MONEY)
+        - Coalesce(F(f"{prefix}cart_discount_amount"), Value(0), output_field=_MONEY)
+    )
+    return Case(
+        When(
+            **{f"{prefix}transaction__vat_registered": True},
+            then=ExpressionWrapper(
+                net * 100 / (100 + F(f"{prefix}transaction__vat_rate")),
+                output_field=_MONEY,
+            ),
+        ),
+        default=ExpressionWrapper(net, output_field=_MONEY),
+        output_field=_MONEY,
+    )
 
 
 def _parse_range(request):
@@ -168,6 +217,8 @@ def sales_summary_view(request):
         qs.annotate(day=F("trans_date__date"))
         .values("day")
         .annotate(
+            # First: the `vatable_sales` total below shadows the column of that name.
+            goods_ex_vat=Sum(_goods_ex_vat()),
             transactions=Count("id"),
             gross_sales=Sum("grand_total"),
             vatable_sales=Sum("vatable_sales"),
@@ -179,6 +230,8 @@ def sales_summary_view(request):
         .order_by("day")
     )
     totals = qs.aggregate(
+        # First: the `vatable_sales` total below shadows the column of that name.
+        goods_ex_vat=Sum(_goods_ex_vat()),
         transactions=Count("id"),
         gross_sales=Sum("grand_total"),
         # Phase 4 task B1 (decision 18): the Discounts row is back (D12 superseded), and
@@ -192,6 +245,7 @@ def sales_summary_view(request):
         payment_fees=Sum("payment_fee"),
         delivery_fees=Sum("delivery_fee"),
     )
+    goods_ex_vat_val = totals.pop("goods_ex_vat") or _ZERO
 
     # Delivery fees are VAT-inclusive when the store is VAT-registered; strip their VAT
     # share per transaction so merchandise_net_ex_vat reflects goods only.
@@ -270,7 +324,7 @@ def sales_summary_view(request):
     merchandise_gross = _q2(
         gross_sales_val - delivery_fees_val - payment_fees_val + discounts_val
     )
-    merchandise_net_ex_vat = _q2(vatable_val - total_delivery_ex_vat)
+    merchandise_net_ex_vat = _q2(goods_ex_vat_val - total_delivery_ex_vat)
 
     if has_any_deductions and costed_count == 0:
         total_cogs = None
@@ -315,8 +369,8 @@ def sales_summary_view(request):
     by_day = []
     for row in by_day_rows:
         d = row["day"]
-        day_vatable = row["vatable_sales"] or _ZERO
-        day_net_ex_vat = _q2(day_vatable - delivery_ex_vat_by_day.get(d, _ZERO))
+        day_goods = row.pop("goods_ex_vat") or _ZERO
+        day_net_ex_vat = _q2(day_goods - delivery_ex_vat_by_day.get(d, _ZERO))
         day_cogs_val, day_costed, day_missing = cogs_by_day.get(d, (_ZERO, 0, 0))
         if (day_costed + day_missing) > 0 and day_costed == 0:
             day_cogs = None
@@ -361,6 +415,7 @@ def sales_summary_view(request):
             gross_merchandise=Sum("subtotal"),
             item_discounts=Sum("item_discount_amount"),
             cart_discounts=Sum("cart_discount_amount"),
+            net_ex_vat=Sum(_line_net_ex_vat()),
         )
     )
     cat_cogs_rows = deductions.values(
@@ -401,6 +456,7 @@ def sales_summary_view(request):
                 "gross_merchandise": gross_m,
                 "discounts": disc_m,
                 "net_merchandise": net_m,
+                "net_ex_vat": _q2(row["net_ex_vat"] or _ZERO),
                 "cogs": c_cogs,
                 "missing_cost_deductions": c_missing,
             }
@@ -433,6 +489,24 @@ def sales_summary_view(request):
             .order_by("-total")
         )
     ]
+    # Tenders are what was handed over: change goes back out of the cash drawer, and
+    # what nobody paid (utang, project releases) is "on account". With both, the
+    # methods add up to the gross sales the tiles show.
+    change_total = _q2(qs.aggregate(s=Sum("change_given"))["s"] or _ZERO)
+    for row in by_payment_method:
+        if row["method"] == "CASH":
+            row["total"] = _q2(row["total"] - change_total)
+    tendered = sum((row["total"] for row in by_payment_method), _ZERO)
+    on_account = _q2((totals["gross_sales"] or _ZERO) - tendered)
+    if on_account != _ZERO:
+        by_payment_method.append(
+            {
+                "method": "ON_ACCOUNT",
+                "transactions": qs.filter(collectible_ledgers__isnull=False).distinct().count(),
+                "total": on_account,
+            }
+        )
+        by_payment_method.sort(key=lambda row: row["total"], reverse=True)
     by_period = _group_transactions_by_period(qs, granularity, qty_base_by_day)
 
     return Response(
@@ -481,6 +555,7 @@ def _item_wise_rows(frm: date, to: date) -> list[dict]:
             merchandise_gross=Sum("subtotal"),
             item_discounts=Sum("item_discount_amount"),
             cart_discounts=Sum("cart_discount_amount"),
+            net_ex_vat=Sum(_line_net_ex_vat()),
         )
     )
 
@@ -518,13 +593,16 @@ def _item_wise_rows(frm: date, to: date) -> list[dict]:
             (row["item_discounts"] or _ZERO) + (row["cart_discounts"] or _ZERO)
         )
         net = _q2(gross - discounts)
+        # Profit is measured on revenue WITHOUT VAT, like the sales summary: the VAT
+        # in the shelf price belongs to the BIR, not to the store.
+        net_ex_vat = _q2(row["net_ex_vat"] or _ZERO)
         cogs_val, costed, missing = cogs_map.get(uom_id, (_ZERO, 0, 0))
         if (costed + missing) > 0 and costed == 0:
             cogs = None
             profit = None
         else:
             cogs = cogs_val
-            profit = _q2(net - cogs)
+            profit = _q2(net_ex_vat - cogs)
         rows.append(
             {
                 "variant_uom_id": uom_id,
@@ -538,6 +616,7 @@ def _item_wise_rows(frm: date, to: date) -> list[dict]:
                 "merchandise_gross": gross,
                 "discounts": discounts,
                 "net_merchandise": net,
+                "net_ex_vat": net_ex_vat,
                 "cogs": cogs,
                 "gross_profit": profit,
                 "missing_cost_deductions": missing,
@@ -567,12 +646,14 @@ def sales_by_item_view(request):
     cogs_parts = [r["cogs"] for r in rows if r["cogs"] is not None]
     total_cogs = None if rows and not cogs_parts else _q2(sum(cogs_parts, _ZERO))
     total_net = _q2(sum((r["net_merchandise"] for r in rows), _ZERO))
+    total_ex_vat = _q2(sum((r["net_ex_vat"] for r in rows), _ZERO))
     totals = {
         "variant_count": len(rows),
         "qty_base": _q2(sum((r["qty_base"] for r in rows), _ZERO)),
         "net_merchandise": total_net,
+        "net_ex_vat": total_ex_vat,
         "cogs": total_cogs,
-        "gross_profit": None if total_cogs is None else _q2(total_net - total_cogs),
+        "gross_profit": None if total_cogs is None else _q2(total_ex_vat - total_cogs),
         "missing_cost_deductions": sum(r["missing_cost_deductions"] for r in rows),
     }
     return _paged(request, rows, {"from": str(frm), "to": str(to), "totals": totals})
@@ -726,6 +807,11 @@ def _bill_methods(tx, method_map: dict) -> dict:
     change = _q2(tx.change_given or _ZERO)
     if change:
         methods["CASH"] = methods.get("CASH", _ZERO) - change
+    # What nobody paid at the counter went on account (utang, or a project release
+    # booked as a collectible), so the tenders always add up to the bill.
+    on_account = _q2((tx.grand_total or _ZERO) - sum(methods.values(), _ZERO))
+    if on_account != _ZERO:
+        methods["ON_ACCOUNT"] = on_account
     return methods
 
 
@@ -1147,6 +1233,17 @@ def inventory_valuation_view(request):
     without a second endpoint. Transfer-born batches are included on purpose - the goods
     exist and are worth the same, whichever shelf they are on.
     """
+    # Retail is today's shelf price of the variant's BASE selling unit (the price the
+    # till charges). `batch_selling_price` is stamped at receiving and usually equals
+    # the landed cost, which made "value at retail" read the same as "at cost".
+    shelf_price = Subquery(
+        VariantUOM.objects.filter(
+            variant=OuterRef("variant"),
+            uom=OuterRef("variant__base_uom"),
+            conversion_factor=1,
+        ).values("default_selling_price")[:1],
+        output_field=_MONEY,
+    )
     batches = (
         InventoryBatch.objects.filter(current_qty__gt=0)
         .select_related(
@@ -1155,7 +1252,10 @@ def inventory_valuation_view(request):
         )
         .annotate(
             cost_value=F("current_qty") * F("unit_cost_landed"),
-            retail_value=F("current_qty") * F("batch_selling_price"),
+            retail_value=ExpressionWrapper(
+                F("current_qty") * Coalesce(shelf_price, F("batch_selling_price")),
+                output_field=_MONEY,
+            ),
         )
     )
     by_category = (
@@ -2202,12 +2302,17 @@ def requisition_history_view(request):
         .annotate(count=Count("id"))
         .order_by("-count")
     )
+    paginator = PageNumberPagination()
+    page = paginator.paginate_queryset(qs.order_by("-created_at", "-id"), request)
     return Response(
         {
             "from": str(frm),
             "to": str(to),
             "status_filter": status_filter or None,
             "count_by_status": list(by_status),
+            "count": paginator.page.paginator.count,
+            "next": paginator.get_next_link(),
+            "previous": paginator.get_previous_link(),
             "requisitions": [
                 {
                     "id": r.id,
@@ -2221,7 +2326,7 @@ def requisition_history_view(request):
                     "approved_by": r.approver_name or None,
                     "created_at": r.created_at,
                 }
-                for r in qs.order_by("-created_at")[:200]
+                for r in page
             ],
         }
     )

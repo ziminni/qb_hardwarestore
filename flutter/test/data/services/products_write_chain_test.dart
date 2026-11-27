@@ -445,7 +445,8 @@ void main() {
         );
         expect(partial.created.variantId, 22);
         expect(partial.created.sellingUnitId, 33);
-        expect(partial.message, contains('selling price'));
+        // The server's own reason, not a fixed sentence that hid which rule failed.
+        expect(partial.message, contains('at least one base unit'));
         expect(
           adapter.paths,
           hasLength(5),

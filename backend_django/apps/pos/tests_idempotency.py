@@ -359,7 +359,8 @@ class DocumentNumberingTests(IdempotencyBase):
         # The receipt sequence is a counter too, and it must not repeat either.
         self.assertEqual(
             list(OfficialReceipt.objects.order_by('id').values_list('or_number', flat=True)),
-            [f'OR-{TODAY_STAMP}-0001', f'OR-{TODAY_STAMP}-0002'])
+            # Order Slips (OS) since the OR/OS split; the paper BIR OR is tagged later.
+            [f'OS-{TODAY_STAMP}-0001', f'OS-{TODAY_STAMP}-0002'])
 
     def test_generate_transaction_no_is_safe_outside_an_atomic_block(self):
         # `apps/requisitions` and the return path call it inside their own atomic block;

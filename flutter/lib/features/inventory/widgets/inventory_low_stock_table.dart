@@ -160,7 +160,7 @@ class InventoryLowStockTable extends StatelessWidget {
         Align(
           alignment: Alignment.centerRight,
           child: Text(
-            formatCount(stock.round()),
+            formatQuantity(stock),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),

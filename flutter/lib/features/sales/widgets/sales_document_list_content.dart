@@ -280,7 +280,9 @@ class _SalesDocumentListContentState extends State<SalesDocumentListContent> {
     return DataPanelColumn<SalesDocumentRow>(
       label: 'Valid until',
       flex: 2,
-      cell: (row) => _text(formatDate(row.validUntil ?? row.date)),
+      cell: (row) => _text(
+        row.validUntil == null ? 'No expiry' : formatDate(row.validUntil!),
+      ),
     );
   }
 

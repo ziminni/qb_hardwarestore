@@ -582,23 +582,15 @@ void main() {
       reason: 'a built workbook never advertises a later phase',
     );
 
-    // Only the sales summary wired the letterhead PDF builder, so this report
-    // keeps its PDF button off and says when it lands (decision 01).
+    // The shared letterhead fallback covers this report too.
     final pdf = tester.widget<OutlinedButton>(
       find.widgetWithText(OutlinedButton, 'Export PDF'),
     );
     expect(
       pdf.onPressed,
-      isNull,
-      reason: 'no bill-wise letterhead PDF builder exists yet',
+      isNotNull,
+      reason: 'bill-wise has a shared letterhead PDF builder',
     );
-    final pdfTooltip = tester.widget<Tooltip>(
-      find.ancestor(
-        of: find.text('Export PDF'),
-        matching: find.byType(Tooltip),
-      ),
-    );
-    expect(pdfTooltip.message, 'PDF export arrives in P3');
   });
 
   testWidgets('the summary viewer carries the three KPI tiles and their sums', (

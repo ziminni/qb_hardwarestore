@@ -195,9 +195,9 @@ class SalesItemSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "subtotal"]
 
     def get_fifo_batches(self, obj):
-        rows = obj.deductions.select_related(
-            "batch__receipt", "batch__location"
-        ).order_by("id")
+        # `.all()` reads the viewsets' `deductions__batch__*` prefetch; a fresh
+        # `select_related(...)` here bypassed it and cost one query per line.
+        rows = sorted(obj.deductions.all(), key=lambda row: row.id)
         return [
             {
                 "batch_id": row.batch_id,
@@ -355,6 +355,29 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
         # sending null - the client reads a fixed shape.
         return obj.invoice_tagged_by.full_name if obj.invoice_tagged_by_id else None
 
+    def _bodega_lines(self, obj):
+        """This sale's Bodega claim lines, read ONCE for a whole page of sales.
+
+        A list used to call `claim_lines` per sale (two aggregate queries each), so a
+        page of 50 sales cost 100 extra queries. The page's ids are read from the
+        parent list serializer and the lines cached in the shared context.
+        """
+        from apps.bodega import services as bodega_services
+
+        cache = self.context.get("_bodega_lines_by_sale")
+        if cache is None or obj.pk not in cache:
+            page = getattr(self.parent, "instance", None)
+            ids = (
+                [row.pk for row in page]
+                if isinstance(self.parent, serializers.ListSerializer) and page
+                else [obj.pk]
+            )
+            cache = {sale_id: [] for sale_id in ids}
+            for line in bodega_services.claim_lines(sale_ids=ids):
+                cache.setdefault(line["sale_id"], []).append(line)
+            self.context["_bodega_lines_by_sale"] = cache
+        return cache.get(obj.pk, [])
+
     def get_bodega_status(self, obj):
         if (
             obj.status != SalesTransaction.Status.COMPLETED
@@ -363,7 +386,7 @@ class SalesTransactionSerializer(serializers.ModelSerializer):
             return None
         from apps.bodega import services as bodega_services
 
-        lines = bodega_services.claim_lines(sale_ids=[obj.pk])
+        lines = self._bodega_lines(obj)
         if not lines:
             return None
         total_sold = sum((row["sold"] for row in lines), bodega_services.ZERO)

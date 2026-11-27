@@ -741,9 +741,29 @@ class AddSellingUnitDialog extends StatefulWidget {
   State<AddSellingUnitDialog> createState() => _AddSellingUnitDialogState();
 }
 
+/// What the clerk is adding from the "Add selling unit" dialog.
+enum _AddUnitKind {
+  /// A different unit of the same stock: a bigger pack (Box of 24) or a
+  /// smaller unit inside one (CAN in a BOX).
+  pack,
+
+  /// Halves or quarters of ONE base unit, sold from an opened bag.
+  parts,
+}
+
+/// The parts a whole-counted unit can be sold in, with their wording.
+const _partOptions = <int, ({String symbol, String word, String uomCode})>{
+  2: (symbol: '½', word: 'Half', uomCode: 'HALF'),
+  4: (symbol: '¼', word: 'Quarter', uomCode: 'QTR'),
+};
+
 class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
   final _formKey = GlobalKey<FormState>();
   final _draft = SellingUnitDraft();
+  final _partPrice = TextEditingController();
+  final _partCode = TextEditingController();
+  _AddUnitKind _kind = _AddUnitKind.pack;
+  int? _parts;
   late final List<UnitOfMeasure> _units = List<UnitOfMeasure>.of(widget.units);
   String? _error;
   bool _saving = false;
@@ -774,10 +794,59 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
   @override
   void dispose() {
     _draft.dispose();
+    _partPrice.dispose();
+    _partCode.dispose();
     super.dispose();
   }
 
+  /// Parts this variant can still add (a part it already sells is left out).
+  List<int> get _availableParts => [
+    for (final entry in _partOptions.entries)
+      if (!widget.variant.sellingUoms.any(
+        (unit) => unit.uomCode == entry.value.uomCode,
+      ))
+        entry.key,
+  ];
+
+  Future<void> _submit(NewSellingUnit unit) async {
+    final message = await widget.onSubmit(unit);
+    if (!mounted) return;
+    if (message != null) {
+      setState(() {
+        _error = message;
+        _saving = false;
+      });
+      return;
+    }
+    Navigator.pop(context, unit);
+  }
+
+  Future<void> _savePart() async {
+    if (!_formKey.currentState!.validate()) return;
+    final parts = _parts;
+    if (parts == null) {
+      setState(() => _error = 'Choose half or quarter.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    final option = _partOptions[parts]!;
+    await _submit(
+      NewSellingUnit(
+        uomId: 0,
+        uomCode: option.uomCode,
+        conversionFactor: 1 / parts,
+        parts: parts,
+        sellingPrice: double.parse(_partPrice.text.trim()),
+        barcodeQr: _partCode.text.trim(),
+      ),
+    );
+  }
+
   Future<void> _save() async {
+    if (_kind == _AddUnitKind.parts) return _savePart();
     if (!_formKey.currentState!.validate()) return;
     setState(() {
       _saving = true;
@@ -796,16 +865,7 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
       creditMarkupKind: _draft.creditMarkupKind,
       creditMarkupValue: _draft.resolvedCreditValue,
     );
-    final message = await widget.onSubmit(unit);
-    if (!mounted) return;
-    if (message != null) {
-      setState(() {
-        _error = message;
-        _saving = false;
-      });
-      return;
-    }
-    Navigator.pop(context, unit);
+    await _submit(unit);
   }
 
   String _codeFor(int? uomId) {
@@ -819,7 +879,7 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
   Widget build(BuildContext context) {
     return AppDialog(
       icon: Icons.add_box_outlined,
-      title: 'Add pack / bulk unit',
+      title: 'Add selling unit',
       subtitle: '${widget.productName} · ${widget.variant.variantName}',
       width: 560,
       content: Form(
@@ -833,6 +893,52 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
               ErrorBanner(message: _error!),
               const SizedBox(height: AppSpacing.lg),
             ],
+            SegmentedButton<_AddUnitKind>(
+              key: const ValueKey('add-unit-kind'),
+              segments: const [
+                ButtonSegment(
+                  value: _AddUnitKind.pack,
+                  icon: Icon(Icons.inventory_2_outlined),
+                  label: Text('Pack or other unit'),
+                ),
+                ButtonSegment(
+                  value: _AddUnitKind.parts,
+                  icon: Icon(Icons.pie_chart_outline),
+                  label: Text('Sell in parts'),
+                ),
+              ],
+              selected: {_kind},
+              onSelectionChanged: (values) => setState(() {
+                _kind = values.first;
+                _error = null;
+                _parts ??= _availableParts.firstOrNull;
+              }),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              _kind == _AddUnitKind.pack
+                  ? 'Same stock, another unit: a bigger pack (Box of 24) or a '
+                        'smaller unit inside one. A different size or kind '
+                        '(50 kg instead of 40 kg) is a new variant instead.'
+                  : 'Sell an opened ${widget.variant.baseUomCode} in halves or '
+                        'quarters. Stock stays counted in '
+                        '${widget.variant.baseUomCode}: 9.75 means 9 sealed and '
+                        'one opened with ¾ left. ¾ is sold as 3 × ¼.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            if (_kind == _AddUnitKind.parts)
+              _PartUnitFields(
+                baseCode: widget.variant.baseUomCode,
+                baseIsWhole: widget.variant.baseUomIsWhole,
+                basePrice: _basePrice,
+                available: _availableParts,
+                selected: _parts,
+                price: _partPrice,
+                code: _partCode,
+                onSelect: (parts) => setState(() => _parts = parts),
+              )
+            else
             SellingUnitFields(
               draft: _draft,
               index: 0,
@@ -865,8 +971,155 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: _saving ? null : _save,
-          child: Text(_saving ? 'Adding…' : 'Add pack unit'),
+          key: const ValueKey('add-unit-save'),
+          onPressed: _saving ||
+                  (_kind == _AddUnitKind.parts &&
+                      (!widget.variant.baseUomIsWhole ||
+                          _availableParts.isEmpty))
+              ? null
+              : _save,
+          child: Text(
+            _saving
+                ? 'Adding…'
+                : _kind == _AddUnitKind.parts
+                ? 'Add part'
+                : 'Add unit',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// "Sell in parts": pick ½ or ¼ of one base unit and price it. Shows the
+/// proportional price and what the loose price earns on top of it.
+class _PartUnitFields extends StatelessWidget {
+  const _PartUnitFields({
+    required this.baseCode,
+    required this.baseIsWhole,
+    required this.basePrice,
+    required this.available,
+    required this.selected,
+    required this.price,
+    required this.code,
+    required this.onSelect,
+  });
+
+  final String baseCode;
+  final bool baseIsWhole;
+  final double? basePrice;
+  final List<int> available;
+  final int? selected;
+  final TextEditingController price;
+  final TextEditingController code;
+  final ValueChanged<int> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    if (!baseIsWhole) {
+      return Text(
+        'This item is already sold in any amount of $baseCode, so it does not '
+        'need halves or quarters.',
+        key: const ValueKey('parts-measured-note'),
+        style: textTheme.bodyMedium,
+      );
+    }
+    if (available.isEmpty) {
+      return Text(
+        'This item already sells both halves and quarters. Change their prices '
+        'in the price list.',
+        key: const ValueKey('parts-all-added'),
+        style: textTheme.bodyMedium,
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Wrap(
+          spacing: AppSpacing.sm,
+          children: [
+            for (final parts in available)
+              ChoiceChip(
+                key: ValueKey('part-$parts'),
+                label: Text(
+                  '${_partOptions[parts]!.symbol} $baseCode '
+                  '(${_partOptions[parts]!.word})',
+                ),
+                selected: selected == parts,
+                onSelected: (_) => onSelect(parts),
+              ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        TextFormField(
+          key: const ValueKey('part-price'),
+          controller: price,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+          ],
+          decoration: InputDecoration(
+            labelText: selected == null
+                ? 'Loose selling price'
+                : 'Selling price per ${_partOptions[selected]!.symbol} $baseCode',
+            prefixText: '₱ ',
+          ),
+          validator: sellingUnitPriceError,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        TextFormField(
+          key: const ValueKey('part-code'),
+          controller: code,
+          inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
+          decoration: const InputDecoration(
+            labelText: 'Barcode (leave blank to auto-generate)',
+            prefixIcon: Icon(Icons.barcode_reader),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        ListenableBuilder(
+          listenable: price,
+          builder: (context, _) {
+            final parts = selected;
+            final value = double.tryParse(price.text.trim());
+            if (parts == null || basePrice == null) {
+              return const SizedBox.shrink();
+            }
+            final symbol = _partOptions[parts]!.symbol;
+            final even = basePrice! / parts;
+            final lines = <String>[
+              'Proportional price: ${formatPeso(even)} per $symbol $baseCode '
+                  '(${formatPeso(basePrice!)} ÷ $parts).',
+            ];
+            if (value != null) {
+              final extra = value - even;
+              lines.add(
+                extra >= 0
+                    ? 'Loose premium: ${formatPeso(extra)} per $symbol, '
+                          '${formatPeso(extra * parts)} more per $baseCode sold loose.'
+                    : 'Below the proportional price: the store earns '
+                          '${formatPeso(-extra * parts)} less per $baseCode sold loose.',
+              );
+            }
+            return Container(
+              key: const ValueKey('part-preview'),
+              padding: const EdgeInsets.all(AppSpacing.sm),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                borderRadius: BorderRadius.circular(AppRadii.small),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final line in lines)
+                    Text(line, style: textTheme.bodySmall),
+                ],
+              ),
+            );
+          },
         ),
       ],
     );

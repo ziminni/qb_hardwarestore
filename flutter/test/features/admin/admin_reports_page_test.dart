@@ -115,7 +115,10 @@ class _StubReportsRepository extends ReportsRepository {
   }
 
   @override
-  Future<RequisitionHistory> fetchRequisitionHistory() async => history;
+  Future<RequisitionHistory> fetchRequisitionHistory({
+    String? from,
+    String? to,
+  }) async => history;
 }
 
 Future<_StubReportsRepository> _pump(

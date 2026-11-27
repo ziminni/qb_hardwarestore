@@ -193,7 +193,7 @@ class _InventoryStockMovementsPageState
         if (_query.isEmpty) return true;
         final text =
             '${row.product} ${row.variant} ${row.adjustment.remarks} '
-                    'user ${row.adjustment.userId}'
+                    'user ${row.adjustment.userId} ${row.adjustment.userName}'
                 .toLowerCase();
         return text.contains(_query);
       }).toList()
@@ -292,12 +292,14 @@ class _InventoryStockMovementsPageState
         style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
       ),
     ),
-    // The API sends the actor's id, not their name (StockAdjustmentSerializer
-    // has `user`), so the row says what it has instead of inventing a name.
+    // The server sends the adjuster's name (`user_name`); an older server sends
+    // only the id, so the row falls back to that instead of inventing a name.
     DataPanelColumn(
       label: 'By',
       cell: (row) => Text(
-        'User ${row.adjustment.userId}',
+        row.adjustment.userName.isNotEmpty
+            ? row.adjustment.userName
+            : 'User ${row.adjustment.userId}',
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),

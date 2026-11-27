@@ -598,18 +598,11 @@ void main() {
           reason: 'a built workbook never advertises a later phase',
         );
 
-        // PDF stays P3: only the sales summary wired a letterhead builder.
+        // All live reports now have a shared letterhead PDF builder.
         final pdf = tester.widget<OutlinedButton>(
           find.widgetWithText(OutlinedButton, 'Export PDF'),
         );
-        expect(pdf.onPressed, isNull, reason: 'no $id letterhead PDF exists');
-        final tooltip = tester.widget<Tooltip>(
-          find.ancestor(
-            of: find.text('Export PDF'),
-            matching: find.byType(Tooltip),
-          ),
-        );
-        expect(tooltip.message, 'PDF export arrives in P3');
+        expect(pdf.onPressed, isNotNull, reason: '$id has a letterhead PDF');
       }
     });
 

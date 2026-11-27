@@ -451,6 +451,9 @@ void main() {
     await _pump(tester, await _loadedInventory(), await _loadedPurchases());
 
     expect(find.text('View all'), findsNWidgets(3));
+    // The dashboard's charts sit above the panels, so scroll to the button first.
+    await tester.ensureVisible(viewAllIn(InventoryRestockQueuePanel));
+    await tester.pumpAndSettle();
     await tester.tap(viewAllIn(InventoryRestockQueuePanel));
     await tester.pumpAndSettle();
 
@@ -464,12 +467,13 @@ void main() {
 
     // The item name also appears in the adjustments panel, so the tap targets
     // the restock row itself.
-    await tester.tap(
-      find.descendant(
-        of: find.byType(InventoryRestockQueuePanel),
-        matching: find.text('Portland Cement 40kg'),
-      ),
+    final row = find.descendant(
+      of: find.byType(InventoryRestockQueuePanel),
+      matching: find.text('Portland Cement 40kg'),
     );
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+    await tester.tap(row);
     await tester.pumpAndSettle();
 
     expect(find.text('ARRIVED low stock'), findsOneWidget);
@@ -478,6 +482,8 @@ void main() {
   testWidgets('waiting to receive opens Receiving', (tester) async {
     await _pump(tester, await _loadedInventory(), await _loadedPurchases());
 
+    await tester.ensureVisible(viewAllIn(InventoryWaitingToReceivePanel));
+    await tester.pumpAndSettle();
     await tester.tap(viewAllIn(InventoryWaitingToReceivePanel));
     await tester.pumpAndSettle();
 

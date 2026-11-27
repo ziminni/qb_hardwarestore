@@ -3267,8 +3267,11 @@ def void_transaction(*, transaction_id, actor, reason):
         )
 
     with transaction.atomic():
+        # `of=("self",)`: shift and customer are nullable joins, and PostgreSQL
+        # refuses FOR UPDATE on the nullable side of an outer join - every void
+        # failed with a 500 until the lock was narrowed to the sale row itself.
         txn = (
-            SalesTransaction.objects.select_for_update()
+            SalesTransaction.objects.select_for_update(of=("self",))
             .select_related("shift", "customer", "cashier")
             .get(pk=transaction_id)
         )

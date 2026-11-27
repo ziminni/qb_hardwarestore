@@ -2,6 +2,9 @@ import 'package:client/core/network/api_client.dart';
 import 'package:client/data/models/reports.dart';
 import 'package:dio/dio.dart';
 
+/// Planning decision 04: full detail up to the Excel row limit.
+const reportExcelRowLimit = 10000;
+
 /// Raised for anything the admin Reports screen must show to a human.
 class ReportsServiceException implements Exception {
   const ReportsServiceException(this.message);
@@ -127,20 +130,17 @@ class ReportsService {
   }
 
   /// Requisition counts per status plus the filtered listing.
-  Future<RequisitionHistory> fetchRequisitionHistory() async {
-    try {
-      final response = await _client.get<Map<String, dynamic>>(
-        requisitionHistoryPath,
-      );
-      return RequisitionHistory.fromJson(response.data!);
-    } on DioException catch (error) {
-      throw ReportsServiceException(_messageFor(error, 'requisition history'));
-    } on FormatException {
-      throw const ReportsServiceException(
-        'The requisition history could not be read. Try again.',
-      );
-    }
-  }
+  Future<RequisitionHistory> fetchRequisitionHistory({
+    String? from,
+    String? to,
+  }) => _paged(
+    requisitionHistoryPath,
+    'requisition history',
+    from,
+    to,
+    RequisitionHistory.fromJson,
+    rowsKey: 'requisitions',
+  );
 
   /// Per selling unit: base-unit quantity, net merchandise, COGS and profit.
   Future<SalesByItemReport> fetchSalesByItem({String? from, String? to}) =>
@@ -260,14 +260,62 @@ class ReportsService {
     String report,
     String? from,
     String? to,
-    T Function(Map<String, dynamic>) parse,
-  ) async {
+    T Function(Map<String, dynamic>) parse, {
+    String rowsKey = 'results',
+  }) async {
     try {
       final response = await _client.get<Map<String, dynamic>>(
         path,
         queryParameters: {'from': ?from, 'to': ?to},
       );
-      return parse(response.data!);
+      final first = response.data!;
+      final initialRows = first[rowsKey];
+      if (initialRows is! List) {
+        throw const FormatException('Missing report rows');
+      }
+      final rows = <dynamic>[...initialRows];
+      final count = (first['count'] as num?)?.toInt() ?? rows.length;
+      var next = first['next'];
+      var page = 1;
+      // Keep the original totals and request only the same endpoint and range.
+      // Never follow a server-supplied absolute URL. Fail distinctly rather
+      // than export an incomplete report as if it represented the full range.
+      while (next != null &&
+          rows.length < count &&
+          rows.length < reportExcelRowLimit) {
+        if (++page > 200) {
+          throw ReportsServiceException(
+            'The $report is too large to load at once. Narrow the date range.',
+          );
+        }
+        final continuation = await _client.get<Map<String, dynamic>>(
+          path,
+          queryParameters: {'from': ?from, 'to': ?to, 'page': page},
+        );
+        final body = continuation.data!;
+        final more = body[rowsKey];
+        if (more is! List || more.isEmpty || body['count'] != count) {
+          throw ReportsServiceException(
+            'The $report changed while loading. Refresh and try again.',
+          );
+        }
+        rows.addAll(more);
+        next = body['next'];
+      }
+      if (rows.length > count ||
+          (rows.length < reportExcelRowLimit &&
+              (rows.length != count || next != null))) {
+        throw ReportsServiceException(
+          'The $report is incomplete. Refresh and try again.',
+        );
+      }
+      return parse({
+        ...first,
+        rowsKey: rows.take(reportExcelRowLimit).toList(),
+        'count': count,
+        'next': null,
+        'previous': null,
+      });
     } on DioException catch (error) {
       throw ReportsServiceException(_messageFor(error, report));
     } on FormatException {

@@ -19,6 +19,7 @@ import 'package:client/shared/widgets/analytics_charts.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
 import 'package:client/shared/widgets/metric_tile.dart';
+import 'package:client/shared/widgets/operational_charts.dart';
 import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -71,7 +72,13 @@ class _DashboardViewState extends State<_DashboardView> {
   String _isoDate(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-  ({String? from, String? to, DateTime startDate, String label, String chipLabel})
+  ({
+    String? from,
+    String? to,
+    DateTime startDate,
+    String label,
+    String chipLabel,
+  })
   _presetRange(_DashboardRangePreset preset) {
     final now = appClock.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -251,13 +258,16 @@ class _DashboardViewState extends State<_DashboardView> {
                         (
                           value: preset,
                           label: _presetRange(preset).chipLabel,
-                          key: ValueKey('sales-dashboard-preset-${preset.name}'),
+                          key: ValueKey(
+                            'sales-dashboard-preset-${preset.name}',
+                          ),
                         ),
                     ],
                   ),
                   FilledButton.icon(
                     key: const ValueKey('sales-dashboard-audit-vat'),
-                    onPressed: () => context.go('/sales/reports/view/vat-summary'),
+                    onPressed: () =>
+                        context.go('/sales/reports/view/vat-summary'),
                     style: FilledButton.styleFrom(
                       backgroundColor: StitchColors.primaryDeep,
                       foregroundColor: Colors.white,
@@ -400,8 +410,7 @@ class _DashboardViewState extends State<_DashboardView> {
             _DualStreamTaxCard(
               breakdown: summary!.orVatBreakdown!,
               scopeCaption: scopeCaption,
-              onOpenReport: () =>
-                  context.go('/sales/reports/view/vat-summary'),
+              onOpenReport: () => context.go('/sales/reports/view/vat-summary'),
             ),
           ],
           // Unified 2-Column Chart Hero (consistent GroupedBarTrendChart + Tender Donut across all timeframes)
@@ -548,7 +557,8 @@ class _DualStreamTaxCard extends StatelessWidget {
                 ],
               ),
               StitchPill(
-                label: '${formatCount(breakdown.orBacked.transactions)} OR Invoices',
+                label:
+                    '${formatCount(breakdown.orBacked.transactions)} OR Invoices',
                 tone: StitchTone.primary,
               ),
             ],
@@ -635,7 +645,8 @@ class _DualStreamTaxCard extends StatelessWidget {
                 ],
               ),
               StitchPill(
-                label: '${formatCount(breakdown.untaggedOs.transactions)} Order Slips',
+                label:
+                    '${formatCount(breakdown.untaggedOs.transactions)} Order Slips',
                 tone: StitchTone.neutral,
               ),
             ],
@@ -795,9 +806,7 @@ class _DualStreamTaxCard extends StatelessWidget {
                       child: Container(color: const Color(0xFF60A5FA)),
                     ),
                   if (orFlex == 0 && osFlex == 0)
-                    Expanded(
-                      child: Container(color: StitchColors.cardBorder),
-                    ),
+                    Expanded(child: Container(color: StitchColors.cardBorder)),
                 ],
               ),
             ),
@@ -945,10 +954,10 @@ class _RevenueAndTenderHero extends StatelessWidget {
         final h = sale.date.hour;
         if (h < minHour) minHour = h;
         if (h > maxHour) maxHour = h;
-        grossByHour[h] = (grossByHour[h] ?? 0) + sale.total;
+        grossByHour[h] = (grossByHour[h] ?? 0) + sale.amountDue;
         if ((sale.invoiceNo ?? '').trim().isNotEmpty) {
           hasOrSales = true;
-          orByHour[h] = (orByHour[h] ?? 0) + sale.total;
+          orByHour[h] = (orByHour[h] ?? 0) + sale.amountDue;
         }
       }
       final points = <TrendPoint>[
@@ -961,7 +970,7 @@ class _RevenueAndTenderHero extends StatelessWidget {
       ];
       return GroupedBarTrendChart(
         key: const ValueKey('sales-dashboard-hourly-chart'),
-        title: 'Hourly Revenue Stream ($scopeCaption)',
+        title: 'Hourly Revenue Stream (loaded transactions)',
         subtitle: hasOrSales
             ? 'Bars compare total hourly invoice sales vs. OR-tagged official receipts.'
             : 'Completed hourly invoice revenue across active store hours.',
@@ -1005,9 +1014,13 @@ class _RevenueAndTenderHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final primaryChart = _buildPrimaryChart();
-    final tenderChart = scopedCompleted.isEmpty
+    final tenderChart = summary == null || summary!.byPaymentMethod.isEmpty
         ? null
-        : _buildTenderDonut(scopedCompleted, scopeCaption);
+        : PaymentAllocationChart(
+            key: const ValueKey('sales-dashboard-tender-donut'),
+            amounts: summary!.byPaymentMethod,
+            title: 'Payment / Tender Mix ($scopeCaption)',
+          );
 
     if (primaryChart != null && tenderChart == null) return primaryChart;
     if (primaryChart == null && tenderChart != null) return tenderChart;
@@ -1038,38 +1051,6 @@ class _RevenueAndTenderHero extends StatelessWidget {
       },
     );
   }
-}
-
-DonutChart _buildTenderDonut(
-  List<InventorySale> completed,
-  String scopeCaption,
-) {
-  final totalsByMethod = <String, double>{};
-  for (final sale in completed) {
-    final key = sale.paymentMethod.trim().isEmpty
-        ? 'Other'
-        : sale.paymentMethod.trim();
-    totalsByMethod[key] = (totalsByMethod[key] ?? 0) + sale.total;
-  }
-  final sorted = totalsByMethod.entries.toList()
-    ..sort((a, b) => b.value.compareTo(a.value));
-  final total = sorted.fold<double>(0, (sum, e) => sum + e.value);
-
-  return DonutChart(
-    key: const ValueKey('sales-dashboard-tender-donut'),
-    title: 'Payment / Tender Mix ($scopeCaption)',
-    subtitle: 'Completed sales share across payment methods.',
-    centerLabel: 'Intake',
-    centerValue: formatPeso(total),
-    slices: [
-      for (final entry in sorted.take(6))
-        ShareSlice(
-          label: entry.key,
-          value: entry.value,
-          amountText: formatPeso(entry.value),
-        ),
-    ],
-  );
 }
 
 class _StockSnapshotCard extends StatelessWidget {
@@ -1135,8 +1116,9 @@ class _StockSnapshotCard extends StatelessWidget {
             value: formatCount(lowStock),
             icon: Icons.warning_amber_rounded,
             tone: lowStock > 0 ? StitchTone.warning : StitchTone.neutral,
-            valueColor:
-                lowStock > 0 ? StitchColors.warningInk : StitchColors.ink,
+            valueColor: lowStock > 0
+                ? StitchColors.warningInk
+                : StitchColors.ink,
             subtitle: 'Below reorder point',
             pillLabel: lowStock > 0 ? 'Reorder soon' : 'All healthy',
             pillTone: lowStock > 0 ? StitchTone.warning : StitchTone.success,

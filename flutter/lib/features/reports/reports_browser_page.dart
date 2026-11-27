@@ -2,11 +2,13 @@ import 'package:client/core/constants/app_colors.dart';
 import 'package:client/core/constants/app_radii.dart';
 import 'package:client/core/constants/app_spacing.dart';
 import 'package:client/data/repositories/reports_repository.dart';
+import 'package:client/features/auth/viewmodels/auth_viewmodel.dart';
 import 'package:client/features/reports/report_catalogue.dart';
 import 'package:client/features/reports/report_viewer_page.dart';
 import 'package:client/features/reports/reports_shell.dart';
 import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 /// The Reports area's front door: an inner sidebar of reports on the left,
 /// the selected report's content on the right.
@@ -64,13 +66,27 @@ class _ReportsBrowserViewState extends State<ReportsBrowserView> {
   final Set<ReportSection> _collapsed = {};
 
   List<ReportDefinition> _available() {
-    final visible = reportSectionsFor(widget.areas ?? {widget.shell.area});
+    final held = widget.areas ?? _signedInAreas() ?? {widget.shell.area};
+    final visible = reportSectionsFor(held);
     return [
       for (final section in ReportSection.values)
         if (visible.contains(section))
           for (final report in reportCatalogue)
-            if (report.section == section && report.available) report,
+            if (report.section == section &&
+                report.available &&
+                report.readableBy(held))
+              report,
     ];
+  }
+
+  /// The signed-in account's areas, or null where no session is provided.
+  Set<String>? _signedInAreas() {
+    try {
+      final codes = context.read<AuthViewmodel>().user?.areaCodes;
+      return codes == null || codes.isEmpty ? null : codes.toSet();
+    } on ProviderNotFoundException {
+      return null;
+    }
   }
 
   ReportDefinition? _firstAvailable() {
@@ -88,7 +104,9 @@ class _ReportsBrowserViewState extends State<ReportsBrowserView> {
   @override
   Widget build(BuildContext context) {
     final available = _available();
-    final selected = available.where((r) => r.id == _selectedId).firstOrNull;
+    final selected =
+        available.where((r) => r.id == _selectedId).firstOrNull ??
+        available.firstOrNull;
     return LayoutBuilder(
       builder: (context, constraints) {
         // A narrow till window stacks the picker above the report instead of
@@ -127,8 +145,7 @@ class _ReportsBrowserViewState extends State<ReportsBrowserView> {
                   ],
                 ),
                 child: _Sidebar(
-                  shell: widget.shell,
-                  areas: widget.areas,
+                  available: available,
                   selectedId: selected?.id,
                   collapsed: _collapsed,
                   onToggle: (section) => setState(() {
@@ -166,16 +183,14 @@ class _ReportsBrowserViewState extends State<ReportsBrowserView> {
 /// The inner sidebar: collapsible SALES / INVENTORY groups of report rows.
 class _Sidebar extends StatelessWidget {
   const _Sidebar({
-    required this.shell,
-    this.areas,
+    required this.available,
     this.selectedId,
     required this.collapsed,
     required this.onToggle,
     required this.onPick,
   });
 
-  final ReportsShell shell;
-  final Set<String>? areas;
+  final List<ReportDefinition> available;
   final String? selectedId;
   final Set<ReportSection> collapsed;
   final ValueChanged<ReportSection> onToggle;
@@ -183,14 +198,16 @@ class _Sidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final visible = reportSectionsFor(areas ?? {shell.area});
     return ListView(
       shrinkWrap: true,
       children: [
         for (final section in ReportSection.values)
-          if (visible.contains(section))
+          if (available.any((report) => report.section == section))
             _Group(
               section: section,
+              reports: available
+                  .where((report) => report.section == section)
+                  .toList(),
               collapsed: collapsed.contains(section),
               selectedId: selectedId,
               onToggle: () => onToggle(section),
@@ -204,6 +221,7 @@ class _Sidebar extends StatelessWidget {
 class _Group extends StatelessWidget {
   const _Group({
     required this.section,
+    required this.reports,
     required this.collapsed,
     this.selectedId,
     required this.onToggle,
@@ -211,6 +229,7 @@ class _Group extends StatelessWidget {
   });
 
   final ReportSection section;
+  final List<ReportDefinition> reports;
   final bool collapsed;
   final String? selectedId;
   final VoidCallback onToggle;
@@ -224,9 +243,6 @@ class _Group extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final reports = reportCatalogue
-        .where((report) => report.section == section && report.available)
-        .toList();
     if (reports.isEmpty) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

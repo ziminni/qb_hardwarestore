@@ -17,7 +17,7 @@ class ReturnModelShapeTests(TestCase):
     def test_source_gains_a_return_member(self):
         self.assertEqual(
             [value for value, _ in SalesTransaction.Source.choices],
-            ['WALK_IN', 'REQUISITION', 'RETURN'],
+            ['WALK_IN', 'REQUISITION', 'RETURN', 'EXCHANGE'],
         )
 
     def test_a_transaction_can_link_to_the_sale_it_reverses(self):

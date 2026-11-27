@@ -149,8 +149,8 @@ class InventoryStockTable extends StatelessWidget {
                 TextSpan(
                   children: [
                     TextSpan(
-                      text: formatCount(
-                        inventory.stockOnHandFor(row.variant.id).round(),
+                      text: formatQuantity(
+                        inventory.stockOnHandFor(row.variant.id),
                       ),
                     ),
                     TextSpan(
@@ -165,6 +165,26 @@ class InventoryStockTable extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
+              if (row.variant.baseUomIsWhole &&
+                  openedUnitLabel(
+                        inventory.stockOnHandFor(row.variant.id),
+                        row.variant.baseUomCode,
+                      ) !=
+                      null)
+                Text(
+                  openedUnitLabel(
+                    inventory.stockOnHandFor(row.variant.id),
+                    row.variant.baseUomCode,
+                  )!,
+                  key: ValueKey('opened-unit-${row.variant.id}'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.warningText,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               if (inventory.stockSplitLabelFor(row.variant.id).isNotEmpty)
                 Text(
                   inventory.stockSplitLabelFor(row.variant.id),

@@ -488,8 +488,8 @@ class GroupedBarTrendChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (points.isEmpty) return const SizedBox.shrink();
-    final visible = points.length > 14
-        ? points.sublist(points.length - 14)
+    final visible = points.length > 31
+        ? points.sublist(points.length - 31)
         : points;
     final hasSecondary =
         secondaryLabel != null && visible.any((p) => p.secondary != null);
@@ -497,19 +497,27 @@ class GroupedBarTrendChart extends StatelessWidget {
         lineLabel != null && visible.any((p) => p.lineValue != null);
 
     double maxVal = 0;
+    double minVal = 0;
     for (final p in visible) {
-      maxVal = math.max(maxVal, p.primary.abs());
-      if (p.secondary != null) maxVal = math.max(maxVal, p.secondary!.abs());
-      if (p.lineValue != null) maxVal = math.max(maxVal, p.lineValue!.abs());
+      for (final value in [
+        p.primary,
+        if (p.secondary != null) p.secondary!,
+        if (p.lineValue != null) p.lineValue!,
+      ]) {
+        maxVal = math.max(maxVal, value);
+        minVal = math.min(minVal, value);
+      }
     }
-    if (maxVal <= 0) maxVal = 1;
+    if (maxVal == minVal) maxVal = minVal + 1;
 
     String fmtAxis(double v) =>
         isCurrency ? _compactPeso(v) : formatQuantity(v);
 
     return AnalyticsCard(
       title: title,
-      subtitle: subtitle,
+      subtitle: points.length > visible.length
+          ? '${subtitle ?? ''} Showing latest ${visible.length} of ${points.length} periods.'
+          : subtitle,
       trailing: Wrap(
         spacing: 10,
         runSpacing: 4,
@@ -541,15 +549,15 @@ class GroupedBarTrendChart extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      fmtAxis(maxVal / 2),
+                      fmtAxis((maxVal + minVal) / 2),
                       style: const TextStyle(
                         fontSize: 10,
                         color: AppColors.textSecondary,
                       ),
                     ),
-                    const Text(
-                      '0',
-                      style: TextStyle(
+                    Text(
+                      fmtAxis(minVal),
+                      style: const TextStyle(
                         fontSize: 10,
                         color: AppColors.textSecondary,
                       ),
@@ -568,6 +576,7 @@ class GroupedBarTrendChart extends StatelessWidget {
                       painter: _GroupedBarPainter(
                         points: visible,
                         maxVal: maxVal,
+                        minVal: minVal,
                         primaryColor: primaryColor,
                         secondaryColor: secondaryColor,
                         lineColor: lineColor,
@@ -610,7 +619,7 @@ class GroupedBarTrendChart extends StatelessWidget {
 
   bool _shouldShowXLabel(int index, int total) {
     if (total <= 7) return true;
-    return index == 0 || index == total - 1 || index.isEven;
+    return index == 0 || index == total - 1 || index % (total / 7).ceil() == 0;
   }
 }
 
@@ -618,6 +627,7 @@ class _GroupedBarPainter extends CustomPainter {
   _GroupedBarPainter({
     required this.points,
     required this.maxVal,
+    required this.minVal,
     required this.primaryColor,
     required this.secondaryColor,
     required this.lineColor,
@@ -627,6 +637,7 @@ class _GroupedBarPainter extends CustomPainter {
 
   final List<TrendPoint> points;
   final double maxVal;
+  final double minVal;
   final Color primaryColor;
   final Color secondaryColor;
   final Color lineColor;
@@ -644,50 +655,63 @@ class _GroupedBarPainter extends CustomPainter {
       canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
     }
 
+    double yOf(double value) =>
+        size.height * (maxVal - value) / (maxVal - minVal);
+    final baseline = yOf(0);
+    if (minVal < 0) {
+      canvas.drawLine(
+        Offset(0, baseline),
+        Offset(size.width, baseline),
+        Paint()
+          ..color = AppColors.textSecondary
+          ..strokeWidth = 1.2,
+      );
+    }
     final slotW = size.width / points.length;
-    final barGap = showSecondary ? 3.0 : 0.0;
-    final barW = math.min(
-      24.0,
-      math.max(6.0, (slotW * (showSecondary ? 0.34 : 0.52))),
-    );
+    final barGap = showSecondary ? math.min(3.0, slotW * .12) : 0.0;
+    final barW = math.min(24.0, slotW * (showSecondary ? 0.34 : 0.52));
 
     final primaryPaint = Paint()..color = primaryColor;
     final negPaint = Paint()..color = AppColors.error;
     final secondaryPaint = Paint()..color = secondaryColor;
-    final linePoints = <Offset>[];
+    final lineRuns = <List<Offset>>[];
+    var linePoints = <Offset>[];
+
+    Rect bar(double x, double value) {
+      final y = yOf(value);
+      return Rect.fromLTWH(
+        x,
+        math.min(y, baseline),
+        barW,
+        (baseline - y).abs(),
+      );
+    }
 
     for (var i = 0; i < points.length; i++) {
       final p = points[i];
       final centerX = slotW * i + slotW / 2;
-      final primaryH = (p.primary.abs() / maxVal) * size.height;
 
       if (showSecondary) {
         final leftX = centerX - barW - barGap / 2;
         final rect1 = RRect.fromRectAndCorners(
-          Rect.fromLTWH(leftX, size.height - primaryH, barW, primaryH),
+          bar(leftX, p.primary),
           topLeft: const Radius.circular(3),
           topRight: const Radius.circular(3),
         );
         canvas.drawRRect(rect1, p.primary < 0 ? negPaint : primaryPaint);
 
         if (p.secondary != null) {
-          final secH = (p.secondary!.abs() / maxVal) * size.height;
           final rightX = centerX + barGap / 2;
           final rect2 = RRect.fromRectAndCorners(
-            Rect.fromLTWH(rightX, size.height - secH, barW, secH),
+            bar(rightX, p.secondary!),
             topLeft: const Radius.circular(3),
             topRight: const Radius.circular(3),
           );
-          canvas.drawRRect(rect2, secondaryPaint);
+          canvas.drawRRect(rect2, p.secondary! < 0 ? negPaint : secondaryPaint);
         }
       } else {
         final rect = RRect.fromRectAndCorners(
-          Rect.fromLTWH(
-            centerX - barW / 2,
-            size.height - primaryH,
-            barW,
-            primaryH,
-          ),
+          bar(centerX - barW / 2, p.primary),
           topLeft: const Radius.circular(3),
           topRight: const Radius.circular(3),
         );
@@ -695,12 +719,15 @@ class _GroupedBarPainter extends CustomPainter {
       }
 
       if (showLine && p.lineValue != null) {
-        final lineH = (p.lineValue!.clamp(0.0, maxVal) / maxVal) * size.height;
-        linePoints.add(Offset(centerX, size.height - lineH));
+        linePoints.add(Offset(centerX, yOf(p.lineValue!)));
+      } else if (linePoints.isNotEmpty) {
+        lineRuns.add(linePoints);
+        linePoints = <Offset>[];
       }
     }
+    if (linePoints.isNotEmpty) lineRuns.add(linePoints);
 
-    if (linePoints.isNotEmpty) {
+    for (final linePoints in lineRuns) {
       final linePaint = Paint()
         ..color = lineColor
         ..strokeWidth = 2.2
@@ -721,7 +748,9 @@ class _GroupedBarPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _GroupedBarPainter oldDelegate) =>
-      oldDelegate.points != points || oldDelegate.maxVal != maxVal;
+      oldDelegate.points != points ||
+      oldDelegate.maxVal != maxVal ||
+      oldDelegate.minVal != minVal;
 }
 
 /// One row for [HorizontalComparisonChart].
@@ -1011,8 +1040,8 @@ class AreaTrendChart extends StatelessWidget {
   Widget build(BuildContext context) {
     if (points.isEmpty) return const SizedBox.shrink();
     // Older dates scroll off rather than shrinking to an unreadable sliver.
-    final visible = points.length > 20
-        ? points.sublist(points.length - 20)
+    final visible = points.length > 31
+        ? points.sublist(points.length - 31)
         : points;
     final hasPrevious =
         previousLabel != null && visible.any((p) => p.previous != null);
@@ -1025,7 +1054,9 @@ class AreaTrendChart extends StatelessWidget {
 
     return AnalyticsCard(
       title: title,
-      subtitle: subtitle,
+      subtitle: points.length > visible.length
+          ? '${subtitle ?? ''} Showing latest ${visible.length} of ${points.length} periods.'
+          : subtitle,
       trailing: Wrap(
         spacing: 10,
         runSpacing: 4,
@@ -1830,12 +1861,17 @@ String _clockLabel(int hour) {
   return '$h:00 ${hour < 12 ? 'AM' : 'PM'}';
 }
 
+/// A short peso label for an axis tick: the sign goes before the peso sign,
+/// so a loss reads "-₱14", never "₱-14".
 String _compactPeso(double value) {
-  if (value.abs() >= 1000000) {
-    return '₱${(value / 1000000).toStringAsFixed(1)}M';
+  final sign = value < 0 ? '-' : '';
+  final size = value.abs();
+  if (size >= 1000000) {
+    return '$sign₱${(size / 1000000).toStringAsFixed(1)}M';
   }
-  if (value.abs() >= 1000) {
-    return '₱${(value / 1000).toStringAsFixed(1)}k';
+  if (size >= 1000) {
+    return '$sign₱${(size / 1000).toStringAsFixed(1)}k';
   }
-  return '₱${value.toStringAsFixed(0)}';
+  final whole = size.toStringAsFixed(0);
+  return whole == '0' ? '₱0' : '$sign₱$whole';
 }

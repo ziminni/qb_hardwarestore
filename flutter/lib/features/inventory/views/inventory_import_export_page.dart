@@ -45,7 +45,10 @@ class _InventoryImportExportPageState extends State<InventoryImportExportPage> {
   @override
   Widget build(BuildContext context) {
     final inventory = context.watch<InventoryViewmodel>();
-    final ready = inventory.hasLoaded && !inventory.isLoading;
+    final ready =
+        inventory.hasLoaded &&
+        !inventory.isLoading &&
+        inventory.loadError == null;
     return InventorySkeletonLayout(
       title: 'Import & export',
       subtitle: 'Excel files, barcode lists and labels, in one place.',
@@ -62,6 +65,41 @@ class _InventoryImportExportPageState extends State<InventoryImportExportPage> {
             const LinearProgressIndicator(),
             const SizedBox(height: AppSpacing.md),
           ],
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceSunken,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Excel catalogue workflow',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                SizedBox(height: AppSpacing.sm),
+                Text(
+                  '1. Download a template or export the current catalogue.  2. Edit rows.  3. Import and review the preview before saving.',
+                  style: TextStyle(color: AppColors.textSecondary),
+                ),
+                SizedBox(height: AppSpacing.sm),
+                Text(
+                  'Stock quantities remain controlled by receiving and stock adjustments. Export stock records for reporting; catalogue import cannot overwrite live stock.',
+                  style: TextStyle(
+                    color: AppColors.brandGoldText,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
           Wrap(
             spacing: AppSpacing.lg,
             runSpacing: AppSpacing.lg,

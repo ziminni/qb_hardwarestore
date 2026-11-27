@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:client/core/format/spreadsheet_text.dart';
 import 'package:client/data/models/reports.dart';
+import 'package:client/data/models/tender_method.dart';
 import 'package:excel_community/excel_community.dart';
 
 /// Builds Excel (.xlsx) workbooks for all four admin/sales report tabs.
@@ -13,8 +14,57 @@ CellValue _text(String value) => TextCellValue(spreadsheetSafeText(value));
 CellValue _num(double value) => DoubleCellValue(value);
 CellValue _int(int value) => IntCellValue(value);
 
-Uint8List _encode(Excel excel) =>
-    Uint8List.fromList(excel.encode() ?? const <int>[]);
+Uint8List _encode(Excel excel) {
+  final heading = CellStyle(
+    bold: true,
+    backgroundColorHex: ExcelColor.fromHexString('#E1C684'),
+    textWrapping: TextWrapping.WrapText,
+  );
+  final total = CellStyle(
+    bold: true,
+    backgroundColorHex: ExcelColor.fromHexString('#F3EFE5'),
+  );
+  for (final sheet in excel.tables.values) {
+    final rows = sheet.rows;
+    if (rows.isEmpty) continue;
+    for (var column = 0; column < rows.first.length; column++) {
+      final header = rows.first[column]?.value.toString() ?? '';
+      final sample = rows.take(100).fold<int>(header.length, (width, row) {
+        if (column >= row.length) return width;
+        final length = row[column]?.value.toString().length ?? 0;
+        return length > width ? length : width;
+      });
+      sheet.setColumnWidth(column, (sample + 3).clamp(13, 42).toDouble());
+      sheet
+              .cell(
+                CellIndex.indexByColumnRow(columnIndex: column, rowIndex: 0),
+              )
+              .cellStyle =
+          heading;
+    }
+    for (var index = 1; index < rows.length; index++) {
+      if (rows[index].isNotEmpty &&
+          rows[index].first?.value.toString() == 'Total') {
+        for (var column = 0; column < rows[index].length; column++) {
+          sheet
+                  .cell(
+                    CellIndex.indexByColumnRow(
+                      columnIndex: column,
+                      rowIndex: index,
+                    ),
+                  )
+                  .cellStyle =
+              total;
+        }
+      }
+    }
+  }
+  final bytes = excel.encode();
+  if (bytes == null || bytes.isEmpty) {
+    throw StateError('Could not encode report workbook.');
+  }
+  return Uint8List.fromList(bytes);
+}
 
 /// The Summary sheet every workbook opens with: the same identity the viewer
 /// and the letterhead PDF carry (title, period, filters, units) and then the
@@ -46,8 +96,8 @@ void _writeSummary(
 
 /// A last sheet saying the workbook holds only the page in hand.
 ///
-/// The viewer loads one 50-row page per report (`ReportPage.count` is the whole
-/// range), so a truncated export that said nothing would read as the full range.
+/// Normally all server pages are loaded. Retain this guard for standalone
+/// callers supplying a partial report or historical fixtures.
 void _writeNoticeIfTruncated(Excel excel, ReportPage<Object?> page) {
   if (page.rows.length >= page.count) return;
   final notice = excel['Notice'];
@@ -190,6 +240,27 @@ Uint8List buildSalesReportXlsx(SalesSummary sales) {
     }
   }
 
+  if (sales.byPaymentMethod.isNotEmpty) {
+    final methods = excel['Payment Allocation'];
+    methods.appendRow([_text('Method'), _text('Invoice allocation (PHP)')]);
+    for (final entry in sales.byPaymentMethod.entries) {
+      methods.appendRow([
+        _text(TenderMethod.labelFor(entry.key)),
+        _num(entry.value),
+      ]);
+    }
+    methods.appendRow([
+      _text('Total'),
+      _num(
+        sales.byPaymentMethod.values.fold<double>(
+          0,
+          (sum, amount) => sum + amount,
+        ),
+      ),
+    ]);
+    methods.appendRow([_text('Includes on-account invoices; not cash intake')]);
+  }
+
   return _encode(excel);
 }
 
@@ -244,6 +315,15 @@ Uint8List buildValuationReportXlsx(InventoryValuation valuation) {
         _num(loc.retail),
       ]);
     }
+    // Summed from the rows above, like the By Category sheet ends in a total.
+    final rows = valuation.locations;
+    locs.appendRow([
+      _text('Total'),
+      _int(rows.fold<int>(0, (s, l) => s + l.batchCount)),
+      _num(rows.fold<double>(0, (s, l) => s + l.units)),
+      _num(rows.fold<double>(0, (s, l) => s + l.cost)),
+      _num(rows.fold<double>(0, (s, l) => s + l.retail)),
+    ]);
   }
 
   return _encode(excel);
@@ -295,6 +375,13 @@ Uint8List buildRequisitionsReportXlsx(RequisitionHistory history) {
       _text(row.project),
       _text(row.requestedBy),
       _text(row.approvedBy ?? 'Not approved'),
+    ]);
+  }
+  if (history.requisitions.length < history.rowCount) {
+    excel['Notice'].appendRow([
+      _text(
+        'This workbook holds ${history.requisitions.length} of ${history.rowCount} rows. Narrow the date range for complete detail.',
+      ),
     ]);
   }
 

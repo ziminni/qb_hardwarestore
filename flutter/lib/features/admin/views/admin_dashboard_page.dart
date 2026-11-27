@@ -492,9 +492,7 @@ class _SalesTab extends StatelessWidget {
           value: _count(s, 'open_shifts'),
           tone: stale.isNotEmpty ? StitchTone.danger : StitchTone.success,
           valueColor: stale.isNotEmpty ? StitchColors.danger : null,
-          pillLabel: stale.isNotEmpty
-              ? '${stale.length} stale'
-              : 'On schedule',
+          pillLabel: stale.isNotEmpty ? '${stale.length} stale' : 'On schedule',
           pillTone: stale.isNotEmpty ? StitchTone.danger : StitchTone.success,
         ),
         if (s.has('month_vat_total'))
@@ -512,9 +510,7 @@ class _SalesTab extends StatelessWidget {
             label: 'Gross profit (month)',
             icon: Icons.trending_up,
             value: _whole(s, 'month_gross_profit'),
-            tone: monthGrossProfit < 0
-                ? StitchTone.danger
-                : StitchTone.success,
+            tone: monthGrossProfit < 0 ? StitchTone.danger : StitchTone.success,
             valueColor: monthGrossProfit < 0
                 ? StitchColors.danger
                 : StitchColors.successInk,
@@ -592,6 +588,22 @@ class _SalesTab extends StatelessWidget {
                   ],
                 ),
         ),
+        if (s.rows('top_products_month').isNotEmpty)
+          HorizontalComparisonChart(
+            key: const ValueKey('admin-dashboard-top-product-revenue'),
+            title: 'Top product revenue this month',
+            subtitle: 'Reported product sales from the monthly owner summary.',
+            primaryLabel: 'Sales',
+            primaryColor: StitchColors.primaryDeep,
+            items: [
+              for (final row in s.rows('top_products_month').take(8))
+                ComparisonBarItem(
+                  label: '${row['name']}',
+                  primaryValue: _num(row['total']),
+                  primaryText: formatPeso(_num(row['total'])),
+                ),
+            ],
+          ),
         ItemListCard(
           icon: Icons.star_outline,
           title: 'Best sellers this month',

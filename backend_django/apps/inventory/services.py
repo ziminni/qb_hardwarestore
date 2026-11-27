@@ -496,9 +496,10 @@ def add_smaller_unit(
         ):
             raise InvalidSellingUnit(
                 f"{variant} already has sales or stock history in "
-                f"{variant.base_uom.code}, so its base unit cannot be converted "
-                f"to {uom.code} (1/{units_per_base} does not divide evenly into "
-                "hundredths). Add a separate variant for this unit instead."
+                f"{variant.base_uom.code}, so 1 {uom.code} (1/{units_per_base} "
+                f"{variant.base_uom.code}) cannot be stored exactly. Sell it in parts "
+                f"instead (½ or ¼ {variant.base_uom.code}), or add a separate variant "
+                "for this unit."
             )
         new_unit = VariantUOM.objects.create(
             variant=variant,
@@ -569,6 +570,89 @@ def add_smaller_unit(
         source=SellingUnitPriceChange.Source.CATALOGUE,
     )
     return variant, new_unit, old_base_code
+
+
+# Sell in parts (planning/sell-in-parts): the parts a whole-counted unit can be sold
+# in, each with its own shared unit of measure. Factors stay exact at 2 decimals.
+PART_UNITS = {
+    2: ("HALF", "Half"),
+    4: ("QTR", "Quarter"),
+}
+
+
+def add_part_unit(
+    *,
+    variant,
+    parts: int,
+    default_selling_price: Decimal,
+    barcode_qr: str = "",
+    credit_markup_kind: str = "NONE",
+    credit_markup_value: Decimal = Decimal("0"),
+    user=None,
+):
+    """Let a whole-counted item be sold in halves or quarters (an opened bag).
+
+    The part is an ordinary selling unit of the SAME variant with factor 1/parts, so a
+    sale deducts that fraction of the base unit through FIFO and books the batch cost
+    of exactly that fraction. Unlike `add_smaller_unit` it never rebases: stock stays
+    counted in the base unit (9.75 BAG = 9 sealed + an opened bag with 3/4 left).
+    """
+    from .exceptions import InvalidSellingUnit
+    from .models import (
+        ProductVariant,
+        SellingUnitPriceChange,
+        UnitOfMeasure,
+        VariantUOM,
+    )
+
+    if parts not in PART_UNITS:
+        raise InvalidSellingUnit("Choose halves (2) or quarters (4).")
+    if default_selling_price is None or default_selling_price < 0:
+        raise InvalidSellingUnit("The selling price cannot be negative.")
+    if credit_markup_kind not in VariantUOM.CreditMarkupKind.values:
+        raise InvalidSellingUnit("Invalid credit_markup_kind.")
+    if credit_markup_value is None or credit_markup_value < 0:
+        raise InvalidSellingUnit("credit_markup_value must not be negative.")
+    if credit_markup_kind == VariantUOM.CreditMarkupKind.NONE:
+        credit_markup_value = Decimal("0")
+
+    variant = (
+        ProductVariant.objects.select_for_update()
+        .select_related("base_uom", "product")
+        .get(pk=variant.pk)
+    )
+    base = variant.base_uom
+    code, name = PART_UNITS[parts]
+    label = "a half" if parts == 2 else "a quarter"
+    if not base.is_whole:
+        raise InvalidSellingUnit(
+            f"{variant} is already sold in any amount of {base.code}, so it does not "
+            "need halves or quarters."
+        )
+    uom, _ = UnitOfMeasure.objects.get_or_create(
+        code=code, defaults={"name": name, "is_whole": True}
+    )
+    if VariantUOM.objects.filter(variant=variant, uom=uom).exists():
+        raise InvalidSellingUnit(
+            f"{variant} can already be sold as {label} {base.code}."
+        )
+    unit = VariantUOM.objects.create(
+        variant=variant,
+        uom=uom,
+        conversion_factor=(Decimal("1") / parts).quantize(CENT),
+        default_selling_price=default_selling_price.quantize(CENT),
+        barcode_qr=barcode_qr,
+        credit_markup_kind=credit_markup_kind,
+        credit_markup_value=credit_markup_value.quantize(CENT),
+    )
+    SellingUnitPriceChange.record(
+        unit=unit,
+        old_price=None,
+        new_price=unit.default_selling_price,
+        actor=user,
+        source=SellingUnitPriceChange.Source.CATALOGUE,
+    )
+    return unit
 
 
 def line_factor(item: POItem) -> Decimal:

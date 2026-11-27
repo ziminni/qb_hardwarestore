@@ -450,13 +450,15 @@ class BillCreationTests(PayablesTestBase):
         self.assertEqual(bill.terms_days, 30)
         self.assertEqual(bill.due_date, receipt.receive_date + timedelta(days=30))
 
-    def test_zero_terms_is_due_on_the_receipt_date(self):
+    def test_zero_terms_has_no_due_date(self):
+        # Due dates are optional since 2026-11-21: a supplier with no terms gives
+        # a bill with no due date, which is never counted as overdue.
         po, item = self._po()
         receipt = self._receipt(po, [(item, "2")])
 
         bill = self._bill(receipt)
 
-        self.assertEqual(bill.due_date, receipt.receive_date)
+        self.assertIsNone(bill.due_date)
 
     def test_a_later_settings_change_rewrites_no_bill(self):
         # The order carries the 12% snapshot it was created with (what the API takes
@@ -576,6 +578,9 @@ class BillCreationTests(PayablesTestBase):
 
 class BillReadTests(PayablesTestBase):
     def _two_bills(self):
+        # Terms give the bills a due date, which the overdue filters read.
+        self.supplier.terms_days = 30
+        self.supplier.save(update_fields=["terms_days"])
         po, item = self._po(ordered="10", cost="100", discount="0", vat_rate="12")
         first = self._bill(self._receipt(po, [(item, "2")]))
         second = self._bill(self._receipt(po, [(item, "2")]))
@@ -587,7 +592,7 @@ class BillReadTests(PayablesTestBase):
     def test_list_is_paginated_and_filterable(self):
         first, _second, third = self._two_bills()
         SupplierBill.objects.filter(pk=third.pk).update(
-            due_date=first.due_date - timedelta(days=30)
+            due_date=first.received_date - timedelta(days=30)
         )
         client = self._login(self.stocker)
 
@@ -636,7 +641,7 @@ class BillReadTests(PayablesTestBase):
     def test_per_supplier_aggregate_reads_original_paid_balance_and_overdue(self):
         first, _second, third = self._two_bills()
         SupplierBill.objects.filter(pk=third.pk).update(
-            due_date=first.due_date - timedelta(days=30)
+            due_date=first.received_date - timedelta(days=30)
         )
         self._login(self.manager).post(
             PAYMENTS_URL,

@@ -39,7 +39,10 @@ class SalesQuotation {
   final String number;
   final String customer;
   final DateTime date;
-  final DateTime validUntil;
+
+  /// The last day the quoted prices hold, or null when none was set: a
+  /// quotation without an expiry never expires.
+  final DateTime? validUntil;
   final double total;
   final SalesQuoteStatus status;
   final List<QuotationLineItem> items;

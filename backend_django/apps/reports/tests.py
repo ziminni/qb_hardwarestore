@@ -94,6 +94,21 @@ class RequisitionHistoryTests(TestCase):
             'a partly released request is the one a manager chases')
         self.assertEqual(counts.get('RELEASED'), 1)
 
+    def test_requisition_details_paginate_without_changing_range_totals(self):
+        for index in range(51):
+            self._requisition(f'REQ-PAGE-{index}', Requisition.Status.WAITING)
+        first = self._history()
+        second = self._history('page=2')
+        self.assertEqual(first['count'], 51)
+        self.assertEqual(second['count'], 51)
+        self.assertEqual(first['count_by_status'], second['count_by_status'])
+        self.assertEqual(len(first['requisitions']), 50)
+        self.assertEqual(len(second['requisitions']), 1)
+        self.assertIsNotNone(first['next'])
+        self.assertIsNone(second['next'])
+        ids = [row['id'] for body in (first, second) for row in body['requisitions']]
+        self.assertEqual(len(set(ids)), 51)
+
     def test_the_listing_names_the_requester_and_the_approver_as_text(self):
         self._requisition(
             'REQ-T-1', Requisition.Status.ACCEPTED,

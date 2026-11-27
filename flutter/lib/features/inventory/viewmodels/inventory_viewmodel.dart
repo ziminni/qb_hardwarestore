@@ -686,7 +686,7 @@ class InventoryViewmodel extends ChangeNotifier {
   /// joins them, which keeps the stock and low-stock tables from wording the same
   /// fact two different ways.
   String stockSplitLabelFor(int variantId) => stockByLocationFor(variantId)
-      .map((row) => '${row.locationName} ${formatCount(row.qty.round())}')
+      .map((row) => '${row.locationName} ${formatQuantity(row.qty)}')
       .join(' · ');
 
   /// The newest batch: what an upward correction lands on, and where the

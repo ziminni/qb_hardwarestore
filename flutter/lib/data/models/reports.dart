@@ -236,6 +236,7 @@ class SalesSummary {
     this.effectiveMarkupPercent,
     this.costCoverage = const CostCoverage(),
     this.categories = const [],
+    this.byPaymentMethod = const {},
     this.orVatBreakdown,
     this.abv,
     this.asp,
@@ -260,6 +261,9 @@ class SalesSummary {
   final CostCoverage costCoverage;
   final List<SalesDay> days;
   final List<SalesCategoryBreakdown> categories;
+
+  /// Invoice allocation net of cash change, including unpaid on-account sales.
+  final Map<String, double> byPaymentMethod;
   final OrVatSplit? orVatBreakdown;
 
   /// Average bill value: invoice total ÷ bills. Null over an empty range.
@@ -292,6 +296,7 @@ class SalesSummary {
     }
     final coverageRaw = json['cost_coverage'];
     final categoriesRaw = json['by_category'];
+    final paymentRaw = json['by_payment_method'];
     final orVatRaw = json['or_vat_breakdown'];
     return SalesSummary(
       from: stringField(json, 'from'),
@@ -330,6 +335,12 @@ class SalesSummary {
                 )
                 .toList()
           : const [],
+      byPaymentMethod: paymentRaw is List
+          ? {
+              for (final row in paymentRaw.whereType<Map<String, dynamic>>())
+                stringField(row, 'method'): optionalDecimalField(row, 'total'),
+            }
+          : const {},
       orVatBreakdown: orVatRaw is Map<String, dynamic>
           ? OrVatSplit.fromJson(orVatRaw)
           : null,
@@ -577,6 +588,9 @@ class RequisitionHistory {
   final String? statusFilter;
   final Map<String, int> countByStatus;
   final List<RequisitionHistoryRow> requisitions;
+  int get rowCount => statusFilter == null
+      ? countByStatus.values.fold<int>(0, (sum, count) => sum + count)
+      : countByStatus[statusFilter] ?? requisitions.length;
 
   factory RequisitionHistory.fromJson(Map<String, dynamic> json) {
     final counts = json['count_by_status'];
